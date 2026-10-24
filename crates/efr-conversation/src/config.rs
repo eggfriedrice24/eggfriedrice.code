@@ -281,6 +281,11 @@ pub struct ConversationDeps {
     /// Where an `a` (always) answer saves its rule (phase E). `None` offers no `a`: a
     /// question then never names a rule.
     pub allow_writer: Option<Arc<dyn AllowWriter>>,
+    /// The count of the idle trims of the actors: an actor adds one each time it drops
+    /// the turns that it keeps in memory after 10 idle minutes. The daemon watches it
+    /// and then gives the freed heap back to the system. A change without a receiver
+    /// costs nothing.
+    pub idle_trims: watch::Sender<u64>,
 }
 
 /// How a conversation's actor starts.

@@ -12,11 +12,18 @@
 //! A conversation actor that is idle for 10 minutes drops the turns that it keeps in
 //! memory (`efr_conversation`, the idle trim). The memory bench counts the dropped turns
 //! from the actor's debug event ([`Trims`]) and fails when the idle period drops fewer
-//! than [`TRIM_BUDGET`] of the turns of the load. It does not set a budget on the
-//! resident set: glibc keeps most of the freed heap in its arenas, so `VmRSS` falls
-//! by a few MiB only. The growth bench moves the clock past the idle trim after each
-//! batch, so the slope is the memory that a conversation keeps after its trim (the
-//! next batches use the freed heap again), and fails when it passes [`GROWTH_BUDGET`].
+//! than [`TRIM_BUDGET`] of the turns of the load. The growth bench moves the clock past
+//! the idle trim after each batch, so the slope is the memory that a conversation keeps
+//! after its trim (the next batches use the freed heap again), and fails when it passes
+//! [`GROWTH_BUDGET`].
+//!
+//! efrd sets glibc's trim threshold at the start of `main` and gives the freed heap back
+//! with one `malloc_trim` after the actors trimmed (`malloc.rs` and `heap_trim.rs`, ADR
+//! 0020). The benches do not run `main`, so they call `efr_daemon::init_malloc` before
+//! the daemon starts; the heap trim is the daemon's own task. After the idle period the
+//! memory bench moves the clock past the quiet period of the heap trim, counts the trim
+//! from its debug event ([`Trims`] counts it too), and fails when the resident set after
+//! it is not below [`HEAP_TRIM_BUDGET`] percent of the peak of the load.
 //!
 //! The memory bench also counts the saved messages that each turn's start decodes, from
 //! the history's debug event ([`Trims`] counts it too). The actor's cache holds every
@@ -75,6 +82,16 @@ const DECODE_BUDGET: u64 = 64 * 1024;
 /// decoded every tool output of its page again, about 0.8 MiB on average.
 const PAGE_BUDGET: u64 = 64 * 1024;
 
+/// The most resident memory that the memory bench may keep after the heap trim, in
+/// percent of the peak of the load. Without the heap trim, glibc kept the freed heap:
+/// 3 s after the idle trim the resident set was 90% to 96% of the peak (152 to 160 MiB
+/// of 168 to 177 MiB with the fixed threshold, 269 of 280 MiB before it). After the
+/// heap trim it is 58 to 66 MiB, 34% to 37% of the peak.
+const HEAP_TRIM_BUDGET: u64 = 50;
+
+/// How far the memory bench moves the clock for the heap trim: past its quiet period.
+const HEAP_QUIET: Duration = Duration::from_secs(31);
+
 /// The longest real time that a bench waits for the trims after it moved the clock.
 const TRIM_WAIT: Duration = Duration::from_secs(10);
 
@@ -96,6 +113,7 @@ struct Trims {
     reads: AtomicU64,
     decoded: AtomicU64,
     page: AtomicU64,
+    heap: AtomicU64,
 }
 
 /// The target of the actor's debug event of a trim, which names `turns`.
@@ -104,6 +122,9 @@ const TRIM_TARGET: &str = "efr_conversation::actor";
 /// The target of the history's debug event of a snapshot read, which names `held` and
 /// `bytes`.
 const READ_TARGET: &str = "efr_conversation::history";
+
+/// The target of the daemon's debug event of a heap trim, which names `released`.
+const HEAP_TARGET: &str = "efr_daemon::heap_trim";
 
 /// True for the actor's debug event of a trim.
 fn is_trim(metadata: &Metadata<'_>) -> bool {
@@ -119,20 +140,36 @@ fn is_read(metadata: &Metadata<'_>) -> bool {
         && metadata.fields().field("held").is_some()
 }
 
-/// A layer that only counts the trims and the snapshot reads; every other span and
-/// event is off, so the benches measure no logging.
+/// True for the daemon's debug event of a heap trim.
+fn is_heap_trim(metadata: &Metadata<'_>) -> bool {
+    metadata.is_event()
+        && metadata.target() == HEAP_TARGET
+        && metadata.fields().field("released").is_some()
+}
+
+/// True for the events that the benches count.
+fn is_counted(metadata: &Metadata<'_>) -> bool {
+    is_trim(metadata) || is_read(metadata) || is_heap_trim(metadata)
+}
+
+/// A layer that only counts the trims, the snapshot reads and the heap trims; every
+/// other span and event is off, so the benches measure no logging.
 struct TrimLayer(&'static Trims);
 
 impl<S: Subscriber> Layer<S> for TrimLayer {
     fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
-        if is_trim(metadata) || is_read(metadata) { Interest::always() } else { Interest::never() }
+        if is_counted(metadata) { Interest::always() } else { Interest::never() }
     }
 
     fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
-        is_trim(metadata) || is_read(metadata)
+        is_counted(metadata)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+        if is_heap_trim(event.metadata()) {
+            self.0.heap.fetch_add(1, Ordering::SeqCst);
+            return;
+        }
         if is_read(event.metadata()) {
             let mut bytes = U64Field("bytes", 0);
             event.record(&mut bytes);
@@ -197,6 +234,10 @@ impl Trims {
     fn page(&self) -> u64 {
         self.page.load(Ordering::SeqCst)
     }
+
+    fn heap(&self) -> u64 {
+        self.heap.load(Ordering::SeqCst)
+    }
 }
 
 /// Moves `clock` by `by`, then by [`TRIM`] again until the actors trimmed `count` times
@@ -217,6 +258,25 @@ async fn idle_trim(clock: &TestClock, by: Duration, trims: &Trims, count: u64) -
             return false;
         }
         clock.advance(TRIM);
+    }
+}
+
+/// Moves `clock` past the quiet period of the daemon's heap trim until it trimmed
+/// `count` times in all. False when that takes more than [`TRIM_WAIT`] of real time.
+async fn heap_trim(clock: &TestClock, trims: &Trims, count: u64) -> bool {
+    let deadline = Instant::now() + TRIM_WAIT;
+    loop {
+        clock.advance(HEAP_QUIET);
+        let round = Instant::now() + Duration::from_millis(500);
+        while trims.heap() < count && Instant::now() < round {
+            SystemClock.sleep(Duration::from_millis(5)).await;
+        }
+        if trims.heap() >= count {
+            return true;
+        }
+        if Instant::now() > deadline {
+            return false;
+        }
     }
 }
 
@@ -242,6 +302,8 @@ async fn turns(
 
 /// A daemon whose model reads `file` of `bytes` in each turn, on a new tree.
 async fn reading_daemon(bytes: usize) -> (TestDaemon, TestClock, Follower, std::path::PathBuf) {
+    // NOTE: what efrd's `main` does first.
+    efr_daemon::init_malloc();
     let dirs = tree();
     let cwd = dirs.create_dir("home/project").unwrap();
     std::fs::write(
@@ -315,8 +377,21 @@ async fn bench_perf_daemon_memory() {
     report.bytes("the idle period freed: rss", loaded.rss.saturating_sub(idle.rss));
     let dropped = trims.turns() - before;
     report.count("the idle period dropped: cached turns", dropped);
+    report.count("heap trims in the idle period", trims.heap());
+    let heap_trimmed = heap_trim(&clock, trims, trims.heap() + 1).await;
+    let trimmed = memory();
+    report.bytes("after the malloc trim: rss", trimmed.rss);
+    report.bytes("the malloc trim freed: rss", idle.rss.saturating_sub(trimmed.rss));
+    report.count("after the malloc trim: rss in % of the peak", trimmed.rss * 100 / loaded.peak);
     daemon.stop().await.unwrap();
     report.finish();
+    assert!(heap_trimmed, "no heap trim after the quiet period");
+    assert!(
+        trimmed.rss * 100 < loaded.peak * HEAP_TRIM_BUDGET,
+        "after the heap trim the resident set is {} of a peak of {}, not under {HEAP_TRIM_BUDGET}%",
+        trimmed.rss,
+        loaded.peak
+    );
     assert!(
         dropped * 100 >= done as u64 * TRIM_BUDGET,
         "the idle period dropped {dropped} cached turns of {done}, under {TRIM_BUDGET}%"

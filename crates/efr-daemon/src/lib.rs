@@ -29,11 +29,17 @@ mod engine;
 mod error;
 mod full;
 mod gc;
+mod heap_trim;
 mod home;
 mod jobs;
 mod judge;
 mod lock;
 mod loosens;
+// NOTE: glibc's `mallopt` and `malloc_trim` have no safe wrapper. It is the one module
+// of efr-daemon that allows `unsafe_code` (ADR 0020; the allowlist is in
+// `xtask/src/tidy.rs`).
+#[allow(unsafe_code)]
+mod malloc;
 mod methods;
 mod notices;
 mod presence;
@@ -79,6 +85,7 @@ pub use efr_holder::{
 pub use efr_provider::Provider;
 pub use efr_shell::ScreenFactory;
 pub use error::{BusProxyProblem, DaemonError, KeyProblem};
+pub use malloc::init as init_malloc;
 pub use methods::SearchRowHook;
 pub use proc_view::ProcView;
 pub use providers::{ANTHROPIC, API, ProviderFactory, SUBSCRIPTION};

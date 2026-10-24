@@ -1440,12 +1440,15 @@ impl ConversationActor {
     /// restart, so its request has the same bytes; a turn whose messages could not be
     /// saved is rebuilt from its events, as after a restart. The fresh block stays: it
     /// is small, and only for a compaction from an efrd before the stored block would
-    /// the next turn read it from disk again, with other bytes.
+    /// the next turn read it from disk again, with other bytes. The count of
+    /// [`ConversationDeps::idle_trims`] goes up by one, so the daemon can give the
+    /// freed heap back to the system.
     fn trim(&mut self) {
         // NOTE: `bench_perf_daemon_memory` counts this event by its target and its
         // `turns` field.
         tracing::debug!(turns = self.cache.len(), "the idle actor drops its turn cache");
         self.cache = HashMap::new();
+        self.shared.deps.idle_trims.send_modify(|count| *count = count.wrapping_add(1));
     }
 
     async fn append(

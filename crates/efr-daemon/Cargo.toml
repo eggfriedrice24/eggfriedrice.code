@@ -61,6 +61,8 @@ efr-transport.workspace = true
 # The stream of a model call, which the refusals of a stored key watch.
 futures.workspace = true
 jiff.workspace = true
+# glibc's mallopt and malloc_trim, only in src/malloc.rs (ADR 0020).
+libc.workspace = true
 nix.workspace = true
 # The watch pattern of a background job.
 regex.workspace = true

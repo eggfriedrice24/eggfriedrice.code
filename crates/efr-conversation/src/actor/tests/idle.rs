@@ -135,6 +135,8 @@ async fn the_request_after_an_idle_trim_has_the_bytes_of_the_request_before_it()
     assert!(continues(before, after), "the request after the trim edits the one before it");
     assert!(after.messages.iter().any(|message| message.provider_raw.is_some()));
     assert_eq!(trims.count(), 1);
+    // NOTE: the daemon gives the freed heap back after the count goes up.
+    assert_eq!(*h.idle_trims.borrow(), 1);
     h.finish();
 }
 

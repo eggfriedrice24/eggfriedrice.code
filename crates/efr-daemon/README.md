@@ -1447,6 +1447,31 @@ After each change the task publishes a `SearchIndexStatus` on a `watch` in `Stat
 their writer time, and whether it is idle. The tests wait on it
 (`TestDaemon::wait_indexed`), never on real time.
 
+### The heap trim
+
+glibc keeps the heap that efrd frees in its arenas, so the resident set of efrd stayed
+near its peak long after the conversations went idle. Two parts give that memory back
+(`docs/adr/0020-malloc-trim.md`):
+
+- `malloc.rs`, the one module of this crate that allows `unsafe_code`: `init`
+  (`efr_daemon::init_malloc`), which `main.rs` calls first, before the runtime starts a
+  thread, sets glibc's trim threshold to a fixed 128 KiB with `mallopt`, which also
+  stops glibc's dynamic threshold; and `trim`, one `malloc_trim(0)`. Both are FFI
+  through `libc`, only for Linux with glibc; elsewhere they do nothing. The setting is
+  not an environment variable, so the hidden shells and their programs do not get it.
+- `heap_trim.rs`, one background task in safe Rust (`heap_trim::follow`). Each actor
+  adds one to `ConversationDeps::idle_trims` when it drops its turns after 10 idle
+  minutes. The task then calls `malloc_trim(0)` once, on a blocking thread, after 30 s
+  (`QUIET`) on the clock with no turn running, no turn end and no other actor trim,
+  and at most once in 5 minutes (`MIN_GAP`). It follows the turns from the committed
+  batches (`turn_started` and the four turn ends), and reads the running turns from
+  the store after a lagged broadcast. Without an actor trim it holds no timer. A heap
+  trim takes about 8 ms. It logs one debug event (`released`).
+
+In a test of 20 conversations of 50 turns, the resident set after the idle period and
+the heap trim is about one third of the peak of the load; before, it stayed at about
+90% of the peak.
+
 ### The search methods
 
 `conversations.search` (`methods/conversations_search.rs`) gives one row per
@@ -1572,7 +1597,9 @@ challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `ru
 (inotify, for the config file watcher), `toml_edit` (the values that the settings tool
 sets and the one-line text of a rule), `tracing`, `tracing-subscriber` (with its reload
 layer for the log filter), `tracing-journald`, `thiserror`, `sha2` (the check of the
-sandbox launcher's copy and the hash of the record that the reviewer read), and `anyhow` in `main.rs` only.
+sandbox launcher's copy and the hash of the record that the reviewer read), `libc`
+(glibc's `mallopt` and `malloc_trim`, only in `src/malloc.rs`, ADR 0020), and `anyhow`
+in `main.rs` only.
 
 `HOME`, `JOURNAL_STREAM` and the shells' environment are read with `std::env` here, the
 one crate besides `efr-stdx` that may read the environment: they are POSIX and systemd
@@ -1922,6 +1949,12 @@ listed is a `host` exit with a grant of that one host, and the record names the 
 written for the verdicts of the spec, not taken from a live model, so the evals prove
 the replay and efr's rules; the real models are a manual check.
 
+The heap trim has unit tests in `heap_trim/tests.rs` (an in-memory store, a
+`TestClock` and a trimmer that only counts its calls, so they need no glibc): one heap
+trim after the quiet period of many actor trims and none after it without a new actor
+trim, none while a turn runs, a turn that starts in the quiet period, and the gap
+between two heap trims.
+
 The search indexer has unit tests in `search_index/tests.rs` (an in-memory store, a
 `TestClock` and a store seam that fails a read or takes a set time for a job: the
 backfill, the debounce, the duty cycle, the slower backfill while a turn runs, the
@@ -1984,12 +2017,17 @@ the test binary, with a git first on its `PATH` that counts its runs.
   (from the actor's debug event), and fails when the trim drops less than 90% of the
   turns of the load. It also counts the saved messages and the event JSON of the page
   that each turn's start decodes (from the history's debug event), and fails when
-  either mean passes 64 KiB. The resident set has no budget: glibc keeps most of the
-  freed heap in its arenas, so it falls by a few MiB only.
+  either mean passes 64 KiB. Like `main`, it calls `efr_daemon::init_malloc` before
+  the daemon starts. After the idle period it moves the clock past the quiet period
+  of the heap trim, which the daemon's own task runs, and reports the resident memory
+  after it. It fails when there is no heap trim, or when the resident set after it is
+  not below 50% of the peak of the load (about 35%; without the heap trim, about 90%).
 - `bench_perf_daemon_growth`: the resident memory after 50, 150 and 300 conversations
   of 5 turns, and its growth for each conversation. After each batch the bench moves
   the clock past the idle trim and waits for the trims, so the growth is what a
-  conversation keeps after its trim. It fails when that growth passes 46 KiB.
+  conversation keeps after its trim. It calls `efr_daemon::init_malloc` too, and the
+  daemon's heap trim may run between the batches. It fails when that growth passes
+  46 KiB.
 - `bench_perf_shell_call_sandbox` (`tests/it/sandbox/perf.rs`): 10 calls of `true` in
   `auto` on the real sandbox, in a git project of 100, 2,000 and 20,000 files, with 0,
   1 and 4 contained jobs in the same project. Each `phase` line of efrd is a measure.
