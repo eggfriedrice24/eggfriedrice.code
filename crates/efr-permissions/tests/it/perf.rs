@@ -213,6 +213,74 @@ fn bench_perf_git_forms() {
     check_budget(&[(label, slope)], &stopped);
 }
 
+/// The lines of [`bench_perf_rule_readings`] with `n` words: the program's own options
+/// before the subcommand (OQL4), `cd`s before the command (OQL9), and a substitution
+/// in a line that cannot be split (OQL9).
+fn reading_lines(n: usize) -> [(&'static str, String); 3] {
+    let mut options = String::from("systemctl");
+    let mut cds = String::new();
+    let mut opaque = String::from("git push $(echo");
+    for at in 1..=n {
+        options.push_str(" --zz");
+        cds.push_str(&format!("cd /d{at}; "));
+        opaque.push_str(&format!(" w{at}"));
+    }
+    options.push_str(" restart nginx");
+    cds.push_str("git push");
+    opaque.push(')');
+    [("options", options), ("cds", cds), ("substitution", opaque)]
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_rule_readings() {
+    // NOTE: v0.0.5's readings of an ask rule (OQL4, OQL9) in `cautious`, after a rule
+    // that allows every command line. v0.0.4 allowed all three lines: it compared the
+    // words right after `systemctl`, matched nothing with `under` after a `cd`, and
+    // read no rule but `any` in a line that cannot be split. The exits of `auto` are
+    // not part of this bench.
+    let rules = vec![
+        Rule::new(Action::Execute, Resource::Any, Effect::Allow),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(CommandPattern::new("systemctl").with_args(["restart"])),
+            Effect::Ask,
+        ),
+        Rule::new(
+            Action::Execute,
+            Resource::Command(CommandPattern::new("git").with_args(["push"]).with_under("~/work")),
+            Effect::Ask,
+        ),
+    ];
+    let engine = Engine::with_rules(locations(), Policy::new(rules).unwrap());
+    let mut report = Report::new("bench_perf_rule_readings");
+    let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
+    for at in 0..3 {
+        let mut points = Vec::new();
+        let mut name = "";
+        for n in [100_u64, 1_000, 5_000, 10_000] {
+            let (label, line) = reading_lines(n as usize)[at].clone();
+            name = label;
+            let mut input = input(&line);
+            input.mode = Mode::Cautious;
+            let mut effect = None;
+            let runs = samples(|| effect = Some(engine.decide(&input).effect()));
+            assert_eq!(effect, Some(Effect::Ask), "{name} with {n} words");
+            let stats = report.time(&format!("{name} x {n}"), &runs);
+            points.push((n, stats.p50));
+            if stats.p50 > LIMIT {
+                report.count(&format!("{name} stopped_at_n"), n);
+                stopped.push(name.to_owned());
+                break;
+            }
+        }
+        let label = format!("{name} slope over words");
+        slopes.push((label.clone(), report.slope(&label, &points)));
+    }
+    report.finish();
+    check_budget(&slopes, &stopped);
+}
+
 #[test]
 #[ignore = "bench: run by just bench-perf"]
 fn bench_perf_fact_requests() {

@@ -16,6 +16,7 @@
 //! smuggle in another command.
 
 pub(crate) mod git;
+pub(crate) mod globals;
 mod lexer;
 
 use std::fmt;

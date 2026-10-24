@@ -1157,7 +1157,10 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
   - `args`: the words that must follow the program, in order. A word may list
     alternatives, as in `"status|diff"`, and may end in `*` to match every word that
     starts with it, as `"-Q*"` matches `-Qi`. For `git`, efr first skips git's own
-    options before the subcommand (see "Rules for git" below);
+    options before the subcommand (see "Rules for git" below). For an `ask` or `deny`
+    rule for `systemctl`, `cargo`, `docker` or `kubectl`, efr also skips the program's
+    own options before the subcommand (see "Rules for systemctl, cargo, docker and
+    kubectl" below);
   - `forbid`: words that must not appear after the program. `--name` also matches
     `--name=value` and every abbreviation down to `--n`. `-x`, one letter, matches
     every cluster of short options that holds the letter, such as `-uo` for `-o`.
@@ -1226,8 +1229,38 @@ alias. When efr cannot read the alias (a shell command with `!`, a quote, or a v
 from `--config-env`), an `ask` or `deny` rule for `git` matches. An alias in your git
 config is not on the line: write a rule for its name too, such as `args = ["p"]`. An
 `ask` or `deny` rule also reads git behind a wrapper or by its path, such as
-`env git -C ~/p/app push` or `/usr/bin/git push`. A rule for another program still
-compares the words right after the program.
+`env git -C ~/p/app push` or `/usr/bin/git push`. A rule for a program other than
+`git`, `systemctl`, `cargo`, `docker` and `kubectl` still compares the words right
+after the program.
+
+### Rules for systemctl, cargo, docker and kubectl
+
+An `ask` or `deny` rule for one of these programs skips the program's own options
+before the subcommand, with their values, so it still matches when they come first:
+
+| Program | Example | Matches the rule |
+|---|---|---|
+| `systemctl` | `systemctl --user restart x`, `systemctl -H host restart x` | `args = ["restart"]` |
+| `cargo` | `cargo +nightly publish`, `cargo --locked -C crates/x publish` | `args = ["publish"]` |
+| `docker` | `docker -H ssh://prod push app`, `docker --context prod push app` | `args = ["push"]` |
+| `kubectl` | `kubectl -n prod delete pod web`, `kubectl --context prod delete pod web` | `args = ["delete"]` |
+
+efr knows which options of each program take a value, such as `-H`, `--context`,
+`-n` and `--kubeconfig`, and which do not, such as `--user` and `--locked`. A word
+that starts with `+` is rustup's toolchain for `cargo`. An option that efr does not
+know counts both as an option without a value and as one with a value in the next
+word, so the rule asks or denies rather than misses. These options can set an alias
+for a subcommand, so an `ask` or `deny` rule for the program matches every command
+that has one: `cargo --config` with a file or with an `alias` key, and
+`kubectl --kuberc`. For an `ask` or `deny` rule with `under`, the dir of
+`cargo -C` counts too.
+
+Only the options before the subcommand count. `systemctl` and `kubectl` also read
+options after it, such as `kubectl delete -n prod pod web`: a rule with
+`args = ["delete"]` matches that line, but a rule with `args = ["delete", "pod"]`
+does not. An `allow` rule skips no option, because an option such as `-H`,
+`--context` or `--kubeconfig` can point the command at another machine:
+`allow systemctl restart nginx` does not allow `systemctl --user restart nginx`.
 
 ### `under` after a `cd`
 

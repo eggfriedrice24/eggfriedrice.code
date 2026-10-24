@@ -122,6 +122,17 @@ Modules:
   `exits/cover.rs` and the git code check of `exits/git_code.rs`. Each keeps its own
   idea of which options it accepts, so `cover.rs` still accepts only `--no-pager`,
   `-P`, `--no-optional-locks` and one `-C`.
+- `command/globals.rs` (v0.0.5, OQL4): a table of the global options of `systemctl`,
+  `cargo`, `docker` and `kubectl` (`TABLES`), each option a flag, an option with a
+  value (in the same word or the next) or an option that can set an alias of a
+  subcommand (`cargo --config` with a file or an `alias` key, `kubectl --kuberc`).
+  `readings` gives the places where the subcommand may stand for a rule that asks or
+  denies: each option of the table skipped with its value, `+toolchain` skipped for
+  `cargo`, an unknown option read both as a flag and with a value in the next word,
+  after four of them every later word that does not start with `-`, and `unreadable`
+  for an alias or past 64 places, so the rule matches. The tables hold only the
+  options whose form is sure; a missing option is read both ways. `cargo -C` gives a
+  dir for `under`. A rule that allows reads no reading.
 - `command::directory_change` (v0.0.5, OQL9): where a `cd`, `chdir`, `pushd` or
   `popd` goes: home, one directory that the word names (absolute, `~` or below `~`),
   or unknown (a relative target, `cd -`, a stack entry, `popd`, `pushd` alone, two
@@ -156,9 +167,11 @@ Modules:
   asks or denies more. A rule that allows reads neither form. A rule reads at most
   `MAX_FORMS` (16) forms of its program in one command, because each form reads the
   rest of the command and a git form reads it again for each view; past the cap the
-  rule matches in any place, so `env git git git ...` asks or is denied. `under` of a
+  rule matches in any place, so `env git git git ...` asks or is denied. For
+  `systemctl`, `cargo`, `docker` and `kubectl`, a rule that asks or denies also reads
+  each place of `command/globals.rs`'s `readings` (OQL4), as a read form. `under` of a
   rule that allows matches only in `Place::Start`, before any change of directory; of
-  a rule that asks or denies, in any dir of the place and of git's `-C`, and
+  a rule that asks or denies, in any dir of the place and of git's or cargo's `-C`, and
   in every dir for `Place::Unknown` (OQL9), as a read form, so such a match only
   makes the effect stricter. For a line that `analyze` cannot split, the engine also
   reads each command that the lenient split of `exits/scan.rs` finds in it
@@ -706,9 +719,10 @@ proptest property:
   line with a `$(` or backquote outside single quotes is allowed by the defaults); a
   command rule that asks or denies can still make it stricter through the commands
   that the lenient split finds in it.
-- A rule that asks or denies is never looser after v0.0.5's readings (OQL9) than in
-  v0.0.4 (property, `policy/tests/places.rs`): a match through a dir that efr cannot
-  prove only makes the effect stricter.
+- A rule that asks or denies is never looser after v0.0.5's readings (OQL4, OQL9)
+  than in v0.0.4 (property, `policy/tests/places.rs`): a match through a reading of
+  the global options or through a dir that efr cannot prove only makes the effect
+  stricter.
 - `sudo`, `sudoedit`, `doas`, `su`, `pkexec` and `run0`, also behind a wrapper such as
   `env` or inside a substitution, always need approval: no command pattern matches
   them and an `allow` from a rule for every command line becomes `ask`.
@@ -765,6 +779,15 @@ starts processes.
   for `git push` with `under` on `env` and then `git` N times, N = 100, 1k, 5k and
   10k. Each git form read its views over the rest of the line: 10k took 0.8 s.
   Budget: the line asks (the rule reads at most `MAX_FORMS` forms), and the slope.
+- `bench_perf_rule_readings` (`tests/it/perf.rs`, v0.0.5): `Engine::decide` in
+  `cautious` with `allow` for every command line and `ask` rules for
+  `systemctl restart` and for `git push` with `under`, on three lines of N words, N =
+  100, 1k, 5k and 10k: `systemctl` with N unknown options before `restart` (OQL4), N
+  `cd`s before `git push` (OQL9), and `git push` with a substitution of N words, which
+  `analyze` cannot split (OQL9). v0.0.4 allowed all three. Budget: each line asks,
+  and the slope of each line. In `auto` the line of 10k `cd`s takes about 10 s,
+  because each segment of the lenient split (`exits/scan.rs`) copies the targets of
+  the `cd`s before it. The bench leaves the exits out.
 - `bench_perf_fact_requests` (`tests/it/perf.rs`): `fact_requests` on `rm -rf` and
   `touch` lines of 100, 1k and 5k operands. Budget: the slope of each line.
 - `bench_perf_decide_paths` (`tests/it/perf.rs`): `Engine::decide` on `rm -f` of 100,

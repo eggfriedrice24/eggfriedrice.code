@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 pub use self::check::Check;
 pub(crate) use self::place::{Place, Places};
 use crate::command::git::GitDirs;
-use crate::command::{self, git, is_plain_char};
+use crate::command::{self, git, globals, is_plain_char};
 use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError};
 
@@ -207,7 +207,10 @@ pub struct CommandPattern {
     /// The words that must follow the program, in order, such as `["status"]`. A word
     /// may list alternatives separated by `|`, as in `"status|diff|log"`, and an
     /// alternative that ends in `*` matches every word that starts with what comes
-    /// before it, as `-Q*` matches `-Qi`. No words matches every invocation.
+    /// before it, as `-Q*` matches `-Qi`. No words matches every invocation. An `ask` or
+    /// `deny` rule for `git`, `systemctl`, `cargo`, `docker` or `kubectl` also matches
+    /// when the program's own options come before these words, as in
+    /// `systemctl --user restart`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
     /// Words that must not appear anywhere after the program:
@@ -861,6 +864,11 @@ impl Rule {
     /// denies more. Such a match is [`Fit::Read`], so it only makes the effect
     /// stricter ([`Policy::last_match`]).
     ///
+    /// NOTE: for the programs of [`globals::table`] (`systemctl`, `cargo`, `docker`,
+    /// `kubectl`) a rule that asks or denies also reads the command with the program's
+    /// own options before the subcommand skipped (OQL4), as [`Fit::Read`]; a rule
+    /// that allows reads the raw words only.
+    ///
     /// NOTE: `under` of a rule that asks or denies matches where efr cannot prove that
     /// the command runs outside the dir it names (OQL9): after a change of directory
     /// it reads each dir that the line may be in by then, and every dir when one of
@@ -893,10 +901,13 @@ impl Rule {
         }
         let mut matched = false;
         let mut dirs: Vec<PathBuf> = Vec::new();
-        // NOTE: only the dirs of git's views can change where the pattern is placed, so
-        // without them the first form that matches decides.
         let git = pattern.program == "git";
-        let first_decides = !git || pattern.under.is_none();
+        let globals = globals::table(&pattern.program);
+        // NOTE: only the dirs of git's views and of a dir option such as cargo's `-C`
+        // can change where the pattern is placed, so without them the first form that
+        // matches decides.
+        let has_dirs = git || globals.is_some_and(|table| table.dir.is_some());
+        let first_decides = !has_dirs || pattern.under.is_none();
         // NOTE: a form of another program matches nothing and has no git view.
         let forms = command::run_forms(part.words).filter(|form| form.head == pattern.program);
         for (at, form) in forms.enumerate() {
@@ -921,6 +932,14 @@ impl Rule {
                 matched |= views.unreadable
                     || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
                 dirs.extend(views.dirs.iter().flat_map(|dirs| resolve(dirs, part.place, cx)));
+            } else if let Some(table) = globals {
+                let readings = globals::readings(table, form.rest);
+                matched |= readings.unreadable
+                    || readings
+                        .subcommands
+                        .iter()
+                        .any(|at| pattern.matches_form(form.head, &form.rest[*at..], part.pattern));
+                dirs.extend(readings.dirs.iter().flat_map(|dirs| resolve(dirs, part.place, cx)));
             }
             if matched && first_decides {
                 break;
