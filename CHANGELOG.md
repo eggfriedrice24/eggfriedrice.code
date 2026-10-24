@@ -210,6 +210,9 @@ into the GitHub release notes, and it stops when the section is missing.
   copy of the whole command. For an `rm -f` of 6,400 files, the decision took about
   100 ms and about 540 MB of memory. Now it takes about 50 ms and about 10 MB. The
   decision and its questions do not change.
+- A `!` in a project's name now shows as typed in `$efr_scope` and `efr_prompt_info`
+  when your zsh has `prompt_bang` set. Before, the prompt showed the history number
+  in its place. With `prompt_bang` set, both now write each `!` as `!!`.
 
 ### Security
 

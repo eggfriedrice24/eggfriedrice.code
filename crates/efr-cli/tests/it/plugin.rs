@@ -2795,6 +2795,63 @@ fn e2e_a_percent_in_the_scope_stays_plain_in_a_prompt() {
     assert_eq!(stdout, "{a%%~b}[a%%~b]\n{a%~b}[a%~b]\n");
 }
 
+/// A `!` in a project's name is doubled in `$efr_scope` and `efr_prompt_info` while the
+/// user's prompt_bang is on, so a prompt shows the name as typed and not the history
+/// number. With the option off, the `!` stays single, because then `!!` shows as two.
+#[test]
+fn e2e_a_bang_in_the_scope_stays_plain_with_prompt_bang() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "a!b%c")]);
+    let (stdout, status) = run_with(
+        &home,
+        UTF8,
+        r#"
+        setopt prompt_subst prompt_bang
+        cd p/app && _efr_precmd
+        print -r -- "{$efr_scope}[$(efr_prompt_info)]"
+        print -rP -- '{${efr_scope}}[$(efr_prompt_info)]'
+        unsetopt prompt_bang
+        _efr_precmd
+        print -r -- "{$efr_scope}[$(efr_prompt_info)]"
+        print -rP -- '{${efr_scope}}[$(efr_prompt_info)]'
+        "#,
+    );
+    assert_eq!(status, Some(0));
+    assert_eq!(stdout, "{a!!b%%c}[a!!b%%c]\n{a!b%c}[a!b%c]\n{a!b%%c}[a!b%%c]\n{a!b%c}[a!b%c]\n");
+}
+
+/// The marker of sticky mode is plain text, so it shows a `!` of the name once, also
+/// while prompt_bang is on, and the marker's own scope update keeps `$efr_scope` as
+/// precmd set it.
+#[test]
+fn e2e_marker_shows_a_bang_once_with_prompt_bang() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "a!b")]);
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            RECORD_ANYWHERE,
+            "setopt prompt_bang",
+            "cd p/app",
+            "<C-Space>",
+            "\u{18}\u{12}",
+            r#"!print -r -- "{$efr_scope}" > ~/scope.txt"#,
+            "<C-Space>",
+        ],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["🤖 a!b › "]);
+    let scope = std::fs::read_to_string(home.path().join("scope.txt")).unwrap();
+    assert_eq!(scope, "{a!!b}\n");
+}
+
 /// The marker of sticky mode is plain text, so it shows a `%` of the name once.
 #[test]
 fn e2e_marker_shows_a_percent_once() {

@@ -145,8 +145,8 @@ RPROMPT='$(efr_prompt_info)'
 ```
 
 The variable `$efr_scope` holds the same text, for a prompt with no subshell:
-`RPROMPT='${efr_scope}'`. Both write each `%` of a project's name as `%%`, so the prompt
-shows the name as you typed it. `EFR_SCOPE_STYLE` sets the style of the scope in sticky
+`RPROMPT='${efr_scope}'`. Both write each `%` of a project's name as `%%`, and each `!`
+as `!!` when you set `prompt_bang`, so the prompt shows the name as you typed it. `EFR_SCOPE_STYLE` sets the style of the scope in sticky
 mode (`fg=8` by default). Before efrd runs for the first time, there is no scope.
 
 ## Commands of the plugin
