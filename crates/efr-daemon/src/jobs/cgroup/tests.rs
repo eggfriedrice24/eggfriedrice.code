@@ -148,6 +148,13 @@ async fn a_real_job_cgroup_kills_a_process_that_left_its_session() {
     if !super::delegated(&mine) {
         return;
     }
+    // NOTE: a container (the Ubuntu job of CI) shows the delegated scope of its runtime on
+    // a read-only cgroup filesystem, where no cgroup can be made.
+    let read_only = rustix::fs::statvfs(&mine)
+        .is_ok_and(|stat| stat.f_flag.contains(rustix::fs::StatVfsMountFlags::RDONLY));
+    if read_only {
+        return;
+    }
     let cgroups = Cgroups::in_dir(mine.clone());
     let group = cgroups.create(&format!("efr-test-{}", std::process::id())).unwrap();
     // NOTE: `setsid` leaves the session of the test, as a job's escape would.
