@@ -12,12 +12,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
-- Each background job runs in a cgroup of its own when efrd runs as its systemd unit.
-  The unit now has `Delegate=yes`. The stop of a job kills every process of the job,
-  also a process that left the job's session with `setsid`. `efr jobs list` and the
-  model's `jobs` tool show the memory and the CPU time of each running job. Without a
-  delegated cgroup, a job ends by its session as before, and `efr jobs list` says why.
-  Install the new unit, then run `systemctl --user daemon-reload` and restart efrd.
+- Each background job now runs in a cgroup of its own when efrd runs as its systemd
+  unit. The unit now has `Delegate=yes`. When you stop a job, efr kills every process
+  of the job, also a process that left the job's session with `setsid`. `efr jobs list`
+  and the model's `jobs` tool show the memory and the CPU time of each running job.
+  Without a delegated cgroup, a job ends by its session as before, and `efr jobs list`
+  says why. Install the new unit, then run `systemctl --user daemon-reload` and
+  restart efrd.
 - Ctrl+B also moves a command that a call left running in the hidden shell into a
   background job, while the command waits for no input: in the turn view while no
   call runs, and in `,shell`. A command outside the sandbox asks first, as a running
@@ -31,12 +32,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - Before a delete, efrd stops the background jobs of the conversation and closes its
   hidden shell. When another open terminal holds the conversation, or a turn runs in
   it, efr asks again. `--force` deletes in both cases with no question. efr never stops
-  an undo that runs.
+  an undo that runs. If efrd stops during a delete, you never see half a
+  conversation: the conversation goes from every list and search at the first step,
+  and the next start of efrd removes the rest.
 - Ctrl+D in the `,resume` picker deletes the selected conversation after a question on
   one line. Then the picker opens again with its query.
-- A stop of efrd during a delete never shows half a conversation: the conversation goes
-  from every list and search at the first step, and the next start of efrd removes the
-  rest.
 
 ### Changed
 
@@ -46,46 +46,22 @@ into the GitHub release notes, and it stops when the section is missing.
   (`recording.max_gib`), the oldest parts first. It always keeps the newest part, and
   at least the last 1 MiB, of a shell that still runs. 0 turns a limit off. Before,
   efrd kept every recording forever, so the data directory grew without a limit. A
-  client that resumes from output that went gets a screen snapshot, or for an exited
-  shell, only what is left.
-- The diff of an approval preview and of a finished write now shows only the changed
-  hunks. Before, two small changes far apart in a large file showed as the whole file
-  removed and added again, and the added and removed counts were wrong.
-- A shell line with many relative `cd`s is now judged as after `cd -`: a relative path
-  may be anywhere below `/`, so efr runs the line in the sandbox or asks you. This
-  occurs when the rest of the line may run in more than 1024 directories, that is,
-  after more than ten `cd`s into subdirectories in a row. Before, such a line could
-  make efrd use all its time and memory.
-- In `auto`, a command starts faster while background jobs run in its project. Before
-  such a command, efr checks the git files that each job can change. This check now
-  runs git only for a git config that changed since the last check, not for each
-  config each time.
-- In a long block that is still open (from 4 KB, such as a large table or a long list
-  item), the last line shows when it is complete, not letter by letter. A line of
-  code shows at once.
-- efr reads a command substitution inside another one down to 64 levels. A line that
-  nests deeper holds code that efr does not read: only you approve it outside the
-  sandbox, and full mode asks you before it runs. Before, a line of thousands of
-  nested `$(` could stop efrd, with all its conversations.
-- An `ask` or `deny` rule for a program reads at most 16 forms of that program in one
-  command, such as each `git` after `env`. A command with more, such as
-  `env git git git ...`, matches the rule, so efr asks you or refuses it. Before, such
-  a line used efrd's time for each rule: 10,000 `git` words took about 1 second.
-- A prompt in a long conversation starts with less work and efrd uses less memory.
-  Before, each prompt read again from the database every earlier turn that efrd
-  still kept in memory, and each tool output in memory could use up to two times its
-  size. After a restart of efrd or 10 idle minutes, only the first prompt reads the
-  earlier turns from the database.
-- A prompt in a long conversation uses less memory when it starts. efrd no longer
-  reads the tool outputs and answers of the earlier turns again from the event log,
-  because it has these turns as messages. The request to the model stays the same. In
-  a test of 20 conversations of 50 turns, each turn with a tool output of 32 KiB,
-  efrd now allocates about one third less memory for each turn.
-- efrd gives freed memory back to the system after an idle period. When a
-  conversation was idle for 10 minutes and no turn ran for 30 seconds, efrd tells
-  glibc to give back its free heap, at most one time in 5 minutes. In a test of 20
-  conversations of 50 turns, efrd then used about 60 MiB, about one third of its
-  peak. Before, it kept about 90% of its peak.
+  client that resumes from output that was deleted gets a screen snapshot, or for an
+  exited shell, only what is left.
+- Some very long or deeply nested shell lines now get a stricter decision. Before,
+  each of these lines could make efrd use all its time and memory, or stop efrd with
+  all its conversations:
+  - A line with many relative `cd`s is judged as after `cd -`: a relative path may be
+    anywhere below `/`, so efr runs the line in the sandbox or asks you. This occurs
+    when the rest of the line may run in more than 1024 directories, that is, after
+    more than ten `cd`s into subdirectories in a row.
+  - efr reads a command substitution inside another one down to 64 levels. A line
+    that nests deeper holds code that efr does not read: only you approve it outside
+    the sandbox, and full mode asks you before it runs.
+  - An `ask` or `deny` rule for a program reads at most 16 forms of that program in
+    one command, such as each `git` after `env`. A command with more, such as
+    `env git git git ...`, matches the rule, so efr asks you or refuses it. Before,
+    10,000 `git` words took about 1 second for each rule.
 - An `ask` or `deny` rule for `systemctl`, `cargo`, `docker` or `kubectl` now skips
   the program's own options before the subcommand, as a rule for `git` does. So a
   rule for `systemctl restart` also asks for `systemctl --user restart nginx`, a rule
@@ -96,120 +72,108 @@ into the GitHub release notes, and it stops when the section is missing.
   file or an alias, and `kubectl --kuberc`, can rename a subcommand, so the rule
   matches every command with one of them. An `allow` rule still compares the words
   right after the program.
+- The diff of an approval preview and of a finished write now shows only the changed
+  hunks. Before, two small changes far apart in a large file showed as the whole file
+  removed and added again, and the added and removed counts were wrong.
+- In a long block that is still open (from 4 KB, such as a large table or a long list
+  item), the last line shows when it is complete, not letter by letter. A line of
+  code shows at once.
+- Long conversations are faster and use less memory. The request that the model gets
+  does not change, so the prompt cache of your provider still works:
+  - After a compaction with a summary, a prompt reaches the model sooner, because a
+    turn no longer reads or rebuilds the earlier turns that the summary covers. In a
+    conversation of 2,000 turns, the time from the prompt to the model request went
+    from about 44 ms to about 21 ms.
+  - A prompt starts with less work and less memory. efrd no longer reads the earlier
+    turns again from the database and the event log for each prompt, and a tool
+    output in memory no longer uses up to two times its size. After a restart of efrd
+    or 10 idle minutes, only the first prompt reads the earlier turns. In a test of 20
+    conversations of 50 turns, efrd allocates about one third less memory for each
+    turn.
+  - In `auto`, a shell call with background jobs no longer reads every turn of the
+    conversation to find when the previous turn started.
+  - A terminal that attaches to a conversation with long answers shows it sooner.
+    With answers of 500 KB, this took about 340 ms. Now it takes about 20 ms.
+  - With the OpenAI WebSocket transport, each connection keeps about 40 bytes for each
+    item of the history. Before, it kept a copy of all of the history of its last
+    call, which is several MB in a long conversation. A call also starts sooner.
+  - `efr diff --stat --all` reads the history in pages of 500 events, and it keeps
+    only the ends of the turns that changed files and the undos. For 20,000 events,
+    its peak memory went from about 28 MiB to about 12 MiB. When the history has more
+    than 1,000 pages, a dim line now says that efr adds up only the turns of the
+    newest 1,000. Before, efr left out the older turns and did not say so.
+- efrd gives memory back after an idle period. When a conversation was idle for 10
+  minutes, efrd no longer keeps its messages in memory, and the next prompt reads
+  them from the store. Then, when no turn ran for 30 seconds, efrd tells glibc to give
+  its free heap back to the system, at most one time in 5 minutes. In a test of 20
+  conversations of 50 turns, efrd then used about 60 MiB, about one third of its peak.
+  Before, efrd kept the messages of each conversation that ran a turn since it
+  started, so its memory grew with use, and it kept about 90% of its peak.
+- Calls in large projects and in your home directory are faster. Undo, the undo
+  trash and the list of what undo does not cover do not change:
+  - The snapshots before and after a call in a project of 20,000 files took about
+    54 ms. Now they take about 18 ms, because git checks the files on more than one
+    thread.
+  - After a command writes many files again, the next calls are fast again. With
+    5,000 files of 10 KB, each later call took about 210 ms. Now it takes about 6 ms.
+  - The end of a turn whose snapshots leave out many paths, such as thousands of
+    ignored files, took about 20 seconds for 20,000 paths. Now it takes less than a
+    tenth of a second.
+  - A call that can write in a large directory outside your projects took more than
+    12 seconds to start and end for 20,000 files. Now it takes less than a second.
+  - A call that changes thousands of home files ends faster. A cache delete of 20,000
+    files took about 7 seconds. Now it takes about 1 second.
+  - Each turn in a git repository starts one git process fewer, so a prompt in a
+    repository outside your projects also gets its answer sooner. `efr undo` starts
+    one git process for each file that it writes back, not two. In `auto`, while
+    background jobs run in the project, a command starts faster, because efr runs git
+    only for a git config that changed since the last check.
+- A command that prints much output uses less CPU. efr reads the output of the hidden
+  shell in chunks of up to 64 KiB, so it hands on 3 to 10 times fewer chunks. A prompt
+  still shows as soon as the shell prints it. With the ghostty screen, the result of a
+  command whose output moves the cursor, such as a build with a status line, is ready
+  sooner, because efr reads only the 1,000 newest rows of each screen. The text of the
+  result does not change.
+- Replies and question cards draw faster:
+  - A long reply streams with less CPU. Before, each draft of the model copied all of
+    the reply before it, and a reply of 1 MB used about 1 second of CPU.
+  - A very long code block renders in a time that grows only with its length. Before,
+    100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
+  - A question card shows a long command fast. Before, a command line of 100 KB took
+    up to 2 seconds on a terminal that counts by grapheme cluster.
+  - While a question waits for your answer, efr draws its card again only when the
+    card or the width of the terminal changes, not at each tick of the status row.
+    A card with a diff used about 1 ms of CPU for each tick.
+  - The input row under a running turn draws a long paste in about half the time.
 
 ### Fixed
 
+- A long shell line no longer stalls efrd before the call starts. The decision and its
+  questions do not change:
+  - efr checked each path of the line against each other path, so an `rm` of a few
+    thousand files took about 9 seconds before it ran. Now it takes a fraction of a
+    second. A long line behind a wrapper such as `env` or `time` under your `ask`
+    rules no longer uses gigabytes of memory.
+  - A line with many `cd`s took about 11 s for 10,000 `cd`s in `auto`, and about 41 s
+    for 2,000 `cd`s in full mode. Now 10,000 `cd`s take about 10 ms in `auto` and
+    15 ms in full mode. A line of 10 `cd`s starts after about 20 ms, not 90 ms.
+  - In `auto`, the decision for an `rm` of 6,400 files outside your projects took up
+    to about 2.8 seconds and 540 MB of memory. Now it takes about 50 ms and 10 MB.
 - A long code block in a list item or a quote streams at the same speed at line 1,000
   as at line 30. Before, efr fell behind the reply at a few hundred lines. Parts of
   the text then came late in one jump.
-- A very long code block renders in a time that grows only with its length. Before,
-  100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
-- efr decides a shell line with many `cd`s in a time that grows only with the line.
-  Before, each command of the line copied the targets of all the `cd`s before it, and
-  full mode read them again for each command: 10,000 `cd`s took about 11 s in `auto`,
-  and 2,000 `cd`s took about 41 s in full mode. Now 10,000 `cd`s take about 10 ms in
-  `auto` and 15 ms in full mode. The decision does not change.
-- A question card shows a long command fast. Before, a command line of 100 KB took
-  up to 2 seconds to show on a terminal that counts by grapheme cluster.
-- The input row under a running turn draws a long paste in about half the time.
-- While a question waits for your answer, efr no longer draws its card again at each
-  tick of the status row. It draws the card again only when the card or the width of
-  the terminal changes. A card with a diff used about 1 ms of CPU for each tick.
-- A long reply streams with less CPU. Each draft of the model now costs only its own
-  text. Before, each draft copied all of the reply before it, and a reply of 1 MB
-  used about 1 second of CPU.
-- On a very narrow terminal, a wide character that did not fit in a row of a question
-  card showed two times. Now it shows one time.
-- The end of a turn is faster when its snapshots leave out many paths, such as
-  thousands of ignored files. With 20,000 such paths, it took about 20 seconds. Now
-  it takes less than a tenth of a second. The list of what undo does not cover stays
-  the same.
-- A call that can write in a large directory outside your projects starts and ends
-  faster. efr copies such a directory before the call and reads it again after the
-  call. For 20,000 files, these steps took more than 12 seconds. Now they take less
-  than a second.
-- `efr undo` starts fewer git processes: one for each file that it writes back, not
-  two. The undo trash keeps the same bytes.
-- A terminal that attaches to a conversation with long answers shows it sooner. With
-  answers of 500 KB, the start of `conversation.subscribe` took about 340 ms. Now it
-  takes about 20 ms.
-- When the newest event of a conversation is larger than 1 MiB, the snapshot at the
-  start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
-  no events and no cursor, so a client could not find that event and the events
-  before it.
 - A followed turn now shows every event after a long gap. When efr subscribed again
   after it fell behind or after a new connection, or when a prompt waited behind many
   events, and more than 128 events or 1 MiB came in the gap, efrd sent only the newest
   events, and the older ones never showed. efr now reads them with
   `conversation.history` and shows each event once and in order, also an event over
   1 MiB.
-- In a long conversation, a prompt reaches the model sooner. After a compaction with
-  a summary, a turn no longer reads or rebuilds the earlier turns that the summary
-  covers. In a test conversation of 2,000 turns, the time from the prompt to the
-  model request went from about 44 ms to about 21 ms. The request that the model
-  gets does not change.
-- A long shell line no longer stalls efrd before the call starts. efr checked each
-  path of the line against each other path, so an `rm` of a few thousand files took
-  about 9 seconds before it ran. It now takes a fraction of a second. A long line
-  behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
-  gigabytes of memory.
-- A shell line with many `cd`s starts sooner. Before the call, efr finds where each
-  path of the line leads through symbolic links. It looked up each missing directory
-  again for each path. Now it looks up each directory once for the call. The time
-  before a line of 10 `cd`s starts went from about 90 ms to about 20 ms.
-- In `auto`, an `rm` of many files outside your projects starts sooner. For each
-  file, efr searched all the facts of the call. With 6,400 files, the decision took
-  about 2.8 seconds. Now it takes about 0.2 seconds.
-- efrd no longer keeps the messages of a conversation in memory after the
-  conversation is idle for 10 minutes. Before, efrd kept them for each conversation
-  that ran a turn since efrd started, so its memory grew with use. The next prompt
-  reads the messages from the store and sends the same request to the model, so the
-  prompt cache of your provider still works. efrd uses the freed memory again for the
-  next turns, so the memory use that your system shows can stay high after an idle
-  period.
-- Each turn in a git repository starts one git process fewer. efr now gets the root
-  and the branch of the repository from one git process, not from two. A prompt in a
-  git repository outside your projects gets its answer from efrd sooner, because the
-  repository hint also uses one git process. The scope and the branch that efr finds
-  do not change.
-- With the OpenAI WebSocket transport, efrd uses less memory for each conversation.
-  Before, each connection kept a copy of all of the history of its last call, which is
-  several MB in a long conversation. Now it keeps about 40 bytes for each item of the
-  history. A call in a long conversation also starts sooner.
-- efrd uses less CPU while a command in the hidden shell prints much output. efr now
-  reads the output in chunks of up to 64 KiB, so it hands on 3 to 10 times fewer
-  chunks. A prompt still shows as soon as the shell prints it.
-- The result of a command whose output moves the cursor, such as a build with a
-  status line, is ready sooner with the ghostty screen. efr now reads only the 1,000
-  newest rows of each screen that replays the output, not all 5,000 rows that ghostty
-  keeps. The text of the result does not change.
-- A call that changes thousands of home files ends faster. A cache delete of 20,000
-  files took about 7 seconds. Now it takes about 1 second. The list of what undo does
-  not cover stays the same.
-- In `auto`, a shell call starts a little sooner in a long conversation with
-  background jobs. efr no longer reads every turn of the conversation to find when
-  the previous turn started. In a test conversation of 2,000 turns, this step took
-  about 3 ms. Now it takes about 0.3 ms.
-- `efr diff --stat --all` uses less memory and fewer requests in a long
-  conversation. It reads the history in pages of 500 events, and it keeps only the
-  ends of the turns that changed files and the undos. For 20,000 events, its peak
-  memory went from about 28 MiB to about 12 MiB. When the history has more than
-  1,000 pages, a dim line now says that efr adds up only the turns of the newest
-  1,000. Before, efr left out the older turns and did not say so.
-- A shell call in a large project is faster. Before and after each call, efr takes a
-  snapshot of the files that the call can change. In a project of 20,000 files, the
-  two snapshots of a call that changes nothing took about 54 ms. Now they take about
-  18 ms. git now checks the files on more than one thread.
-- After a command writes many files again, the calls of the next turns are fast
-  again. The first snapshot of each turn now updates the file times in efr's own
-  record. So the later snapshots do not read each file again to find that it did not
-  change. With 5,000 files of 10 KB, each call after such a write took about 210 ms.
-  Now it takes about 6 ms. Undo and its coverage do not change.
-- In `auto`, efr decides a long shell line that writes many files outside the
-  project faster and with less memory. Before, each exit of the line kept its own
-  copy of the whole command. For an `rm -f` of 6,400 files, the decision took about
-  100 ms and about 540 MB of memory. Now it takes about 50 ms and about 10 MB. The
-  decision and its questions do not change.
+- When the newest event of a conversation is larger than 1 MiB, the snapshot at the
+  start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
+  no events and no cursor, so a client could not find that event and the events
+  before it.
+- On a very narrow terminal, a wide character that did not fit in a row of a question
+  card showed two times. Now it shows one time.
 - A `!` in a project's name now shows as typed in `$efr_scope` and `efr_prompt_info`
   when your zsh has `prompt_bang` set. Before, the prompt showed the history number
   in its place. With `prompt_bang` set, both now write each `!` as `!!`.
@@ -236,14 +200,14 @@ into the GitHub release notes, and it stops when the section is missing.
   before it, because a `cd` can fail. After a relative `cd`, `cd -`, `popd` or a `cd`
   to a variable, the directory is unknown and the rule applies. An `allow` rule with
   `under` still matches only before the first `cd`.
+- `time cd /x` now counts as a change of directory. zsh runs it in the shell, so
+  before, a rule with `under` judged the commands after it by the old directory.
 - An `ask` or `deny` command rule now also applies to a line that efr cannot split
   into simple commands, such as `git push $(git branch --show-current)` or
   `cd "$DIR" && git push`. efr reads each command that it finds in the line, the
   commands of a substitution too. Before, only a rule for every command line judged
   such a line, so in full mode it ran with no question although a rule of yours
   denied `git push`.
-- `time cd /x` now counts as a change of directory. zsh runs it in the shell, so
-  before, a rule with `under` judged the commands after it by the old directory.
 - The numbered list of `,resume` without fzf now shows each title with its secrets
   replaced by `[***]`, as the picker and `efr search` show it. Before, the list
   showed the raw title of the first prompt, with a key that the prompt held.
