@@ -25,10 +25,21 @@ cgroup v2 has what the fix needs:
   common ancestor of the two cgroups.
 
 A process may make cgroups only in a subtree that it owns. systemd gives a unit its
-subtree with `Delegate=yes`, and marks the delegated cgroup with the extended attribute
-`user.delegate` (`trusted.delegate` for the system manager). cgroup v2 also has the
-rule of no internal processes: a cgroup that gives a controller, such as `memory`, to
-its children must hold no process itself.
+subtree with `Delegate=yes`. systemd's docs (<https://systemd.io/CGROUP_DELEGATION/>,
+"Delegation") say: "The service manager sets the `user.delegate` extended attribute
+(readable via `getxattr(2)` and related calls) to the character `1` on cgroup
+directories where delegation is enabled (and removes it on those cgroups where it is
+not). This may be used by service programs to determine whether a cgroup tree was
+delegated to them." It names kernel 5.6 and systemd 251 as the least versions. The docs
+do not say whether the per-user service manager sets the mark. On the user's machine
+(systemd 262, the user manager), `systemctl --user show efrd -p Delegate` says
+`Delegate=yes`, and the unit's cgroup is the user's, but it has no extended attribute
+at all; only `user@1000.service`, which the system manager made, has `user.delegate`.
+So the mark is a sure yes when it is there, and its absence says nothing under the
+user manager. The manager's own answer is the `Delegate` property of the unit, which
+`systemctl show` reads from the manager. cgroup v2 also has the rule of no internal
+processes: a cgroup that gives a controller, such as `memory`, to its children must
+hold no process itself.
 
 The project adds no dependency (the user's rule for v0.0.5), so efrd reads and writes
 the cgroup v2 files itself.
@@ -40,8 +51,17 @@ the cgroup v2 files itself.
    never changes a unit that is installed already; the user installs the new one.
 
 2. **efrd moves itself into `<unit>/daemon` at its start.** Before it starts any
-   process, efrd reads its cgroup from `/proc/self/cgroup` and checks the delegate
-   mark. Then it makes `<unit>/daemon` and `<unit>/jobs`, moves itself into
+   process of its own, efrd reads its cgroup from `/proc/self/cgroup` and finds out
+   whether it is delegated. A `user.delegate` or `trusted.delegate` mark of `1` on the
+   cgroup is a yes at once. Without a mark, efrd asks the user manager once:
+   `systemctl --user show -p LoadState -p MainPID -p Delegate -- <unit>`, where the unit
+   is the last part of the cgroup path and must be a `.service` name. `systemctl` must
+   be a trusted program (`trusted_programs.rs`: on efrd's own `PATH`, in a dir that only
+   root writes); it gets a clean environment with `XDG_RUNTIME_DIR` and 2 s. Only
+   `LoadState=loaded`, `MainPID` equal to efrd's pid and `Delegate=yes` is a yes. No
+   trusted `systemctl`, an error, no answer in time, an unknown unit, another main
+   process or `Delegate=no` is a no, and each says why. `systemctl` ends before the
+   move, so the unit's cgroup holds only efrd then. Then it makes `<unit>/daemon` and `<unit>/jobs`, moves itself into
    `<unit>/daemon`, and gives `<unit>` and `<unit>/jobs` the `memory`, `cpu` and `pids`
    controllers that `<unit>` has. The hidden shells start later, so they are in
    `<unit>/daemon` with efrd. A controller that the unit lacks costs only its numbers.

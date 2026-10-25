@@ -3,10 +3,17 @@
 //! it, also one that left its session, and the job's memory and CPU time can be seen.
 //!
 //! The systemd user unit has `Delegate=yes`, so systemd gives efrd the subtree of its
-//! unit's cgroup `U` and marks it with the extended attribute `user.delegate`. At its
-//! start, before it starts any process, efrd:
+//! unit's cgroup `U`. At its start, before it starts any process of its own, efrd:
 //!
-//! 1. reads its own cgroup from `/proc/self/cgroup` and checks the mark on `U`;
+//! 1. reads its own cgroup from `/proc/self/cgroup` and finds out whether `U` is
+//!    delegated ([`delegation`]): a `user.delegate` or `trusted.delegate` mark of `1` on
+//!    `U` is a yes at once. systemd's docs say that the service manager sets
+//!    `user.delegate`, but systemd 262's user manager sets no mark on its units (only
+//!    the system manager marks `user@<uid>.service`). So without a mark efrd asks the
+//!    manager itself, once, with a time limit: `systemctl --user show` of the unit named
+//!    by `U`'s last part, from the trusted `systemctl` (`trusted_programs.rs`). Only
+//!    `LoadState=loaded`, `MainPID` equal to efrd's pid and `Delegate=yes` is a yes;
+//!    every other answer, an error and no answer in time are a no;
 //! 2. moves itself into `U/daemon`: cgroup v2 lets a cgroup give its controllers to
 //!    its children only when it holds no process itself;
 //! 3. gives `U` and `U/jobs` the `memory`, `cpu` and `pids` controllers that `U` has;
@@ -33,9 +40,11 @@
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use efr_protocol::JobCgroup;
+use efr_stdx::time::Clock;
 
 /// Where the cgroup v2 file system is.
 pub(crate) const CGROUP_ROOT: &str = "/sys/fs/cgroup";
@@ -49,9 +58,12 @@ const JOBS_DIR: &str = "jobs";
 /// The controllers that efrd gives the job cgroups, when its cgroup has them.
 const CONTROLLERS: &[&str] = &["memory", "cpu", "pids"];
 
-/// The extended attributes that mark a delegated cgroup: systemd's user manager sets
-/// the first, the system manager the second.
+/// The extended attributes that mark a delegated cgroup, `user.delegate` as systemd's
+/// docs name it and `trusted.delegate` of the system manager.
 const DELEGATE_MARKS: &[&str] = &["user.delegate", "trusted.delegate"];
+
+/// How long efrd waits for `systemctl` to tell whether its unit is delegated.
+pub(crate) const ASK_LIMIT: Duration = Duration::from_secs(2);
 
 /// How long the kill of a job's cgroup waits for its processes to go.
 const KILL_GRACE: Duration = Duration::from_secs(1);
@@ -83,20 +95,27 @@ impl Cgroups {
         Cgroups { held: Ok(jobs) }
     }
 
-    /// At efrd's start: the job cgroups below efrd's own cgroup when it is delegated,
-    /// after efrd moved itself into `U/daemon` and gave the controllers on. Else no job
-    /// cgroups, with the reason. It blocks for a few small file operations.
-    pub(crate) fn setup() -> Cgroups {
-        let own = match fs::read_to_string("/proc/self/cgroup") {
+    /// At efrd's start: the job cgroups below efrd's own cgroup when it is delegated
+    /// ([`delegation`], with `systemctl` the command of the trusted `systemctl`, `None`
+    /// when efrd found none), after efrd moved itself into `U/daemon` and gave the
+    /// controllers on. Else no job cgroups, with the reason.
+    pub(crate) async fn setup(
+        systemctl: Option<tokio::process::Command>,
+        clock: &Arc<dyn Clock>,
+    ) -> Cgroups {
+        let own = match tokio::fs::read_to_string("/proc/self/cgroup").await {
             Ok(text) => own_cgroup(&text),
             Err(_) => None,
         };
         let Some(own) = own else { return Cgroups::off("efrd found no cgroup v2") };
         let unit = Path::new(CGROUP_ROOT).join(own.trim_start_matches('/'));
-        if !delegated(&unit) {
-            return Cgroups::off(NOT_DELEGATED);
+        let pid = std::process::id();
+        if let Err(reason) = delegation(&unit, &own, systemctl, pid, clock, ASK_LIMIT).await {
+            return Cgroups::off(reason);
         }
-        match setup_in(&unit, std::process::id()) {
+        let moved = tokio::task::spawn_blocking(move || setup_in(&unit, pid)).await;
+        let moved = moved.unwrap_or_else(|_| Err(io::Error::other("the setup task ended")));
+        match moved {
             Ok(jobs) => {
                 tracing::info!(dir = %jobs.display(), "background jobs run in cgroups of their own");
                 Cgroups { held: Ok(jobs) }
@@ -162,7 +181,91 @@ pub(crate) fn own_cgroup(text: &str) -> Option<String> {
     text.lines().find_map(|line| line.strip_prefix("0::")).map(str::to_owned)
 }
 
-/// True when the cgroup dir `dir` carries systemd's mark of a delegated subtree.
+/// Whether efrd's cgroup `own` (its path in the cgroup tree, at `dir`) is delegated to
+/// it: `Ok` for a delegate mark on `dir`, else for systemd's own yes. Without a mark it
+/// asks the user manager with `systemctl` (`None`: efrd found no trusted one) about the
+/// unit that the last part of `own` names, within `limit`. Only `LoadState=loaded`,
+/// `MainPID` equal to `pid` and `Delegate=yes` is a yes. `Err` is the reason of the no.
+pub(crate) async fn delegation(
+    dir: &Path,
+    own: &str,
+    systemctl: Option<tokio::process::Command>,
+    pid: u32,
+    clock: &Arc<dyn Clock>,
+    limit: Duration,
+) -> Result<(), String> {
+    if delegated(dir) {
+        return Ok(());
+    }
+    let unit = own.rsplit('/').next().unwrap_or_default();
+    if !unit_name(unit) {
+        return Err(NOT_A_UNIT.to_owned());
+    }
+    let Some(mut command) = systemctl else {
+        return Err(
+            "efrd found no trusted systemctl to ask whether its cgroup is delegated".to_owned()
+        );
+    };
+    // NOTE: `systemctl --user` finds the user manager by `$XDG_RUNTIME_DIR`, which the
+    // clean environment of a trusted program lacks.
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(|| {
+            PathBuf::from(format!("/run/user/{}", rustix::process::getuid().as_raw()))
+        });
+    command
+        .env("XDG_RUNTIME_DIR", runtime)
+        .args(["--user", "show", "-p", "LoadState", "-p", "MainPID", "-p", "Delegate", "--"])
+        .arg(unit)
+        .kill_on_drop(true);
+    let output = match clock.timeout(limit, command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return Err(format!("efrd could not run systemctl: {error}")),
+        Err(_) => {
+            return Err(format!(
+                "systemctl did not tell within {}s whether efrd's cgroup is delegated",
+                limit.as_secs()
+            ));
+        }
+    };
+    if !output.status.success() {
+        return Err(format!(
+            "systemctl could not tell whether efrd's cgroup is delegated ({})",
+            output.status
+        ));
+    }
+    systemd_says(&String::from_utf8_lossy(&output.stdout), pid)
+}
+
+/// systemd's answer `text` (`Key=value` lines of `systemctl show`) about efrd's unit,
+/// whose main process must be `pid`.
+pub(crate) fn systemd_says(text: &str, pid: u32) -> Result<(), String> {
+    let value =
+        |key: &str| text.lines().find_map(|line| line.trim().strip_prefix(key)?.strip_prefix('='));
+    if value("LoadState") != Some("loaded") {
+        return Err("systemd does not know efrd's unit".to_owned());
+    }
+    if value("MainPID").and_then(|main| main.parse::<u32>().ok()) != Some(pid) {
+        return Err("efrd is not the main process of its unit".to_owned());
+    }
+    match value("Delegate") {
+        Some("yes") => Ok(()),
+        _ => Err(NOT_DELEGATED.to_owned()),
+    }
+}
+
+/// True when `name` is a name of a systemd service unit that efrd may pass to
+/// `systemctl`: letters, digits and `@._:-`, ending in `.service`.
+fn unit_name(name: &str) -> bool {
+    name.len() > ".service".len()
+        && name.len() <= 256
+        && name.ends_with(".service")
+        && !name.starts_with('-')
+        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"@._:-".contains(&byte))
+}
+
+/// True when the cgroup dir `dir` carries a mark of a delegated subtree.
 fn delegated(dir: &Path) -> bool {
     DELEGATE_MARKS.iter().any(|mark| {
         let mut value = [0_u8; 8];

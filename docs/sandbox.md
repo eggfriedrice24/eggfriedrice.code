@@ -1516,8 +1516,11 @@ into its own cgroup at the move, with every process below its shell.
 - When efrd cannot give a job a cgroup, the job runs as before, held by its session
   only, and `efr jobs list` says why, such as `(no cgroup: efrd's cgroup is not
   delegated (Delegate=yes))`: efrd runs by hand or in a test, the installed unit has no
-  `Delegate=yes`, or the machine has no cgroup v2. After you install the new unit, run
-  `systemctl --user daemon-reload` and restart efrd.
+  `Delegate=yes`, the machine has no cgroup v2, or efrd could not ask systemd. systemd's
+  user manager marks no delegated unit, so efrd asks it once at start with
+  `systemctl --user show` of its unit (only a `systemctl` in a dir that only root
+  writes, at most 2 seconds); a missing `systemctl` or no answer means no cgroup. After
+  you install the new unit, run `systemctl --user daemon-reload` and restart efrd.
 - A job in the exit child runs as you, and you own the delegated cgroups. Such a job
   can move its own processes out of its cgroup on purpose. The sweep of the session and
   the peer check of efrd's socket still apply to it.

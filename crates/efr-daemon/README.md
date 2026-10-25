@@ -948,8 +948,12 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   the watch pattern. A write that fails drops the file, never the pipe, and the end says
   `output_truncated`.
 - Job cgroups (`jobs/cgroup.rs`, ADR 0021): with `Delegate=yes` in its unit, efrd
-  checks the `user.delegate` mark of its own cgroup at start (`Cgroups::setup`, only
-  when `Deps::from_process` built the deps), moves itself into `<unit>/daemon`, gives
+  finds out at start whether its own cgroup is delegated (`Cgroups::setup` and
+  `cgroup::delegation`, only when `Deps::from_process` built the deps under the unit):
+  a `user.delegate` or `trusted.delegate` mark is a yes; without one (systemd 262's user
+  manager sets none) efrd asks the trusted `systemctl --user show -p LoadState -p
+  MainPID -p Delegate -- <unit>` within 2 s, and only `loaded`, its own pid and `yes`
+  count. Then it moves itself into `<unit>/daemon`, gives
   `<unit>` and `<unit>/jobs` the `memory`, `cpu` and `pids` controllers, and removes
   what the last efrd left in `<unit>/jobs` (`JobTable::recover`). `JobTable::spawn`
   makes `<unit>/jobs/<conversation>-j<n>` and moves the launcher in before the start
