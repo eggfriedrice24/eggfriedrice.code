@@ -7,7 +7,106 @@ use std::path::Path;
 use efr_protocol::JobCgroup;
 use pretty_assertions::assert_eq;
 
-use super::{Cgroups, NOT_DELEGATED, own_cgroup, setup_in, stat_value};
+use super::{Cgroups, NOT_A_UNIT, NOT_DELEGATED, delegation, own_cgroup, setup_in, stat_value};
+
+/// efrd's cgroup under the user manager, as `/proc/self/cgroup` names it.
+const OWN: &str = "/user.slice/user-1000.slice/user@1000.service/app.slice/efrd.service";
+
+/// A fake `systemctl` that runs `script` with the arguments of efrd's question, and
+/// writes them and its `XDG_RUNTIME_DIR` to `asked`.
+fn systemctl(script: &str, asked: &Path) -> tokio::process::Command {
+    let body = format!("echo \"$XDG_RUNTIME_DIR $*\" > '{}'\n{script}", asked.display());
+    let mut command = efr_stdx::process::command("sh", "/");
+    command.arg("-c").arg(body).arg("systemctl");
+    command
+}
+
+/// What [`delegation`] says for the answer `script` of a fake `systemctl`, about a
+/// cgroup dir with no delegate mark, within `limit`.
+async fn asked(
+    script: &str,
+    own: &str,
+    limit: std::time::Duration,
+) -> (Result<(), String>, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("asked");
+    let clock: std::sync::Arc<dyn efr_stdx::time::Clock> =
+        std::sync::Arc::new(efr_stdx::time::SystemClock);
+    let answer =
+        delegation(dir.path(), own, Some(systemctl(script, &file)), 4242, &clock, limit).await;
+    (answer, fs::read_to_string(&file).unwrap_or_default())
+}
+
+const LONG: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// systemd 262's user manager marks no delegated unit, so efrd asks it: only a loaded
+/// unit whose main process is efrd and that says `Delegate=yes` is a yes.
+#[tokio::test]
+async fn systemd_says_yes() {
+    let script = "printf 'LoadState=loaded\\nMainPID=4242\\nDelegate=yes\\n'";
+    let (answer, args) = asked(script, OWN, LONG).await;
+    assert_eq!(answer, Ok(()));
+    let args = args.trim_end();
+    assert!(
+        args.ends_with(" --user show -p LoadState -p MainPID -p Delegate -- efrd.service"),
+        "{args}"
+    );
+    assert!(args.starts_with('/'), "systemctl --user gets XDG_RUNTIME_DIR: {args}");
+}
+
+#[tokio::test]
+async fn systemd_says_no() {
+    let script = "printf 'LoadState=loaded\\nMainPID=4242\\nDelegate=no\\n'";
+    assert_eq!(asked(script, OWN, LONG).await.0, Err(NOT_DELEGATED.to_owned()));
+    // NOTE: a unit whose main process is another one is not efrd's.
+    let script = "printf 'LoadState=loaded\\nMainPID=1\\nDelegate=yes\\n'";
+    assert_eq!(
+        asked(script, OWN, LONG).await.0,
+        Err("efrd is not the main process of its unit".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn systemd_answers_with_an_error() {
+    let script = "echo 'Failed to connect to bus' >&2; exit 1";
+    let (answer, _) = asked(script, OWN, LONG).await;
+    let reason = answer.unwrap_err();
+    assert!(reason.starts_with("systemctl could not tell whether"), "{reason}");
+    // NOTE: an answer with no lines at all is no yes either.
+    assert!(asked("exit 0", OWN, LONG).await.0.is_err());
+}
+
+#[tokio::test]
+async fn systemd_answers_too_late() {
+    let limit = std::time::Duration::from_millis(200);
+    let (answer, _) = asked("sleep 30", OWN, limit).await;
+    let reason = answer.unwrap_err();
+    assert!(reason.starts_with("systemctl did not tell within"), "{reason}");
+}
+
+#[tokio::test]
+async fn systemd_knows_no_such_unit() {
+    let script = "printf 'LoadState=not-found\\nMainPID=0\\nDelegate=no\\n'";
+    assert_eq!(
+        asked(script, OWN, LONG).await.0,
+        Err("systemd does not know efrd's unit".to_owned())
+    );
+    // NOTE: a cgroup that names no service, such as a terminal's scope, asks nothing.
+    let scope = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-ghostty.scope";
+    let (answer, args) = asked("printf 'Delegate=yes\\n'", scope, LONG).await;
+    assert_eq!((answer, args), (Err(NOT_A_UNIT.to_owned()), String::new()));
+    let (answer, args) = asked("printf 'Delegate=yes\\n'", "/-x.service", LONG).await;
+    assert_eq!((answer, args), (Err(NOT_A_UNIT.to_owned()), String::new()));
+}
+
+#[tokio::test]
+async fn no_trusted_systemctl_is_no_yes() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock: std::sync::Arc<dyn efr_stdx::time::Clock> =
+        std::sync::Arc::new(efr_stdx::time::SystemClock);
+    let answer = delegation(dir.path(), OWN, None, 4242, &clock, LONG).await;
+    assert!(answer.unwrap_err().contains("no trusted systemctl"));
+}
 
 /// Makes the interface files of a cgroup dir in a test dir.
 fn fake_cgroup(dir: &Path, files: &[(&str, &str)]) {

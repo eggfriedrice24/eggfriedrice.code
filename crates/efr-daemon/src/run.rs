@@ -408,6 +408,20 @@ async fn trusted_programs(
     found.unwrap_or_else(|_| TrustedPrograms::none())
 }
 
+/// The cgroups of the jobs at efrd's start (ADR 0021). systemd's user manager marks no
+/// delegated unit, so efrd may ask it through the trusted `systemctl` of its own `PATH`
+/// (`path`), never a program of a write root.
+async fn job_cgroups_at_start(
+    dirs: &Dirs,
+    home: &Path,
+    path: Option<std::ffi::OsString>,
+    clock: &Arc<dyn Clock>,
+) -> crate::jobs::cgroup::Cgroups {
+    let found = trusted_programs(dirs, home, path, None).await;
+    let systemctl = found.command(crate::trusted_programs::Program::Systemctl);
+    crate::jobs::cgroup::Cgroups::setup(systemctl, clock).await
+}
+
 /// Runs the startup sequence up to the open socket.
 pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> {
     let Deps {
@@ -442,9 +456,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // NOTE: before efrd starts any process: it moves itself into `<unit>/daemon`, so its
     // unit's cgroup can give its controllers to the job cgroups (ADR 0021).
     let job_cgroups = if job_cgroups {
-        tokio::task::spawn_blocking(crate::jobs::cgroup::Cgroups::setup)
-            .await
-            .unwrap_or_else(|_| crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT))
+        // NOTE: boxed, so the start future stays small.
+        Box::pin(job_cgroups_at_start(&dirs, &home, programs_path.clone(), &clock)).await
     } else {
         crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT)
     };

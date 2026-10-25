@@ -1,6 +1,7 @@
 //! The programs that efrd itself runs: `crontab` and `loginctl` for the state copies of
-//! cron and linger (efr's auto spec 10.8, plan PB20), and `xdg-dbus-proxy` for the
-//! filtered bus of the `auto` sandbox (phase E, DE7).
+//! cron and linger (efr's auto spec 10.8, plan PB20), `xdg-dbus-proxy` for the
+//! filtered bus of the `auto` sandbox (phase E, DE7), and `systemctl`, which efrd asks
+//! once at start whether its unit's cgroup is delegated (ADR 0021).
 //!
 //! efrd finds them once at start, on its own `PATH`, never on the hidden shell's,
 //! whose entries can be dirs that the sandbox wrote. A program counts only in a dir
@@ -33,10 +34,13 @@ pub(crate) enum Program {
     Loginctl,
     /// `xdg-dbus-proxy`, the filter of a call's bus (phase E).
     XdgDbusProxy,
+    /// `systemctl`, for the `Delegate=` of efrd's unit (ADR 0021).
+    Systemctl,
 }
 
 impl Program {
-    const ALL: [Program; 3] = [Program::Crontab, Program::Loginctl, Program::XdgDbusProxy];
+    const ALL: [Program; 4] =
+        [Program::Crontab, Program::Loginctl, Program::XdgDbusProxy, Program::Systemctl];
 
     /// The file name on the `PATH`.
     pub(crate) fn name(self) -> &'static str {
@@ -44,6 +48,7 @@ impl Program {
             Program::Crontab => "crontab",
             Program::Loginctl => "loginctl",
             Program::XdgDbusProxy => "xdg-dbus-proxy",
+            Program::Systemctl => "systemctl",
         }
     }
 }
