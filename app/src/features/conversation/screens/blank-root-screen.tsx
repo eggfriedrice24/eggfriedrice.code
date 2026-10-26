@@ -1,31 +1,146 @@
-// The root of the stack: a blank conversation on the last used machine (plan 2.5).
-// NOTE: A stub until the real screen comes (wave 4). It links to every other screen.
+// The root of the stack: a blank conversation on the machine of the root (plan section
+// 2.5, design 3.2 and board Main).
+//
+// - The shell block under the bar: the machine, the cwd `~` and the mode, then the yolk ❯
+//   with the blinking cursor (solid with Reduce Motion).
+// - The blank composer at the bottom, with no status line, no material and no hairline.
+//   The first send puts the prompt in the outbox for a new conversation and pushes that
+//   conversation with no animation. The root then has an empty draft and a new local id,
+//   so it stays blank under the new screen.
+// - A pick in the machine menu changes the machine of the root. The body follows it at
+//   the priority of a transition (`useDeferredValue`): a store update cannot run in a
+//   transition itself (plan section 2.4, "uSES rule").
+// - With no machine paired, the root is the pairing intro (design 3.18). The route gives
+//   it as `noMachine`, because a feature does not import the screens of another one.
+//
+// The header belongs to the root stack (features/navigation), so this screen sets none.
 
-import { useRouter } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
+import { useDeferredValue, useState, type ReactNode } from "react";
+import { Text, View } from "react-native";
 
-import { ScreenStub, StubLink } from "@/components/ui/screen-stub";
+import { BlockCursor } from "@/components/ui/block-cursor";
+import { MonoText } from "@/components/ui/mono-text";
+import { newCommandId } from "@/lib/native/database";
+import type { Machine } from "@/features/machines/model/machine";
+import { isTailnetDown } from "@/features/machines/model/machine-status";
+import {
+  useDrafts,
+  useOutbox,
+  usePreferences,
+  useRuntime,
+} from "@/features/navigation/use-app-services";
+import { useMachineConnections, useRootMachine } from "@/features/navigation/use-machines";
+import { useOpenConversation } from "@/features/navigation/use-open-conversation";
+import { DockedComposer } from "../components/composer/composer";
+import type { ComposerTarget } from "../model/composer-state";
+import type { Outbox, OutboxEntry } from "../model/outbox";
+import type { ComposerDeps } from "../use-composer-actions";
 
-/** The machine and the conversation that the stub links to. Not real ids of efrd. */
-const STUB_MACHINE = "019a9b1c-3d00-7a10-8b20-0000000000aa";
-const STUB_CONVERSATION = "019a9b1c-3d00-7a10-8b20-0000000000bb";
+/** The space between the bottom of the bar and the shell block (top 128 on the canvas). */
+export const SHELL_TOP = 22;
+
+/** The cwd of a new conversation: it starts in the home directory (design note 6). */
+export const BLANK_CWD = "~";
+
+/**
+ * The mode of the shell block. A turn from the phone runs with at most `cautious`, which
+ * is also the default mode of efrd (docs/config.md, `permissions.mode`). The phone cannot
+ * read the config of the machine, so it shows the most that its turns can get.
+ */
+export const BLANK_MODE = "cautious";
+
+export interface BlankRootScreenProps {
+  /** The root when no machine is paired: the pairing intro. */
+  readonly noMachine: ReactNode;
+}
 
 /** The blank root screen. */
-export function BlankRootScreen() {
-  const router = useRouter();
+export function BlankRootScreen(props: BlankRootScreenProps) {
+  const current = useRootMachine();
+  const machine = useDeferredValue(current);
+  if (current === undefined || machine === undefined) {
+    return props.noMachine;
+  }
+  return <BlankRoot machine={machine} />;
+}
+
+interface BlankRootProps {
+  readonly machine: Machine;
+}
+
+/** A new local id for the next conversation of the root. */
+function newLocalId(outbox: Outbox): string {
+  const target = outbox.newConversation();
+  return target.kind === "new" ? target.localId : target.conversationId;
+}
+
+function BlankRoot(props: BlankRootProps) {
+  const { machine } = props;
+  const runtime = useRuntime();
+  const outbox = useOutbox();
+  const drafts = useDrafts();
+  const preferences = usePreferences();
+  const open = useOpenConversation();
+  const top = useHeaderHeight();
+  const connections = useMachineConnections();
+  const [localId, setLocalId] = useState(() => newLocalId(outbox));
+  const supervisor = runtime.machine(machine.id);
+  const deps: ComposerDeps = { caller: runtime, outbox, drafts, preferences, newCommandId };
+  const target: ComposerTarget = { machine: machine.id, id: localId, isBlankRoot: true };
+  const onSend = (entry: OutboxEntry): void => {
+    if (entry.target.kind !== "new") {
+      return;
+    }
+    open({ machine: entry.machine, id: entry.target.localId }, { firstSend: true });
+    setLocalId(newLocalId(outbox));
+  };
   return (
-    <ScreenStub name="index">
-      <StubLink
-        label="A conversation"
-        onPress={() =>
-          router.push({
-            pathname: "/c/[machine]/[id]",
-            params: { machine: STUB_MACHINE, id: STUB_CONVERSATION },
-          })
-        }
-      />
-      <StubLink label="All conversations" onPress={() => router.push("/conversations")} />
-      <StubLink label="Settings" onPress={() => router.push("/settings")} />
-      <StubLink label="Pair a machine" onPress={() => router.push("/pair")} />
-    </ScreenStub>
+    <View className="flex-1 bg-surface-1">
+      <ShellBlock top={top + SHELL_TOP} machineName={machine.name} />
+      {supervisor === undefined ? null : (
+        <View className="absolute right-0 bottom-0 left-0">
+          <DockedComposer
+            deps={deps}
+            target={target}
+            connection={supervisor.connection}
+            machineName={machine.name}
+            tailnetDown={isTailnetDown([...connections.values()])}
+            onSend={onSend}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+interface ShellBlockProps {
+  /** The distance from the top of the screen. */
+  readonly top: number;
+  readonly machineName: string;
+}
+
+/** The two lines of the shell block (design 3.2): mono 13/19 at the gutter. */
+function ShellBlock(props: ShellBlockProps) {
+  return (
+    <View className="px-gutter" style={{ paddingTop: props.top }}>
+      <MonoText
+        size="monoShell"
+        tone="text_subtle"
+        accessibilityLabel={`${props.machineName}, in ${BLANK_CWD}, ${BLANK_MODE}`}
+      >
+        <MonoText size="monoShell" tone="text_bright">
+          {props.machineName}
+        </MonoText>{" "}
+        <MonoText size="monoShell" tone="prompt_directory">
+          {BLANK_CWD}
+        </MonoText>
+        {` ${BLANK_MODE}`}
+      </MonoText>
+      <View className="flex-row items-center" accessibilityElementsHidden>
+        <Text className="text-mono-shell text-accent-primary">❯ </Text>
+        <BlockCursor size="shell" mode="blink" />
+      </View>
+    </View>
   );
 }
