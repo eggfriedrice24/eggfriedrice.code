@@ -238,6 +238,33 @@ describe("the handshake", () => {
     }
   });
 
+  it("names the protocol and the version of efrd on a protocol mismatch", async () => {
+    const answered = setup();
+    answered.sockets.last.open();
+    await flush();
+    answered.sockets.last.answer("hello", { ...remoteHello(), protocol: 0, version: "0.0.3" });
+    const old = await failure(answered.opening);
+    expect({ kind: old.kind, protocol: old.details.daemonProtocol }).toEqual({
+      kind: "protocol_mismatch",
+      protocol: 0,
+    });
+    expect(old.details.daemonVersion).toBe("0.0.3");
+
+    const refused = setup();
+    refused.sockets.last.open();
+    await flush();
+    refused.sockets.last.refuse("hello", "protocol_mismatch", "no", { daemon: 2, client: 1 });
+    const newer = await failure(refused.opening);
+    expect(newer.details.daemonProtocol).toBe(2);
+    expect(newer.details.daemonVersion).toBeUndefined();
+
+    const bare = setup();
+    bare.sockets.last.open();
+    await flush();
+    bare.sockets.last.refuse("hello", "protocol_mismatch", "no", { daemon: "two" });
+    expect((await failure(bare.opening)).details.daemonProtocol).toBeUndefined();
+  });
+
   it("fails when the key cannot sign", async () => {
     const { sockets, key, opening } = setup();
     key.failing = true;

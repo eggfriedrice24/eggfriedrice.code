@@ -255,7 +255,10 @@ describe("pair", () => {
   it("stops before the token goes out on another protocol version", async () => {
     const newer = fakeDaemon(answers({ hello: { item: { ...HELLO, protocol: 2 } } }));
     const one = await pair(CODE, setup(newer.sockets).deps, { name: "iPhone" });
-    expect(one).toEqual({ ok: false, failure: { kind: "protocol_mismatch" } });
+    expect(one).toEqual({
+      ok: false,
+      failure: { kind: "protocol_mismatch", protocol: 2, version: "0.0.6" },
+    });
     expect(newer.made[0]?.sent.join("")).not.toContain(TOKEN);
 
     const refused = fakeDaemon(
@@ -266,7 +269,7 @@ describe("pair", () => {
       }),
     );
     const two = await pair(CODE, setup(refused.sockets).deps, { name: "iPhone" });
-    expect(two).toEqual({ ok: false, failure: { kind: "protocol_mismatch" } });
+    expect(two).toEqual({ ok: false, failure: { kind: "protocol_mismatch", protocol: 3 } });
   });
 
   it.each([

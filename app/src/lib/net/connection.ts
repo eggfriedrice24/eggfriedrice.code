@@ -36,7 +36,14 @@ import { METHOD_RESULT_SCHEMAS, scopeNameSchema } from "@/lib/protocol/generated
 import { proveFields, proveMessage } from "@/lib/protocol/prove";
 import type { Clock, Timer } from "./clock";
 import type { DeviceKey } from "./device-key";
-import { ConnectionError, ServerError, asksToRepair, retryAfterMs } from "./errors";
+import {
+  ConnectionError,
+  ServerError,
+  asksToRepair,
+  daemonProtocolOf,
+  retryAfterMs,
+  type ConnectionErrorDetails,
+} from "./errors";
 import {
   DEFAULT_LIVENESS,
   liveness,
@@ -262,9 +269,17 @@ export class Connection {
     // The version comes first: the result of another protocol need not fit the schema.
     const protocol = isJsonObject(raw) ? raw["protocol"] : undefined;
     if (typeof protocol === "number" && protocol !== PROTOCOL_VERSION) {
+      const version = isJsonObject(raw) ? raw["version"] : undefined;
+      const details: { daemonProtocol: number; daemonVersion?: string } = {
+        daemonProtocol: protocol,
+      };
+      if (typeof version === "string") {
+        details.daemonVersion = version;
+      }
       throw new ConnectionError(
         "protocol_mismatch",
         `efrd speaks protocol ${protocol}, the app ${PROTOCOL_VERSION}`,
+        details,
       );
     }
     const hello = checkedResult("hello", raw);
@@ -484,7 +499,14 @@ export class Connection {
 function handshakeError(step: "hello" | "device.prove", body: ErrorBody): ConnectionError {
   const details = asksToRepair(body) ? { body, rePair: true } : { body };
   if (body.code === "protocol_mismatch") {
-    return new ConnectionError("protocol_mismatch", body.message, details);
+    const mismatch: { -readonly [K in keyof ConnectionErrorDetails]: ConnectionErrorDetails[K] } = {
+      ...details,
+    };
+    const daemonProtocol = daemonProtocolOf(body);
+    if (daemonProtocol !== undefined) {
+      mismatch.daemonProtocol = daemonProtocol;
+    }
+    return new ConnectionError("protocol_mismatch", body.message, mismatch);
   }
   if (body.code === "busy") {
     const wait = retryAfterMs(body);

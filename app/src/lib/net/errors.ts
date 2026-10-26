@@ -2,6 +2,7 @@
 
 import type { ErrorBody } from "@/lib/protocol/generated";
 import {
+  protocolMismatchDataSchema,
   rePairDataSchema,
   retryAfterMsDataSchema,
   retryAfterSecsDataSchema,
@@ -83,6 +84,14 @@ export interface ConnectionErrorDetails {
    * Tailscale node, so the phone must pair again (docs/protocol.md "Remote devices").
    */
   readonly rePair?: boolean;
+  /**
+   * For `protocol_mismatch`: the protocol of efrd, when efrd named it (in its hello
+   * result, or in the data of its error). The pairing screen uses it to tell whether efrd
+   * or the app is too old.
+   */
+  readonly daemonProtocol?: number;
+  /** For `protocol_mismatch`: the version of efrd, when its hello result named it. */
+  readonly daemonVersion?: string;
 }
 
 /** A failed or closed connection. */
@@ -130,4 +139,10 @@ export function retryAfterMs(body: ErrorBody): number | undefined {
 /** True when the error data says `re_pair: true`. */
 export function asksToRepair(body: ErrorBody): boolean {
   return rePairDataSchema.safeParse(body.data).success;
+}
+
+/** The protocol of efrd in the data of a `protocol_mismatch` error, or undefined. */
+export function daemonProtocolOf(body: ErrorBody): number | undefined {
+  const data = protocolMismatchDataSchema.safeParse(body.data);
+  return data.success ? data.data.daemon : undefined;
 }

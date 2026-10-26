@@ -12,3 +12,6 @@ export const retryAfterSecsDataSchema = z.object({ retry_after_secs: z.number().
 
 /** The mark of a proof from another Tailscale node: the phone must pair again. */
 export const rePairDataSchema = z.object({ re_pair: z.literal(true) });
+
+/** The protocol of efrd in the data of a `protocol_mismatch` error (`{daemon, client}`). */
+export const protocolMismatchDataSchema = z.object({ daemon: z.int().nonnegative() });

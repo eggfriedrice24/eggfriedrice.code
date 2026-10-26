@@ -76,8 +76,11 @@ export type PairingFailure =
   | { readonly kind: "unreachable" }
   /** The computer at the address is not the one of the code. The token did not go out. */
   | { readonly kind: "wrong_daemon" }
-  /** efrd speaks another protocol version. The token did not go out. */
-  | { readonly kind: "protocol_mismatch" }
+  /**
+   * efrd speaks another protocol version. The token did not go out. `protocol` and
+   * `version` are efrd's, when it named them.
+   */
+  | { readonly kind: "protocol_mismatch"; readonly protocol?: number; readonly version?: string }
   /** efrd refused the token: it is wrong, used or expired. Run `efr device add` again. */
   | { readonly kind: "token_refused"; readonly message: string }
   /** The user said no at the terminal, or the pairing expired before the answer. */
@@ -404,8 +407,18 @@ function openFailure(error: ConnectionError): PairingFailure {
       return { kind: "unreachable" };
     case "daemon_changed":
       return { kind: "wrong_daemon" };
-    case "protocol_mismatch":
-      return { kind: "protocol_mismatch" };
+    case "protocol_mismatch": {
+      const failure: { kind: "protocol_mismatch"; protocol?: number; version?: string } = {
+        kind: "protocol_mismatch",
+      };
+      if (error.details.daemonProtocol !== undefined) {
+        failure.protocol = error.details.daemonProtocol;
+      }
+      if (error.details.daemonVersion !== undefined) {
+        failure.version = error.details.daemonVersion;
+      }
+      return failure;
+    }
     case "closed":
       // NOTE: only the flow closes a connection that opens: a cancel.
       return { kind: "cancelled" };
