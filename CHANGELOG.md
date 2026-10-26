@@ -60,6 +60,15 @@ into the GitHub release notes, and it stops when the section is missing.
   efrd version. The menu of a row copies the node name, pairs the machine again or
   forgets it. Forget asks first. After the last machine, the app goes back to
   pairing. Settings also has the Haptics switch and the version of the app.
+- The phone app opens on a blank conversation of the machine that you picked last. It
+  shows the machine, `~` and the mode, and a prompt with a cursor. Your first message
+  there starts a new conversation, and the app opens it at once. A conversation shows
+  the reply while it streams, the tool calls, the questions with Allow and Deny, and
+  the end of each turn. Retry sends the prompt of a failed turn again. When the
+  machine goes offline, the conversation keeps its transcript, and it gets the new
+  events when the machine is back. A tap on the strip of a waiting question opens
+  that conversation at the question. VoiceOver tells you when a question waits and
+  when a reply is done. A turn that fails while you look at it gives an error haptic.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.
