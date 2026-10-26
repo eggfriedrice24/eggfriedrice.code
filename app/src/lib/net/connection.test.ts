@@ -304,6 +304,71 @@ describe("requests", () => {
     expect(await call).toEqual({ conversations: [] });
   });
 
+  it("checks a result with the schema of its method, and stays open when it fails", async () => {
+    const { connection, socket } = await ready();
+    const good = connection.call("approval.respond", {
+      command_id: "c",
+      conversation_id: "x",
+      call_id: "k",
+      decision: "allow",
+    });
+    await flush();
+    socket.answer("approval.respond", { seq: 46, from_a_newer_efrd: true });
+    expect(await good).toEqual({ seq: 46 });
+
+    const bad = connection.call("conversations.list", {});
+    bad.catch(() => {});
+    await flush();
+    const summary = {
+      id: "not a uuid",
+      status: "idle",
+      created_at: "2026-10-26T12:00:00Z",
+      updated_at: "2026-10-26T12:00:00Z",
+      last_seq: 3,
+    };
+    socket.answer("conversations.list", { conversations: [summary] });
+    await expect(bad).rejects.toBeInstanceOf(ConnectionError);
+    await expect(bad).rejects.toMatchObject({ kind: "malformed" });
+    await expect(bad).rejects.toThrow(/^the conversations\.list result\.conversations\.0\.id:/);
+    expect(connection.closed).toBe(false);
+  });
+
+  it("keeps the scopes of the proof that it knows, and fails a proof without a list", async () => {
+    const outcomes: unknown[] = [];
+    for (const result of [
+      { scopes: ["read", "from_a_newer_efrd", "approve"] },
+      { scopes: "read" },
+      null,
+    ]) {
+      const { sockets, opening } = setup();
+      const socket = sockets.last;
+      socket.open();
+      await flush();
+      socket.answer("hello", remoteHello());
+      await flush();
+      socket.answer("device.prove", result);
+      outcomes.push(
+        await opening.then(
+          (connection) => connection.scopes,
+          (error: unknown) => (error instanceof ConnectionError ? error.kind : error),
+        ),
+      );
+    }
+    expect(outcomes).toEqual([["read", "approve"], "malformed", "malformed"]);
+  });
+
+  it("fails the handshake when the hello result fails its schema", async () => {
+    const { sockets, opening } = setup();
+    sockets.last.open();
+    await flush();
+    sockets.last.answer("hello", { ...remoteHello(), challenge: 7 });
+    const error = await failure(opening);
+    expect({ kind: error.kind, message: error.message }).toEqual({
+      kind: "malformed",
+      message: expect.stringMatching(/^the hello result\.challenge:/),
+    });
+  });
+
   it("rejects a call with the server error, or with no result", async () => {
     const { connection, socket } = await ready();
     const refused = connection.call("approval.respond", {

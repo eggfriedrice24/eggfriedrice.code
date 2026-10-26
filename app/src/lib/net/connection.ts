@@ -8,7 +8,9 @@
 // 2. With a device key: sign the prove message of the result's challenge and facts
 //    (src/lib/protocol/prove.ts) and call `device.prove`. Without one (while pairing) the
 //    connection is ready after hello, and the caller sends `device.enroll`.
-// 3. Requests and streams. Each request has an id, unique on the connection.
+// 3. Requests and streams. Each request has an id, unique on the connection. The result
+//    of a call must pass the generated schema of its method (METHOD_RESULT_SCHEMAS);
+//    else the call fails with kind `malformed`, and the connection stays open.
 //
 // The liveness rule (src/lib/net/liveness.ts): JS never sees the WebSocket pongs, so the
 // connection counts only the frames that it decodes. After a silence it sends one
@@ -18,7 +20,7 @@
 // closes, and the client connects again.
 
 import { base64Encode } from "@/lib/protocol/bytes";
-import { decodeServerFrame, isJsonObject } from "@/lib/protocol/envelope";
+import { decodeServerFrame, failureReason, isJsonObject } from "@/lib/protocol/envelope";
 import {
   PROTOCOL_VERSION,
   type ErrorBody,
@@ -30,6 +32,7 @@ import {
   type ScopeName,
   type StreamMethodName,
 } from "@/lib/protocol/generated";
+import { METHOD_RESULT_SCHEMAS, scopeNameSchema } from "@/lib/protocol/generated-zod";
 import { proveFields, proveMessage } from "@/lib/protocol/prove";
 import type { Clock, Timer } from "./clock";
 import type { DeviceKey } from "./device-key";
@@ -184,14 +187,15 @@ export class Connection {
   /**
    * Runs a method with one result. It rejects with a `ServerError` when efrd answers
    * with an error, and with a `ConnectionError` when the connection closes first or
-   * `timeoutMs` passes (the request is then cancelled).
+   * `timeoutMs` passes (the request is then cancelled). A result that fails the schema
+   * of the method rejects with kind `malformed`; the connection stays open.
    */
   async call<M extends UnaryMethodName>(
     method: M,
     params: MethodParams[M],
     options: { readonly timeoutMs?: number } = {},
   ): Promise<MethodResults[M]> {
-    return trustedResult(method, await this.unary(method, params, options.timeoutMs));
+    return checkedResult(method, await this.unary(method, params, options.timeoutMs));
   }
 
   /** Starts a stream method. Its frames go to `handlers` until it ends or is cancelled. */
@@ -252,16 +256,16 @@ export class Connection {
     if (device !== undefined) {
       params.device_id = device.id;
     }
-    const hello = helloResult(await this.handshakeStep("hello", params));
-    if (hello === undefined) {
-      throw new ConnectionError("malformed", "the hello result is malformed");
-    }
-    if (hello.protocol !== PROTOCOL_VERSION) {
+    const raw = await this.handshakeStep("hello", params);
+    // The version comes first: the result of another protocol need not fit the schema.
+    const protocol = isJsonObject(raw) ? raw["protocol"] : undefined;
+    if (typeof protocol === "number" && protocol !== PROTOCOL_VERSION) {
       throw new ConnectionError(
         "protocol_mismatch",
-        `efrd speaks protocol ${hello.protocol}, the app ${PROTOCOL_VERSION}`,
+        `efrd speaks protocol ${protocol}, the app ${PROTOCOL_VERSION}`,
       );
     }
+    const hello = checkedResult("hello", raw);
     if (hello.daemon_id !== this.options.daemonId) {
       throw new ConnectionError("daemon_changed", "another daemon answered at this address");
     }
@@ -292,7 +296,7 @@ export class Connection {
       device_id: device.id,
       signature: base64Encode(signature),
     };
-    this.grantedScopes = scopesOf(await this.handshakeStep("device.prove", proof));
+    this.grantedScopes = knownScopes(await this.handshakeStep("device.prove", proof));
     return this.grantedScopes;
   }
 
@@ -494,44 +498,30 @@ function handshakeError(step: "hello" | "device.prove", body: ErrorBody): Connec
   return new ConnectionError("refused", body.message, details);
 }
 
-/** The hello result, after a check of the members that the connection reads. */
-function helloResult(value: unknown): HelloResult | undefined {
-  if (!isJsonObject(value)) {
-    return undefined;
+/**
+ * The result of `method`, after the check with its generated schema. It throws a
+ * `ConnectionError` of kind `malformed` that names the first bad member.
+ */
+function checkedResult<M extends MethodName>(method: M, value: unknown): MethodResults[M] {
+  const result = METHOD_RESULT_SCHEMAS[method].safeParse(value);
+  if (!result.success) {
+    throw new ConnectionError("malformed", failureReason(`the ${method} result`, result.error));
   }
-  const { daemon_id: daemonId, protocol, challenge, prove } = value;
-  if (
-    typeof daemonId !== "string" ||
-    typeof protocol !== "number" ||
-    typeof challenge !== "string"
-  ) {
-    return undefined;
-  }
-  if (
-    prove !== undefined &&
-    prove !== null &&
-    (!isJsonObject(prove) ||
-      typeof prove["peer_node"] !== "string" ||
-      typeof prove["daemon_node"] !== "string" ||
-      typeof prove["daemon_tailnet"] !== "string")
-  ) {
-    return undefined;
-  }
-  return trustedResult("hello", value);
-}
-
-function scopesOf(value: unknown): readonly ScopeName[] {
-  if (!isJsonObject(value) || !Array.isArray(value["scopes"])) {
-    return [];
-  }
-  return trustedResult("device.prove", value).scopes;
+  return result.data;
 }
 
 /**
- * The result of `method` as its generated type. efrd is trusted for the shape of a
- * result (R6 item 10 of the research); a caller that reads a member checks it.
+ * The scopes of a `device.prove` result that this build knows. It leaves out a scope of
+ * a newer efrd instead of failing the proof, because the app cannot use that scope, and a
+ * failed proof would stop every connection of the phone.
  */
-function trustedResult<M extends MethodName>(_method: M, value: unknown): MethodResults[M] {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- efrd is trusted for results.
-  return value as MethodResults[M];
+function knownScopes(value: unknown): readonly ScopeName[] {
+  const scopes = isJsonObject(value) ? value["scopes"] : undefined;
+  if (!Array.isArray(scopes)) {
+    throw new ConnectionError("malformed", "the device.prove result has no list of scopes");
+  }
+  return scopes.flatMap((scope: unknown) => {
+    const known = scopeNameSchema.safeParse(scope);
+    return known.success ? [known.data] : [];
+  });
 }

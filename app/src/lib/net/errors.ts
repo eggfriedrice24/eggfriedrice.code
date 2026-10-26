@@ -15,7 +15,10 @@ export type ConnectionErrorKind =
   | "timeout"
   /** No frame came for too long (the liveness rule). */
   | "silent"
-  /** efrd sent a frame that the envelope guard refused. */
+  /**
+   * efrd sent a frame that the decoder refused, or a result that the schema of its
+   * method refused.
+   */
   | "malformed"
   /** efrd is starting and cannot take the connection yet; retry after `retryAfterMs`. */
   | "starting"
