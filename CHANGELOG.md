@@ -43,12 +43,13 @@ into the GitHub release notes, and it stops when the section is missing.
   each connection. The app is not in the App Store: you build it with EAS, as
   `app/README.md` tells. It was tested on Linux only and was not run on an iPhone yet.
   `docs/use/phone.md` tells what a phone can and cannot do.
-- The phone app has a native bar on each screen. The title opens a menu of the 8 recent
-  conversations of the machine, and the conversations that wait for an answer come
-  first. The blank root has a menu of the paired machines. Settings and New are on the
-  right. A strip under the bar of a conversation tells you when another conversation
-  waits for an answer, and when its machine is offline. The stack keeps at most 8
-  conversations, and a conversation that is in the stack opens where it is.
+- The phone app has a native bar on each screen. The title opens a menu of the 8
+  recent conversations of the machine, and the conversations that wait for an answer
+  come first. The blank root has a menu of the paired machines. Settings and New are
+  on the right. A strip under the bar of a conversation and a dot on the title tell
+  you when another conversation waits for an answer, and the strip tells you when its
+  machine is offline. The stack keeps at most 8 conversations, and a conversation that
+  is in the stack opens where it is.
 - The phone app pairs in one full screen step after step: the command to run, the
   scan, the name and the key to compare with the terminal, and the paired machine.
   Each error has its own screen and one action: an expired code, a code of another
@@ -60,18 +61,16 @@ into the GitHub release notes, and it stops when the section is missing.
   efrd version. The menu of a row copies the node name, pairs the machine again or
   forgets it. Forget asks first. After the last machine, the app goes back to
   pairing. Settings also has the Haptics switch and the version of the app.
-- The phone app opens on a blank conversation of the machine that you picked last. It
+- The phone app opens on a blank conversation of the machine that you used last. It
   shows the machine, `~` and the mode, and a prompt with a cursor. Your first message
-  there starts a new conversation, and the app opens it at once. A conversation shows
-  the reply while it streams, the tool calls, the questions with Allow and Deny, and
-  the end of each turn. Retry sends the prompt of a failed turn again. When the
-  machine goes offline, the conversation keeps its transcript, and it gets the new
-  events when the machine is back. A tap on the strip of a waiting question opens
-  that conversation at the question. VoiceOver tells you when a question waits and
-  when a reply is done. A turn that fails while you look at it gives an error haptic.
-- The phone app opens on a blank conversation on the machine that you used last. The
-  first prompt that you send there starts a new conversation on that machine and opens
-  it. The menu at the left of the bar picks another machine.
+  there starts a new conversation on that machine, and the app opens it at once. The
+  menu at the left of the bar picks another machine. A conversation shows the reply
+  while it streams, the tool calls, the questions with Allow and Deny, and the end of
+  each turn. Retry sends the prompt of a failed turn again. When the machine goes
+  offline, the conversation keeps its transcript, and it gets the new events when the
+  machine is back. A tap on the strip of a waiting question opens that conversation at
+  the question. VoiceOver tells you when a question waits and when a reply is done. A
+  turn that fails while you look at it gives an error haptic.
 - The phone app pairs with more than one machine, and connects to all of them at the
   same time. Each machine has its own device key. Pair another one from Settings or
   from the machine menu. A conversation on another machine opens with that machine.
@@ -94,8 +93,7 @@ into the GitHub release notes, and it stops when the section is missing.
   the directory and why the mode asks, with Allow and Deny. A question that only the
   terminal can answer tells why, and has no buttons. A question shows how long it can
   wait, and "expired while you were away" when its time ran out while the app was
-  closed. A strip under the bar and a dot on the title tell you when another
-  conversation waits for an answer.
+  closed.
 - The All conversations sheet of the phone app lists the conversations of every
   machine: first the ones that wait for an answer, then today, this week and older. Its
   search finds a conversation by title, machine or directory, and then asks efrd.
