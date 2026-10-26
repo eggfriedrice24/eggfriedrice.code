@@ -131,7 +131,7 @@ function RenderBoard(props: RenderBoardProps) {
     <View className="flex-1 bg-surface-1">
       <ConversationHeader conversation={{ machine: props.machine, id: props.id }} />
       <RenderProbe id="conversation">
-        <ConversationScreen machine={props.machine} id={props.id} />
+        <ConversationScreen conversation={{ machine: props.machine, id: props.id }} />
       </RenderProbe>
       <RenderOverlay top={top} />
     </View>
