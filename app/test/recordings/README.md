@@ -28,15 +28,15 @@ completed text with no gap, and that the events match the committed file.
 
 ## Scenarios
 
-| File | What it shows |
-|---|---|
-| `long_reply.ndjson` | About 20 KB of Markdown prose in deltas of four words. |
-| `code_blocks.ndjson` | Code fences in Rust, TypeScript, Bash and with no language, cut in deltas of 9 characters. |
-| `tables.ndjson` | Two GFM tables with alignment, cut in deltas of 7 characters. |
-| `multibyte.ndjson` | CJK, Korean, Greek, Cyrillic, Hebrew, Arabic, emoji with skin tones, families, flags and keycaps, and a combining mark, cut in deltas of 2 code points. A delta can end inside one emoji. |
-| `reasoning.ndjson` | Reasoning in two sections with bold titles, then the answer. |
-| `tool_output.ndjson` | Text, a `read_file` call whose input streams as `tool_input` drafts, its output, then the answer as message 1. |
-| `approval_in_the_middle.ndjson` | A `write_file` question that the phone allows (with a diff), then a `sudo` question with `local_only: true`: the daemon refuses the phone's answer and the terminal denies it. |
-| `join_mid_reply.ndjson` | The phone joins in the middle of a long reply: the snapshot has `live` with the text and the reasoning so far, and the drafts go on past it. |
+| File                            | What it shows                                                                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `long_reply.ndjson`             | About 20 KB of Markdown prose in deltas of four words.                                                                                                                                    |
+| `code_blocks.ndjson`            | Code fences in Rust, TypeScript, Bash and with no language, cut in deltas of 9 characters.                                                                                                |
+| `tables.ndjson`                 | Two GFM tables with alignment, cut in deltas of 7 characters.                                                                                                                             |
+| `multibyte.ndjson`              | CJK, Korean, Greek, Cyrillic, Hebrew, Arabic, emoji with skin tones, families, flags and keycaps, and a combining mark, cut in deltas of 2 code points. A delta can end inside one emoji. |
+| `reasoning.ndjson`              | Reasoning in two sections with bold titles, then the answer.                                                                                                                              |
+| `tool_output.ndjson`            | Text, a `read_file` call whose input streams as `tool_input` drafts, its output, then the answer as message 1.                                                                            |
+| `approval_in_the_middle.ndjson` | A `write_file` question that the phone allows (with a diff), then a `sudo` question with `local_only: true`: the daemon refuses the phone's answer and the terminal denies it.            |
+| `join_mid_reply.ndjson`         | The phone joins in the middle of a long reply: the snapshot has `live` with the text and the reasoning so far, and the drafts go on past it.                                              |
 
 A `tool_call_output_updated` event is not in these recordings: it needs a real shell.
