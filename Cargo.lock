@@ -1233,13 +1233,16 @@ name = "efr-test-daemon"
 version = "0.0.5"
 dependencies = [
  "async-trait",
+ "aws-lc-rs",
  "efr-daemon",
  "efr-protocol",
  "efr-test-support",
  "efr-transport",
+ "fastwebsockets",
  "futures",
  "jiff",
  "pretty_assertions",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",

@@ -20,6 +20,9 @@
 //!   terminal a peer runs on), set by the test; [`TestDaemonBuilder::proc_view`].
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
 //!   with scripted bytes ([`PtyScript`], [`FakeTerminal`]).
+//! - [`FakePhone`]: the phone app on efrd's remote listener, a WebSocket on a real
+//!   loopback TCP stream, with a software P-256 [`PhoneKey`];
+//!   [`TestDaemonBuilder::remote`] turns the listener on with a fake tailscaled.
 //! - [`Replay`]: drives a [`Scenario`], an NDJSON transcript from `fixtures/`, through a
 //!   test daemon and checks every outbound record; [`Replay::bless`] rewrites one.
 //!
@@ -36,6 +39,7 @@
 mod error;
 mod fake_forwarder;
 mod fake_launcher;
+mod fake_phone;
 mod fake_procs;
 mod fake_reach;
 mod pty_script;
@@ -51,6 +55,7 @@ pub use efr_daemon::SearchRowHook;
 pub use error::TestDaemonError;
 pub use fake_forwarder::{FakeForwarder, connect_socket, echo_server};
 pub use fake_launcher::FakeLauncher;
+pub use fake_phone::{FakePhone, PhoneKey};
 pub use fake_procs::FakeProcView;
 pub use fake_reach::{FakeReach, Told};
 pub use pty_script::{

@@ -48,6 +48,15 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   address of its own: the name resolves to that address, and port 443 or 80 of it
   reaches the server. Without it the proxy refuses every name and every address, so a
   test daemon never reaches the internet.
+- `TestDaemonBuilder::remote()` turns the remote listener on (`[remote] enabled`) with
+  an `efr_test_support::FakeTailscaled` of its own (`TestDaemon::tailscaled`). The
+  listener binds a free port of `127.0.0.1` in place of the tailnet address
+  (`Deps::with_remote_listen`), and `TestDaemon::remote_addr` waits until
+  `daemon.json` names it. The fake's whois decides each peer, so a phone of the test
+  connects from loopback as any node of the tailnet; the real listener never binds
+  loopback. Without `remote()`, `remote.tailscaled_socket` names a socket in the
+  temporary tree that nothing binds, also when a test turns `remote.enabled` on by
+  hand, so a test daemon never reaches the machine's tailscaled.
 - `TestDaemonBuilder::bus_proxy(system, session)` turns the bus filter on with the
   test's own bus sockets, and `bus_proxy_program` names the `xdg-dbus-proxy` to run.
   Without them the daemon keeps `dbus.proxy = false` across reloads and has no bus at
@@ -92,6 +101,18 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `closed` waits until efrd closed the control connection. `open` is a process of the
   call that connects to a port: a data connection that sends `Connect` and then carries
   the bytes. It binds no TCP port, and it encodes the frames by hand.
+- `fake_phone`: `FakePhone`, the phone app on the remote listener: a TCP stream to
+  `remote_addr`, the opening handshake of a WebSocket with the origin of the app's
+  web view (`connect`), another origin or none (`connect_with_origin`), or only the
+  status line of the answer (`handshake`, empty for a peer that the listener refused
+  with no byte). Then the protocol in text frames: `hello` as the phone,
+  `call` and `result` for one item, `send` and `next_item` for a stream such as a
+  subscription, `prove`, and `closed`, which waits until efrd closes the connection.
+  Frames of other requests that come first are kept for their own read. Every read
+  has a real time limit. `PhoneKey` is a software P-256 key in place of the app's
+  Secure Enclave key: the 65-byte X9.63 public key, the fingerprint that the terminal
+  shows (`SHA256:` and 8 bytes in hex), and the DER signature of `device.prove` over
+  `ProveMessage`.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
@@ -168,7 +189,8 @@ sandbox's test seams), `efr-test-support`,
 allowlist. The holder types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder` edge.
 
 Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `futures`,
-`async-trait` (the holder trait), `serde_json`, `jiff` (the time zone), `wiremock`
+`async-trait` (the holder trait), `serde` and `serde_json`, `fastwebsockets` and
+`aws-lc-rs` (the fake phone's WebSocket and key), `jiff` (the time zone), `wiremock`
 (the Responses and Messages servers) and `thiserror`.
 
 ## Invariant
@@ -178,6 +200,8 @@ Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `future
 - A test daemon never touches the network, the real home, config or runtime directory,
   or the machine's git configuration, and never waits on real time: every deadline runs
   on its `TestClock`.
+- A test daemon never reaches the machine's tailscaled: its remote listener talks to
+  a `FakeTailscaled` or to a socket that does not exist, and binds only `127.0.0.1`.
 - A job port forward of a test daemon binds a free port of `127.0.0.1`
   (`TestHostPorts`), never a fixed port of the machine, unless the test asks for
   `system_host_ports`.
@@ -195,8 +219,10 @@ cargo nextest run -p efr-test-daemon
 The unit tests drive the fake holder over its socketpairs (typing, printing, scripts,
 signals, `wait`, release), the id placeholders, the Responses and Messages servers
 over plain HTTP (the Messages server's answers, its kept headers and its model pages),
-the test daemon's start, stop and restart (with and without a file store), and the
-replay: the scenario table against the fixture directory, a whole scenario, and the
+the test daemon's start, stop and restart (with and without a file store), the fake
+phone's key (a DER signature that aws-lc-rs verifies, the fingerprint) and a phone on
+the remote listener of a test daemon (the hello, a refused origin, an unknown peer),
+and the replay: the scenario table against the fixture directory, a whole scenario, and the
 failures a fixture can show (a different event, typed line or request, an unbound
 placeholder). Rewriting the fixtures is an ignored test that `just bless` runs:
 

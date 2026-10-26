@@ -4,7 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use efr_daemon::DaemonError;
-use efr_protocol::ProtocolError;
+use efr_protocol::{ErrorBody, ProtocolError};
 use efr_test_support::TestSupportError;
 use efr_transport::client::ClientError;
 use serde_json::Value;
@@ -197,6 +197,60 @@ pub enum TestDaemonError {
         /// The runs tried.
         runs: usize,
     },
+
+    /// The listener answered the phone's handshake without switching protocols.
+    #[error("the remote listener refused the phone's WebSocket")]
+    PhoneRefused {
+        /// The status line of the answer; empty when the listener closed the stream
+        /// with no byte.
+        status: String,
+    },
+
+    /// The phone's WebSocket failed.
+    #[error("the phone's WebSocket failed")]
+    PhoneSocket {
+        /// The error of fastwebsockets.
+        #[source]
+        source: fastwebsockets::WebSocketError,
+    },
+
+    /// The daemon sent the phone a text frame that is not a server frame.
+    #[error("the daemon sent the phone a frame that is not valid")]
+    PhoneFrame {
+        /// The decode error.
+        #[source]
+        source: ProtocolError,
+    },
+
+    /// The daemon answered a request of the phone with an error.
+    #[error("the daemon answered the phone's request with an error")]
+    PhoneServer {
+        /// The error, with its code, message and data.
+        body: ErrorBody,
+    },
+
+    /// The daemon closed the phone's connection while the phone waited for a frame.
+    #[error("the daemon closed the phone's connection")]
+    PhoneClosed,
+
+    /// The daemon sent the phone a frame that the read did not expect.
+    #[error("the daemon sent the phone {what}")]
+    PhoneUnexpected {
+        /// What came.
+        what: &'static str,
+    },
+
+    /// The phone's software key failed.
+    #[error("the phone's key failed")]
+    PhoneKey {
+        /// The error of aws-lc-rs.
+        #[source]
+        source: aws_lc_rs::error::Unspecified,
+    },
+
+    /// A proof needs the prove facts of a hello on the remote listener.
+    #[error("the hello has no prove facts")]
+    NoProveFacts,
 }
 
 impl From<TestSupportError> for TestDaemonError {
