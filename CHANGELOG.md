@@ -69,6 +69,38 @@ into the GitHub release notes, and it stops when the section is missing.
   events when the machine is back. A tap on the strip of a waiting question opens
   that conversation at the question. VoiceOver tells you when a question waits and
   when a reply is done. A turn that fails while you look at it gives an error haptic.
+- The phone app opens on a blank conversation on the machine that you used last. The
+  first prompt that you send there starts a new conversation on that machine and opens
+  it. The menu at the left of the bar picks another machine.
+- The phone app pairs with more than one machine, and connects to all of them at the
+  same time. Each machine has its own device key. Pair another one from Settings or
+  from the machine menu. A conversation on another machine opens with that machine.
+- A conversation in the phone app shows your prompts, the replies as they stream, the
+  reasoning, the tools that run, the edits with their diff, and a line at the end of
+  each turn. Tap a reasoning row or a tool block to open it. A failed turn shows its
+  reason, with "retry" and "copy error". Touch and hold a message to copy it, and a
+  code block has its own copy button. The app asks before it opens a link, and then
+  opens it in the app. "Jump to latest" takes you back to the end.
+- The composer of the phone app sends a prompt, and stops the running turn. While a
+  turn runs, "Steer now" adds your text to the turn, and "Queue" sends it when the turn
+  ends; touch and hold the capsule to pick one. A queued prompt can be withdrawn. A
+  prompt shows at once, and the app sends it again after a lost connection or after
+  iOS closed the app; efrd runs it only once. The app keeps the draft of each
+  conversation.
+- A question of the agent in the phone app shows the command or the diff of the file,
+  the directory and why the mode asks, with Allow and Deny. A question that only the
+  terminal can answer tells why, and has no buttons. A question shows how long it can
+  wait, and "expired while you were away" when its time ran out while the app was
+  closed. A strip under the bar and a dot on the title tell you when another
+  conversation waits for an answer.
+- The All conversations sheet of the phone app lists the conversations of every
+  machine: first the ones that wait for an answer, then today, this week and older. Its
+  search finds a conversation by title, machine or directory, and then asks efrd.
+  Touch and hold a row to copy its title or its id.
+- The phone app connects again at once when the phone changes its network, such as
+  from Wi-Fi to cellular. A line under the bar tells you when a machine is offline or
+  when Tailscale on the phone is off.
+- The phone app has a new icon, "the yolk": an egg with a yolk, and a ❯ in the yolk.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.
