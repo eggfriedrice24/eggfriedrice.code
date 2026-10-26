@@ -144,10 +144,8 @@ async fn bind(
     };
     let endpoint =
         RemoteEndpoint { host: *bound.ip(), port: bound.port(), fqdn: tailnet.fqdn.clone() };
-    let mut options = WebSocketOptions::new().allow_origin(format!("http://{bound}"));
-    if let Some(fqdn) = &tailnet.fqdn {
-        options = options.allow_origin(format!("http://{fqdn}:{}", bound.port()));
-    }
+    // NOTE: only the bound address: the app dials it, and never the MagicDNS name.
+    let options = WebSocketOptions::new().allow_origin(format!("http://{bound}"));
     tracing::info!(address = %bound, "the remote listener listens");
     let token = stop.child_token();
     let accept = Accept {

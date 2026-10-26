@@ -226,6 +226,8 @@ To use the phone again, pair it again with `efr device add`.
   When tailscaled cannot tell, efrd closes the connection.
 - efrd refuses a connection from this computer itself. So a local process, such as a
   command of the agent, cannot use the listener.
+- efrd refuses a connection from an address that is not a Tailscale address, such as a
+  device on your home network behind a subnet route.
 - efrd refuses tagged devices, shared devices, and devices of other users or other
   tailnets. A paired device must connect from the Tailscale node, the user and the
   tailnet that it paired from.

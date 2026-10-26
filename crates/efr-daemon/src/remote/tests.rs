@@ -409,11 +409,11 @@ async fn only_a_missing_or_the_self_origin_may_open_a_socket() {
         let (_, status) = handshake(addr, Some(origin)).await;
         assert!(status.starts_with("HTTP/1.1 4"), "{origin}: {status}");
     }
-    let (_, status) = handshake(addr, Some(&format!("http://{addr}"))).await;
-    assert_eq!(status, "HTTP/1.1 101 Switching Protocols");
     let named = format!("http://desk.example.ts.net:{}", addr.port());
     let (_, status) = handshake(addr, Some(&named)).await;
-    assert_eq!(status, "HTTP/1.1 101 Switching Protocols", "the MagicDNS name of the node");
+    assert!(status.starts_with("HTTP/1.1 4"), "the MagicDNS name of the node: {status}");
+    let (_, status) = handshake(addr, Some(&format!("http://{addr}"))).await;
+    assert_eq!(status, "HTTP/1.1 101 Switching Protocols");
     harness.stop().await;
 }
 

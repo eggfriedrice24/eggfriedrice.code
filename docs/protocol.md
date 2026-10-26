@@ -52,6 +52,8 @@ The tailnet WebSocket:
 - Before efrd reads a byte, it asks tailscaled who the peer is. It closes the
   connection at once for this machine itself, a tagged node, a node that another
   tailnet shares, a node of another user and a peer that tailscaled does not know.
+  It also closes it, with no question to tailscaled, for a peer whose address is not
+  in 100.64.0.0/10 or fd7a:115c:a1e0::/48, such as a host behind a subnet route.
 - The opening handshake is `GET /` over HTTP/1.1, version 13, with no query, no
   subprotocol and no extension (no permessage-deflate). The `Origin` header must be
   absent, or `http://<tailnet IPv4>:<port>` or `http://<MagicDNS name>:<port>`
@@ -880,4 +882,5 @@ No protocol version has shipped yet.
   empty `paths`, efrd ignores the `tty` of the hello, and a `prompt.send` whose
   `context` names a `tty` is `invalid`. A held reasoning draft of a slow subscriber now
   waits past the end of a message and the start of a tool call, and goes only at the
-  end of its turn.
+  end of its turn. efrd closes a connection from an address outside the ranges of
+  Tailscale before its whois.
