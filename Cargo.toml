@@ -102,6 +102,9 @@ sha1 = { version = "0.11.0", default-features = false }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "sys_rng"] }
 secrecy = { version = "0.10.3", default-features = false }
+# The check of a phone's P-256 signature in `device.prove` (efr-daemon/src/remote/).
+# It was in Cargo.lock already, through rustls, with these same features.
+aws-lc-rs = { version = "1.18.1", default-features = false, features = ["aws-lc-sys", "prebuilt-nasm"] }
 zeroize = { version = "1.9.0", default-features = false, features = ["alloc"] }
 keyring = "4.2.0"
 

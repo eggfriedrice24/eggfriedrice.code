@@ -12,7 +12,10 @@ use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
 use crate::methods::approval_respond::remote_always;
-use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope, user_side_only};
+use crate::methods::{
+    authorize, authorize_remote, before_proof, cursor, granted, page_size, parse_cursor,
+    remote_only, scope, user_side_only,
+};
 use crate::sandbox::peers::PeerSide;
 
 fn id(n: u128) -> uuid::Uuid {
@@ -579,6 +582,58 @@ fn model_peer_may_not_search() {
             assert!(authorize(surface, PeerSide::User, method).is_ok(), "{surface:?}");
         }
     }
+}
+
+/// The two methods of the tailnet listener that run before a device proved its key.
+fn proof_methods() -> [Method; 2] {
+    let device_id = efr_protocol::DeviceId::from_uuid(id(9));
+    [
+        Method::DeviceEnroll(efr_protocol::DeviceEnroll {
+            token: SecretText::new("token".to_owned()),
+            name: "phone".to_owned(),
+            public_key: Base64Bytes::new(vec![4; 65]),
+        }),
+        Method::DeviceProve(efr_protocol::DeviceProve {
+            device_id,
+            signature: Base64Bytes::new(vec![0x30, 0x00]),
+        }),
+    ]
+}
+
+/// A remote connection gets no scope from the `/proc` walk: before its proof only
+/// `hello`, `device.enroll` and `device.prove` pass, and after it the device's scopes,
+/// at most the phone's.
+#[test]
+fn a_remote_connection_holds_nothing_before_its_proof_and_its_device_scopes_after() {
+    for method in every_method().iter().chain(&proof_methods()) {
+        let before = authorize_remote(None, method);
+        if before_proof(method) {
+            assert!(before.is_ok(), "{}", method.name());
+        } else {
+            assert!(
+                matches!(&before, Err(DaemonError::ProofNeeded { method: name }) if *name == method.name()),
+                "{}: {before:?}",
+                method.name()
+            );
+            assert_eq!(before.unwrap_err().code(), ErrorCode::Unauthorized);
+        }
+        let every = authorize_remote(Some(&ScopeName::ALL), method);
+        let phone = scope(method) != ScopeName::Admin && scope(method) != ScopeName::Terminal;
+        assert_eq!(every.is_ok(), phone || before_proof(method), "{}: {every:?}", method.name());
+        let read = authorize_remote(Some(&[ScopeName::Read]), method);
+        let reads = scope(method) == ScopeName::Read;
+        assert_eq!(read.is_ok(), reads || before_proof(method), "{}: {read:?}", method.name());
+    }
+}
+
+/// The Unix socket refuses the methods of the tailnet listener for every peer.
+#[test]
+fn the_proof_methods_are_remote_only() {
+    for method in proof_methods() {
+        assert!(remote_only(&method) && before_proof(&method), "{}", method.name());
+        assert_eq!(scope(&method), ScopeName::Read);
+    }
+    assert!(every_method().iter().all(|method| !remote_only(method)));
 }
 
 /// The walk of `/proc` that each search makes for its peer (DQ43): at most 2 ms at

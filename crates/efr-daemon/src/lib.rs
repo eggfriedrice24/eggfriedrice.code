@@ -52,6 +52,7 @@ mod ptys;
 mod receipts;
 mod reconcile;
 mod reload;
+mod remote;
 mod repo_hint;
 mod routing;
 mod run;

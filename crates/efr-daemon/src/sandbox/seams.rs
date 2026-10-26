@@ -91,6 +91,9 @@ pub(crate) struct Seams {
     /// The host ports of the job port forwards: a test's map, or the system's.
     #[cfg(feature = "test-sandbox-fake")]
     host_ports: Option<HostPortsSeam>,
+    /// Where the remote listener binds in place of the tailnet address.
+    #[cfg(feature = "test-sandbox-fake")]
+    remote_listen: Option<std::net::SocketAddrV4>,
 }
 
 /// The host ports of a test build.
@@ -325,6 +328,12 @@ impl Seams {
         self.runs_as_root
     }
 
+    /// Where the remote listener binds, as a test said, in place of the tailnet
+    /// address that tailscaled names.
+    pub(crate) fn remote_listen(&self) -> Option<std::net::SocketAddrV4> {
+        self.remote_listen
+    }
+
     /// The host ports of the job port forwards in a test build: the test's map, the
     /// system's when a test or the smoke's `efrd` asked for it, else a map of its own,
     /// so a test daemon never binds a fixed port of the machine.
@@ -504,6 +513,11 @@ impl Seams {
         None
     }
 
+    /// Without the feature the remote listener binds only the tailnet address.
+    pub(crate) fn remote_listen(&self) -> Option<std::net::SocketAddrV4> {
+        None
+    }
+
     /// Without the feature efrd binds the real ports of the machine.
     pub(crate) fn host_ports(&self) -> Arc<dyn HostPorts> {
         Arc::new(SystemHostPorts)
@@ -624,6 +638,16 @@ impl Deps {
     #[must_use]
     pub fn with_system_host_ports(mut self) -> Self {
         self.seams.host_ports = Some(HostPortsSeam::System);
+        self
+    }
+
+    /// Binds the remote listener at `addr`, such as `127.0.0.1:0`, in place of the
+    /// tailnet address that tailscaled names. The whois of the test's tailscaled still
+    /// decides each peer; without the feature the listener never binds anything but the
+    /// tailnet address. Only with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_remote_listen(mut self, addr: std::net::SocketAddrV4) -> Self {
+        self.seams.remote_listen = Some(addr);
         self
     }
 }

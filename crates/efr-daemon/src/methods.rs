@@ -13,8 +13,10 @@
 //! origin holds `read`, `operate` and `approve`; `terminal` is off by default there and
 //! `admin` is never granted. On the Unix socket efrd walks `/proc` for every origin,
 //! the phone included, so a model-side process that declares `phone` holds `read` only.
-//! A tailnet listener of a later milestone has no local pid: it must grant the phone
-//! scopes by its own pairing, never through this walk.
+//! A connection of the tailnet listener (`remote.rs`) has no local pid and gets no such
+//! walk: before its device proved its key it may call only `hello`, `device.enroll`
+//! and `device.prove`, and after that it holds its device's scopes, at most the phone's
+//! ([`authorize_remote`]). The Unix socket refuses `device.enroll` and `device.prove`.
 //!
 //! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
 //! undo, a resume, a stop of a command left running in the hidden shell, a move of a
@@ -82,7 +84,8 @@ pub(crate) use pty_attach::MAX_REPLAY;
 pub use search::SearchRowHook;
 
 /// The scopes of a phone connection.
-const PHONE_SCOPES: &[ScopeName] = &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve];
+pub(crate) const PHONE_SCOPES: &[ScopeName] =
+    &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve];
 
 /// The scopes of a model-side peer and of a peer whose process is gone.
 const READ_ONLY: &[ScopeName] = &[ScopeName::Read];
@@ -313,10 +316,68 @@ pub(crate) fn authorize(
     }
 }
 
+/// True for a method that a remote connection may call before its device proved its
+/// key.
+pub(crate) fn before_proof(method: &Method) -> bool {
+    matches!(method, Method::Hello(_) | Method::DeviceEnroll(_) | Method::DeviceProve(_))
+}
+
+/// True for a method that only a connection of the tailnet listener may call.
+pub(crate) fn remote_only(method: &Method) -> bool {
+    matches!(method, Method::DeviceEnroll(_) | Method::DeviceProve(_))
+}
+
+/// Refuses `method` on a remote connection whose device has the scopes `proved`, or
+/// that has not proved a device yet (`None`). Before the proof only [`before_proof`]
+/// methods pass; after it, a method passes when the device and the phone both hold its
+/// scope, so never an `admin` or `terminal` method.
+pub(crate) fn authorize_remote(
+    proved: Option<&[ScopeName]>,
+    method: &Method,
+) -> Result<(), DaemonError> {
+    if before_proof(method) {
+        return Ok(());
+    }
+    let Some(scopes) = proved else {
+        return Err(DaemonError::ProofNeeded { method: method.name() });
+    };
+    let needed = scope(method);
+    if scopes.contains(&needed) && PHONE_SCOPES.contains(&needed) {
+        Ok(())
+    } else {
+        Err(DaemonError::Forbidden { method: method.name(), scope: needed })
+    }
+}
+
+/// Refuses `method` on the connection of `context`: a remote one by its device's
+/// proof, a local one by its scopes ([`authorize`]) and never for a remote-only method.
+async fn authorize_context(
+    state: &State,
+    context: &ConnectionContext,
+    method: &Method,
+) -> Result<(), DaemonError> {
+    if context.remote().is_some() {
+        let proved = crate::remote::admission(context).and_then(crate::remote::Admission::proved);
+        return authorize_remote(proved.map(|proved| proved.scopes.as_slice()), method);
+    }
+    if remote_only(method) {
+        return Err(DaemonError::RemoteOnly { method: method.name() });
+    }
+    let peer = side_for(state, context, method).await;
+    authorize(context.surface(), peer, method)
+}
+
 /// Where the process of `context`'s peer stands: a look at `/proc` off the async
-/// workers, for every origin. Every connection here comes through the Unix socket,
-/// so a declared phone is a local process too, and it gets the same walk.
+/// workers, for every origin of the Unix socket, where a declared phone is a local
+/// process too and gets the same walk. A remote peer has no process here: it stands on
+/// the user's side once its device proved its key, and is unknown before.
 pub(crate) async fn peer_side(state: &State, context: &ConnectionContext) -> PeerSide {
+    if context.remote().is_some() {
+        return match crate::remote::prove::proved_device(context) {
+            Some(_) => PeerSide::User,
+            None => PeerSide::Unknown,
+        };
+    }
     let pid = context.pid();
     let shells = model_side_roots(state);
     let own = state.pid;
@@ -400,8 +461,7 @@ impl Dispatcher for Methods {
         let span = tracing::debug_span!("request", method = name);
         let state = &self.state;
         let handled = async {
-            let peer = side_for(state, &context, &method).await;
-            authorize(context.surface(), peer, &method)?;
+            authorize_context(state, &context, &method).await?;
             let input = Input::of(state, &context, &method);
             // NOTE: marked before the handler, so a turn that the input starts never
             // reads the idle state that the input ends; recorded after it, so a prompt
@@ -524,12 +584,14 @@ impl Dispatcher for Methods {
                 Method::ConversationDelete(params) => {
                     Box::pin(conversation_delete::handle(state, &context, params, &responder)).await
                 }
+                Method::DeviceProve(params) => {
+                    crate::remote::prove::handle(state, &context, params, &responder).await
+                }
                 // NOTE: the protocol has the device methods before this daemon pairs
                 // devices; it refuses them as a daemon from before them does.
                 Method::DevicePairStart(_)
                 | Method::DevicePairConfirm(_)
                 | Method::DeviceEnroll(_)
-                | Method::DeviceProve(_)
                 | Method::DeviceList(_)
                 | Method::DeviceRevoke(_) => Err(DaemonError::InvalidParams {
                     reason: "this efrd does not pair devices yet",

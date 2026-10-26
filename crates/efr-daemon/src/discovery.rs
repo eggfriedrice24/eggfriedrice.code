@@ -4,6 +4,8 @@
 //! `daemon.json` is `{pid, socket, protocol, daemon_id, tailnet_endpoint?}`, the shape
 //! `efr_transport::client::DaemonInfo` reads. It is written atomically once the socket
 //! is open and removed at shutdown, but it is a hint: the lock file decides which daemon runs.
+//! `tailnet_endpoint` is `<ipv4>:<port>` of the remote listener while it listens
+//! (`remote/listener.rs` writes the file again at each bind and unbind).
 //!
 //! The daemon id is minted once, at the first start, and kept in the data directory,
 //! so clients that pin it notice when a socket path leads to another installation.

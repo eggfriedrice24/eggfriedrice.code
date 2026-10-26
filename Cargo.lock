@@ -801,6 +801,7 @@ version = "0.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
+ "aws-lc-rs",
  "base64 0.23.1",
  "bytes",
  "clap",
@@ -828,6 +829,7 @@ dependencies = [
  "efr-test-support",
  "efr-tools",
  "efr-transport",
+ "fastwebsockets",
  "futures",
  "insta",
  "jiff",

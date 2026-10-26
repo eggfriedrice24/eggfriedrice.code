@@ -32,6 +32,8 @@ test-sandbox-fake = []
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+# The check of a phone's P-256 signature in `device.prove` (src/remote/prove.rs).
+aws-lc-rs.workspace = true
 base64.workspace = true
 bytes.workspace = true
 clap.workspace = true
@@ -86,6 +88,8 @@ tracing-subscriber.workspace = true
 # second copy of this crate's types.
 efr-test-daemon.workspace = true
 efr-test-support.workspace = true
+# The phone's side of a WebSocket in the tests of the remote listener (src/remote/).
+fastwebsockets.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true

@@ -2,7 +2,9 @@
 //!
 //! The transport has already checked the protocol version. The daemon answers with its
 //! identity, its directories, what the connection may do and a fresh challenge, and
-//! keeps the hello's tty and client for the life of the connection.
+//! keeps the hello's tty and client for the life of the connection. A connection of the
+//! tailnet listener also gets the Tailscale facts that its device signs for
+//! `device.prove`, and the connection keeps the challenge for that proof.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -26,10 +28,13 @@ pub(crate) fn handle(
 ) -> Result<HelloResult, DaemonError> {
     let mut challenge = [0; CHALLENGE_BYTES];
     state.rng.fill_bytes(&mut challenge);
+    let challenge = URL_SAFE_NO_PAD.encode(challenge);
+    let prove = crate::remote::hello(context, hello, &challenge)?;
     let capabilities = Capabilities {
         admin: Some(granted(context.surface(), peer).contains(&ScopeName::Admin)),
         screen_snapshots: Some(true),
         search: Some(true),
+        device_prove: prove.is_some().then_some(true),
         ..Capabilities::default()
     };
     let result = HelloResult {
@@ -41,8 +46,8 @@ pub(crate) fn handle(
             scratch_root: state.dirs.data().join(SCRATCH_DIR),
             data_dir: state.dirs.data().to_path_buf(),
         },
-        challenge: URL_SAFE_NO_PAD.encode(challenge),
-        prove: None,
+        challenge,
+        prove,
     };
     // NOTE: recorded last, after anything that could fail, so a hello that is refused
     // leaves nothing behind for `closed` to clean up.

@@ -58,6 +58,7 @@ use crate::proc_view::{ProcView, SystemProcView};
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
+use crate::remote::Remote;
 use crate::repo_hint::RepoHints;
 use crate::sandbox::{self, HostFacts, SandboxService, Seams, ServiceParts, launcher};
 use crate::search_index::{self, SearchIndexStatus};
@@ -471,6 +472,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // NOTE: read once: a command of a full turn would run as root with no question, so
     // full mode is refused for the whole life of such an efrd (DF27).
     let runs_as_root = seams.runs_as_root().unwrap_or_else(|| rustix::process::geteuid().is_root());
+    let remote_listen = seams.remote_listen();
     crate::full::warn_default(&settings, runs_as_root);
     let daemon_id = discovery::daemon_id(dirs.data(), &*clock, &*rng)?;
     tracing::info!(%daemon_id, version = env!("CARGO_PKG_VERSION"), data = %dirs.data().display(), "starting");
@@ -817,6 +819,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         // takes one of the readers of the turns.
         search_lanes: store.search_lanes().clone(),
         search_hook,
+        remote: Remote::new(&writer, remote_listen),
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
@@ -1008,11 +1011,37 @@ impl Daemon {
             stop,
             background,
             shell_events,
-            socket: _,
+            socket,
             lock,
         } = self;
         let methods = Arc::new(Methods::new(Arc::clone(&state)));
+        // NOTE: read once: every key of `[remote]` needs a restart.
+        let remote_settings = state.settings.borrow().remote.clone();
+        let remote = remote_settings.enabled.then(|| {
+            let info = DaemonInfo {
+                pid: state.pid,
+                socket: socket.clone(),
+                protocol: PROTOCOL_VERSION,
+                daemon_id: state.daemon_id,
+                tailnet_endpoint: None,
+            };
+            tokio::spawn(crate::remote::serve(
+                Arc::clone(&state),
+                Arc::clone(&methods),
+                remote_settings,
+                info,
+                state.remote.listen,
+                shutdown.child_token(),
+            ))
+        });
         listener.serve(methods, Arc::clone(&state.clock), shutdown.cancelled_owned()).await;
+        // NOTE: the remote listener ends with the shutdown, before the drain, so no
+        // phone request reaches an actor that stops.
+        if let Some(remote) = remote
+            && remote.await.is_err()
+        {
+            tracing::warn!("the remote listener panicked");
+        }
 
         notify(&[sd_notify::NotifyState::Stopping]);
         tracing::info!("draining");

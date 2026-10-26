@@ -582,6 +582,42 @@ pub enum DaemonError {
         #[source]
         source: StoreError,
     },
+    /// A remote connection called a method before its device proved its key.
+    #[error("{method} needs a device that proved its key with device.prove first")]
+    ProofNeeded {
+        /// The method.
+        method: &'static str,
+    },
+    /// A method of the tailnet listener came through the Unix socket.
+    #[error("{method} is open only to a device on the tailnet listener")]
+    RemoteOnly {
+        /// The method.
+        method: &'static str,
+    },
+    /// `device.prove` failed: an unknown or revoked device, a wrong signature, or a
+    /// device of another user or tailnet. One message for all, so a peer learns nothing
+    /// about which devices exist.
+    #[error("the device could not prove its key")]
+    ProofRefused,
+    /// The device proved its key, but from another Tailscale node than the one that
+    /// paired it, such as after Tailscale was installed again on the phone.
+    #[error("the device {device_id} connects from another Tailscale node; pair it again")]
+    RepairNeeded {
+        /// The device.
+        device_id: efr_protocol::DeviceId,
+    },
+    /// The connection proved a device before.
+    #[error("this connection proved its device before")]
+    AlreadyProved,
+    /// efrd cannot check a device now, because it starts or stops; try again later.
+    #[error("efrd is starting or stopping; try again in {retry_after_secs} seconds")]
+    RemoteStarting {
+        /// The seconds to wait before the next try.
+        retry_after_secs: u32,
+    },
+    /// A connection of the tailnet listener has no admission value.
+    #[error("the remote connection has no admission")]
+    RemoteAdmissionMissing,
 }
 
 /// Why the filtered bus of a call did not start, or its self-test failed (phase E).
@@ -657,7 +693,13 @@ impl DaemonError {
         match self {
             DaemonError::Forbidden { .. }
             | DaemonError::ModelSidePeer { .. }
-            | DaemonError::ResumeOffTerminal { .. } => ErrorCode::Forbidden,
+            | DaemonError::ResumeOffTerminal { .. }
+            | DaemonError::RemoteOnly { .. } => ErrorCode::Forbidden,
+            DaemonError::ProofNeeded { .. }
+            | DaemonError::ProofRefused
+            | DaemonError::RepairNeeded { .. } => ErrorCode::Unauthorized,
+            DaemonError::AlreadyProved => ErrorCode::Conflict,
+            DaemonError::RemoteStarting { .. } => ErrorCode::Busy,
             DaemonError::ResumeRaced | DaemonError::SearchBusy => ErrorCode::Busy,
             DaemonError::SearchStopped => ErrorCode::Cancelled,
             DaemonError::QueryTooLong { .. } | DaemonError::QueryTooManyTerms { .. } => {
@@ -734,6 +776,7 @@ impl DaemonError {
             | DaemonError::NoModelList { .. }
             | DaemonError::BusProxy { .. }
             | DaemonError::SearchFailed { .. }
+            | DaemonError::RemoteAdmissionMissing
             | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }
@@ -800,6 +843,16 @@ impl DaemonError {
                     DaemonError::ConversationBusy { undo, .. } => body.with_data(
                         serde_json::json!({ "busy": if *undo { "undo" } else { "turn" } }),
                     ),
+                    // NOTE: the app shows "pair again" for this, not a refusal.
+                    DaemonError::RepairNeeded { device_id } => body
+                        .with_data(serde_json::json!({ "re_pair": true, "device_id": device_id })),
+                    // NOTE: a typed retry hint, so the app waits instead of giving up.
+                    DaemonError::RemoteStarting { retry_after_secs } => {
+                        body.with_data(serde_json::json!({
+                            "starting": true,
+                            "retry_after_secs": retry_after_secs,
+                        }))
+                    }
                     DaemonError::ForeignModel { name, provider, .. } => {
                         body.with_data(serde_json::json!({
                             "setting": "model",

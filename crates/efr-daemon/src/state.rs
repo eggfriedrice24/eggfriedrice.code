@@ -29,6 +29,7 @@ use crate::proc_view::ProcView;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
 use crate::reload::Reloads;
+use crate::remote::Remote;
 use crate::repo_hint::RepoHints;
 use crate::sandbox::SandboxService;
 use crate::search_index::SearchIndexStatus;
@@ -114,4 +115,7 @@ pub(crate) struct State {
     pub(crate) search_lanes: SearchLanes,
     /// A test's hook in the row loop of each search; `None` in production.
     pub(crate) search_hook: Option<SearchRowHook>,
+    /// The remote listener of the phone app: where it listens, the live connections of
+    /// each device and the feed of revokes (`remote.rs`).
+    pub(crate) remote: Remote,
 }
