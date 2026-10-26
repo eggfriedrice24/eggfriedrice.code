@@ -38,6 +38,22 @@ export function createRowsSelector(): (state: StreamState) => readonly Row[] {
   return createRowBuilder();
 }
 
+/** The structure selector of each store: one memo of rows per stream. */
+const ROWS_SELECTORS = new WeakMap<object, (state: StreamState) => readonly Row[]>();
+
+/**
+ * The structure selector of `store`, the same one on each call. So a view can change
+ * its store and keep its state: the rows of each stream keep their own memo.
+ */
+export function rowsSelectorOf(store: object): (state: StreamState) => readonly Row[] {
+  let select = ROWS_SELECTORS.get(store);
+  if (select === undefined) {
+    select = createRowsSelector();
+    ROWS_SELECTORS.set(store, select);
+  }
+  return select;
+}
+
 /** The compare of the structure selector. */
 export const compareRows = sameRows;
 

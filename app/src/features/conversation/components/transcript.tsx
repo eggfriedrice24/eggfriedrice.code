@@ -9,8 +9,11 @@
 // - "Jump to latest" shows when the reader is more than one screen from the end and
 //   new content came after the reader left it.
 //
-// Give each conversation its own Transcript (a `key` of the conversation), because its
-// row selector keeps a memo of one stream.
+// The screen keeps one Transcript while it shows, also when its stream store changes
+// (the cache first, then the held stream). Each store has its own row selector
+// (`rowsSelectorOf`), so the rows keep their memo. A new Transcript would make a new
+// scroll view, and react-native-screens sets the scroll edge effects of iOS 26 only on
+// the scroll view that is there when the screen appears.
 
 import { useSelector } from "@tanstack/react-store";
 import { type Ref, useImperativeHandle, useRef, useState } from "react";
@@ -18,7 +21,7 @@ import { View } from "react-native";
 
 import { runningTurn, type StreamState } from "@/lib/stream/reducer";
 import type { Row } from "../model/rows";
-import { compareRows, createRowsSelector } from "../model/selectors";
+import { compareRows, rowsSelectorOf } from "../model/selectors";
 import { JumpToLatest } from "./jump-to-latest";
 import { LoadingLine } from "./loading-line";
 import {
@@ -57,7 +60,7 @@ function changedSince(left: StreamState | undefined): (state: StreamState) => bo
 /** The transcript of one conversation. */
 export function Transcript({ ref, ...props }: TranscriptProps) {
   const scope = props.scope;
-  const [selectRows] = useState(createRowsSelector);
+  const selectRows = rowsSelectorOf(scope.store);
   const rows = useSelector(scope.store, selectRows, { compare: compareRows });
   const loaded = useSelector(scope.store, (state) => state.loaded);
   // The state when the reader left the end; undefined while the list follows.

@@ -31,7 +31,7 @@ import { newCommandId } from "@/lib/native/database";
 import { EMPTY_STREAM, runningTurn, type StreamState } from "@/lib/stream/reducer";
 import { SPACING } from "@/theme/metrics";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
-import { conversationKey, type ConversationRef } from "@/features/machines/model/machine-ref";
+import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
 import type { ConversationFocus } from "@/features/navigation/model/routes";
 import {
@@ -180,8 +180,12 @@ function ConversationView(props: ConversationViewProps) {
   }
   return (
     <View className="flex-1 bg-surface-1">
+      {/* The transcript comes first, and keeps its scroll view while the screen shows.
+          react-native-screens finds the scroll view of a screen through the first child
+          of each view, and only when the screen appears, to set the scroll edge effects
+          of iOS 26 on it. A view before it, or a new scroll view later, would keep the
+          default effects of iOS on the list. */}
       <Transcript
-        key={stream === undefined ? "none" : conversationKey(ref)}
         ref={list}
         scope={scope}
         pending={pending}

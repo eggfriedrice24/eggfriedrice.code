@@ -27,12 +27,12 @@ import { Transcript, transcriptItems } from "./transcript";
 import type { TranscriptListHandle } from "./transcript-list";
 import { testScope } from "./transcript-testing";
 
-const mockScrollToOffset = jest.fn<(params: unknown) => void>();
+const mockScrollToEnd = jest.fn<(params: unknown) => void>();
 const mockScrollToIndex = jest.fn<(params: unknown) => Promise<void>>(() => Promise.resolve());
 
 /** The scroll methods of FlashList that the transcript calls. */
 interface MockListRef {
-  readonly scrollToOffset: (params: unknown) => void;
+  readonly scrollToEnd: (params: unknown) => void;
   readonly scrollToIndex: (params: unknown) => Promise<void>;
 }
 
@@ -43,21 +43,32 @@ interface MockFlashListProps {
   readonly keyExtractor: (item: string) => string;
   readonly onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   readonly ItemSeparatorComponent: ComponentType<{ leadingItem: string; trailingItem: string }>;
+  readonly inverted?: boolean;
+  readonly maintainVisibleContentPosition?: unknown;
+  readonly onStartReached?: () => void;
   readonly ref?: Ref<MockListRef>;
 }
 
 /**
  * The list libraries are native. The fake list draws every row in the order it gets
- * them, newest first, with the separator after each row but the last, as FlashList
- * does. It exposes the scroll handler and the scroll methods.
+ * them, oldest first, with the separator after each row but the last, as FlashList
+ * does. It exposes the scroll handler, the scroll methods and the chat props.
  */
 function MockFlashList({ ref, ...props }: MockFlashListProps) {
   useImperativeHandle(ref, () => ({
-    scrollToOffset: mockScrollToOffset,
+    scrollToEnd: mockScrollToEnd,
     scrollToIndex: mockScrollToIndex,
   }));
   return (
-    <ScrollView testID="flash-list" onScroll={props.onScroll}>
+    <ScrollView
+      testID="flash-list"
+      onScroll={props.onScroll}
+      onScrollToTop={props.onStartReached}
+      accessibilityHint={JSON.stringify({
+        inverted: props.inverted ?? false,
+        position: props.maintainVisibleContentPosition,
+      })}
+    >
       {props.data.map((item, index) => {
         const next = props.data[index + 1];
         const Separator = props.ItemSeparatorComponent;
@@ -99,11 +110,15 @@ function finishedTurn() {
   ]);
 }
 
-/** Scrolls the fake list to `offset` from the end, in a screen of 800 pt. */
-async function scrollTo(offset: number): Promise<void> {
+/** The height of the content of the fake list. */
+const CONTENT = 5_000;
+
+/** Scrolls the fake list to `distance` from the end, in a screen of 800 pt. */
+async function scrollTo(distance: number): Promise<void> {
   await fireEvent.scroll(screen.getByTestId("flash-list"), {
     nativeEvent: {
-      contentOffset: { y: offset, x: 0 },
+      contentOffset: { y: CONTENT - 800 - distance, x: 0 },
+      contentSize: { height: CONTENT, width: 402 },
       layoutMeasurement: { height: 800, width: 402 },
     },
   });
@@ -111,7 +126,7 @@ async function scrollTo(offset: number): Promise<void> {
 
 beforeEach(() => {
   jest.useFakeTimers();
-  mockScrollToOffset.mockClear();
+  mockScrollToEnd.mockClear();
   mockScrollToIndex.mockClear();
   jest.mocked(haptic).mockClear();
 });
@@ -121,7 +136,7 @@ afterEach(() => {
 });
 
 describe("the transcript", () => {
-  it("draws each row of the stream, newest first in the inverted list", async () => {
+  it("draws each row of the stream, oldest first in a list that is not inverted", async () => {
     const { scope } = testScope(finishedTurn());
     await render(<Transcript scope={scope} insets={INSETS} />);
     expect(screen.getByLabelText("You: Fix the steer race.")).toBeOnTheScreen();
@@ -129,11 +144,24 @@ describe("the transcript", () => {
     expect(screen.getByLabelText(/^Turn done/)).toBeOnTheScreen();
     const cells = screen.getAllByTestId(/^cell-/).map((cell) => String(cell.props.testID));
     expect(cells).toEqual([
-      `cell-e:${TURN}`,
-      `cell-m:${TURN}:0`,
-      `cell-t:${TURN}:${CALL}`,
       `cell-p:${TURN}`,
+      `cell-t:${TURN}:${CALL}`,
+      `cell-m:${TURN}:0`,
+      `cell-e:${TURN}`,
     ]);
+    // The fake list gives its chat props in its hint.
+    expect(JSON.parse(String(screen.getByTestId("flash-list").props.accessibilityHint))).toEqual({
+      inverted: false,
+      position: { startRenderingFromBottom: true, autoscrollToBottomThreshold: 200 },
+    });
+  });
+
+  it("asks for older history when the reader gets near the start", async () => {
+    const { scope } = testScope(finishedTurn());
+    const onReachTop = jest.fn<() => void>();
+    await render(<Transcript scope={scope} insets={INSETS} onReachTop={onReachTop} />);
+    await fireEvent(screen.getByTestId("flash-list"), "scrollToTop");
+    expect(onReachTop).toHaveBeenCalledTimes(1);
   });
 
   it("puts 16 pt under your prompt and 12 pt between the other rows", async () => {
@@ -142,8 +170,8 @@ describe("the transcript", () => {
     const gaps = screen
       .getAllByTestId("row-gap", { includeHiddenElements: true })
       .map((gap) => String(gap.props.className));
-    // Newest first: end over message, message over tool, tool over prompt.
-    expect(gaps).toEqual(["h-item", "h-item", "h-after-prompt"]);
+    // Oldest first: prompt over tool, tool over message, message over end.
+    expect(gaps).toEqual(["h-after-prompt", "h-item", "h-item"]);
   });
 
   it("shows the whole output of a tool after a tap on show all", async () => {
@@ -183,7 +211,7 @@ describe("the transcript", () => {
       />,
     );
     expect(screen.getByText("sending")).toBeOnTheScreen();
-    expect(screen.getAllByTestId(/^cell-/)[0]?.props.testID).toBe("cell-o:cmd-9");
+    expect(screen.getAllByTestId(/^cell-/).at(-1)?.props.testID).toBe("cell-o:cmd-9");
   });
 
   it("draws an approval with the view that the screen gives", async () => {
@@ -213,7 +241,7 @@ describe("jump to latest", () => {
     });
     const jump = screen.getByRole("button", { name: "Jump to latest" });
     await fireEvent.press(jump);
-    expect(mockScrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+    expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
     expect(haptic).toHaveBeenCalledWith("light");
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
   });
@@ -232,7 +260,7 @@ describe("jump to latest", () => {
 });
 
 describe("the handle of the transcript", () => {
-  it("scrolls to a row by its key, in the reversed list", async () => {
+  it("scrolls to a row by its key, at its index from the oldest row", async () => {
     const { scope } = testScope(finishedTurn());
     const ref = createRef<TranscriptListHandle>();
     await render(<Transcript scope={scope} insets={INSETS} ref={ref} />);
@@ -240,14 +268,14 @@ describe("the handle of the transcript", () => {
       ref.current?.scrollToKey(`p:${TURN}`, false);
     });
     expect(mockScrollToIndex).toHaveBeenCalledWith({
-      index: 3,
+      index: 0,
       animated: false,
       viewPosition: 0.5,
     });
     await act(async () => {
       ref.current?.scrollToEnd(true);
     });
-    expect(mockScrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+    expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
   });
 });
 

@@ -2,18 +2,20 @@
 // library, so the library can change after the device spike (design item 8.15) without
 // a change to the rows.
 //
-// Option A: an inverted FlashList 2.3.2, newest row first, on a KeyboardChatScrollView
-// that lifts the content with the keyboard only when the reader is at the end
-// (`whenAtEnd`), so typing while a reply streams never pulls a reader out of the
-// history. New rows keep the reader's place unless the reader is within 200 pt of the
-// newest row; while you read above, streaming text never moves what you look at.
+// A FlashList 2.3.2 in chat mode, oldest row first, as t3code has it. It is not
+// inverted: on iOS 26 the scroll edge effect of the bar is drawn in the coordinates of
+// the scroll view, and on a flipped list it covered the whole list. The list starts at
+// the bottom (`startRenderingFromBottom`). New rows keep the reader's place, unless the
+// reader is within 200 pt of the end: then the list scrolls with them. The scroll view is
+// a KeyboardChatScrollView that lifts the content with the keyboard only when the reader
+// is at the end (`whenAtEnd`), so typing while a reply streams never pulls a reader out
+// of the history.
 //
-// - `rows` come oldest first; the list reverses them, because it is inverted. In an
-//   inverted list the end is offset 0.
 // - `onFollowChange` says whether the reader is within one screen of the end (design
 //   3.12: "Jump to latest" shows beyond it). It is called only on a change.
 // - `onReachTop` is called when the reader gets near the oldest row, so the screen can
-//   fetch older history. Inverted, the oldest row is the end of the list for FlashList.
+//   fetch older history. The older rows come in at the start, and the list keeps the
+//   reader's place.
 // - The handle (the React 19 `ref` prop) scrolls to the end, and to a row such as an
 //   approval.
 // - The transcript sits under the transparent header and above the docked composer:
@@ -33,6 +35,7 @@ import { KeyboardChatScrollView } from "react-native-keyboard-controller";
 
 import { SPACING } from "@/theme/metrics";
 
+import { isNearEnd } from "../model/list-position";
 import { rowGap, type RowGap } from "../model/rows";
 
 /** The key of a row (model/rows.ts), unique in its transcript. */
@@ -68,12 +71,15 @@ export interface TranscriptListProps {
 /** The top is near when the oldest row is less than one screen away. */
 const TOP_THRESHOLD = 1;
 
-/** New rows keep the reader's place unless the reader is this close to the end (Happy's value). */
-const POSITION = { autoscrollToTopThreshold: 200 } as const;
+/**
+ * Chat mode: start at the bottom, and follow new rows while the reader is this close to
+ * the end (Happy's value). The scroll to them is animated, as in a chat.
+ */
+const POSITION = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 200 } as const;
 
 // The list passes its ref in the props (React 19), and the view passes it on.
 function ChatScroll(props: ScrollViewProps) {
-  return <KeyboardChatScrollView {...props} inverted keyboardLiftBehavior="whenAtEnd" />;
+  return <KeyboardChatScrollView {...props} keyboardLiftBehavior="whenAtEnd" />;
 }
 
 const GAP_CLASS = {
@@ -83,16 +89,16 @@ const GAP_CLASS = {
 } as const satisfies Record<RowGap, string>;
 
 interface GapProps {
-  /** The row before the gap in the data. Inverted, it is the row under the gap. */
+  /** The row over the gap. */
   readonly leadingItem: RowKey;
-  /** The row after the gap in the data. Inverted, it is the row over the gap. */
+  /** The row under the gap. */
   readonly trailingItem: RowKey;
 }
 
 /** The space between two rows. */
 export function Gap(props: GapProps) {
   return (
-    <View testID="row-gap" className={GAP_CLASS[rowGap(props.trailingItem, props.leadingItem)]} />
+    <View testID="row-gap" className={GAP_CLASS[rowGap(props.leadingItem, props.trailingItem)]} />
   );
 }
 
@@ -100,10 +106,10 @@ export function Gap(props: GapProps) {
 export function TranscriptList({ ref, ...props }: TranscriptListProps) {
   const list = useRef<FlashListRef<RowKey>>(null);
   const following = useRef(true);
-  const data = reversed(props.rows);
+  const data = props.rows;
   useImperativeHandle(ref, () => ({
     scrollToEnd: (animated) => {
-      list.current?.scrollToOffset({ offset: 0, animated });
+      list.current?.scrollToEnd({ animated });
     },
     scrollToKey: (key, animated) => {
       const index = data.indexOf(key);
@@ -114,8 +120,7 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
   }));
   const onFollowChange = props.onFollowChange;
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
-    const { contentOffset, layoutMeasurement } = event.nativeEvent;
-    const next = contentOffset.y <= layoutMeasurement.height;
+    const next = isNearEnd(event.nativeEvent);
     if (next !== following.current) {
       following.current = next;
       onFollowChange(next);
@@ -129,34 +134,20 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
       renderItem={({ item }) => <>{renderRow(item)}</>}
       keyExtractor={(key) => key}
       getItemType={(key) => props.rowType(key)}
-      inverted
       maintainVisibleContentPosition={POSITION}
       renderScrollComponent={ChatScroll}
       ItemSeparatorComponent={Gap}
       contentContainerStyle={{
         paddingHorizontal: SPACING.gutter,
-        // Inverted: the top of the content is the bottom of the screen.
-        paddingTop: props.insets.bottom + SPACING.item,
-        paddingBottom: props.insets.top + SPACING.item,
+        paddingTop: props.insets.top + SPACING.item,
+        paddingBottom: props.insets.bottom + SPACING.item,
       }}
       onScroll={onScroll}
-      onEndReached={props.onReachTop}
-      onEndReachedThreshold={TOP_THRESHOLD}
+      onStartReached={props.onReachTop}
+      onStartReachedThreshold={TOP_THRESHOLD}
       scrollEventThrottle={16}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"
     />
   );
-}
-
-/** A new array with the items of `items` in the other order. */
-function reversed<T>(items: readonly T[]): T[] {
-  const out: T[] = [];
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item !== undefined) {
-      out.push(item);
-    }
-  }
-  return out;
 }

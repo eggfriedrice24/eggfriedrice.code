@@ -267,10 +267,11 @@ not a test that pretends.
 
 ### The transcript
 
-8. The list: compare the inverted FlashList 2.3.2 with Legend List 3.6.0 on a recorded
-   fast stream, with the keyboard open, scrolled up, and 500 rows of history. Measure
-   the largest drift and the slowest commit. Check the VoiceOver order in an inverted
-   list. Only `src/features/conversation/components/transcript-list.tsx` knows the list
+8. The list: FlashList 2.3.2 in chat mode (not inverted, `startRenderingFromBottom`).
+   A conversation opens at its end, a new row scrolls into view while you are at the
+   end, and the keyboard lifts the content only then. Compare it with Legend List 3.6.0
+   on a recorded fast stream, with the keyboard open, scrolled up, and 500 rows of
+   history. Measure the largest drift and the slowest commit. Only `src/features/conversation/components/transcript-list.tsx` knows the list
    library. Legend List is not installed yet: add it before you try it.
 9. Stream a long reply (about 10,000 tokens). Look at the memory and the lag of
    react-native-enriched-markdown 1.1.1, the frames of the code blocks, and the fade of

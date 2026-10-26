@@ -47,7 +47,7 @@ import { screenRoutes, socketOf, stream } from "./screen-testing";
 const mockScrollToIndex = jest.fn<(params: unknown) => Promise<void>>(() => Promise.resolve());
 
 interface MockListRef {
-  readonly scrollToOffset: (params: unknown) => void;
+  readonly scrollToEnd: (params: unknown) => void;
   readonly scrollToIndex: (params: unknown) => Promise<void>;
 }
 
@@ -56,19 +56,19 @@ interface MockFlashListProps {
   readonly renderItem: (info: { item: string; index: number }) => ReactNode;
   readonly keyExtractor: (item: string) => string;
   readonly onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  readonly onEndReached?: () => void;
+  readonly onStartReached?: () => void;
   readonly ref?: Ref<MockListRef>;
 }
 
-/** FlashList is native: the fake one draws every row, newest first. */
+/** FlashList is native: the fake one draws every row, oldest first. */
 function MockFlashList({ ref, ...props }: MockFlashListProps) {
   useImperativeHandle(ref, () => ({
-    scrollToOffset: () => undefined,
+    scrollToEnd: () => undefined,
     scrollToIndex: mockScrollToIndex,
   }));
   return (
-    // The test gets to the top (the end of the inverted list) with a `scrollToTop`.
-    <ScrollView testID="flash-list" onScroll={props.onScroll} onScrollToTop={props.onEndReached}>
+    // The test gets to the top (the start of the list) with a `scrollToTop`.
+    <ScrollView testID="flash-list" onScroll={props.onScroll} onScrollToTop={props.onStartReached}>
       {props.data.map((item, index) => (
         <View key={props.keyExtractor(item)} testID={`cell-${item}`}>
           {props.renderItem({ item, index })}
@@ -339,8 +339,8 @@ describe("the conversation screen", () => {
     });
     await frames();
     const cells = screen.getAllByTestId(/^cell-/).map((cell) => String(cell.props.testID));
-    // The fake list draws the newest row first: the older turn comes after.
-    expect(cells.indexOf(`cell-p:${OLDER}`)).toBeGreaterThan(cells.indexOf(`cell-p:${TURN}`));
+    // The fake list draws the oldest row first: the older turn comes before.
+    expect(cells.indexOf(`cell-p:${OLDER}`)).toBeLessThan(cells.indexOf(`cell-p:${TURN}`));
     expect(screen.getByLabelText("You: What changed?")).toBeOnTheScreen();
     // The page reached the first event: the top asks for nothing more.
     await act(async () => {

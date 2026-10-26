@@ -1,5 +1,5 @@
-// The rows of the transcript list, oldest first (plan section 2.7; the list component
-// reverses them when it is inverted). A row names its part by key only; the row's
+// The rows of the transcript list, oldest first (plan section 2.7), in the order that the
+// list shows them. A row names its part by key only; the row's
 // component reads the part from the stream store with a selector, so a row whose part
 // did not change never renders again.
 //
