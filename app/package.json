@@ -55,7 +55,20 @@
   },
   "packageManager": "pnpm@11.28.8",
   "enriched-markdown": {
-    "enableMath": false
+    "enableMath": false,
+    "codeHighlightLanguages": [
+      "rust",
+      "bash",
+      "typescript",
+      "tsx",
+      "javascript",
+      "json",
+      "yaml",
+      "python",
+      "go",
+      "c",
+      "markdown"
+    ]
   },
   "expo": {
     "install": {
