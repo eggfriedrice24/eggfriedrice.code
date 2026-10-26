@@ -54,6 +54,11 @@ Every version is pinned exactly. Do not change a version without a reason, and b
   `expo install`.
 - oxlint 1.89.0 with oxlint-tsgolint 7.0.2005 (type-aware, warnings fail), oxfmt 0.74.0,
   vitest 5.0.5, fast-check 4.10.2, json-schema-to-typescript 16.0.0.
+- jest 30.5.2 with jest-expo 58.0.12, @testing-library/react-native 14.1.0 and
+  test-renderer 1.3.1 for the tests of the components and the routes (`*.test.tsx`).
+- The React Compiler (`experiments.reactCompiler` in `app.json`) and uniwind 1.13.0 with
+  tailwindcss 4.3.3 (`metro.config.js`). Metro writes `uniwind-types.d.ts` again on each
+  run; commit it when it changes.
 
 pnpm 11 keeps its safe defaults. Only the packages in `allowBuilds` of
 `pnpm-workspace.yaml` can run an install script. Add a package only from the table of the
@@ -75,8 +80,10 @@ just app-check
 ```
 
 It runs, in this order: `pnpm install --frozen-lockfile`, `pnpm run fmt:check` (oxfmt),
-`pnpm run lint` (oxlint), `pnpm run typecheck` (`tsc --noEmit`), `pnpm run test` (vitest)
-and `pnpm run check:protocol`. `pnpm run fmt` formats the files.
+`pnpm run lint` (oxlint), `pnpm run typecheck` (`tsc --noEmit`), `pnpm run test` (vitest),
+`pnpm run test:ui` (jest), `pnpm run check:protocol`, `pnpm run check:theme` and
+`pnpm run bundle:check` (`expo export --platform ios`, the JavaScript bundle of the app).
+`pnpm run fmt` formats the files.
 
 The tests cover the pure code: `src/core`, `src/protocol`, `src/net`, `src/store`,
 `src/pairing`, `src/session`, the pure parts of `src/ui`, and the code generator. They run in Node and
@@ -119,8 +126,8 @@ You need:
 - the iPhone with Developer Mode on (Settings, Privacy and Security, Developer Mode).
 
 `eas.json` has one profile, `preview`: a release build for internal distribution, with
-Node 24.22.1 and pnpm 11.28.8. There is no `development` profile, because the app does not
-have `expo-dev-client` yet. That package needs the approval of the user.
+Node 24.22.1 and pnpm 11.28.8. The app has `expo-dev-client`, but `eas.json` has no
+`development` profile yet.
 
 The steps, in `app/`:
 
