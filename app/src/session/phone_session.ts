@@ -200,11 +200,17 @@ export function createPhoneSession(deps: PhoneSessionDeps): LivePhoneSession {
     cancelPairing?.();
     const { signal, cancel } = cancellation();
     cancelPairing = cancel;
+    // NOTE: a flow that a newer one replaced shows nothing more.
+    const show = (view: PairingView): void => {
+      if (cancelPairing === cancel) {
+        pairingState.set(view);
+      }
+    };
     const flow = async (): Promise<void> => {
-      pairingState.set({ kind: "scanning" });
+      show({ kind: "scanning" });
       const scanned = await scanPairingCode(deps.scanner, signal);
       if (!scanned.ok) {
-        pairingState.set(scanFailure(scanned.reason));
+        show(scanFailure(scanned.reason));
         return;
       }
       let host = "";
@@ -214,19 +220,19 @@ export function createPhoneSession(deps: PhoneSessionDeps): LivePhoneSession {
         onStep: (step) => {
           if (step.step === "connecting") {
             host = hostOf(step.url);
-            pairingState.set({ kind: "connecting", host });
+            show({ kind: "connecting", host });
           } else if (step.step === "confirm") {
-            pairingState.set({ kind: "confirm", host, deviceName: step.name });
+            show({ kind: "confirm", host, deviceName: step.name });
           }
         },
       });
       if (!result.ok) {
-        pairingState.set(pairingFailure(result.failure));
+        show(pairingFailure(result.failure));
         return;
       }
       const key = await pairingDeps.keys.load(result.device.keyAlias).catch(() => null);
       if (key === null) {
-        pairingState.set({
+        show({
           kind: "failed",
           reason: "other",
           message: "The phone paired, but it cannot read its new device key.",
@@ -235,12 +241,14 @@ export function createPhoneSession(deps: PhoneSessionDeps): LivePhoneSession {
       }
       generation += 1;
       activate({ device: result.device, key }, await openCache());
-      pairingState.set({ kind: "paired" });
+      show({ kind: "paired" });
     };
     flow()
       .catch((error: unknown) => {
         deps.onError?.(error);
-        pairingState.set({ kind: "failed", reason: "other" });
+        if (cancelPairing === cancel) {
+          pairingState.set({ kind: "failed", reason: "other" });
+        }
       })
       .finally(() => {
         if (cancelPairing === cancel) {

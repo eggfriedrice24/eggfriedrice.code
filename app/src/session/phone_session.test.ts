@@ -315,6 +315,18 @@ describe("the phone session", () => {
     expect(session.pairing.state.getSnapshot()).toEqual({ kind: "idle" });
   });
 
+  it("shows only the newest pairing flow", async () => {
+    const { session } = setup();
+    session.pairing.start();
+    await flush();
+    session.pairing.start();
+    await flush();
+    expect(session.pairing.state.getSnapshot()).toEqual({ kind: "scanning" });
+    session.pairing.cancel();
+    await flush();
+    expect(session.pairing.state.getSnapshot()).toEqual({ kind: "idle" });
+  });
+
   it("refuses to pair without a device key module", async () => {
     const session = createPhoneSession({
       pairing: null,
