@@ -18,7 +18,8 @@
 //   approval.
 // - The transcript sits under the transparent header and above the docked composer:
 //   `insets` pads the content by their heights. The items are 12 pt apart (design item
-//   8.3) and 20 pt from the screen edges.
+//   8.3) and 20 pt from the screen edges. The answer is 16 pt under your prompt, and a
+//   new turn is 20 pt under the turn before it (`rowGap` of model/rows.ts).
 
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { type ReactNode, type Ref, useImperativeHandle, useRef } from "react";
@@ -31,6 +32,8 @@ import {
 import { KeyboardChatScrollView } from "react-native-keyboard-controller";
 
 import { SPACING } from "@/theme/metrics";
+
+import { rowGap, type RowGap } from "../model/rows";
 
 /** The key of a row (model/rows.ts), unique in its transcript. */
 export type RowKey = string;
@@ -73,8 +76,24 @@ function ChatScroll(props: ScrollViewProps) {
   return <KeyboardChatScrollView {...props} inverted keyboardLiftBehavior="whenAtEnd" />;
 }
 
-function Gap() {
-  return <View className="h-item" />;
+const GAP_CLASS = {
+  item: "h-item",
+  afterPrompt: "h-after-prompt",
+  turn: "h-turn",
+} as const satisfies Record<RowGap, string>;
+
+interface GapProps {
+  /** The row before the gap in the data. Inverted, it is the row under the gap. */
+  readonly leadingItem: RowKey;
+  /** The row after the gap in the data. Inverted, it is the row over the gap. */
+  readonly trailingItem: RowKey;
+}
+
+/** The space between two rows. */
+export function Gap(props: GapProps) {
+  return (
+    <View testID="row-gap" className={GAP_CLASS[rowGap(props.trailingItem, props.leadingItem)]} />
+  );
 }
 
 /** The rows of one transcript, newest at the bottom. */

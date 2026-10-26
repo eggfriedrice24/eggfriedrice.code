@@ -14,7 +14,7 @@ import {
   turnCompleted,
   turnStarted,
 } from "@/lib/stream/testing";
-import { createRowBuilder, rowKindOf, sameRows } from "./rows";
+import { createRowBuilder, rowGap, rowKindOf, sameRows } from "./rows";
 
 const TURN = "t1";
 let seq = 0;
@@ -122,5 +122,25 @@ describe("rowKindOf and sameRows", () => {
     const row = { kind: "end", key: "e:t", turnId: "t" } as const;
     expect(sameRows([row], [row])).toBe(true);
     expect(sameRows([row], [{ ...row }])).toBe(false);
+  });
+});
+
+describe("rowGap", () => {
+  it("puts 16 pt under your prompt, a steer and a prompt of the outbox", () => {
+    expect(rowGap("p:t1", "m:t1:0")).toBe("afterPrompt");
+    expect(rowGap("s:t1:4", "t:t1:c1")).toBe("afterPrompt");
+    expect(rowGap("o:k1", "w:t1")).toBe("afterPrompt");
+  });
+
+  it("puts 20 pt between the end of a turn and the next prompt", () => {
+    expect(rowGap("e:t1", "p:t2")).toBe("turn");
+    expect(rowGap("e:t1", "o:k1")).toBe("turn");
+    expect(rowGap("o:k1", "o:k2")).toBe("turn");
+  });
+
+  it("keeps the 12 pt of the design between the other rows", () => {
+    expect(rowGap("m:t1:0", "t:t1:c1")).toBe("item");
+    expect(rowGap("t:t1:c1", "e:t1")).toBe("item");
+    expect(rowGap("r:t1", "m:t1:0")).toBe("item");
   });
 });

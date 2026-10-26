@@ -11,8 +11,12 @@ export const SPACING_UNIT = 1;
 export const SPACING = {
   /** Side padding of the transcript, the strip and the rows of the sheet. */
   gutter: 20,
-  /** The gap between transcript items, turns and tool blocks (design item 8.3). */
+  /** The gap between transcript items and tool blocks (design item 8.3). */
   item: 12,
+  /** The gap between your prompt and the answer under it. */
+  afterPrompt: 16,
+  /** The gap between the end of a turn and the prompt of the next turn. */
+  turn: 20,
   /** Side insets of the nav row and the Settings list; the jump button's right edge. */
   inset: 16,
   /** Side insets of the body and the footer of the pairing screens. */

@@ -67,6 +67,31 @@ export function rowKindOf(key: string): RowKind | undefined {
   return KINDS[key.slice(0, key.indexOf(":"))];
 }
 
+/**
+ * The space between two rows of the transcript. Most rows are 12 pt apart (design item
+ * 8.3). The answer starts 16 pt under your prompt, and a new turn starts 20 pt under the
+ * end of the turn before it, so that each turn reads as one group.
+ */
+export type RowGap = "item" | "afterPrompt" | "turn";
+
+/** True for a row that holds your text: a prompt, a steer or a prompt of the outbox. */
+function isPromptKey(key: string): boolean {
+  return key.startsWith("p:") || key.startsWith("s:") || key.startsWith("o:");
+}
+
+/** True for the first row of a turn: a prompt, or a prompt of the outbox. */
+function startsTurn(key: string): boolean {
+  return key.startsWith("p:") || key.startsWith("o:");
+}
+
+/** The space between the row `above` and the row `below`, by their keys. */
+export function rowGap(above: string, below: string): RowGap {
+  if (startsTurn(below)) {
+    return "turn";
+  }
+  return isPromptKey(above) ? "afterPrompt" : "item";
+}
+
 /** True when `a` and `b` hold the same row objects in the same order. */
 export function sameRows(a: readonly Row[], b: readonly Row[]): boolean {
   return a === b || (a.length === b.length && a.every((row, i) => row === b[i]));

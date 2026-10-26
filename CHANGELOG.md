@@ -76,7 +76,8 @@ into the GitHub release notes, and it stops when the section is missing.
   from the machine menu. A conversation on another machine opens with that machine.
 - A conversation in the phone app shows your prompts, the replies as they stream, the
   reasoning, the tools that run, the edits with their diff, and a line at the end of
-  each turn. Tap a reasoning row or a tool block to open it. A failed turn shows its
+  each turn. The answer starts 16 pt under your prompt, and a new turn 20 pt under
+  the turn before it. Tap a reasoning row or a tool block to open it. A failed turn shows its
   reason, with "retry" and "copy error". Touch and hold a message to copy it, and a
   code block has its own copy button. The app asks before it opens a link, and then
   opens it in the app. An image in a reply shows as a link, and HTML shows as text, so

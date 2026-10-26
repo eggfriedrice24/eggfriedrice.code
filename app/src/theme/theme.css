@@ -81,6 +81,8 @@
   --spacing: 1px;
   --spacing-gutter: 20px;
   --spacing-item: 12px;
+  --spacing-after-prompt: 16px;
+  --spacing-turn: 20px;
   --spacing-inset: 16px;
   --spacing-pairing: 24px;
   --spacing-hit: 44px;

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { createRef, type ReactNode, type Ref, useImperativeHandle } from "react";
+import {
+  type ComponentType,
+  createRef,
+  type ReactNode,
+  type Ref,
+  useImperativeHandle,
+} from "react";
 import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from "react-native";
 
 import { haptic } from "@/lib/native/haptics";
@@ -36,12 +42,14 @@ interface MockFlashListProps {
   readonly renderItem: (info: { item: string; index: number }) => ReactNode;
   readonly keyExtractor: (item: string) => string;
   readonly onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  readonly ItemSeparatorComponent: ComponentType<{ leadingItem: string; trailingItem: string }>;
   readonly ref?: Ref<MockListRef>;
 }
 
 /**
  * The list libraries are native. The fake list draws every row in the order it gets
- * them, newest first, and exposes the scroll handler and the scroll methods.
+ * them, newest first, with the separator after each row but the last, as FlashList
+ * does. It exposes the scroll handler and the scroll methods.
  */
 function MockFlashList({ ref, ...props }: MockFlashListProps) {
   useImperativeHandle(ref, () => ({
@@ -50,11 +58,16 @@ function MockFlashList({ ref, ...props }: MockFlashListProps) {
   }));
   return (
     <ScrollView testID="flash-list" onScroll={props.onScroll}>
-      {props.data.map((item, index) => (
-        <View key={props.keyExtractor(item)} testID={`cell-${item}`}>
-          {props.renderItem({ item, index })}
-        </View>
-      ))}
+      {props.data.map((item, index) => {
+        const next = props.data[index + 1];
+        const Separator = props.ItemSeparatorComponent;
+        return (
+          <View key={props.keyExtractor(item)} testID={`cell-${item}`}>
+            {props.renderItem({ item, index })}
+            {next === undefined ? null : <Separator leadingItem={item} trailingItem={next} />}
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -121,6 +134,16 @@ describe("the transcript", () => {
       `cell-t:${TURN}:${CALL}`,
       `cell-p:${TURN}`,
     ]);
+  });
+
+  it("puts 16 pt under your prompt and 12 pt between the other rows", async () => {
+    const { scope } = testScope(finishedTurn());
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    const gaps = screen
+      .getAllByTestId("row-gap", { includeHiddenElements: true })
+      .map((gap) => String(gap.props.className));
+    // Newest first: end over message, message over tool, tool over prompt.
+    expect(gaps).toEqual(["h-item", "h-item", "h-after-prompt"]);
   });
 
   it("shows the loading line until the stream has events", async () => {
