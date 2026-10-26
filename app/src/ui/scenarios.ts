@@ -341,7 +341,16 @@ export function scenarios(): Scenario[] {
 /** A turn with text, a tool call, an approval in the middle, and more text. */
 export function toolAndApproval(decision: "allow" | "deny" = "allow"): Scenario {
   const t = turn(6);
-  const script = new Script(CONVERSATION)
+  const script = askApproval(new Script(CONVERSATION), t).wait(1500);
+  return finishApproval(script, t, decision, "phone").build("tool and approval");
+}
+
+/** The id of the call that waits for the question of `askApproval`. */
+export const APPROVAL_CALL = call(2);
+
+/** Writes a turn up to its approval question: text, a tool call, more text, the question. */
+export function askApproval(script: Script, t: string): Script {
+  return script
     .prompt(t, "clean the journal")
     .say(t, 0, "I will look at the journal first.")
     .tool(
@@ -355,27 +364,35 @@ export function toolAndApproval(decision: "allow" | "deny" = "allow"): Scenario 
     .wait(16)
     .event("tool_call_started", {
       turn_id: t,
-      call_id: call(2),
+      call_id: APPROVAL_CALL,
       tool: "shell",
       input: { command: "sudo journalctl --vacuum-size=500M" },
     })
     .event("approval_requested", {
       turn_id: t,
-      call_id: call(2),
+      call_id: APPROVAL_CALL,
       summary: "run `journalctl --vacuum-size=500M` as root",
       diff_preview:
         "--- a/etc/systemd/journald.conf\n+++ b/etc/systemd/journald.conf\n@@ -1 +1 @@\n-#SystemMaxUse=\n+SystemMaxUse=500M\n",
       interactive: true,
       expires_in_secs: 120,
-    })
-    .wait(1500)
-    .event("approval_resolved", { turn_id: t, call_id: call(2), decision, origin: "phone" });
+    });
+}
+
+/** Writes the rest of the turn of `askApproval` after the answer `decision`. */
+export function finishApproval(
+  script: Script,
+  t: string,
+  decision: "allow" | "deny",
+  origin: string,
+): Script {
+  script.event("approval_resolved", { turn_id: t, call_id: APPROVAL_CALL, decision, origin });
   if (decision === "allow") {
-    script.toolOutput(t, call(2), "Vacuuming done, freed 2.6G of archived journals.");
+    script.toolOutput(t, APPROVAL_CALL, "Vacuuming done, freed 2.6G of archived journals.");
   } else {
     script.wait(16).event("tool_call_completed", {
       turn_id: t,
-      call_id: call(2),
+      call_id: APPROVAL_CALL,
       output: "The user denied the call.",
       truncated: false,
       is_error: true,
@@ -383,6 +400,37 @@ export function toolAndApproval(decision: "allow" | "deny" = "allow"): Scenario 
   }
   return script
     .say(t, 2, decision === "allow" ? "Done. The journal now takes 500 MB." : "I did not clean it.")
-    .done(t, 101_200)
-    .build("tool and approval");
+    .done(t, 101_200);
+}
+
+/** The conversation of the demo. */
+export const DEMO_CONVERSATION = "019a9b1c-3d00-7a10-8b20-0000000000d1";
+
+/** The turn of the demo that asks a question. */
+export const DEMO_APPROVAL_TURN = turn(16);
+
+/**
+ * The script of the demo: the scenarios as one turn after the other in one conversation,
+ * up to the question of the last turn, which waits for the user's answer.
+ */
+export function demoScript(): Script {
+  const script = new Script(DEMO_CONVERSATION)
+    .prompt(turn(11), "think first, then name the file")
+    .reason(turn(11), "**Checking the logs**\n\nThe journal holds most of it.", "Checking the logs")
+    .say(turn(11), 0, MULTIBYTE_REPLY, { piece: 3 })
+    .done(turn(11), 41_000)
+    .wait(1200)
+    .prompt(turn(12), "what uses the disk")
+    .say(turn(12), 0, TABLE_REPLY, { piece: 5, burst: 4 })
+    .done(turn(12), 52_000)
+    .wait(1200)
+    .prompt(turn(13), "fix the sum function")
+    .say(turn(13), 0, CODE_REPLY, { piece: 7 })
+    .done(turn(13), 74_000)
+    .wait(1200)
+    .prompt(turn(14), "explain each step")
+    .say(turn(14), 0, longReply(), { piece: 18, burst: 3 })
+    .done(turn(14), 98_000)
+    .wait(1200);
+  return askApproval(script, DEMO_APPROVAL_TURN);
 }
