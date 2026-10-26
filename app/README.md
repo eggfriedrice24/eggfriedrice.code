@@ -29,9 +29,11 @@ The app is a preview. It is not in the App Store. Nobody ran it on an iPhone yet
 - The app hears of the foreground from AppState, and of a change of the network path
   (such as from Wi-Fi to cellular) from NetInfo. Then each machine connects again at
   once.
-- A dev build has a demo machine, which reaches no computer, and a gallery of every
-  board of the design canvas. A long press on the version in Settings, section About,
-  opens the gallery.
+- A dev build and a preview build have the dev tools: three demo machines (desktop,
+  laptop and homelab), which reach no computer, and a gallery of every board of the
+  design canvas. A long press on the version in Settings, section About, opens the
+  gallery. The gallery also opens the bench of the frame decoder. The render counter
+  is only in a dev build, because React counts renders only there.
 
 ## Layout
 
@@ -186,8 +188,14 @@ You need:
 
 `eas.json` has one profile, `preview`: a release build for internal distribution, with
 Node 24.22.1 and pnpm 11.28.8. The app has `expo-dev-client`, but `eas.json` has no
-`development` profile yet. The demo machine, the gallery, the render counter and the
-bench route are only in a dev build, so they need that profile first.
+`development` profile yet. The `preview` profile sets `EXPO_PUBLIC_EFR_DEV_TOOLS=1`, so
+a preview build has the demo machines, the gallery and the bench route
+(`src/lib/dev/dev-tools.ts`). A build without this variable and without `__DEV__` sends
+each dev route to `/`. The render counter needs a dev build.
+
+The bench reads `src/lib/dev/recordings.ts`, a copy of `test/recordings`. A test fails
+when the copy and the recordings differ. To write the copy again, run
+`EFR_WRITE_DEV_RECORDINGS=1 pnpm vitest run src/lib/dev/recordings.test.ts` in `app/`.
 
 The steps, in `app/`:
 
@@ -265,10 +273,10 @@ not a test that pretends.
 
 ### Speed
 
-11. zod on Hermes: run the bench route of the dev build. It parses each frame of the
+11. zod on Hermes: run the bench route of a preview build, which is a release build. Open
+    it right after a launch, to get a cold first parse. It parses each frame of the
     recordings through the schemas, in three modes. The draft frames must stay under
-    0.5 ms at p95. If they do not, use jitless mode or smaller draft schemas. Check a
-    release build too.
+    0.5 ms at p95. If they do not, use jitless mode or smaller draft schemas.
 12. The React Compiler: the app must behave the same with it on. Count the renders of a
     streaming conversation with the render counter of the dev build.
 
