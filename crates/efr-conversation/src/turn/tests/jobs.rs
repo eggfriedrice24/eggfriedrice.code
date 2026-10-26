@@ -196,6 +196,7 @@ async fn job_question_names_lifetime() {
 #[tokio::test]
 async fn phone_cannot_answer_job_question() {
     let (mut h, _, turn_id, call_id, _) = job_question(Setup::new(), job("npm run dev")).await;
+    assert!(super::away::local_only(&h, call_id).await, "a job's question is local only");
     let params = ApprovalRespond {
         command_id: h.command_id(),
         conversation_id: h.conversation_id,

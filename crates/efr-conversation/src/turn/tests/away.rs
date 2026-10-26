@@ -124,6 +124,18 @@ async fn a_user_who_comes_back_gets_the_normal_wait_again() {
     assert_eq!(h.toolbox.invoked().len(), 1);
 }
 
+/// The `local_only` of the question about `call_id`, as the log has it.
+pub(super) async fn local_only(h: &Harness, call_id: efr_protocol::CallId) -> bool {
+    let events = h.events().await;
+    let asked = events.iter().find_map(|event| match event {
+        Event::ApprovalRequested { call_id: id, local_only, .. } if *id == call_id => {
+            Some(*local_only)
+        }
+        _ => None,
+    });
+    asked.expect("the log has the question")
+}
+
 /// Answers `call_id` with `decision` from `origin`.
 async fn answer_from(
     h: &mut Harness,
@@ -147,6 +159,7 @@ async fn phone_never_answers_privilege() {
     let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
     let sent = h.prompt("update the system").await;
     let call_id = h.wait_approval().await;
+    assert!(local_only(&h, call_id).await, "the question says that a phone may not answer");
 
     let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
     assert!(
@@ -171,6 +184,7 @@ async fn phone_never_answers_a_cautious_sudo_question() {
     let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
     let sent = h.prompt("update the system").await;
     let call_id = h.wait_approval().await;
+    assert!(local_only(&h, call_id).await, "the question says that a phone may not answer");
 
     let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
     assert!(
@@ -190,6 +204,7 @@ async fn phone_never_answers_a_cautious_sudo_question() {
 #[tokio::test]
 async fn a_phone_may_answer_an_exit_that_needs_no_password() {
     let (mut h, _, turn_id, call_id) = asked(reviewed(None), false).await;
+    assert!(!local_only(&h, call_id).await, "the question says that a phone may answer");
     answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Phone).await.unwrap();
     h.wait_end(turn_id).await;
     assert!(h.toolbox.invoked().is_empty());
