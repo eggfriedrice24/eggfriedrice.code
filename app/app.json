@@ -32,7 +32,8 @@
       "expo-sqlite"
     ],
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "reactCompiler": true
     }
   }
 }
