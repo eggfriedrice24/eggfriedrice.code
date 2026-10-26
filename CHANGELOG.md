@@ -43,6 +43,12 @@ into the GitHub release notes, and it stops when the section is missing.
   each connection. The app is not in the App Store: you build it with EAS, as
   `app/README.md` tells. It was tested on Linux only and was not run on an iPhone yet.
   `docs/use/phone.md` tells what a phone can and cannot do.
+- The phone app has a native bar on each screen. The title opens a menu of the 8 recent
+  conversations of the machine, and the conversations that wait for an answer come
+  first. The blank root has a menu of the paired machines. Settings and New are on the
+  right. A strip under the bar of a conversation tells you when another conversation
+  waits for an answer, and when its machine is offline. The stack keeps at most 8
+  conversations, and a conversation that is in the stack opens where it is.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.

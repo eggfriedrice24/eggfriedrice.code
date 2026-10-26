@@ -1,63 +1,64 @@
 import "../../global.css";
 
-import { Stack, type NativeStackNavigationOptions } from "expo-router";
-import { KeyboardProvider } from "react-native-keyboard-controller";
+import Constants from "expo-constants";
 
-import { semantic } from "@/theme/palette";
+import { appStorage } from "@/lib/native/kv";
+import { followAppState } from "@/lib/native/app-state";
+import { systemClock } from "@/lib/native/clock";
+import { newCommandId, openAppDatabase, openEventCaches } from "@/lib/native/database";
+import { setHapticsEnabled } from "@/lib/native/haptics";
+import { followNetwork, followOnline } from "@/lib/native/netinfo";
+import { animationFrames } from "@/lib/store/frame-store";
+import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
+import { MachineMenu } from "@/features/machines/components/machine-menu";
+import { AppProviders } from "@/features/navigation/components/app-providers";
+import { RootStack } from "@/features/navigation/components/root-stack";
+import { createAppServices } from "@/features/navigation/model/app-services";
+import { nativePairingDeps } from "@/features/pairing/native/native-pairing";
 
 export { ErrorBoundary } from "expo-router";
 
-// The root stack and the presentation of each route (plan 2.5). The screens are stubs
-// until the waves of the UI rebuild replace them; the providers of the runtime come with
-// the navigation package (wave 3).
+// The root of the app (plan sections 2.2 and 2.5). The services start once, when the app
+// loads: the runtime reads the paired machines and connects them, and the outbox reads
+// the prompts of the last launch. The root stack gives each screen its header.
 
-const HEADER: NativeStackNavigationOptions = {
-  headerTransparent: true,
-  headerBlurEffect: "systemChromeMaterialDark",
-  headerBackButtonDisplayMode: "minimal",
-  headerBackButtonMenuEnabled: true,
-  headerLargeTitle: false,
-  headerTintColor: semantic.text_primary,
-  headerTitleStyle: { color: semantic.text_bright },
-  contentStyle: { backgroundColor: semantic.surface_1 },
-};
+/** A deep link to a conversation still has the blank root under it. */
+export const unstable_settings = { initialRouteName: "index" };
 
-/** True when the route was pushed with `enter=instant` (the first send on the root). */
-function entersInstantly(params: unknown): boolean {
-  return (
-    typeof params === "object" && params !== null && "enter" in params && params.enter === "instant"
-  );
+/** Reports an error that the app goes on after. Only a dev build shows it. */
+function report(error: unknown): void {
+  if (__DEV__) {
+    console.warn(error);
+  }
 }
 
-const ROOT: NativeStackNavigationOptions = { title: "efr" };
-const CONVERSATION: NativeStackNavigationOptions = { title: "Conversation" };
-const SETTINGS: NativeStackNavigationOptions = { title: "Settings" };
-const CONVERSATIONS: NativeStackNavigationOptions = {
-  title: "All conversations",
-  presentation: "formSheet",
-  sheetAllowedDetents: [0.5, 1],
-  sheetGrabberVisible: true,
-};
-const PAIR: NativeStackNavigationOptions = {
-  presentation: "fullScreenModal",
-  headerShown: false,
-};
+const services = createAppServices({
+  pairing: nativePairingDeps(),
+  random: Math.random,
+  schedule: animationFrames,
+  clock: systemClock,
+  now: Date.now,
+  newId: newCommandId,
+  openDatabase: openAppDatabase,
+  openEventCaches,
+  openOutboxStorage: (db) => SqliteOutboxStorage.open(db),
+  keyValue: appStorage,
+  queryStorage: appStorage,
+  appVersion: Constants.expoConfig?.version ?? "0.0.0",
+  lifecycle: { followAppState, followNetwork },
+  followOnline,
+  setHapticsEnabled,
+  onError: report,
+});
+
+function machineMenu(machine: string) {
+  return <MachineMenu current={machine} />;
+}
 
 export default function RootLayout() {
   return (
-    <KeyboardProvider>
-      <Stack
-        screenOptions={({ route }): NativeStackNavigationOptions => ({
-          ...HEADER,
-          animation: entersInstantly(route.params) ? "none" : "default",
-        })}
-      >
-        <Stack.Screen name="index" options={ROOT} />
-        <Stack.Screen name="c/[machine]/[id]" options={CONVERSATION} />
-        <Stack.Screen name="settings" options={SETTINGS} />
-        <Stack.Screen name="conversations" options={CONVERSATIONS} />
-        <Stack.Screen name="pair" options={PAIR} />
-      </Stack>
-    </KeyboardProvider>
+    <AppProviders services={services}>
+      <RootStack machineMenu={machineMenu} />
+    </AppProviders>
   );
 }
