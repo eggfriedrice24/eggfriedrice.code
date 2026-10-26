@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:ui": "jest",
     "gen:protocol": "node scripts/gen-protocol.mjs",
-    "check:protocol": "node scripts/gen-protocol.mjs --check"
+    "check:protocol": "node scripts/gen-protocol.mjs --check",
+    "bundle:check": "expo export --platform ios --output-dir dist"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.15",
