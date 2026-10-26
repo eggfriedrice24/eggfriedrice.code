@@ -1,0 +1,5 @@
+/* The styles of the app: Tailwind, uniwind and the theme of the design system. The
+   root layout imports this file first. src/theme/theme.css is generated. */
+@import "tailwindcss";
+@import "uniwind";
+@import "./src/theme/theme.css";
