@@ -357,6 +357,26 @@ describe("requests", () => {
     expect(outcomes).toEqual([["read", "approve"], "malformed", "malformed"]);
   });
 
+  it("keeps the scopes of an enroll result that it knows", async () => {
+    const { sockets, opening } = setup({}, true);
+    const socket = sockets.last;
+    socket.open();
+    await flush();
+    socket.answer("hello", remoteHello());
+    const connection = await opening;
+    const enroll = connection.call("device.enroll", {
+      token: "q83vASNFZ4mrze8BI0VniQ",
+      name: "Anna's iPhone",
+      public_key: "BAE=",
+    });
+    await flush();
+    socket.answer("device.enroll", {
+      device_id: DEVICE_ID,
+      scopes: ["read", "from_a_newer_efrd", "approve"],
+    });
+    expect(await enroll).toEqual({ device_id: DEVICE_ID, scopes: ["read", "approve"] });
+  });
+
   it("fails the handshake when the hello result fails its schema", async () => {
     const { sockets, opening } = setup();
     sockets.last.open();

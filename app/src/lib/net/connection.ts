@@ -188,14 +188,16 @@ export class Connection {
    * Runs a method with one result. It rejects with a `ServerError` when efrd answers
    * with an error, and with a `ConnectionError` when the connection closes first or
    * `timeoutMs` passes (the request is then cancelled). A result that fails the schema
-   * of the method rejects with kind `malformed`; the connection stays open.
+   * of the method rejects with kind `malformed`; the connection stays open. The
+   * `device.enroll` result keeps only the scopes that this build knows, as the proof does.
    */
   async call<M extends UnaryMethodName>(
     method: M,
     params: MethodParams[M],
     options: { readonly timeoutMs?: number } = {},
   ): Promise<MethodResults[M]> {
-    return checkedResult(method, await this.unary(method, params, options.timeoutMs));
+    const raw = await this.unary(method, params, options.timeoutMs);
+    return checkedResult(method, method === "device.enroll" ? withKnownScopes(raw) : raw);
   }
 
   /** Starts a stream method. Its frames go to `handlers` until it ends or is cancelled. */
@@ -524,4 +526,16 @@ function knownScopes(value: unknown): readonly ScopeName[] {
     const known = scopeNameSchema.safeParse(scope);
     return known.success ? [known.data] : [];
   });
+}
+
+/**
+ * `value` with only the scopes that this build knows in its `scopes` list. A pairing with
+ * a newer efrd then works with the scopes that the app can use. A value without a list
+ * stays as it is, so that its schema fails it.
+ */
+function withKnownScopes(value: unknown): unknown {
+  if (!isJsonObject(value) || !Array.isArray(value["scopes"])) {
+    return value;
+  }
+  return { ...value, scopes: knownScopes(value) };
 }
