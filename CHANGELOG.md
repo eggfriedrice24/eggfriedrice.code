@@ -49,6 +49,13 @@ into the GitHub release notes, and it stops when the section is missing.
   right. A strip under the bar of a conversation tells you when another conversation
   waits for an answer, and when its machine is offline. The stack keeps at most 8
   conversations, and a conversation that is in the stack opens where it is.
+- The phone app pairs in one full screen step after step: the command to run, the
+  scan, the name and the key to compare with the terminal, and the paired machine.
+  Each error has its own screen and one action: an expired code, a code of another
+  machine, Tailscale off, a no in the terminal, an efrd that is too old or too new, and
+  the camera off. When Tailscale was off, the app tries again by itself when you come
+  back to it. You can pair one machine again from its own screen. When no machine is
+  paired, the app opens on the first step.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.
