@@ -137,7 +137,7 @@ export function pairingNotice(view: PairingView): PairingNotice {
     case "failed":
       return {
         title: "The phone did not pair",
-        body: view.message ?? failureText(view.reason),
+        body: view.message ?? failureText(view.reason, view.machine),
         action: "Try again",
         busy: false,
       };
@@ -151,7 +151,7 @@ export function pairingNotice(view: PairingView): PairingNotice {
   }
 }
 
-function failureText(reason: PairingFailure): string {
+function failureText(reason: PairingFailure, machine: string | undefined): string {
   switch (reason) {
     case "camera":
       return "efr cannot use the camera. Let efr use it in Settings, then try again.";
@@ -161,6 +161,8 @@ function failureText(reason: PairingFailure): string {
       return "efr cannot reach the computer of the code. Make sure that Tailscale is connected on this phone and that efrd runs.";
     case "wrong_daemon":
       return "The computer that answered is not the one of the code. Run efr device add again and scan the new code.";
+    case "other_machine":
+      return `This code came from ${machine ?? "another machine"}. Run efr device add on the machine that you pair again, and scan that code.`;
     case "expired":
       return "The code expired or was used. Run efr device add again and scan the new code.";
     case "refused":

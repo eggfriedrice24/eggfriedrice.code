@@ -7,7 +7,8 @@
 // 3. Make a new device key and send `device.enroll` with the token, the device name and
 //    the public key. efrd shows the phone's facts at the terminal; the request waits until
 //    the user answers there.
-// 4. Keep the pairing record, and remove the key of an earlier pairing.
+// 4. Keep the pairing record, and remove the key of an earlier pairing with the same
+//    daemon (a re-pair). The records of the other machines stay.
 //
 // Every effect (the socket, the clock, the key store, the record store, SHA-256, time)
 // comes in as a parameter, so the flow runs in Vitest. src/features/pairing/native/native-pairing.ts gives the
@@ -59,6 +60,18 @@ export type PairingFailure =
   | { readonly kind: "code_version" }
   /** The code is an efr code, but it is damaged. */
   | { readonly kind: "malformed" }
+  /**
+   * A re-pair of one machine got the code of another machine. The flow stops before it
+   * connects, so the token does not go out.
+   */
+  | {
+      readonly kind: "other_machine";
+      /** The daemon of the code. */
+      readonly daemonId: string;
+      readonly host: string;
+      /** The MagicDNS name of the code, when it has one. */
+      readonly fqdn?: string;
+    }
   /** No connection came up: Tailscale is off, or efrd does not listen. */
   | { readonly kind: "unreachable" }
   /** The computer at the address is not the one of the code. The token did not go out. */
@@ -80,6 +93,20 @@ export type PairingFailure =
 export type PairingResult =
   | { readonly ok: true; readonly device: PairedDevice }
   | { readonly ok: false; readonly failure: PairingFailure };
+
+/**
+ * A pairing that did not give a device, as an error: the pairing mutation rejects with it,
+ * so that `isError` and `onSuccess` of the mutation mean what they say.
+ */
+export class PairingError extends Error {
+  readonly failure: PairingFailure;
+
+  constructor(failure: PairingFailure) {
+    super(`the pairing failed: ${failure.kind}`);
+    this.name = "PairingError";
+    this.failure = failure;
+  }
+}
 
 /** A signal that the screen sets to stop the flow. */
 export interface CancelSignal {
@@ -122,6 +149,11 @@ export function cancellation(): { readonly signal: CancelSignal; readonly cancel
 export interface PairingOptions {
   /** The name that efrd shows; cleaned with `deviceName`. */
   readonly name: string;
+  /**
+   * The daemon id of the machine that the user pairs again. A code of another daemon
+   * then fails with `other_machine`. Absent for the pairing of a new machine.
+   */
+  readonly repair?: string;
   readonly signal?: CancelSignal;
   readonly onStep?: (step: PairingStep) => void;
 }
@@ -139,7 +171,15 @@ export async function pair(
     const kind = parsed.reason === "version" ? "code_version" : parsed.reason;
     return { ok: false, failure: { kind } };
   }
-  const run = new PairingRun(parsed.code, deps, options);
+  const { code } = parsed;
+  if (options.repair !== undefined && options.repair !== code.daemonId) {
+    const failure = { kind: "other_machine", daemonId: code.daemonId, host: code.host } as const;
+    return {
+      ok: false,
+      failure: code.fqdn === undefined ? failure : { ...failure, fqdn: code.fqdn },
+    };
+  }
+  const run = new PairingRun(code, deps, options);
   try {
     return { ok: true, device: await run.run() };
   } catch (error) {
@@ -196,19 +236,21 @@ class PairingRun {
     // efrd keeps the device now, so a cancel no longer stops the run: a record that the
     // phone drops would leave a device at efrd that no phone can use.
     this.step({ step: "saving" });
-    const previous = await this.deps.devices.load().catch(() => null);
-    const device: PairedDevice = {
+    const records = await this.deps.devices.loadAll().catch(() => []);
+    const previous = records.find((record) => record.daemonId === this.code.daemonId);
+    const record: PairedDevice = {
       deviceId,
       daemonId: this.code.daemonId,
       host: this.code.host,
       port: this.code.port,
-      ...(this.code.fqdn === undefined ? {} : { fqdn: this.code.fqdn }),
       name,
       keyAlias: alias,
       scopes,
       pairedAt: this.deps.now().toISOString(),
     };
-    await this.deps.devices.save(device).catch((error: unknown) => {
+    const { fqdn } = this.code;
+    const device: PairedDevice = fqdn === undefined ? record : { ...record, fqdn };
+    await this.deps.devices.upsert(device).catch((error: unknown) => {
       throw new Failure({
         kind: "failed",
         message: `the phone could not keep the pairing: ${messageOf(error)}`,
@@ -216,7 +258,7 @@ class PairingRun {
     });
     // The new record names the new key; from here on a failure must not remove it.
     this.newAlias = undefined;
-    if (previous !== null && previous.keyAlias !== alias) {
+    if (previous !== undefined && previous.keyAlias !== alias) {
       await this.deps.keys.remove(previous.keyAlias).catch(() => {});
     }
     return device;

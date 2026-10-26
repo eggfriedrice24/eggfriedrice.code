@@ -3,6 +3,7 @@
 import { base64Encode } from "@/lib/protocol/bytes";
 import { isJsonObject } from "@/lib/protocol/envelope";
 import type { DeviceKeyBinding } from "./device-key";
+import { withDevice } from "./paired-device";
 import type { PairedDevice, PairedDeviceStore } from "./paired-device";
 
 /** One request frame that the client sent. */
@@ -94,25 +95,39 @@ export class FakeKeyBinding implements DeviceKeyBinding {
   }
 }
 
-/** A pairing record store in memory. */
+/** A pairing record store in memory, for many machines. */
 export class MemoryPairedDevices implements PairedDeviceStore {
-  device: PairedDevice | null = null;
+  /** The records, in the order of the first pairing with each machine. */
+  devices: readonly PairedDevice[] = [];
   failSave: Error | undefined;
+  failLoad: Error | undefined;
 
-  load(): Promise<PairedDevice | null> {
-    return Promise.resolve(this.device);
+  constructor(devices: readonly PairedDevice[] = []) {
+    this.devices = devices;
   }
 
-  save(device: PairedDevice): Promise<void> {
+  /** The record of daemon `daemonId`, or undefined. */
+  of(daemonId: string): PairedDevice | undefined {
+    return this.devices.find((device) => device.daemonId === daemonId);
+  }
+
+  loadAll(): Promise<readonly PairedDevice[]> {
+    if (this.failLoad !== undefined) {
+      return Promise.reject(this.failLoad);
+    }
+    return Promise.resolve(this.devices);
+  }
+
+  upsert(device: PairedDevice): Promise<void> {
     if (this.failSave !== undefined) {
       return Promise.reject(this.failSave);
     }
-    this.device = device;
+    this.devices = withDevice(this.devices, device);
     return Promise.resolve();
   }
 
-  remove(): Promise<void> {
-    this.device = null;
+  remove(daemonId: string): Promise<void> {
+    this.devices = this.devices.filter((device) => device.daemonId !== daemonId);
     return Promise.resolve();
   }
 }

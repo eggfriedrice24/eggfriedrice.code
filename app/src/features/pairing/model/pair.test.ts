@@ -34,6 +34,19 @@ const HELLO = {
   prove: { peer_node: "nPHONE", daemon_node: "nDESK", daemon_tailnet: "T1" },
 };
 
+/** The record of another machine, which a pairing must keep. */
+const OTHER_MACHINE: PairedDevice = {
+  deviceId: "019a9b1c-3d00-7a10-8b20-0000000000c1",
+  daemonId: "019a9b1c-3d00-7a10-8b20-0000000000c2",
+  host: "100.64.0.9",
+  port: 7419,
+  fqdn: "laptop.tail1234.ts.net",
+  name: "iPhone",
+  keyAlias: "device-laptop",
+  scopes: ["read", "operate", "approve"],
+  pairedAt: "2026-09-01T00:00:00.000Z",
+};
+
 const ENROLLED = { device_id: DEVICE_ID, scopes: ["read", "operate", "approve"] };
 
 type Answer =
@@ -139,7 +152,7 @@ describe("pair", () => {
       pairedAt: "2026-10-26T09:01:00.000Z",
     };
     expect(result).toEqual({ ok: true, device: expected });
-    expect(devices.device).toEqual(expected);
+    expect(devices.devices).toEqual([expected]);
     expect(steps).toEqual([
       { step: "connecting", url: "ws://100.101.102.103:7878/" },
       { step: "confirm", name: "Anna's iPhone", fingerprint: "SHA256:0001020304050607" },
@@ -170,20 +183,60 @@ describe("pair", () => {
   it("removes the key of the earlier pairing once the new record is kept", async () => {
     const { binding, devices, deps } = setup(fakeDaemon(answers()).sockets);
     await deps.keys.create("device-old");
-    devices.device = {
-      deviceId: "019a9b1c-3d00-7a10-8b20-0000000000ff",
-      daemonId: DAEMON,
-      host: "100.101.102.103",
-      port: 7878,
-      name: "old",
-      keyAlias: "device-old",
-      scopes: ["read"],
-      pairedAt: "2026-10-01T00:00:00.000Z",
-    };
+    devices.devices = [
+      OTHER_MACHINE,
+      {
+        deviceId: "019a9b1c-3d00-7a10-8b20-0000000000ff",
+        daemonId: DAEMON,
+        host: "100.101.102.103",
+        port: 7878,
+        name: "old",
+        keyAlias: "device-old",
+        scopes: ["read"],
+        pairedAt: "2026-10-01T00:00:00.000Z",
+      },
+    ];
+    await deps.keys.create(OTHER_MACHINE.keyAlias);
+    const result = await pair(CODE, deps, { name: "iPhone", repair: DAEMON });
+    expect(result.ok).toBe(true);
+    expect([...binding.keys.keys()]).toEqual([OTHER_MACHINE.keyAlias, "device-1"]);
+    // The re-paired record keeps its place, and the record of the other machine stays.
+    expect(devices.devices.map((device) => device.keyAlias)).toEqual([
+      OTHER_MACHINE.keyAlias,
+      "device-1",
+    ]);
+  });
+
+  it("adds a new machine after the records of the others", async () => {
+    const { binding, devices, deps } = setup(fakeDaemon(answers()).sockets);
+    devices.devices = [OTHER_MACHINE];
+    await deps.keys.create(OTHER_MACHINE.keyAlias);
     const result = await pair(CODE, deps, { name: "iPhone" });
     expect(result.ok).toBe(true);
-    expect([...binding.keys.keys()]).toEqual(["device-1"]);
-    expect(devices.device?.keyAlias).toBe("device-1");
+    expect(devices.devices.map((device) => device.daemonId)).toEqual([
+      OTHER_MACHINE.daemonId,
+      DAEMON,
+    ]);
+    expect([...binding.keys.keys()]).toEqual([OTHER_MACHINE.keyAlias, "device-1"]);
+  });
+
+  it("stops before it connects when a re-pair gets the code of another machine", async () => {
+    const daemon = fakeDaemon(answers());
+    const { binding, devices, deps } = setup(daemon.sockets);
+    devices.devices = [OTHER_MACHINE];
+    const result = await pair(CODE, deps, { name: "iPhone", repair: OTHER_MACHINE.daemonId });
+    expect(result).toEqual({
+      ok: false,
+      failure: {
+        kind: "other_machine",
+        daemonId: DAEMON,
+        host: "100.101.102.103",
+        fqdn: "desk.tail1234.ts.net",
+      },
+    });
+    expect(daemon.made.length).toBe(0);
+    expect(binding.keys.size).toBe(0);
+    expect(devices.devices).toEqual([OTHER_MACHINE]);
   });
 
   it("stops before the token goes out when the daemon is not the one of the code", async () => {
@@ -195,7 +248,7 @@ describe("pair", () => {
     expect(daemon.made[0]?.requests.map((request) => request.method)).toEqual(["hello"]);
     expect(daemon.made[0]?.sent.join("")).not.toContain(TOKEN);
     expect(binding.keys.size).toBe(0);
-    expect(devices.device).toBeNull();
+    expect(devices.devices).toEqual([]);
     expect(daemon.made[0]?.closedByClient).toBe(true);
   });
 
@@ -229,7 +282,7 @@ describe("pair", () => {
       const result = await pair(CODE, deps, { name: "iPhone" });
       expect(result).toEqual({ ok: false, failure: { kind, message } });
       expect(binding.keys.size).toBe(0);
-      expect(devices.device).toBeNull();
+      expect(devices.devices).toEqual([]);
     },
   );
 
@@ -266,7 +319,7 @@ describe("pair", () => {
     expect(daemon.made[0]?.closedByClient).toBe(true);
     await settle();
     expect(binding.keys.size).toBe(0);
-    expect(devices.device).toBeNull();
+    expect(devices.devices).toEqual([]);
   });
 
   it("keeps the record when the cancel comes after efrd enrolled the device", async () => {
@@ -282,7 +335,7 @@ describe("pair", () => {
       },
     });
     expect(result.ok).toBe(true);
-    expect(devices.device?.deviceId).toBe(DEVICE_ID);
+    expect(devices.of(DAEMON)?.deviceId).toBe(DEVICE_ID);
     expect([...binding.keys.keys()]).toEqual(["device-1"]);
   });
 

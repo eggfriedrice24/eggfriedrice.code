@@ -71,6 +71,9 @@ describe("pairingNotice", () => {
   it("says why the pairing failed, and prefers the flow's own words", () => {
     expect(pairingNotice({ kind: "failed", reason: "expired" }).body).toContain("expired");
     expect(pairingNotice({ kind: "failed", reason: "camera" }).body).toContain("camera");
+    expect(
+      pairingNotice({ kind: "failed", reason: "other_machine", machine: "homelab" }).body,
+    ).toContain("came from homelab");
     expect(pairingNotice({ kind: "failed", reason: "other", message: "No key." }).body).toBe(
       "No key.",
     );

@@ -1,14 +1,21 @@
-// The pairing record: what the phone keeps after efrd confirms it. It holds the device id,
-// the daemon and where to find it, and the alias of the device key. It holds no secret
-// (the token is spent and the private key stays in the key store), but it goes into
-// expo-secure-store with WHEN_UNLOCKED_THIS_DEVICE_ONLY, so that it is not in a backup
-// and does not go to a new phone, where the key would be absent.
+// The pairing records: what the phone keeps after efrd confirms it, one record for each
+// machine. A record holds the device id, the daemon and where to find it, and the alias of
+// the device key. It holds no secret (the token is spent and the private key stays in the
+// key store), but it goes into expo-secure-store with WHEN_UNLOCKED_THIS_DEVICE_ONLY, so
+// that it is not in a backup and does not go to a new phone, where the key would be absent.
 //
-// v1 pairs the phone with one daemon. A new pairing replaces the record.
+// expo-secure-store cannot list its keys, so all records are one JSON list (version 2)
+// under one key. Version 1 kept one record under another key; the first read moves it into
+// the list and then removes the old key.
 
-import { isJsonObject } from "@/lib/protocol/envelope";
 import type { DeviceKey, DeviceKeyStore } from "./device-key";
-import { isTailnetIpv4 } from "./pairing-url";
+import {
+  RECORDS_VERSION,
+  storedRecordSchema,
+  storedRecordsSchema,
+  storedRecordV1Schema,
+  type StoredRecord,
+} from "./paired-device-schemas";
 
 /** One pairing with one daemon. */
 export interface PairedDevice {
@@ -31,12 +38,17 @@ export interface PairedDevice {
   readonly pairedAt: string;
 }
 
-/** Where the pairing record lives. */
+/** Where the pairing records live. */
 export interface PairedDeviceStore {
-  /** The record, or null when the phone is not paired. */
-  load(): Promise<PairedDevice | null>;
-  save(device: PairedDevice): Promise<void>;
-  remove(): Promise<void>;
+  /** Every record, in the order of the first pairing with each machine. */
+  loadAll(): Promise<readonly PairedDevice[]>;
+  /**
+   * Keeps `device`. It replaces the record with the same `daemonId` (a re-pair) in its
+   * place, and adds a record for a new machine at the end.
+   */
+  upsert(device: PairedDevice): Promise<void>;
+  /** Removes the record of daemon `daemonId`. A missing record is not an error. */
+  remove(daemonId: string): Promise<void>;
 }
 
 /** The functions of expo-secure-store that the record store uses. */
@@ -53,21 +65,21 @@ export interface SecureStoreOptions {
   readonly keychainAccessible: number;
 }
 
-/** The expo-secure-store key of the record. */
-export const PAIRED_DEVICE_KEY = "efr.paired_device";
+/** The expo-secure-store key of the list of records (version 2). */
+export const PAIRED_DEVICES_KEY = "efr.paired_devices";
 
-/** The keychain service of the record. */
+/** The expo-secure-store key of the single record of version 1. */
+export const PAIRED_DEVICE_V1_KEY = "efr.paired_device";
+
+/** The keychain service of the records. */
 export const PAIRED_DEVICE_SERVICE = "dev.eggfriedrice.efr.pairing";
-
-/** The version of the stored JSON. */
-const RECORD_VERSION = 1;
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const ALIAS = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
  * A record store over expo-secure-store. `whenUnlockedThisDeviceOnly` is the value of
  * expo-secure-store's `WHEN_UNLOCKED_THIS_DEVICE_ONLY`.
+ *
+ * The store runs one operation at a time, because each change reads and writes the whole
+ * list.
  */
 export function secureStorePairedDevices(
   api: SecureStoreApi,
@@ -77,95 +89,153 @@ export function secureStorePairedDevices(
     keychainService: PAIRED_DEVICE_SERVICE,
     keychainAccessible: whenUnlockedThisDeviceOnly,
   };
+  let queue: Promise<unknown> = Promise.resolve();
+  const serial = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = queue.then(run, run);
+    queue = next.catch(() => undefined);
+    return next;
+  };
+
+  const write = async (devices: readonly PairedDevice[]): Promise<void> => {
+    if (devices.length === 0) {
+      await api.deleteItemAsync(PAIRED_DEVICES_KEY, options);
+    } else {
+      await api.setItemAsync(PAIRED_DEVICES_KEY, encodePairedDevices(devices), options);
+    }
+  };
+
+  const read = async (): Promise<readonly PairedDevice[]> => {
+    const text = await api.getItemAsync(PAIRED_DEVICES_KEY, options);
+    const old = await api.getItemAsync(PAIRED_DEVICE_V1_KEY, options);
+    if (old === null) {
+      return text === null ? [] : decodePairedDevices(text);
+    }
+    if (text !== null) {
+      // NOTE: an earlier move wrote the list, then stopped before it removed the old key.
+      await api.deleteItemAsync(PAIRED_DEVICE_V1_KEY, options);
+      return decodePairedDevices(text);
+    }
+    const migrated = decodePairedDeviceV1(old);
+    const devices = migrated === null ? [] : [migrated];
+    if (devices.length > 0) {
+      await write(devices);
+    }
+    await api.deleteItemAsync(PAIRED_DEVICE_V1_KEY, options);
+    return devices;
+  };
+
   return {
-    async load(): Promise<PairedDevice | null> {
-      const text = await api.getItemAsync(PAIRED_DEVICE_KEY, options);
-      return text === null ? null : decodePairedDevice(text);
-    },
-    async save(device: PairedDevice): Promise<void> {
-      await api.setItemAsync(PAIRED_DEVICE_KEY, encodePairedDevice(device), options);
-    },
-    async remove(): Promise<void> {
-      await api.deleteItemAsync(PAIRED_DEVICE_KEY, options);
-    },
+    loadAll: () => serial(read),
+    upsert: (device) =>
+      serial(async () => {
+        await write(withDevice(await read(), device));
+      }),
+    remove: (daemonId) =>
+      serial(async () => {
+        const devices = await read();
+        const kept = devices.filter((device) => device.daemonId !== daemonId);
+        if (kept.length !== devices.length) {
+          await write(kept);
+        }
+      }),
   };
 }
 
-/** The stored JSON of a record. */
-export function encodePairedDevice(device: PairedDevice): string {
-  return JSON.stringify({
-    version: RECORD_VERSION,
+/** `devices` with `device` in place of the record of the same daemon, or added at the end. */
+export function withDevice(
+  devices: readonly PairedDevice[],
+  device: PairedDevice,
+): readonly PairedDevice[] {
+  let replaced = false;
+  const next = devices.map((old) => {
+    if (old.daemonId !== device.daemonId) {
+      return old;
+    }
+    replaced = true;
+    return device;
+  });
+  if (!replaced) {
+    next.push(device);
+  }
+  return next;
+}
+
+/** The stored JSON of the list (version 2). */
+export function encodePairedDevices(devices: readonly PairedDevice[]): string {
+  return JSON.stringify({ version: RECORDS_VERSION, records: devices.map(storedRecord) });
+}
+
+/**
+ * The records in `text`. A text that is not a list of version 2 gives no records, and the
+ * app treats the phone as not paired. A bad record is left out; the others stay.
+ */
+export function decodePairedDevices(text: string): readonly PairedDevice[] {
+  const parsed = storedRecordsSchema.safeParse(parseJson(text));
+  if (!parsed.success) {
+    return [];
+  }
+  const devices: PairedDevice[] = [];
+  for (const value of parsed.data.records) {
+    const record = storedRecordSchema.safeParse(value);
+    if (record.success && !devices.some((d) => d.daemonId === record.data.daemon_id)) {
+      devices.push(pairedDevice(record.data));
+    }
+  }
+  return devices;
+}
+
+/** The record of version 1 in `text`, or null when it is not one. */
+export function decodePairedDeviceV1(text: string): PairedDevice | null {
+  const parsed = storedRecordV1Schema.safeParse(parseJson(text));
+  return parsed.success ? pairedDevice(parsed.data) : null;
+}
+
+function storedRecord(device: PairedDevice): StoredRecord {
+  const record: StoredRecord = {
     device_id: device.deviceId,
     daemon_id: device.daemonId,
     host: device.host,
     port: device.port,
-    ...(device.fqdn === undefined ? {} : { fqdn: device.fqdn }),
     name: device.name,
     key_alias: device.keyAlias,
-    scopes: device.scopes,
+    scopes: [...device.scopes],
     paired_at: device.pairedAt,
-  });
+  };
+  if (device.fqdn !== undefined) {
+    record.fqdn = device.fqdn;
+  }
+  return record;
+}
+
+function pairedDevice(record: StoredRecord): PairedDevice {
+  const device: PairedDevice = {
+    deviceId: record.device_id,
+    daemonId: record.daemon_id,
+    host: record.host,
+    port: record.port,
+    name: record.name,
+    keyAlias: record.key_alias,
+    scopes: record.scopes,
+    pairedAt: record.paired_at,
+  };
+  return record.fqdn === undefined ? device : { ...device, fqdn: record.fqdn };
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
- * The record in `text`, or null when it is not a record of this version. The app then
- * treats the phone as not paired, and the user pairs again.
+ * The short name of a machine, such as `desktop`: the first label of its MagicDNS name, or
+ * its tailnet address when the pairing code had no name.
  */
-export function decodePairedDevice(text: string): PairedDevice | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!isJsonObject(value)) {
-    return null;
-  }
-  const {
-    version,
-    device_id: deviceId,
-    daemon_id: daemonId,
-    host,
-    port,
-    fqdn,
-    name,
-    key_alias: keyAlias,
-    scopes,
-    paired_at: pairedAt,
-  } = value;
-  const scopeList = stringArray(scopes);
-  if (
-    version !== RECORD_VERSION ||
-    typeof deviceId !== "string" ||
-    !UUID.test(deviceId) ||
-    typeof daemonId !== "string" ||
-    !UUID.test(daemonId) ||
-    typeof host !== "string" ||
-    !isTailnetIpv4(host) ||
-    typeof port !== "number" ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65_535 ||
-    (fqdn !== undefined && typeof fqdn !== "string") ||
-    typeof name !== "string" ||
-    typeof keyAlias !== "string" ||
-    !ALIAS.test(keyAlias) ||
-    scopeList === undefined ||
-    typeof pairedAt !== "string"
-  ) {
-    return null;
-  }
-  const device: PairedDevice = {
-    deviceId,
-    daemonId,
-    host,
-    port,
-    name,
-    keyAlias,
-    scopes: scopeList,
-    pairedAt,
-  };
-  return typeof fqdn === "string" ? { ...device, fqdn } : device;
+export function machineName(target: { readonly host: string; readonly fqdn?: string }): string {
+  const label = target.fqdn?.split(".")[0] ?? "";
+  return label === "" ? target.host : label;
 }
 
 /**
@@ -177,37 +247,39 @@ export function daemonUrl(target: { readonly host: string; readonly port: number
   return `ws://${target.host}:${target.port}/`;
 }
 
-/** A pairing record and its device key: what the client needs to connect and prove. */
+/**
+ * A pairing record and its device key: what the client needs to connect and prove.
+ * `key` is null when the key store lost the key (the app moved to another phone, or the
+ * keychain lost it): the machine stays in the list, and the user must pair it again.
+ */
 export interface Pairing {
   readonly device: PairedDevice;
-  readonly key: DeviceKey;
+  readonly key: DeviceKey | null;
 }
 
-/**
- * The pairing of this phone, or null when it is not paired. A record whose key is gone
- * (the app moved to another phone, or the keychain lost it) is no pairing: the user must
- * pair again.
- */
-export async function loadPairing(
+/** Every pairing of this phone, with its key when the key store still has it. */
+export async function loadPairings(
   keys: DeviceKeyStore,
   devices: PairedDeviceStore,
-): Promise<Pairing | null> {
-  const device = await devices.load();
-  if (device === null) {
-    return null;
-  }
-  const key = await keys.load(device.keyAlias);
-  return key === null ? null : { device, key };
+): Promise<readonly Pairing[]> {
+  const records = await devices.loadAll();
+  return Promise.all(
+    records.map(async (device) => ({
+      device,
+      key: await keys.load(device.keyAlias).catch(() => null),
+    })),
+  );
 }
 
-/** Removes the pairing record and its key, for "re-pair" and after a revoke. */
+/** Removes the record of daemon `daemonId` and its key, for "Forget this machine". */
 export async function forgetPairing(
   keys: DeviceKeyStore,
   devices: PairedDeviceStore,
+  daemonId: string,
 ): Promise<void> {
-  const device = await devices.load();
-  await devices.remove();
-  if (device !== null) {
+  const device = (await devices.loadAll()).find((record) => record.daemonId === daemonId);
+  await devices.remove(daemonId);
+  if (device !== undefined) {
     await keys.remove(device.keyAlias);
   }
 }

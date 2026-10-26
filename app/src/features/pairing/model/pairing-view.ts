@@ -2,6 +2,7 @@
 // flow (./pair.ts) to the view that the pairing screens read. Pure, for the tests.
 
 import type { PairingFailure as FlowFailure } from "./pair";
+import { machineName } from "./paired-device";
 
 /** The state of the pairing flow. */
 export type PairingView =
@@ -13,7 +14,13 @@ export type PairingView =
   /** The phone sent its key; the user must confirm on the computer. */
   | { readonly kind: "confirm"; readonly host: string; readonly deviceName: string }
   | { readonly kind: "paired" }
-  | { readonly kind: "failed"; readonly reason: PairingFailure; readonly message?: string };
+  | {
+      readonly kind: "failed";
+      readonly reason: PairingFailure;
+      readonly message?: string;
+      /** For `other_machine`: the short name of the machine of the code, such as `homelab`. */
+      readonly machine?: string;
+    };
 
 /** Why the pairing failed. */
 export type PairingFailure =
@@ -25,6 +32,8 @@ export type PairingFailure =
   | "unreachable"
   /** The computer answered with another daemon id or protocol than the code says. */
   | "wrong_daemon"
+  /** A re-pair of one machine got the code of another machine (`machine`). */
+  | "other_machine"
   /** The code expired, or it was used. */
   | "expired"
   /** The user refused the phone on the computer. */
@@ -48,6 +57,8 @@ export function pairingFailure(failure: FlowFailure): PairingView {
     case "wrong_daemon":
     case "protocol_mismatch":
       return failed("wrong_daemon");
+    case "other_machine":
+      return { kind: "failed", reason: "other_machine", machine: machineName(failure) };
     case "token_refused":
       return failed("expired");
     case "refused":
