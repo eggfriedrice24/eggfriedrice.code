@@ -46,6 +46,17 @@ describe("createFrameStore", () => {
     expect(frames.pending()).toBe(0);
   });
 
+  it("writes each value at once with a scheduler that runs the callback at once", () => {
+    const frame = createFrameStore(0, (callback) => {
+      callback();
+      return () => undefined;
+    });
+    frame.set(1);
+    expect(frame.store.get()).toBe(1);
+    frame.set(2);
+    expect(frame.store.get()).toBe(2);
+  });
+
   it("asks for no frame after dispose, and keeps the newest value", () => {
     const frames = manualFrames();
     const frame = createFrameStore(1, frames.schedule);

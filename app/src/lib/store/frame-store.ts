@@ -66,10 +66,17 @@ export function createFrameStore<T>(initial: T, schedule: FrameScheduler): Frame
       }
       latest = value;
       if (cancel === undefined && !disposed) {
-        cancel = schedule(() => {
+        // A scheduler may run the callback at once, as the one of the tests does. Then
+        // no frame waits, and the next `set` must ask for a frame again.
+        let ran = false;
+        const stop = schedule(() => {
+          ran = true;
           cancel = undefined;
           flush();
         });
+        if (!ran) {
+          cancel = stop;
+        }
       }
     },
     flush,
