@@ -259,6 +259,26 @@ describe("the outbox drain", () => {
     });
   });
 
+  it("fails an entry whose result is malformed while the connection stays ready", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const { calls, send } = manualSend();
+    const drain = drainOf(outbox, send, clock);
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a" });
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a2" });
+    drain.start();
+    call(calls, 0).reject(new ConnectionError("malformed", "the result of prompt.send is bad"));
+    await flush();
+    // The drain still runs, and the next entry of the lane goes out.
+    expect(drain.running).toBe(true);
+    expect(states(outbox)).toEqual(["a:failed", "a2:sending"]);
+    expect(outbox.store.get().entries[0]?.error).toEqual({
+      code: "connection",
+      message: "the result of prompt.send is bad",
+    });
+    expect(call(calls, 1).params.text).toBe("a2");
+  });
+
   it("takes an error that send throws, and an error that is not efrd's", async () => {
     const clock = new FakeClock();
     const { outbox } = testOutbox();

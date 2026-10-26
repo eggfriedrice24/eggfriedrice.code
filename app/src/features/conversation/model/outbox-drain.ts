@@ -3,9 +3,12 @@
 // it runs, the drain sends each due entry (`drainPlan` in outbox.ts) with `prompt.send`,
 // and sends again when the outbox changes or a wait ends.
 //
-// - A lost connection (a ConnectionError) makes the entry pending again with no wait, and
-//   holds the drain until the next `start`, so a dead client cannot make a loop of
-//   sends that fail at once.
+// - A lost connection (a ConnectionError of a kind in LOST_KINDS) makes the entry
+//   pending again with no wait, and holds the drain until the next `start`, so a dead
+//   client cannot make a loop of sends that fail at once.
+// - Another ConnectionError, such as a result that its schema refused (`malformed`),
+//   fails the entry: the connection stays ready, so no `start` comes to free the drain,
+//   and a resend with the same command id gets the same answer.
 // - `busy` and `internal` are retryable: the entry waits `retry_after_ms` of the error,
 //   else the backoff ladder of src/lib/net/backoff.ts with a cap of 16 s (t3code), and
 //   fails after MAX_SEND_ATTEMPTS. An error that is not efrd's counts as retryable too.
@@ -16,12 +19,26 @@
 
 import { backoffDelayMs, type BackoffConfig } from "@/lib/net/backoff";
 import type { Clock, Timer } from "@/lib/net/clock";
-import { ConnectionError, ServerError, retryAfterMs } from "@/lib/net/errors";
+import {
+  ConnectionError,
+  type ConnectionErrorKind,
+  ServerError,
+  retryAfterMs,
+} from "@/lib/net/errors";
 import type { CommandId, DaemonId, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
 import { drainPlan, sendParams, type Outbox, type OutboxEntry, type OutboxError } from "./outbox";
 
 /** The wait between the attempts of one entry: 0.5 s, then twice as long, at most 16 s. */
 export const OUTBOX_BACKOFF: BackoffConfig = { baseMs: 250, maxMs: 16_000, resetAfterMs: 0 };
+
+/** The kinds of ConnectionError that tell that the client lost its socket. */
+const LOST_KINDS: ReadonlySet<ConnectionErrorKind> = new Set([
+  "socket",
+  "closed",
+  "offline",
+  "silent",
+  "timeout",
+]);
 
 /** The codes of efrd after which a resend can work. */
 const RETRYABLE_CODES: ReadonlySet<string> = new Set(["busy", "internal"]);
@@ -87,6 +104,10 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
 
   const settle = (commandId: CommandId, error: unknown, sentIn: number): void => {
     const reason = outboxError(error);
+    if (error instanceof ConnectionError && !LOST_KINDS.has(error.kind)) {
+      outbox.fail(commandId, reason);
+      return;
+    }
     if (error instanceof ConnectionError) {
       // The client is down. The supervisor calls `start` on its next ready. The drain
       // halts first: the release changes the outbox, and a running drain would send
