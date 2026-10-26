@@ -397,7 +397,7 @@ fn the_whois_facts_come_only_from_a_remote_admission() {
     let remote = ConnectionContext::new(
         ConnId::new(1),
         Origin::Phone,
-        RemotePeer::new(addr, Arc::new(peer())),
+        RemotePeer::new(addr, Arc::new(crate::remote::test_admission(&peer()))),
     );
     let other = ConnectionContext::new(
         ConnId::new(2),
@@ -406,7 +406,8 @@ fn the_whois_facts_come_only_from_a_remote_admission() {
     );
     let local = ConnectionContext::new(ConnId::new(3), Origin::Cli, PeerCred::new(1000, Some(5)));
 
-    assert_eq!(enroll_peer(&remote), Some(peer()));
+    // NOTE: the whois of efr-http has no operating system.
+    assert_eq!(enroll_peer(&remote), Some(EnrollPeer { os: None, ..peer() }));
     assert_eq!(enroll_peer(&other), None);
     assert_eq!(enroll_peer(&local), None);
 }

@@ -113,6 +113,28 @@ pub(crate) fn admission(context: &ConnectionContext) -> Option<&Admission> {
     context.remote().and_then(|remote| remote.admission::<Admission>())
 }
 
+/// An admission for a test's remote connection, with the whois facts of `peer`.
+#[cfg(test)]
+pub(crate) fn test_admission(peer: &crate::pairing::EnrollPeer) -> Admission {
+    let facts = admission::PeerFacts {
+        node_stable_id: peer.node_stable_id.clone(),
+        node_name: peer.node_name.clone(),
+        host_name: String::new(),
+        user_id: peer.user_id,
+        login_name: peer.user_login.clone(),
+        display_name: String::new(),
+    };
+    let tailnet = tailnet::Tailnet {
+        ipv4: Ipv4Addr::new(100, 64, 0, 1),
+        own_ips: Vec::new(),
+        self_node: "nDAEMON1CNTRL".to_owned(),
+        self_user: Some(peer.user_id),
+        tailnet: peer.tailnet_stable_id.clone(),
+        fqdn: None,
+    };
+    Admission::new(0, facts, &tailnet, CancellationToken::new())
+}
+
 /// The prove facts of the `hello` of a remote connection, which also keeps the
 /// connection's challenge for `device.prove`; `None` for a local connection.
 pub(crate) fn hello(
@@ -140,6 +162,13 @@ pub(crate) async fn serve(
     listen: Option<SocketAddrV4>,
     stop: CancellationToken,
 ) {
+    // NOTE: a unit test must never reach the user's real tailscaled.
+    #[cfg(test)]
+    assert!(
+        !settings.tailscaled_socket.starts_with("/run")
+            && !settings.tailscaled_socket.starts_with("/var/run"),
+        "a test points remote.tailscaled_socket at the real tailscaled"
+    );
     let api = LocalApi::new(&settings.tailscaled_socket, Arc::clone(&state.clock))
         .with_timeout(LOCALAPI_TIMEOUT);
     tracing::info!(

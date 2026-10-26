@@ -696,7 +696,7 @@ them all. One method file for each step:
   own process on the Unix socket) opens a pairing. It needs the tailnet listener: with
   `[remote] enabled = false` it is `conflict` (data `{"remote": "off"}`), and while the
   listener does not run it is `busy` (data `{"remote": "not_listening"}`). The listener
-  gives its address with `Pairings::set_endpoint`. The first item, `started`, holds the
+  gives its address in `Remote::endpoint`. The first item, `started`, holds the
   QR code: the daemon id, the tailnet IPv4 and port, the MagicDNS name and a token of
   144 random bits. efrd keeps only the SHA-256 of the token. The token is good for one
   enroll and for 5 minutes. At most 4 pairings are open at one time (`busy`). The

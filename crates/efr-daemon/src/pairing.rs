@@ -27,7 +27,6 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Write as _;
-use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -75,24 +74,11 @@ const UPDATES: usize = 4;
 /// The hex digits of a key fingerprint: the first 8 bytes of the key's SHA-256.
 const FINGERPRINT_BYTES: usize = 8;
 
-/// Where a phone finds the tailnet listener, for the QR code. The listener sets it
-/// when it binds and clears it when it stops.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ListenerEndpoint {
-    /// The tailnet IPv4 address that the listener is bound to. Never a loopback
-    /// address.
-    pub(crate) host: Ipv4Addr,
-    /// The listener's port.
-    pub(crate) port: u16,
-    /// The MagicDNS name of efrd's node, without the dot at its end.
-    pub(crate) fqdn: Option<String>,
-}
-
 /// What Tailscale's whois said about the peer of a remote connection, and efrd's own
 /// tailnet: the facts that a device row pins and that the terminal shows.
 ///
-/// The tailnet listener puts it in the admission value of the connection
-/// ([`efr_transport::RemotePeer::admission`]); [`enroll_peer`] reads it back.
+/// [`enroll_peer`] reads it from the admission of the connection that the tailnet
+/// listener made ([`crate::remote::Admission`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EnrollPeer {
     /// `Node.StableID` of the phone's node.
@@ -112,7 +98,17 @@ pub(crate) struct EnrollPeer {
 /// The whois facts of the connection of `context`: `None` for a connection through the
 /// Unix socket, or a remote one that the listener did not admit with them.
 pub(crate) fn enroll_peer(context: &ConnectionContext) -> Option<EnrollPeer> {
-    context.remote()?.admission::<EnrollPeer>().cloned()
+    let admission = crate::remote::admission(context)?;
+    let peer = admission.peer();
+    Some(EnrollPeer {
+        node_stable_id: peer.node_stable_id.clone(),
+        node_name: peer.node_name.clone(),
+        user_id: peer.user_id,
+        user_login: peer.login_name.clone(),
+        tailnet_stable_id: admission.tailnet().to_owned(),
+        // NOTE: the whois of efr-http has no operating system.
+        os: None,
+    })
 }
 
 /// The fingerprint of a device key that the terminal and the phone show:
@@ -146,10 +142,9 @@ fn check_name(device_id: DeviceId, name: &str) -> Result<(), PairingProblem> {
         .map_err(|_| PairingProblem::BadField { field: "name" })
 }
 
-/// The open pairings and where the tailnet listener is.
+/// The open pairings.
 pub(crate) struct Pairings {
     table: Arc<Mutex<Table>>,
-    endpoint: Mutex<Option<ListenerEndpoint>>,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
 }
@@ -165,28 +160,9 @@ impl Pairings {
     pub(crate) fn new(clock: Arc<dyn Clock>, rng: Arc<dyn Rng>) -> Self {
         Pairings {
             table: Arc::new(Mutex::new(Table { open: HashMap::new(), failed: 0 })),
-            endpoint: Mutex::new(None),
             clock,
             rng,
         }
-    }
-
-    /// Where the tailnet listener is now; `None` while it does not run.
-    pub(crate) fn endpoint(&self) -> Option<ListenerEndpoint> {
-        self.endpoint.lock().unwrap_or_else(PoisonError::into_inner).clone()
-    }
-
-    /// Records where the tailnet listener is, or `None` when it stops. Pairings that
-    /// are open keep the address of their QR code.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tailnet listener sets it, and it lands apart from pairing"
-        )
-    )]
-    pub(crate) fn set_endpoint(&self, endpoint: Option<ListenerEndpoint>) {
-        *self.endpoint.lock().unwrap_or_else(PoisonError::into_inner) = endpoint;
     }
 
     /// Opens a pairing that gives the device `name`, or the name that the phone sends.

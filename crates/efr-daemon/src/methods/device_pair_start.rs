@@ -22,7 +22,7 @@ pub(crate) async fn handle(
     params: DevicePairStart,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let Some(endpoint) = state.pairings.endpoint() else {
+    let Some(endpoint) = state.remote.endpoint.borrow().clone() else {
         let problem = if state.settings.borrow().remote.enabled {
             PairingProblem::NotListening
         } else {

@@ -605,7 +605,7 @@ pub enum DaemonError {
     #[error("the device {device_id} connects from another Tailscale node; pair it again")]
     RepairNeeded {
         /// The device.
-        device_id: efr_protocol::DeviceId,
+        device_id: DeviceId,
     },
     /// The connection proved a device before.
     #[error("this connection proved its device before")]

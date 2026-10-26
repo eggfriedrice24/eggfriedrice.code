@@ -21,14 +21,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::Settings;
 use crate::methods::Methods;
-use crate::pairing::{EnrollPeer, ListenerEndpoint, PAIRING_TTL};
+use crate::pairing::{EnrollPeer, PAIRING_TTL};
+use crate::remote::RemoteEndpoint;
 use crate::state::State;
 use crate::testing::{RawClient, deps};
 
 const MASK: [u8; 4] = [0x5a, 0x01, 0xc3, 0x7e];
 
-fn endpoint() -> ListenerEndpoint {
-    ListenerEndpoint {
+fn endpoint() -> RemoteEndpoint {
+    RemoteEndpoint {
         host: Ipv4Addr::new(100, 64, 0, 1),
         port: 7419,
         fqdn: Some("box.tail1234.ts.net".to_owned()),
@@ -69,10 +70,13 @@ impl Daemon {
         let clock = TestClock::new();
         let mut config = Settings::default();
         config.remote.enabled = remote;
+        // NOTE: a socket that does not exist, so the listener never asks the real
+        // tailscaled and never binds; the test sets the endpoint itself.
+        config.remote.tailscaled_socket = dirs.root().join("no-tailscaled.sock");
         let daemon = crate::start(config, deps(&dirs, &clock)).await.unwrap();
         let state = daemon.state();
         if listening {
-            state.pairings.set_endpoint(Some(endpoint()));
+            state.remote.endpoint.send_replace(Some(endpoint()));
         }
         let socket = daemon.socket_path().to_path_buf();
         let shutdown = CancellationToken::new();
@@ -99,7 +103,7 @@ impl Daemon {
     async fn phone(&self, peer: EnrollPeer) -> Phone {
         let (client, server) = tokio::io::duplex(1 << 16);
         let addr: SocketAddr = "100.64.0.2:51000".parse().unwrap();
-        let remote = RemotePeer::new(addr, Arc::new(peer));
+        let remote = RemotePeer::new(addr, Arc::new(crate::remote::test_admission(&peer)));
         let methods = Arc::new(Methods::new(Arc::clone(&self.state)));
         let clock = self.clock.shared();
         let shutdown = self.shutdown.child_token();
@@ -445,7 +449,9 @@ async fn a_phone_cannot_open_list_confirm_or_revoke() {
         let name = method.name();
         let id = phone.send(method).await;
         let refused = phone.answer(id).await.unwrap_err();
-        assert_eq!(refused.code, ErrorCode::Forbidden, "{name}");
+        // NOTE: before its proof a phone may only enroll and prove; `remote::tests`
+        // checks that a proved phone gets `forbidden` for the admin methods.
+        assert_eq!(refused.code, ErrorCode::Unauthorized, "{name}");
     }
 }
 
