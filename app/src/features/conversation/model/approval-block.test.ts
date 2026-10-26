@@ -16,7 +16,7 @@ import {
   type ApprovalBlockModel,
   type ClosedApproval,
   type OpenApproval,
-} from "./approval-block-model";
+} from "./approval-block";
 import { MINUS, TIME_UP } from "./approval-block-text";
 
 /** 14:32 and 13:02 to 13:12 on the phone's local clock, as on the board. */

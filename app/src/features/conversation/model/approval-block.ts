@@ -20,8 +20,8 @@ import { ConnectionError, ServerError } from "@/lib/net/errors";
 import type { ApprovalView } from "@/lib/stream/reducer";
 import { shortPath } from "@/features/conversations/model/list-format";
 import { isApprovalAnswer, type PhoneDecision } from "../conversation-queries";
-import { localReason } from "../model/approval";
-import { diffLines, diffStat, type DiffLine } from "../model/diff-lines";
+import { localReason } from "./approval";
+import { diffLines, diffStat, type DiffLine } from "./diff-lines";
 import {
   clockTime,
   reasonSpans,

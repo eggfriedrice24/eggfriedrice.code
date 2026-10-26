@@ -28,8 +28,8 @@ import {
   NO_ANSWER,
   type AnswerMutation,
   type AnswerState,
-} from "./components/approval-block-model";
-import { expiryLabel, watchExpiry } from "./components/approval-block-text";
+} from "./model/approval-block";
+import { expiryLabel, watchExpiry } from "./model/approval-block-text";
 import {
   answerApprovalMutationOptions,
   conversationKeys,

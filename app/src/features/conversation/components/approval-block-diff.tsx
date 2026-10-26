@@ -8,7 +8,7 @@ import { ScrollView, Text, View } from "react-native";
 
 import { cn } from "@/components/ui/cn";
 import { SEMIBOLD } from "@/theme/type";
-import type { DiffRow } from "./approval-block-model";
+import type { DiffRow } from "../model/approval-block";
 
 /** The fill of each row kind. */
 const ROW_FILL = {

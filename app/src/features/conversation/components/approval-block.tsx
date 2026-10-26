@@ -1,6 +1,6 @@
 // The approval block of the transcript (design 3.11, board S-Approvals): "the only gold
-// outline in the app", and only while an answer is still possible. approval-block-model.ts
-// says what each state shows; this file draws it.
+// outline in the app", and only while an answer is still possible.
+// model/approval-block.ts says what each state shows; this file draws it.
 //
 // `ApprovalBlock` reads its question from the stream store of the conversation and
 // answers through `useAnswerApproval`. `ApprovalBlockView` draws a model only, so the dev
@@ -32,8 +32,8 @@ import {
   type ApprovalButtons,
   type ClosedApproval,
   type OpenApproval,
-} from "./approval-block-model";
-import type { ReasonSpan, Subject } from "./approval-block-text";
+} from "../model/approval-block";
+import type { ReasonSpan, Subject } from "../model/approval-block-text";
 
 export interface ApprovalBlockProps {
   /** The stream store of the conversation. */

@@ -17,8 +17,8 @@ import { EMPTY_STREAM, type ApprovalView, type StreamState } from "@/lib/stream/
 import { AT_MS, approvalResolved, eventItem, run, turnStarted } from "@/lib/stream/testing";
 import type { EventOf } from "@/lib/protocol/wire";
 import { ApprovalBlock, ApprovalBlockView } from "./approval-block";
-import { approvalBlock, NO_ANSWER, type ApprovalBlockContext } from "./approval-block-model";
-import { clockTime } from "./approval-block-text";
+import { approvalBlock, NO_ANSWER, type ApprovalBlockContext } from "../model/approval-block";
+import { clockTime } from "../model/approval-block-text";
 
 jest.mock("expo-haptics", () => ({
   ImpactFeedbackStyle: { Light: "light", Medium: "medium" },
