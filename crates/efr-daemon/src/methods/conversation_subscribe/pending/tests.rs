@@ -1,9 +1,9 @@
 use efr_conversation::{ConversationDraft, LiveToolInput, LiveTurn};
-use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId};
+use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Event, Seq, TurnId};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
-use super::PendingDrafts;
+use super::{Boundary, PendingDrafts};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -130,13 +130,77 @@ fn a_context_draft_ends_a_held_compaction_and_goes_last() {
     assert_eq!(drain(&mut pending), vec![(3, context(30)), (4, compacting)]);
 }
 
+fn completed(index: u32) -> Event {
+    Event::AssistantMessageCompleted { turn_id: turn(), index, text: String::new() }
+}
+
+fn turn_completed() -> Event {
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
+}
+
 #[test]
 fn drafts_before_a_boundary_go() {
     let mut pending = PendingDrafts::default();
+    let mut boundary = Boundary::default();
     pending.push(draft(1, text(0, 0, "a")));
-    pending.push(draft(5, reasoning(0, "b", None)));
-    pending.drop_before(Seq::new(5));
-    assert_eq!(drain(&mut pending), vec![(5, reasoning(0, "b", None))]);
+    pending.push(draft(1, input(0, 3)));
+    pending.push(draft(5, text(1, 0, "b")));
+    assert!(boundary.pass(&completed(0), Seq::new(5)));
+    pending.drop_ended(boundary);
+    assert_eq!(drain(&mut pending), vec![(5, text(1, 0, "b"))]);
+}
+
+#[test]
+fn reasoning_stays_past_the_end_of_a_message_and_goes_at_the_end_of_the_turn() {
+    let mut pending = PendingDrafts::default();
+    let mut boundary = Boundary::default();
+    // The first model call reasons and writes a message; the subscriber reads slowly.
+    pending.push(draft(1, reasoning(0, "plan", Some("Plan"))));
+    pending.push(draft(1, text(0, 0, "a")));
+    assert!(boundary.pass(&completed(0), Seq::new(2)));
+    pending.drop_ended(boundary);
+    // The next model call of the turn continues the reasoning after a blank line.
+    let after = draft(2, reasoning(4, "\n\nmore", Some("Plan")));
+    assert!(!boundary.ended(&after));
+    pending.push(after);
+    let held = drain(&mut pending);
+    assert_eq!(held, vec![(2, reasoning(0, "plan\n\nmore", Some("Plan")))]);
+    // Contiguous offsets: the next reasoning starts where the held one ends.
+    pending.push(draft(2, reasoning(10, "!", None)));
+    assert_eq!(drain(&mut pending), vec![(2, reasoning(10, "!", None))]);
+
+    pending.push(draft(2, reasoning(11, "late", None)));
+    assert!(
+        !boundary.pass(&Event::TurnSteered { turn_id: turn(), text: String::new() }, Seq::new(3))
+    );
+    assert!(boundary.pass(&turn_completed(), Seq::new(4)));
+    pending.drop_ended(boundary);
+    assert!(pending.is_empty());
+    assert!(boundary.ended(&draft(2, reasoning(15, "x", None))));
+}
+
+#[test]
+fn a_rebuild_after_the_end_of_a_message_keeps_the_reasoning_whole() {
+    let mut pending = PendingDrafts::default();
+    let mut boundary = Boundary::default();
+    pending.push(draft(1, reasoning(0, "plan", None)));
+    assert!(boundary.pass(&completed(0), Seq::new(2)));
+    pending.drop_ended(boundary);
+    // The channel left the subscriber behind: the rebuild holds the reasoning past
+    // what is held already, and nothing twice.
+    let mut live = live("", "plan\n\nmore");
+    live.after_seq = Seq::new(2);
+    live.tools.clear();
+    pending.rebuild(conversation(), Some(live), Vec::new());
+    pending.drop_ended(boundary);
+    assert_eq!(drain(&mut pending), vec![(2, reasoning(0, "plan\n\nmore", Some("Plan")))]);
 }
 
 fn live(text: &str, reasoning: &str) -> LiveTurn {

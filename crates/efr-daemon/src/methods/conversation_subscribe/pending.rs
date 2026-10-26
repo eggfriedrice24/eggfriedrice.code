@@ -18,7 +18,65 @@
 use std::collections::VecDeque;
 
 use efr_conversation::{ConversationDraft, LiveTurn};
-use efr_protocol::{DraftPart, Seq, TurnId};
+use efr_protocol::{DraftPart, Event, Seq, TurnId};
+
+/// How far the events that the subscriber has ended the drafts of the turn.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Boundary {
+    /// The last event that ended the text of a message, the input of a tool call or
+    /// a turn ([`ends_drafts`]).
+    part: Seq,
+    /// The last event that ended a turn.
+    turn: Seq,
+}
+
+impl Boundary {
+    /// Moves the boundary past `event` at `seq`. True when the event ended drafts.
+    pub(super) fn pass(&mut self, event: &Event, seq: Seq) -> bool {
+        if ends_turn(event) {
+            self.turn = self.turn.max(seq);
+        }
+        if ends_drafts(event) {
+            self.part = self.part.max(seq);
+            return true;
+        }
+        false
+    }
+
+    /// True when an event that the subscriber has ended what `draft` shows, so the
+    /// draft would only show the past again.
+    ///
+    /// Reasoning ends only with its turn. The next model call of the turn continues
+    /// the reasoning text at the next offset, and reasoning is never in the event log,
+    /// so a reasoning draft from before the end of a message or the start of a tool
+    /// call still holds bytes that the subscriber needs.
+    pub(super) fn ended(&self, draft: &ConversationDraft) -> bool {
+        let boundary = match draft.part {
+            DraftPart::Reasoning { .. } => self.turn,
+            _ => self.part,
+        };
+        draft.after_seq < boundary
+    }
+}
+
+/// True for an event after which the drafts made before it show nothing new: the
+/// end of the text of a message, the start of a tool call (after the whole answer of
+/// the model), and the end of a turn.
+fn ends_drafts(event: &Event) -> bool {
+    matches!(event, Event::AssistantMessageCompleted { .. } | Event::ToolCallStarted { .. })
+        || ends_turn(event)
+}
+
+/// True for the end of a turn.
+fn ends_turn(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::TurnCompleted { .. }
+            | Event::TurnFailed { .. }
+            | Event::TurnInterrupted { .. }
+            | Event::TurnCancelled { .. }
+    )
+}
 
 /// The held drafts of one subscription, oldest part first.
 #[derive(Debug, Default)]
@@ -42,10 +100,9 @@ impl PendingDrafts {
         self.held.pop_front()
     }
 
-    /// Forgets the held drafts that the turn made before `boundary`, an event that
-    /// ended what they show.
-    pub(super) fn drop_before(&mut self, boundary: Seq) {
-        self.held.retain(|draft| draft.after_seq >= boundary);
+    /// Forgets the held drafts that `boundary` ended ([`Boundary::ended`]).
+    pub(super) fn drop_ended(&mut self, boundary: Boundary) {
+        self.held.retain(|draft| !boundary.ended(draft));
     }
 
     /// Holds `draft`: without the bytes that went already, merged with the held draft

@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::{broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::pending::PendingDrafts;
+use super::pending::{Boundary, PendingDrafts};
 use super::{DraftFeed, Live, LiveStart, Progress, Rebuild};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -49,7 +49,7 @@ fn start(
             lagged: AtomicBool::new(false),
         }),
         drafts: None,
-        boundary: Seq::ZERO,
+        boundary: Boundary::default(),
         pending: PendingDrafts::default(),
         rebuild: None,
     };

@@ -64,7 +64,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use self::pending::PendingDrafts;
+use self::pending::{Boundary, PendingDrafts};
 use crate::DaemonError;
 use crate::methods::{cursor, granted, peer_side};
 use crate::state::State;
@@ -125,7 +125,7 @@ pub(crate) async fn handle(
         conversation_id,
         progress: Arc::clone(&progress),
         drafts: None,
-        boundary: Seq::ZERO,
+        boundary: Boundary::default(),
         pending: PendingDrafts::default(),
         rebuild: None,
     };
@@ -304,9 +304,9 @@ struct Live {
     progress: Arc<Progress>,
     /// The draft channel, once the start is read; `None` without drafts.
     drafts: Option<broadcast::Receiver<ConversationDraft>>,
-    /// The sequence number of the last event offered to the subscriber that ends what
-    /// a draft shows ([`ends_drafts`]). A draft made before it is old.
-    boundary: Seq,
+    /// How far the events offered to the subscriber ended what drafts show. A draft
+    /// made before them is old.
+    boundary: Boundary,
     /// The drafts that wait for a free place in the lossy room, merged.
     pending: PendingDrafts,
     /// Reads the live parts of the running turn, once the draft channel came.
@@ -395,9 +395,8 @@ impl Live {
             match self.sender.offer(envelope.seq, item) {
                 Offer::Queued => {
                     self.progress.raise(envelope.seq);
-                    if ends_drafts(&envelope.event) {
-                        self.boundary = self.boundary.max(envelope.seq);
-                        self.pending.drop_before(self.boundary);
+                    if self.boundary.pass(&envelope.event, envelope.seq) {
+                        self.pending.drop_ended(self.boundary);
                     }
                 }
                 Offer::Overflowed | Offer::Closed => return false,
@@ -423,7 +422,7 @@ impl Live {
         if !self.catch_up() {
             return false;
         }
-        if draft.after_seq < self.boundary {
+        if self.boundary.ended(&draft) {
             // NOTE: the turn made the draft before an event that the subscriber already
             // has ended its part: an old draft would only show the past again.
             return true;
@@ -452,7 +451,7 @@ impl Live {
                 self.pending.rebuild(conversation_id, Some(live), Vec::new());
             }
         }
-        self.pending.drop_before(self.boundary);
+        self.pending.drop_ended(self.boundary);
         self.flush()
     }
 
@@ -467,7 +466,7 @@ impl Live {
         };
         let (live, status) = (rebuild.0)();
         self.pending.rebuild(self.conversation_id, live, status);
-        self.pending.drop_before(self.boundary);
+        self.pending.drop_ended(self.boundary);
         self.flush()
     }
 
@@ -495,7 +494,7 @@ impl Live {
             let Some(draft) = self.pending.pop() else {
                 return true;
             };
-            if draft.after_seq < self.boundary {
+            if self.boundary.ended(&draft) {
                 continue;
             }
             let item = ConversationSubscribeItem::Draft(Draft {
@@ -510,21 +509,6 @@ impl Live {
         }
         true
     }
-}
-
-/// True for an event after which the drafts made before it show nothing new: the
-/// end of the text of a message, the start of a tool call (after the whole answer of
-/// the model), and the end of a turn.
-fn ends_drafts(event: &Event) -> bool {
-    matches!(
-        event,
-        Event::AssistantMessageCompleted { .. }
-            | Event::ToolCallStarted { .. }
-            | Event::TurnCompleted { .. }
-            | Event::TurnFailed { .. }
-            | Event::TurnInterrupted { .. }
-            | Event::TurnCancelled { .. }
-    )
 }
 
 /// The next draft of `drafts`, or never without a draft channel, so a `select!`
