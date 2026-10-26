@@ -186,12 +186,17 @@ You need:
 - an Expo account,
 - the iPhone with Developer Mode on (Settings, Privacy and Security, Developer Mode).
 
-`eas.json` has one profile, `preview`: a release build for internal distribution, with
-Node 24.22.1 and pnpm 11.28.8. The app has `expo-dev-client`, but `eas.json` has no
-`development` profile yet. The `preview` profile sets `EXPO_PUBLIC_EFR_DEV_TOOLS=1`, so
-a preview build has the demo machines, the gallery and the bench route
-(`src/lib/dev/dev-tools.ts`). A build without this variable and without `__DEV__` sends
-each dev route to `/`. The render counter needs a dev build.
+`eas.json` has two profiles, both for internal distribution, with Node 24.22.1 and
+pnpm 11.28.8:
+
+- `development`: a dev build with `expo-dev-client`. It loads its JavaScript from
+  `pnpm start` on your computer, and `__DEV__` is on, so it has the dev tools and the
+  render counter.
+- `preview`: a release build that holds its JavaScript. It sets
+  `EXPO_PUBLIC_EFR_DEV_TOOLS=1`, so it has the demo machines, the gallery and the bench
+  route (`src/lib/dev/dev-tools.ts`), but not the render counter.
+
+A build without this variable and without `__DEV__` sends each dev route to `/`.
 
 The bench reads `src/lib/dev/recordings.ts`, a copy of `test/recordings`. A test fails
 when the copy and the recordings differ. To write the copy again, run
@@ -225,6 +230,9 @@ The steps, in `app/`:
    ```sh
    pnpm dlx eas-cli@25.3.0 build --platform ios --profile preview
    ```
+
+   For the render counter, build with `--profile development`, then run `pnpm start` in
+   `app/` and open the app.
 
 5. Open the link of the build on the iPhone and install the app.
 

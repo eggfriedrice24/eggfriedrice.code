@@ -11,6 +11,11 @@
         "image": "auto"
       }
     },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal"
+    },
     "preview": {
       "extends": "base",
       "distribution": "internal",
