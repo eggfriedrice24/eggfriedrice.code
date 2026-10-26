@@ -451,6 +451,32 @@ docs:
     cargo xtask docs-links
     mdbook build book
 
+# The gates of the phone app in app/, as CI's app job: install from the lockfile, the
+# format check (oxfmt), the type-aware lint (oxlint), the type check (tsc 7) and the
+# tests of the pure core (Vitest). Needs pnpm; pnpm switches to the pnpm that
+# app/package.json pins and runs the scripts on the Node that it pins, which it
+# downloads when this machine has another one. It also checks that ci.yml pins the same
+# Node.
+app-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v pnpm >/dev/null; then
+        echo "app-check: needs pnpm on PATH (https://pnpm.io/installation)" >&2
+        exit 1
+    fi
+    want="$(sed -nE '/"runtime"/,/}/s/.*"version": "([0-9.]+)".*/\1/p' app/package.json | head -n1)"
+    ci="$(sed -nE 's/^ *node-version: ([0-9.]+)$/\1/p' .github/workflows/ci.yml | head -n1)"
+    if [[ -z "$want" || "$want" != "$ci" ]]; then
+        echo "app-check: app/package.json pins Node ${want:-nothing}, ci.yml ${ci:-nothing}" >&2
+        exit 1
+    fi
+    cd app
+    pnpm install --frozen-lockfile
+    pnpm run fmt:check
+    pnpm run lint
+    pnpm run typecheck
+    pnpm run test
+
 # Regenerate docs/protocol.md from efr-protocol.
 protocol-docs:
     cargo xtask protocol-docs
