@@ -616,8 +616,8 @@ function totalWait(steps: readonly DemoStep[]): number {
   return steps.reduce((sum, step) => sum + step.wait, 0);
 }
 
-/** The hello result of `machine`. */
-function helloOf(machine: DemoMachine, protocol: number): HelloResult {
+/** The hello result of `machine` in `protocol`. */
+export function demoHello(machine: DemoMachine, protocol: number): HelloResult {
   return {
     daemon_id: machine.daemonId,
     protocol,
@@ -788,10 +788,10 @@ export class DemoSession implements Socket {
         });
         return;
       case "old":
-        this.result(id, helloOf(this.machine, PROTOCOL_VERSION - 1));
+        this.result(id, demoHello(this.machine, PROTOCOL_VERSION - 1));
         return;
       default:
-        this.result(id, helloOf(this.machine, PROTOCOL_VERSION));
+        this.result(id, demoHello(this.machine, PROTOCOL_VERSION));
     }
   }
 
