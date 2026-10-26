@@ -305,7 +305,9 @@ offers it after the registry's tools, as `settings`.
   and the rows of `[sandbox]`, `[snapshot]`, `undo`, the classifier, `[jobs]`,
   `[network]` (`netview` on, `mode` to `proxy`, an added `allow` entry, a removed
   `deny` entry, a `[[network.hosts]]` entry that no earlier entry covers, a higher
-  `max_upload_bytes`) and `[dbus]`; `loosens::loosening` names each such key). The engine asks about it in every mode
+  `max_upload_bytes`), `[dbus]` and `[remote]` (`enabled` on, another
+  `tailscaled_socket`, whose whois says who each phone is); `loosens::loosening` names
+  each such key). The engine asks about it in every mode
   and whatever the rules say, and denies it for a remote turn. The approval shows the
   unified diff of the file (`efr_tools::unified_diff`, as for `write_file`; for a new
   file, the diff from the example), headed by "This change loosens permissions." when
