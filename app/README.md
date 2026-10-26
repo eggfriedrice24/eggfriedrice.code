@@ -186,59 +186,59 @@ You need:
 - an Expo account,
 - the iPhone with Developer Mode on (Settings, Privacy and Security, Developer Mode).
 
-`eas.json` has two profiles, both for internal distribution, with Node 24.22.1 and
-pnpm 11.28.8:
+`app.config.ts` makes three variants of the app from `APP_VARIANT`, as bondid does. Each
+has its own name, bundle id and scheme, so all three can be on one iPhone:
 
-- `development`: a dev build with `expo-dev-client`. It loads its JavaScript from
-  `pnpm start` on your computer, and `__DEV__` is on, so it has the dev tools and the
-  render counter.
-- `preview`: a release build that holds its JavaScript. It sets
+| Variant                     | Name        | Bundle id                      | Scheme        |
+| --------------------------- | ----------- | ------------------------------ | ------------- |
+| `development` (the default) | efr Dev     | `dev.eggfriedrice.efr.dev`     | `efr-dev`     |
+| `preview`                   | efr Preview | `dev.eggfriedrice.efr.preview` | `efr-preview` |
+| `production`                | efr         | `dev.eggfriedrice.efr`         | `efr`         |
+
+`eas.json` has one profile per variant, with Node 24.22.1 and pnpm 11.28.8. Each profile
+sets `APP_VARIANT`:
+
+- `development`: a dev build with `expo-dev-client`, for internal distribution. It loads
+  its JavaScript from Metro on your computer (`pnpm dev:client`), and `__DEV__` is on, so
+  it has the dev tools and the render counter.
+- `preview`: a release build for internal distribution that holds its JavaScript. It sets
   `EXPO_PUBLIC_EFR_DEV_TOOLS=1`, so it has the demo machines, the gallery and the bench
   route (`src/lib/dev/dev-tools.ts`), but not the render counter.
+- `production`: the TestFlight and App Store build. The build number comes from EAS and
+  goes up on each build.
 
-A build without this variable and without `__DEV__` sends each dev route to `/`.
+A build without `EXPO_PUBLIC_EFR_DEV_TOOLS` and without `__DEV__` sends each dev route to
+`/`.
 
 The bench reads `src/lib/dev/recordings.ts`, a copy of `test/recordings`. A test fails
 when the copy and the recordings differ. To write the copy again, run
 `EFR_WRITE_DEV_RECORDINGS=1 pnpm vitest run src/lib/dev/recordings.test.ts` in `app/`.
 
+The project is linked to the Expo account `eggfriedrice` (`extra.eas.projectId` in
+`app.json`). `eas-cli` is a dev dependency, so `pnpm exec eas` runs the pinned version.
+
 The steps, in `app/`:
 
-1. Log in to Expo:
+1. Log in to Expo once: `pnpm exec eas login`.
+2. Register the iPhone for internal distribution once: `pnpm exec eas device:create`.
+   Open the link that it shows on the iPhone and install the profile.
+3. Build the dev client: `pnpm eas:ios:dev`. The first build of each bundle id asks for
+   your Apple account and makes the certificate and the provisioning profile, so run it
+   in a terminal where you can answer.
+4. Open the link of the build on the iPhone and install "efr Dev".
+5. Start Metro: `pnpm dev:client`. The iPhone must reach your computer on the LAN or the
+   tailnet. Open efr Dev and pick the server.
 
-   ```sh
-   pnpm dlx eas-cli@25.3.0 login
-   ```
+Other builds:
 
-2. Link the project to your Expo account. This adds `extra.eas.projectId` to `app.json`.
-   Commit that change.
+- `pnpm eas:ios:preview`: the preview build (gallery and bench without Metro).
+- `pnpm eas:ios:testflight`: the production build, sent to TestFlight when it is done.
+- `pnpm config:dev`, `pnpm config:preview` and `pnpm config:prod` show the resolved config
+  of each variant.
 
-   ```sh
-   pnpm dlx eas-cli@25.3.0 init
-   ```
-
-3. Register the iPhone for internal distribution. Open the link that the command shows on
-   the iPhone and install the profile.
-
-   ```sh
-   pnpm dlx eas-cli@25.3.0 device:create
-   ```
-
-4. Build. EAS asks for your Apple account, and makes the certificate and the
-   provisioning profile.
-
-   ```sh
-   pnpm dlx eas-cli@25.3.0 build --platform ios --profile preview
-   ```
-
-   For the render counter, build with `--profile development`, then run `pnpm start` in
-   `app/` and open the app.
-
-5. Open the link of the build on the iPhone and install the app.
-
-A `preview` build holds its JavaScript, so each change of the app needs a new build.
-Collect the changes of native code, so that the builds stay few. The native modules of
-the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
+A `preview` or `production` build holds its JavaScript, so each change of the app needs a
+new build. Collect the changes of native code, so that the builds stay few. The native
+modules of the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
 expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown
 and the module of the device key.
 

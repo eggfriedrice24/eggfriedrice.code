@@ -13,6 +13,10 @@ allowBuilds:
   # jest-resolve needs it. The prebuilt binding comes as an optional dependency, and the
   # script only downloads one when the binding is missing.
   unrs-resolver: false
+  # eas-cli brings them. dtrace-provider builds an optional DTrace probe that the CLI
+  # does not need, and the script of protobufjs only prints a notice.
+  dtrace-provider: false
+  protobufjs: false
 # jest-expo brings jsdom, and pnpm then links it as the optional peer of vitest. The
 # types of vitest/config import "jsdom", and TypeScript finds the hoisted @types/jsdom,
 # which loads the DOM lib into the program of the app. Do not hoist it.

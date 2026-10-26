@@ -15,7 +15,16 @@
     "check:protocol": "node scripts/gen-protocol.mjs --check",
     "gen:theme": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/gen-theme.mjs",
     "check:theme": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/gen-theme.mjs --check",
-    "bundle:check": "expo export --platform ios --output-dir dist"
+    "bundle:check": "expo export --platform ios --output-dir dist",
+    "dev:client": "APP_VARIANT=development expo start --dev-client --clear",
+    "ios": "expo run:ios",
+    "config:dev": "APP_VARIANT=development expo config",
+    "config:preview": "APP_VARIANT=preview expo config",
+    "config:prod": "APP_VARIANT=production expo config",
+    "eas:ios:dev": "eas build --profile development -p ios",
+    "eas:ios:preview": "eas build --profile preview -p ios",
+    "eas:ios:prod": "eas build --profile production -p ios",
+    "eas:ios:testflight": "eas build --profile production -p ios --auto-submit"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.15",
@@ -63,6 +72,7 @@
     "@testing-library/react-native": "14.1.0",
     "@types/react": "~19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
+    "eas-cli": "25.3.0",
     "fast-check": "4.10.2",
     "jest": "30.5.2",
     "jest-expo": "~58.0.12",
