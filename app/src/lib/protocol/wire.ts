@@ -3,20 +3,28 @@
 // each kind that this build does not know.
 //
 // Forward compatibility (R3.12 of the research): a newer efrd can send an event, draft
-// part or item kind that the generated file does not list. The envelope guard decodes
-// it to `OtherKind`, which the reducer and the store skip. A known kind with a
-// malformed body is an error.
+// part or item kind that the generated file does not list. The decoder (envelope.ts)
+// decodes it to `OtherKind`, which the reducer and the store skip. A known event or
+// draft part whose body fails its schema is an `OtherKind` with `invalid: true`.
 //
 // Numbers: efrd sends u64 values (seq, offset, request id). The app keeps them as JS
-// numbers, which are exact up to 2^53. The envelope guard refuses a larger value.
+// numbers, which are exact up to 2^53. The decoder refuses a larger value.
 
 import type * as Protocol from "./generated";
 
-/** A kind that this build does not know, kept only so that the app can skip it. */
+/**
+ * A kind that this build does not know, or a known kind that failed its schema, kept
+ * only so that the app can skip it.
+ */
 export interface OtherKind {
   readonly kind: "other";
   /** The kind as it came on the wire. */
   readonly wireKind: string;
+  /**
+   * True for a known kind whose members failed its schema, for example a new value of
+   * an enum from a newer efrd. Absent for a kind that this build does not know.
+   */
+  readonly invalid?: true;
 }
 
 /** An event kind that this build does not know. */

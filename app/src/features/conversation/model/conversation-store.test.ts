@@ -161,7 +161,14 @@ describe("the cache of the conversation store", () => {
     const cache = new MemoryEventCache();
     await cache.append(CONVERSATION, [
       { seq: 1, json: "not json" },
-      { seq: 2, json: JSON.stringify({ seq: 2, at: "t", event: { kind: "from_the_future" } }) },
+      {
+        seq: 2,
+        json: JSON.stringify({
+          seq: 2,
+          at: "2026-10-26T12:00:00Z",
+          event: { kind: "from_the_future" },
+        }),
+      },
     ]);
     const store = new ConversationStore(CONVERSATION, { cache });
     await store.hydrate();

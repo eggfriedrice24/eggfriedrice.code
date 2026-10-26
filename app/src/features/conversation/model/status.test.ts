@@ -5,7 +5,8 @@ import { EMPTY_STREAM, reduce, type StreamState } from "@/lib/stream/reducer";
 import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
 import { endLine, turnStatus } from "./status";
 
-const TURN = "t";
+const TURN = "019a9b1c-3d00-7a10-8b20-0000000000a2";
+const CALL = "019a9b1c-3d00-7a10-8b20-0000000000a3";
 let seq = 0;
 const event = (body: Record<string, unknown>) => ({
   kind: "event",
@@ -60,13 +61,13 @@ describe("turnStatus", () => {
     expect(
       statusAfter(
         event({ kind: "turn_started" }),
-        event({ kind: "tool_call_started", call_id: "c", tool: "shell", input: {} }),
+        event({ kind: "tool_call_started", call_id: CALL, tool: "shell", input: {} }),
       ),
     ).toBe("running shell");
     expect(
       statusAfter(
         event({ kind: "turn_started" }),
-        event({ kind: "approval_requested", call_id: "c", summary: "x", local_only: true }),
+        event({ kind: "approval_requested", call_id: CALL, summary: "x", local_only: true }),
       ),
     ).toBe("waiting for you on your computer");
     expect(

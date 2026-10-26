@@ -5,7 +5,7 @@ import { EMPTY_STREAM, reduce, type StreamState } from "@/lib/stream/reducer";
 import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
 import { createRowBuilder } from "./rows";
 
-const TURN = "t1";
+const TURN = "019a9b1c-3d00-7a10-8b20-0000000000a1";
 
 function feed(items: unknown[]): { details: TranscriptDetails; stream: StreamState } {
   let details = EMPTY_DETAILS;
@@ -45,11 +45,11 @@ describe("createRowBuilder", () => {
       event({ kind: "approval_requested", call_id: "c", summary: "run ls" }),
     ]);
     expect(build(input).map((row) => row.key)).toEqual([
-      "w:t1",
-      "a:t1:c",
-      "t:t1:c",
-      "m:t1:0",
-      "p:t1",
+      `w:${TURN}`,
+      `a:${TURN}:c`,
+      `t:${TURN}:c`,
+      `m:${TURN}:0`,
+      `p:${TURN}`,
     ]);
   });
 
@@ -71,8 +71,8 @@ describe("createRowBuilder", () => {
       event({ kind: "turn_completed" }),
     );
     const second = build(feed(items));
-    expect(second.map((row) => row.key)).toEqual(["e:t1", "m:t1:0"]);
-    expect(second[1]).toBe(first.find((row) => row.key === "m:t1:0"));
+    expect(second.map((row) => row.key)).toEqual([`e:${TURN}`, `m:${TURN}:0`]);
+    expect(second[1]).toBe(first.find((row) => row.key === `m:${TURN}:0`));
   });
 
   it("shows the reasoning after the prompt, and no message before its first text", () => {
@@ -90,13 +90,13 @@ describe("createRowBuilder", () => {
         text(0, 0, ""),
       ]),
     );
-    expect(rows.map((row) => row.key)).toEqual(["w:t1", "r:t1", "p:t1"]);
+    expect(rows.map((row) => row.key)).toEqual([`w:${TURN}`, `r:${TURN}`, `p:${TURN}`]);
   });
 
   it("shows the status of a prompt that waits in the queue", () => {
     const build = createRowBuilder();
     const rows = build(feed([event({ kind: "prompt_queued", text: "next", origin: "phone" })]));
-    expect(rows.map((row) => row.key)).toEqual(["w:t1", "p:t1"]);
+    expect(rows.map((row) => row.key)).toEqual([`w:${TURN}`, `p:${TURN}`]);
   });
 });
 
