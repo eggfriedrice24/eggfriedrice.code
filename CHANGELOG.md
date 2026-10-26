@@ -14,8 +14,17 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - A new `[remote]` table in `config.toml` for the coming efr phone app: `enabled`
   (default `false`), `port` (default 7419) and `tailscaled_socket` (default
-  `/var/run/tailscale/tailscaled.sock`). Each key needs a restart of efrd. efrd does
-  not read the table yet, so it opens no port.
+  `/var/run/tailscale/tailscaled.sock`). Each key needs a restart of efrd.
+- With `[remote] enabled = true`, efrd listens for the efr phone app on the Tailscale
+  IPv4 address of this machine, and on no other address. It needs tailscaled 1.100 or
+  later with a TUN device (not userspace networking). efrd asks tailscaled who each
+  peer is before it reads a byte, and it lets in only a device of your own Tailscale
+  user that proves its paired key. It refuses this machine itself, tagged nodes,
+  shared nodes and other users. When Tailscale stops, or the address or the tailnet
+  changes, efrd closes the phone connections and listens again on the new address.
+  A revoked device loses its connections at once. `daemon.json` shows the address as
+  `tailnet_endpoint`. The settings tool marks `remote.enabled` and
+  `remote.tailscaled_socket` as changes that loosen permissions.
 
 ### Changed
 
