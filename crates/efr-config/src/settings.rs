@@ -16,8 +16,8 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
     ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings, Location,
     ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RecordingSettings, RenderSettings, ResumeSettings, SandboxSettings, ScreenChoice,
-    ShellSettings, SnapshotSettings, Source, UndoSettings,
+    RecordingSettings, RemoteSettings, RenderSettings, ResumeSettings, SandboxSettings,
+    ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -79,6 +79,8 @@ pub struct Settings {
     /// Background jobs: whether the model can start them, their limits, and how often
     /// their notices may start a turn.
     pub jobs: JobsSettings,
+    /// The listener for the efr phone app on this machine's Tailscale address.
+    pub remote: RemoteSettings,
     /// What `,resume` and `efr resume` show: a search picker in fzf or the numbered
     /// list.
     pub resume: ResumeSettings,
@@ -113,6 +115,7 @@ impl Default for Settings {
             recording: RecordingSettings::default(),
             presence: PresenceSettings::default(),
             jobs: JobsSettings::default(),
+            remote: RemoteSettings::default(),
             resume: ResumeSettings::default(),
             diff: DiffSettings::default(),
             render: RenderSettings::default(),

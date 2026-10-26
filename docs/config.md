@@ -244,6 +244,16 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
 | `forward_ports` | `true` | live | Forward each loopback port that a contained background job listens on to the same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also stops the forwards of the jobs that run; a later `true` does not start them again. |
 
+## [remote]
+
+The listener for the efr phone app on this machine's Tailscale address.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `false` | restart | `true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4 address. It needs tailscaled 1.100 or later with a TUN device (not userspace networking). `false` opens no port. Needs a restart. |
+| `port` | `7419` | restart | The TCP port of the listener on the Tailscale address, from 1024 to 65535. Needs a restart. |
+| `tailscaled_socket` | `"/var/run/tailscale/tailscaled.sock"` | restart | The absolute path of tailscaled's LocalAPI socket, which efrd asks who each peer is. Needs a restart. |
+
 ## [resume]
 
 What `,resume` and `efr resume` show: a search picker in fzf or the numbered list.

@@ -75,6 +75,9 @@ fn every_restart_key_is_kept_when_it_changes() {
         ("anthropic.base_url", "https://example.com/anthropic/v1"),
         ("anthropic.cache_ttl", "1h"),
         ("anthropic.workspace_id", "wrkspc_01AbC"),
+        ("remote.enabled", "true"),
+        ("remote.port", "7420"),
+        ("remote.tailscaled_socket", "/run/tailscale/tailscaled.sock"),
     ];
     assert_eq!(changed.map(|(key, _)| key), RESTART_KEYS);
     for (key, value) in changed {

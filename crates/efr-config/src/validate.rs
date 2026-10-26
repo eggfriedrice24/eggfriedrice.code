@@ -12,8 +12,8 @@ use crate::tables::diff::{check_glob, check_name};
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
     ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
-    NetworkSettings, PROVIDERS, PresenceSettings, RecordingSettings, RenderColors, SandboxSettings,
-    Settings, SnapshotSettings,
+    NetworkSettings, PROVIDERS, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
+    SandboxSettings, Settings, SnapshotSettings,
 };
 
 /// What `permissions.mode = "full"` needs: the gate key next to it. The text names both
@@ -84,6 +84,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         recording,
         presence,
         jobs,
+        remote,
         diff,
         render,
         ..
@@ -224,6 +225,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_recording(recording)?;
     check_presence(presence)?;
     check_jobs(jobs)?;
+    check_remote(remote)?;
     check_diff(diff)?;
 
     within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
@@ -377,6 +379,20 @@ fn check_presence(presence: &PresenceSettings) -> Result<(), Invalid> {
         1..=86_400,
         "between 1 and 86400 (a day)",
     )
+}
+
+/// The checks of `[remote]`, in the order of the table. A port below 1024 needs a
+/// privilege that efrd does not have.
+fn check_remote(remote: &RemoteSettings) -> Result<(), Invalid> {
+    within("remote.port", u64::from(remote.port), 1_024..=65_535, "between 1024 and 65535")?;
+    if !remote.tailscaled_socket.is_absolute() {
+        return Err(invalid(
+            "remote.tailscaled_socket",
+            path_text(&remote.tailscaled_socket),
+            "an absolute path such as /var/run/tailscale/tailscaled.sock",
+        ));
+    }
+    Ok(())
 }
 
 /// The checks of `[jobs]`, in the order of the table. `default_minutes` is checked

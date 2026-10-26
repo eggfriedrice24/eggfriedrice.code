@@ -13,7 +13,7 @@ Modules:
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
   `SandboxSettings`, `DbusSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
-  `JobsSettings`, `ResumeSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `JobsSettings`, `RemoteSettings`, `ResumeSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `ResumePicker`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
   `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
@@ -112,6 +112,13 @@ Modules:
   job listens on is forwarded to the same port of 127.0.0.1; `false` at a reload also
   stops the forwards of the jobs that run). Each key applies from the next job or
   notice.
+- `tables/remote`: `[remote]` (`RemoteSettings`): `enabled` (default `false`: efrd
+  opens no port), `port` (1024 to 65535, `DEFAULT_REMOTE_PORT` 7419, below the
+  ephemeral range of Linux) and `tailscaled_socket` (an absolute path,
+  `DEFAULT_TAILSCALED_SOCKET` `/var/run/tailscale/tailscaled.sock`), the listener for
+  the efr phone app on this machine's Tailscale IPv4 address and the LocalAPI socket
+  that efrd asks who each peer is (`efr_http::LocalApi`). All three are restart keys.
+  This crate only reads and checks them; efrd binds and admits.
 - `tables/resume`: `[resume]` (`ResumeSettings`, from v0.0.4): `picker`
   (`ResumePicker`: `auto`, the default, or `list`). `auto` lets `,resume` and
   `efr resume` open a live search picker in fzf when fzf is on the `PATH`; `list`

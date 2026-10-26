@@ -10,6 +10,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- A new `[remote]` table in `config.toml` for the coming efr phone app: `enabled`
+  (default `false`), `port` (default 7419) and `tailscaled_socket` (default
+  `/var/run/tailscale/tailscaled.sock`). Each key needs a restart of efrd. efrd does
+  not read the table yet, so it opens no port.
+
 ## [0.0.5] - 2026-10-25
 
 ### Added

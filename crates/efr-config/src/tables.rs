@@ -22,6 +22,7 @@ pub(crate) mod jobs;
 pub(crate) mod network;
 pub(crate) mod presence;
 pub(crate) mod recording;
+pub(crate) mod remote;
 pub(crate) mod render;
 pub(crate) mod resume;
 pub(crate) mod sandbox;

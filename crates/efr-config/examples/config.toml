@@ -471,6 +471,21 @@
 # at a reload also stops the forwards of the jobs that run.
 # forward_ports = true
 
+[remote]
+# The listener for the efr phone app. efrd listens only on this machine's Tailscale
+# IPv4 address, never on another interface, and admits only a paired device of your
+# own Tailscale user. It needs tailscaled 1.100 or later with a TUN device.
+# true lets efrd listen for the efr phone app. false opens no port. (restart)
+# enabled = false
+
+# The TCP port of the listener on the Tailscale address, from 1024 to 65535.
+# (restart)
+# port = 7419
+
+# The absolute path of tailscaled's LocalAPI socket, which efrd asks who each peer
+# is. (restart)
+# tailscaled_socket = "/var/run/tailscale/tailscaled.sock"
+
 [resume]
 # What ,resume and efr resume show when you give them no row and no id. auto opens a
 # live search picker in fzf, below the command line and never full screen, when a new

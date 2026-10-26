@@ -10,7 +10,7 @@
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RecordingSettings`],
-//!   [`PresenceSettings`], [`JobsSettings`],
+//!   [`PresenceSettings`], [`JobsSettings`], [`RemoteSettings`],
 //!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
@@ -86,6 +86,7 @@ pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};
 pub use tables::presence::PresenceSettings;
 pub use tables::recording::RecordingSettings;
+pub use tables::remote::{DEFAULT_REMOTE_PORT, DEFAULT_TAILSCALED_SOCKET, RemoteSettings};
 pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
     RoleColor,

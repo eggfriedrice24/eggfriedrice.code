@@ -1046,6 +1046,31 @@
       },
       "type": "object"
     },
+    "RemoteSettings": {
+      "additionalProperties": false,
+      "description": "`[remote]`: the listener for the efr phone app. efrd listens only on this machine's\nTailscale IPv4 address, never on another interface, and admits a connection only\nfrom a paired device of the same Tailscale user. Every key needs a restart.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "`true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4\naddress. It needs tailscaled 1.100 or later with a TUN device (not userspace\nnetworking). `false` opens no port. Needs a restart.",
+          "type": "boolean"
+        },
+        "port": {
+          "default": 7419,
+          "description": "The TCP port of the listener on the Tailscale address, from 1024 to 65535.\nNeeds a restart.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tailscaled_socket": {
+          "default": "/var/run/tailscale/tailscaled.sock",
+          "description": "The absolute path of tailscaled's LocalAPI socket, which efrd asks who each\npeer is. Needs a restart.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "RenderColors": {
       "additionalProperties": false,
       "description": "The colour of each role: `[render.colors]` in `config.toml`, `[colors]` in a theme\nfile. A role that is not set keeps the colour of the layer below it.",
@@ -1906,6 +1931,15 @@
         "max_gib": 2
       },
       "description": "How long efrd keeps the recordings of the hidden shells' terminals."
+    },
+    "remote": {
+      "$ref": "#/$defs/RemoteSettings",
+      "default": {
+        "enabled": false,
+        "port": 7419,
+        "tailscaled_socket": "/var/run/tailscale/tailscaled.sock"
+      },
+      "description": "The listener for the efr phone app on this machine's Tailscale address."
     },
     "render": {
       "$ref": "#/$defs/RenderSettings",

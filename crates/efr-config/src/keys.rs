@@ -15,8 +15,8 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
     ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
     NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RecordingSettings,
-    RenderColors, RenderSettings, ResumeSettings, SandboxSettings, Settings, ShellSettings,
-    SnapshotSettings, UndoSettings,
+    RemoteSettings, RenderColors, RenderSettings, ResumeSettings, SandboxSettings, Settings,
+    ShellSettings, SnapshotSettings, UndoSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -38,6 +38,9 @@ pub const RESTART_KEYS: &[&str] = &[
     "anthropic.base_url",
     "anthropic.cache_ttl",
     "anthropic.workspace_id",
+    "remote.enabled",
+    "remote.port",
+    "remote.tailscaled_socket",
 ];
 
 /// What a key holds, as the JSON schema says.
@@ -123,6 +126,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "recording" => fields::<RecordingSettings>(),
         "presence" => fields::<PresenceSettings>(),
         "jobs" => fields::<JobsSettings>(),
+        "remote" => fields::<RemoteSettings>(),
         "resume" => fields::<ResumeSettings>(),
         "diff" => fields::<DiffSettings>(),
         "render" => fields::<RenderSettings>(),

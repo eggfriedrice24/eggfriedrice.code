@@ -396,3 +396,59 @@ fn jobs_default_minutes_at_most_max_minutes() {
     settings.jobs.default_minutes = 1;
     assert_eq!(check(&settings), Ok(()));
 }
+
+#[test]
+fn remote_keys_have_defaults_and_checks() {
+    use std::path::{Path, PathBuf};
+
+    use crate::{Applies, RESTART_KEYS};
+
+    let defaults = Settings::default().remote;
+    assert!(!defaults.enabled, "no port opens until the user asks");
+    assert_eq!(defaults.port, crate::DEFAULT_REMOTE_PORT);
+    assert_eq!(defaults.tailscaled_socket, Path::new("/var/run/tailscale/tailscaled.sock"));
+    for key in ["remote.enabled", "remote.port", "remote.tailscaled_socket"] {
+        assert!(RESTART_KEYS.contains(&key), "{key}");
+        assert_eq!(Applies::of(key), Applies::Restart, "{key}");
+    }
+
+    type Change = fn(&mut Settings);
+    let refused: [(Change, &str); 4] = [
+        (|s| s.remote.port = 0, "remote.port"),
+        (|s| s.remote.port = 1_023, "remote.port"),
+        (|s| s.remote.tailscaled_socket = PathBuf::from("ts.sock"), "remote.tailscaled_socket"),
+        (|s| s.remote.tailscaled_socket = PathBuf::from("~/ts.sock"), "remote.tailscaled_socket"),
+    ];
+    for (change, key) in refused {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let mut settings = Settings::default();
+    settings.remote.enabled = true;
+    settings.remote.port = 1_024;
+    settings.remote.tailscaled_socket = PathBuf::from("/run/tailscale/tailscaled.sock");
+    assert_eq!(check(&settings), Ok(()));
+    settings.remote.port = 65_535;
+    assert_eq!(check(&settings), Ok(()));
+}
+
+#[test]
+fn a_remote_table_in_the_file_is_read_and_checked() {
+    use std::path::Path;
+
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let text = "[remote]\nenabled = true\nport = 8443\n\
+                tailscaled_socket = \"/run/tailscale/tailscaled.sock\"\n";
+    let settings = Settings::parse(path, Some(text)).unwrap();
+    assert!(settings.remote.enabled);
+    assert_eq!(settings.remote.port, 8443);
+    assert_eq!(settings.remote.tailscaled_socket, Path::new("/run/tailscale/tailscaled.sock"));
+
+    for text in ["[remote]\nport = 80\n", "[remote]\nport = 70000\n"] {
+        let error = Settings::parse(path, Some(text)).unwrap_err();
+        assert!(format!("{error:?}").contains("remote.port"), "{error:?}");
+    }
+    let error = Settings::parse(path, Some("[remote]\nbind = \"0.0.0.0\"\n")).unwrap_err();
+    assert!(format!("{error:?}").contains("bind"), "{error:?}");
+}
