@@ -211,3 +211,39 @@ function modeReport(
   const draftP95Ms = draft?.p95Ms ?? Number.NaN;
   return { mode, rows, draftP95Ms, withinBudget: draftP95Ms < DRAFT_BUDGET_MS, refused };
 }
+
+/** What the report says about the phone, besides the numbers. */
+export interface BenchFacts {
+  /** Such as "Hermes". */
+  readonly engine: string;
+  /** zod can compile its object parsers here (`new Function` works). */
+  readonly compiles: boolean;
+  /** The clock counts fractions of a millisecond. */
+  readonly precise: boolean;
+}
+
+/** `ms` in microseconds, with one decimal. */
+export function micros(ms: number): string {
+  return Number.isNaN(ms) ? "-" : `${(ms * 1000).toFixed(1)} us`;
+}
+
+/** The report as plain text, to copy into a device check. */
+export function reportText(report: BenchReport, facts: BenchFacts): string {
+  const lines = [
+    `decode bench: ${report.items} items x ${report.rounds} rounds on ${facts.engine}`,
+    `zod compiles its parsers: ${facts.compiles ? "yes" : "no"}; precise clock: ${facts.precise ? "yes" : "no"}`,
+  ];
+  for (const mode of report.modes) {
+    const verdict = mode.withinBudget ? "within" : "over";
+    lines.push(
+      "",
+      `mode ${mode.mode}: draft p95 ${micros(mode.draftP95Ms)} (${verdict} the budget of ${micros(DRAFT_BUDGET_MS)}); refused ${mode.refused}`,
+    );
+    for (const row of mode.rows) {
+      lines.push(
+        `  ${row.group}: n ${row.count}, first ${micros(row.firstMs)}, p50 ${micros(row.p50Ms)}, p95 ${micros(row.p95Ms)}, max ${micros(row.maxMs)}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}

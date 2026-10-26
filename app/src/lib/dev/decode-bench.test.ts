@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { decodeSubscribeItem } from "@/lib/protocol/envelope";
 import {
   ALL_ROW,
+  micros,
+  reportText,
   BENCH_MODES,
   DRAFT_ROW,
   benchItems,
@@ -187,5 +189,27 @@ describe("a run of the bench", () => {
       [140, 160],
       [160, 160],
     ]);
+  });
+});
+
+describe("the report of the bench", () => {
+  it("gives the facts, the verdict and every row of each mode as text", async () => {
+    const report = await runDecodeBench(ITEMS.slice(0, 3), {
+      decoders: BENCH_DECODERS,
+      now: steppingClock(0.25),
+      rounds: 1,
+      modes: ["hand"],
+    });
+    const text = reportText(report, { engine: "Hermes", compiles: false, precise: true });
+    expect(text.split("\n").slice(0, 4)).toEqual([
+      "decode bench: 3 items x 1 rounds on Hermes",
+      "zod compiles its parsers: no; precise clock: yes",
+      "",
+      "mode hand: draft p95 250.0 us (within the budget of 500.0 us); refused 0",
+    ]);
+    expect(text).toContain(
+      "  all items: n 3, first 250.0 us, p50 250.0 us, p95 250.0 us, max 250.0 us",
+    );
+    expect(micros(Number.NaN)).toBe("-");
   });
 });
