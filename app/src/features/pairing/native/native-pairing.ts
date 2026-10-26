@@ -40,7 +40,12 @@ export function nativeScanner(): ScannerApi {
       const response = await Camera.requestCameraPermissionsAsync();
       return response.granted;
     },
-    launch: () => CameraView.launchScanner({ barcodeTypes: ["qr"], isHighlightingEnabled: true }),
+    launch: () =>
+      CameraView.launchScanner({
+        barcodeTypes: ["qr"],
+        isHighlightingEnabled: true,
+        isGuidanceEnabled: true,
+      }),
     dismiss: () => CameraView.dismissScanner(),
     onScanned(listener) {
       return CameraView.onModernBarcodeScanned((event) => listener(event.data));
