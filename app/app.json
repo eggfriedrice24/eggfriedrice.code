@@ -10,6 +10,7 @@
     "platforms": ["ios"],
     "ios": {
       "bundleIdentifier": "dev.eggfriedrice.efr",
+      "icon": "./assets/icon/icon.png",
       "supportsTablet": false,
       "infoPlist": {
         "NSAppTransportSecurity": {
