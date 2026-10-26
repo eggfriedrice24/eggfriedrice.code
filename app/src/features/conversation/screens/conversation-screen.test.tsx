@@ -38,6 +38,7 @@ import {
   DESKTOP,
   LAPTOP,
   conversationId,
+  setRecent,
   testServices,
   type TestServices,
 } from "@/features/navigation/model/testing";
@@ -164,6 +165,47 @@ function finished() {
     ],
     3,
   );
+}
+
+/** A snapshot of CONVERSATION with one finished turn and NEXT running, up to seq 5. */
+function running() {
+  return snapshotItem(
+    CONVERSATION,
+    "running",
+    [
+      envelope(1, promptQueued(TURN, "Why is the fan loud?")),
+      envelope(2, turnStarted(TURN)),
+      envelope(3, turnCompleted(TURN)),
+      envelope(4, promptQueued(NEXT, "Check the logs.")),
+      envelope(5, turnStarted(NEXT)),
+    ],
+    5,
+  );
+}
+
+/** Types `text` in the composer and taps Send. */
+async function typeAndSend(text: string): Promise<void> {
+  await fireEvent.changeText(screen.getByTestId("composer-input"), text);
+  await fireEvent.press(screen.getByRole("button", { name: "Send" }));
+  await act(flush);
+}
+
+/** The prompts in the outbox, and the params of the last prompt.send on the socket. */
+function sentPrompts() {
+  return {
+    outbox: services()
+      .services.outbox.store.get()
+      .entries.map((entry) => [entry.target, entry.text]),
+    params: socketOf(services(), DESKTOP).requests("prompt.send").at(-1)?.["params"],
+  };
+}
+
+/** What `sentPrompts` gives after one prompt `text` for CONVERSATION. */
+function onePrompt(text: string) {
+  return {
+    outbox: [[{ kind: "conversation", conversationId: CONVERSATION }, text]],
+    params: { conversation_id: CONVERSATION, text },
+  };
 }
 
 /** The sequence number of the last event that efrd sent; the snapshot ends at 3. */
@@ -408,6 +450,85 @@ describe("the conversation screen", () => {
     expect(input.props.placeholder).toBe("desktop is offline");
     expect(input.props.editable).toBe(false);
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("sends a follow-up prompt with Send in a conversation whose last turn ended", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    await typeAndSend("And the disk?");
+    expect(sentPrompts()).toMatchObject(onePrompt("And the disk?"));
+    expect(screen.getByTestId("composer-input").props.value).toBe("And the disk?");
+    expect(screen.getByRole("button", { name: "Sending" })).toBeOnTheScreen();
+  });
+
+  it("sends a follow-up in a conversation of a terminal, opened from the recent list", async () => {
+    test = await testServices();
+    const current = test;
+    await current.connect(DESKTOP);
+    setRecent(current.services.queryClient, DESKTOP, [{ id: CONVERSATION, title: "fan" }]);
+    view = await renderRouter(screenRoutes(current), { initialUrl: "/" });
+    await act(async () => {
+      router.push(`/c/${DESKTOP}/${CONVERSATION}`);
+    });
+    await act(flush);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [
+        snapshotItem(
+          CONVERSATION,
+          "idle",
+          [
+            envelope(1, {
+              kind: "conversation_created",
+              origin: "shell",
+              route: { kind: "outside" },
+              tty: "/dev/pts/3",
+            }),
+            envelope(2, {
+              kind: "terminal_attached",
+              how: "picked_up",
+              route: { kind: "outside" },
+              tty: "/dev/pts/3",
+            }),
+            envelope(3, promptQueued(TURN, "Why is the fan loud?")),
+            envelope(4, turnStarted(TURN)),
+            envelope(5, turnCompleted(TURN)),
+          ],
+          5,
+        ),
+      ]);
+    });
+    await typeAndSend("And the disk?");
+    expect(sentPrompts()).toMatchObject(onePrompt("And the disk?"));
+  });
+
+  it("queues a prompt from the capsule while a turn runs", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      services().services.preferences.setSendMode("queue");
+      await stream(services(), DESKTOP, CONVERSATION, [running()]);
+    });
+    await fireEvent.changeText(screen.getByTestId("composer-input"), "Then the tests.");
+    await fireEvent.press(screen.getByRole("button", { name: "Queue, more options" }));
+    await act(flush);
+    expect(sentPrompts()).toMatchObject(onePrompt("Then the tests."));
+  });
+
+  it("steers the running turn from the capsule", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      services().services.preferences.setSendMode("steer");
+      await stream(services(), DESKTOP, CONVERSATION, [running()]);
+    });
+    await fireEvent.changeText(screen.getByTestId("composer-input"), "Use the tests.");
+    await fireEvent.press(screen.getByRole("button", { name: "Steer, more options" }));
+    await frames();
+    expect(socketOf(services(), DESKTOP).requests("turn.steer").at(-1)?.["params"]).toMatchObject({
+      conversation_id: CONVERSATION,
+      text: "Use the tests.",
+      turn_id: NEXT,
+    });
   });
 
   it("shows a quiet line for a machine that is not paired, and for a bad link", async () => {

@@ -6,8 +6,12 @@
 // - It stops when the connection goes down. A prompt in flight still ends.
 // - A machine that the user pairs gets a drain; a machine that the user forgets loses it.
 //
+// - A dev build logs a prompt that waits while its drain does not run, with the reason,
+//   so the Metro log tells why it did not go.
+//
 // Pure: the runtime, the clock and the random value come in.
 
+import { DEV_WARNINGS, devWarn } from "@/lib/dev/dev-warn";
 import type { Clock } from "@/lib/net/clock";
 import type { PromptSend, PromptSendResult } from "@/lib/protocol/generated";
 import { createOutboxDrain, type OutboxDrain } from "@/features/conversation/model/outbox-drain";
@@ -98,6 +102,33 @@ export function wireOutboxDrains(deps: OutboxDrainsDeps): () => void {
     }
   };
 
+  // The prompts that the log told already: each one shows once.
+  const told = new Set<string>();
+  const tellWaiting = (): void => {
+    for (const entry of outbox.store.get().entries) {
+      if (entry.state !== "pending" || told.has(entry.commandId)) {
+        continue;
+      }
+      const drain = drains.get(entry.machine);
+      let reason: string | undefined;
+      if (drain === undefined) {
+        reason = "the machine has no drain (not paired)";
+      } else if (!hydrated) {
+        reason = "the outbox still reads the prompts of the last launch";
+      } else if (!drain.online) {
+        const view = runtime.machine(entry.machine)?.connection.get().view.kind ?? "gone";
+        reason = `the machine is not online (${view})`;
+      } else if (!drain.drain.running) {
+        reason = "the drain waits for the next ready of the connection";
+      }
+      if (reason !== undefined) {
+        told.add(entry.commandId);
+        devWarn(`prompt ${entry.commandId} waits: ${reason}`);
+      }
+    }
+  };
+  const watch = DEV_WARNINGS ? outbox.store.subscribe(tellWaiting) : undefined;
+
   const registry = runtime.registry.subscribe(sync);
   sync();
   // A failed read leaves the outbox empty but usable, so the drains start after it too.
@@ -114,6 +145,7 @@ export function wireOutboxDrains(deps: OutboxDrainsDeps): () => void {
 
   return () => {
     stopped = true;
+    watch?.unsubscribe();
     registry.unsubscribe();
     for (const entry of drains.values()) {
       entry.stop();

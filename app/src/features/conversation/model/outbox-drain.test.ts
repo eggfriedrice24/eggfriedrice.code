@@ -6,7 +6,7 @@ import { ConnectionError, ServerError } from "@/lib/net/errors";
 import { FakeClock, flush } from "@/lib/net/testing";
 import type { ErrorCode, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
 import { MAX_SEND_ATTEMPTS, resolveAlias, type Outbox, type OutboxTarget } from "./outbox";
-import { OUTBOX_BACKOFF, createOutboxDrain, type OutboxDrain } from "./outbox-drain";
+import { OUTBOX_BACKOFF, blockedLanes, createOutboxDrain, type OutboxDrain } from "./outbox-drain";
 import { MemoryOutboxStorage } from "./outbox-storage";
 import {
   CONVERSATION_A,
@@ -413,5 +413,26 @@ describe("the outbox drain", () => {
       }),
       { seed: 20261026, numRuns: 150 },
     );
+  });
+});
+
+describe("the blocked lanes of a machine", () => {
+  it("names a head in flight with prompts behind it, and no other lane", () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const { send } = manualSend();
+    const drain = drainOf(outbox, send, clock);
+    const head = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a" });
+    outbox.enqueue({ machine: DESKTOP, target: TO_B, text: "b" });
+    expect(blockedLanes(outbox.store.get(), DESKTOP)).toEqual([]);
+    drain.start();
+    // Both heads are in flight, and nothing waits behind them yet.
+    expect(blockedLanes(outbox.store.get(), DESKTOP)).toEqual([]);
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a2" });
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a3" });
+    expect(blockedLanes(outbox.store.get(), DESKTOP)).toEqual([
+      { head: head.commandId, waiting: 2 },
+    ]);
+    expect(blockedLanes(outbox.store.get(), LAPTOP)).toEqual([]);
   });
 });

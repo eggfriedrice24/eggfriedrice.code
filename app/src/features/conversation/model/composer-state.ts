@@ -154,6 +154,23 @@ export function composerState(input: ComposerInput): ComposerState {
   return input.isBlankRoot ? { kind: "blank" } : { kind: "idle" };
 }
 
+/**
+ * Why a submit in `state` sends nothing, in a few words for the log of a dev build.
+ * Only `typing`, and `running` with text, send. The other states have an empty field.
+ */
+export function ignoreReason(state: ComposerState): string {
+  switch (state.kind) {
+    case "disconnected":
+      return `the machine is disconnected (${state.reason})`;
+    case "reconnecting":
+      return "the connection opens";
+    case "sending":
+      return "a prompt or a steer waits for efrd";
+    default:
+      return `the field is empty (${state.kind})`;
+  }
+}
+
 /** What the trailing slot (slot D) shows. */
 export type ComposerTrailing =
   /** The Send circle: filled yolk when enabled, a hairline circle when disabled. */

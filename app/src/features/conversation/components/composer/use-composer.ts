@@ -7,6 +7,7 @@ import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
 import { useState } from "react";
 
+import { devWarn } from "@/lib/dev/dev-warn";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { SendMode } from "@/features/settings/model/preferences";
 import {
@@ -17,6 +18,7 @@ import {
   composerTrailing,
   createLinkSelector,
   inFlightText,
+  ignoreReason,
   type ComposerTarget,
 } from "../../model/composer-state";
 import { selectDraft } from "../../model/drafts";
@@ -62,15 +64,21 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     sendMode,
   });
 
+  // NOTE: Each send runs before the call of `onSend`. `onSend?.(actions.send(text))` does
+  // not send at all when the screen gives no `onSend`, as a conversation screen does.
   const submit = (mode: SendMode): void => {
     if (state.kind === "typing") {
-      onSend?.(actions.send(text));
+      const entry = actions.send(text);
+      onSend?.(entry);
     } else if (state.kind === "running" && state.hasText) {
       if (mode === "steer") {
         actions.steer(text);
       } else {
-        onSend?.(actions.queue(text));
+        const entry = actions.queue(text);
+        onSend?.(entry);
       }
+    } else {
+      devWarn(`the composer of ${target.id} ignores a submit: ${ignoreReason(state)}`);
     }
   };
 

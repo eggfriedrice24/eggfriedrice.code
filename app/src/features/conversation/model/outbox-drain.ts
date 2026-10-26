@@ -15,8 +15,13 @@
 // - Every other error of efrd fails the entry: a resend with the same command id gets
 //   the same answer.
 //
+// - A dev build logs each failure, each wait, a send that gets no answer for
+//   STUCK_SEND_MS, and a lane that waits behind a send in flight, so the Metro log
+//   tells why a prompt did not go.
+//
 // Pure TypeScript: the caller gives the send function, the clock and the random value.
 
+import { DEV_WARNINGS, devWarn } from "@/lib/dev/dev-warn";
 import { backoffDelayMs, type BackoffConfig } from "@/lib/net/backoff";
 import type { Clock, Timer } from "@/lib/net/clock";
 import {
@@ -26,7 +31,15 @@ import {
   retryAfterMs,
 } from "@/lib/net/errors";
 import type { CommandId, DaemonId, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
-import { drainPlan, sendParams, type Outbox, type OutboxEntry, type OutboxError } from "./outbox";
+import {
+  drainPlan,
+  laneOf,
+  sendParams,
+  type Outbox,
+  type OutboxEntry,
+  type OutboxError,
+  type OutboxSnapshot,
+} from "./outbox";
 
 /** The wait between the attempts of one entry: 0.5 s, then twice as long, at most 16 s. */
 export const OUTBOX_BACKOFF: BackoffConfig = { baseMs: 250, maxMs: 16_000, resetAfterMs: 0 };
@@ -39,6 +52,9 @@ const LOST_KINDS: ReadonlySet<ConnectionErrorKind> = new Set([
   "silent",
   "timeout",
 ]);
+
+/** After this wait for the answer of efrd, a dev build logs the send as stuck. */
+export const STUCK_SEND_MS = 15_000;
 
 /** The codes of efrd after which a resend can work. */
 const RETRYABLE_CODES: ReadonlySet<string> = new Set(["busy", "internal"]);
@@ -82,6 +98,36 @@ function outboxError(error: unknown): OutboxError {
   return { code: "client", message: String(error) };
 }
 
+/**
+ * The lanes of `machine` whose head is in flight while other entries wait behind it, as
+ * the command id of the head and the number of entries that wait.
+ */
+export function blockedLanes(
+  snapshot: OutboxSnapshot,
+  machine: string,
+): readonly { readonly head: string; readonly waiting: number }[] {
+  const heads = new Map<string, { head: OutboxEntry; waiting: number }>();
+  for (const entry of snapshot.entries) {
+    if (entry.machine !== machine || entry.state === "sent" || entry.state === "failed") {
+      continue;
+    }
+    const lane = laneOf(snapshot, entry);
+    const held = heads.get(lane);
+    if (held === undefined) {
+      heads.set(lane, { head: entry, waiting: 0 });
+    } else {
+      held.waiting += 1;
+    }
+  }
+  const blocked: { head: string; waiting: number }[] = [];
+  for (const { head, waiting } of heads.values()) {
+    if (head.state === "sending" && waiting > 0) {
+      blocked.push({ head: head.commandId, waiting });
+    }
+  }
+  return blocked;
+}
+
 /** Makes the drain of `options.machine`. It does nothing before `start`. */
 export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
   const { outbox, machine, clock } = options;
@@ -102,9 +148,13 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     timer = undefined;
   };
 
+  // The heads of the blocked lanes that the log told already.
+  const told = new Set<string>();
+
   const settle = (commandId: CommandId, error: unknown, sentIn: number): void => {
     const reason = outboxError(error);
     if (error instanceof ConnectionError && !LOST_KINDS.has(error.kind)) {
+      devWarn(`the outbox fails prompt ${commandId}: ${reason.code}: ${reason.message}`);
       outbox.fail(commandId, reason);
       return;
     }
@@ -116,10 +166,12 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
       if (sentIn === generation) {
         halt();
       }
+      devWarn(`prompt ${commandId} waits for the next connection: ${reason.message}`);
       outbox.release(commandId, reason);
       return;
     }
     if (error instanceof ServerError && !RETRYABLE_CODES.has(error.body.code)) {
+      devWarn(`efrd refused prompt ${commandId}: ${reason.code}: ${reason.message}`);
       outbox.fail(commandId, reason);
       return;
     }
@@ -127,6 +179,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     const attempt = entry?.attempts ?? 0;
     const asked = error instanceof ServerError ? retryAfterMs(error.body) : undefined;
     const wait = asked ?? backoffDelayMs(attempt, options.random(), backoff);
+    devWarn(`prompt ${commandId} tries again in ${wait} ms: ${reason.code}: ${reason.message}`);
     outbox.retryLater(commandId, reason, clock.now() + wait);
   };
 
@@ -136,19 +189,36 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
       return;
     }
     const sentIn = generation;
+    // Only a dev build keeps this timer: it only writes to the log.
+    const stuck = DEV_WARNINGS
+      ? clock.setTimer(STUCK_SEND_MS, () => {
+          devWarn(`prompt ${entry.commandId} has no answer of efrd after ${STUCK_SEND_MS} ms`);
+        })
+      : undefined;
     const run = async (): Promise<void> => {
       let result: PromptSendResult;
       try {
         // A send that throws at once is a failed send too.
         result = await options.send(params);
       } catch (error) {
+        stuck?.cancel();
         settle(entry.commandId, error, sentIn);
         return;
       }
+      stuck?.cancel();
       outbox.succeed(entry.commandId, result);
       options.onSent?.(entry, result);
     };
     void run().catch(() => undefined);
+  };
+
+  const tellBlocked = (snapshot: OutboxSnapshot): void => {
+    for (const lane of blockedLanes(snapshot, machine)) {
+      if (!told.has(lane.head)) {
+        told.add(lane.head);
+        devWarn(`${lane.waiting} prompt(s) wait behind prompt ${lane.head}, which is in flight`);
+      }
+    }
   };
 
   const pump = (): void => {
@@ -166,7 +236,9 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
         again = false;
         timer?.cancel();
         timer = undefined;
-        const plan = drainPlan(outbox.store.get(), machine, clock.now());
+        const snapshot = outbox.store.get();
+        const plan = drainPlan(snapshot, machine, clock.now());
+        tellBlocked(snapshot);
         for (const entry of plan.due) {
           if (!running) {
             return;

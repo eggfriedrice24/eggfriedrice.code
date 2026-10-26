@@ -16,6 +16,7 @@ import {
   createLinkSelector,
   disconnectText,
   hasText,
+  ignoreReason,
   inFlightText,
   outboxTargetOf,
   SEND_MODE_CHOICES,
@@ -396,5 +397,18 @@ describe("the Steer/Queue menu", () => {
     ]);
     expect(capsuleLabel("steer")).toBe("Steer");
     expect(capsuleLabel("queue")).toBe("Queue");
+  });
+});
+
+describe("the reason of an ignored submit", () => {
+  it("names the state that sends nothing", () => {
+    expect(ignoreReason({ kind: "disconnected", reason: "unreachable" })).toBe(
+      "the machine is disconnected (unreachable)",
+    );
+    expect(ignoreReason({ kind: "reconnecting", running: false })).toBe("the connection opens");
+    expect(ignoreReason({ kind: "sending", running: true })).toBe(
+      "a prompt or a steer waits for efrd",
+    );
+    expect(ignoreReason({ kind: "idle" })).toBe("the field is empty (idle)");
   });
 });

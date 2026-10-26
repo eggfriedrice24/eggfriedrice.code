@@ -113,6 +113,8 @@ interface Setup {
   readonly text?: string;
   readonly stream?: Readable<StreamState>;
   readonly tailnetDown?: boolean;
+  /** False: no `onSend`, as on a conversation screen. */
+  readonly onSend?: boolean;
 }
 
 async function renderComposer(setup: Setup = {}): Promise<Harness> {
@@ -150,10 +152,12 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
     target,
     connection,
     machineName: "laptop",
-    onSend: (entry: OutboxEntry) => {
-      sent.push(entry);
-    },
   };
+  if (setup.onSend !== false) {
+    props.onSend = (entry: OutboxEntry) => {
+      sent.push(entry);
+    };
+  }
   if (setup.runningTurnId !== undefined) {
     props.runningTurnId = setup.runningTurnId;
   }
@@ -408,6 +412,24 @@ describe("the actions of the composer", () => {
     });
     expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("");
     expect(harness.sent.map((entry) => entry.text)).toEqual(["Now write the migration notes"]);
+  });
+
+  it("sends and queues with no onSend, as a conversation screen has it", async () => {
+    const harness = await renderComposer({ onSend: false, text: "And the disk?" });
+    await fireEvent.press(sendButton());
+    expect(harness.outbox.store.get().entries.map((entry) => entry.text)).toEqual([
+      "And the disk?",
+    ]);
+    expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("");
+  });
+
+  it("queues with no onSend while a turn runs", async () => {
+    const harness = await renderComposer({ onSend: false, runningTurnId: "t1", text: "Then?" });
+    await act(async () => {
+      harness.preferences.setSendMode("queue");
+    });
+    await fireEvent.press(screen.getByRole("button", { name: "Queue, more options" }));
+    expect(harness.outbox.store.get().entries.map((entry) => entry.text)).toEqual(["Then?"]);
   });
 
   it("makes a new conversation from the blank root", async () => {
