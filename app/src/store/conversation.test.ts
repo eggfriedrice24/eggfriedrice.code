@@ -131,6 +131,23 @@ describe("the cache of the conversation store", () => {
     expect(state.stream.turns.get(TURN)?.messages.get(0)?.final).toBe(true);
   });
 
+  it("hands each applied item on as JSON, the cached events as event items", async () => {
+    const cache = new MemoryEventCache();
+    const seen: unknown[] = [];
+    const first = new ConversationStore(CONVERSATION, { cache, onItem: (raw) => seen.push(raw) });
+    const event = rawEvent("prompt_queued", 1);
+    feed(first, event);
+    feed(first, event);
+    feed(first, draft(0, "hi"));
+    await first.settled();
+    expect(seen).toEqual([event, draft(0, "hi")]);
+
+    const again: unknown[] = [];
+    const second = new ConversationStore(CONVERSATION, { cache, onItem: (raw) => again.push(raw) });
+    await second.hydrate();
+    expect(again).toEqual([event]);
+  });
+
   it("replaces the cached events with the events of a snapshot", async () => {
     const cache = new MemoryEventCache();
     await cache.append(CONVERSATION, [{ seq: 5, json: "{}" }]);
