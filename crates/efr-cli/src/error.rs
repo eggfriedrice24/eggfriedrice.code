@@ -393,6 +393,43 @@ pub(crate) enum CliError {
     /// the file changed after the question. Nothing changed.
     #[error("sandbox.allow[{index}] changed after the question; nothing changed")]
     AllowRuleMoved { index: usize },
+
+    /// `efr device add` cannot ask about the phone: stdin is no terminal. Nothing was
+    /// paired.
+    #[error("efr device add needs a terminal to ask about the phone; nothing was paired")]
+    DeviceAddNeedsTerminal,
+
+    /// The pairing of `efr device add` ended without a device, for `reason`.
+    #[error("{}; nothing was paired", pair_end_text(*.reason))]
+    PairingEnded { reason: efr_protocol::PairEnd },
+
+    /// The stream of `efr device add` ended before it said how the pairing ended.
+    #[error("efrd ended the pairing without a result; nothing was paired")]
+    PairingIncomplete,
+
+    /// The QR code of `efr device add` could not be made from efrd's payload.
+    #[error("the pairing code could not be drawn: {reason}")]
+    PairingCode { reason: String },
+
+    /// No device id starts with what the user typed.
+    #[error("no device matches {query:?}; efr device list shows the devices")]
+    DeviceNotFound { query: String },
+
+    /// More than one device id starts with what the user typed.
+    #[error("{query:?} matches {matches} devices; type more of the id")]
+    AmbiguousDevice { query: String, matches: usize },
+}
+
+/// Why a pairing ended, as a person reads it.
+fn pair_end_text(reason: efr_protocol::PairEnd) -> &'static str {
+    match reason {
+        efr_protocol::PairEnd::Expired => {
+            "the pairing expired, or the phone left before the answer"
+        }
+        efr_protocol::PairEnd::Attempts => "efrd closed the pairing after too many wrong tokens",
+        efr_protocol::PairEnd::Refused => "the pairing was refused",
+        _ => "the pairing ended",
+    }
 }
 
 impl CliError {
@@ -429,7 +466,9 @@ impl CliError {
             | CliError::SearchWithoutWords
             | CliError::QueryTooLong { .. }
             | CliError::QueryTooManyWords { .. }
-            | CliError::ShellNeedsTerminal => Exit::Usage,
+            | CliError::ShellNeedsTerminal
+            | CliError::DeviceAddNeedsTerminal
+            | CliError::AmbiguousDevice { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
             CliError::ConfigInvalid
@@ -503,6 +542,18 @@ impl CliError {
             }
             CliError::NoAllowRule { .. } | CliError::AllowRuleMoved { .. } => {
                 Some("efr sandbox allow lists the rules with their numbers")
+            }
+            // NOTE: efrd names a tailnet listener that is off or down in the error data.
+            CliError::Client(ClientError::Server { body }) => {
+                match body.data.as_ref().and_then(|data| data.get("remote")) {
+                    Some(remote) if remote == "off" => Some(
+                        "turn it on with: efr config set remote.enabled true, then restart efrd: systemctl --user restart efrd",
+                    ),
+                    Some(remote) if remote == "not_listening" => Some(
+                        "check that Tailscale runs and is logged in: tailscale status; efrd's log: journalctl --user -u efrd",
+                    ),
+                    _ => None,
+                }
             }
             _ => None,
         }

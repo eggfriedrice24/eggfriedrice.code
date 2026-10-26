@@ -6,6 +6,7 @@ pub(crate) mod compact;
 pub(crate) mod config;
 pub(crate) mod context;
 pub(crate) mod conversation;
+pub(crate) mod device;
 pub(crate) mod diff;
 pub(crate) mod history;
 pub(crate) mod jobs;

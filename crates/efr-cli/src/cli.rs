@@ -138,6 +138,59 @@ pub(crate) enum Command {
     /// Check the sandbox of the auto mode, or explain what it does with a path.
     #[command(subcommand)]
     Sandbox(SandboxCommand),
+    /// Pair a phone with efrd over Tailscale, and list or revoke the paired devices.
+    #[command(subcommand)]
+    Device(DeviceCommand),
+}
+
+/// The `efr device` commands.
+#[derive(Debug, Subcommand)]
+pub(crate) enum DeviceCommand {
+    /// Pair a phone: show a QR code for the efr app, then the phone's facts, and ask.
+    ///
+    /// efrd must listen on the tailnet: set remote.enabled = true in config.toml,
+    /// restart efrd, and keep Tailscale on, here and on the phone. Scan the code with the
+    /// efr app. The code is good for one phone and for 5 minutes. When the phone sends
+    /// it, efr shows the phone's name, its Tailscale node and user, and the fingerprint
+    /// of its key. Compare the fingerprint with the one that the app shows, then press
+    /// y to pair the phone or n to refuse it. Ctrl+C stops the pairing.
+    Add(DeviceAddArgs),
+    /// List the paired devices, the revoked ones too, the oldest first.
+    List(DeviceListArgs),
+    /// Revoke a device: it can never connect again, and its open connections close.
+    ///
+    /// A revoke cannot be undone; pair the phone again with efr device add.
+    Revoke(DeviceRevokeArgs),
+}
+
+/// The arguments of `efr device add`.
+#[derive(Debug, Args)]
+pub(crate) struct DeviceAddArgs {
+    /// The name of the device in efr device list. Without it, the name that the phone
+    /// sends.
+    #[arg(long, value_name = "NAME")]
+    pub(crate) name: Option<String>,
+    /// Swap the dark and the light parts of the code, for a terminal with a light
+    /// background.
+    #[arg(long)]
+    pub(crate) invert: bool,
+}
+
+/// The arguments of `efr device list`.
+#[derive(Debug, Args)]
+pub(crate) struct DeviceListArgs {
+    /// Print the daemon's answer as JSON, for scripts.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+/// The arguments of `efr device revoke`.
+#[derive(Debug, Args)]
+pub(crate) struct DeviceRevokeArgs {
+    /// The device: its id, or at least 4 characters of the start of it, as efr device
+    /// list shows it.
+    #[arg(value_name = "ID")]
+    pub(crate) id: String,
 }
 
 /// The `efr conversation` commands.

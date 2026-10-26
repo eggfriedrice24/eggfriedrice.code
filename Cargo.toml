@@ -129,6 +129,9 @@ two-face = { version = "0.5.2", default-features = false, features = ["syntect-f
 unicode-width = { version = "0.2.2", default-features = false }
 # Widths by grapheme cluster, as Ghostty counts them (efr-render, `WidthMethod`).
 unicode-segmentation = "1.13.3"
+# The pairing QR code of `efr device add` (efr-cli/src/commands/device/qr.rs). Without
+# its default features it has no dependency: no image or SVG output.
+qrcode = { version = "0.14.1", default-features = false }
 
 # Screen backends
 vt100 = "0.16.2"

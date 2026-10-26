@@ -22,6 +22,8 @@ efr-stdx.workspace = true
 efr-transport.workspace = true
 futures.workspace = true
 jiff.workspace = true
+# The pairing QR code of `efr device add`, drawn with half blocks.
+qrcode.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
