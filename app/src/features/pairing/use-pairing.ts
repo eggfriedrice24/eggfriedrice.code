@@ -18,9 +18,8 @@ import type { MachineStatus } from "@/features/machines/model/machine-connection
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import { findMachine } from "@/features/machines/model/machine-registry";
 import type { Runtime } from "@/features/machines/model/runtime";
-import { useRuntime } from "@/features/machines/use-runtime";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
-import { usePreferences } from "@/features/settings/use-preferences";
+import { usePreferences, useRuntime } from "@/features/navigation/use-app-services";
 import { followAppState } from "@/lib/native/app-state";
 import { haptic } from "@/lib/native/haptics";
 import {

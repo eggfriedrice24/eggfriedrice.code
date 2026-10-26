@@ -6,12 +6,8 @@ import { Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { machineKeys } from "@/features/machines/machine-queries";
-import { FakeStreams } from "@/features/machines/model/testing";
-import { createRuntime } from "@/features/machines/model/runtime";
-import { RuntimeContext } from "@/features/machines/use-runtime";
-import { createPreferences } from "@/features/settings/model/preferences";
-import { PreferencesContext } from "@/features/settings/use-preferences";
-import type { KeyValueStorage } from "@/lib/store/key-value";
+import { testServices } from "@/features/navigation/model/testing";
+import { AppServicesContext } from "@/features/navigation/use-app-services";
 
 import { pairRouteMachine } from "../model/pair-route-schemas";
 import { IDLE_PAIRING } from "../model/pairing-session";
@@ -42,25 +38,6 @@ const METRICS = {
   insets: { top: 62, left: 0, right: 0, bottom: 34 },
 };
 
-/** A key-value store in memory, for the preferences. */
-class MemoryStorage implements KeyValueStorage {
-  private readonly values = new Map<string, string>();
-  getItemSync(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-  getItem(key: string): Promise<string | null> {
-    return Promise.resolve(this.getItemSync(key));
-  }
-  setItem(key: string, value: string): Promise<void> {
-    this.values.set(key, value);
-    return Promise.resolve();
-  }
-  removeItem(key: string): Promise<void> {
-    this.values.delete(key);
-    return Promise.resolve();
-  }
-}
-
 let disposers: (() => void)[] = [];
 
 afterEach(() => {
@@ -75,39 +52,27 @@ function Pair() {
 }
 
 /** The routes of the app around the pairing screens, with a fake session. */
-function app(fake: FakePairingSession, root: "blank" | "no-machine" = "blank") {
-  // A runtime without pairing effects: the screens get the fake session, and the status
-  // query of a paired machine fails, as it does while the machine is not connected.
-  const runtime = createRuntime({
-    pairing: null,
-    random: () => 0.5,
-    streams: new FakeStreams().factory,
-    schedule: (run) => {
-      run();
-      return () => undefined;
-    },
-  });
+async function app(fake: FakePairingSession, root: "blank" | "no-machine" = "blank") {
+  // The services of the app with no machine paired: the screens get the fake session, and
+  // the status query of a paired machine fails, as it does while the machine is not
+  // connected.
+  const { services } = await testServices([]);
   disposers.push(
-    () => runtime.dispose(),
+    () => services.dispose(),
     () => fake.session.dispose(),
     () => fake.client.clear(),
   );
-  const preferences = createPreferences({ storage: new MemoryStorage() });
-  // NOTE: the fake session keeps the machine of Start itself; the preferences are here
-  // because the screens read them.
   function Layout() {
     return (
       <SafeAreaProvider initialMetrics={METRICS}>
         <QueryClientProvider client={fake.client}>
-          <RuntimeContext value={runtime}>
-            <PreferencesContext value={preferences}>
-              <PairingSessionContext value={fake.session}>
-                <Stack>
-                  <Stack.Screen name="pair" options={{ presentation: "fullScreenModal" }} />
-                </Stack>
-              </PairingSessionContext>
-            </PreferencesContext>
-          </RuntimeContext>
+          <AppServicesContext value={services}>
+            <PairingSessionContext value={fake.session}>
+              <Stack>
+                <Stack.Screen name="pair" options={{ presentation: "fullScreenModal" }} />
+              </Stack>
+            </PairingSessionContext>
+          </AppServicesContext>
         </QueryClientProvider>
       </SafeAreaProvider>
     );
@@ -151,7 +116,7 @@ async function scan(fake: FakePairingSession): Promise<void> {
 describe("the pairing modal", () => {
   it("pairs a new machine, then starts a blank root on it", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/c/one");
     await go("/pair");
@@ -192,7 +157,7 @@ describe("the pairing modal", () => {
       scopes: [],
       seenAt: 0,
     });
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/pair");
     await scan(fake);
@@ -205,7 +170,7 @@ describe("the pairing modal", () => {
 
   it("stops the pairing on Close and leaves to where the user was", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/c/one");
     await go("/pair");
@@ -219,7 +184,7 @@ describe("the pairing modal", () => {
 
   it("goes back to the intro on Cancel", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/pair");
     await scan(fake);
@@ -230,7 +195,7 @@ describe("the pairing modal", () => {
 
   it("re-pairs a machine and goes back to where the user was", async () => {
     const fake = fakePairingSession({ machines: [pairedMachine(LAPTOP, "laptop")] });
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/c/one");
     await go(`/pair?machine=${LAPTOP}`);
@@ -249,7 +214,7 @@ describe("the pairing modal", () => {
 
   it("names both machines when a re-pair scans the code of another one", async () => {
     const fake = fakePairingSession({ machines: [pairedMachine(LAPTOP, "laptop")] });
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go(`/pair?machine=${LAPTOP}`);
     await scan(fake);
@@ -276,7 +241,7 @@ describe("the pairing modal", () => {
 
   it("closes on Done when efrd is too old", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/c/one");
     await go("/pair");
@@ -293,7 +258,7 @@ describe("the pairing modal", () => {
 
   it("resets to the root on Close after a new machine paired, without a switch", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/c/one");
     await go("/pair");
@@ -309,7 +274,7 @@ describe("the pairing modal", () => {
 
   it("opens Tailscale from the tailnet error", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake);
+    const { routes } = await app(fake);
     await renderRouter(routes, { initialUrl: "/" });
     await go("/pair");
     await scan(fake);
@@ -325,7 +290,7 @@ describe("the pairing modal", () => {
 describe("the no-machine root", () => {
   it("scans on the root, then shows the pairing in the modal", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake, "no-machine");
+    const { routes } = await app(fake, "no-machine");
     await renderRouter(routes, { initialUrl: "/" });
     expect(screen.getByText("no machine paired")).toBeOnTheScreen();
     await scan(fake);
@@ -336,7 +301,7 @@ describe("the no-machine root", () => {
   it("opens the modal with the camera error when the camera is off", async () => {
     const fake = fakePairingSession();
     fake.scanner.granted = false;
-    const { routes } = app(fake, "no-machine");
+    const { routes } = await app(fake, "no-machine");
     await renderRouter(routes, { initialUrl: "/" });
     await fireEvent.press(screen.getByRole("button", { name: "Scan code" }));
     await flush();
@@ -346,7 +311,7 @@ describe("the no-machine root", () => {
 
   it("stays on the root when the scan is cancelled", async () => {
     const fake = fakePairingSession();
-    const { routes } = app(fake, "no-machine");
+    const { routes } = await app(fake, "no-machine");
     await renderRouter(routes, { initialUrl: "/" });
     await fireEvent.press(screen.getByRole("button", { name: "Scan code" }));
     await flush();
