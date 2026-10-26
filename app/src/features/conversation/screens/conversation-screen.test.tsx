@@ -1,0 +1,326 @@
+// The conversation screen on the services of the app over fake sockets (boards
+// R-Streaming, R-Approval, C-Failed and C-Offline, and the undrawn loading state): the
+// subscription follows the focus, the transcript shows the stream and the outbox, the
+// screen scrolls to an approval on request, and the focused screen gives the VoiceOver
+// announcements and the error haptic of a failed turn.
+
+import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { router } from "expo-router";
+import {
+  act,
+  fireEvent,
+  renderRouter,
+  screen,
+  type RenderRouterResult,
+} from "expo-router/testing-library";
+import { type ReactNode, type Ref, useImperativeHandle } from "react";
+import {
+  AccessibilityInfo,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  ScrollView,
+  View,
+} from "react-native";
+
+import { haptic } from "@/lib/native/haptics";
+import { flush } from "@/lib/net/testing";
+import type { Event } from "@/lib/protocol/wire";
+import {
+  approvalRequested,
+  envelope,
+  eventItem,
+  promptQueued as queued,
+  snapshotItem,
+  turnCompleted,
+  turnStarted,
+} from "@/lib/stream/testing";
+import {
+  DESKTOP,
+  LAPTOP,
+  conversationId,
+  testServices,
+  type TestServices,
+} from "@/features/navigation/model/testing";
+
+import { screenRoutes, socketOf, stream } from "./screen-testing";
+
+const mockScrollToIndex = jest.fn<(params: unknown) => Promise<void>>(() => Promise.resolve());
+
+interface MockListRef {
+  readonly scrollToOffset: (params: unknown) => void;
+  readonly scrollToIndex: (params: unknown) => Promise<void>;
+}
+
+interface MockFlashListProps {
+  readonly data: readonly string[];
+  readonly renderItem: (info: { item: string; index: number }) => ReactNode;
+  readonly keyExtractor: (item: string) => string;
+  readonly onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  readonly ref?: Ref<MockListRef>;
+}
+
+/** FlashList is native: the fake one draws every row, newest first. */
+function MockFlashList({ ref, ...props }: MockFlashListProps) {
+  useImperativeHandle(ref, () => ({
+    scrollToOffset: () => undefined,
+    scrollToIndex: mockScrollToIndex,
+  }));
+  return (
+    <ScrollView testID="flash-list" onScroll={props.onScroll}>
+      {props.data.map((item, index) => (
+        <View key={props.keyExtractor(item)} testID={`cell-${item}`}>
+          {props.renderItem({ item, index })}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+jest.mock("@shopify/flash-list", () => ({ FlashList: MockFlashList }));
+jest.mock("react-native-keyboard-controller", () =>
+  jest.requireActual("react-native-keyboard-controller/jest"),
+);
+jest.mock("../components/fade-in", () => ({
+  FadeIn: (props: { children: unknown }) => props.children,
+}));
+jest.mock("@/lib/native/clipboard", () => ({
+  copyText: jest.fn(() => Promise.resolve(true)),
+}));
+jest.mock("@/lib/native/haptics", () => ({ haptic: jest.fn(), setHapticsEnabled: jest.fn() }));
+
+const CONVERSATION = conversationId(1);
+const TURN = "019a9b1c-3d00-7a10-8b20-0000000000f1";
+const NEXT = "019a9b1c-3d00-7a10-8b20-0000000000f2";
+const CALL = "019a9b1c-3d00-7a10-8b20-0000000000f3";
+
+let commands = 0;
+
+/** A `prompt_queued` event with a command id that the decoder takes (a UUID). */
+function promptQueued(turnId: string, text: string): Event {
+  commands += 1;
+  return {
+    ...queued(turnId, text),
+    command_id: `019a9b1c-3d00-7a10-8b20-${String(commands).padStart(12, "0")}`,
+  };
+}
+
+let test: TestServices | undefined;
+let view: RenderRouterResult | undefined;
+const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibilityWithOptions");
+
+beforeEach(() => {
+  seq = 3;
+  mockScrollToIndex.mockClear();
+  announce.mockClear();
+  jest.mocked(haptic).mockClear();
+});
+
+afterEach(() => {
+  test?.services.dispose();
+  test = undefined;
+  view = undefined;
+});
+
+function services(): TestServices {
+  if (test === undefined) {
+    throw new Error("no services");
+  }
+  return test;
+}
+
+/** The app with desktop and laptop paired and desktop connected, on `url`. */
+async function open(url: string, connect = true): Promise<TestServices> {
+  test = await testServices();
+  const current = test;
+  if (connect) {
+    await current.connect(DESKTOP);
+  }
+  view = await renderRouter(screenRoutes(current), { initialUrl: "/" });
+  await act(async () => {
+    router.push(url);
+  });
+  await act(flush);
+  return current;
+}
+
+/** The params of each `conversation.subscribe` that the app sent to desktop. */
+function subscribes(): unknown[] {
+  return socketOf(services(), DESKTOP)
+    .requests("conversation.subscribe")
+    .map((frame) => frame["params"]);
+}
+
+/** A snapshot of CONVERSATION with one finished turn, up to seq 3. */
+function finished() {
+  return snapshotItem(
+    CONVERSATION,
+    "idle",
+    [
+      envelope(1, promptQueued(TURN, "Why is the fan loud?")),
+      envelope(2, turnStarted(TURN)),
+      envelope(3, turnCompleted(TURN)),
+    ],
+    3,
+  );
+}
+
+/** The sequence number of the last event that efrd sent; the snapshot ends at 3. */
+let seq = 3;
+
+async function send(...events: Event[]): Promise<void> {
+  await act(async () => {
+    await stream(
+      services(),
+      DESKTOP,
+      CONVERSATION,
+      events.map((body) => eventItem(++seq, body)),
+    );
+  });
+}
+
+/** Lets the display frames run. renderRouter turns on the fake timers of jest. */
+async function frames(): Promise<void> {
+  await act(async () => {
+    jest.advanceTimersByTime(50);
+    await flush();
+  });
+}
+
+describe("the conversation screen", () => {
+  it("shows the loading line until the stream has events, then the transcript", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    expect(screen.getByLabelText("loading conversation from desktop")).toBeOnTheScreen();
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    expect(screen.getByLabelText("You: Why is the fan loud?")).toBeOnTheScreen();
+    expect(screen.queryByLabelText("loading conversation from desktop")).toBeNull();
+  });
+
+  it("subscribes while it has the focus, and again with after_seq when it gets it back", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    expect(subscribes()).toEqual([{ conversation_id: CONVERSATION, drafts: true }]);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    const socket = socketOf(services(), DESKTOP);
+    const first = socket.lastId("conversation.subscribe");
+    await act(async () => {
+      router.push("/settings");
+    });
+    await act(flush);
+    expect(socket.sent.some((frame) => frame["cancel"] === first)).toBe(true);
+    await act(async () => {
+      router.back();
+    });
+    await act(flush);
+    expect(subscribes().at(-1)).toEqual({
+      conversation_id: CONVERSATION,
+      drafts: true,
+      after_seq: 3,
+    });
+    // The stream stayed in memory, so the transcript shows at once.
+    expect(screen.getByLabelText("You: Why is the fan loud?")).toBeOnTheScreen();
+  });
+
+  it("announces a question at once and the end of a turn in the queue", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    expect(announce).not.toHaveBeenCalled();
+    await send(
+      promptQueued(NEXT, "Push it."),
+      turnStarted(NEXT),
+      approvalRequested(NEXT, CALL, "git push"),
+    );
+    expect(announce).toHaveBeenLastCalledWith("Approval needed. git push", { queue: false });
+    await send(turnCompleted(NEXT));
+    expect(announce).toHaveBeenLastCalledWith("Reply done.", { queue: true });
+  });
+
+  it("plays the error haptic once when a turn fails on screen", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    await send(promptQueued(NEXT, "Push it."), turnStarted(NEXT), {
+      kind: "turn_failed",
+      turn_id: NEXT,
+      error: { code: "internal", message: "model error: overloaded" },
+    });
+    expect(jest.mocked(haptic).mock.calls.filter(([kind]) => kind === "error")).toHaveLength(1);
+    expect(screen.getByText("model error: overloaded")).toBeOnTheScreen();
+  });
+
+  it("sends the prompt of a failed turn again as a new prompt on retry", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    await send(promptQueued(NEXT, "Push it."), turnStarted(NEXT), {
+      kind: "turn_failed",
+      turn_id: NEXT,
+      error: { code: "internal", message: "model error: overloaded" },
+    });
+    await fireEvent.press(screen.getByRole("button", { name: "Retry the turn" }));
+    await act(flush);
+    const sent = socketOf(services(), DESKTOP).requests("prompt.send").at(-1);
+    expect(sent?.["params"]).toMatchObject({ conversation_id: CONVERSATION, text: "Push it." });
+    expect(screen.getByText("sending")).toBeOnTheScreen();
+  });
+
+  it("scrolls to the approval that waits, then clears the request", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}?focus=approval`);
+    expect(view?.getSearchParams()).toMatchObject({ focus: "approval" });
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [
+        snapshotItem(
+          CONVERSATION,
+          "awaiting_approval",
+          [
+            envelope(1, promptQueued(NEXT, "Push it.")),
+            envelope(2, turnStarted(NEXT)),
+            envelope(3, approvalRequested(NEXT, CALL, "git push")),
+          ],
+          3,
+        ),
+      ]);
+    });
+    await frames();
+    expect(mockScrollToIndex).toHaveBeenCalledTimes(1);
+    const cells = screen.getAllByTestId(/^cell-/).map((cell) => String(cell.props.testID));
+    expect(mockScrollToIndex).toHaveBeenCalledWith({
+      index: cells.indexOf(`cell-a:${NEXT}:${CALL}`),
+      animated: true,
+      viewPosition: 0.5,
+    });
+    expect(cells.indexOf(`cell-a:${NEXT}:${CALL}`)).toBeGreaterThanOrEqual(0);
+    expect(view?.getSearchParams()).not.toHaveProperty("focus");
+  });
+
+  it("keeps the transcript and says why it cannot send when the machine is offline", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    await act(async () => {
+      socketOf(services(), DESKTOP).drop();
+      await flush();
+    });
+    expect(screen.getByLabelText("You: Why is the fan loud?")).toBeOnTheScreen();
+    const input = screen.getByTestId("composer-input");
+    expect(input.props.placeholder).toBe("desktop is offline");
+    expect(input.props.editable).toBe(false);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("shows a quiet line for a machine that is not paired, and for a bad link", async () => {
+    await open(`/c/019a9b1c-3d00-7a10-8b20-0000000000dd/${CONVERSATION}`);
+    expect(screen.getByText("This machine is not paired with this iPhone.")).toBeOnTheScreen();
+    await act(async () => {
+      router.push(`/c/${LAPTOP}/not-a-conversation`);
+    });
+    expect(screen.getByText("This link names no conversation.")).toBeOnTheScreen();
+  });
+});
