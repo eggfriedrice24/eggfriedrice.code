@@ -6,9 +6,10 @@
 //!
 //! [`ExitInfo`]: crate::ExitInfo
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::{ExitKind, ExitSource, Grant, Scope};
@@ -125,8 +126,10 @@ pub struct ExitFacts {
     /// The names, never the values, that sandboxed calls exported.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sandbox_export_names: Vec<String>,
-    /// The earlier exits of this turn and how each was judged.
+    /// The earlier exits of this turn and how each was judged: each a list of two, the
+    /// kind and then the verdict.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(with = "ExitVerdictPairs")]
     pub previous_exits_this_turn: Vec<(ExitKind, Verdict)>,
     /// Floor refusals in a row without a person's answer.
     #[serde(default)]
@@ -410,4 +413,36 @@ pub enum PauseReason {
     InARow,
     /// It denied 10 actions in the turn.
     PerTurn,
+}
+
+/// The schema of `previous_exits_this_turn`: a list of pairs, each an [`ExitKind`] and
+/// then a [`Verdict`]. It has no values; only its schema is used.
+///
+/// NOTE: the derive describes each pair as a tuple (`prefixItems`), which the phone's
+/// code generator cannot read. This form is a list of two items of either type; the
+/// wire form is the same.
+enum ExitVerdictPairs {}
+
+impl JsonSchema for ExitVerdictPairs {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> Cow<'static, str> {
+        "ExitVerdictPairs".into()
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let kind = generator.subschema_for::<ExitKind>();
+        let verdict = generator.subschema_for::<Verdict>();
+        json_schema!({
+            "type": "array",
+            "items": {
+                "type": "array",
+                "items": { "anyOf": [kind, verdict] },
+                "minItems": 2,
+                "maxItems": 2,
+            },
+        })
+    }
 }
