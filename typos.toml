@@ -1,6 +1,13 @@
 [files]
-# The subscribe recordings of the phone app cut words into drafts at any character.
-extend-exclude = ["target/", "*.snap", "Cargo.lock", "app/test/recordings/*.ndjson"]
+# The subscribe recordings of the phone app cut words into drafts at any character. The
+# decode bench of the app holds the same lines in app/src/lib/dev/recordings.ts.
+extend-exclude = [
+  "target/",
+  "*.snap",
+  "Cargo.lock",
+  "app/test/recordings/*.ndjson",
+  "app/src/lib/dev/recordings.ts",
+]
 
 [default]
 # Commit hashes (ghostty 7bb45ba, helix ba40e547, ...) are not words.
