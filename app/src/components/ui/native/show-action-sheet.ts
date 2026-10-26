@@ -2,17 +2,17 @@
 // the sheet can come out of the button that opened it (`anchor`), as the Forget sheet
 // does from the ellipsis button of a Settings row.
 
-import { ActionSheetIOS, findNodeHandle, type View } from "react-native";
+import { ActionSheetIOS, findNodeHandle, type HostInstance } from "react-native";
 
 import { sheetAnswer, sheetOptions, type ActionSheet } from "../action-sheet";
 
 /**
  * Shows `sheet`. The promise gives the id of the picked action, or undefined when the
- * user cancels. `anchor` is the view that opened the sheet.
+ * user cancels. `anchor` is the view that opened the sheet (the value of its ref).
  */
 export function showActionSheet(
   sheet: ActionSheet,
-  anchor?: View | null,
+  anchor?: HostInstance | null,
 ): Promise<string | undefined> {
   const options = sheetOptions(sheet);
   const node = anchor === undefined || anchor === null ? null : findNodeHandle(anchor);
