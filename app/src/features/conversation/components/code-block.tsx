@@ -18,12 +18,14 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Hairline } from "@/components/ui/hairline";
 import { MonoText } from "@/components/ui/mono-text";
 import { FENCE_MARKDOWN_STYLE } from "@/theme/markdown";
+import { CODE_BLOCK } from "@/theme/metrics";
 import { diffModel } from "../model/diff-view";
 import { codeLabel } from "../model/message-segments";
 import { DiffHunks } from "./diff-view";
 import { MarkdownView } from "./markdown-view";
 
-const GROW = { flexGrow: 1 } as const;
+// Padding of a scroll view goes on its content, so it scrolls with the code.
+const BODY = { flexGrow: 1, ...CODE_BLOCK.body } as const;
 
 export interface CodeBlockProps {
   /** The language of the fence; "" when it has none. */
@@ -39,7 +41,7 @@ export interface CodeBlockProps {
 export function CodeBlock(props: CodeBlockProps) {
   return (
     <Frame label={codeLabel(props.language, props.closed)} copy={props.body} closed={props.closed}>
-      <ScrollView horizontal contentContainerStyle={GROW} className="px-12 pt-8 pb-10">
+      <ScrollView horizontal contentContainerStyle={BODY}>
         <MarkdownView
           markdown={props.source}
           streaming={!props.closed}
