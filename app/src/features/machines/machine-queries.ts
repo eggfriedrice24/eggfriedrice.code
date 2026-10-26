@@ -5,15 +5,16 @@
 
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
+import { ALL_MACHINES_KEY, machineKey } from "@/lib/query/keys";
 import type { Machine } from "./model/machine";
 import type { MachineId } from "./model/machine-ref";
 import type { PairOptions, Runtime } from "./model/runtime";
 
 /** The query keys of the machines. */
 export const machineKeys = {
-  all: ["machine"] as const,
-  machine: (machine: MachineId) => ["machine", machine] as const,
-  status: (machine: MachineId) => ["machine", machine, "status"] as const,
+  all: ALL_MACHINES_KEY,
+  machine: (machine: MachineId) => machineKey(machine),
+  status: (machine: MachineId) => [...machineKey(machine), "status"] as const,
 };
 
 /** The mutation keys of the machines. */
