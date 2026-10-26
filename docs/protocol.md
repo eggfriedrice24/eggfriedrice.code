@@ -86,9 +86,12 @@ Rules of efrd for a pairing:
 - The token has 144 random bits. efrd keeps only its SHA-256, and only in memory: a
   restart of efrd ends every pairing. The token is good for one `device.enroll` and for
   5 minutes. At most 4 pairings are open at one time.
-- A wrong token is `unauthorized`. While a pairing is open, efrd counts the wrong
-  tokens. After 5 of them, the next one ends each pairing that waits for a phone with
-  `attempts`.
+- A wrong token is `unauthorized`. While a pairing waits for a phone, efrd counts the
+  wrong tokens. After 5 of them, the next one ends each pairing that waits for a phone
+  with `attempts`. A pairing that opens while no other one waits for a phone starts
+  the count from zero.
+- A public key that is not a point of the P-256 curve is `invalid`, and the token
+  stays good.
 - A key that a device holds that is not revoked is `conflict`, and the token stays
   good, so the phone can make a new key and try again.
 - After the phone enrolled, the terminal has until the token expires to answer, but
@@ -885,3 +888,6 @@ No protocol version has shipped yet.
   end of its turn. efrd closes a connection from an address outside the ranges of
   Tailscale before its whois. The `Origin` header may no longer name the MagicDNS name
   of the node, and the `f` member of the QR payload is for display only.
+  `device.enroll` refuses a public key that is not a point of the P-256 curve with
+  `invalid`. The count of wrong tokens starts from zero when a pairing opens while no
+  other one waits for a phone.

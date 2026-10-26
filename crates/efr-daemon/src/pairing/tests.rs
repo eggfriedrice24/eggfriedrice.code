@@ -265,6 +265,28 @@ fn wrong_tokens_count_only_while_a_pairing_is_open_and_a_new_pairing_starts_from
     assert!(pairings.check(&second.token).is_ok());
 }
 
+#[tokio::test]
+async fn a_pairing_that_waits_for_the_terminal_does_not_keep_the_count_for_the_next() {
+    let clock = TestClock::new();
+    let pairings = pairings(&clock);
+    let mut waiting = pairings.open(None).unwrap();
+    let answered = pairings.open(None).unwrap();
+    let id = pairings.check(&answered.token).unwrap();
+    let _wait = pairings.enroll(id, &answered.token, "iPhone", key(), peer()).unwrap();
+    for _ in 0..=MAX_FAILED_ENROLLS {
+        let _ = pairings.check(&wrong());
+    }
+    assert_eq!(waiting.next().await, Some(Update::Ended(PairEnd::Attempts)));
+    assert_eq!(pairings.open_count(), 1, "only the pairing that has its phone is open");
+
+    // Wrong tokens while no pairing waits for a phone protect nothing.
+    let _ = pairings.check(&wrong());
+    let next = pairings.open(None).unwrap();
+    assert_eq!(super::lock(&pairings.table).failed, 0, "a new pairing starts from zero");
+    assert_eq!(pairings.check(&wrong()), Err(PairingProblem::BadToken));
+    assert!(pairings.check(&next.token).is_ok(), "one wrong token does not end it");
+}
+
 #[test]
 fn at_most_four_pairings_are_open() {
     let clock = TestClock::new();

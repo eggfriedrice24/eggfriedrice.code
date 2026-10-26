@@ -182,9 +182,10 @@ impl Pairings {
         if table.open.len() >= MAX_OPEN {
             return Err(PairingProblem::TooMany);
         }
-        if table.open.is_empty() {
-            // NOTE: the count of wrong tokens protects the pairings that are open; a
-            // new one after they all ended starts from zero.
+        if !table.waits_for_phone() {
+            // NOTE: the count of wrong tokens protects the pairings that wait for a
+            // phone; a new one after they all ended, or got their phone, starts from
+            // zero.
             table.failed = 0;
         }
         let entry =
@@ -322,10 +323,16 @@ impl fmt::Debug for Table {
 }
 
 impl Table {
+    /// True while a pairing waits for its phone: the pairings that wrong tokens can
+    /// end.
+    fn waits_for_phone(&self) -> bool {
+        self.open.values().any(|entry| matches!(entry.phase, Phase::Open))
+    }
+
     /// Counts a wrong token. The one after [`MAX_FAILED_ENROLLS`] ends every pairing
     /// that waits for a phone; one that waits for the terminal has its phone already.
     fn failed(&mut self, now: Timestamp) {
-        if self.open.is_empty() {
+        if !self.waits_for_phone() {
             return;
         }
         self.failed += 1;
