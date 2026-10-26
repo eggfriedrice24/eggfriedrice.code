@@ -1,28 +1,41 @@
-// The frame of the composer (design 3.3): docked to the keyboard with
-// KeyboardStickyView, with the chrome material and a hairline on top, 12 pt at the sides
-// and the safe area under it (slot E). With the keyboard up, the gap under it is 8 pt;
-// the look is the same up or down. The blank root draws no material and no hairline, and
-// has 8 pt on top instead of the status line (design item 8.13).
+// The frame of the composer (design 3.3, as t3code draws it): a glass pill that floats
+// over a scrim, 12 pt from the sides of the screen, docked to the keyboard with
+// KeyboardStickyView.
+//
+// - The pill has radius 24 and clips its content. The glass is its first child, then the
+//   status line and the row, so the field needs no border of its own.
+// - The scrim behind it is surface_1 that goes from 0 to 0.6 to 0.9 opacity, so the
+//   transcript fades out under the composer. It is not a blur.
+// - Under the pill is the bottom edge: the safe area, but never less than 12 pt, then a
+//   gap of 6 pt. With the keyboard up, the sticky view moves the composer down by the
+//   bottom edge, so only the gap of 6 pt stays over the keyboard.
+// - The blank root has the same pill without the status line (design item 8.13).
 
 import type { ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { cn } from "@/components/ui/cn";
-import { Hairline } from "@/components/ui/hairline";
 import { Material } from "@/components/ui/material";
+import { RADII } from "@/theme/metrics";
 
 import { ComposerContext } from "./composer-context";
 import { useComposer, type ComposerOptions } from "./use-composer";
 
-/** The gap between the composer and the keyboard when the keyboard is up. */
-export const KEYBOARD_GAP = 8;
+/** The gap between the pill and the keyboard, or between the pill and the bottom edge. */
+export const KEYBOARD_GAP = 6;
 
-/** The bottom edge of the composer: the safe area, and never less than the keyboard gap. */
+/** The smallest bottom edge, on a screen without a home indicator. */
+export const MIN_BOTTOM_EDGE = 12;
+
+/** The bottom edge of the composer: the safe area, and never less than 12 pt. */
 export function bottomEdge(safeArea: number): number {
-  return Math.max(safeArea, KEYBOARD_GAP);
+  return Math.max(safeArea, MIN_BOTTOM_EDGE);
 }
+
+/** The scrim behind the pill: surface_1 at 0, then 0.6, then 0.9 opacity, top to bottom. */
+export const SCRIM_CLASS =
+  "absolute inset-0 bg-linear-to-b from-surface-1/0 via-surface-1/60 to-surface-1/90";
 
 export interface ComposerRootProps extends ComposerOptions {
   /**
@@ -39,7 +52,6 @@ export function ComposerRoot(props: ComposerRootProps) {
   const { children, onHeightChange, ...options } = props;
   const model = useComposer(options);
   const bottom = bottomEdge(useSafeAreaInsets().bottom);
-  const blank = model.isBlankRoot;
   const layout = (event: LayoutChangeEvent): void => {
     onHeightChange?.(event.nativeEvent.layout.height);
   };
@@ -47,26 +59,17 @@ export function ComposerRoot(props: ComposerRootProps) {
     <ComposerContext value={model}>
       <KeyboardStickyView
         testID="composer"
-        offset={{ closed: 0, opened: bottom - KEYBOARD_GAP }}
+        offset={{ closed: 0, opened: bottom }}
         onLayout={layout}
       >
-        <View className={cn("relative px-12", blank && "pt-8")} style={{ paddingBottom: bottom }}>
-          {blank ? null : <Chrome />}
-          {children}
+        <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
+          <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
+          <View testID="composer-pill" className="overflow-hidden rounded-composer">
+            <Material kind="glass" radius={RADII.composer} />
+            {children}
+          </View>
         </View>
       </KeyboardStickyView>
     </ComposerContext>
-  );
-}
-
-/** The material and the top hairline of a docked composer. */
-function Chrome() {
-  return (
-    <>
-      <Material kind="chrome" />
-      <View className="absolute top-0 right-0 left-0">
-        <Hairline />
-      </View>
-    </>
   );
 }

@@ -24,7 +24,7 @@ export const SPACING = {
   /** The strip under the header (approval waiting, or the offline line). */
   strip: 34,
   /** The visual size of a composer action (Send, Stop) and of the capsules. */
-  action: 36,
+  action: 32,
   /** The smallest height of the composer input (one line). */
   field: 40,
   /** The tallest composer input: six lines. Then the text scrolls inside it. */
@@ -41,10 +41,12 @@ export const RADII = {
   inner: 8,
   /** Pairing buttons, the command box and the key and value box. */
   control: 12,
-  /** The composer input and the search field. */
+  /** The search field. */
   field: 20,
   /** The groups of Settings. */
   group: 22,
+  /** The glass pill of the composer: half of its one-line height of 48 pt. */
+  composer: 24,
 } as const;
 
 /** The width of a hairline, in points. */

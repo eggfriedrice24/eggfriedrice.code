@@ -1,4 +1,5 @@
-// Slot D of the composer, the trailing action (design 3.3): 36 pt visual, 44 pt hit area.
+// Slot D of the composer, the trailing action (design 3.3): a 32 pt circle with a 16 pt
+// glyph, in the middle of the 40 pt field row, with a 44 pt hit area.
 //
 // - Send: a yolk circle with arrow.up in text_on_accent; disabled, a 1 pt border_subtle
 //   circle with the glyph in text_decorative.
@@ -23,10 +24,10 @@ import { SPACING } from "@/theme/metrics";
 import { capsuleLabel, SEND_MODE_CHOICES } from "../../model/composer-state";
 import { ComposerContext } from "./composer-context";
 
-/** The hit slop that takes a 36 pt action to the 44 pt hit area. */
+/** The hit slop that takes a 32 pt action to the 44 pt hit area. */
 const SLOP = (SPACING.hit - SPACING.action) / 2;
 
-const CIRCLE = "w-action h-action my-2 items-center justify-center rounded-full";
+const CIRCLE = "w-action h-action my-4 items-center justify-center rounded-full";
 
 /** The trailing action of the composer. */
 export function ComposerTrailing() {
@@ -79,8 +80,8 @@ function SendButton(props: SendButtonProps) {
     >
       <SymbolIcon
         name="arrow.up"
-        size={18}
-        weight="bold"
+        size={16}
+        weight="semibold"
         tone={props.enabled ? "text_on_accent" : "text_decorative"}
       />
     </Pressable>
@@ -116,7 +117,7 @@ function StopButton(props: StopButtonProps) {
       onPress={props.onPress}
       className={cn(CIRCLE, "border border-border-default active:opacity-60")}
     >
-      <SymbolIcon name="stop.fill" size={14} tone="text_bright" />
+      <SymbolIcon name="stop.fill" size={13} tone="text_bright" />
     </Pressable>
   );
 }
@@ -179,7 +180,7 @@ function ModeCapsule(props: ModeCapsuleProps) {
         hitSlop={{ top: SLOP, bottom: SLOP }}
         onPress={props.onPress}
         className={cn(
-          "h-action my-2 flex-row items-center gap-6 rounded-full pr-12 pl-14 active:opacity-80",
+          "h-action my-4 flex-row items-center gap-6 rounded-full pr-12 pl-14 active:opacity-80",
           look.frame,
         )}
       >

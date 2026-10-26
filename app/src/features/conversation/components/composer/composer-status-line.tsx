@@ -1,5 +1,6 @@
-// Slot A of the composer, the status line (design 3.3, 3.19 and item 8.2): 30 pt high,
-// mono 11 in text_subtle, no wrap. It shows the cwd in text_muted, the mode and
+// Slot A of the composer, the status line (design 3.3, 3.19 and item 8.2): 30 pt high at
+// the top of the pill, mono 11 in text_subtle, no wrap. Its 16 pt sides line up with the
+// text of the field. It shows the cwd in text_muted, the mode and
 // `ctx 42%`, then "waiting for you" in yolk while an approval waits here, and the grey
 // braille cell with "reconnecting…" while the connection opens. The blank root has no
 // status line. Later the line holds chips and the mode and model pickers.
@@ -31,7 +32,7 @@ export function ComposerStatusLine(props: ComposerStatusLineProps) {
     return null;
   }
   return (
-    <View testID="composer-status-line" className="h-30 flex-row items-center gap-8 px-6">
+    <View testID="composer-status-line" className="h-30 flex-row items-center gap-8 px-16">
       {props.children}
     </View>
   );

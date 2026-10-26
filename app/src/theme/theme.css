@@ -75,6 +75,7 @@
   --radius-control: 12px;
   --radius-field: 20px;
   --radius-group: 22px;
+  --radius-composer: 24px;
 
   /* One spacing step is 1 pt, and the named distances of metrics.ts. */
   --spacing: 1px;
@@ -85,7 +86,7 @@
   --spacing-hit: 44px;
   --spacing-hairline: 0.5px;
   --spacing-strip: 34px;
-  --spacing-action: 36px;
+  --spacing-action: 32px;
   --spacing-field: 40px;
   --spacing-field-max: 145px;
   --spacing-button: 50px;

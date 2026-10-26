@@ -5,6 +5,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAtom, createStore, type Atom, type Readable } from "@tanstack/store";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { ConnectionView } from "@/features/machines/model/connection-view";
@@ -14,6 +15,7 @@ import { FakeCaller } from "@/lib/query/testing";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { StreamState } from "@/lib/stream/reducer";
 import { eventItem, promptQueued, run, turnCompleted, turnStarted } from "@/lib/stream/testing";
+import { RADII, SPACING } from "@/theme/metrics";
 
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";
@@ -21,6 +23,7 @@ import type { Outbox, OutboxEntry } from "../../model/outbox";
 import { CONVERSATION_A, DESKTOP, idMaker, testOutbox } from "../../model/outbox-testing";
 import type { ComposerDeps } from "../../use-composer-actions";
 import { DockedComposer, type DockedComposerProps } from "./composer";
+import { bottomEdge, KEYBOARD_GAP, SCRIM_CLASS } from "./composer-root";
 import { sendModeEntries } from "./composer-trailing";
 
 jest.mock("react-native-keyboard-controller", () =>
@@ -66,6 +69,7 @@ class MemoryKeyValue implements KeyValueStorage {
   }
 }
 
+const HIDDEN = { includeHiddenElements: true } as const;
 const ENDPOINT = "100.64.0.1:7878";
 const ONLINE: ConnectionView = { kind: "online", endpoint: ENDPOINT };
 const METRICS = {
@@ -186,24 +190,48 @@ function sendButton() {
 }
 
 describe("the states of the composer", () => {
-  it("is blank on the root: no status line, no material, no hairline, Send off", async () => {
+  it("is blank on the root: the glass pill with no status line, Send off", async () => {
     await renderComposer({ target: ROOT });
     expect(screen.queryByTestId("composer-status-line")).toBeNull();
-    expect(screen.queryByTestId("material-chrome")).toBeNull();
-    expect(screen.queryByTestId("hairline", { includeHiddenElements: true })).toBeNull();
+    expect(screen.getByTestId("material-glass", HIDDEN)).toBeOnTheScreen();
     expect(input().props.placeholder).toBe("Message efr");
     expect(sendButton()).toBeDisabled();
   });
 
-  it("is idle after a turn: the status line, the material and the hairline, Send off", async () => {
+  it("is idle after a turn: the status line inside the glass pill, Send off", async () => {
     await renderComposer({ stream: endedStream() });
     expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
     expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
     expect(screen.getByText("cautious")).toBeOnTheScreen();
     expect(screen.getByText("ctx 42%")).toBeOnTheScreen();
-    expect(screen.getByTestId("material-chrome")).toBeOnTheScreen();
-    expect(screen.getByTestId("hairline", { includeHiddenElements: true })).toBeOnTheScreen();
+    expect(screen.getByTestId("composer-pill")).toContainElement(
+      screen.getByTestId("composer-status-line"),
+    );
     expect(sendButton()).toBeDisabled();
+  });
+
+  it("is a glass pill over a scrim, with no blur dock and no hairline", async () => {
+    await renderComposer({ stream: endedStream() });
+    const pill = screen.getByTestId("composer-pill");
+    expect(pill.props.className).toBe("overflow-hidden rounded-composer");
+    const glass = screen.getByTestId("material-glass", HIDDEN);
+    expect(StyleSheet.flatten(glass.props.style)).toMatchObject({ borderRadius: RADII.composer });
+    expect(pill).toContainElement(glass);
+    expect(screen.getByTestId("composer-scrim", HIDDEN).props.className).toBe(SCRIM_CLASS);
+    expect(SCRIM_CLASS).toContain("from-surface-1/0 via-surface-1/60 to-surface-1/90");
+    expect(screen.queryByTestId("material-chrome", HIDDEN)).toBeNull();
+    expect(screen.queryByTestId("hairline", HIDDEN)).toBeNull();
+    expect(screen.getByTestId("composer-status-line").props.className).toContain("h-30");
+    expect(screen.getByTestId("composer-status-line").props.className).toContain("px-16");
+  });
+
+  it("gives the field no border of its own, and the action a 32 pt circle", async () => {
+    await renderComposer();
+    expect(input().props.className).not.toContain("border");
+    expect(input().props.className).not.toContain("rounded");
+    expect(sendButton().props.className).toContain("w-action h-action");
+    expect(sendButton().props.hitSlop).toBe((SPACING.hit - SPACING.action) / 2);
+    expect(SPACING.action).toBe(32);
   });
 
   it("enables Send while typing, and the field grows to six lines", async () => {
@@ -334,10 +362,18 @@ describe("the states of the composer", () => {
     expect(screen.getByRole("status")).toBeOnTheScreen();
   });
 
-  it("docks to the keyboard with 8 pt over it and the safe area under it", async () => {
+  it("docks to the keyboard with 6 pt over it and the safe area and 6 pt under it", async () => {
     await renderComposer();
     const dock = screen.getByTestId("composer");
-    expect(dock.props.offset).toEqual({ closed: 0, opened: 26 });
+    expect(dock.props.offset).toEqual({ closed: 0, opened: 34 });
+    const frame = StyleSheet.flatten(dock.props.children.props.style);
+    expect(frame).toMatchObject({ paddingBottom: 34 + KEYBOARD_GAP });
+    expect(KEYBOARD_GAP).toBe(6);
+  });
+
+  it("keeps a bottom edge of 12 pt on a screen without a home indicator", () => {
+    expect(bottomEdge(0)).toBe(12);
+    expect(bottomEdge(34)).toBe(34);
   });
 });
 

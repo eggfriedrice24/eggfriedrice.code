@@ -10,7 +10,7 @@
 //       <Composer.Input />                     slot C: reads its own draft
 //       <Composer.Trailing />                  slot D: Send | Stop | Stop + Steer/Queue | sending
 //     </Composer.Row>
-//   </Composer.Root>                           slot E: the safe area, or 8 pt over the keyboard
+//   </Composer.Root>                           slot E: the bottom edge, or 6 pt over the keyboard
 //
 // `DockedComposer` is this tree with the slots of v1.
 
@@ -30,13 +30,17 @@ export interface ComposerRowProps {
   readonly children: ReactNode;
 }
 
-/** The row of the field and the actions: gap 8, aligned at the bottom as the field grows. */
+/**
+ * The row of the field and the actions: gap 8, aligned at the bottom as the field grows.
+ * With 4 pt above and under the 40 pt field, a one-line pill is 48 pt high. The 8 pt on
+ * the right put the 32 pt action in the middle of the round end of the pill.
+ */
 export function ComposerRow(props: ComposerRowProps) {
-  return <View className="flex-row items-end gap-8">{props.children}</View>;
+  return <View className="flex-row items-end gap-8 py-4 pr-8">{props.children}</View>;
 }
 
 export interface ComposerLeadingProps {
-  /** Later an attach button (a 36 pt hairline circle). */
+  /** Later an attach button (a 32 pt circle, as the actions). */
   readonly children?: ReactNode;
 }
 
