@@ -9,7 +9,9 @@
     "fmt:check": "oxfmt --check",
     "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:protocol": "node scripts/gen-protocol.mjs",
+    "check:protocol": "node scripts/gen-protocol.mjs --check"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.15",

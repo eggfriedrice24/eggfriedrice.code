@@ -331,6 +331,9 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm run test
+      # The generated protocol types must match docs/protocol.schema.json. The lint
+      # job checks the schema against efr-protocol, so this job needs no cargo.
+      - run: pnpm run check:protocol
 
   # The tests of `just test-sandbox` on real bwrap, Landlock ABI 9 and seccomp. The
   # runner's kernel is older than 7.1 and its AppArmor blocks unprivileged user
