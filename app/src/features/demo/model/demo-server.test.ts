@@ -27,6 +27,7 @@ const KINDS: readonly DemoConversationKind[] = [
   "tools",
   "messages",
   "diff",
+  "fast",
 ];
 
 /** Every step of `steps`, with both answers of each hold. */
@@ -122,6 +123,7 @@ describe("the scripts of the demo machines", () => {
       "long command",
       "file write with a diff",
       "sending the answer",
+      "the answer failed",
       "answered: allowed here",
       "answered: denied in a terminal",
       "answer in the terminal: privilege",

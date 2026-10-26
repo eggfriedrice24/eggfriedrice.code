@@ -124,6 +124,14 @@ export const STAGES = {
       ...recentOn("desktop"),
     ],
   },
+  /** A long reply at the pace of efrd, for the render counter. */
+  render: {
+    name: "render",
+    conversations: [
+      { key: "fast", machine: "desktop", kind: "fast", minutesAgo: 1 },
+      ...recentOn("desktop"),
+    ],
+  },
   /** Settings: one machine connected, one offline, one connecting. */
   settings: {
     name: "settings",

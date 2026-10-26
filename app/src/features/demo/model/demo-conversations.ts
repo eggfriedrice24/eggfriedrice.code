@@ -5,7 +5,7 @@
 // from the first subscription. A question in either part waits for the phone's answer.
 // Pure.
 
-import { DemoScript, type AskOptions, type DemoStep, type NewId } from "./demo-script";
+import { DemoScript, DRAFT_MS, type AskOptions, type DemoStep, type NewId } from "./demo-script";
 
 /** One conversation of a stage. */
 export interface DemoConversationScript {
@@ -29,7 +29,8 @@ export type DemoConversationKind =
   | "markdown"
   | "tools"
   | "messages"
-  | "diff";
+  | "diff"
+  | "fast";
 
 const SUM_REPLY = [
   "The test failed because the loop read past the end of the buffer. Here is the fix:",
@@ -162,6 +163,8 @@ export function demoConversation(kind: DemoConversationKind, id: NewId): DemoCon
       return messages(id);
     case "diff":
       return diff(id);
+    case "fast":
+      return fast(id);
     default:
       return finished(id, kind, ["Done."]);
   }
@@ -296,6 +299,30 @@ function failed(id: NewId): DemoConversationScript {
   return { title: "upgrade every crate", history: script.steps(), live: [] };
 }
 
+/**
+ * The stream of the render counter: a long reply at the pace of efrd, a draft of about
+ * four words every 16 ms, with a thought and a tool call before it.
+ */
+function fast(id: NewId): DemoConversationScript {
+  const turn = id();
+  const live = new DemoScript()
+    .wait(800)
+    .prompt(turn, "explain the release steps in full", id())
+    .reason(turn, "**Planning the answer**\n\nThe release has four parts.", "Planning the answer", {
+      every: DRAFT_MS,
+    })
+    .tool(turn, id(), "read_file", { path: "docs/releasing.md" }, "# Releasing\n\nFour parts.", {
+      lineMs: 100,
+    })
+    .say(turn, 0, `${longReply()}\n\n${SUM_REPLY}`, { piece: 18, every: DRAFT_MS })
+    .done(turn, 140_000);
+  return {
+    title: "explain the release steps in full",
+    history: new DemoScript().created().steps(),
+    live: live.steps(),
+  };
+}
+
 /** C-Jump: a long transcript, then a reply that streams while you read above it. */
 function long(id: NewId): DemoConversationScript {
   const history = pastTurn(
@@ -365,7 +392,6 @@ function messages(id: NewId): DemoConversationScript {
   const script = new DemoScript()
     .created()
     .prompt(first, "why is the disk full", id())
-    .reason(first, "**Checking the logs**\n\nThe journal holds most of it.", "Checking the logs")
     .said(first, 0, "The journal takes 3.1 GiB.")
     .done(first, 21_000)
     .prompt(second, "upgrade every crate", id())
@@ -376,7 +402,11 @@ function messages(id: NewId): DemoConversationScript {
     .prompt(third, "try again with serde only", id())
     .fail(third, "The model provider answered 529: it is overloaded.")
     .prompt(fourth, "run the tests", id())
-    .reason(fourth, "Running the tests of the workspace.")
+    .reason(
+      fourth,
+      "**Running the tests**\n\nThe workspace has 1,204 tests. I run them all.",
+      "Running the tests",
+    )
     .queued(id(), "then format the code", id(), "phone");
   return { title: "why is the disk full", history: script.steps(), live: [] };
 }
@@ -411,6 +441,8 @@ export interface ApprovalCase {
   readonly sending?: "allow" | "deny";
   /** This phone answered, for the state "answered here". */
   readonly answeredHere?: boolean;
+  /** The answer of this phone failed, for the state "the answer failed". */
+  readonly failed?: "allow" | "deny";
 }
 
 /** The fields of one question of a case. */
@@ -441,7 +473,11 @@ export function approvalCases(id: NewId): ApprovalCase[] {
     name: string,
     question: CaseQuestion,
     after?: (script: DemoScript, turn: string, call: string) => void,
-    extra: { readonly sending?: "allow" | "deny"; readonly answeredHere?: boolean } = {},
+    extra: {
+      readonly sending?: "allow" | "deny";
+      readonly answeredHere?: boolean;
+      readonly failed?: "allow" | "deny";
+    } = {},
   ): ApprovalCase => {
     const turn = id();
     const call = id();
@@ -461,6 +497,9 @@ export function approvalCases(id: NewId): ApprovalCase[] {
     }
     if (extra.answeredHere !== undefined) {
       result.answeredHere = extra.answeredHere;
+    }
+    if (extra.failed !== undefined) {
+      result.failed = extra.failed;
     }
     return result;
   };
@@ -490,6 +529,7 @@ export function approvalCases(id: NewId): ApprovalCase[] {
       },
     }),
     build("sending the answer", RESTART, undefined, { sending: "allow" }),
+    build("the answer failed", RESTART, undefined, { failed: "allow" }),
     build(
       "answered: allowed here",
       RESTART,
