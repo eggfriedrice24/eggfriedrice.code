@@ -155,3 +155,16 @@ async fn a_poll_that_never_resolves_gives_up_at_the_limit() {
     );
     assert!(started.elapsed() >= SHORT);
 }
+
+#[tokio::test]
+async fn until_ready_gives_the_value_of_a_ready_future_and_cuts_one_that_hangs() {
+    assert_eq!(Wait::new("a value").until_ready(async { 7 }).await.unwrap(), 7);
+    let started = Instant::now();
+    let error = Wait::new("a read that never ends")
+        .limit(SHORT)
+        .until_ready(std::future::pending::<()>())
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() >= SHORT);
+    assert_eq!(error.to_string(), "gave up waiting for a read that never ends after 50ms");
+}

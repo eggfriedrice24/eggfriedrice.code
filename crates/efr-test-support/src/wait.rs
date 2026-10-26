@@ -112,6 +112,18 @@ impl<'a> Wait<'a> {
         }
     }
 
+    /// Waits for `future`, such as a read from a socket, and cuts it at the limit.
+    ///
+    /// # Errors
+    ///
+    /// [`TestSupportError::TimedOut`] when `future` is not ready at the limit.
+    pub async fn until_ready<T>(
+        self,
+        future: impl Future<Output = T>,
+    ) -> Result<T, TestSupportError> {
+        SystemClock.timeout(self.limit, future).await.map_err(|_| self.timed_out())
+    }
+
     /// Polls `condition` on the calling thread, sleeping between polls, until it is
     /// true. For a check outside a runtime, or for a thread the runtime does not run.
     ///
