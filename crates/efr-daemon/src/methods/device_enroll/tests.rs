@@ -7,10 +7,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use efr_protocol::{
-    Base64Bytes, Capabilities, ClientFrame, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo,
-    DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult, DevicePairStart,
-    DevicePairStartItem, DeviceRevoke, DeviceRevokeResult, ErrorBody, ErrorCode, Hello, Method,
-    Origin, PROTOCOL_VERSION, PairEnd, PairingQr, RequestId, ScopeName, SecretText, ServerFrame,
+    Base64Bytes, Capabilities, ClientFrame, DaemonPaths, DeviceEnroll, DeviceEnrollResult,
+    DeviceId, DeviceInfo, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
+    DevicePairStart, DevicePairStartItem, DeviceRevoke, DeviceRevokeResult, ErrorBody, ErrorCode,
+    Hello, HelloResult, Method, Origin, PROTOCOL_VERSION, PairEnd, PairingQr, RequestId, ScopeName,
+    SecretText, ServerFrame,
 };
 use efr_test_support::{TestClock, TestDirs, Wait};
 use efr_transport::{RemotePeer, WebSocketOptions};
@@ -99,8 +100,17 @@ impl Daemon {
         self.terminal().await.call(confirm).await.unwrap()
     }
 
-    /// A phone connection through the WebSocket entry, admitted with `peer`.
+    /// A phone connection through the WebSocket entry, admitted with `peer`, after its
+    /// hello.
     async fn phone(&self, peer: EnrollPeer) -> Phone {
+        let mut phone = self.upgraded(peer).await;
+        phone.hello(None).await;
+        phone
+    }
+
+    /// A phone connection through the WebSocket entry, admitted with `peer`, before its
+    /// hello.
+    async fn upgraded(&self, peer: EnrollPeer) -> Phone {
         let (client, server) = tokio::io::duplex(1 << 16);
         let addr: SocketAddr = "100.64.0.2:51000".parse().unwrap();
         let remote = RemotePeer::new(addr, Arc::new(crate::remote::test_admission(&peer)));
@@ -120,7 +130,6 @@ impl Daemon {
         });
         let mut phone = Phone { stream: client, next_id: 0 };
         phone.upgrade().await;
-        phone.hello().await;
         phone
     }
 }
@@ -151,19 +160,23 @@ impl Phone {
         assert!(response.starts_with("HTTP/1.1 101"), "{response}");
     }
 
-    async fn hello(&mut self) {
+    async fn hello(&mut self, tty: Option<&str>) -> HelloResult {
         let hello = Method::Hello(Hello {
             protocol: PROTOCOL_VERSION,
             origin: Origin::Phone,
             client: Some("efr-daemon tests".to_owned()),
             capabilities: Capabilities::default(),
-            tty: None,
+            tty: tty.map(str::to_owned),
             pid: None,
             device_id: None,
         });
         let id = self.send(hello).await;
-        assert!(matches!(self.recv().await, ServerFrame::Item { id: got, .. } if got == id));
+        let ServerFrame::Item { id: got, item } = self.recv().await else {
+            panic!("hello has a result");
+        };
+        assert_eq!(got, id);
         assert_eq!(self.recv().await, ServerFrame::end(id));
+        serde_json::from_value(item).unwrap()
     }
 
     async fn send(&mut self, method: Method) -> RequestId {
@@ -431,6 +444,22 @@ async fn enroll_on_the_unix_socket_is_forbidden() {
 
     assert_eq!(refused.code, ErrorCode::Forbidden);
     assert!(daemon.state.pairings.check(&qr.token).is_ok(), "the token is not spent");
+}
+
+#[tokio::test]
+async fn a_remote_hello_keeps_no_tty_and_gets_no_local_paths() {
+    let daemon = Daemon::start(true, true).await;
+    let mut phone = daemon.upgraded(peer()).await;
+    let tty = "/dev/pts/7";
+
+    let hello = phone.hello(Some(tty)).await;
+
+    assert_eq!(hello.paths, DaemonPaths::default());
+    assert!(hello.prove.is_some(), "the hello is the tailnet listener's");
+    assert_eq!(daemon.state.connections.open_in(tty), 0, "the phone is no client on {tty}");
+    let (_local, local) = RawClient::hello_as(&daemon.socket, Some(tty), Origin::Cli).await;
+    assert_eq!(local.paths.data_dir, daemon.state.dirs.data());
+    assert_eq!(daemon.state.connections.open_in(tty), 1);
 }
 
 #[tokio::test]

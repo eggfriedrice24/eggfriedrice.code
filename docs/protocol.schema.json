@@ -6889,7 +6889,7 @@
           "type": "integer"
         },
         "tty": {
-          "description": "The client's terminal, when it runs in one.",
+          "description": "The client's terminal, when it runs in one. The daemon ignores it on the\ntailnet listener: a remote device sits at no terminal of the computer.",
           "type": [
             "string",
             "null"
@@ -6920,7 +6920,7 @@
         },
         "paths": {
           "$ref": "#/$defs/DaemonPaths",
-          "description": "Where the daemon keeps its files."
+          "description": "Where the daemon keeps its files. A connection of the tailnet listener gets\nempty paths: they name local directories that a remote device has no use for."
         },
         "protocol": {
           "description": "The daemon's [`PROTOCOL_VERSION`](crate::PROTOCOL_VERSION).",

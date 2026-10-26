@@ -126,6 +126,8 @@ these bytes.
 
 The answers of the tailnet listener:
 
+- The `hello` result has empty `paths`, and efrd ignores the `tty` of the hello: a
+  remote device sits at no terminal of the computer.
 - Before the proof, every method except `hello`, `device.enroll` and `device.prove` is
   `unauthorized`. After it, the connection holds the `scopes` of the result: those of
   the device that a phone may hold, never `admin` or `terminal`.
@@ -143,6 +145,7 @@ The answers of the tailnet listener:
 What a phone may do after the proof, whatever its scopes say:
 
 - A `prompt.send` from a phone runs with a `mode` of at most `cautious`.
+- A `prompt.send` from a phone whose `context` names a `tty` is `invalid`.
 - `approval.respond` is `forbidden` for a question with `local_only`, and for every
   `allow_always` answer. The question stays open for the user's terminal.
 - `input.respond` and `turn.undo` are `forbidden`.
@@ -873,3 +876,8 @@ No protocol version has shipped yet.
   `hello` probe) and what a phone may not do, in the section "Remote devices". The
   docs of `draft` now say that the daemon merges the drafts of a slow subscriber; it
   no longer drops them.
+- Version 1, no change of the frames: on the tailnet listener, the `hello` result has
+  empty `paths`, efrd ignores the `tty` of the hello, and a `prompt.send` whose
+  `context` names a `tty` is `invalid`. A held reasoning draft of a slow subscriber now
+  waits past the end of a message and the start of a tool call, and goes only at the
+  end of its turn.

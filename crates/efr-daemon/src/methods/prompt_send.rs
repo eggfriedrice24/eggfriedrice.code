@@ -128,6 +128,15 @@ async fn send(
     params: PromptSend,
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
+    // NOTE: a remote device has no terminal, so a tty in its context would only move
+    // the slot of a terminal that it does not sit at.
+    if context.remote().is_some()
+        && params.context.as_ref().is_some_and(|shell| shell.tty.is_some())
+    {
+        return Err(DaemonError::InvalidParams {
+            reason: "a remote device has no terminal, so its prompt names no tty",
+        });
+    }
     refuse_foreign_model(state, &params.settings)?;
     reprobe_for_auto(state, &params.settings).await;
     state.providers.models().ready().await;

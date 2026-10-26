@@ -2674,7 +2674,8 @@ export interface Hello {
    */
   protocol: number;
   /**
-   * The client's terminal, when it runs in one.
+   * The client's terminal, when it runs in one. The daemon ignores it on the
+   * tailnet listener: a remote device sits at no terminal of the computer.
    */
   tty?: string | null;
 }
@@ -6476,7 +6477,8 @@ export interface HelloResult {
    */
   daemon_id: DaemonId;
   /**
-   * Where the daemon keeps its files.
+   * Where the daemon keeps its files. A connection of the tailnet listener gets
+   * empty paths: they name local directories that a remote device has no use for.
    */
   paths: DaemonPaths;
   /**

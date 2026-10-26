@@ -353,6 +353,8 @@ async fn a_phone_pairs_proves_follows_a_streamed_reply_answers_a_question_and_is
     assert!(device.last_seen_at.is_some(), "the proof marks the device as seen");
     let admin = phone.call::<DeviceListResult>(Method::DeviceList(DeviceList::default())).await;
     assert_eq!(refused(admin).code, ErrorCode::Forbidden, "a phone is never admin");
+    let routed = phone.call::<PromptSendResult>(daemon.prompt(9, "hi", TTY)).await;
+    assert_eq!(refused(routed).code, ErrorCode::Invalid, "a phone sits at no terminal");
 
     // The terminal starts a turn; the phone finds it and follows it with drafts.
     std::fs::write(daemon.cwd().join("notes.md"), NOTES).unwrap();

@@ -5,6 +5,11 @@
 //! keeps the hello's tty and client for the life of the connection. A connection of the
 //! tailnet listener also gets the Tailscale facts that its device signs for
 //! `device.prove`, and the connection keeps the challenge for that proof.
+//!
+//! A remote device has no terminal and no use for local paths. So the daemon keeps no
+//! tty for a connection of the tailnet listener, whatever its hello names, and sends it
+//! empty paths: before the proof, any node of the user can send `hello`, and the paths
+//! show the user's name and the layout of the home directory.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -30,6 +35,7 @@ pub(crate) fn handle(
     state.rng.fill_bytes(&mut challenge);
     let challenge = URL_SAFE_NO_PAD.encode(challenge);
     let prove = crate::remote::hello(context, hello, &challenge)?;
+    let remote = context.remote().is_some();
     let capabilities = Capabilities {
         admin: Some(granted(context.surface(), peer).contains(&ScopeName::Admin)),
         screen_snapshots: Some(true),
@@ -47,9 +53,13 @@ pub(crate) fn handle(
         protocol: PROTOCOL_VERSION,
         version: env!("CARGO_PKG_VERSION").to_owned(),
         capabilities,
-        paths: DaemonPaths {
-            scratch_root: state.dirs.data().join(SCRATCH_DIR),
-            data_dir: state.dirs.data().to_path_buf(),
+        paths: if remote {
+            DaemonPaths::default()
+        } else {
+            DaemonPaths {
+                scratch_root: state.dirs.data().join(SCRATCH_DIR),
+                data_dir: state.dirs.data().to_path_buf(),
+            }
         },
         challenge,
         prove,
@@ -60,7 +70,10 @@ pub(crate) fn handle(
         context.conn_id(),
         HelloInfo {
             surface: context.surface(),
-            tty: hello.tty.clone(),
+            // NOTE: a tty from a remote device would make it count as a client on
+            // that terminal: its follows would hold back the terminal's notices, and
+            // its prompts would route into the terminal's slot.
+            tty: if remote { None } else { hello.tty.clone() },
             client: hello.client.clone(),
         },
     );

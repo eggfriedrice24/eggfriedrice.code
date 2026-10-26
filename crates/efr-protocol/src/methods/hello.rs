@@ -25,7 +25,8 @@ pub struct Hello {
     /// What the client supports.
     #[serde(default)]
     pub capabilities: Capabilities,
-    /// The client's terminal, when it runs in one.
+    /// The client's terminal, when it runs in one. The daemon ignores it on the
+    /// tailnet listener: a remote device sits at no terminal of the computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tty: Option<String>,
     /// The client's process id.
@@ -48,7 +49,8 @@ pub struct HelloResult {
     /// What the daemon offers on this connection.
     #[serde(default)]
     pub capabilities: Capabilities,
-    /// Where the daemon keeps its files.
+    /// Where the daemon keeps its files. A connection of the tailnet listener gets
+    /// empty paths: they name local directories that a remote device has no use for.
     pub paths: DaemonPaths,
     /// A fresh random nonce for this connection, as unpadded base64url. A remote device
     /// proves its key by signing it together with `daemon_id`, `protocol` and the facts
