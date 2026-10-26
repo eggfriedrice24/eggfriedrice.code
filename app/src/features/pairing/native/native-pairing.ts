@@ -5,6 +5,7 @@
 import Constants from "expo-constants";
 import { Camera, CameraView } from "expo-camera";
 import * as Crypto from "expo-crypto";
+import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
 
 import { systemClock } from "@/lib/native/clock";
@@ -26,7 +27,7 @@ export function nativeDeviceKeys(): DeviceKeyStore | null {
   return EfrDeviceKey === null ? null : deviceKeyStore(EfrDeviceKey);
 }
 
-/** The pairing record in expo-secure-store. */
+/** The pairing records in expo-secure-store. */
 export function nativePairedDevices(): PairedDeviceStore {
   return secureStorePairedDevices(SecureStore, SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY);
 }
@@ -47,9 +48,13 @@ export function nativeScanner(): ScannerApi {
   };
 }
 
-/** The name that the phone suggests for itself, such as "Anna's iPhone". */
+/**
+ * The name that the phone suggests for itself: the model, such as "iPhone 17 Pro" (D15 of
+ * the plan). iOS gives the name that the user set, such as "Anna's iPhone", only to an app
+ * with an entitlement, so `Constants.deviceName` is only "iPhone".
+ */
 export function suggestedDeviceName(): string {
-  return deviceName(Constants.deviceName);
+  return deviceName(Device.modelName ?? Constants.deviceName);
 }
 
 /** The effects of the pairing flow, or null when the build has no device key module. */
