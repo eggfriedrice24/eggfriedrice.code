@@ -125,7 +125,6 @@ export function fakeSockets(): { readonly open: OpenSocket; readonly sockets: Fa
 /** Waits until every promise job that is queued now has run. */
 export async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) {
-    // oxlint-disable-next-line eslint/no-await-in-loop
     await Promise.resolve();
   }
 }
