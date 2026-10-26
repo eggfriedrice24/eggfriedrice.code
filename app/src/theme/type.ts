@@ -84,6 +84,8 @@ export const TYPE = {
   monoName: { fontSize: 14, lineHeight: 19, ...mono },
   /** The command box of the pairing intro. */
   monoLarge: { fontSize: 15, lineHeight: 20, ...mono },
+  /** The values of a key and value box (the device and the key of pairing confirm). */
+  monoValue: { fontSize: 16, lineHeight: 22, ...mono },
   /** The header title of the blank root (the machine name). */
   monoTitle: { fontSize: 15, lineHeight: 20, ...semibold, ...mono },
   /** A machine name inside a pairing title. */

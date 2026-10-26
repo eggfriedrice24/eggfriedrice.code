@@ -230,6 +230,12 @@
   line-height: 20px;
 }
 
+@utility text-mono-value {
+  font-family: ui-monospace;
+  font-size: 16px;
+  line-height: 22px;
+}
+
 @utility text-mono-title {
   font-family: ui-monospace;
   font-size: 15px;
