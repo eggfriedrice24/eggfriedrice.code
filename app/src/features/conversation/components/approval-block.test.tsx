@@ -18,7 +18,7 @@ import { AT_MS, approvalResolved, eventItem, run, turnStarted } from "@/lib/stre
 import type { EventOf } from "@/lib/protocol/wire";
 import { ApprovalBlock, ApprovalBlockView } from "./approval-block";
 import { approvalBlock, NO_ANSWER, type ApprovalBlockContext } from "../model/approval-block";
-import { clockTime } from "../model/approval-block-text";
+import { clockTime } from "../model/durations";
 
 jest.mock("expo-haptics", () => ({
   ImpactFeedbackStyle: { Light: "light", Medium: "medium" },

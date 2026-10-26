@@ -6,7 +6,8 @@ import type { ConversationRef, MachineId } from "@/features/machines/model/machi
 import { offlineFrom, slotContent, type SlotContent } from "./model/header-slot";
 import { useApprovalsElsewhere } from "./use-approvals-elsewhere";
 import { useMachineConnections, useMachines } from "./use-machines";
-import { useNow, useReached, zoneAt } from "./use-now";
+import { zoneAt } from "@/features/machines/model/machine-status";
+import { useNow, useReached } from "./use-now";
 
 /** The words for a machine that is not paired any more. */
 const UNKNOWN_MACHINE = "another machine";

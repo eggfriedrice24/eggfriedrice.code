@@ -155,8 +155,3 @@ export function versionText(version: string | undefined, build: string | undefin
   const name = version === undefined || version === "" ? "unknown" : version;
   return build === undefined || build === "" ? name : `${name} (${build})`;
 }
-
-/** The time zone of the phone at `now`, in minutes east of UTC. */
-export function zoneAt(now: number): ZoneOffset {
-  return -new Date(now).getTimezoneOffset();
-}

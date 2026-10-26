@@ -17,7 +17,6 @@ import {
   machineRowText,
   nodeName,
   versionText,
-  zoneAt,
 } from "./settings-format";
 
 const ENDPOINT = "100.64.0.1:7419";
@@ -225,11 +224,5 @@ describe("versionText", () => {
     expect(versionText("0.1.0", undefined)).toBe("0.1.0");
     expect(versionText("0.1.0", "")).toBe("0.1.0");
     expect(versionText(undefined, undefined)).toBe("unknown");
-  });
-});
-
-describe("zoneAt", () => {
-  it("gives minutes east of UTC, the sign that seenText uses", () => {
-    expect(zoneAt(SEEN)).toBe(-new Date(SEEN).getTimezoneOffset());
   });
 });

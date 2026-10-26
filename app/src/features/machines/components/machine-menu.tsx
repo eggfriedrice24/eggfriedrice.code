@@ -9,7 +9,8 @@ import { Stack } from "expo-router";
 import { usePreferences } from "@/features/navigation/use-app-services";
 import { useHeaderActions } from "@/features/navigation/use-header-actions";
 import { useMachineConnections, useMachines } from "@/features/navigation/use-machines";
-import { useNow, zoneAt } from "@/features/navigation/use-now";
+import { useNow } from "@/features/navigation/use-now";
+import { zoneAt } from "../model/machine-status";
 import type { MachineId } from "../model/machine-ref";
 import {
   MACHINE_MENU_TITLE,

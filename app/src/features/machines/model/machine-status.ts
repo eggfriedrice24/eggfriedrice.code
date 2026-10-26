@@ -23,6 +23,11 @@ export interface MachineStateWords {
 /** The time zone of the phone, for "seen 13:58": minutes east of UTC. */
 export type ZoneOffset = number;
 
+/** The time zone of the phone at `time` (ms since the epoch). */
+export function zoneAt(time: number): ZoneOffset {
+  return -new Date(time).getTimezoneOffset();
+}
+
 const DAY_MS = 86_400_000;
 
 /**

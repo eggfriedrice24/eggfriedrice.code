@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MachineConnection } from "./machine-connection";
-import { isTailnetDown, machineStateWords, seenText } from "./machine-status";
+import { isTailnetDown, machineStateWords, seenText, zoneAt } from "./machine-status";
 
 const ENDPOINT = "100.64.0.1:7419";
 /** 2026-10-26 13:58:00 UTC. */
@@ -74,5 +74,12 @@ describe("isTailnetDown", () => {
     expect(isTailnetDown([unreachable, repair])).toBe(true);
     expect(isTailnetDown([unreachable, online])).toBe(false);
     expect(isTailnetDown([repair])).toBe(false);
+  });
+});
+
+describe("zoneAt", () => {
+  it("gives minutes east of UTC, the sign that seenText uses", () => {
+    const seen = Date.UTC(2026, 9, 26, 13, 58);
+    expect(zoneAt(seen)).toBe(-new Date(seen).getTimezoneOffset());
   });
 });

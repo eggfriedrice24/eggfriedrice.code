@@ -44,8 +44,10 @@ import {
 } from "@/features/machines/machine-queries";
 import type { Machine } from "@/features/machines/model/machine";
 import { keylessConnection } from "@/features/machines/model/machine-connection";
+import { zoneAt } from "@/features/machines/model/machine-status";
 import type { Runtime } from "@/features/machines/model/runtime";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
+import { useNow } from "@/features/navigation/use-now";
 import { MachineRow } from "../components/machine-row";
 import { forgetPlan } from "../model/forget-plan";
 import { DEFAULT_PREFERENCES, type PreferencesStore } from "../model/preferences";
@@ -56,10 +58,8 @@ import {
   machineRowText,
   nodeName,
   versionText,
-  zoneAt,
   type MachineAction,
 } from "../model/settings-format";
-import { useMinute } from "./use-minute";
 
 /** The route of the dev gallery (wave 4), opened with a long press on the version. */
 const GALLERY_ROUTE = "/gallery";
@@ -108,7 +108,7 @@ function WiredSettings(props: WiredSettingsProps) {
   const reduceMotion = useReduceMotion();
   const registry = useSelector(runtime.registry);
   const haptics = useSelector(preferences.store, (state) => state.haptics);
-  const now = useMinute();
+  const now = useNow();
   const forget = useMutation(forgetMachineMutationOptions(runtime));
 
   /** Applies the stack plan after machine `machine` is forgotten. */

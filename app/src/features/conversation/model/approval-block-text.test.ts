@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { FakeClock } from "@/lib/net/testing";
 import {
-  clockTime,
   debugString,
   expiryLabel,
   MINUS,
@@ -134,12 +133,6 @@ describe("reasonSpans", () => {
 });
 
 describe("the times", () => {
-  it("writes a local 24-hour clock time", () => {
-    const time = new Date(2026, 9, 26, 9, 5).getTime();
-    expect(clockTime(time)).toBe("09:05");
-    expect(clockTime(new Date(2026, 9, 26, 14, 32).getTime())).toBe("14:32");
-  });
-
   it("counts down in whole minutes, then in seconds, then says the time is up", () => {
     expect(expiryLabel(4 * 60_000 + 59_000, 0)).toBe("expires in 4m");
     expect(expiryLabel(60_000, 0)).toBe("expires in 1m");

@@ -270,14 +270,6 @@ export function reasonSpans(reason: string): ReasonSpan[] {
   return spans;
 }
 
-/** `14:32`: the local time of `time` (ms since the epoch), 24 hours. */
-export function clockTime(time: number): string {
-  const date = new Date(time);
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  return `${hours < 10 ? "0" : ""}${hours}:${minutes < 10 ? "0" : ""}${minutes}`;
-}
-
 /** The header text when the time to answer is over but efrd did not close the question yet. */
 export const TIME_UP = "time is up";
 

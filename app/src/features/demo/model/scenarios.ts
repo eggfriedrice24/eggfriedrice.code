@@ -98,12 +98,11 @@ export class Script {
     let offset = this.reasoningBytes.get(turnId) ?? 0;
     for (const delta of pieces(text, piece)) {
       this.wait(DRAFT_INTERVAL);
-      this.draft(turnId, {
-        kind: "reasoning",
-        offset,
-        delta,
-        ...(title === undefined ? {} : { title }),
-      });
+      const part: Record<string, unknown> = { kind: "reasoning", offset, delta };
+      if (title !== undefined) {
+        part["title"] = title;
+      }
+      this.draft(turnId, part);
       offset += utf8Length(delta);
     }
     this.reasoningBytes.set(turnId, offset);

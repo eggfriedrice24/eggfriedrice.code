@@ -1,5 +1,6 @@
 // The time now, to the minute, for the words that count time: "seen 13:58" and "2m", and
-// a flag for a time that comes. A component that shows a time reads it here, never
+// a flag for a time that comes. It is the one minute clock of the app: the header, the
+// menus and Settings read it. A component that shows a time reads it here, never
 // `Date.now()` in render, so a render stays pure and the words change once a minute.
 
 import { useSyncExternalStore } from "react";
@@ -21,11 +22,6 @@ function subscribe(onChange: () => void): () => void {
 /** The time now in ms since the epoch, rounded down to the minute. */
 export function useNow(): number {
   return useSyncExternalStore(subscribe, minuteNow);
-}
-
-/** The time zone of the phone at `time`, in minutes east of UTC. */
-export function zoneAt(time: number): number {
-  return -new Date(time).getTimezoneOffset();
 }
 
 /**

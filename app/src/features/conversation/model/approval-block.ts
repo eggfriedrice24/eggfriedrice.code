@@ -22,8 +22,8 @@ import { shortPath } from "@/features/conversations/model/list-format";
 import { isApprovalAnswer, type PhoneDecision } from "../conversation-queries";
 import { localReason } from "./approval";
 import { diffLines, diffStat, type DiffLine } from "./diff-lines";
+import { clockTime } from "./durations";
 import {
-  clockTime,
   reasonSpans,
   subjectLine,
   summaryParts,
