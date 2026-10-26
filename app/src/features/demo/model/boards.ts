@@ -63,9 +63,15 @@ export const SECTIONS: readonly (readonly [BoardSection, string])[] = [
   ["undrawn", "Undrawn states (item 8.19)"],
 ];
 
+/** The prefix of the component board of a pairing board. */
+export const PAIRING_PREFIX = "pairing:";
+
+/** The board of the render counter: a conversation that streams, with its counts. */
+export const RENDER_BOARD = "render";
+
 /** The name of the component board of a pairing board. */
 export function pairingBoardName(name: string): string {
-  return `pairing:${name}`;
+  return `${PAIRING_PREFIX}${name}`;
 }
 
 const SCREENS: readonly GalleryBoard[] = [
