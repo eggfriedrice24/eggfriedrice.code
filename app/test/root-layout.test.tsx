@@ -15,7 +15,7 @@ import {
   conversationId,
   testServices,
   type TestServices,
-} from "@/features/navigation/testing";
+} from "@/features/navigation/model/testing";
 
 jest.mock("react-native-keyboard-controller", () =>
   jest.requireActual("react-native-keyboard-controller/jest"),

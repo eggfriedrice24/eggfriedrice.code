@@ -19,7 +19,7 @@ import {
   setRecent,
   testServices,
   type TestServices,
-} from "../testing";
+} from "../model/testing";
 import { AppProviders } from "./app-providers";
 import { RootStack } from "./root-stack";
 

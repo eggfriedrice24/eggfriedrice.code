@@ -16,7 +16,7 @@ import { MAX_STACKED } from "./model/history";
 import type { OpenOptions } from "./model/routes";
 import { AppProviders } from "./components/app-providers";
 import { RootStack } from "./components/root-stack";
-import { DESKTOP, LAPTOP, conversationId, testServices, type TestServices } from "./testing";
+import { DESKTOP, LAPTOP, conversationId, testServices, type TestServices } from "./model/testing";
 import { useHeaderActions } from "./use-header-actions";
 import { useOpenConversation } from "./use-open-conversation";
 

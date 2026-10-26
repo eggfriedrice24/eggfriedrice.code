@@ -10,7 +10,7 @@ import {
   lastSocket,
   testServices,
   type TestServices,
-} from "../testing";
+} from "./testing";
 import { machineConnections } from "./machine-connections";
 import { streamTitles } from "./stream-titles";
 

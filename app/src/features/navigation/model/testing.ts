@@ -1,4 +1,4 @@
-// Fakes for the tests of the navigation feature: the services of the app over fake
+// Fakes for the tests of the screens: the services of the app over fake
 // sockets, a fake clock, fake key stores and stores in memory. The machines are the test
 // machines of the machines feature (desktop and laptop). Nothing reaches the network or
 // the disk. Only test files import this module.
@@ -24,7 +24,8 @@ import { conversationsKeys } from "@/features/conversations/conversations-querie
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import { DESKTOP, LAPTOP, machineRecord, pairedStores } from "@/features/machines/model/testing";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
-import { createAppServices, type AppServices } from "./model/app-services";
+import type { MemoryPairedDevices } from "@/features/pairing/model/testing";
+import { createAppServices, type AppServices } from "./app-services";
 
 export { DESKTOP, LAPTOP };
 
@@ -70,6 +71,8 @@ export interface TestServices {
   readonly sockets: FakeSockets;
   readonly clock: FakeClock;
   readonly keyValue: MemoryKeyValue;
+  /** The pairing records of the phone. */
+  readonly devices: MemoryPairedDevices;
   readonly errors: unknown[];
   /** Opens the socket of `machine` and answers its handshake. */
   connect(machine: MachineId): Promise<void>;
@@ -141,6 +144,7 @@ export async function testServices(
     sockets,
     clock,
     keyValue,
+    devices: stores.devices,
     errors,
     async connect(machine) {
       const record = records.find((one) => one.daemonId === machine);
