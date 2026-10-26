@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isIpv4, socketUrl } from "./endpoint";
-import { errorReason, retryAfterMs } from "./errors";
+import { asksToRepair, retryAfterMs } from "./errors";
 
 describe("socketUrl", () => {
   it("gives the ws URL of an IPv4 address and port", () => {
@@ -40,10 +40,14 @@ describe("the error data", () => {
     expect(retryAfterMs({ code: "busy", message: "" })).toBe(undefined);
   });
 
-  it("reads a string reason only", () => {
-    expect(errorReason({ code: "unauthorized", message: "", data: { reason: "revoked" } })).toBe(
-      "revoked",
+  it("reads re_pair as efrd sends it, and only true", () => {
+    const device_id = "019a9b1c-3d00-7a10-8b20-000000000006";
+    expect(
+      asksToRepair({ code: "unauthorized", message: "", data: { re_pair: true, device_id } }),
+    ).toBe(true);
+    expect(asksToRepair({ code: "unauthorized", message: "", data: { re_pair: "yes" } })).toBe(
+      false,
     );
-    expect(errorReason({ code: "unauthorized", message: "", data: { reason: 3 } })).toBe(undefined);
+    expect(asksToRepair({ code: "unauthorized", message: "" })).toBe(false);
   });
 });

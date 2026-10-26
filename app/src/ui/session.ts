@@ -1,6 +1,7 @@
 // The session: everything the screens read from and send to efrd, as one interface.
-// The app's store and network client (src/store, src/net) and the pairing flow
-// (src/pairing) implement it; the screens know only this file. Each value that changes
+// src/session/phone_session.ts implements it over the app's store and network client
+// (src/store, src/net) and the pairing flow (src/pairing); the screens know only this
+// file. Each value that changes
 // is an ExternalStore, so a screen reads it with useSyncExternalStore and renders only
 // when the part that it selects changes.
 //
@@ -23,7 +24,10 @@ import type { ExternalStore } from "./external_store";
 export type ConnectionView =
   /** No device key and endpoint yet: the phone must pair first. */
   | { readonly kind: "unpaired" }
-  /** A socket opens, or the proof runs. */
+  /**
+   * A socket opens, or the proof runs. `endpoint` is empty while the app still reads
+   * its pairing.
+   */
   | { readonly kind: "connecting"; readonly endpoint: string }
   /** Proven and subscribed. */
   | { readonly kind: "online"; readonly endpoint: string; readonly daemonName?: string }
@@ -41,10 +45,21 @@ export type ConnectionView =
    * efrd does not accept this phone any more: the device was revoked, or the phone's
    * Tailscale node changed (a new install), so the device key no longer matches.
    */
-  | { readonly kind: "repair_needed"; readonly reason: RepairReason };
+  | { readonly kind: "repair_needed"; readonly reason: RepairReason }
+  /** The app and efrd speak different versions of the protocol. */
+  | { readonly kind: "update_needed" };
 
 /** Why the phone must pair again. */
-export type RepairReason = "revoked" | "node_changed" | "unknown_device" | "other";
+export type RepairReason =
+  /** The phone's Tailscale node is not the one that paired (efrd's `re_pair`). */
+  | "node_changed"
+  /**
+   * efrd refused the proof: it does not know the device, or the device was revoked.
+   * efrd gives the same answer for both, so the app cannot tell them apart.
+   */
+  | "unknown_device"
+  /** Another daemon answers at the address, or the device key is gone. */
+  | "other";
 
 /** One conversation of the list (from efr-protocol's `ConversationSummary`). */
 export interface ConversationItem {

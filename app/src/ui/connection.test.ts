@@ -41,8 +41,18 @@ describe("connectionNotice", () => {
       tone: "error",
     });
     expect(repairText("node_changed")).toContain("new device");
-    expect(repairText("revoked")).toContain("removed this phone");
+    expect(repairText("unknown_device")).toContain("removed the phone");
     expect(repairText("other")).toContain("efr device add");
+  });
+
+  it("names the computer while the app reads its pairing, and asks for an update", () => {
+    expect(connectionNotice({ kind: "connecting", endpoint: "" }, 0)?.body).toBe(
+      "efr connects to your computer.",
+    );
+    expect(connectionNotice({ kind: "update_needed" }, 0)).toMatchObject({
+      title: "Update efr",
+      canRetry: false,
+    });
   });
 });
 

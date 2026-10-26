@@ -192,10 +192,10 @@ describe("the handshake", () => {
       [
         "device.prove",
         "unauthorized",
-        { reason: "node_changed" },
+        { re_pair: true, device_id: "019a9b1c-3d00-7a10-8b20-000000000006" },
         "proof_refused",
         "repair",
-        { reason: "node_changed" },
+        { rePair: true },
       ],
       ["device.prove", "forbidden", undefined, "proof_refused", "repair", {}],
       [
@@ -218,21 +218,21 @@ describe("the handshake", () => {
       }
       socket.refuse(step, code, "no", data);
       const error = await failure(opening);
-      const { retryAfterMs, reason } = error.details;
+      const { retryAfterMs, rePair } = error.details;
       expect({
         step,
         code,
         kind: error.kind,
         recovery: error.recovery,
         retryAfterMs,
-        reason,
+        rePair,
       }).toEqual({
         step,
         code,
         kind,
         recovery,
         retryAfterMs: undefined,
-        reason: undefined,
+        rePair: undefined,
         ...details,
       });
     }

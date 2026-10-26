@@ -20,7 +20,11 @@ export type ConnectionErrorKind =
   | "daemon_changed"
   /** The hello result has no prove facts: the address is not efrd's tailnet listener. */
   | "no_prove_context"
-  /** efrd refused the proof: the device was revoked, or it must pair again. */
+  /**
+   * efrd refused the proof. With `details.rePair` the device paired from another
+   * Tailscale node; else efrd does not know the device, or it was revoked (efrd sends
+   * one message for every such cause).
+   */
   | "proof_refused"
   /** The device key cannot sign, for example because the app was installed again. */
   | "key_unavailable"
@@ -66,8 +70,11 @@ export interface ConnectionErrorDetails {
   readonly retryAfterMs?: number;
   /** The close code of the socket, for `socket`. */
   readonly closeCode?: number;
-  /** The `reason` member of the error data, such as `revoked` or `node_changed`. */
-  readonly reason?: string;
+  /**
+   * True when the error data has `re_pair: true`: the device paired from another
+   * Tailscale node, so the phone must pair again (docs/protocol.md "Remote devices").
+   */
+  readonly rePair?: boolean;
 }
 
 /** A failed or closed connection. */
@@ -119,8 +126,7 @@ export function retryAfterMs(body: ErrorBody): number | undefined {
   return undefined;
 }
 
-/** The `reason` member of the error data, when it is a string. */
-export function errorReason(body: ErrorBody): string | undefined {
-  const reason = body.data?.["reason"];
-  return typeof reason === "string" ? reason : undefined;
+/** True when the error data says `re_pair: true`. */
+export function asksToRepair(body: ErrorBody): boolean {
+  return body.data?.["re_pair"] === true;
 }

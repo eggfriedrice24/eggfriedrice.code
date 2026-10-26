@@ -40,7 +40,7 @@ import {
 import { proveFields, proveMessage } from "../protocol/prove";
 import type { Clock, Timer } from "./clock";
 import type { DeviceKey } from "./device_key";
-import { ConnectionError, ServerError, errorReason, retryAfterMs } from "./errors";
+import { ConnectionError, ServerError, asksToRepair, retryAfterMs } from "./errors";
 import { CLOSE_NORMAL, CLOSE_SILENT, type Socket, type SocketFactory } from "./socket";
 
 /** A method that answers with one result. */
@@ -476,8 +476,7 @@ export class Connection {
 
 /** The connection error for an error answer to a step of the handshake. */
 function handshakeError(step: "hello" | "device.prove", body: ErrorBody): ConnectionError {
-  const reason = errorReason(body);
-  const details = reason === undefined ? { body } : { body, reason };
+  const details = asksToRepair(body) ? { body, rePair: true } : { body };
   if (body.code === "protocol_mismatch") {
     return new ConnectionError("protocol_mismatch", body.message, details);
   }

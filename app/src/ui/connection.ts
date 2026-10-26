@@ -33,7 +33,10 @@ export function connectionNotice(view: ConnectionView, now: number): ConnectionN
     case "connecting":
       return {
         title: "Connecting to your computer",
-        body: `efr connects to ${view.endpoint}.`,
+        body:
+          view.endpoint === ""
+            ? "efr connects to your computer."
+            : `efr connects to ${view.endpoint}.`,
         canRetry: false,
         tone: "muted",
       };
@@ -68,6 +71,13 @@ export function connectionNotice(view: ConnectionView, now: number): ConnectionN
         canRetry: false,
         tone: "error",
       };
+    case "update_needed":
+      return {
+        title: "Update efr",
+        body: "This app and efrd on your computer speak different versions of the protocol. Update the app or efr, then open the app again.",
+        canRetry: false,
+        tone: "error",
+      };
     default:
       return undefined;
   }
@@ -76,12 +86,10 @@ export function connectionNotice(view: ConnectionView, now: number): ConnectionN
 /** Why the phone must pair again, in words. */
 export function repairText(reason: RepairReason): string {
   switch (reason) {
-    case "revoked":
-      return "Your computer removed this phone from its devices. To use it again, pair it again with efr device add.";
     case "node_changed":
       return "Tailscale on this phone is a new device now, for example after a new install. efr knows the old one only. Pair the phone again with efr device add.";
     case "unknown_device":
-      return "Your computer does not know this phone. Pair it again with efr device add.";
+      return "Your computer does not accept this phone. It removed the phone from its devices, or it does not know it. To use the phone again, pair it with efr device add.";
     default:
       return "Your computer does not accept this phone now. Pair it again with efr device add.";
   }
