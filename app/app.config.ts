@@ -42,10 +42,23 @@ function appVariant(value: string | undefined): AppVariant {
 }
 
 export default function config({ config: base }: ConfigContext): ExpoConfig {
-  const variant = VARIANT_CONFIG[appVariant(process.env["APP_VARIANT"])];
+  const name = appVariant(process.env["APP_VARIANT"]);
+  const variant = VARIANT_CONFIG[name];
   const ios: NonNullable<ExpoConfig["ios"]> = {
     ...base.ios,
     bundleIdentifier: variant.iosBundleIdentifier,
   };
+  // The dev client loads its JavaScript from Metro over plain http. App Transport Security
+  // lets NSAllowsLocalNetworking reach a LAN address, but not the 100.x address of a
+  // tailnet, so the development variant allows every load (as bondid does). The preview
+  // and production builds keep the strict rules: they talk to efrd only over ws://, which
+  // ATS does not check.
+  if (name === "development") {
+    const infoPlist: Record<string, unknown> = { ...base.ios?.infoPlist };
+    infoPlist["NSAppTransportSecurity"] = { NSAllowsArbitraryLoads: true };
+    infoPlist["NSLocalNetworkUsageDescription"] =
+      "efr Dev loads its code from the development server on your computer.";
+    ios.infoPlist = infoPlist;
+  }
   return { ...base, ios, name: variant.appName, scheme: variant.scheme, slug: base.slug ?? "efr" };
 }
