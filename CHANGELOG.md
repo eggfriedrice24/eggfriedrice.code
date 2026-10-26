@@ -105,8 +105,11 @@ into the GitHub release notes, and it stops when the section is missing.
   search finds a conversation by title, machine or directory, and then asks efrd.
   Touch and hold a row to copy its title or its id.
 - The phone app connects again at once when the phone changes its network, such as
-  from Wi-Fi to cellular. A line under the bar tells you when a machine is offline or
-  when Tailscale on the phone is off.
+  from Wi-Fi to cellular. A glass capsule under the bar tells you when a machine is
+  offline or when Tailscale on the phone is off.
+- On iOS 26 the bar of the phone app is Liquid Glass with no fill of its own, and
+  the system softens the transcript only under the bar. No blur covers the older
+  turns. The title of a conversation has the size of a native bar title.
 - The phone app has a new icon, "the yolk": an egg with a yolk, and a ❯ in the yolk.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting

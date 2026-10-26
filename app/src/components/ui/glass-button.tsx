@@ -24,28 +24,39 @@ export interface GlassButtonProps {
   readonly onPress: () => void;
   /** True while the menu of the button is open: the fill is selection_bg. */
   readonly open?: boolean;
+  /**
+   * False to hide the button on iOS 26: the glass goes with the animation of the system,
+   * and the button takes no touches and is hidden from VoiceOver. The default is true.
+   */
+  readonly shown?: boolean;
 }
 
 /** A 44 pt glass circle with one symbol. */
 export function GlassButton(props: GlassButtonProps) {
+  const shown = props.shown !== false;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={props.label}
       accessibilityState={{ expanded: props.open }}
+      accessibilityElementsHidden={!shown}
+      importantForAccessibility={shown ? "auto" : "no-hide-descendants"}
+      pointerEvents={shown ? "auto" : "none"}
       onPress={props.onPress}
       className="w-hit h-hit items-center justify-center overflow-hidden rounded-full"
     >
       {({ pressed }) => (
         <>
-          <Material kind="glass" radius={CIRCLE_RADIUS} />
+          <Material kind="glass" radius={CIRCLE_RADIUS} shown={shown} />
           <PressedFill shown={pressed || props.open === true} />
-          <SymbolIcon
-            name={props.symbol}
-            size={props.symbolSize}
-            tone="text_bright"
-            weight="semibold"
-          />
+          {shown ? (
+            <SymbolIcon
+              name={props.symbol}
+              size={props.symbolSize}
+              tone="text_bright"
+              weight="semibold"
+            />
+          ) : null}
         </>
       )}
     </Pressable>

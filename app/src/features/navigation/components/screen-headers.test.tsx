@@ -377,7 +377,15 @@ describe("the header of a conversation", () => {
     await act(async () => {
       jest.advanceTimersByTime(OFFLINE_GRACE_MS);
     });
-    expect(screen.getByTestId("header-strip")).toBeOnTheScreen();
+    const strip = screen.getByTestId("header-strip");
+    // A glass capsule 12 pt from the sides and 8 pt under the bar.
+    expect(strip.props.className).toContain(
+      "right-12 left-12 h-strip overflow-hidden rounded-full",
+    );
+    expect(strip).toContainElement(
+      screen.getByTestId("material-glass", { includeHiddenElements: true }),
+    );
+    expect(screen.queryByTestId("hairline", { includeHiddenElements: true })).toBeNull();
     expect(
       screen.getByRole("text", { name: /^desktop offline · seen \d\d:\d\d/ }),
     ).toBeOnTheScreen();

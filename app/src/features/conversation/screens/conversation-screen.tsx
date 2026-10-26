@@ -137,7 +137,8 @@ function ConversationView(props: ConversationViewProps) {
   const connections = useMachineConnections();
   const tailnetDown = isTailnetDown([...connections.values()]);
   const slot = useHeaderSlot(ref);
-  const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.strip);
+  // The capsule under the bar floats 8 pt under it, so the content clears both.
+  const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.float + SPACING.strip);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_HEIGHT);
   const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
 

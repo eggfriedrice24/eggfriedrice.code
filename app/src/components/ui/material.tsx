@@ -31,6 +31,12 @@ export interface MaterialProps {
   readonly kind: MaterialKind;
   /** The corner radius of the shape, so the glass and the edge follow it. */
   readonly radius?: number;
+  /**
+   * False to hide Liquid Glass with the animation of the system, as t3code does. A fade
+   * of the opacity of a view around the glass breaks the glass on iOS 26. The default is
+   * true. Before iOS 26 it has no effect.
+   */
+  readonly shown?: boolean;
 }
 
 /** A material that fills its parent. */
@@ -52,7 +58,7 @@ export function Material(props: MaterialProps) {
       <GlassView
         testID="material-glass"
         pointerEvents="none"
-        glassEffectStyle="regular"
+        glassEffectStyle={{ style: props.shown === false ? "none" : "regular", animate: true }}
         colorScheme="dark"
         style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
       />

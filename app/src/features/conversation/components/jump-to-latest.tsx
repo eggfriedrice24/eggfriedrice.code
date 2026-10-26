@@ -4,13 +4,18 @@
 // system blur with the glass fill and edge.
 //
 // It shows when the reader is more than one screen from the end while new content
-// arrives, fades in over 150 ms, and hides at the end. A tap scrolls to the end, plays
-// the light haptic, and the list follows again. With Reduce Motion the scroll is
-// instant and the button does not fade.
+// arrives, and hides at the end. A tap scrolls to the end, plays the light haptic, and
+// the list follows again. With Reduce Motion the scroll is instant.
+//
+// - iOS 26: the button is always there, and its Liquid Glass shows and hides with the
+//   animation of the system (t3code does the same). A fade of the opacity of a view
+//   around the glass breaks the glass. Hidden, it takes no touches.
+// - Before iOS 26: it fades in and out over 150 ms, and not with Reduce Motion.
 
 import { View } from "react-native";
 
 import { GlassButton } from "@/components/ui/glass-button";
+import { LIQUID_GLASS } from "@/components/ui/material";
 import { haptic } from "@/lib/native/haptics";
 import { useReduceMotion } from "@/lib/native/reduce-motion";
 import { SPACING } from "@/theme/metrics";
@@ -38,6 +43,30 @@ export interface JumpToLatestProps {
 /** The jump button. */
 export function JumpToLatest(props: JumpToLatestProps) {
   const reduceMotion = useReduceMotion();
+  const jump = (): void => {
+    haptic("light");
+    props.onJump(!reduceMotion);
+  };
+  if (LIQUID_GLASS) {
+    return (
+      <View
+        testID="jump-to-latest"
+        pointerEvents="box-none"
+        className="absolute right-inset"
+        style={{ bottom: props.bottom + JUMP_GAP }}
+      >
+        <View className="rounded-full" style={SHADOW}>
+          <GlassButton
+            symbol="arrow.down"
+            symbolSize={18}
+            label="Jump to latest"
+            shown={props.visible}
+            onPress={jump}
+          />
+        </View>
+      </View>
+    );
+  }
   if (!props.visible) {
     return null;
   }
@@ -49,15 +78,7 @@ export function JumpToLatest(props: JumpToLatestProps) {
     >
       <FadeIn fadeOut testID="jump-to-latest">
         <View className="rounded-full" style={SHADOW}>
-          <GlassButton
-            symbol="arrow.down"
-            symbolSize={18}
-            label="Jump to latest"
-            onPress={() => {
-              haptic("light");
-              props.onJump(!reduceMotion);
-            }}
-          />
+          <GlassButton symbol="arrow.down" symbolSize={18} label="Jump to latest" onPress={jump} />
         </View>
       </FadeIn>
     </View>

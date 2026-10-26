@@ -10,6 +10,7 @@ import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { Suspense, createContext, use, type ReactElement, type ReactNode } from "react";
 import { View } from "react-native";
 
+import { LIQUID_GLASS } from "@/components/ui/material";
 import { roles } from "@/theme/roles";
 import { ROUTE_NAMES, conversationOfParams } from "../model/routes";
 import {
@@ -51,7 +52,7 @@ export function RootStack(props: RootStackProps) {
     <ThemeProvider value={THEME}>
       <MachineMenuContext value={props.machineMenu}>
         <Stack
-          screenOptions={({ route }) => screenOptions(route.params)}
+          screenOptions={({ route }) => screenOptions(route.params, LIQUID_GLASS)}
           screenLayout={screenLayout}
         >
           <Stack.Screen name={ROUTE_NAMES.root} options={ROOT_OPTIONS} />

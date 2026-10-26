@@ -8,7 +8,7 @@ import {
   pairHref,
   stackRouteOf,
 } from "./routes";
-import { screenOptions } from "./screen-options";
+import { headerOptions, screenOptions } from "./screen-options";
 
 const MACHINE = "019a9b1c-3d00-7a10-8b20-0000000000d1";
 const ID = "019a9b1c-3d00-7a10-8b20-000000001001";
@@ -83,18 +83,43 @@ describe("stackRouteOf", () => {
 describe("the screen options", () => {
   it("pushes the first send without an animation", () => {
     expect(entersInstantly({ enter: "instant" })).toBe(true);
-    expect(screenOptions({ enter: "instant" }).animation).toBe("none");
-    expect(screenOptions({ machine: MACHINE }).animation).toBe("default");
-    expect(screenOptions(undefined).animation).toBe("default");
+    expect(screenOptions({ enter: "instant" }, true).animation).toBe("none");
+    expect(screenOptions({ machine: MACHINE }, true).animation).toBe("default");
+    expect(screenOptions(undefined, false).animation).toBe("default");
   });
 
   it("gives every bar the transparent native look", () => {
-    expect(screenOptions(undefined)).toMatchObject({
-      headerTransparent: true,
-      headerBlurEffect: "systemChromeMaterialDark",
-      headerBackButtonDisplayMode: "minimal",
-      headerBackButtonMenuEnabled: true,
-      headerLargeTitle: false,
+    for (const liquidGlass of [true, false]) {
+      expect(screenOptions(undefined, liquidGlass)).toMatchObject({
+        headerTransparent: true,
+        headerBackButtonDisplayMode: "minimal",
+        headerBackButtonMenuEnabled: true,
+        headerLargeTitle: false,
+      });
+    }
+  });
+
+  it("draws no bar material on iOS 26: only the soft scroll edge at the top", () => {
+    const options = headerOptions(true);
+    expect(options.headerBlurEffect).toBeUndefined();
+    expect(options.headerStyle).toEqual({ backgroundColor: "transparent" });
+    expect(options.headerShadowVisible).toBe(false);
+    expect(options.scrollEdgeEffects).toEqual({
+      top: "automatic",
+      bottom: "hidden",
+      left: "hidden",
+      right: "hidden",
+    });
+  });
+
+  it("keeps the chrome blur of the bar before iOS 26, with every edge hidden", () => {
+    const options = headerOptions(false);
+    expect(options.headerBlurEffect).toBe("systemChromeMaterialDark");
+    expect(options.scrollEdgeEffects).toEqual({
+      top: "hidden",
+      bottom: "hidden",
+      left: "hidden",
+      right: "hidden",
     });
   });
 });

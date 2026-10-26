@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import {
   type ComponentType,
   createRef,
@@ -124,6 +124,13 @@ async function scrollTo(distance: number): Promise<void> {
   });
 }
 
+/** The glass of the jump button. */
+function jumpGlass() {
+  return within(screen.getByTestId("jump-to-latest")).getByTestId("material-glass", {
+    includeHiddenElements: true,
+  });
+}
+
 beforeEach(() => {
   jest.useFakeTimers();
   mockScrollToEnd.mockClear();
@@ -244,6 +251,18 @@ describe("jump to latest", () => {
     expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
     expect(haptic).toHaveBeenCalledWith("light");
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+
+  it("shows and hides its Liquid Glass with the system animation, not a fade", async () => {
+    const { scope, store } = testScope(finishedTurn());
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    expect(jumpGlass().props.glassEffectStyle).toEqual({ style: "none", animate: true });
+    await scrollTo(2_000);
+    await act(async () => {
+      store.setState((state) => run([eventItem(7, promptQueued(NEXT, "More."))], state));
+    });
+    expect(jumpGlass().props.glassEffectStyle).toEqual({ style: "regular", animate: true });
+    expect(screen.getByRole("button", { name: "Jump to latest" }).props.pointerEvents).toBe("auto");
   });
 
   it("hides when the reader is back within a screen of the end", async () => {

@@ -1,8 +1,9 @@
 // The title of the bar as a button that opens the title menu (design section 2): the
 // title, a chevron and, while another conversation waits for an answer, the 7 pt yolk
-// dot at the top right of the chevron. Open, it is a capsule in selection_bg and the
-// chevron turns up. The blank root draws its machine name in mono, a conversation its
-// title in SF Pro; both are 15 semibold and one line.
+// dot at the top right of the chevron. Open, the chevron turns up. It has no fill of its
+// own: a fill inside a glass bar looks pasted on, and t3code has none. The blank root
+// draws its machine name in mono 15 semibold; a conversation draws its title at the size
+// of a native bar title, SF Pro 17 semibold. Both are one line.
 
 import { useState } from "react";
 import { Text, View } from "react-native";
@@ -44,16 +45,13 @@ export function TitleButton(props: TitleButtonProps) {
         accessibilityLabel={props.label}
         accessibilityState={{ expanded: open }}
         testID="title-button"
-        className={cn(
-          "flex-row items-center gap-5",
-          open ? "h-34 max-w-210 rounded-full bg-selection-bg px-12" : "h-hit px-6",
-        )}
+        className="h-hit flex-row items-center gap-5 px-6"
       >
         <Text
           numberOfLines={1}
           className={cn(
             "shrink text-text-bright",
-            props.mono ? "max-w-200 text-mono-title" : "max-w-180 text-title",
+            props.mono ? "max-w-200 text-mono-title" : "max-w-200 text-nav-title",
           )}
         >
           {props.title}

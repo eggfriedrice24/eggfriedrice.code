@@ -87,7 +87,8 @@
   --spacing-pairing: 24px;
   --spacing-hit: 44px;
   --spacing-hairline: 0.5px;
-  --spacing-strip: 34px;
+  --spacing-strip: 44px;
+  --spacing-float: 8px;
   --spacing-action: 32px;
   --spacing-field: 40px;
   --spacing-field-max: 145px;

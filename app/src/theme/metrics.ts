@@ -25,8 +25,10 @@ export const SPACING = {
   hit: 44,
   /** A hairline: separators, and the bottom of the bar and of the strip. */
   hairline: 0.5,
-  /** The strip under the header (approval waiting, or the offline line). */
-  strip: 34,
+  /** The glass capsule under the header (approval waiting, or the offline line). */
+  strip: 44,
+  /** The gap between the bar and a capsule that floats under it (t3code's value). */
+  float: 8,
   /** The visual size of a composer action (Send, Stop) and of the capsules. */
   action: 32,
   /** The smallest height of the composer input (one line). */

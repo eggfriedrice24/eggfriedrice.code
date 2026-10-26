@@ -1,15 +1,16 @@
-// The 34 pt strip under the bar (design section 2, items 8.6 and 8.19): a custom view
-// pinned under the transparent bar, in the material of the bar, with a hairline at its
-// top and at its bottom. Mono 11, text_muted. iPhone has no public accessory of the
-// navigation bar, so the strip is a view of ours (design note 7).
+// The strip under the bar (design section 2, items 8.6 and 8.19), as t3code floats its
+// controls: a 44 pt glass capsule 8 pt under the transparent bar and 12 pt from the
+// sides of the screen. Mono 11, text_muted. iPhone has no public accessory of the
+// navigation bar, so the strip is a view of ours (design note 7). On iOS 26 the glass is
+// Liquid Glass; before it, the system blur with the glass fill and edge.
 
 import { Pressable, View } from "react-native";
 
 import { Dot } from "@/components/ui/dot";
-import { Hairline } from "@/components/ui/hairline";
 import { Material } from "@/components/ui/material";
 import { MonoText } from "@/components/ui/mono-text";
 import { SymbolIcon } from "@/components/ui/symbol";
+import { SPACING } from "@/theme/metrics";
 import { slotLabel, type SlotContent } from "../model/header-slot";
 
 export interface HeaderStripProps {
@@ -29,10 +30,10 @@ export function HeaderStrip(props: HeaderStripProps) {
   return (
     <View
       testID="header-strip"
-      className="absolute left-0 right-0 h-strip"
-      style={{ top: props.top }}
+      className="absolute right-12 left-12 h-strip overflow-hidden rounded-full"
+      style={{ top: props.top + SPACING.float }}
     >
-      <Material kind="chrome" />
+      <Material kind="glass" radius={SPACING.strip / 2} />
       {content.kind === "offline" ? (
         <View
           accessible
@@ -40,7 +41,7 @@ export function HeaderStrip(props: HeaderStripProps) {
           accessibilityLiveRegion="polite"
           accessibilityLabel={slotLabel(content)}
           role="status"
-          className="flex-1 flex-row items-center gap-8 px-gutter"
+          className="flex-1 flex-row items-center gap-8 px-16"
         >
           <MonoText numberOfLines={1} tone="text_subtle" className="shrink">
             <MonoText tone="text_primary">{content.machineName}</MonoText>
@@ -52,7 +53,7 @@ export function HeaderStrip(props: HeaderStripProps) {
           accessibilityRole="button"
           accessibilityLabel={slotLabel(content)}
           onPress={props.onPress}
-          className="flex-1 flex-row items-center gap-8 px-gutter"
+          className="flex-1 flex-row items-center gap-8 px-16"
         >
           <Dot size="small" />
           {content.kind === "approval" ? (
@@ -71,12 +72,6 @@ export function HeaderStrip(props: HeaderStripProps) {
           <SymbolIcon name="chevron.right" size={10} tone="text_line_number" weight="heavy" />
         </Pressable>
       )}
-      <View className="absolute left-0 right-0 top-0">
-        <Hairline />
-      </View>
-      <View className="absolute bottom-0 left-0 right-0">
-        <Hairline />
-      </View>
     </View>
   );
 }

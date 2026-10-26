@@ -308,8 +308,11 @@ not a test that pretends.
     The braille glyph of a running conversation: a menu takes only SF Symbols.
 18. The anchor of a menu that opens from a view (`findNodeHandle`).
 19. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
-    (long press on back), and the strip under the transparent bar with the scroll edge
-    effect.
+    (long press on back), and the bar on iOS 26: no fill and no blur of its own, the
+    soft scroll edge only at the top of the transcript, no blur over old turns or over
+    the composer, and the glass capsule of the strip 8 pt under the bar. Before iOS 26
+    the bar has the chrome blur. "Jump to latest" shows and hides its glass with the
+    animation of the system, with no flash.
 20. The first send on the blank root opens the new conversation with no animation, and
     the id of the conversation then changes in place (`replaceParams`). The new params
     have no `enter`, so back and the edge swipe from that conversation have the normal
