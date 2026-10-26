@@ -56,6 +56,10 @@ into the GitHub release notes, and it stops when the section is missing.
   the camera off. When Tailscale was off, the app tries again by itself when you come
   back to it. You can pair one machine again from its own screen. When no machine is
   paired, the app opens on the first step.
+- Settings in the phone app lists each paired machine with its connection and its
+  efrd version. The menu of a row copies the node name, pairs the machine again or
+  forgets it. Forget asks first. After the last machine, the app goes back to
+  pairing. Settings also has the Haptics switch and the version of the app.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.
