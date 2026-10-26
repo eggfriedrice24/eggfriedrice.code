@@ -82,8 +82,15 @@ export class Script {
 
   /** A prompt and the start of its turn. */
   prompt(turnId: string, text: string, origin = "shell"): this {
-    this.event("prompt_queued", { turn_id: turnId, command_id: `c-${turnId}`, text, origin });
-    return this.event("turn_started", { turn_id: turnId, cwd: "/home/me/p/efr" });
+    // The command id is a UUID, as the schema of `prompt_queued` asks: the turn id with
+    // a `c` at the start of its last group.
+    const commandId = `${turnId.slice(0, 24)}c${turnId.slice(25)}`;
+    this.event("prompt_queued", { turn_id: turnId, command_id: commandId, text, origin });
+    return this.event("turn_started", {
+      turn_id: turnId,
+      cwd: "/home/me/p/efr",
+      scope: { kind: "machine" },
+    });
   }
 
   /** Reasoning drafts of `text`, in pieces of about `piece` characters. */
