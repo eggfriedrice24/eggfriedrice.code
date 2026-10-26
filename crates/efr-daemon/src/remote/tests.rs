@@ -382,6 +382,26 @@ async fn the_self_node_a_tagged_node_another_user_and_an_unknown_peer_get_no_byt
 }
 
 #[tokio::test]
+async fn daemon_json_names_the_endpoint_only_once_pairing_can_use_it() {
+    let harness = Harness::start().await;
+    let path = harness.state.dirs.daemon_json_path();
+    Wait::new("daemon.json to name the endpoint")
+        .until(|| {
+            std::fs::read(&path).ok().is_some_and(|text| {
+                serde_json::from_slice::<serde_json::Value>(&text)
+                    .is_ok_and(|info| info["tailnet_endpoint"].is_string())
+            })
+        })
+        .await
+        .unwrap();
+    assert!(
+        harness.state.remote.endpoint.borrow().is_some(),
+        "a client that read daemon.json can start a pairing"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
 async fn only_a_missing_or_the_self_origin_may_open_a_socket() {
     let harness = Harness::start().await;
     let addr = harness.addr().await;

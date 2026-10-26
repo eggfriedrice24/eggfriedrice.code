@@ -158,8 +158,10 @@ async fn bind(
         token: token.clone(),
     };
     let task = tokio::spawn(accept.run(listener));
+    // NOTE: the watch first, so a client that reads the endpoint in `daemon.json` finds
+    // the listener ready for `device.pair_start`.
+    listen.state.remote.endpoint.send_replace(Some(endpoint.clone()));
     write_endpoint(listen, Some(&endpoint));
-    listen.state.remote.endpoint.send_replace(Some(endpoint));
     Some(Generation { tailnet: tailnet.clone(), token, task })
 }
 
