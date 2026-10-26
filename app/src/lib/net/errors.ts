@@ -1,6 +1,11 @@
 // Why a connection to efrd failed or closed, and what the app does about it.
 
 import type { ErrorBody } from "@/lib/protocol/generated";
+import {
+  rePairDataSchema,
+  retryAfterMsDataSchema,
+  retryAfterSecsDataSchema,
+} from "@/lib/protocol/model/error-data-schemas";
 
 /** Why a connection failed or closed. */
 export type ConnectionErrorKind =
@@ -111,22 +116,15 @@ export class ServerError extends Error {
  * or `retry_after_secs` times 1000. `undefined` when the data names none.
  */
 export function retryAfterMs(body: ErrorBody): number | undefined {
-  const data = body.data;
-  if (data === undefined) {
-    return undefined;
+  const ms = retryAfterMsDataSchema.safeParse(body.data);
+  if (ms.success) {
+    return ms.data.retry_after_ms;
   }
-  const ms = data["retry_after_ms"];
-  if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0) {
-    return ms;
-  }
-  const secs = data["retry_after_secs"];
-  if (typeof secs === "number" && Number.isFinite(secs) && secs >= 0) {
-    return secs * 1000;
-  }
-  return undefined;
+  const secs = retryAfterSecsDataSchema.safeParse(body.data);
+  return secs.success ? secs.data.retry_after_secs * 1000 : undefined;
 }
 
 /** True when the error data says `re_pair: true`. */
 export function asksToRepair(body: ErrorBody): boolean {
-  return body.data?.["re_pair"] === true;
+  return rePairDataSchema.safeParse(body.data).success;
 }
