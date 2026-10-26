@@ -73,7 +73,23 @@ const RULE_SOURCES: &[&str] = &["xtask/src/tidy.rs", "xtask/src/tidy/tests.rs"];
 // `.claude` holds agent worktrees: full checkouts whose copies of this file would
 // trip every rule while a parallel run is in progress. `research` is gitignored, so CI
 // never sees it; its probe leftovers include overlay work dirs that nobody may read.
-const SKIP_DIRS: &[&str] = &["target", ".git", ".claude", "research"];
+// `node_modules` and `.expo` hold the installed packages and the Expo cache of the
+// phone app in `app/`; both are gitignored.
+const SKIP_DIRS: &[&str] = &["target", ".git", ".claude", "research", "node_modules", ".expo"];
+
+/// Directories never walked, by their path from the repository root: the native projects
+/// that `expo prebuild` writes into the phone app. They are gitignored, because EAS
+/// makes them again from `app/app.json` on each build.
+const SKIP_PATHS: &[&str] = &["app/ios", "app/android"];
+
+/// True when the walk must not enter the directory at `relative`, a path from the root.
+fn skipped_dir(relative: &Path) -> bool {
+    relative
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| SKIP_DIRS.contains(&name))
+        || relative.to_str().is_some_and(|path| SKIP_PATHS.contains(&path))
+}
 
 /// Extensions checked for trailing whitespace.
 const WHITESPACE_EXTENSIONS: &[&str] = &["rs", "toml", "md"];
@@ -373,7 +389,7 @@ pub(crate) fn run(root: &Path, fast: bool) -> anyhow::Result<bool> {
 
     let walker = WalkDir::new(root).sort_by_file_name().into_iter().filter_entry(|entry| {
         !(entry.file_type().is_dir()
-            && entry.file_name().to_str().is_some_and(|name| SKIP_DIRS.contains(&name)))
+            && entry.path().strip_prefix(root).is_ok_and(|relative| skipped_dir(relative)))
     });
     for entry in walker {
         let entry = entry.context("walking the repository")?;

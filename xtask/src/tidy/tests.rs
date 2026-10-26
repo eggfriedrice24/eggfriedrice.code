@@ -1,4 +1,6 @@
-use super::{check_contents, check_crate_readmes, check_path};
+use std::path::Path;
+
+use super::{check_contents, check_crate_readmes, check_path, skipped_dir};
 
 fn rules(path: &str, contents: &str) -> Vec<&'static str> {
     check_contents(path, contents, false).into_iter().map(|v| v.rule).collect()
@@ -213,4 +215,14 @@ fn crate_without_readme_fails() {
     let found = check_crate_readmes(&crates);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].path, "crates/efr-protocol");
+}
+
+#[test]
+fn the_walk_skips_the_installed_and_generated_dirs_of_the_app() {
+    for dir in ["app/node_modules", "app/.expo", "app/ios", "app/android", "target", ".claude"] {
+        assert!(skipped_dir(Path::new(dir)), "{dir}");
+    }
+    for dir in ["", "app", "app/src", "app/src/core", "crates/efr-daemon/src", "docs/ios"] {
+        assert!(!skipped_dir(Path::new(dir)), "{dir}");
+    }
 }
