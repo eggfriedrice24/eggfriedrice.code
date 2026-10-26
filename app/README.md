@@ -295,7 +295,10 @@ not a test that pretends.
     have no `enter`, so back and the edge swipe from that conversation have the normal
     animation.
 18. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
-    goes back to a conversation in the stack.
+    goes back to a conversation in the stack. Start after a pairing, and Forget of the
+    last machine, go to the root with a short cross-fade (`animation: "fade"` on the
+    screen that goes, set just before the reset), and with none when Reduce Motion is
+    on.
 19. The All conversations sheet: its two sizes, with the search field.
 
 ### The composer

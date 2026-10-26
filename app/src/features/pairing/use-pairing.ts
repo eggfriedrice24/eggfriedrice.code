@@ -22,6 +22,7 @@ import type { PreferencesStore } from "@/features/settings/model/preferences";
 import { usePreferences, useRuntime } from "@/features/navigation/use-app-services";
 import { followAppState } from "@/lib/native/app-state";
 import { haptic } from "@/lib/native/haptics";
+import { useReduceMotion } from "@/lib/native/reduce-motion";
 import {
   createPairingSession,
   phaseFor,
@@ -129,7 +130,8 @@ export interface PairingExits {
   /**
    * Closes the modal and every screen above the root, so a blank root shows (design
    * note 13: pairing success and Start). The root keeps its key, so it does not mount
-   * again.
+   * again. The modal goes with a short cross-fade (design section 1), and with none
+   * when Reduce Motion is on.
    */
   toRoot(): void;
 }
@@ -138,6 +140,7 @@ export interface PairingExits {
 export function usePairingExits(): PairingExits {
   const router = useRouter();
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
+  const reduceMotion = useReduceMotion();
   return {
     leave: () => {
       if (router.canDismiss()) {
@@ -153,6 +156,8 @@ export function usePairingExits(): PairingExits {
         router.replace("/");
         return;
       }
+      // The options of the modal also animate its removal, as Settings does for Forget.
+      navigation.setOptions({ animation: reduceMotion ? "none" : "fade" });
       // NOTE: expo-router 58 takes only a full state for a reset (plan W0 fact S3).
       navigation.reset({ ...state, index: 0, routes: [root], stale: false });
     },
