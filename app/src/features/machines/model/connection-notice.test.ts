@@ -74,6 +74,7 @@ describe("pairingNotice", () => {
     expect(
       pairingNotice({ kind: "failed", reason: "other_machine", machine: "homelab" }).body,
     ).toContain("came from homelab");
+    expect(pairingNotice({ kind: "failed", reason: "protocol" }).body).toContain("protocol");
     expect(pairingNotice({ kind: "failed", reason: "other", message: "No key." }).body).toBe(
       "No key.",
     );

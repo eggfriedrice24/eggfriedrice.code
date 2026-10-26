@@ -163,6 +163,8 @@ function failureText(reason: PairingFailure, machine: string | undefined): strin
       return "The computer that answered is not the one of the code. Run efr device add again and scan the new code.";
     case "other_machine":
       return `This code came from ${machine ?? "another machine"}. Run efr device add on the machine that you pair again, and scan that code.`;
+    case "protocol":
+      return "This app and efrd on the computer speak different versions of the protocol. Update the app or efr, then pair again.";
     case "expired":
       return "The code expired or was used. Run efr device add again and scan the new code.";
     case "refused":

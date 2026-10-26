@@ -30,10 +30,12 @@ export type PairingFailure =
   | "not_a_code"
   /** The computer of the code does not answer. */
   | "unreachable"
-  /** The computer answered with another daemon id or protocol than the code says. */
+  /** The computer answered with another daemon id than the code says. */
   | "wrong_daemon"
   /** A re-pair of one machine got the code of another machine (`machine`). */
   | "other_machine"
+  /** efrd speaks another version of the protocol than the app. */
+  | "protocol"
   /** The code expired, or it was used. */
   | "expired"
   /** The user refused the phone on the computer. */
@@ -55,10 +57,11 @@ export function pairingFailure(failure: FlowFailure): PairingView {
     case "unreachable":
       return failed("unreachable");
     case "wrong_daemon":
-    case "protocol_mismatch":
       return failed("wrong_daemon");
     case "other_machine":
       return { kind: "failed", reason: "other_machine", machine: machineName(failure) };
+    case "protocol_mismatch":
+      return failed("protocol");
     case "token_refused":
       return failed("expired");
     case "refused":

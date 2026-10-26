@@ -8,7 +8,7 @@ describe("pairingFailure", () => {
     expect(pairingFailure({ kind: "not_efr" })).toEqual({ kind: "failed", reason: "not_a_code" });
     expect(pairingFailure({ kind: "protocol_mismatch" })).toEqual({
       kind: "failed",
-      reason: "wrong_daemon",
+      reason: "protocol",
     });
     expect(pairingFailure({ kind: "wrong_daemon" })).toEqual({
       kind: "failed",
