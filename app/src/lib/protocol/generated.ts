@@ -3,12 +3,12 @@
 // top, then run `pnpm gen:protocol` in app/.
 //
 // Numbers: a u64 of the protocol is a JS number here. It is exact up to 2^53, and the
-// envelope guard (src/lib/protocol/envelope.ts) refuses a larger value. Every offset into text
+// decoder (src/lib/protocol/envelope.ts) refuses a larger value. Every offset into text
 // counts bytes of UTF-8, not UTF-16 units: compare it with utf8Length (src/lib/stream/utf8.ts),
 // never with `text.length`.
 //
 // An event, draft or item kind that this file does not list can come from a newer efrd.
-// The envelope guard decodes it to an "other" wrapper, and the app skips it.
+// The decoder decodes it to an "other" wrapper, and the app skips it.
 
 /**
  * A frame from a client.
@@ -586,9 +586,7 @@ export type Event =
        * The tool's input as the model wrote it. For a call with `freeform`, a JSON
        * string that holds the text.
        */
-      input: {
-        [k: string]: unknown;
-      };
+      input: unknown;
       kind: "tool_call_started";
       /**
        * How a `shell` call runs: typed into the hidden shell, in the `auto` sandbox
@@ -4415,9 +4413,7 @@ export interface ErrorBody {
    * Structured details. [`ErrorCode::Overflow`] carries `{"last_seq": n}` and
    * [`ErrorCode::ProtocolMismatch`] carries `{"daemon": n, "client": m}`.
    */
-  data?: {
-    [k: string]: unknown;
-  };
+  data?: unknown;
   /**
    * One sentence for a person. Clients show it; they never parse it.
    */

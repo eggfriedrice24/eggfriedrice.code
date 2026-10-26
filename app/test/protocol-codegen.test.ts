@@ -86,6 +86,28 @@ describe("normalize", () => {
     expect(normalized).not.toBe(schema);
     expect(schema.properties.b.anyOf[0]).toEqual({ $ref: "#/$defs/A", description: "x" });
   });
+
+  it("types a schema with only annotations as unknown, but not a property map or data", () => {
+    const schema = {
+      properties: {
+        input: { description: "Any JSON value." },
+        title: { description: "A title.", type: "string" },
+      },
+      default: { description: "data, not a schema" },
+      anyOf: [{ title: "T" }],
+    };
+    expect(normalize(schema)).toEqual({
+      properties: {
+        input: { description: "Any JSON value.", tsType: "unknown" },
+        title: { description: "A title.", type: "string" },
+      },
+      default: { description: "data, not a schema" },
+      anyOf: [{ title: "T", tsType: "unknown" }],
+    });
+    expect(normalize({ properties: { description: { title: "d" } } })).toEqual({
+      properties: { description: { title: "d", tsType: "unknown" } },
+    });
+  });
 });
 
 describe("variantKinds and constants", () => {

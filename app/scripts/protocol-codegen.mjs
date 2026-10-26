@@ -7,6 +7,10 @@
 // `kind`, and a `$ref` next to a `description` became a copy named `Draft1`. JSON
 // Schema 2020-12 reads such an object as both schemas at once, so `normalize` writes
 // it as an `allOf` of the two before the generator reads it. The types stay the same.
+//
+// json-schema-to-typescript also types a schema with only a description as an object.
+// Such a schema accepts any value, and efrd sends a string in one of them (the `input`
+// of a freeform tool call). So `normalize` marks it `tsType: "unknown"`.
 
 import { compile } from "json-schema-to-typescript";
 import { format } from "oxfmt";
@@ -23,39 +27,84 @@ const ANNOTATIONS = new Set([
   "writeOnly",
 ]);
 
-/** The first lines of the generated file. */
+/** Members whose value is a map from names to schemas. */
+const SCHEMA_MAPS = new Set(["$defs", "properties"]);
+
+/** Members whose value is a schema or an array of schemas. */
+const SCHEMA_MEMBERS = new Set([
+  "additionalProperties",
+  "allOf",
+  "anyOf",
+  "items",
+  "not",
+  "oneOf",
+  "prefixItems",
+]);
+
+/** The first lines of the generated types. */
 export const BANNER = `// Generated from docs/protocol.schema.json by \`pnpm gen:protocol\` (scripts/gen-protocol.mjs).
 // Do not edit it by hand. Change efr-protocol, run \`cargo xtask protocol-schema\` at the repo
 // top, then run \`pnpm gen:protocol\` in app/.
 //
 // Numbers: a u64 of the protocol is a JS number here. It is exact up to 2^53, and the
-// envelope guard (src/lib/protocol/envelope.ts) refuses a larger value. Every offset into text
+// decoder (src/lib/protocol/envelope.ts) refuses a larger value. Every offset into text
 // counts bytes of UTF-8, not UTF-16 units: compare it with utf8Length (src/lib/stream/utf8.ts),
 // never with \`text.length\`.
 //
 // An event, draft or item kind that this file does not list can come from a newer efrd.
-// The envelope guard decodes it to an "other" wrapper, and the app skips it.
+// The decoder decodes it to an "other" wrapper, and the app skips it.
 `;
 
 /**
- * Returns a copy of `schema` in which every object with a `$ref` and other members is
- * an `allOf` of the reference and the other members. Annotations stay on the outer
- * object, so the generator still writes them as comments.
+ * @param {unknown} value
+ * @returns {value is Record<string, any>}
+ */
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * True for a schema with annotations and nothing else: it accepts any value.
+ *
+ * @param {Record<string, unknown>} schema
+ * @returns {boolean}
+ */
+function onlyAnnotations(schema) {
+  const keys = Object.keys(schema);
+  return keys.length > 0 && keys.every((key) => ANNOTATIONS.has(key));
+}
+
+/**
+ * Returns a copy of `schema` for json-schema-to-typescript. Every object with a `$ref`
+ * and other members is an `allOf` of the reference and the other members; annotations
+ * stay on the outer object, so the generator still writes them as comments. A schema
+ * with only annotations gets `tsType: "unknown"`. Values that are data, such as a
+ * `default` or a `const`, stay as they are.
  *
  * @param {any} schema
  * @returns {any}
  */
 export function normalize(schema) {
-  if (Array.isArray(schema)) {
-    return schema.map((member) => normalize(member));
-  }
-  if (typeof schema !== "object" || schema === null) {
+  if (!isObject(schema)) {
     return schema;
   }
   /** @type {Record<string, unknown>} */
   const copy = {};
   for (const [key, value] of Object.entries(schema)) {
-    copy[key] = normalize(value);
+    if (SCHEMA_MAPS.has(key) && isObject(value)) {
+      copy[key] = Object.fromEntries(
+        Object.entries(value).map(([name, member]) => [name, normalize(member)]),
+      );
+    } else if (SCHEMA_MEMBERS.has(key)) {
+      copy[key] = Array.isArray(value)
+        ? value.map((member) => normalize(member))
+        : normalize(value);
+    } else {
+      copy[key] = structuredClone(value);
+    }
+  }
+  if (onlyAnnotations(copy)) {
+    return { ...copy, tsType: "unknown" };
   }
   const ref = copy["$ref"];
   if (typeof ref !== "string" || Object.keys(copy).length === 1) {
@@ -185,6 +234,36 @@ export function withoutReferenceNotes(types) {
 }
 
 /**
+ * Formats a generated file with oxfmt.
+ *
+ * @param {string} name
+ * @param {string} source
+ * @returns {Promise<string>}
+ */
+async function formatted(name, source) {
+  const result = await format(name, source, {});
+  if (result.errors.length > 0) {
+    const messages = result.errors.map((error) => error.message).join("; ");
+    throw new Error(`oxfmt could not format ${name}: ${messages}`);
+  }
+  return result.code;
+}
+
+/**
+ * The `$defs` of the schema text.
+ *
+ * @param {any} schema
+ * @returns {Record<string, any>}
+ */
+function definitions(schema) {
+  const defs = schema?.["$defs"];
+  if (!isObject(defs)) {
+    throw new Error("the schema has no $defs");
+  }
+  return defs;
+}
+
+/**
  * The formatted text of src/lib/protocol/generated.ts for the text of the schema file.
  *
  * @param {string} schemaText
@@ -192,10 +271,7 @@ export function withoutReferenceNotes(types) {
  */
 export async function generate(schemaText) {
   const schema = JSON.parse(schemaText);
-  const defs = schema["$defs"];
-  if (typeof defs !== "object" || defs === null) {
-    throw new Error("the schema has no $defs");
-  }
+  const defs = definitions(schema);
   const types = await compile(normalize(schema), "EfrProtocol", {
     additionalProperties: false,
     bannerComment: "",
@@ -204,10 +280,5 @@ export async function generate(schemaText) {
     unreachableDefinitions: true,
   });
   const source = `${BANNER}\n${withoutReferenceNotes(types)}${runtimeConstants(defs)}`;
-  const formatted = await format("generated.ts", source, {});
-  if (formatted.errors.length > 0) {
-    const messages = formatted.errors.map((error) => error.message).join("; ");
-    throw new Error(`oxfmt could not format the generated types: ${messages}`);
-  }
-  return formatted.code;
+  return formatted("generated.ts", source);
 }
