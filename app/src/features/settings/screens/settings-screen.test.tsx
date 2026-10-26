@@ -22,7 +22,7 @@ import { createConversationStream } from "@/features/conversation/model/conversa
 import { createRuntime } from "@/features/machines/model/runtime";
 import { DESKTOP, LAPTOP, machineRecord } from "@/features/machines/model/testing";
 import type { AppServices } from "@/features/navigation/model/app-services";
-import { testServices } from "@/features/navigation/model/testing";
+import { TEST_NOW, testServices } from "@/features/navigation/model/testing";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import { SettingsScreen } from "./settings-screen";
@@ -167,6 +167,9 @@ describe("the machine rows", () => {
   });
 
   it("show an offline machine dim, with when it was seen, and keep its version", async () => {
+    // The row counts from the clock of the phone, and the machine was seen at the time
+    // of the tests: on another day the row says "seen yesterday".
+    jest.useFakeTimers({ now: TEST_NOW });
     const parts = await setup([machineRecord(DESKTOP)]);
     await openSettings(parts);
     await connect(parts, DESKTOP_URL, DESKTOP);
