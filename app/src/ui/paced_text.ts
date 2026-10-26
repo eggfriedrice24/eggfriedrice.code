@@ -43,11 +43,24 @@ export function startPaced(
   now: number,
   config: PacerConfig = DEFAULT_PACER_CONFIG,
 ): PacedText {
+  return resumePaced(message, now, 0, config);
+}
+
+/**
+ * The state of a row that already shows `shown` units of `message`, as after a restart of
+ * its frame loop: it never moves back.
+ */
+export function resumePaced(
+  message: PacedInput,
+  now: number,
+  shown: number,
+  config: PacerConfig = DEFAULT_PACER_CONFIG,
+): PacedText {
   const start: PacedText = {
     generation: message.generation,
     known: 0,
     final: false,
-    pacer: createPacer(0, now),
+    pacer: createPacer(Math.min(Math.max(0, shown), message.text.length), now),
   };
   return pacedArrive(start, message, now, config);
 }

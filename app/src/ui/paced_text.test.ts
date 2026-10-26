@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_PACER_CONFIG } from "../core/pacer";
-import { pacedArrive, pacedFrame, startPaced } from "./paced_text";
+import { pacedArrive, pacedFrame, resumePaced, startPaced } from "./paced_text";
 
 const LAG = DEFAULT_PACER_CONFIG.maxLagMs;
 
@@ -50,5 +50,12 @@ describe("paced text", () => {
     expect(pacedArrive(state, { text: "abc", final: false, generation: 0 }, 50)).toBe(state);
     const final = pacedArrive(state, { text: "abc", final: true, generation: 0 }, 60);
     expect(pacedArrive(final, { text: "abc", final: true, generation: 0 }, 70)).toBe(final);
+  });
+
+  it("keeps what a row shows when its loop starts again", () => {
+    const text = "one two three four";
+    const state = resumePaced({ text, final: false, generation: 0 }, 1_000, 8);
+    expect(pacedFrame(state, text, 1_000, false).shown).toBe(8);
+    expect(pacedFrame(state, text, 1_000 + LAG, false).shown).toBe(text.length);
   });
 });
