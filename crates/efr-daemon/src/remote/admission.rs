@@ -156,12 +156,10 @@ pub(crate) fn decide(tailnet: &Tailnet, identity: Option<Whois>) -> Result<PeerF
 }
 
 /// `ip` with an IPv4 address mapped into IPv6 turned back into IPv4.
-fn unmapped(ip: std::net::IpAddr) -> std::net::IpAddr {
+fn unmapped(ip: IpAddr) -> IpAddr {
     match ip {
-        std::net::IpAddr::V6(v6) => {
-            v6.to_ipv4_mapped().map_or(std::net::IpAddr::V6(v6), std::net::IpAddr::V4)
-        }
-        std::net::IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        IpAddr::V4(_) => ip,
     }
 }
 
