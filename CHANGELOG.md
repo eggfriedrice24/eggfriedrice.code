@@ -17,6 +17,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `/var/run/tailscale/tailscaled.sock`). Each key needs a restart of efrd. efrd does
   not read the table yet, so it opens no port.
 
+### Changed
+
+- A client that follows a turn live on a slow link no longer loses parts of the
+  streamed text. When efrd cannot send each draft at once, it joins the drafts and
+  sends them together as soon as the client reads again. The text then grows in
+  larger steps, with no gaps.
+
 ## [0.0.5] - 2026-10-25
 
 ### Added
