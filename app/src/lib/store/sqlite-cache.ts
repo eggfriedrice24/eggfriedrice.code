@@ -1,5 +1,5 @@
 // The event cache in SQLite. It names only the part of the database API that it needs,
-// which expo-sqlite's `SQLiteDatabase` has (src/store/native/database.ts opens it), so
+// which expo-sqlite's `SQLiteDatabase` has (src/lib/native/database.ts opens it), so
 // the tests run it on Node's SQLite.
 
 import { MAX_CACHED_EVENTS, type CachedEvent, type EventCache } from "./event-cache";

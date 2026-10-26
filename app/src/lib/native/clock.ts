@@ -1,4 +1,4 @@
-// The real clock for the connection and the client (src/net/clock.ts).
+// The real clock for the connection and the client (src/lib/net/clock.ts).
 //
 // iOS stops the JS timers while the app is suspended. A timer that was due runs late,
 // after the app is active again; the liveness rule then sees the whole silence and

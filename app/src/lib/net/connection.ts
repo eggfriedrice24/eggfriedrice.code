@@ -6,26 +6,19 @@
 // 1. `hello` with origin `phone`. The result must name the expected daemon and protocol;
 //    else the connection fails before anything else is sent.
 // 2. With a device key: sign the prove message of the result's challenge and facts
-//    (src/protocol/prove.ts) and call `device.prove`. Without one (while pairing) the
+//    (src/lib/protocol/prove.ts) and call `device.prove`. Without one (while pairing) the
 //    connection is ready after hello, and the caller sends `device.enroll`.
 // 3. Requests and streams. Each request has an id, unique on the connection.
 //
-// The liveness rule (src/core/liveness.ts): JS never sees the WebSocket pongs, so the
+// The liveness rule (src/lib/net/liveness.ts): JS never sees the WebSocket pongs, so the
 // connection counts only the frames that it decodes. After a silence it sends one
 // probe: a second `hello`. The transport of efrd answers a second hello itself with a
 // `conflict` error, before the proof and after it, and runs nothing; so any live efrd
 // answers the probe with a frame. After a longer silence the connection is dead and
 // closes, and the client connects again.
 
-import { decodeServerFrame, isJsonObject } from "@/lib/protocol/envelope";
-import {
-  DEFAULT_LIVENESS,
-  liveness,
-  nextLivenessCheckAt,
-  type LivenessConfig,
-  type LivenessState,
-} from "./liveness";
 import { base64Encode } from "@/lib/protocol/bytes";
+import { decodeServerFrame, isJsonObject } from "@/lib/protocol/envelope";
 import {
   PROTOCOL_VERSION,
   type ErrorBody,
@@ -41,6 +34,13 @@ import { proveFields, proveMessage } from "@/lib/protocol/prove";
 import type { Clock, Timer } from "./clock";
 import type { DeviceKey } from "./device-key";
 import { ConnectionError, ServerError, asksToRepair, retryAfterMs } from "./errors";
+import {
+  DEFAULT_LIVENESS,
+  liveness,
+  nextLivenessCheckAt,
+  type LivenessConfig,
+  type LivenessState,
+} from "./liveness";
 import { CLOSE_NORMAL, CLOSE_SILENT, type Socket, type SocketFactory } from "./socket";
 
 /** A method that answers with one result. */
@@ -54,7 +54,7 @@ export interface Device {
 
 /** The settings of one connection. */
 export interface ConnectionOptions {
-  /** The URL of the listener (src/net/endpoint.ts). */
+  /** The URL of the listener (src/lib/net/endpoint.ts). */
   readonly url: string;
   readonly sockets: SocketFactory;
   readonly clock: Clock;

@@ -1,5 +1,5 @@
 // The wire types that the core reads. They are the generated types of efr-protocol
-// (src/protocol/generated.ts, from docs/protocol.schema.json), plus a skip wrapper for
+// (src/lib/protocol/generated.ts, from docs/protocol.schema.json), plus a skip wrapper for
 // each kind that this build does not know.
 //
 // Forward compatibility (R3.12 of the research): a newer efrd can send an event, draft

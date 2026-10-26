@@ -21,7 +21,7 @@ checks the signature (`device.prove`).
   path: `#if targetEnvironment(simulator)` removes it.
 
 All values cross to JavaScript as standard base64 strings. The app does not call the
-module directly. It uses `deviceKeyStore` in `src/pairing/device_key.ts`, which checks
+module directly. It uses `deviceKeyStore` in `src/features/pairing/model/device-key.ts`, which checks
 the shape of each value that the module gives.
 
 | Function               | Result                                                                     |

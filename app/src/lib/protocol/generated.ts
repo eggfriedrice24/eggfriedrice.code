@@ -3,8 +3,8 @@
 // top, then run `pnpm gen:protocol` in app/.
 //
 // Numbers: a u64 of the protocol is a JS number here. It is exact up to 2^53, and the
-// envelope guard (src/core/envelope.ts) refuses a larger value. Every offset into text
-// counts bytes of UTF-8, not UTF-16 units: compare it with utf8Length (src/core/utf8.ts),
+// envelope guard (src/lib/protocol/envelope.ts) refuses a larger value. Every offset into text
+// counts bytes of UTF-8, not UTF-16 units: compare it with utf8Length (src/lib/stream/utf8.ts),
 // never with `text.length`.
 //
 // An event, draft or item kind that this file does not list can come from a newer efrd.

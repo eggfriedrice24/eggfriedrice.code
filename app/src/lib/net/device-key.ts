@@ -1,5 +1,5 @@
 // The device key: the P-256 key of the phone that efrd enrolled. The local Expo module
-// app/modules/efr-device-key keeps it in the Secure Enclave, and src/pairing/device_key.ts
+// app/modules/efr-device-key keeps it in the Secure Enclave, and src/features/pairing/model/device-key.ts
 // gives it to the app; the connection only signs with it. The private key never leaves
 // the module.
 

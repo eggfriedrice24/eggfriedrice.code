@@ -1,6 +1,6 @@
 // The functions of the native module EfrDeviceKey (ios/EfrDeviceKeyModule.swift). Every
 // byte value crosses as standard base64. Only this file and index.ts know the native
-// names; the app uses the DeviceKeyStore of src/pairing/device_key.ts.
+// names; the app uses the DeviceKeyStore of src/features/pairing/model/device-key.ts.
 
 /** The native module, as `requireOptionalNativeModule("EfrDeviceKey")` gives it. */
 export interface EfrDeviceKeyNative {

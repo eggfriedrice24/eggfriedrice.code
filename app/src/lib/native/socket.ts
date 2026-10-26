@@ -1,4 +1,4 @@
-// The real WebSocket of React Native for the connection (src/net/socket.ts).
+// The real WebSocket of React Native for the connection (src/lib/net/socket.ts).
 //
 // React Native on iOS (SocketRocket) sets the Origin header to the URL's own origin,
 // `http://<host>:<port>`, which efrd accepts for its tailnet IPv4 (R3.11 of the

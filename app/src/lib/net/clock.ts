@@ -1,6 +1,6 @@
 // The clock of the connection. The connection reads the time and sets timers only
-// through this interface, so tests drive it with a fake clock (src/net/testing.ts) and
-// the app gives it the real one (src/net/native/clock.ts).
+// through this interface, so tests drive it with a fake clock (src/lib/net/testing.ts) and
+// the app gives it the real one (src/lib/native/clock.ts).
 
 /** A timer that the clock set. */
 export interface Timer {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_LIVENESS } from "./liveness";
 import { base64Decode, hex } from "@/lib/protocol/bytes";
 import { proveFields, proveMessage } from "@/lib/protocol/prove";
 import { Connection, type ConnectionOptions, type StreamHandlers } from "./connection";
 import { ConnectionError, ServerError } from "./errors";
+import { DEFAULT_LIVENESS } from "./liveness";
 import {
   DAEMON_ID,
   DEVICE_ID,

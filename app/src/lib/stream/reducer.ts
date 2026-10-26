@@ -7,7 +7,7 @@
 // The rules (R4c.4 step 3 of the research):
 //
 // - Messages are keyed by turn and index. Drafts and `assistant_message_updated` merge
-//   into one text buffer per message (see text_buffer.ts).
+//   into one text buffer per message (see text-buffer.ts).
 // - `assistant_message_completed` is the truth: it replaces the text and makes the
 //   message final. When the completed text does not extend the text so far, the
 //   message's `generation` grows, so a view knows to remount instead of append.
@@ -19,7 +19,6 @@
 // - An event with a sequence number at or below the last one seen is a duplicate of a
 //   replay and changes nothing.
 
-import { applyDelta, bufferOf, EMPTY_BUFFER, seed, type TextBuffer } from "./text-buffer";
 import type {
   Draft,
   Event,
@@ -28,6 +27,7 @@ import type {
   SnapshotView,
   SubscribeItem,
 } from "@/lib/protocol/wire";
+import { applyDelta, bufferOf, EMPTY_BUFFER, seed, type TextBuffer } from "./text-buffer";
 
 /** One assistant message of a turn. */
 export interface MessageView {

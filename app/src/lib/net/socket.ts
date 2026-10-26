@@ -1,6 +1,6 @@
 // The WebSocket that the connection uses: the part of the WebSocket of React Native that
-// it needs, so tests give it a fake socket (src/net/testing.ts) and the app the real one
-// (src/net/native/socket.ts).
+// it needs, so tests give it a fake socket (src/lib/net/testing.ts) and the app the real one
+// (src/lib/native/socket.ts).
 //
 // efrd sends each frame as one text message. It never sends binary messages, and it
 // treats one from the phone as a protocol error.

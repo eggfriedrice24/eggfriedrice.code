@@ -1,7 +1,7 @@
 // The event cache: the events of each conversation that the app saw, kept on the phone so
 // that a cold start shows the transcript at once and then resubscribes with `after_seq`
 // (R4c.4 step 10 of the research). The app keeps it in expo-sqlite
-// (src/store/sqlite_cache.ts); tests use the memory cache below.
+// (src/lib/store/sqlite-cache.ts); tests use the memory cache below.
 //
 // Each event is the JSON of its envelope as efrd sent it, so a newer app can read the
 // kinds that this build skips. The cache is not the truth: efrd's log is. A missing or

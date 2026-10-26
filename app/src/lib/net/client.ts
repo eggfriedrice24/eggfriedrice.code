@@ -2,7 +2,7 @@
 // subscriptions of the app alive across connections (R3.9 of the research).
 //
 // - A failed or lost connection waits on the backoff ladder of t3code
-//   (src/core/backoff.ts), or longer when efrd asked for a wait (`starting`), then
+//   (src/lib/net/backoff.ts), or longer when efrd asked for a wait (`starting`), then
 //   connects again. A connection that stayed up for 30 s resets the ladder.
 // - An error that needs the user (pair again, update) stops the client in `stopped`.
 // - Back in the foreground after 10 s or more, the client opens a new socket at once,
@@ -12,17 +12,7 @@
 //   sink, so the stream continues where the app is. An overflow error resubscribes on
 //   a backoff ladder of its own, because on a slow link it can repeat.
 
-import {
-  DEFAULT_BACKOFF,
-  INITIAL_BACKOFF,
-  backoffConnected,
-  backoffFailed,
-  type Backoff,
-  type BackoffConfig,
-} from "./backoff";
 import { decodeSubscribeItem } from "@/lib/protocol/envelope";
-import { DEFAULT_LIVENESS, replaceOnForeground, type LivenessConfig } from "./liveness";
-import type { SubscribeItem } from "@/lib/protocol/wire";
 import type {
   ConversationSubscribe,
   ErrorBody,
@@ -31,11 +21,21 @@ import type {
   MethodResults,
   ScopeName,
 } from "@/lib/protocol/generated";
+import type { SubscribeItem } from "@/lib/protocol/wire";
+import {
+  DEFAULT_BACKOFF,
+  INITIAL_BACKOFF,
+  backoffConnected,
+  backoffFailed,
+  type Backoff,
+  type BackoffConfig,
+} from "./backoff";
 import type { Clock, Timer } from "./clock";
 import { Connection, type StreamHandle, type UnaryMethodName } from "./connection";
 import type { DeviceKey } from "./device-key";
 import { socketUrl, type Endpoint } from "./endpoint";
 import { ConnectionError } from "./errors";
+import { DEFAULT_LIVENESS, replaceOnForeground, type LivenessConfig } from "./liveness";
 import type { SocketFactory } from "./socket";
 
 /** The settings of the client. */

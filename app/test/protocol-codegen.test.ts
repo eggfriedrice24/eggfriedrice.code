@@ -2,13 +2,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  constants,
-  generate,
-  normalize,
-  variantKinds,
-  withoutReferenceNotes,
-} from "../scripts/protocol-codegen.mjs";
-import {
   DRAFT_PART_KINDS,
   ERROR_CODES,
   EVENT_KINDS,
@@ -19,6 +12,13 @@ import {
   type MethodParams,
   type MethodResults,
 } from "@/lib/protocol/generated";
+import {
+  constants,
+  generate,
+  normalize,
+  variantKinds,
+  withoutReferenceNotes,
+} from "../scripts/protocol-codegen.mjs";
 
 const events = import.meta.glob<unknown>("../../crates/efr-protocol/fixtures/v1/events/*.json", {
   eager: true,

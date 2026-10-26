@@ -1,6 +1,7 @@
 // The stores that the screens read: the shape that React's useSyncExternalStore takes.
-// The store of the app (src/store) gives the screens its state through this interface,
-// so the screens do not depend on how it is made.
+// The stores of the app give the screens their state through this interface, so the
+// screens do not depend on how it is made. The stream store of the UI rebuild (TanStack
+// Store with this frame gate) replaces the value stores here.
 //
 // `frameGated` is how the transcript commits at most once per display frame: efrd sends
 // drafts at about 60 Hz and the network delivers them in bursts, so a stream store can

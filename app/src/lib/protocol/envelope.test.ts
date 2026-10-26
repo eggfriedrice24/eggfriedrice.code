@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
 
+import { EMPTY_STREAM, reduce } from "@/lib/stream/reducer";
 import {
   decodeErrorBody,
   decodeEventEnvelope,
@@ -8,7 +9,6 @@ import {
   decodeSubscribeItem,
   isJsonObject,
 } from "./envelope";
-import { EMPTY_STREAM, reduce } from "@/lib/stream/reducer";
 
 // The frozen fixtures of efr-protocol: the same JSON that the Rust tests read.
 const FIXTURES = "../../../../crates/efr-protocol/fixtures/v1";
