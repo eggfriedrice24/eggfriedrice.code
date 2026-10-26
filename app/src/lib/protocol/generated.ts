@@ -753,6 +753,12 @@ export type Event =
        */
       local_only?: boolean;
       /**
+       * Why the turn's permission mode asks, in one plain line for a person, such as
+       * `cautious asks before any network access.` A client shows it below the
+       * summary. Absent: no reason, also from a daemon that does not set it.
+       */
+      reason?: string | null;
+      /**
        * What the call would do, in one line.
        */
       summary: string;
