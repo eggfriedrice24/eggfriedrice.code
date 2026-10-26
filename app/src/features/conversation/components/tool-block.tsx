@@ -102,11 +102,17 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             <Hairline />
             {/* A tap on the output toggles too; VoiceOver reads its lines one by one. */}
             <Pressable accessible={false} onPress={props.onToggle} className="px-12 pt-7 pb-8">
-              {output.lines.map((line) => (
-                <FadeIn key={line.key}>
-                  <OutputText line={line} wraps={expanded} />
-                </FadeIn>
-              ))}
+              {/* Only new lines of a running call fade in: a block that the list
+                  recycles or that the user opens shows its lines at once. */}
+              {output.lines.map((line) =>
+                running ? (
+                  <FadeIn key={line.key}>
+                    <OutputText line={line} wraps={expanded} />
+                  </FadeIn>
+                ) : (
+                  <OutputText key={line.key} line={line} wraps={expanded} />
+                ),
+              )}
               {output.capped ? (
                 <Text className="text-mono-xs text-text-subtle">
                   {`showing the last 200 of ${String(output.total)} lines`}
