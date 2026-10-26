@@ -6,7 +6,8 @@
 //   on surface_1 with no hairline, and the close button (UIBarButtonItem, xmark) on the
 //   right. A swipe down also dismisses the sheet.
 // - A pick dismisses the sheet, then opens the conversation: a push, or a pop back to it
-//   when it is in the stack. A conversation of another machine carries its machine.
+//   when it is in the stack. A conversation of another machine carries its machine. The
+//   history helper does both, because it plans over the stack with the sheet on top.
 
 import { useSelector } from "@tanstack/react-store";
 import { Stack, useRouter, type NativeStackNavigationOptions } from "expo-router";
@@ -40,10 +41,7 @@ export function ConversationsScreen(props: ConversationsScreenProps) {
     registered.map((machine) => ({ id: machine.id, name: machine.name })),
     props.machine,
   );
-  const open = (ref: ConversationAddress): void => {
-    router.back();
-    deps.open(ref);
-  };
+  const open = (ref: ConversationAddress): void => deps.open(ref);
   return (
     <>
       <Stack.Screen options={SHEET_HEADER} />

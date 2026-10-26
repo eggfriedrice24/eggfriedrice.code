@@ -1,14 +1,14 @@
 // What the All conversations sheet needs from the runtime and the navigation, as one
-// small seam. The root layout gives it through `SheetDepsContext`; the tests give fakes.
-//
-// NOTE: The runtime context and the history helper come from the navigation package of
-// the same wave. When they are in the tree, the root layout provides this context from
-// them (or this hook reads them directly); the sheet itself does not change.
+// small seam. The sheet reads the runtime from the services of the root layout and opens
+// a conversation with the history helper of the navigation feature. A test can give
+// other deps through `SheetDepsContext`.
 
 import type { Readable } from "@tanstack/store";
 import { createContext, use } from "react";
 
 import type { RegistryState } from "@/features/machines/model/machine-registry";
+import { AppServicesContext } from "@/features/navigation/use-app-services";
+import { useOpenConversation } from "@/features/navigation/use-open-conversation";
 import type { ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 
@@ -19,22 +19,35 @@ export interface SheetDeps {
   /** The paired machines (the registry of the runtime). */
   readonly registry: Readable<RegistryState>;
   /**
-   * Opens `ref` after the sheet is dismissed: a push, or a pop back to it when it is in
-   * the stack (the history helper). The sheet route is gone from the stack by then.
+   * Dismisses the sheet and opens `ref`: a push, or a pop back to it when it is in the
+   * stack (the history helper).
    */
   readonly open: (ref: ConversationAddress) => void;
   /** The clock of the list times. */
   readonly now: () => number;
 }
 
-/** The deps of the sheet; null until the root layout provides them. */
+/** Deps that replace the ones of the app, for the tests. */
 export const SheetDepsContext = createContext<SheetDeps | null>(null);
 
-/** The deps of the sheet. It throws when no provider gives them. */
+/**
+ * The deps of the sheet: the ones of `SheetDepsContext`, else the runtime of the root
+ * layout and the history helper. It throws when neither is there.
+ */
 export function useSheetDeps(): SheetDeps {
-  const deps = use(SheetDepsContext);
-  if (deps === null) {
-    throw new Error("The conversations sheet has no runtime: provide SheetDepsContext.");
+  const injected = use(SheetDepsContext);
+  const services = use(AppServicesContext);
+  const openConversation = useOpenConversation();
+  if (injected !== null) {
+    return injected;
   }
-  return deps;
+  if (services === null) {
+    throw new Error("The conversations sheet has no runtime: it needs the root layout.");
+  }
+  return {
+    caller: services.runtime,
+    registry: services.runtime.registry,
+    open: (ref) => openConversation(ref),
+    now: Date.now,
+  };
 }

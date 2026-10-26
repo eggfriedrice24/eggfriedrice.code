@@ -3,17 +3,29 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { createAtom } from "@tanstack/store";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { act, renderRouter, screen } from "expo-router/testing-library";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent } from "@testing-library/react-native";
 import { Text } from "react-native";
 
 import { machineOf } from "@/features/machines/model/machine";
 import { loadedRegistry, type RegistryState } from "@/features/machines/model/machine-registry";
+import { DESKTOP as MACHINE, machineRecord } from "@/features/machines/model/testing";
+import {
+  conversationId,
+  testServices,
+  type TestServices,
+} from "@/features/navigation/model/testing";
+import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
-import type { ConversationsSearch, ConversationsSearchResult } from "@/lib/protocol/generated";
+import type {
+  ConversationsSearch,
+  ConversationsSearchResult,
+  SearchRow,
+} from "@/lib/protocol/generated";
 import type { ConversationAddress } from "@/lib/query/keys";
 import { createQueryClient } from "@/lib/query/query-client";
 import { FakeCaller } from "@/lib/query/testing";
 
+import { conversationsKeys } from "../conversations-queries";
 import { october } from "../model/testing";
 import { sheetParams } from "../model/sheet-schemas";
 import { ConversationsScreen } from "./conversations-screen";
@@ -43,6 +55,28 @@ const REGISTRY: RegistryState = loadedRegistry([
   machineOf(device(DESKTOP, "desktop.tail3f2a.ts.net"), false),
   machineOf(device(LAPTOP, "laptop.tail3f2a.ts.net"), false),
 ]);
+
+/** The conversation of the pick on the services of the app. */
+const PICKED = conversationId(1);
+
+/** One search row, updated one minute before NOW. */
+function row(id: string, title: string): SearchRow {
+  return {
+    conversation: {
+      summary: {
+        id,
+        title,
+        status: "idle",
+        created_at: new Date(NOW - 120_000).toISOString(),
+        updated_at: new Date(NOW - 60_000).toISOString(),
+        last_seq: 3,
+      },
+      route: { kind: "outside" },
+      turns: 1,
+    },
+    short_id: id.slice(0, 8),
+  };
+}
 
 function result(machine: string): ConversationsSearchResult {
   const id = machine === DESKTOP ? "fan" : "restic";
@@ -153,7 +187,7 @@ describe("the conversations sheet route", () => {
     ]);
   });
 
-  it("dismisses itself, then opens the picked conversation", async () => {
+  it("opens the picked conversation with its machine", async () => {
     await renderRouter(ROUTES, { initialUrl: "/" });
     await act(async () => {
       router.push("/conversations");
@@ -161,18 +195,65 @@ describe("the conversations sheet route", () => {
     await flush();
     await fireEvent.press(screen.getByLabelText("Set up restic backups, laptop · 1m"));
     await flush();
-    expect(screen).toHavePathname("/");
     expect(opened).toEqual([{ machine: LAPTOP, id: "restic" }]);
   });
 
-  it("needs the deps of the runtime", async () => {
+  it("needs the services of the root layout", async () => {
     jest.spyOn(console, "error").mockImplementation(() => undefined);
     await expect(
-      render(
-        <QueryClientProvider client={client}>
-          <ConversationsScreen />
-        </QueryClientProvider>,
+      renderRouter(
+        {
+          _layout: () => (
+            <QueryClientProvider client={client}>
+              <Stack />
+            </QueryClientProvider>
+          ),
+          index: ConversationsRoute,
+        },
+        { initialUrl: "/" },
       ),
     ).rejects.toThrow("The conversations sheet has no runtime");
+  });
+});
+
+describe("the conversations sheet on the services of the app", () => {
+  let parts: TestServices;
+
+  afterEach(() => {
+    parts.services.dispose();
+  });
+
+  function wiredRoutes() {
+    return {
+      _layout: () => (
+        <QueryClientProvider client={parts.services.queryClient}>
+          <AppServicesContext value={parts.services}>
+            <Stack />
+          </AppServicesContext>
+        </QueryClientProvider>
+      ),
+      index: () => <Text>root</Text>,
+      conversations: ConversationsRoute,
+      "c/[machine]/[id]": () => <Text>conversation</Text>,
+    };
+  }
+
+  it("dismisses itself, then pushes the picked conversation over the root", async () => {
+    parts = await testServices([machineRecord(MACHINE)]);
+    parts.services.queryClient.setQueryData(conversationsKeys.search(MACHINE, ""), {
+      rows: [row(PICKED, "Why is the fan loud")],
+    });
+    await renderRouter(wiredRoutes(), { initialUrl: "/" });
+    await act(async () => {
+      router.push("/conversations");
+    });
+    await flush();
+    await fireEvent.press(screen.getByLabelText(/^Why is the fan loud, desktop/));
+    await flush();
+    expect(screen).toHavePathname(`/c/${MACHINE}/${PICKED}`);
+    await act(async () => {
+      router.back();
+    });
+    expect(screen).toHavePathname("/");
   });
 });
