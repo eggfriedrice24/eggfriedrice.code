@@ -40,7 +40,7 @@ The app is a preview. It is not in the App Store.
 | `src/theme/palette.ts`   | The colours of the design system.                                                                     |
 | `modules/efr-device-key` | The local Expo module of the Secure Enclave key (Swift). Its README tells what it does.               |
 | `test/recordings/`       | What efrd sends to a phone during scripted turns. The replay tests read it.                           |
-| `scripts/`               | The code generator of `src/protocol/generated.ts`.                                                    |
+| `scripts/`               | The code generator of `src/lib/protocol/generated.ts`.                                                |
 
 ## Toolchain
 
@@ -92,8 +92,8 @@ reaches the network.
 
 ### When the protocol changes
 
-The types in `src/protocol/generated.ts` come from `docs/protocol.schema.json`. Do not
-edit the file by hand. After a change of `efr-protocol`:
+The types in `src/lib/protocol/generated.ts` come from `docs/protocol.schema.json`.
+Do not edit the file by hand. After a change of `efr-protocol`:
 
 ```sh
 cargo xtask protocol-schema

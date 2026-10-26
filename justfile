@@ -456,7 +456,7 @@ docs:
 # The gates of the phone app in app/, as CI's app job: install from the lockfile, the
 # format check (oxfmt), the type-aware lint (oxlint), the type check (tsc 7), the tests
 # of the pure code (Vitest), the tests of the components and the routes (jest), the
-# check that app/src/protocol/generated.ts matches
+# check that app/src/lib/protocol/generated.ts matches
 # docs/protocol.schema.json (`just check` checks the schema against efr-protocol), the
 # check that the uniwind theme app/src/theme/theme.css matches the palette, the type
 # scale and the metrics of app/src/theme, and the iOS bundle (`expo export`, which Metro
