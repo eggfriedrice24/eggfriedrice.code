@@ -440,9 +440,10 @@ call of the answer. Drafts never reach the log, and a turn that nobody follows l
 does no draft work and sets no timer. The drafter keeps the parts themselves in the
 conversation's live holder, also when nobody listens: `ConversationHandle::live_turn`
 gives a `LiveTurn` with the running turn, its `after_seq`, the index and the text so
-far of the message that streams (empty once `assistant_message_completed` has it), the
-reasoning of the turn with its title, and the input bytes of each tool call of the
-answer (cleared when the answer ends). Drafts are cut from the same text, so a
+far of the message that streams (emptied just before `assistant_message_completed` is
+recorded, so the text is never in both places), the reasoning of the turn with its
+title, and the input bytes of each tool call of the answer (cleared when the answer
+ends). Drafts are cut from the same text, so a
 subscriber that lost drafts builds them again from the holder at the same byte
 offsets. Earlier turns are
 rebuilt from the newest events without `tool_call_output_updated`, so a long command's

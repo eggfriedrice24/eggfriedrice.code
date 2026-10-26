@@ -57,11 +57,12 @@ pub struct LiveTurn {
     /// same `after_seq` shows nothing that this state lacks.
     pub after_seq: Seq,
     /// The index of the assistant message that streams, as in
-    /// `assistant_message_updated`. After `assistant_message_completed` of that message
-    /// it is the index of the next one, with an empty `text`.
+    /// `assistant_message_updated`. Just before the turn records
+    /// `assistant_message_completed` of that message, it becomes the index of the next
+    /// one, with an empty `text`, so the text is never in the log and here at once.
     pub index: u32,
     /// The text of message `index` so far, with its blocks joined as the completed text
-    /// joins them. Empty once the message completed.
+    /// joins them. Empty once the message completes.
     pub text: String,
     /// The reasoning of the whole turn so far, as the `reasoning` drafts carry it.
     pub reasoning: String,

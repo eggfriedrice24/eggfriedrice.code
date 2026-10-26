@@ -129,8 +129,8 @@ impl Drafter {
         }
     }
 
-    /// The turn recorded the whole text of the current message, and the next one is
-    /// `next`. The log has the text now, so the live parts drop it.
+    /// The turn records the whole text of the current message now, and the next one is
+    /// `next`. The log has the text from then on, so the live parts drop it first.
     pub(super) fn message_completed(&self, next: u32) {
         if let Some(parts) = self.status.parts().as_mut() {
             parts.index = next;

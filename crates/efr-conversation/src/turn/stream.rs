@@ -206,9 +206,11 @@ impl Turn {
             index: self.assistant_index,
             text,
         };
+        // NOTE: before the record, so a reader never finds the text both in the log
+        // and in the live parts; in between, the completion that follows brings it.
+        self.drafter.message_completed(self.assistant_index + 1);
         self.record(vec![event]).await?;
         self.assistant_index += 1;
-        self.drafter.message_completed(self.assistant_index);
         self.streamed = 0;
         Ok(())
     }
