@@ -288,15 +288,11 @@ describe("the transcript", () => {
 });
 
 describe("jump to latest", () => {
-  it("shows when the reader left the end and new content came", async () => {
-    const { scope, store } = testScope(finishedTurn());
+  it("shows while the reader is away from the end, with or without new content", async () => {
+    const { scope } = testScope(finishedTurn());
     await render(<Transcript scope={scope} insets={INSETS} />);
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
     await scrollTo(2_000);
-    expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
-    await act(async () => {
-      store.setState((state) => run([eventItem(7, promptQueued(NEXT, "More."))], state));
-    });
     const jump = screen.getByRole("button", { name: "Jump to latest" });
     await fireEvent.press(jump);
     expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });

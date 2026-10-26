@@ -6,8 +6,8 @@
 //   goes; a row reads its own part. Prompts that the outbox holds and efrd has not
 //   echoed yet follow the rows of the stream.
 // - Until the cache or efrd gave events, the loading line shows.
-// - "Jump to latest" shows when the reader is more than one screen from the end and
-//   new content came after the reader left it.
+// - "Jump to latest" shows while the reader is more than one screen from the end, as in
+//   most chat apps. The user asked for it there, not only after new content came.
 //
 // The screen keeps one Transcript while it shows, also when its stream store changes
 // (the cache first, then the held stream). Each store has its own row selector
@@ -19,7 +19,7 @@ import { useSelector } from "@tanstack/react-store";
 import { type Ref, useImperativeHandle, useRef, useState } from "react";
 import { View } from "react-native";
 
-import { runningTurn, type StreamState } from "@/lib/stream/reducer";
+import { runningTurn } from "@/lib/stream/reducer";
 import type { Row } from "../model/rows";
 import { compareRows, rowsSelectorOf } from "../model/selectors";
 import { JumpToLatest } from "./jump-to-latest";
@@ -46,26 +46,14 @@ export interface TranscriptProps {
 
 const NO_PENDING: readonly PendingPrompt[] = [];
 
-/**
- * The new content of `state` since `left`: what makes "Jump to latest" show. A new event
- * or a draft of the running turn counts. Older history that comes in at the top does
- * not, because it changes neither.
- */
-function changedSince(left: StreamState | undefined): (state: StreamState) => boolean {
-  return (state) =>
-    left !== undefined &&
-    (state.lastSeq !== left.lastSeq || runningTurn(state) !== runningTurn(left));
-}
-
 /** The transcript of one conversation. */
 export function Transcript({ ref, ...props }: TranscriptProps) {
   const scope = props.scope;
   const selectRows = rowsSelectorOf(scope.store);
   const rows = useSelector(scope.store, selectRows, { compare: compareRows });
   const loaded = useSelector(scope.store, (state) => state.loaded);
-  // The state when the reader left the end; undefined while the list follows.
-  const [leftAt, setLeftAt] = useState<StreamState | undefined>(undefined);
-  const changed = useSelector(scope.store, changedSince(leftAt));
+  // True while the reader is more than one screen from the end.
+  const [away, setAway] = useState(false);
   const list = useRef<TranscriptListHandle>(null);
   useImperativeHandle(ref, () => ({
     scrollToEnd: (animated) => list.current?.scrollToEnd(animated),
@@ -79,7 +67,7 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
   }
   const jump = (animated: boolean): void => {
     list.current?.scrollToEnd(animated);
-    setLeftAt(undefined);
+    setAway(false);
   };
   return (
     <TranscriptScopeContext value={scope}>
@@ -93,7 +81,7 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
           }}
           rowType={(key) => byKey.get(key)?.kind ?? "pending"}
           onFollowChange={(following) => {
-            setLeftAt(following ? undefined : scope.store.get());
+            setAway(!following);
           }}
           contentMark={() => {
             const state = scope.store.get();
@@ -115,11 +103,7 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
             <LoadingLine machineName={scope.machineName} />
           </View>
         ) : null}
-        <JumpToLatest
-          visible={leftAt !== undefined && changed}
-          bottom={props.insets.bottom}
-          onJump={jump}
-        />
+        <JumpToLatest visible={away} bottom={props.insets.bottom} onJump={jump} />
       </View>
     </TranscriptScopeContext>
   );
