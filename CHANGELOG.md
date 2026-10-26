@@ -46,6 +46,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.
+- A question of the agent now tells a client why the permission mode of the turn
+  asks, in one plain line, such as "cautious asks before any network access." The
+  phone app can show it below the command. The terminal shows the question as before.
 
 ### Changed
 
