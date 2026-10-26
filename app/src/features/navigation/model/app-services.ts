@@ -8,8 +8,12 @@
 // - The database opens once, in the background, for the event cache and the outbox.
 // - The outbox reads the prompts of the last launch, and the drain of each machine sends
 //   them when the machine is ready.
-// - A machine that the user forgets loses its cache rows, its outbox entries, its drafts
-//   and its place as the last machine.
+// - A machine that the user forgets loses its cache rows, its outbox entries, its drafts,
+//   its queries and its place as the last machine, also when the removal of its key
+//   fails.
+// - The summary of each snapshot goes into the lists of its machine at once.
+// - The drafts are saved at once when the app goes to the background: iOS can stop the
+//   wait of a debounced save there, and then end the app.
 //
 // Every effect comes in as a parameter, so the services run in Vitest with fakes. The
 // root layout gives the native ones.
@@ -20,7 +24,9 @@ import type { AsyncStorage } from "@tanstack/react-query-persist-client";
 import type { Clock } from "@/lib/net/clock";
 import { wireQueryManagers, type QueryManagers, type Subscribe } from "@/lib/query/managers";
 import { queryPersistOptions, type QueryPersistOptions } from "@/lib/query/persister";
+import { machineKey } from "@/lib/query/keys";
 import { createQueryClient } from "@/lib/query/query-client";
+import type { ConversationSummary } from "@/lib/protocol/generated";
 import type { EventCaches } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { KeyValueStorage } from "@/lib/store/key-value";
@@ -35,7 +41,13 @@ import {
   type Outbox,
   type OutboxStorage,
 } from "@/features/conversation/model/outbox";
+import { applySummary } from "@/features/conversations/conversations-queries";
 import { invalidateOnReady } from "@/features/machines/machine-queries";
+import type { MachineId } from "@/features/machines/model/machine-ref";
+import type {
+  ConversationStreamFactory,
+  SupervisedStream,
+} from "@/features/machines/model/stream-factory";
 import {
   createRuntime,
   type Lifecycle,
@@ -132,6 +144,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     onStorageError: onError,
   });
 
+  const queryClient = createQueryClient();
   const purges: MachinePurge[] = [
     (machine, caches) => caches?.removeMachine(machine),
     (machine) => outbox.removeMachine(machine),
@@ -141,11 +154,16 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     (machine) => {
       preferences.forgetMachine(machine);
     },
+    (machine) => {
+      queryClient.removeQueries({ queryKey: machineKey(machine) });
+    },
   ];
   const runtime: AppRuntime = createRuntime({
     pairing: deps.pairing,
     random: deps.random,
-    streams: withOutboxEcho(createConversationStream, outbox),
+    streams: withSummaries(withOutboxEcho(createConversationStream, outbox), (machine, summary) =>
+      applySummary(queryClient, machine, summary),
+    ),
     schedule: deps.schedule,
     openCache: async () => deps.openEventCaches(await openDatabase()),
     lifecycle: deps.lifecycle,
@@ -153,7 +171,6 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     onError,
   });
 
-  const queryClient = createQueryClient();
   const persistOptions = queryPersistOptions(deps.queryStorage, deps.appVersion);
   deps.setHapticsEnabled(() => preferences.store.get().haptics);
 
@@ -170,6 +187,11 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     ),
     invalidateOnReady(runtime, queryClient),
     wireOutboxDrains({ runtime, outbox, hydrated, clock: deps.clock, random: deps.random }),
+    deps.lifecycle.followAppState((active) => {
+      if (!active) {
+        drafts.flush();
+      }
+    }),
   ];
   const loaded = runtime.load().catch((error: unknown) => {
     onError(error);
@@ -189,5 +211,22 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
       }
       runtime.dispose();
     },
+  };
+}
+
+/** `factory`, with streams that give the summary of each snapshot to `onSummary` too. */
+function withSummaries<S extends SupervisedStream>(
+  factory: ConversationStreamFactory<S>,
+  onSummary: (machine: MachineId, summary: ConversationSummary) => void,
+): ConversationStreamFactory<S> {
+  return (ref, deps) => {
+    const own = deps.onSummary;
+    return factory(ref, {
+      ...deps,
+      onSummary: (summary) => {
+        own?.(summary);
+        onSummary(ref.machine, summary);
+      },
+    });
   };
 }

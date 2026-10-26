@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { flush } from "@/lib/net/testing";
 import type { EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
-import { BLANK_ROOT, draftKey } from "@/features/conversation/model/drafts";
+import { BLANK_ROOT, DRAFTS_KEY, draftKey } from "@/features/conversation/model/drafts";
+import { conversationsKeys } from "@/features/conversations/conversations-queries";
+import type { ConversationsRecentResult } from "@/lib/protocol/generated";
 import {
   DESKTOP,
   LAPTOP,
   conversationId,
   lastSocket,
+  setRecent,
   testServices,
   type TestServices,
 } from "./testing";
@@ -162,6 +165,58 @@ describe("the services of the app", () => {
     expect(services.runtime.registry.get().machines.map((machine) => machine.name)).toEqual([
       "desktop",
     ]);
+  });
+});
+
+describe("the services and the screens outside the stream", () => {
+  it("writes the summary of a snapshot into the recent list of its machine at once", async () => {
+    const test = await setup();
+    const { queryClient, runtime } = test.services;
+    setRecent(queryClient, DESKTOP, [{ id: CONVERSATION, title: "Fan", status: "running" }]);
+    const hold = runtime.hold({ machine: DESKTOP, id: CONVERSATION }, "keep");
+    const snapshot: SubscribeItem = {
+      kind: "snapshot",
+      conversation: {
+        id: CONVERSATION,
+        status: "awaiting_approval",
+        created_at: "2026-10-26T09:00:00Z",
+        updated_at: "2026-10-26T12:00:00Z",
+        last_seq: 7,
+        title: "Fan",
+      },
+      events: [],
+      hwm: 7,
+    };
+    hold?.stream.item(snapshot, snapshot);
+    const recent = queryClient.getQueryData<ConversationsRecentResult>(
+      conversationsKeys.recent(DESKTOP),
+    );
+    expect(recent?.conversations[0]?.summary).toMatchObject({
+      status: "awaiting_approval",
+      last_seq: 7,
+    });
+    hold?.release();
+  });
+
+  it("removes the queries of a forgotten machine also when its key stays", async () => {
+    const test = await setup();
+    const { queryClient, runtime } = test.services;
+    setRecent(queryClient, LAPTOP, [{ id: CONVERSATION, title: "Fan" }]);
+    setRecent(queryClient, DESKTOP, [{ id: CONVERSATION, title: "Fan" }]);
+    test.devices.failLoad = new Error("the keychain is locked");
+    await expect(runtime.forget(LAPTOP)).rejects.toThrow("the keychain is locked");
+    expect(queryClient.getQueryData(conversationsKeys.recent(LAPTOP))).toBeUndefined();
+    expect(queryClient.getQueryData(conversationsKeys.recent(DESKTOP))).toBeDefined();
+  });
+
+  it("saves the drafts at once when the app goes to the background", async () => {
+    const test = await setup();
+    test.services.drafts.set(draftKey(DESKTOP, BLANK_ROOT), "half a prompt");
+    await flush();
+    expect(await test.keyValue.getItem(DRAFTS_KEY)).toBeNull();
+    test.setActive(false);
+    await test.services.drafts.settled();
+    expect(await test.keyValue.getItem(DRAFTS_KEY)).toContain("half a prompt");
   });
 });
 

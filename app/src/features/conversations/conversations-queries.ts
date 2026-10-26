@@ -11,12 +11,18 @@
 // - The sheet asks every machine with `useQueries({ queries: machines.map(...),
 //   combine: combineConversationLists })`.
 
-import { keepPreviousData, queryOptions, type QueryObserverResult } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type QueryClient,
+  queryOptions,
+  type QueryObserverResult,
+} from "@tanstack/react-query";
 
 import { machineKey } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import { PERSIST_MAX_AGE_MS } from "@/lib/query/persister";
 import type {
+  ConversationSummary,
   ConversationsRecentResult,
   ConversationsSearchResult,
 } from "@/lib/protocol/generated";
@@ -43,6 +49,58 @@ export const conversationsKeys = {
   search: (machine: string, query: string) =>
     [...machineKey(machine), "conversations", "search", query.trim()] as const,
 };
+
+/**
+ * Writes `summary`, the summary of a snapshot of a conversation of `machine`, into the
+ * lists of `machine` in `client`: the title menu and the sheet show its new status at
+ * once, not on the next poll. A recent list that does not hold the conversation asks
+ * efrd again.
+ */
+export function applySummary(
+  client: QueryClient,
+  machine: string,
+  summary: ConversationSummary,
+): void {
+  const recentKey = conversationsKeys.recent(machine);
+  const recent = client.getQueryData<ConversationsRecentResult>(recentKey);
+  if (recent !== undefined) {
+    if (recent.conversations.some((row) => row.summary.id === summary.id)) {
+      client.setQueryData<ConversationsRecentResult>(recentKey, (held) =>
+        held === undefined
+          ? held
+          : {
+              ...held,
+              conversations: held.conversations.map((row) =>
+                row.summary.id === summary.id && !sameSummary(row.summary, summary)
+                  ? { ...row, summary }
+                  : row,
+              ),
+            },
+      );
+    } else {
+      void client.invalidateQueries({ queryKey: recentKey });
+    }
+  }
+  client.setQueriesData<ConversationsSearchResult>(
+    { queryKey: [...conversationsKeys.lists(machine), "search"] },
+    (held) =>
+      held === undefined
+        ? held
+        : {
+            ...held,
+            rows: held.rows.map((row) =>
+              row.conversation.summary.id === summary.id &&
+              !sameSummary(row.conversation.summary, summary)
+                ? { ...row, conversation: { ...row.conversation, summary } }
+                : row,
+            ),
+          },
+  );
+}
+
+function sameSummary(a: ConversationSummary, b: ConversationSummary): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 /** The conversations of a `conversations.recent` result of `machine`. */
 export function recentItems(

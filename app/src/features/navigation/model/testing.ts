@@ -74,6 +74,8 @@ export interface TestServices {
   /** The pairing records of the phone. */
   readonly devices: MemoryPairedDevices;
   readonly errors: unknown[];
+  /** Tells the listeners of the app state that the app went to the foreground or not. */
+  setActive(active: boolean): void;
   /** Opens the socket of `machine` and answers its handshake. */
   connect(machine: MachineId): Promise<void>;
 }
@@ -102,6 +104,7 @@ export async function testServices(
   const sockets = new FakeSockets();
   const keyValue = new MemoryKeyValue();
   const errors: unknown[] = [];
+  const appState = new Set<(active: boolean) => void>();
   let ids = 0;
   let aliases = 0;
   const services = createAppServices({
@@ -132,7 +135,15 @@ export async function testServices(
     keyValue,
     queryStorage: new MemoryStorage(),
     appVersion: "0.0.0-test",
-    lifecycle: { followAppState: () => () => undefined, followNetwork: () => () => undefined },
+    lifecycle: {
+      followAppState: (listener) => {
+        appState.add(listener);
+        return () => {
+          appState.delete(listener);
+        };
+      },
+      followNetwork: () => () => undefined,
+    },
     followOnline: () => () => undefined,
     setHapticsEnabled: () => undefined,
     onError: (error) => errors.push(error),
@@ -146,6 +157,11 @@ export async function testServices(
     keyValue,
     devices: stores.devices,
     errors,
+    setActive(active) {
+      for (const listener of appState) {
+        listener(active);
+      }
+    },
     async connect(machine) {
       const record = records.find((one) => one.daemonId === machine);
       if (record === undefined) {
