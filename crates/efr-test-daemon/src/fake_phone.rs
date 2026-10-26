@@ -328,10 +328,10 @@ impl FakePhone {
     /// The next frame of the request `id`: a held one, or one from the socket. The
     /// frames of other requests that come first are held.
     async fn frame_of(&mut self, id: RequestId) -> Result<ServerFrame, TestDaemonError> {
-        if let Some(at) = self.held.iter().position(|frame| frame.request_id() == Some(id)) {
-            if let Some(frame) = self.held.remove(at) {
-                return Ok(frame);
-            }
+        if let Some(at) = self.held.iter().position(|frame| frame.request_id() == Some(id))
+            && let Some(frame) = self.held.remove(at)
+        {
+            return Ok(frame);
         }
         loop {
             let frame = self.read().await?;
