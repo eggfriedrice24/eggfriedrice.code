@@ -7,6 +7,9 @@
 //! machine):
 //!
 //! - an address of this node refuses at once, with no whois;
+//! - an address outside the ranges of Tailscale (100.64.0.0/10 and
+//!   fd7a:115c:a1e0::/48) refuses at once too: a host of a subnet route is no node of
+//!   the tailnet, even when tailscaled names the router node for it;
 //! - the self node, a tagged node and a sharee node are refused;
 //! - a node of another user is refused, and so is every node when this node is tagged,
 //!   because a tagged node belongs to no person.
@@ -15,7 +18,7 @@
 //! whois, this node's and tailnet's ids, the token that closes the connection, the
 //! challenge of the hello and, after `device.prove`, the device and its scopes.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
@@ -30,6 +33,8 @@ use super::tailnet::Tailnet;
 pub(crate) enum Refusal {
     /// The peer has an address of this node: a local process.
     OwnAddress,
+    /// The peer's address is not a Tailscale address.
+    NotTailnet,
     /// The whois failed.
     WhoisFailed,
     /// tailscaled knows no node at the address.
@@ -51,6 +56,7 @@ impl Refusal {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Refusal::OwnAddress => "an address of this node",
+            Refusal::NotTailnet => "an address outside the tailnet",
             Refusal::WhoisFailed => "the whois of tailscaled failed",
             Refusal::UnknownPeer => "tailscaled knows no node there",
             Refusal::SelfNode => "this node itself",
@@ -63,11 +69,34 @@ impl Refusal {
 }
 
 /// Whether to refuse `peer` at once, before its whois: a peer at an address of this
-/// node is a local process.
-pub(crate) fn refuse_before_whois(tailnet: &Tailnet, peer: SocketAddr) -> Option<Refusal> {
+/// node is a local process, and a peer outside the ranges of Tailscale is no node. A
+/// test listener (`test_listen`) also takes peers at its own address.
+pub(crate) fn refuse_before_whois(
+    tailnet: &Tailnet,
+    peer: SocketAddr,
+    test_listen: Option<SocketAddrV4>,
+) -> Option<Refusal> {
     let ip = unmapped(peer.ip());
-    let own = tailnet.own_ips.iter().any(|own| unmapped(*own) == ip);
-    own.then_some(Refusal::OwnAddress)
+    if tailnet.own_ips.iter().any(|own| unmapped(*own) == ip) {
+        return Some(Refusal::OwnAddress);
+    }
+    let test_peer = test_listen.is_some_and(|listen| ip == IpAddr::V4(*listen.ip()));
+    (!is_tailnet_ip(ip) && !test_peer).then_some(Refusal::NotTailnet)
+}
+
+/// True for an address that Tailscale gives a node: in 100.64.0.0/10 (CGNAT) or in
+/// fd7a:115c:a1e0::/48.
+fn is_tailnet_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            a == 100 && (b & 0xc0) == 64
+        }
+        IpAddr::V6(v6) => {
+            let [a, b, c, ..] = v6.segments();
+            (a, b, c) == (0xfd7a, 0x115c, 0xa1e0)
+        }
+    }
 }
 
 /// What efrd reads of a whois reply.

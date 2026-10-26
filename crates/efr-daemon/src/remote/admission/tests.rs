@@ -75,10 +75,39 @@ fn an_address_of_this_node_is_refused_before_any_whois() {
         "[fd7a:115c:a1e0::1]:50000".parse().unwrap(),
     ];
     for peer in refused {
-        assert_eq!(refuse_before_whois(&tailnet(), peer), Some(Refusal::OwnAddress), "{peer}");
+        let refusal = refuse_before_whois(&tailnet(), peer, None);
+        assert_eq!(refusal, Some(Refusal::OwnAddress), "{peer}");
     }
     let phone: SocketAddr = "100.64.0.9:50000".parse().unwrap();
-    assert_eq!(refuse_before_whois(&tailnet(), phone), None);
+    assert_eq!(refuse_before_whois(&tailnet(), phone, None), None);
+}
+
+#[test]
+fn an_address_outside_the_tailnet_is_refused_before_any_whois() {
+    let refused: [&str; 7] = [
+        "192.168.1.20:50000",
+        "100.63.255.255:50000",
+        "100.128.0.1:50000",
+        "127.0.0.1:50000",
+        "[::ffff:192.168.1.20]:50000",
+        "[fd7a:115c:a1e1::5]:50000",
+        "[2001:db8::5]:50000",
+    ];
+    for peer in refused {
+        let peer: SocketAddr = peer.parse().unwrap();
+        let refusal = refuse_before_whois(&tailnet(), peer, None);
+        assert_eq!(refusal, Some(Refusal::NotTailnet), "{peer}");
+    }
+    for peer in ["100.64.0.1:50000", "100.127.255.254:50000", "[fd7a:115c:a1e0:ab12::9]:50000"] {
+        let peer: SocketAddr = peer.parse().unwrap();
+        assert_eq!(refuse_before_whois(&tailnet(), peer, None), None, "{peer}");
+    }
+    // A test listener on loopback takes peers at its own address, and no other.
+    let listen = Some("127.0.0.1:7419".parse().unwrap());
+    let local: SocketAddr = "127.0.0.1:50000".parse().unwrap();
+    assert_eq!(refuse_before_whois(&tailnet(), local, listen), None);
+    let lan: SocketAddr = "192.168.1.20:50000".parse().unwrap();
+    assert_eq!(refuse_before_whois(&tailnet(), lan, listen), Some(Refusal::NotTailnet));
 }
 
 #[test]

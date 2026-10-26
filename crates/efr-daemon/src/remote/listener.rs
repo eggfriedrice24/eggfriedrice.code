@@ -267,7 +267,9 @@ impl Accept {
 
     /// The whois of `peer` and the decision on it.
     async fn admit(&self, peer: SocketAddr) -> Result<admission::PeerFacts, admission::Refusal> {
-        if let Some(refusal) = admission::refuse_before_whois(&self.tailnet, peer) {
+        if let Some(refusal) =
+            admission::refuse_before_whois(&self.tailnet, peer, self.listen.listen)
+        {
             return Err(refusal);
         }
         let identity = self.listen.api.whois(peer).await.map_err(|error| {
