@@ -249,7 +249,9 @@ export interface FakePairingOptions {
 export function fakePairingSession(options: FakePairingOptions = {}): FakePairingSession {
   const scanner = new FakeScanner();
   const registry = createAtom<RegistryState>(loadedRegistry(options.machines ?? []));
-  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   const pairs: PendingPair[] = [];
   const haptics: PairingHaptic[] = [];
   const announced: string[] = [];

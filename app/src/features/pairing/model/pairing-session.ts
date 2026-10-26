@@ -140,9 +140,14 @@ export function createPairingSession(deps: PairingSessionDeps): PairingSession {
   return new Session(deps);
 }
 
-/** The state that the screen shows for target `repair`: the intro when the session is for another target. */
+const INTRO: PairingPhase = { kind: "intro" };
+
+/**
+ * The phase that the screen of target `repair` shows: the intro when the session runs
+ * for another target.
+ */
 export function phaseFor(state: PairingState, repair: MachineId | null): PairingPhase {
-  return state.repair === repair ? state.phase : { kind: "intro" };
+  return state.repair === repair ? state.phase : INTRO;
 }
 
 /** True while a scan or a pairing runs. */
