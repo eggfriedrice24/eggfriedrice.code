@@ -4,9 +4,9 @@
 // in React Native, so the screen sends each announcement with
 // `AccessibilityInfo.announceForAccessibilityWithOptions`.
 //
-// Pure: the screen passes the details before and after a change.
+// Pure: the screen passes the stream state before and after a change.
 
-import type { TranscriptDetails } from "./details";
+import type { StreamState, TurnOutcome } from "@/lib/stream/reducer";
 
 /** One announcement. */
 export interface Announcement {
@@ -21,8 +21,8 @@ export interface Announcement {
  * The announcements for the change from `before` to `after`: each new approval question,
  * and the end of each turn that ran while the screen was open.
  */
-export function announcements(before: TranscriptDetails, after: TranscriptDetails): Announcement[] {
-  if (before === after) {
+export function announcements(before: StreamState, after: StreamState): Announcement[] {
+  if (before.turns === after.turns) {
     return [];
   }
   const out: Announcement[] = [];
@@ -36,7 +36,7 @@ export function announcements(before: TranscriptDetails, after: TranscriptDetail
       continue;
     }
     for (const [callId, approval] of turn.approvals) {
-      if (approval.state !== "pending" || old?.approvals.get(callId)?.state === "pending") {
+      if (approval.status !== "pending" || old?.approvals.get(callId)?.status === "pending") {
         continue;
       }
       out.push({
@@ -57,7 +57,7 @@ export function announcements(before: TranscriptDetails, after: TranscriptDetail
   return out;
 }
 
-function endText(outcome: string, error: string | undefined): string | undefined {
+function endText(outcome: TurnOutcome, error: string | undefined): string | undefined {
   switch (outcome) {
     case "completed":
       return "Reply done.";

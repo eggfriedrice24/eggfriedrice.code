@@ -1,106 +1,126 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeSubscribeItem } from "@/lib/protocol/envelope";
-import { EMPTY_STREAM, reduce, type StreamState } from "@/lib/stream/reducer";
-import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
-import { createRowBuilder } from "./rows";
+import type { DraftPart, Event, SubscribeItem } from "@/lib/protocol/wire";
+import { reduce } from "@/lib/stream/reducer";
+import {
+  approvalRequested,
+  draftItem,
+  eventItem,
+  messageCompleted,
+  promptQueued,
+  run,
+  textPart,
+  toolCallStarted,
+  turnCompleted,
+  turnStarted,
+} from "@/lib/stream/testing";
+import { createRowBuilder, rowKindOf, sameRows } from "./rows";
 
-const TURN = "019a9b1c-3d00-7a10-8b20-0000000000a1";
-
-function feed(items: unknown[]): { details: TranscriptDetails; stream: StreamState } {
-  let details = EMPTY_DETAILS;
-  let stream = EMPTY_STREAM;
-  for (const item of items) {
-    details = reduceDetails(details, item);
-    const decoded = decodeSubscribeItem(item);
-    if (decoded.ok) {
-      stream = reduce(stream, decoded.value);
-    }
-  }
-  return { details, stream };
-}
-
+const TURN = "t1";
 let seq = 0;
-const event = (body: Record<string, unknown>) => ({
-  kind: "event",
-  seq: ++seq,
-  at: "2026-10-26T12:00:00Z",
-  event: { turn_id: TURN, ...body },
-});
-const text = (index: number, offset: number, delta: string) => ({
-  kind: "draft",
-  turn_id: TURN,
-  after_seq: seq,
-  draft: { kind: "text", index, offset, delta },
-});
+const event = (body: Event): SubscribeItem => eventItem(++seq, body);
+const draft = (part: DraftPart): SubscribeItem => draftItem(TURN, seq, part);
 
 describe("createRowBuilder", () => {
-  it("lists the parts of a turn newest first, with its status while it runs", () => {
+  it("lists the parts of a turn oldest first, with its running line while it runs", () => {
     const build = createRowBuilder();
-    const input = feed([
-      event({ kind: "prompt_queued", text: "hi", origin: "phone" }),
-      event({ kind: "turn_started" }),
-      text(0, 0, "Hello"),
-      event({ kind: "tool_call_started", call_id: "c", tool: "shell", input: { command: "ls" } }),
-      event({ kind: "approval_requested", call_id: "c", summary: "run ls" }),
+    const state = run([
+      event(promptQueued(TURN, "hi", "phone")),
+      event(turnStarted(TURN)),
+      draft(textPart(0, 0, "Hello")),
+      event(toolCallStarted(TURN, "c", "shell", { command: "ls" })),
+      event(approvalRequested(TURN, "c", "run ls")),
+      event({ kind: "turn_steered", turn_id: TURN, text: "and /tmp" }),
     ]);
-    expect(build(input).map((row) => row.key)).toEqual([
-      `w:${TURN}`,
-      `a:${TURN}:c`,
-      `t:${TURN}:c`,
-      `m:${TURN}:0`,
-      `p:${TURN}`,
+    expect(build(state).map((row) => row.key)).toEqual([
+      "p:t1",
+      "m:t1:0",
+      "t:t1:c",
+      "a:t1:c",
+      `s:t1:${seq}`,
+      "w:t1",
     ]);
   });
 
   it("keeps the same list and rows while only the text grows", () => {
     const build = createRowBuilder();
-    const before = feed([event({ kind: "turn_started" }), text(0, 0, "Hey")]);
+    const before = run([event(turnStarted(TURN)), draft(textPart(0, 0, "Hey"))]);
     const rows = build(before);
-    const after = { ...before, stream: reduceStream(before.stream, text(0, 3, " you")) };
-    expect(after.stream).not.toBe(before.stream);
+    const after = reduce(before, draft(textPart(0, 3, " you")));
+    expect(after.turns.get(TURN)).not.toBe(before.turns.get(TURN));
     expect(build(after)).toBe(rows);
   });
 
-  it("keeps each row object when a row comes, and ends the status at the turn's end", () => {
+  it("builds only the rows of the turn that changed", () => {
     const build = createRowBuilder();
-    const items: unknown[] = [event({ kind: "turn_started" }), text(0, 0, "Hi")];
-    const first = build(feed(items));
-    items.push(
-      event({ kind: "assistant_message_completed", index: 0, text: "Hi" }),
-      event({ kind: "turn_completed" }),
-    );
-    const second = build(feed(items));
-    expect(second.map((row) => row.key)).toEqual([`e:${TURN}`, `m:${TURN}:0`]);
-    expect(second[1]).toBe(first.find((row) => row.key === `m:${TURN}:0`));
+    const old = "t0";
+    const before = run([
+      event(turnStarted(old)),
+      event(messageCompleted(old, 0, "Old.")),
+      event(turnCompleted(old)),
+      event(turnStarted(TURN)),
+      draft(textPart(0, 0, "Hi")),
+    ]);
+    const first = build(before);
+    const after = reduce(before, event(toolCallStarted(TURN, "c", "shell")));
+    const second = build(after);
+    expect(second).not.toBe(first);
+    expect(second.slice(0, 2)).toEqual(first.slice(0, 2));
+    expect(second[0]).toBe(first[0]);
+    expect(second.map((row) => row.key)).toEqual(["m:t0:0", "e:t0", "m:t1:0", "t:t1:c", "w:t1"]);
+  });
+
+  it("keeps each row object when a row comes, and ends the running line at the turn's end", () => {
+    const build = createRowBuilder();
+    const items: SubscribeItem[] = [event(turnStarted(TURN)), draft(textPart(0, 0, "Hi"))];
+    const first = build(run(items));
+    items.push(event(messageCompleted(TURN, 0, "Hi")), event(turnCompleted(TURN)));
+    const second = build(run(items));
+    expect(second.map((row) => row.key)).toEqual(["m:t1:0", "e:t1"]);
+    expect(second[0]).toBe(first.find((row) => row.key === "m:t1:0"));
   });
 
   it("shows the reasoning after the prompt, and no message before its first text", () => {
     const build = createRowBuilder();
     const rows = build(
-      feed([
-        event({ kind: "prompt_queued", text: "think", origin: "shell" }),
-        event({ kind: "turn_started" }),
-        {
-          kind: "draft",
-          turn_id: TURN,
-          after_seq: seq,
-          draft: { kind: "reasoning", offset: 0, delta: "**Plan**" },
-        },
-        text(0, 0, ""),
+      run([
+        event(promptQueued(TURN, "think")),
+        event(turnStarted(TURN)),
+        draft({ kind: "reasoning", offset: 0, delta: "**Plan**" }),
+        draft(textPart(0, 0, "")),
       ]),
     );
-    expect(rows.map((row) => row.key)).toEqual([`w:${TURN}`, `r:${TURN}`, `p:${TURN}`]);
+    expect(rows.map((row) => row.key)).toEqual(["p:t1", "r:t1", "w:t1"]);
   });
 
-  it("shows the status of a prompt that waits in the queue", () => {
+  it("shows a queued prompt without a running line", () => {
     const build = createRowBuilder();
-    const rows = build(feed([event({ kind: "prompt_queued", text: "next", origin: "phone" })]));
-    expect(rows.map((row) => row.key)).toEqual([`w:${TURN}`, `p:${TURN}`]);
+    const rows = build(run([event(promptQueued(TURN, "next", "phone"))]));
+    expect(rows.map((row) => row.key)).toEqual(["p:t1"]);
+  });
+
+  it("hides a steer that an interrupt sent again as a prompt", () => {
+    const build = createRowBuilder();
+    const state = run([
+      event(turnStarted(TURN)),
+      event({ kind: "turn_steered", turn_id: TURN, text: "also" }),
+    ]);
+    const steer = seq;
+    const after = reduce(
+      run([event({ kind: "turn_interrupted", turn_id: TURN })], state),
+      event({ ...promptQueued("t2", "also"), steers: [steer] }),
+    );
+    expect(build(after).map((row) => row.key)).toEqual(["e:t1", "p:t2"]);
   });
 });
 
-function reduceStream(stream: StreamState, item: unknown): StreamState {
-  const decoded = decodeSubscribeItem(item);
-  return decoded.ok ? reduce(stream, decoded.value) : stream;
-}
+describe("rowKindOf and sameRows", () => {
+  it("reads the kind from the key, and compares row objects", () => {
+    expect(rowKindOf("m:t:0")).toBe("message");
+    expect(rowKindOf("w:t")).toBe("status");
+    expect(rowKindOf("x:t")).toBeUndefined();
+    const row = { kind: "end", key: "e:t", turnId: "t" } as const;
+    expect(sameRows([row], [row])).toBe(true);
+    expect(sameRows([row], [{ ...row }])).toBe(false);
+  });
+});

@@ -1,122 +1,83 @@
-// The stores that the screens read: the shape that React's useSyncExternalStore takes.
-// The stores of the app give the screens their state through this interface, so the
-// screens do not depend on how it is made. The stream store of the UI rebuild (TanStack
-// Store with this frame gate) replaces the value stores here.
+// The frame store: how a stream commits at most once per display frame. efrd sends
+// drafts at about 60 Hz and the network delivers them in bursts, so the state of a
+// stream can change many times in one frame. The owner sets each new state here; the
+// frame store keeps the newest one in a plain field and writes it to its TanStack Store
+// on the next frame, once. So a row that reads the store with a selector renders at
+// most once per frame, and a row whose part did not change does not render at all.
 //
-// `frameGated` is how the transcript commits at most once per display frame: efrd sends
-// drafts at about 60 Hz and the network delivers them in bursts, so a stream store can
-// change many times in one frame. The gate holds the value of the last frame and tells
-// its listeners once per frame, so a row that reads it renders at most once per frame,
-// and a row whose part did not change does not render at all.
+// A store update renders synchronously and cannot run in a transition, so the stream
+// coalesces at the source (plan section 2.4). TanStack Pacer has no frame timer, so this
+// is our own code.
 //
-// Pure TypeScript: the caller passes the frame scheduler (requestAnimationFrame in the
-// app, a manual one in the tests).
+// Pure TypeScript: the owner passes the frame scheduler (`animationFrames` in the app,
+// a manual one in the tests).
 
-/** A value that changes, with a way to hear of each change. */
-export interface ExternalStore<T> {
-  /** The value now. The same object until the value changes. */
-  readonly getSnapshot: () => T;
-  /** Calls `listener` after each change; the result removes it. */
-  readonly subscribe: (listener: () => void) => () => void;
-}
-
-/** A store that the owner sets. */
-export interface ValueStore<T> extends ExternalStore<T> {
-  readonly set: (value: T) => void;
-  readonly update: (change: (value: T) => T) => void;
-}
-
-/** A store that holds `initial` until it is set. Setting the same object tells nobody. */
-export function createValueStore<T>(initial: T): ValueStore<T> {
-  let value = initial;
-  const listeners = new Set<() => void>();
-  const set = (next: T): void => {
-    if (Object.is(next, value)) {
-      return;
-    }
-    value = next;
-    for (const listener of listeners) {
-      listener();
-    }
-  };
-  return {
-    getSnapshot: () => value,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    set,
-    update: (change) => set(change(value)),
-  };
-}
+import { createStore, type Readable } from "@tanstack/store";
 
 /** Runs `callback` on the next display frame; the result cancels it. */
 export type FrameScheduler = (callback: () => void) => () => void;
 
-/** A store that follows another one and changes at most once per frame. */
-export interface GatedStore<T> extends ExternalStore<T> {
-  /** Takes the value of the source now, without a frame, and tells the listeners. */
-  readonly flush: () => void;
+/** The frames of the display, through `requestAnimationFrame`. */
+export const animationFrames: FrameScheduler = (callback) => {
+  const id = requestAnimationFrame(() => {
+    callback();
+  });
+  return () => {
+    cancelAnimationFrame(id);
+  };
+};
+
+/** A value that the owner sets often, and that its readers see once per frame. */
+export interface FrameStore<T> {
+  /** The value of the last frame, for `useSelector`. */
+  readonly store: Readable<T>;
+  /** The newest value, which the store shows from the next frame. */
+  latest(): T;
+  /** Holds `value` and asks for a frame, unless one is asked for already. */
+  set(value: T): void;
+  /** Writes the newest value to the store now, without a frame. */
+  flush(): void;
+  /** Cancels the frame that is asked for. Later calls of `set` hold the value only. */
+  dispose(): void;
 }
 
-/**
- * A view of `source` that takes its value at most once per frame. It listens to the
- * source only while it has listeners itself, and then follows each change on the next
- * frame. Without listeners it reads the source on each call.
- */
-export function frameGated<T>(source: ExternalStore<T>, schedule: FrameScheduler): GatedStore<T> {
-  let value = source.getSnapshot();
-  const listeners = new Set<() => void>();
-  let unsubscribe: (() => void) | undefined;
+/** A frame store that starts with `initial`. Setting the same object asks for no frame. */
+export function createFrameStore<T>(initial: T, schedule: FrameScheduler): FrameStore<T> {
+  const store = createStore(initial);
+  let latest = initial;
   let cancel: (() => void) | undefined;
+  let disposed = false;
 
   const flush = (): void => {
     cancel?.();
     cancel = undefined;
-    const next = source.getSnapshot();
-    if (Object.is(next, value)) {
-      return;
-    }
-    value = next;
-    for (const listener of listeners) {
-      listener();
-    }
-  };
-  const onChange = (): void => {
-    if (cancel === undefined) {
-      cancel = schedule(() => {
-        cancel = undefined;
-        flush();
-      });
+    if (!Object.is(store.state, latest)) {
+      const next = latest;
+      store.setState(() => next);
     }
   };
 
   return {
-    getSnapshot: () => {
-      if (unsubscribe === undefined) {
-        value = source.getSnapshot();
+    store,
+    latest: () => latest,
+    set: (value) => {
+      if (Object.is(value, latest)) {
+        return;
       }
-      return value;
-    },
-    subscribe: (listener) => {
-      listeners.add(listener);
-      if (unsubscribe === undefined) {
-        value = source.getSnapshot();
-        unsubscribe = source.subscribe(onChange);
-      }
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0) {
-          unsubscribe?.();
-          unsubscribe = undefined;
-          cancel?.();
+      latest = value;
+      if (cancel === undefined && !disposed) {
+        cancel = schedule(() => {
           cancel = undefined;
-        }
-      };
+          flush();
+        });
+      }
     },
     flush,
+    dispose: () => {
+      disposed = true;
+      cancel?.();
+      cancel = undefined;
+    },
   };
 }
 
@@ -124,7 +85,7 @@ export function frameGated<T>(source: ExternalStore<T>, schedule: FrameScheduler
  * A memo of `select` over the values of a store: it returns its last result while the
  * input is the same object, and the last result again when `equal` says the new result
  * matches it. So a selector that builds a list gives the same list until the list
- * changes, and useSyncExternalStore renders nothing.
+ * changes, and `useSelector` renders nothing.
  */
 export function memoSelector<T, S>(
   select: (value: T) => S,
@@ -142,36 +103,5 @@ export function memoSelector<T, S>(
     }
     last = { input, output };
     return output;
-  };
-}
-
-/**
- * A store of `combine(a, b)` over two stores. It computes the value again only when one
- * of the two values changed, so its snapshot is the same object until then; `combine`
- * can keep its own results with memoSelector.
- */
-export function combineStores<A, B, T>(
-  a: ExternalStore<A>,
-  b: ExternalStore<B>,
-  combine: (a: A, b: B) => T,
-): ExternalStore<T> {
-  let last: { readonly a: A; readonly b: B; readonly value: T } | undefined;
-  return {
-    getSnapshot: () => {
-      const valueA = a.getSnapshot();
-      const valueB = b.getSnapshot();
-      if (last === undefined || !Object.is(last.a, valueA) || !Object.is(last.b, valueB)) {
-        last = { a: valueA, b: valueB, value: combine(valueA, valueB) };
-      }
-      return last.value;
-    },
-    subscribe: (listener) => {
-      const offA = a.subscribe(listener);
-      const offB = b.subscribe(listener);
-      return () => {
-        offA();
-        offB();
-      };
-    },
   };
 }

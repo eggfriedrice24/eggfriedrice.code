@@ -13,7 +13,7 @@ import {
   type TimedItem,
   toolAndApproval,
 } from "@/features/demo/model/scenarios";
-import { pendingApprovals } from "./details";
+import { pendingApprovals } from "@/lib/stream/reducer";
 import {
   dropDrafts,
   duplicateEvents,
@@ -120,17 +120,17 @@ describe("the scripted streams", () => {
 
   it("hold the approval, its answer and the end of the turn", () => {
     const result = replay(toolAndApproval("deny").items);
-    const turn = [...result.details.turns.values()].at(-1);
+    const turn = [...result.stream.turns.values()].at(-1);
     const approval = [...(turn?.approvals.values() ?? [])][0];
     expect(approval).toMatchObject({
-      state: "resolved",
+      status: "denied",
       decision: "deny",
       answeredBy: "phone",
       interactive: true,
     });
     expect(approval?.expiresAt).toBe((approval?.askedAt ?? 0) + 120_000);
     expect(turn?.end).toMatchObject({ outcome: "completed", context: { tokens: 101_200 } });
-    expect(pendingApprovals(result.details)).toEqual([]);
+    expect(pendingApprovals(result.stream)).toEqual([]);
     expect(turn?.parts.map((part) => part.kind)).toEqual([
       "message",
       "tool",
@@ -139,6 +139,27 @@ describe("the scripted streams", () => {
       "approval",
       "message",
     ]);
+  });
+
+  it("keep the render budgets: one commit per frame, a new row list only for a new row", () => {
+    for (const scenario of SCENARIOS) {
+      const result = replay(scenario.items);
+      expect({
+        name: scenario.name,
+        commits: result.maxCommitsPerFrame,
+        // The list changes only on a frame where a row came or went.
+        changes: result.structureChanges > 0 && result.structureChanges <= result.rowMoves,
+        // While the text streams, most frames keep the list.
+        quietFrames: result.structureChanges * 4 < result.frames,
+        problems: result.problems,
+      }).toEqual({
+        name: scenario.name,
+        commits: 1,
+        changes: true,
+        quietFrames: true,
+        problems: [],
+      });
+    }
   });
 });
 

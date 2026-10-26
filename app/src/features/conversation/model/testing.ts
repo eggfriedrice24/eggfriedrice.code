@@ -1,12 +1,17 @@
 // The replay harness of the UI tests: it runs a stream of timed items through what the
-// app runs between a frame from efrd and the pixels (the envelope guard, the stream
-// reducer, the details reducer, the paced text of each message row and the block
-// splitter) on a 16 ms frame clock, and checks on every frame what a reader must never
-// see:
+// app runs between a frame from efrd and the pixels (the envelope guard, the
+// conversation stream with its frame store, the structure and message selectors, the
+// paced text of each message row and the block splitter) on a 16 ms frame clock, and
+// checks on every frame what a reader must never see:
 //
 // - the shown text of a message moves back, or stops being a prefix of its text, within
 //   one generation;
-// - a block that the splitter called final changes.
+// - a block that the splitter called final changes;
+// - a final message row gets a new message object (a settled row would render again).
+//
+// It also checks the render budgets (plan section 3): the store commits at most once per
+// frame, so the live message selector changes at most once per frame, and the structure
+// selector gives a new list only when a row comes or goes.
 //
 // The lag of the pacer has its own tests in src/lib/stream/pacer.test.ts.
 //
@@ -14,19 +19,22 @@
 
 import type { TimedItem } from "@/features/demo/model/scenarios";
 import { decodeSubscribeItem } from "@/lib/protocol/envelope";
-import { EMPTY_STREAM, type MessageView, reduce, type StreamState } from "@/lib/stream/reducer";
+import type { MessageView, StreamState } from "@/lib/stream/reducer";
+import { manualFrames } from "@/lib/stream/testing";
 import { utf16IndexAtByte, utf8Length } from "@/lib/stream/utf8";
 import { type BlockSplit, EMPTY_SPLIT, splitBlocks } from "./blocks";
-import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
+import { createConversationStream } from "./conversation-stream";
 import { pacedArrive, pacedFrame, type PacedText, startPaced } from "./paced-text";
+import type { Row } from "./rows";
+import { createRowsSelector, selectMessage } from "./selectors";
 
 /** The frame interval of the harness. */
 export const FRAME_MS = 16;
 
 /** What a replay ends with. */
 export interface ReplayResult {
+  /** The state that the store shows on the last frame. */
   readonly stream: StreamState;
-  readonly details: TranscriptDetails;
   /** The text shown on the last frame of each message, by `turnId:index`. */
   readonly shown: ReadonlyMap<string, string>;
   /** Each broken rule, in words; empty when the replay was clean. */
@@ -34,9 +42,15 @@ export interface ReplayResult {
   readonly frames: number;
   /** The frames on which some message showed less than its text: the pacer at work. */
   readonly pacedFrames: number;
+  /** The most commits of the store in one frame. */
+  readonly maxCommitsPerFrame: number;
+  /** How many times the structure selector gave a new list. */
+  readonly structureChanges: number;
+  /** How many rows came or went, over all frames. */
+  readonly rowMoves: number;
 }
 
-interface Row {
+interface MessageRow {
   message: MessageView;
   paced: PacedText;
   split: BlockSplit;
@@ -45,48 +59,86 @@ interface Row {
 
 /** Runs `items` (in the order given, each at its time) and checks every frame. */
 export function replay(items: readonly TimedItem[], reduceMotion = false): ReplayResult {
-  let stream = EMPTY_STREAM;
-  let details = EMPTY_DETAILS;
-  const rows = new Map<string, Row>();
+  const frames = manualFrames();
+  const stream = createConversationStream(
+    { machine: "replay", conversation: "replay" },
+    { schedule: frames.schedule },
+  );
+  const selectRows = createRowsSelector();
+  let commits = 0;
+  stream.store.subscribe(() => commits++);
+  let rows: readonly Row[] = selectRows(stream.store.get());
+  let keys = new Set<string>();
+  let structureChanges = 0;
+  let rowMoves = 0;
+  let maxCommitsPerFrame = 0;
+  const messages = new Map<string, MessageRow>();
   const problems: string[] = [];
   const end = (items[items.length - 1]?.at ?? 0) + 1_000;
   let next = 0;
-  let frames = 0;
+  let count = 0;
   let pacedFrames = 0;
   for (let now = 0; now <= end; now += FRAME_MS) {
     while (next < items.length && (items[next]?.at ?? 0) <= now) {
       const raw = items[next]?.item;
       next++;
-      details = reduceDetails(details, raw);
       const decoded = decodeSubscribeItem(raw);
       if (!decoded.ok) {
         problems.push(`item ${next - 1} does not decode: ${decoded.reason}`);
         continue;
       }
-      stream = reduce(stream, decoded.value);
-      for (const [turnId, turn] of stream.turns) {
-        for (const [index, message] of turn.messages) {
-          const key = `${turnId}:${index}`;
-          const row = rows.get(key);
-          if (row === undefined) {
-            if (message.buffer.text.length > 0) {
-              rows.set(key, {
-                message,
-                paced: startPaced(input(message), now),
-                split: EMPTY_SPLIT,
-                shown: "",
-              });
-            }
-          } else if (row.message !== message) {
-            row.message = message;
-            row.paced = pacedArrive(row.paced, input(message), now);
-          }
+      stream.item(decoded.value, raw);
+    }
+    commits = 0;
+    frames.frame();
+    count++;
+    maxCommitsPerFrame = Math.max(maxCommitsPerFrame, commits);
+    const state = stream.store.get();
+    const nextRows = selectRows(state);
+    if (nextRows !== rows) {
+      structureChanges++;
+      const nextKeys = new Set(nextRows.map((row) => row.key));
+      let moves = 0;
+      for (const key of nextKeys) {
+        moves += keys.has(key) ? 0 : 1;
+      }
+      for (const key of keys) {
+        moves += nextKeys.has(key) ? 0 : 1;
+      }
+      if (moves === 0) {
+        problems.push(`at ${now} ms: the structure selector gave a new list with the same rows`);
+      }
+      rowMoves += moves;
+      keys = nextKeys;
+      rows = nextRows;
+    }
+    for (const row of rows) {
+      if (row.kind !== "message") {
+        continue;
+      }
+      const message = selectMessage(row.turnId, row.index)(state);
+      if (message === undefined) {
+        continue;
+      }
+      const key = `${row.turnId}:${row.index}`;
+      const held = messages.get(key);
+      if (held === undefined) {
+        messages.set(key, {
+          message,
+          paced: startPaced(input(message), now),
+          split: EMPTY_SPLIT,
+          shown: "",
+        });
+      } else if (held.message !== message) {
+        if (held.message.final && held.message.buffer.text === message.buffer.text) {
+          problems.push(`${key} at ${now} ms: a settled message got a new object`);
         }
+        held.message = message;
+        held.paced = pacedArrive(held.paced, input(message), now);
       }
     }
-    frames++;
     let paced = false;
-    for (const [key, row] of rows) {
+    for (const [key, row] of messages) {
       const text = row.message.buffer.text;
       const generation = row.paced.generation;
       const frame = pacedFrame(row.paced, text, now, reduceMotion);
@@ -127,10 +179,20 @@ export function replay(items: readonly TimedItem[], reduceMotion = false): Repla
     }
   }
   const shown = new Map<string, string>();
-  for (const [key, row] of rows) {
+  for (const [key, row] of messages) {
     shown.set(key, row.shown);
   }
-  return { stream, details, shown, problems, frames, pacedFrames };
+  stream.dispose();
+  return {
+    stream: stream.store.get(),
+    shown,
+    problems,
+    frames: count,
+    pacedFrames,
+    maxCommitsPerFrame,
+    structureChanges,
+    rowMoves,
+  };
 }
 
 function input(message: MessageView) {
