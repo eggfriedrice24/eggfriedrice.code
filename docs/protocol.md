@@ -828,3 +828,10 @@ No protocol version has shipped yet.
   does not run. The section "Remote devices" now gives the rules of a pairing (the
   token, the count of wrong tokens, the time to answer) and the key fingerprint with its
   test vector.
+- Version 1, no change of the frames: efrd announces `drafts_coalesced`,
+  `snapshot_live` and `approval_local_only` on every connection. It fills `live` in the
+  snapshot while a model call of a turn runs, and sets `local_only` in
+  `approval_requested`. A resume (`after_seq`) with `drafts` has no snapshot, so its
+  first drafts hold the reasoning of the running turn and the text of its current
+  message from offset 0; a client cuts the bytes that it has. efrd refuses
+  `input.respond` from a phone with `forbidden`, whatever scopes the phone holds.
