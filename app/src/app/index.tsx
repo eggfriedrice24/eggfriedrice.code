@@ -1,31 +1,13 @@
-import { Stack } from "expo-router";
-import { StyleSheet, Text, View } from "react-native";
+import { Redirect } from "expo-router";
 
-import { semantic } from "@/theme/palette";
+import { ConversationListScreen } from "@/ui/conversation_list_screen";
+import { useConnection } from "@/ui/states";
 
-const options = { title: "efr" };
-
-// A placeholder until the pairing and conversation screens exist.
+// The start screen: the conversations of a paired phone, else the pairing screen.
 export default function Home() {
-  return (
-    <View style={styles.root}>
-      <Stack.Screen options={options} />
-      <Text style={styles.text}>To pair this phone, run efr device add on your computer.</Text>
-    </View>
-  );
+  const { view } = useConnection();
+  if (view.kind === "unpaired") {
+    return <Redirect href="/pair" />;
+  }
+  return <ConversationListScreen />;
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    backgroundColor: semantic.surface_1,
-  },
-  text: {
-    color: semantic.text_primary,
-    fontSize: 16,
-    textAlign: "center",
-  },
-});
