@@ -5,7 +5,7 @@
 //
 // The adapter takes the native functions as a parameter, so it runs in Vitest with a fake.
 
-import { decodeBase64, encodeBase64 } from "./base64";
+import { base64Decode, base64Encode } from "../protocol/bytes";
 
 /** One device key. The private key never leaves the key store. */
 export interface DeviceKey {
@@ -54,7 +54,7 @@ export function deviceKeyStore(binding: DeviceKeyBinding): DeviceKeyStore {
     alias,
     publicKey,
     async sign(message: Uint8Array): Promise<Uint8Array> {
-      const signature = decodeBase64(await binding.sign(alias, encodeBase64(message)));
+      const signature = base64Decode(await binding.sign(alias, base64Encode(message)));
       if (signature === undefined || !isDerSignature(signature)) {
         throw new DeviceKeyError("the device key gave a signature that is not DER");
       }
@@ -86,7 +86,7 @@ function checkAlias(alias: string): void {
 }
 
 function publicKeyFrom(text: string): Uint8Array {
-  const bytes = decodeBase64(text);
+  const bytes = base64Decode(text);
   if (!isPublicKey(bytes)) {
     throw new DeviceKeyError("the device key gave a public key that is not a P-256 point");
   }

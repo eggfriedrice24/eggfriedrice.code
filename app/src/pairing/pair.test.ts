@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeBase64 } from "./base64";
-import type { OpenSocket } from "./connection";
+import type { SocketFactory, SocketListener } from "../net/socket";
+import { FakeClock } from "../net/testing";
+import { base64Decode } from "../protocol/bytes";
+import { PROTOCOL_VERSION } from "../protocol/generated";
 import { deviceKeyStore } from "./device_key";
-import { cancellation, pair, PROTOCOL_VERSION } from "./pair";
+import { cancellation, pair } from "./pair";
 import type { PairingDeps, PairingStep } from "./pair";
 import type { PairedDevice } from "./paired_device";
 import {
   FakeKeyBinding,
-  FakeSocket,
-  FakeTimers,
-  fakeSockets,
   later,
   MemoryPairedDevices,
   parseRequest,
   settle,
+  type SentRequest,
 } from "./testing";
 import { isJsonObject } from "./json";
 
@@ -29,7 +29,7 @@ const HELLO = {
   protocol: 1,
   version: "0.0.6",
   capabilities: { device_prove: true },
-  paths: { scratch_root: "/s", data_dir: "/d" },
+  paths: { scratch_root: "", data_dir: "" },
   challenge: "3q2-7wAAAAAAAAAAAAAAAA",
   prove: { peer_node: "nPHONE", daemon_node: "nDESK", daemon_tailnet: "T1" },
 };
@@ -41,32 +41,48 @@ type Answer =
   | { readonly error: { code: string; message: string; data?: unknown } }
   | "hang";
 
+/** One socket of the fake efrd. */
+interface DaemonSocket {
+  readonly url: string;
+  readonly listener: SocketListener;
+  /** The requests that the app sent, oldest first. */
+  readonly requests: SentRequest[];
+  /** Every text that the app sent. */
+  readonly sent: string[];
+  closedByClient: boolean;
+}
+
 /**
  * A fake efrd behind fake sockets: a socket to a reachable URL opens on the next job, and
  * each request gets the answer of `answer`.
  */
 function fakeDaemon(
   answer: (method: string, params: unknown) => Answer,
-  reachable: (url: string) => boolean = () => true,
-): { readonly open: OpenSocket; readonly sockets: FakeSocket[] } {
-  const sockets: FakeSocket[] = [];
-  const open: OpenSocket = (url, handlers) => {
-    const socket = new FakeSocket(url, handlers);
-    sockets.push(socket);
-    void later(() => (reachable(url) ? socket.open() : socket.close(1006, "")));
+  reachable: (url: string) => boolean | "silent" = () => true,
+): { readonly sockets: SocketFactory; readonly made: DaemonSocket[] } {
+  const made: DaemonSocket[] = [];
+  const sockets: SocketFactory = (url, listener) => {
+    const socket: DaemonSocket = { url, listener, requests: [], sent: [], closedByClient: false };
+    made.push(socket);
+    const up = reachable(url);
+    if (up !== "silent") {
+      void later(() => (up ? listener.opened() : listener.closed(1006, "")));
+    }
     return {
       send: (text) => {
         socket.sent.push(text);
         const request = parseRequest(text);
+        socket.requests.push(request);
         void later(() => {
           const reply = answer(request.method, request.params);
           if (socket.closedByClient || reply === "hang") {
             return;
           }
           if ("item" in reply) {
-            socket.result(request.id, reply.item);
+            listener.message(JSON.stringify({ id: request.id, item: reply.item }));
+            listener.message(JSON.stringify({ id: request.id, end: true }));
           } else {
-            socket.frame({ id: request.id, error: reply.error });
+            listener.message(JSON.stringify({ id: request.id, error: reply.error }));
           }
         });
       },
@@ -75,7 +91,7 @@ function fakeDaemon(
       },
     };
   };
-  return { open, sockets };
+  return { sockets, made };
 }
 
 function answers(overrides: Partial<Record<string, Answer>> = {}): (method: string) => Answer {
@@ -83,14 +99,14 @@ function answers(overrides: Partial<Record<string, Answer>> = {}): (method: stri
     overrides[method] ?? (method === "hello" ? { item: HELLO } : { item: ENROLLED });
 }
 
-function setup(open: OpenSocket) {
+function setup(sockets: SocketFactory) {
   const binding = new FakeKeyBinding();
   const devices = new MemoryPairedDevices();
-  const timers = new FakeTimers();
+  const clock = new FakeClock();
   let aliases = 0;
   const deps: PairingDeps = {
-    openSocket: open,
-    schedule: timers.schedule,
+    sockets,
+    clock,
     keys: deviceKeyStore(binding),
     devices,
     sha256: () => Promise.resolve(Uint8Array.from({ length: 32 }, (_, i) => i)),
@@ -98,13 +114,13 @@ function setup(open: OpenSocket) {
     now: () => new Date("2026-10-26T09:01:00Z"),
     client: "efr-app test",
   };
-  return { binding, devices, timers, deps };
+  return { binding, devices, clock, deps };
 }
 
 describe("pair", () => {
   it("checks the daemon, enrolls the key and keeps the record", async () => {
     const daemon = fakeDaemon(answers());
-    const { binding, devices, deps } = setup(daemon.open);
+    const { binding, devices, deps } = setup(daemon.sockets);
     const steps: PairingStep[] = [];
     const result = await pair(CODE, deps, {
       name: "  Anna's\niPhone ",
@@ -126,24 +142,18 @@ describe("pair", () => {
     expect(devices.device).toEqual(expected);
     expect(steps).toEqual([
       { step: "connecting", url: "ws://100.101.102.103:7878/" },
-      { step: "checking" },
       { step: "confirm", name: "Anna's iPhone", fingerprint: "SHA256:0001020304050607" },
       { step: "saving" },
     ]);
 
-    const socket = daemon.sockets[0];
-    expect(daemon.sockets.length).toBe(1);
+    const socket = daemon.made[0];
+    expect(daemon.made.length).toBe(1);
     const key = binding.keys.get("device-1");
     expect(socket?.requests).toEqual([
       {
         id: 1,
         method: "hello",
-        params: {
-          protocol: PROTOCOL_VERSION,
-          origin: "phone",
-          client: "efr-app test",
-          capabilities: {},
-        },
+        params: { protocol: PROTOCOL_VERSION, origin: "phone", client: "efr-app test" },
       },
       {
         id: 2,
@@ -153,12 +163,12 @@ describe("pair", () => {
     ]);
     const sent = socket?.requests[1]?.params;
     const publicKey = isJsonObject(sent) ? sent["public_key"] : undefined;
-    expect(typeof publicKey === "string" && decodeBase64(publicKey)).toEqual(key);
+    expect(typeof publicKey === "string" && base64Decode(publicKey)).toEqual(key);
     expect(socket?.closedByClient).toBe(true);
   });
 
   it("removes the key of the earlier pairing once the new record is kept", async () => {
-    const { binding, devices, deps } = setup(fakeDaemon(answers()).open);
+    const { binding, devices, deps } = setup(fakeDaemon(answers()).sockets);
     await deps.keys.create("device-old");
     devices.device = {
       deviceId: "019a9b1c-3d00-7a10-8b20-0000000000ff",
@@ -179,21 +189,21 @@ describe("pair", () => {
   it("stops before the token goes out when the daemon is not the one of the code", async () => {
     const other = "019a9b1c-3d00-7a10-8b20-0000000000aa";
     const daemon = fakeDaemon(answers({ hello: { item: { ...HELLO, daemon_id: other } } }));
-    const { binding, devices, deps } = setup(daemon.open);
+    const { binding, devices, deps } = setup(daemon.sockets);
     const result = await pair(CODE, deps, { name: "iPhone" });
-    expect(result).toEqual({ ok: false, failure: { kind: "wrong_daemon", daemonId: other } });
-    expect(daemon.sockets[0]?.requests.map((request) => request.method)).toEqual(["hello"]);
-    expect(daemon.sockets[0]?.sent.join("")).not.toContain(TOKEN);
+    expect(result).toEqual({ ok: false, failure: { kind: "wrong_daemon" } });
+    expect(daemon.made[0]?.requests.map((request) => request.method)).toEqual(["hello"]);
+    expect(daemon.made[0]?.sent.join("")).not.toContain(TOKEN);
     expect(binding.keys.size).toBe(0);
     expect(devices.device).toBeNull();
-    expect(daemon.sockets[0]?.closedByClient).toBe(true);
+    expect(daemon.made[0]?.closedByClient).toBe(true);
   });
 
   it("stops before the token goes out on another protocol version", async () => {
     const newer = fakeDaemon(answers({ hello: { item: { ...HELLO, protocol: 2 } } }));
-    const one = await pair(CODE, setup(newer.open).deps, { name: "iPhone" });
-    expect(one).toEqual({ ok: false, failure: { kind: "protocol_mismatch", daemon: 2 } });
-    expect(newer.sockets[0]?.sent.join("")).not.toContain(TOKEN);
+    const one = await pair(CODE, setup(newer.sockets).deps, { name: "iPhone" });
+    expect(one).toEqual({ ok: false, failure: { kind: "protocol_mismatch" } });
+    expect(newer.made[0]?.sent.join("")).not.toContain(TOKEN);
 
     const refused = fakeDaemon(
       answers({
@@ -202,8 +212,8 @@ describe("pair", () => {
         },
       }),
     );
-    const two = await pair(CODE, setup(refused.open).deps, { name: "iPhone" });
-    expect(two).toEqual({ ok: false, failure: { kind: "protocol_mismatch", daemon: 3 } });
+    const two = await pair(CODE, setup(refused.sockets).deps, { name: "iPhone" });
+    expect(two).toEqual({ ok: false, failure: { kind: "protocol_mismatch" } });
   });
 
   it.each([
@@ -214,7 +224,7 @@ describe("pair", () => {
     "names an enroll error %s as %s and removes the new key",
     async (code, message, kind) => {
       const { binding, devices, deps } = setup(
-        fakeDaemon(answers({ "device.enroll": { error: { code, message } } })).open,
+        fakeDaemon(answers({ "device.enroll": { error: { code, message } } })).sockets,
       );
       const result = await pair(CODE, deps, { name: "iPhone" });
       expect(result).toEqual({ ok: false, failure: { kind, message } });
@@ -225,27 +235,23 @@ describe("pair", () => {
 
   it("is unreachable when the tailnet address does not answer, and never dials the name", async () => {
     const daemon = fakeDaemon(answers(), (url) => url.includes("ts.net"));
-    const result = await pair(CODE, setup(daemon.open).deps, { name: "iPhone" });
+    const result = await pair(CODE, setup(daemon.sockets).deps, { name: "iPhone" });
     expect(result).toEqual({ ok: false, failure: { kind: "unreachable" } });
-    expect(daemon.sockets.map((socket) => socket.url)).toEqual(["ws://100.101.102.103:7878/"]);
+    expect(daemon.made.map((socket) => socket.url)).toEqual(["ws://100.101.102.103:7878/"]);
   });
 
   it("is unreachable when the socket never comes up", async () => {
-    const sockets: FakeSocket[] = [];
-    const silent: OpenSocket = (url, handlers) => {
-      sockets.push(new FakeSocket(url, handlers));
-      return { send: () => {}, close: () => {} };
-    };
-    const { deps, timers } = setup(silent);
+    const daemon = fakeDaemon(answers(), () => "silent");
+    const { deps, clock } = setup(daemon.sockets);
     const result = pair(CODE_WITHOUT_NAME, deps, { name: "iPhone" });
     await settle();
-    timers.advance(10_000);
+    await clock.advance(15_000);
     expect(await result).toEqual({ ok: false, failure: { kind: "unreachable" } });
   });
 
   it("cancels while it waits for the terminal, closes the socket and removes the key", async () => {
     const daemon = fakeDaemon(answers({ "device.enroll": "hang" }));
-    const { binding, devices, deps } = setup(daemon.open);
+    const { binding, devices, deps } = setup(daemon.sockets);
     const { signal, cancel } = cancellation();
     const result = await pair(CODE, deps, {
       name: "iPhone",
@@ -257,14 +263,14 @@ describe("pair", () => {
       },
     });
     expect(result).toEqual({ ok: false, failure: { kind: "cancelled" } });
-    expect(daemon.sockets[0]?.closedByClient).toBe(true);
+    expect(daemon.made[0]?.closedByClient).toBe(true);
     await settle();
     expect(binding.keys.size).toBe(0);
     expect(devices.device).toBeNull();
   });
 
   it("keeps the record when the cancel comes after efrd enrolled the device", async () => {
-    const { binding, devices, deps } = setup(fakeDaemon(answers()).open);
+    const { binding, devices, deps } = setup(fakeDaemon(answers()).sockets);
     const { signal, cancel } = cancellation();
     const result = await pair(CODE, deps, {
       name: "iPhone",
@@ -281,8 +287,8 @@ describe("pair", () => {
   });
 
   it("cancels while the socket opens and closes the socket once it is up", async () => {
-    const { open, sockets } = fakeSockets();
-    const { deps } = setup(open);
+    const daemon = fakeDaemon(answers(), () => "silent");
+    const { deps } = setup(daemon.sockets);
     const { signal, cancel } = cancellation();
     const result = pair(CODE, deps, {
       name: "iPhone",
@@ -295,15 +301,15 @@ describe("pair", () => {
     });
     expect(await result).toEqual({ ok: false, failure: { kind: "cancelled" } });
     // The socket comes up only after the flow ended.
-    sockets[0]?.open();
+    daemon.made[0]?.listener.opened();
     await settle();
-    expect(sockets[0]?.closedByClient).toBe(true);
-    expect(sockets[0]?.sent).toEqual([]);
+    expect(daemon.made[0]?.closedByClient).toBe(true);
+    expect(daemon.made[0]?.sent.join("")).not.toContain(TOKEN);
   });
 
   it("removes a key that the store makes after a cancel", async () => {
     const daemon = fakeDaemon(answers());
-    const { binding, deps } = setup(daemon.open);
+    const { binding, deps } = setup(daemon.sockets);
     const create = binding.createKey.bind(binding);
     let finishCreate: (() => void) | undefined;
     const asked = new Promise<void>((askedResolve) => {
@@ -324,7 +330,7 @@ describe("pair", () => {
   });
 
   it("names a failure of the key store", async () => {
-    const { binding, deps } = setup(fakeDaemon(answers()).open);
+    const { binding, deps } = setup(fakeDaemon(answers()).sockets);
     binding.failCreate = new Error("This iPhone has no Secure Enclave");
     expect(await pair(CODE, deps, { name: "iPhone" })).toEqual({
       ok: false,
@@ -333,7 +339,7 @@ describe("pair", () => {
   });
 
   it("removes the new key when the record cannot be kept", async () => {
-    const { binding, devices, deps } = setup(fakeDaemon(answers()).open);
+    const { binding, devices, deps } = setup(fakeDaemon(answers()).sockets);
     devices.failSave = new Error("the keychain is locked");
     const result = await pair(CODE, deps, { name: "iPhone" });
     expect(result).toEqual({
@@ -355,7 +361,7 @@ describe("pair", () => {
     ],
     ["an enroll without scopes", { "device.enroll": { item: { device_id: DEVICE_ID } } }],
   ])("fails on %s", async (_, overrides: Partial<Record<string, Answer>>) => {
-    const { binding, deps } = setup(fakeDaemon(answers(overrides)).open);
+    const { binding, deps } = setup(fakeDaemon(answers(overrides)).sockets);
     const result = await pair(CODE, deps, { name: "iPhone" });
     expect(!result.ok && result.failure.kind).toBe("failed");
     expect(binding.keys.size).toBe(0);
@@ -363,25 +369,25 @@ describe("pair", () => {
 
   it("fails when the connection closes while it waits for the terminal", async () => {
     const daemon = fakeDaemon(answers({ "device.enroll": "hang" }));
-    const { binding, deps } = setup(daemon.open);
+    const { binding, deps } = setup(daemon.sockets);
     const result = pair(CODE, deps, {
       name: "iPhone",
       onStep: (step) => {
         if (step.step === "confirm") {
-          void later(() => daemon.sockets[0]?.close(1001, "efrd stops"));
+          void later(() => daemon.made[0]?.listener.closed(1001, "efrd stops"));
         }
       },
     });
     expect(await result).toEqual({
       ok: false,
-      failure: { kind: "failed", message: "the connection closed (code 1001): efrd stops" },
+      failure: { kind: "failed", message: "the socket closed (1001)" },
     });
     expect(binding.keys.size).toBe(0);
   });
 
   it("names a code that is not one this build can use, and opens no socket", async () => {
     const daemon = fakeDaemon(answers());
-    const { deps } = setup(daemon.open);
+    const { deps } = setup(daemon.sockets);
     expect(await pair("https://example.com", deps, { name: "iPhone" })).toEqual({
       ok: false,
       failure: { kind: "not_efr" },
@@ -394,7 +400,7 @@ describe("pair", () => {
       ok: false,
       failure: { kind: "malformed" },
     });
-    expect(daemon.sockets.length).toBe(0);
+    expect(daemon.made.length).toBe(0);
   });
 });
 

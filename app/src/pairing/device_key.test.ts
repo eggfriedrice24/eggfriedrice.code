@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeBase64, encodeBase64 } from "./base64";
+import { base64Decode, base64Encode } from "../protocol/bytes";
 import { DeviceKeyError, deviceKeyStore, isDerSignature, keyFingerprint } from "./device_key";
 import { FAKE_SIGNATURE, FakeKeyBinding, FIXTURE_PUBLIC_KEY } from "./testing";
 
@@ -34,13 +34,13 @@ describe("deviceKeyStore", () => {
     const key = await deviceKeyStore(binding).create("device-1");
     const message = Uint8Array.from([0, 1, 2, 250, 255]);
     expect(await key.sign(message)).toEqual(FAKE_SIGNATURE);
-    expect(binding.signed).toEqual([{ alias: "device-1", message: encodeBase64(message) }]);
+    expect(binding.signed).toEqual([{ alias: "device-1", message: base64Encode(message) }]);
   });
 
   it.each([
-    ["64 bytes", encodeBase64(FIXTURE_PUBLIC_KEY.subarray(0, 64))],
-    ["a compressed prefix", encodeBase64(Uint8Array.from([2, ...FIXTURE_PUBLIC_KEY.subarray(1)]))],
-    ["66 bytes", encodeBase64(Uint8Array.from([...FIXTURE_PUBLIC_KEY, 0]))],
+    ["64 bytes", base64Encode(FIXTURE_PUBLIC_KEY.subarray(0, 64))],
+    ["a compressed prefix", base64Encode(Uint8Array.from([2, ...FIXTURE_PUBLIC_KEY.subarray(1)]))],
+    ["66 bytes", base64Encode(Uint8Array.from([...FIXTURE_PUBLIC_KEY, 0]))],
     ["text that is not base64", "not base64"],
   ])("refuses a public key of %s", async (_, bad) => {
     const binding = new FakeKeyBinding();
@@ -51,7 +51,7 @@ describe("deviceKeyStore", () => {
   it("refuses a signature that is not DER", async () => {
     const binding = new FakeKeyBinding();
     const key = await deviceKeyStore(binding).create("device-1");
-    binding.sign = () => Promise.resolve(encodeBase64(new Uint8Array(64)));
+    binding.sign = () => Promise.resolve(base64Encode(new Uint8Array(64)));
     await expect(key.sign(new Uint8Array(1))).rejects.toBeInstanceOf(DeviceKeyError);
   });
 
@@ -99,8 +99,8 @@ describe("isDerSignature", () => {
       Uint8Array.from([0x30, 0x07, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01]),
     ];
     for (const bytes of bad) {
-      expect({ der: encodeBase64(bytes), valid: isDerSignature(bytes) }).toEqual({
-        der: encodeBase64(bytes),
+      expect({ der: base64Encode(bytes), valid: isDerSignature(bytes) }).toEqual({
+        der: base64Encode(bytes),
         valid: false,
       });
     }
@@ -117,7 +117,7 @@ describe("keyFingerprint", () => {
   it("gives the fingerprint of the fixture key", () => {
     // The SHA-256 of the 65 bytes of FIXTURE_PUBLIC_KEY, from sha256sum.
     const digest = hexBytes("0ed3a6ab957ff6f59a9630a473d31a7d04fcb46548b89016196980c7e96584f6");
-    expect(decodeBase64(encodeBase64(FIXTURE_PUBLIC_KEY))?.length).toBe(65);
+    expect(base64Decode(base64Encode(FIXTURE_PUBLIC_KEY))?.length).toBe(65);
     expect(keyFingerprint(digest)).toBe("SHA256:0ed3a6ab957ff6f5");
   });
 

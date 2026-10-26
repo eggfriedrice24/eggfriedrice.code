@@ -1,20 +1,23 @@
 // The pairing flow (R3.6 of the research, docs/protocol.md "Remote devices"):
 //
 // 1. Parse the QR code.
-// 2. Connect to efrd's tailnet address and send `hello`.
-// 3. Stop before the token goes out when the `daemon_id` or the `protocol` of the result is
-//    not the one of the code.
-// 4. Make a new device key and send `device.enroll` with the token, the device name and
+// 2. Connect to efrd's tailnet address and send `hello` (src/net/connection.ts, without a
+//    device). The connection stops before the token goes out when the `daemon_id` or the
+//    `protocol` of the result is not the one of the code.
+// 3. Make a new device key and send `device.enroll` with the token, the device name and
 //    the public key. efrd shows the phone's facts at the terminal; the request waits until
 //    the user answers there.
-// 5. Keep the pairing record, and remove the key of an earlier pairing.
+// 4. Keep the pairing record, and remove the key of an earlier pairing.
 //
-// Every effect (the socket, the key store, the record store, SHA-256, time) comes in as a
-// parameter, so the flow runs in Vitest. src/pairing/native.ts gives the real ones.
+// Every effect (the socket, the clock, the key store, the record store, SHA-256, time)
+// comes in as a parameter, so the flow runs in Vitest. src/pairing/native.ts gives the
+// real ones.
 
-import { encodeBase64 } from "./base64";
-import { ConnectionError, PairingConnection, RpcError } from "./connection";
-import type { OpenSocket, Schedule } from "./connection";
+import type { Clock } from "../net/clock";
+import { Connection } from "../net/connection";
+import { ConnectionError, ServerError } from "../net/errors";
+import type { SocketFactory } from "../net/socket";
+import { base64Encode } from "../protocol/bytes";
 import type { DeviceKey, DeviceKeyStore } from "./device_key";
 import { DeviceKeyError, keyFingerprint } from "./device_key";
 import { deviceName } from "./device_name";
@@ -25,13 +28,10 @@ import { daemonUrl } from "./paired_device";
 import type { PairingCode } from "./pairing_url";
 import { parsePairingUrl } from "./pairing_url";
 
-/** The protocol version of this build (efr-protocol's `PROTOCOL_VERSION`). */
-export const PROTOCOL_VERSION = 1;
-
 /** The effects that the flow uses. */
 export interface PairingDeps {
-  readonly openSocket: OpenSocket;
-  readonly schedule: Schedule;
+  readonly sockets: SocketFactory;
+  readonly clock: Clock;
   readonly keys: DeviceKeyStore;
   readonly devices: PairedDeviceStore;
   /** The SHA-256 of `data`. */
@@ -46,8 +46,8 @@ export interface PairingDeps {
 
 /** Where the flow is, for the screen. */
 export type PairingStep =
+  /** The phone connects and checks the daemon with `hello`. */
   | { readonly step: "connecting"; readonly url: string }
-  | { readonly step: "checking" }
   /** The terminal shows the facts of the phone; the user must confirm there. */
   | { readonly step: "confirm"; readonly name: string; readonly fingerprint: string }
   | { readonly step: "saving" };
@@ -63,9 +63,9 @@ export type PairingFailure =
   /** No connection came up: Tailscale is off, or efrd does not listen. */
   | { readonly kind: "unreachable" }
   /** The computer at the address is not the one of the code. The token did not go out. */
-  | { readonly kind: "wrong_daemon"; readonly daemonId: string }
+  | { readonly kind: "wrong_daemon" }
   /** efrd speaks another protocol version. The token did not go out. */
-  | { readonly kind: "protocol_mismatch"; readonly daemon: number }
+  | { readonly kind: "protocol_mismatch" }
   /** efrd refused the token: it is wrong, used or expired. Run `efr device add` again. */
   | { readonly kind: "token_refused"; readonly message: string }
   /** The user said no at the terminal, or the pairing expired before the answer. */
@@ -153,7 +153,7 @@ export async function pair(
 
 /** The state of one pairing, so that a failure can clean up what the run made. */
 class PairingRun {
-  private connection: PairingConnection | undefined;
+  private connection: Connection | undefined;
   /** The alias of the key that this run makes, until the record names it. */
   private newAlias: string | undefined;
   private creating: Promise<DeviceKey> | undefined;
@@ -177,16 +177,6 @@ class PairingRun {
 
   async run(): Promise<PairedDevice> {
     const connection = await this.connect();
-    this.step({ step: "checking" });
-    const hello = await this.until(
-      connection.call("hello", {
-        protocol: PROTOCOL_VERSION,
-        origin: "phone",
-        client: this.deps.client,
-        capabilities: {},
-      }),
-    );
-    this.checkHello(hello);
 
     const name = deviceName(this.options.name);
     const alias = this.deps.newKeyAlias();
@@ -199,7 +189,7 @@ class PairingRun {
       connection.call("device.enroll", {
         token: this.code.token,
         name,
-        public_key: encodeBase64(key.publicKey),
+        public_key: base64Encode(key.publicKey),
       }),
     );
     const { deviceId, scopes } = enrollResult(enrolled);
@@ -252,41 +242,38 @@ class PairingRun {
     this.connection?.close();
   }
 
-  private async connect(): Promise<PairingConnection> {
+  /**
+   * Opens a connection without a device: the socket and `hello`, which fails when the
+   * daemon or the protocol is not the one of the code, before the token goes out.
+   */
+  private connect(): Promise<Connection> {
     const url = daemonUrl(this.code);
     this.step({ step: "connecting", url });
-    const opening = PairingConnection.open(this.deps.openSocket, url, this.deps.schedule);
+    const opening = Connection.open({
+      url,
+      sockets: this.deps.sockets,
+      clock: this.deps.clock,
+      client: this.deps.client,
+      daemonId: this.code.daemonId,
+    });
     void this.closeIfLate(opening);
-    return this.until(opening);
+    return this.until(opening).catch((error: unknown) => {
+      throw error instanceof ConnectionError ? new Failure(openFailure(error)) : error;
+    });
   }
 
-  /** A socket that opens after a cancel, or after the run ended, must still close. */
-  private async closeIfLate(opening: Promise<PairingConnection>): Promise<void> {
-    let connection: PairingConnection;
+  /** A connection that opens after a cancel, or after the run ended, must still close. */
+  private async closeIfLate(opening: Promise<Connection>): Promise<void> {
+    let connection: Connection;
     try {
       connection = await opening;
     } catch {
-      // NOTE: the loop of `connect` sees the failure.
+      // NOTE: `connect` sees the failure.
       return;
     }
     this.connection = connection;
     if (this.stopped || this.options.signal?.cancelled === true) {
       connection.close();
-    }
-  }
-
-  private checkHello(value: unknown): void {
-    const hello = objectOf(value);
-    const protocol = hello?.["protocol"];
-    const daemonId = hello?.["daemon_id"];
-    if (typeof protocol !== "number" || typeof daemonId !== "string") {
-      throw new ConnectionError("protocol", "the hello result has no protocol or daemon_id");
-    }
-    if (protocol !== PROTOCOL_VERSION) {
-      throw new Failure({ kind: "protocol_mismatch", daemon: protocol });
-    }
-    if (daemonId !== this.code.daemonId) {
-      throw new Failure({ kind: "wrong_daemon", daemonId });
     }
   }
 
@@ -333,7 +320,7 @@ function enrollResult(value: unknown): { deviceId: string; scopes: string[] } {
   const deviceId = result?.["device_id"];
   const scopes = stringArray(result?.["scopes"]);
   if (typeof deviceId !== "string" || !UUID.test(deviceId) || scopes === undefined) {
-    throw new ConnectionError("protocol", "the enroll result has no device_id or scopes");
+    throw new Failure({ kind: "failed", message: "the enroll result has no device_id or scopes" });
   }
   return { deviceId, scopes };
 }
@@ -346,27 +333,41 @@ function failureOf(error: unknown, signal: CancelSignal | undefined): PairingFai
   if (error instanceof Cancelled || signal?.cancelled === true) {
     return { kind: "cancelled" };
   }
-  if (error instanceof RpcError) {
-    switch (error.code) {
+  if (error instanceof ServerError) {
+    switch (error.body.code) {
       case "unauthorized":
         return { kind: "token_refused", message: error.message };
       case "forbidden":
         return { kind: "refused", message: error.message };
-      case "protocol_mismatch":
-        return { kind: "protocol_mismatch", daemon: daemonVersion(error.data) };
       default:
         return { kind: "failed", message: error.message };
     }
   }
   if (error instanceof ConnectionError) {
-    return error.problem === "unreachable"
-      ? { kind: "unreachable" }
-      : { kind: "failed", message: error.message };
+    return { kind: "failed", message: error.message };
   }
   if (error instanceof DeviceKeyError) {
     return { kind: "key_failed", message: error.message };
   }
   return { kind: "failed", message: messageOf(error) };
+}
+
+/** Why a connection did not open: no socket or no hello, or the wrong daemon. */
+function openFailure(error: ConnectionError): PairingFailure {
+  switch (error.kind) {
+    case "socket":
+    case "timeout":
+      return { kind: "unreachable" };
+    case "daemon_changed":
+      return { kind: "wrong_daemon" };
+    case "protocol_mismatch":
+      return { kind: "protocol_mismatch" };
+    case "closed":
+      // NOTE: only the flow closes a connection that opens: a cancel.
+      return { kind: "cancelled" };
+    default:
+      return { kind: "failed", message: error.message };
+  }
 }
 
 /** Any failure of the key store, the native module's own errors too, as a key failure. */
@@ -376,9 +377,4 @@ function keyError(error: unknown): never {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function daemonVersion(data: unknown): number {
-  const daemon = objectOf(data)?.["daemon"];
-  return typeof daemon === "number" ? daemon : 0;
 }

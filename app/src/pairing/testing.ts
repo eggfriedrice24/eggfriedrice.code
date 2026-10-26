@@ -1,7 +1,6 @@
 // Fakes for the tests of pairing. Only test files import this module.
 
-import { encodeBase64 } from "./base64";
-import type { OpenSocket, Schedule, SocketHandlers } from "./connection";
+import { base64Encode } from "../protocol/bytes";
 import type { DeviceKeyBinding } from "./device_key";
 import { isJsonObject } from "./json";
 import type { PairedDevice, PairedDeviceStore } from "./paired_device";
@@ -30,96 +29,6 @@ export function parseRequest(text: string): SentRequest {
 export async function later(run: () => void): Promise<void> {
   await Promise.resolve();
   run();
-}
-
-/** A timer queue that runs only when a test moves its time. */
-export class FakeTimers {
-  private now = 0;
-  private timers: { at: number; run: () => void; live: boolean }[] = [];
-
-  readonly schedule: Schedule = (ms, run) => {
-    const timer = { at: this.now + ms, run, live: true };
-    this.timers.push(timer);
-    return () => {
-      timer.live = false;
-    };
-  };
-
-  /** Moves time by `ms` and runs each timer that is due, in order. */
-  advance(ms: number): void {
-    this.now += ms;
-    const due = this.timers.filter((timer) => timer.live && timer.at <= this.now);
-    this.timers = this.timers.filter((timer) => !due.includes(timer));
-    due.sort((a, b) => a.at - b.at);
-    for (const timer of due) {
-      timer.live = false;
-      timer.run();
-    }
-  }
-
-  /** The number of timers that may still run. */
-  get pending(): number {
-    return this.timers.filter((timer) => timer.live).length;
-  }
-}
-
-/** One fake WebSocket: the test sees what the client sends and answers by hand. */
-export class FakeSocket {
-  readonly sent: string[] = [];
-  closedByClient = false;
-
-  constructor(
-    readonly url: string,
-    readonly handlers: SocketHandlers,
-  ) {}
-
-  /** The requests that the client sent, parsed. */
-  get requests(): SentRequest[] {
-    return this.sent.map(parseRequest);
-  }
-
-  open(): void {
-    this.handlers.open();
-  }
-
-  /** Sends one server frame as JSON text. */
-  frame(frame: unknown): void {
-    this.handlers.message(JSON.stringify(frame));
-  }
-
-  /** The result of request `id`: an item, then the end. */
-  result(id: number, item: unknown): void {
-    this.frame({ id, item });
-    this.frame({ id, end: true });
-  }
-
-  error(id: number | null, code: string, message: string, data?: unknown): void {
-    this.frame(
-      id === null
-        ? { error: { code, message, ...(data === undefined ? {} : { data }) } }
-        : { id, error: { code, message, ...(data === undefined ? {} : { data }) } },
-    );
-  }
-
-  close(code = 1000, reason = ""): void {
-    this.handlers.close(code, reason);
-  }
-}
-
-/** An `OpenSocket` that records each socket it opens. */
-export function fakeSockets(): { readonly open: OpenSocket; readonly sockets: FakeSocket[] } {
-  const sockets: FakeSocket[] = [];
-  const open: OpenSocket = (url, handlers) => {
-    const socket = new FakeSocket(url, handlers);
-    sockets.push(socket);
-    return {
-      send: (text) => socket.sent.push(text),
-      close: () => {
-        socket.closedByClient = true;
-      },
-    };
-  };
-  return { open, sockets };
 }
 
 /** Waits until every promise job that is queued now has run. */
@@ -163,12 +72,12 @@ export class FakeKeyBinding implements DeviceKeyBinding {
     const key = FIXTURE_PUBLIC_KEY.slice();
     key[64] = ++this.made;
     this.keys.set(alias, key);
-    return Promise.resolve(encodeBase64(key));
+    return Promise.resolve(base64Encode(key));
   }
 
   publicKey(alias: string): Promise<string | null> {
     const key = this.keys.get(alias);
-    return Promise.resolve(key === undefined ? null : encodeBase64(key));
+    return Promise.resolve(key === undefined ? null : base64Encode(key));
   }
 
   sign(alias: string, message: string): Promise<string> {
@@ -176,7 +85,7 @@ export class FakeKeyBinding implements DeviceKeyBinding {
       return Promise.reject(new Error(`There is no device key '${alias}'`));
     }
     this.signed.push({ alias, message });
-    return Promise.resolve(encodeBase64(FAKE_SIGNATURE));
+    return Promise.resolve(base64Encode(FAKE_SIGNATURE));
   }
 
   deleteKey(alias: string): Promise<void> {
