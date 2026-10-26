@@ -112,6 +112,7 @@ async fn scene() -> Scene {
                 exit: None,
                 expires_in_secs: None,
                 local_only: false,
+                reason: None,
             },
         )
         .event(busy, queued(t2, 2))

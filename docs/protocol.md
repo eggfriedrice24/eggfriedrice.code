@@ -891,3 +891,10 @@ No protocol version has shipped yet.
   `device.enroll` refuses a public key that is not a point of the P-256 curve with
   `invalid`. The count of wrong tokens starts from zero when a pairing opens while no
   other one waits for a phone.
+- Version 1, additive: the `approval_requested` event gains an optional `reason`, one
+  plain line that tells why the permission mode of the turn asks, such as `cautious asks
+  before any network access.` Absent means no reason, also from an older efrd. A client
+  shows it below the summary. No capability key: a client that gets no `reason` shows
+  the question as before. efrd makes the line from the reasons of the engine's decision
+  and the mode of the turn. The terminal does not show it, so its output does not
+  change. New fixture `events/approval_requested_reason.json`. No fixture changes.

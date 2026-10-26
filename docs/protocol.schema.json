@@ -4308,6 +4308,13 @@
               "description": "True when only the user's own machine may answer, as for a privilege exit,\na delete that full mode guards or a job's question: the daemon refuses an\nanswer from a phone, and the question stays open. False when absent, also\nfrom a daemon that does not announce `approval_local_only`.",
               "type": "boolean"
             },
+            "reason": {
+              "description": "Why the turn's permission mode asks, in one plain line for a person, such as\n`cautious asks before any network access.` A client shows it below the\nsummary. Absent: no reason, also from a daemon that does not set it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "summary": {
               "description": "What the call would do, in one line.",
               "type": "string"

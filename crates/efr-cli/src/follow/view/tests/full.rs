@@ -183,6 +183,7 @@ fn the_full_question_card_shows_the_summary_and_expires() {
         exit: None,
         expires_in_secs: Some(120),
         local_only: false,
+        reason: None,
     };
     let (_, err, _) = wide(&mut view, &[started(Mode::Full), question], true);
     insta::assert_snapshot!(err);
@@ -199,6 +200,7 @@ fn the_full_question_card_shows_the_summary_and_expires() {
         exit: None,
         expires_in_secs: None,
         local_only: false,
+        reason: None,
     };
     let (_, err, _) = wide(&mut view, &[started(Mode::Full), question], true);
     assert!(!err.contains("expires in"), "{err}");
@@ -223,6 +225,7 @@ fn a_guard_question_with_an_exit_keeps_its_line_first() {
             exit: Some(info),
             expires_in_secs: Some(120),
             local_only: false,
+            reason: None,
         },
     ];
     let (_, err, _) = wide(&mut view, &events, true);

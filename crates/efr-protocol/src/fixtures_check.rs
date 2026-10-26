@@ -122,6 +122,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("events/job_started_moved.json", &moved_job_sample()));
     fixtures
         .push(fixture("events/approval_requested_local_only.json", &local_only_approval_sample()));
+    fixtures.push(fixture("events/approval_requested_reason.json", &reason_approval_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -1830,6 +1831,26 @@ pub(crate) fn local_only_approval_sample() -> Event {
         exit: None,
         expires_in_secs: None,
         local_only: true,
+        reason: None,
+    }
+}
+
+/// An approval that says why the turn's mode asks.
+pub(crate) fn reason_approval_sample() -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        summary: "shell: run \"git push origin main\"".into(),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+        expires_in_secs: None,
+        local_only: false,
+        reason: Some(
+            "cautious asks before a command that is not on its list of read-only commands and \
+             any network access."
+                .into(),
+        ),
     }
 }
 
@@ -2244,6 +2265,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             }),
             expires_in_secs: Some(120),
             local_only: false,
+            reason: None,
         },
         Event::ApprovalResolved {
             turn_id: turn_id(),

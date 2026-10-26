@@ -119,6 +119,7 @@ async fn fill(writer: &WriterHandle, n: u64, words: &str) {
             exit: None,
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
         Event::ApprovalResolved {
             turn_id: testing::turn(first),

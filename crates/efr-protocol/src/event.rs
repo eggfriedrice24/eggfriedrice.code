@@ -320,6 +320,11 @@ pub enum Event {
         /// from a daemon that does not announce `approval_local_only`.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         local_only: bool,
+        /// Why the turn's permission mode asks, in one plain line for a person, such as
+        /// `cautious asks before any network access.` A client shows it below the
+        /// summary. Absent: no reason, also from a daemon that does not set it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
 
     /// The user answered an approval request.

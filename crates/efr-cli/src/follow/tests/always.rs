@@ -35,6 +35,7 @@ fn write_question(always: Option<&str>) -> Event {
         }),
         expires_in_secs: None,
         local_only: false,
+        reason: None,
     }
 }
 

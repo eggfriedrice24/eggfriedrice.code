@@ -15,6 +15,7 @@ fn requested(turn: u64, call: u64, summary: &str) -> Event {
         exit: None,
         expires_in_secs: None,
         local_only: false,
+        reason: None,
     }
 }
 

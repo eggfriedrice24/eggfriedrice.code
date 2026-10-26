@@ -801,6 +801,7 @@ async fn a_question_takes_the_keys_and_the_row_keeps_its_text() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         };
         conn.item(sub, &item(11, request)).await;
         shows(&seen, "y allow").await;
@@ -835,6 +836,7 @@ fn approval() -> Event {
         exit: None,
         expires_in_secs: None,
         local_only: false,
+        reason: None,
     }
 }
 
@@ -1900,6 +1902,7 @@ async fn ctrl_b_moves_a_call_that_keeps_its_keys_and_n_gives_them_back_to_it() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         };
         conn.item(sub, &item(12, request)).await;
         shows(&seen, "y allow").await;

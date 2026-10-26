@@ -807,6 +807,27 @@ fn the_local_only_flag_is_its_own_fixture_and_absent_in_the_old_one() {
 }
 
 #[test]
+fn the_reason_of_an_approval_is_its_own_fixture_and_absent_in_the_old_ones() {
+    assert!(!read("events/approval_requested.json").contains("\"reason\""));
+    assert!(!read("events/approval_requested_local_only.json").contains("\"reason\""));
+    let text = read("events/approval_requested_reason.json");
+    let Event::ApprovalRequested { reason: Some(reason), .. } =
+        serde_json::from_str::<Event>(&text).unwrap()
+    else {
+        panic!("the fixture is an approval with a reason");
+    };
+    assert!(reason.starts_with("cautious asks before "), "{reason}");
+    // NOTE: a reader from before the field reads the fixture as the same question.
+    let mut old: Value = serde_json::from_str(&text).unwrap();
+    old.as_object_mut().unwrap().remove("reason");
+    let decoded: Event = serde_json::from_value(old).unwrap();
+    let Event::ApprovalRequested { reason: None, summary, .. } = decoded else {
+        panic!("the fixture without its reason is an approval without one");
+    };
+    assert_eq!(summary, "shell: run \"git push origin main\"");
+}
+
+#[test]
 fn every_undo_action_reason_and_refusal_has_a_sample() {
     let actions: Vec<usize> = UndoAction::ALL.into_iter().map(undo_action_index).collect();
     assert_eq!(actions, (0..UNDO_ACTION_COUNT).collect::<Vec<_>>());

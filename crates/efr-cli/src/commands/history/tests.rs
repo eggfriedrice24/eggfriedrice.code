@@ -82,6 +82,7 @@ fn events() -> Vec<EventEnvelope> {
                 exit: None,
                 expires_in_secs: None,
                 local_only: false,
+                reason: None,
             },
         ),
         envelope(
@@ -450,6 +451,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             }),
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
         Event::ExitJudged {
             turn_id: turn(),
@@ -749,6 +751,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             exit: Some(info),
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
         started(other, FROM_SRC),
         Event::ApprovalRequested {
@@ -760,6 +763,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
@@ -818,6 +822,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
         Event::ApprovalResolved {
             turn_id: turn(),
@@ -1192,6 +1197,7 @@ fn always_events() -> Vec<EventEnvelope> {
             }),
             expires_in_secs: None,
             local_only: false,
+            reason: None,
         },
         Event::ApprovalResolved {
             turn_id: turn(),
