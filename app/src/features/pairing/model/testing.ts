@@ -1,10 +1,25 @@
 // Fakes for the tests of pairing. Only test files import this module.
 
+import { QueryClient } from "@tanstack/react-query";
+import { createAtom, type Atom } from "@tanstack/store";
+
+import type { PairVariables } from "@/features/machines/machine-queries";
+import { machineOf, type Machine } from "@/features/machines/model/machine";
+import type { MachineId } from "@/features/machines/model/machine-ref";
+import { loadedRegistry, type RegistryState } from "@/features/machines/model/machine-registry";
 import { base64Encode } from "@/lib/protocol/bytes";
 import { isJsonObject } from "@/lib/protocol/envelope";
 import type { DeviceKeyBinding } from "./device-key";
+import { PairingError, type PairingFailure } from "./pair";
 import { withDevice } from "./paired-device";
 import type { PairedDevice, PairedDeviceStore } from "./paired-device";
+import {
+  createPairingSession,
+  type PairingHaptic,
+  type PairingSession,
+  type PairingSessionDeps,
+} from "./pairing-session";
+import type { ScannerApi } from "./scanner";
 
 /** One request frame that the client sent. */
 export interface SentRequest {
@@ -130,4 +145,153 @@ export class MemoryPairedDevices implements PairedDeviceStore {
     this.devices = this.devices.filter((device) => device.daemonId !== daemonId);
     return Promise.resolve();
   }
+}
+
+/** The system scanner in memory: the test shows it codes by hand. */
+export class FakeScanner implements ScannerApi {
+  available = true;
+  granted = true;
+  launched = 0;
+  dismissed = 0;
+  failLaunch = false;
+  private listeners = new Set<(data: string) => void>();
+
+  requestPermission(): Promise<boolean> {
+    return Promise.resolve(this.granted);
+  }
+
+  launch(): Promise<void> {
+    this.launched++;
+    return this.failLaunch ? Promise.reject(new Error("no scanner")) : Promise.resolve();
+  }
+
+  dismiss(): Promise<void> {
+    this.dismissed++;
+    return Promise.resolve();
+  }
+
+  onScanned(listener: (data: string) => void): { remove(): void } {
+    this.listeners.add(listener);
+    return { remove: () => this.listeners.delete(listener) };
+  }
+
+  get listening(): number {
+    return this.listeners.size;
+  }
+
+  show(data: string): void {
+    for (const listener of this.listeners) {
+      listener(data);
+    }
+  }
+}
+
+/** The daemon of `SESSION_CODE`. */
+export const SESSION_DAEMON = "019a9b1c-3d00-7a10-8b20-000000000007";
+
+/** A pairing code of machine `desktop` (desktop.tail3f2a.ts.net). */
+export const SESSION_CODE = `efr://pair?v=1&d=${SESSION_DAEMON}&h=100.101.102.103&p=7878&f=desktop.tail3f2a.ts.net&t=q83vASNFZ4mrze8BI0VniQ`;
+
+/** The record of a machine that a test pairs. */
+export function pairedRecord(daemonId: MachineId, name: string): PairedDevice {
+  return {
+    deviceId: "019a9b1c-3d00-7a10-8b20-000000000006",
+    daemonId,
+    host: "100.101.102.103",
+    port: 7878,
+    fqdn: `${name}.tail3f2a.ts.net`,
+    name: "iPhone 17 Pro",
+    keyAlias: `device-${name}`,
+    scopes: ["read", "operate", "approve"],
+    pairedAt: "2026-10-26T09:00:00.000Z",
+  };
+}
+
+/** The machine of `pairedRecord(daemonId, name)`. */
+export function pairedMachine(daemonId: MachineId, name: string): Machine {
+  return machineOf(pairedRecord(daemonId, name), false);
+}
+
+/** One pair mutation that a test answers by hand. */
+export interface PendingPair {
+  readonly variables: PairVariables;
+  /** Ends the pairing with machine `machine`. */
+  succeed(machine: Machine): void;
+  /** Ends the pairing with `failure`. */
+  fail(failure: PairingFailure): void;
+}
+
+/** A pairing session with fakes for every effect, and what the session did with them. */
+export interface FakePairingSession {
+  readonly session: PairingSession;
+  readonly scanner: FakeScanner;
+  readonly registry: Atom<RegistryState>;
+  readonly client: QueryClient;
+  /** The pair mutations, oldest first. */
+  readonly pairs: PendingPair[];
+  readonly haptics: PairingHaptic[];
+  readonly announced: string[];
+  readonly selected: MachineId[];
+  readonly opened: ("tailscale" | "settings")[];
+  /** The AppState listeners that are on now. */
+  readonly appState: Set<(active: boolean) => void>;
+}
+
+/** The options of `fakePairingSession`. */
+export interface FakePairingOptions {
+  /** False for a build without a system scanner. */
+  readonly scanner?: boolean;
+  /** The paired machines. */
+  readonly machines?: readonly Machine[];
+}
+
+/** A pairing session with fakes. */
+export function fakePairingSession(options: FakePairingOptions = {}): FakePairingSession {
+  const scanner = new FakeScanner();
+  const registry = createAtom<RegistryState>(loadedRegistry(options.machines ?? []));
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  const pairs: PendingPair[] = [];
+  const haptics: PairingHaptic[] = [];
+  const announced: string[] = [];
+  const selected: MachineId[] = [];
+  const opened: ("tailscale" | "settings")[] = [];
+  const appState = new Set<(active: boolean) => void>();
+  const deps: PairingSessionDeps = {
+    client,
+    mutation: {
+      mutationKey: ["machine", "pair"],
+      mutationFn: (variables: PairVariables) =>
+        new Promise<Machine>((resolve, reject) => {
+          pairs.push({
+            variables,
+            succeed: resolve,
+            fail: (failure) => reject(new PairingError(failure)),
+          });
+        }),
+    },
+    registry,
+    scanner: options.scanner === false ? null : scanner,
+    deviceName: () => "iPhone 17 Pro",
+    haptic: (kind) => haptics.push(kind),
+    announce: (text) => announced.push(text),
+    followAppState: (listener) => {
+      appState.add(listener);
+      return () => appState.delete(listener);
+    },
+    openTailscale: () => opened.push("tailscale"),
+    openSettings: () => opened.push("settings"),
+    selectMachine: (machine) => selected.push(machine),
+  };
+  return {
+    session: createPairingSession(deps),
+    scanner,
+    registry,
+    client,
+    pairs,
+    haptics,
+    announced,
+    selected,
+    opened,
+    appState,
+  };
 }

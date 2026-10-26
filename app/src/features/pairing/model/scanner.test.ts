@@ -2,50 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { cancellation } from "./pair";
 import { scanPairingCode } from "./scanner";
-import type { ScannerApi } from "./scanner";
-import { settle } from "./testing";
+import { FakeScanner, settle } from "./testing";
 
 const CODE =
   "efr://pair?v=1&d=019a9b1c-3d00-7a10-8b20-000000000007&h=100.64.0.1&p=7878&t=q83vASNFZ4mrze8BI0VniQ";
-
-/** The system scanner in memory: the test shows it codes by hand. */
-class FakeScanner implements ScannerApi {
-  available = true;
-  granted = true;
-  launched = 0;
-  dismissed = 0;
-  failLaunch = false;
-  private listeners = new Set<(data: string) => void>();
-
-  requestPermission(): Promise<boolean> {
-    return Promise.resolve(this.granted);
-  }
-
-  launch(): Promise<void> {
-    this.launched++;
-    return this.failLaunch ? Promise.reject(new Error("no scanner")) : Promise.resolve();
-  }
-
-  dismiss(): Promise<void> {
-    this.dismissed++;
-    return Promise.resolve();
-  }
-
-  onScanned(listener: (data: string) => void): { remove(): void } {
-    this.listeners.add(listener);
-    return { remove: () => this.listeners.delete(listener) };
-  }
-
-  get listening(): number {
-    return this.listeners.size;
-  }
-
-  show(data: string): void {
-    for (const listener of this.listeners) {
-      listener(data);
-    }
-  }
-}
 
 describe("scanPairingCode", () => {
   it("skips other codes and ends at the first pairing code", async () => {
