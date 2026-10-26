@@ -2,11 +2,13 @@
 // answer (plan section 2.2, design-spec section 2). They feed the yolk dot on the title
 // chevron and the strip under the header. Pure.
 //
-// The protocol has no feed of list changes, so two sources join:
+// Two sources join:
 //
 // - The streams of the conversations in the stack. They are live, so they win for
 //   their conversations.
-// - The recent lists of the connected machines, which the app polls every 10 s (D7).
+// - The recent lists of the connected machines. The watch of the lists of a machine
+//   (`conversations.watch`) keeps its list current; for an efrd without the watch, the
+//   app polls the list every 10 s (D7).
 //
 // The conversation on screen never counts: its approval is in its transcript.
 

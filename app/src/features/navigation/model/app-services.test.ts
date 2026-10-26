@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { flush } from "@/lib/net/testing";
 import type { EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
 import { BLANK_ROOT, DRAFTS_KEY, draftKey } from "@/features/conversation/model/drafts";
-import { conversationsKeys } from "@/features/conversations/conversations-queries";
+import { conversationsKeys, recentItems } from "@/features/conversations/conversations-queries";
+import { approvalsElsewhere } from "@/features/conversations/model/waiting";
 import type { ConversationsRecentResult } from "@/lib/protocol/generated";
 import {
   DESKTOP,
@@ -196,6 +197,59 @@ describe("the services and the screens outside the stream", () => {
       last_seq: 7,
     });
     hold?.release();
+  });
+
+  it("feeds the lists and the approvals elsewhere from the watch of a machine", async () => {
+    const test = await setup();
+    const { queryClient, runtime } = test.services;
+    await test.connect(DESKTOP, {
+      capabilities: { drafts_coalesced: true, snapshot_live: true, conversations_watch: true },
+    });
+    const socket = test.sockets.made.find(
+      (made) => made.requests("conversations.watch").length > 0,
+    );
+    if (socket === undefined) {
+      throw new Error("the app does not watch the desktop");
+    }
+    const id = socket.lastId("conversations.watch");
+    const row = (status: string) => ({
+      summary: {
+        id: CONVERSATION,
+        title: "Fan",
+        status,
+        created_at: "2026-10-26T09:00:00Z",
+        updated_at: "2026-10-26T12:00:00Z",
+        last_seq: 7,
+      },
+      route: { kind: "outside" },
+      turns: 1,
+    });
+    socket.receive({ id, item: { kind: "snapshot", conversations: [row("running")] } });
+    expect(runtime.watches(DESKTOP)).toBe(true);
+    expect(runtime.watches(LAPTOP)).toBe(false);
+    const listed = () => {
+      const recent = queryClient.getQueryData<ConversationsRecentResult>(
+        conversationsKeys.recent(DESKTOP),
+      );
+      return recent === undefined ? [] : recentItems(DESKTOP, recent);
+    };
+    expect(listed().map((item) => item.status)).toEqual(["running"]);
+    expect(approvalsElsewhere({ current: undefined, live: [], listed: listed() }).kind).toBe(
+      "none",
+    );
+
+    socket.receive({ id, item: { kind: "changed", conversation: row("awaiting_approval") } });
+    expect(approvalsElsewhere({ current: undefined, live: [], listed: listed() })).toEqual({
+      kind: "one",
+      conversation: { machine: DESKTOP, id: CONVERSATION, title: "Fan" },
+    });
+
+    // In the background the watch stops; back in the foreground the app watches again.
+    test.setActive(false);
+    expect(runtime.watches(DESKTOP)).toBe(false);
+    test.setActive(true);
+    await flush();
+    expect(socket.requests("conversations.watch").length).toBeGreaterThan(1);
   });
 
   it("removes the queries of a forgotten machine also when its key stays", async () => {

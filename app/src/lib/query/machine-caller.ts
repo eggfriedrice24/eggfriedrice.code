@@ -20,4 +20,9 @@ export interface MachineCaller {
     params: MethodParams[M],
     signal?: AbortSignal,
   ): Promise<CallResults[M]>;
+  /**
+   * True while a watch of the lists of `machine` is live (`conversations.watch`), so its
+   * lists need not poll. Absent: the lists always poll.
+   */
+  watches?(machine: string): boolean;
 }

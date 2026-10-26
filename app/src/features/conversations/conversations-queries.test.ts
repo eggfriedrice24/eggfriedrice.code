@@ -5,9 +5,11 @@ import { QueryObserver, environmentManager, focusManager } from "@tanstack/react
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  ConversationStatus,
   ConversationsRecentResult,
   ConversationsSearchResult,
   ConversationSummary,
+  RecentConversation,
 } from "@/lib/protocol/generated";
 import { ConnectionError } from "@/lib/net/errors";
 import { machineKey } from "@/lib/query/keys";
@@ -18,6 +20,7 @@ import {
   APPROVAL_POLL_MS,
   RECENT_LIMIT,
   SEARCH_LIMIT,
+  applyWatchItem,
   combineConversationLists,
   conversationsKeys,
   recentConversationsQueryOptions,
@@ -154,6 +157,33 @@ describe("recentConversationsQueryOptions", () => {
     expect(caller.calls).toHaveLength(3);
   });
 
+  it("does not poll while the watch of its machine is live, and polls again after it", async () => {
+    const caller = new FakeCaller({ "conversations.recent": () => recent("a") });
+    const client = createQueryClient();
+    const observer = new QueryObserver(client, recentConversationsQueryOptions(caller, "m1"));
+    const stop = observer.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(caller.calls).toHaveLength(1);
+
+    // The first item of the watch writes the list: the poll stops.
+    caller.watched.add("m1");
+    applyWatchItem(client, "m1", {
+      kind: "snapshot",
+      conversations: recent("a", "b").conversations,
+    });
+    await vi.advanceTimersByTimeAsync(5 * APPROVAL_POLL_MS);
+    expect(caller.calls).toHaveLength(1);
+    expect(observer.getCurrentResult().data?.map((item) => item.title)).toEqual(["a", "b"]);
+
+    // A watch that stopped makes the list ask again, and the poll starts again.
+    caller.watched.delete("m1");
+    await client.invalidateQueries({ queryKey: conversationsKeys.recent("m1") });
+    expect(caller.calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(APPROVAL_POLL_MS);
+    expect(caller.calls).toHaveLength(3);
+    stop();
+  });
+
   it("goes to the disk and stays in memory as long as the disk copy", () => {
     const options = recentConversationsQueryOptions(new FakeCaller(), "m1");
     expect(options.meta).toEqual({ persist: true });
@@ -221,6 +251,78 @@ function result(
     isError: flags.isError ?? false,
   };
 }
+
+/** A row of a watch: conversation `id`, `minutes` before 12:00, with `status`. */
+function watched(
+  id: string,
+  minutes: number,
+  status: ConversationStatus = "idle",
+): RecentConversation {
+  const at = new Date(Date.parse("2026-10-26T12:00:00Z") - minutes * 60_000).toISOString();
+  return {
+    summary: { ...summary(id, `title ${id}`), status, updated_at: at },
+    route: { kind: "outside" },
+    turns: 1,
+  };
+}
+
+/** A query client and the ids of the recent list of `m1` in it. */
+function lists() {
+  const client = createQueryClient();
+  const recentIds = (): string[] =>
+    (
+      client.getQueryData<ConversationsRecentResult>(conversationsKeys.recent("m1"))
+        ?.conversations ?? []
+    ).map((row) => row.summary.id);
+  return { client, recentIds };
+}
+
+describe("applyWatchItem", () => {
+  it("makes a snapshot the recent list, newest first, and updates the rows of a search", () => {
+    const { client, recentIds } = lists();
+    const found = search("old title");
+    client.setQueryData(conversationsKeys.search("m1", "disk"), found);
+    const waiting = watched("s0", 1, "awaiting_approval");
+    applyWatchItem(client, "m1", { kind: "snapshot", conversations: [watched("a", 5), waiting] });
+    expect(recentIds()).toEqual(["s0", "a"]);
+    const searched = client.getQueryData<ConversationsSearchResult>(
+      conversationsKeys.search("m1", "disk"),
+    );
+    expect(searched?.rows[0]?.conversation.summary.status).toBe("awaiting_approval");
+    expect(searched?.rows[0]?.short_id).toBe("s0");
+  });
+
+  it("puts a changed row in its place, keeps at most RECENT_LIMIT rows, and asks the empty search again when it lacks the row", () => {
+    const { client, recentIds } = lists();
+    const many = Array.from({ length: RECENT_LIMIT }, (_, index) =>
+      watched(`r${index}`, index + 1),
+    );
+    applyWatchItem(client, "m1", { kind: "snapshot", conversations: many });
+    client.setQueryData(conversationsKeys.search("m1", ""), search("x"));
+    applyWatchItem(client, "m1", { kind: "changed", conversation: watched("new", 0, "running") });
+    expect(recentIds()).toHaveLength(RECENT_LIMIT);
+    expect(recentIds()[0]).toBe("new");
+    expect(recentIds()).not.toContain(`r${RECENT_LIMIT - 1}`);
+    expect(client.getQueryState(conversationsKeys.search("m1", ""))?.isInvalidated).toBe(true);
+
+    // The same conversation again moves; it is never in the list twice.
+    applyWatchItem(client, "m1", { kind: "changed", conversation: watched("r5", 0, "idle") });
+    expect(recentIds().filter((id) => id === "r5")).toHaveLength(1);
+  });
+
+  it("drops a removed conversation from every list, and skips a kind that it does not know", () => {
+    const { client, recentIds } = lists();
+    applyWatchItem(client, "m1", { kind: "snapshot", conversations: [watched("s0", 1)] });
+    client.setQueryData(conversationsKeys.search("m1", "disk"), search("a"));
+    applyWatchItem(client, "m1", { kind: "other", wireKind: "renamed" });
+    expect(recentIds()).toEqual(["s0"]);
+    applyWatchItem(client, "m1", { kind: "removed", conversation_id: "s0" });
+    expect(recentIds()).toEqual([]);
+    expect(
+      client.getQueryData<ConversationsSearchResult>(conversationsKeys.search("m1", "disk"))?.rows,
+    ).toEqual([]);
+  });
+});
 
 describe("combineConversationLists", () => {
   it("joins the lists in order and sums up their state", () => {

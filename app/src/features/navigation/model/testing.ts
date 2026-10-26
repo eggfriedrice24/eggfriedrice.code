@@ -13,7 +13,11 @@ import {
   remoteHello,
   type FakeSocket,
 } from "@/lib/net/testing";
-import type { ConversationStatus, ConversationsRecentResult } from "@/lib/protocol/generated";
+import type {
+  ConversationStatus,
+  ConversationsRecentResult,
+  HelloResult,
+} from "@/lib/protocol/generated";
 import type { QueryManagers } from "@/lib/query/managers";
 import { MemoryStorage } from "@/lib/query/testing";
 import { MemoryEventCaches } from "@/lib/store/event-cache";
@@ -76,8 +80,11 @@ export interface TestServices {
   readonly errors: unknown[];
   /** Tells the listeners of the app state that the app went to the foreground or not. */
   setActive(active: boolean): void;
-  /** Opens the socket of `machine` and answers its handshake. */
-  connect(machine: MachineId): Promise<void>;
+  /**
+   * Opens the socket of `machine` and answers its handshake, with the members of
+   * `hello` in the hello of efrd.
+   */
+  connect(machine: MachineId, hello?: Partial<HelloResult>): Promise<void>;
 }
 
 /** The newest socket to `url`. */
@@ -162,13 +169,13 @@ export async function testServices(
         listener(active);
       }
     },
-    async connect(machine) {
+    async connect(machine, hello = {}) {
       const record = records.find((one) => one.daemonId === machine);
       if (record === undefined) {
         throw new Error(`machine ${machine} is not paired in this test`);
       }
       const socket = lastSocket(sockets, `ws://${record.host}:${record.port}/`);
-      await completeHandshake(socket, remoteHello({ daemon_id: machine }));
+      await completeHandshake(socket, remoteHello({ daemon_id: machine, ...hello }));
       await flush();
     },
   };

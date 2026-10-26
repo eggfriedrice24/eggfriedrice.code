@@ -74,6 +74,12 @@ export type SubscribeItem =
   | (Draft & { readonly kind: "draft" })
   | OtherKind;
 
+/**
+ * One item of a `conversations.watch` stream (`ConversationsWatchItem`), or the skip
+ * wrapper of a kind that this build does not know or of a row that failed its schema.
+ */
+export type WatchItem = Protocol.ConversationsWatchItem | OtherKind;
+
 /** The history page of `conversation.history`, whose events may hold skip wrappers. */
 export type HistoryPage = Omit<Protocol.ConversationHistoryResult, "events"> & {
   readonly events: EventEnvelope[];

@@ -12,6 +12,8 @@
 //   its queries and its place as the last machine, also when the removal of its key
 //   fails.
 // - The summary of each snapshot goes into the lists of its machine at once.
+// - The watch of the lists of each machine (`conversations.watch`) goes into its lists
+//   too; a watch that stopped makes the recent list ask efrd again.
 // - The drafts are saved at once when the app goes to the background: iOS can stop the
 //   wait of a debounced save there, and then end the app.
 //
@@ -41,7 +43,12 @@ import {
   type Outbox,
   type OutboxStorage,
 } from "@/features/conversation/model/outbox";
-import { applySummary } from "@/features/conversations/conversations-queries";
+import {
+  RECENT_LIMIT,
+  applySummary,
+  applyWatchItem,
+  conversationsKeys,
+} from "@/features/conversations/conversations-queries";
 import { invalidateOnReady } from "@/features/machines/machine-queries";
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import type {
@@ -169,6 +176,13 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     lifecycle: deps.lifecycle,
     purges,
     onError,
+    lists: {
+      limit: RECENT_LIMIT,
+      item: (machine, item) => applyWatchItem(queryClient, machine, item),
+      stopped: (machine) => {
+        void queryClient.invalidateQueries({ queryKey: conversationsKeys.recent(machine) });
+      },
+    },
   });
 
   const persistOptions = queryPersistOptions(deps.queryStorage, deps.appVersion);

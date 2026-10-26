@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { SubscribeItem } from "@/lib/protocol/wire";
-import { Client, type ClientState, type SubscriptionSink, type SubscriptionStatus } from "./client";
+import type { SubscribeItem, WatchItem } from "@/lib/protocol/wire";
+import {
+  Client,
+  type ClientState,
+  type SubscriptionSink,
+  type SubscriptionStatus,
+  type WatchSink,
+} from "./client";
 import {
   DAEMON_ID,
   DEVICE_ID,
@@ -344,6 +350,100 @@ describe("subscriptions", () => {
     await clock.advance(1000);
     expect(subscribeParams(sockets.last)).toHaveLength(2);
     expect(sink.items).toEqual([]);
+  });
+});
+
+class Watcher implements WatchSink {
+  readonly items: WatchItem[] = [];
+  readonly statuses: SubscriptionStatus["state"][] = [];
+
+  item(item: WatchItem): void {
+    this.items.push(item);
+  }
+
+  status(status: SubscriptionStatus): void {
+    this.statuses.push(status.state);
+  }
+}
+
+/** A row of a watch, as efrd sends it. */
+function row(id: string, status: string): unknown {
+  return {
+    summary: {
+      id,
+      title: "why is the disk full",
+      status,
+      created_at: "2026-10-26T11:00:00Z",
+      updated_at: "2026-10-26T12:00:00Z",
+      last_seq: 4,
+    },
+    route: { kind: "outside" },
+    turns: 1,
+  };
+}
+
+function watchParams(socket: FakeSocket): unknown[] {
+  return socket.requests("conversations.watch").map((frame) => frame["params"]);
+}
+
+describe("the watch of the lists", () => {
+  it("watches with its limit, passes decoded items, skips a kind it does not know, and watches again on a new connection", async () => {
+    const { client, clock, sockets } = await started();
+    const watcher = new Watcher();
+    client.watch(20, watcher);
+    expect(watchParams(sockets.last)).toEqual([{ limit: 20 }]);
+    const id = sockets.last.lastId("conversations.watch");
+    sockets.last.receive({
+      id,
+      item: { kind: "snapshot", conversations: [row(CONVERSATION, "idle")] },
+    });
+    sockets.last.receive({ id, item: { kind: "renamed", conversation_id: CONVERSATION } });
+    sockets.last.receive({
+      id,
+      item: { kind: "changed", conversation: row(CONVERSATION, "paused") },
+    });
+    sockets.last.receive({
+      id,
+      item: { kind: "changed", conversation: row(CONVERSATION, "running") },
+    });
+    sockets.last.receive({ id, item: { kind: "removed", conversation_id: CONVERSATION } });
+    expect(watcher.items.map((item) => item.kind)).toEqual([
+      "snapshot",
+      "other",
+      "other",
+      "changed",
+      "removed",
+    ]);
+    expect(watcher.items[2]).toEqual({ kind: "other", wireKind: "changed", invalid: true });
+
+    sockets.last.drop();
+    await flush();
+    await clock.advance(1000);
+    await completeHandshake(sockets.last);
+    expect(watchParams(sockets.last)).toEqual([{ limit: 20 }]);
+    expect(watcher.statuses).toEqual(["subscribing", "live", "waiting", "subscribing"]);
+  });
+
+  it("watches again after an overflow and after a snapshot that is not valid, and stops on close", async () => {
+    const { client, clock, sockets } = await started();
+    const watcher = new Watcher();
+    const watch = client.watch(20, watcher);
+    const socket = sockets.last;
+    socket.refuse("conversations.watch", "overflow", "behind", { last_seq: 9 });
+    expect(watcher.statuses.at(-1)).toBe("retrying");
+    await clock.advance(1000);
+    expect(watchParams(socket)).toHaveLength(2);
+
+    const id = socket.lastId("conversations.watch");
+    socket.receive({ id, item: { kind: "snapshot", conversations: [{ summary: {} }] } });
+    expect(socket.sent.at(-1)).toEqual({ cancel: id });
+    expect(watcher.items).toEqual([]);
+    await clock.advance(2000);
+    expect(watchParams(socket)).toHaveLength(3);
+
+    watch.close();
+    expect(socket.sent.at(-1)).toEqual({ cancel: socket.lastId("conversations.watch") });
+    expect(watcher.statuses.at(-1)).toBe("closed");
   });
 });
 

@@ -6,7 +6,10 @@
 // - the streams of the conversations of the machine, made with the factory of the
 //   conversation feature, and how long each one stays;
 // - the hook that runs on each `ready`, for the invalidation of the machine's queries and
-//   the drain of the outbox.
+//   the drain of the outbox;
+// - the watch of the lists of the machine (`conversations.watch`): one while the app is
+//   active and efrd names the capability. The client watches again after each new
+//   connection. `watching` is true while the watch is live, so the lists do not poll.
 //
 // A screen holds a stream with `hold`. A "keep" hold keeps the stream in memory (a screen
 // that is in the stack). A "follow" hold also keeps the subscription of the conversation up
@@ -15,13 +18,19 @@
 
 import { createAtom, type Atom, type Readable } from "@tanstack/store";
 
-import { Client, type ClientOptions, type Subscription } from "@/lib/net/client";
+import {
+  Client,
+  type ClientOptions,
+  type ClientState,
+  type Subscription,
+  type Watch,
+} from "@/lib/net/client";
 import type { Clock, Timer } from "@/lib/net/clock";
 import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
 import type { SocketFactory } from "@/lib/net/socket";
 import type { MethodParams } from "@/lib/protocol/generated";
-import type { CallResults } from "@/lib/protocol/wire";
+import type { CallResults, WatchItem } from "@/lib/protocol/wire";
 import { conversationCache, type EventCache } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { PairedDevice, Pairing } from "@/features/pairing/model/paired-device";
@@ -45,6 +54,19 @@ export type ClientTuning = Partial<
   Pick<ClientOptions, "backoff" | "liveness" | "handshakeTimeoutMs">
 >;
 
+/** Where the watch of the lists of each machine goes. */
+export interface ListsWatch {
+  /** The most rows of a snapshot. */
+  readonly limit: number;
+  /** One item of the watch of `machine`. */
+  item(machine: MachineId, item: WatchItem): void;
+  /**
+   * The watch of `machine` ended, or efrd refused it: the lists must ask again, because
+   * nothing feeds them until the next connection.
+   */
+  stopped?(machine: MachineId): void;
+}
+
 /** What a supervisor needs. `S` is the type of the streams that `streams` makes. */
 export interface SupervisorDeps<S extends SupervisedStream = SupervisedStream> {
   readonly sockets: SocketFactory;
@@ -61,6 +83,8 @@ export interface SupervisorDeps<S extends SupervisedStream = SupervisedStream> {
   readonly onError: (error: unknown) => void;
   /** Called each time the connection becomes ready. */
   readonly onReady: (machine: MachineId) => void;
+  /** The watch of the lists; without it the supervisor watches nothing. */
+  readonly lists?: ListsWatch;
   readonly retainMs?: number;
   readonly tuning?: ClientTuning;
 }
@@ -109,6 +133,10 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
   private client: Client | undefined;
   private stopListening: (() => void) | undefined;
   private disposed = false;
+  private foreground = true;
+  /** The watch of the lists, as a holder: the client can call its status before it returns. */
+  private watch: { handle: Watch | undefined } | undefined;
+  private watchLive = false;
 
   constructor(pairing: Pairing, deps: SupervisorDeps<S>) {
     this.id = pairing.device.daemonId;
@@ -145,7 +173,14 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
 
   /** The app went to the background (`false`) or came back (`true`). */
   setForeground(active: boolean): void {
+    this.foreground = active;
     this.client?.setForeground(active);
+    this.updateWatch();
+  }
+
+  /** True while the watch of the lists is live: then the lists need not poll. */
+  get watching(): boolean {
+    return this.watchLive;
   }
 
   /** The network path of the phone changed: connect again at once. */
@@ -272,6 +307,7 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
       const previous = this.atom.get();
       this.atom.set(nextConnection(previous, state, endpoint, deps.clock.now()));
       if (state.state === "ready" && previous.client.state !== "ready") {
+        this.updateWatch();
         try {
           deps.onReady(this.id);
         } catch (error) {
@@ -284,7 +320,58 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
     }
   }
 
+  /**
+   * Opens the watch of the lists when the app is active and the ready connection names
+   * the capability, and closes it in the background or when a new efrd lacks it. While
+   * the client connects again, the watch stays: the client watches again when it is
+   * ready.
+   */
+  private updateWatch(): void {
+    const lists = this.deps.lists;
+    const client = this.client;
+    if (lists === undefined || client === undefined) {
+      return;
+    }
+    const state = client.state;
+    if (!this.foreground || (state.state === "ready" && !watchable(state))) {
+      this.closeWatch();
+      return;
+    }
+    if (this.watch !== undefined || state.state !== "ready") {
+      return;
+    }
+    const watch: { handle: Watch | undefined } = { handle: undefined };
+    this.watch = watch;
+    watch.handle = client.watch(lists.limit, {
+      item: (item) => {
+        try {
+          lists.item(this.id, item);
+        } catch (error) {
+          this.deps.onError(error);
+        }
+      },
+      status: (status) => {
+        if (this.watch !== watch) {
+          return;
+        }
+        this.watchLive = status.state === "live";
+        if (status.state === "ended" || status.state === "failed") {
+          this.watch = undefined;
+          lists.stopped?.(this.id);
+        }
+      },
+    });
+  }
+
+  private closeWatch(): void {
+    const watch = this.watch;
+    this.watch = undefined;
+    this.watchLive = false;
+    watch?.handle?.close();
+  }
+
   private detach(): void {
+    this.closeWatch();
     for (const entry of this.entries.values()) {
       entry.subscription?.close();
       entry.subscription = undefined;
@@ -385,6 +472,11 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
       this.deps.onError(error);
     }
   }
+}
+
+/** True when the efrd of a ready connection answers `conversations.watch`. */
+function watchable(state: Extract<ClientState, { state: "ready" }>): boolean {
+  return state.hello.capabilities?.conversations_watch === true;
 }
 
 function offline(message: string): ConnectionError {

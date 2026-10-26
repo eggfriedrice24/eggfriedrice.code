@@ -43,6 +43,7 @@ import {
   MachineSupervisor,
   type ClientTuning,
   type HoldMode,
+  type ListsWatch,
   type StreamHold,
 } from "./machine-supervisor";
 import { pathChanged, type NetworkPath } from "./network-path";
@@ -89,6 +90,8 @@ export interface RuntimeDeps<S extends SupervisedStream = SupervisedStream> {
   /** How long a stream stays after its last hold. */
   readonly retainMs?: number;
   readonly tuning?: ClientTuning;
+  /** Where the watch of the lists of each machine goes; without it nothing watches. */
+  readonly lists?: ListsWatch;
 }
 
 /** The options of `pair`. */
@@ -121,6 +124,8 @@ export interface Runtime<S extends SupervisedStream = SupervisedStream> {
   ): Promise<CallResults[M]>;
   /** What efrd said about itself on the connection that is up now. */
   status(machine: MachineId): Promise<MachineStatus>;
+  /** True while the watch of the lists of `machine` is live, so its lists need not poll. */
+  watches(machine: MachineId): boolean;
   /** Holds the stream of `ref`, or gives undefined when its machine is not paired. */
   hold(ref: ConversationRef, mode: HoldMode): StreamHold<S> | undefined;
   /** Asks machine `machine` to connect now, for "Try again". */
@@ -200,6 +205,10 @@ class MachineRuntime<S extends SupervisedStream> implements Runtime<S> {
 
   hold(ref: ConversationRef, mode: HoldMode): StreamHold<S> | undefined {
     return this.supervisors.get(ref.machine)?.hold(ref.id, mode);
+  }
+
+  watches(machine: MachineId): boolean {
+    return this.supervisors.get(machine)?.watching ?? false;
   }
 
   retry(machine: MachineId): void {
@@ -397,8 +406,11 @@ function pairingOptions(options: PairOptions): PairingOptions {
 /** The optional settings of a supervisor that the runtime passes on. */
 function optionalSupervisorDeps<S extends SupervisedStream>(
   deps: RuntimeDeps<S>,
-): { retainMs?: number; tuning?: ClientTuning } {
-  const result: { retainMs?: number; tuning?: ClientTuning } = {};
+): { retainMs?: number; tuning?: ClientTuning; lists?: ListsWatch } {
+  const result: { retainMs?: number; tuning?: ClientTuning; lists?: ListsWatch } = {};
+  if (deps.lists !== undefined) {
+    result.lists = deps.lists;
+  }
   if (deps.retainMs !== undefined) {
     result.retainMs = deps.retainMs;
   }

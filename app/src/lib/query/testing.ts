@@ -33,6 +33,8 @@ export type FakeHandlers = { readonly [M in UnaryMethodName]?: Handler<M> };
  */
 export class FakeCaller implements MachineCaller {
   readonly calls: FakeCall[] = [];
+  /** The machines whose watch of the lists is live; a test adds and removes them. */
+  readonly watched = new Set<string>();
   private handlers: FakeHandlers;
 
   constructor(handlers: FakeHandlers = {}) {
@@ -42,6 +44,10 @@ export class FakeCaller implements MachineCaller {
   /** Answers the methods of `handlers` with them from now on; the others stay. */
   answer(handlers: FakeHandlers): void {
     this.handlers = { ...this.handlers, ...handlers };
+  }
+
+  watches(machine: string): boolean {
+    return this.watched.has(machine);
   }
 
   /** The calls of `method`, oldest first. */

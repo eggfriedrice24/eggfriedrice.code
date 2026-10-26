@@ -9,12 +9,13 @@ import {
   remoteHello,
   type FakeSocket,
 } from "@/lib/net/testing";
+import type { WatchItem } from "@/lib/protocol/wire";
 import { MemoryEventCache } from "@/lib/store/event-cache";
 import type { DeviceKey } from "@/features/pairing/model/device-key";
 import { createConversationStream } from "@/features/conversation/model/conversation-stream";
 import type { Pairing } from "@/features/pairing/model/paired-device";
 import type { MachineId } from "./machine-ref";
-import { MachineSupervisor, STREAM_RETAIN_MS } from "./machine-supervisor";
+import { MachineSupervisor, STREAM_RETAIN_MS, type ListsWatch } from "./machine-supervisor";
 import { DESKTOP, FakeStreams, machineRecord, pairedStores } from "./testing";
 
 const CONVERSATION = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -23,7 +24,20 @@ const TURN = "019a9b1c-3d00-7a10-8b20-000000000003";
 
 const HELLO = remoteHello({ daemon_id: DESKTOP, version: "0.0.5" });
 
-async function setup(options: { readonly withKey?: boolean } = {}) {
+/** The hello of an efrd that answers `conversations.watch`. */
+const WATCH_HELLO = remoteHello({
+  daemon_id: DESKTOP,
+  version: "0.0.6",
+  capabilities: { drafts_coalesced: true, snapshot_live: true, conversations_watch: true },
+});
+
+/** What the supervisor gave the lists: each item, and each stop. */
+interface Lists {
+  readonly items: [MachineId, WatchItem][];
+  readonly stopped: MachineId[];
+}
+
+async function setup(options: { readonly withKey?: boolean; readonly lists?: Lists } = {}) {
   const record = machineRecord(DESKTOP);
   const { keys } = await pairedStores([record]);
   const key: DeviceKey | null = options.withKey === false ? null : await keys.load(record.keyAlias);
@@ -48,6 +62,7 @@ async function setup(options: { readonly withKey?: boolean } = {}) {
       },
       onError: (error) => errors.push(error),
       onReady: (machine) => ready.push(machine),
+      ...watchDeps(options.lists),
     },
   );
   return { record, keys, clock, sockets, streams, cache, ready, errors, supervisor };
@@ -58,6 +73,20 @@ async function connected(options: { readonly withKey?: boolean } = {}) {
   parts.supervisor.start();
   await completeHandshake(parts.sockets.last, HELLO);
   return parts;
+}
+
+/** The `lists` dep of a supervisor that records into `lists`, or none. */
+function watchDeps(lists: Lists | undefined): { lists?: ListsWatch } {
+  if (lists === undefined) {
+    return {};
+  }
+  return {
+    lists: {
+      limit: 20,
+      item: (machine, item) => lists.items.push([machine, item]),
+      stopped: (machine) => lists.stopped.push(machine),
+    },
+  };
 }
 
 function event(seq: number): unknown {
@@ -371,5 +400,87 @@ describe("a re-pair and the end", () => {
     expect(streams.made.map((stream) => stream.disposed)).toEqual([true, true]);
     expect(() => supervisor.hold(CONVERSATION, "keep")).toThrow("forgotten");
     supervisor.dispose();
+  });
+});
+
+/** A supervisor that watches the lists, connected with `hello`. */
+async function watching(hello = WATCH_HELLO) {
+  const lists: Lists = { items: [], stopped: [] };
+  const parts = await setup({ lists });
+  parts.supervisor.start();
+  await completeHandshake(parts.sockets.last, hello);
+  return { ...parts, lists };
+}
+
+/** efrd sends the snapshot of the last watch on `socket`. */
+function snapshot(socket: FakeSocket): void {
+  socket.receive({
+    id: socket.lastId("conversations.watch"),
+    item: { kind: "snapshot", conversations: [] },
+  });
+}
+
+describe("the watch of the lists", () => {
+  it("watches once the connection is ready, and is live from the first item", async () => {
+    const { supervisor, sockets, lists } = await watching();
+    const socket = sockets.last;
+    expect(socket.requests("conversations.watch").map((frame) => frame["params"])).toEqual([
+      { limit: 20 },
+    ]);
+    expect(supervisor.watching).toBe(false);
+    snapshot(socket);
+    expect(supervisor.watching).toBe(true);
+    expect(lists.items).toEqual([[DESKTOP, { kind: "snapshot", conversations: [] }]]);
+  });
+
+  it("does not watch an efrd without the capability", async () => {
+    const { supervisor, sockets } = await watching(HELLO);
+    expect(sockets.last.requests("conversations.watch")).toEqual([]);
+    expect(supervisor.watching).toBe(false);
+  });
+
+  it("stops in the background and watches again in the foreground", async () => {
+    const { supervisor, sockets } = await watching();
+    const socket = sockets.last;
+    snapshot(socket);
+    supervisor.setForeground(false);
+    expect(cancelled(socket, "conversations.watch")).toBe(true);
+    expect(supervisor.watching).toBe(false);
+    supervisor.setForeground(true);
+    expect(socket.requests("conversations.watch")).toHaveLength(2);
+    snapshot(socket);
+    expect(supervisor.watching).toBe(true);
+  });
+
+  it("watches again after a new connection, with one watch at a time", async () => {
+    const { supervisor, sockets, clock } = await watching();
+    snapshot(sockets.last);
+    sockets.last.drop();
+    await flush();
+    expect(supervisor.watching).toBe(false);
+    await clock.advance(1000);
+    await completeHandshake(sockets.last, WATCH_HELLO);
+    expect(sockets.last.requests("conversations.watch")).toHaveLength(1);
+    snapshot(sockets.last);
+    expect(supervisor.watching).toBe(true);
+  });
+
+  it("tells the lists when efrd refuses the watch, and watches again on the next connection", async () => {
+    const { supervisor, sockets, clock, lists } = await watching();
+    sockets.last.refuse("conversations.watch", "forbidden", "no");
+    expect(lists.stopped).toEqual([DESKTOP]);
+    expect(supervisor.watching).toBe(false);
+    sockets.last.drop();
+    await flush();
+    await clock.advance(1000);
+    await completeHandshake(sockets.last, WATCH_HELLO);
+    expect(sockets.last.requests("conversations.watch")).toHaveLength(1);
+  });
+
+  it("closes the watch on dispose", async () => {
+    const { supervisor, sockets } = await watching();
+    snapshot(sockets.last);
+    supervisor.dispose();
+    expect(supervisor.watching).toBe(false);
   });
 });

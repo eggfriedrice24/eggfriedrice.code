@@ -11,8 +11,11 @@
 // - Each subscription subscribes again on each new connection, with `after_seq` from its
 //   sink, so the stream continues where the app is. An overflow error resubscribes on
 //   a backoff ladder of its own, because on a slow link it can repeat.
+// - A watch of the conversation lists (`conversations.watch`) follows the same rules: it
+//   watches again on each new connection and after an overflow, and each new watch
+//   starts with a snapshot.
 
-import { decodeSubscribeItem } from "@/lib/protocol/envelope";
+import { decodeSubscribeItem, decodeWatchItem } from "@/lib/protocol/envelope";
 import type {
   ConversationSubscribe,
   ErrorBody,
@@ -20,7 +23,7 @@ import type {
   MethodParams,
   ScopeName,
 } from "@/lib/protocol/generated";
-import type { CallResults, SubscribeItem } from "@/lib/protocol/wire";
+import type { CallResults, SubscribeItem, WatchItem } from "@/lib/protocol/wire";
 import {
   DEFAULT_BACKOFF,
   INITIAL_BACKOFF,
@@ -30,7 +33,12 @@ import {
   type BackoffConfig,
 } from "./backoff";
 import type { Clock, Timer } from "./clock";
-import { Connection, type StreamHandle, type UnaryMethodName } from "./connection";
+import {
+  Connection,
+  type StreamHandle,
+  type StreamHandlers,
+  type UnaryMethodName,
+} from "./connection";
 import type { DeviceKey } from "./device-key";
 import { socketUrl, type Endpoint } from "./endpoint";
 import { ConnectionError } from "./errors";
@@ -99,12 +107,37 @@ export interface Subscription {
   close(): void;
 }
 
+/** What a watch of the conversation lists hands its owner. */
+export interface WatchSink {
+  /** One item of the watch, decoded. A new watch starts with a snapshot. */
+  item(item: WatchItem): void;
+  /** The watch changed its state. */
+  status?(status: SubscriptionStatus): void;
+}
+
+/** One watch of the conversation lists. */
+export interface Watch {
+  /** Ends the watch. */
+  close(): void;
+}
+
 /** The error codes after which a subscription subscribes again on its backoff ladder. */
 const RETRY_CODES: ReadonlySet<string> = new Set(["overflow", "busy", "cancelled", "internal"]);
 
+/** The stream of one entry: how it starts, and what it does with each raw item. */
+interface EntryTarget {
+  /** Starts the stream on `connection`. */
+  open(connection: Connection, handlers: StreamHandlers): StreamHandle;
+  /**
+   * Decodes a raw item: the reason when it is not valid, else the function that hands it
+   * to the owner.
+   */
+  decode(raw: unknown): { readonly invalid: string } | { readonly hand: () => void };
+  status?(status: SubscriptionStatus): void;
+}
+
 interface Entry {
-  readonly conversationId: string;
-  readonly sink: SubscriptionSink;
+  readonly target: EntryTarget;
   handle: StreamHandle | undefined;
   timer: Timer | undefined;
   backoff: Backoff;
@@ -212,9 +245,52 @@ export class Client {
 
   /** Follows conversation `conversationId` with drafts, across connections. */
   subscribe(conversationId: string, sink: SubscriptionSink): Subscription {
+    const target: EntryTarget = {
+      open: (connection, handlers) => {
+        const params: ConversationSubscribe = { conversation_id: conversationId, drafts: true };
+        const cursor = sink.cursor();
+        if (cursor !== undefined && cursor > 0) {
+          params.after_seq = cursor;
+        }
+        return connection.stream("conversation.subscribe", params, handlers);
+      },
+      decode: (raw) => {
+        const decoded = decodeSubscribeItem(raw);
+        return decoded.ok
+          ? { hand: () => sink.item(decoded.value, raw) }
+          : { invalid: decoded.reason };
+      },
+    };
+    if (sink.status !== undefined) {
+      target.status = (status) => sink.status?.(status);
+    }
+    const close = this.add(target);
+    return { conversationId, close };
+  }
+
+  /**
+   * Follows the lists of the conversations of the machine (`conversations.watch`, with at
+   * most `limit` rows in each snapshot), across connections. Only call it when the hello
+   * of efrd names the capability `conversations_watch`.
+   */
+  watch(limit: number, sink: WatchSink): Watch {
+    const target: EntryTarget = {
+      open: (connection, handlers) => connection.stream("conversations.watch", { limit }, handlers),
+      decode: (raw) => {
+        const decoded = decodeWatchItem(raw);
+        return decoded.ok ? { hand: () => sink.item(decoded.value) } : { invalid: decoded.reason };
+      },
+    };
+    if (sink.status !== undefined) {
+      target.status = (status) => sink.status?.(status);
+    }
+    return { close: this.add(target) };
+  }
+
+  /** Adds an entry for `target` and starts it when a connection is ready; returns its close. */
+  private add(target: EntryTarget): () => void {
     const entry: Entry = {
-      conversationId,
-      sink,
+      target,
       handle: undefined,
       timer: undefined,
       backoff: INITIAL_BACKOFF,
@@ -224,20 +300,17 @@ export class Client {
     if (this.current.state === "ready") {
       this.startEntry(entry);
     } else {
-      sink.status?.({ state: "waiting" });
+      target.status?.({ state: "waiting" });
     }
-    return {
-      conversationId,
-      close: () => {
-        if (!this.entries.delete(entry)) {
-          return;
-        }
-        entry.done = true;
-        entry.timer?.cancel();
-        entry.handle?.cancel();
-        entry.handle = undefined;
-        sink.status?.({ state: "closed" });
-      },
+    return () => {
+      if (!this.entries.delete(entry)) {
+        return;
+      }
+      entry.done = true;
+      entry.timer?.cancel();
+      entry.handle?.cancel();
+      entry.handle = undefined;
+      target.status?.({ state: "closed" });
     };
   }
 
@@ -335,7 +408,7 @@ export class Client {
     for (const entry of this.entries) {
       if (entry.handle !== undefined) {
         entry.handle = undefined;
-        entry.sink.status?.({ state: "waiting" });
+        entry.target.status?.({ state: "waiting" });
       }
     }
   }
@@ -345,36 +418,34 @@ export class Client {
     if (connection === undefined || entry.done) {
       return;
     }
-    const params: ConversationSubscribe = { conversation_id: entry.conversationId, drafts: true };
-    const cursor = entry.sink.cursor();
-    if (cursor !== undefined && cursor > 0) {
-      params.after_seq = cursor;
-    }
+    const { target } = entry;
     let live = false;
-    entry.sink.status?.({ state: "subscribing" });
-    const handle = connection.stream("conversation.subscribe", params, {
+    target.status?.({ state: "subscribing" });
+    const handle = target.open(connection, {
       item: (raw) => {
         if (entry.handle !== handle) {
           return;
         }
-        const decoded = decodeSubscribeItem(raw);
-        if (!decoded.ok) {
+        const decoded = target.decode(raw);
+        if ("invalid" in decoded) {
           handle.cancel();
-          this.retryEntry(entry, { code: "invalid", message: decoded.reason });
+          this.retryEntry(entry, { code: "invalid", message: decoded.invalid });
           return;
         }
+        // NOTE: the status goes before the first item, so the owner knows that the stream
+        // is live when it reads that item.
         if (!live) {
           live = true;
           entry.backoff = backoffConnected(entry.backoff, this.options.clock.now());
-          entry.sink.status?.({ state: "live" });
+          target.status?.({ state: "live" });
         }
-        entry.sink.item(decoded.value, raw);
+        decoded.hand();
       },
       end: () => {
         if (entry.handle === handle) {
           entry.handle = undefined;
           entry.done = true;
-          entry.sink.status?.({ state: "ended" });
+          target.status?.({ state: "ended" });
         }
       },
       error: (body) => {
@@ -386,13 +457,13 @@ export class Client {
         } else {
           entry.handle = undefined;
           entry.done = true;
-          entry.sink.status?.({ state: "failed", error: body });
+          target.status?.({ state: "failed", error: body });
         }
       },
       lost: () => {
         if (entry.handle === handle) {
           entry.handle = undefined;
-          entry.sink.status?.({ state: "waiting" });
+          target.status?.({ state: "waiting" });
         }
       },
     });
@@ -410,9 +481,9 @@ export class Client {
       if (this.current.state === "ready") {
         this.startEntry(entry);
       } else {
-        entry.sink.status?.({ state: "waiting" });
+        entry.target.status?.({ state: "waiting" });
       }
     });
-    entry.sink.status?.({ state: "retrying", retryAt: now + next.delayMs, error });
+    entry.target.status?.({ state: "retrying", retryAt: now + next.delayMs, error });
   }
 }

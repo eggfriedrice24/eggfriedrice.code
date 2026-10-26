@@ -14,13 +14,16 @@
 //
 // A page of `conversation.history` follows the rule of the stream: an event of a kind
 // that the app does not know, or a known one that fails its schema, is an `other` event
-// in the page, and the rest of the page stays.
+// in the page, and the rest of the page stays. A watch of the lists
+// (`conversations.watch`) needs a valid snapshot; a row that fails its schema is an
+// invalid `other` item, which the app skips.
 
 import type { z } from "zod";
 
 import { DRAFT_PART_KINDS, EVENT_KINDS, type ConversationSummary } from "./generated";
 import {
   conversationHistoryResultSchema,
+  conversationIdSchema,
   conversationSnapshotSchema,
   conversationSummarySchema,
   draftPartSchema,
@@ -29,6 +32,7 @@ import {
   errorFrameSchema,
   eventEnvelopeSchema,
   eventSchema,
+  recentConversationSchema,
   serverAckFrameSchema,
   serverEndFrameSchema,
   serverItemFrameSchema,
@@ -46,6 +50,7 @@ import type {
   ServerFrame,
   Snapshot,
   SubscribeItem,
+  WatchItem,
 } from "./wire";
 
 /** The result of a decode: the value, or why the input is not valid. */
@@ -98,6 +103,11 @@ export function decodeEventEnvelope(value: unknown): Decoded<EventEnvelope> {
  */
 export function decodeHistoryPage(value: unknown): Decoded<HistoryPage> {
   return guard(() => historyPage(value));
+}
+
+/** Decodes the `item` of a `conversations.watch` item frame. */
+export function decodeWatchItem(item: unknown): Decoded<WatchItem> {
+  return guard(() => watchItem(item));
 }
 
 /** Decodes the body of an error frame. */
@@ -236,6 +246,39 @@ function historyPage(value: unknown): HistoryPage {
     );
   }
   return page;
+}
+
+function watchItem(value: unknown): WatchItem {
+  const object = record(value, "item");
+  const kind = kindOf(object, "item");
+  switch (kind) {
+    case "snapshot": {
+      const rows = object["conversations"];
+      if (!Array.isArray(rows)) {
+        throw new Invalid("snapshot.conversations is not an array");
+      }
+      return {
+        kind: "snapshot",
+        conversations: rows.map((row: unknown) =>
+          check(recentConversationSchema, row, "snapshot.conversations"),
+        ),
+      };
+    }
+    case "changed": {
+      const row = recentConversationSchema.safeParse(object["conversation"]);
+      return row.success
+        ? { kind: "changed", conversation: row.data }
+        : invalidKind("changed", failureReason("changed.conversation", row.error));
+    }
+    case "removed": {
+      const id = conversationIdSchema.safeParse(object["conversation_id"]);
+      return id.success
+        ? { kind: "removed", conversation_id: id.data }
+        : invalidKind("removed", failureReason("removed.conversation_id", id.error));
+    }
+    default:
+      return { kind: "other", wireKind: kind };
+  }
 }
 
 function eventEnvelope(value: unknown): EventEnvelope {
