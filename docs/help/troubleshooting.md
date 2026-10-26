@@ -1,4 +1,4 @@
-<!-- sources: README.md "Install" (.zshrc note), "Use" (hidden shell), "First use", "Settings"; docs/sandbox.md "When the sandbox cannot run", "Commands", "Known limits"; docs/permissions.md "Full mode", "The config hold"; crates/efr-cli/src/error.rs (exit codes, hints); crates/efr-cli/src/run.rs (message format); crates/efr-transport/src/client/error.rs; crates/efr-cli/src/commands/status.rs, paths.rs, config.rs, sandbox.rs; crates/efr-cli/src/format.rs (status, reloaded, held_text); crates/efr-protocol/src/settings.rs (FullRefusal); crates/efr-daemon/src/reload.rs (config notices) -->
+<!-- sources: README.md "Install" (.zshrc note), "Use" (hidden shell), "First use", "Settings"; docs/sandbox.md "When the sandbox cannot run", "Commands", "Known limits"; docs/permissions.md "Full mode", "The config hold"; crates/efr-cli/src/error.rs (exit codes, hints); crates/efr-cli/src/run.rs (message format); crates/efr-transport/src/client/error.rs; crates/efr-cli/src/commands/status.rs, paths.rs, config.rs, sandbox.rs; crates/efr-cli/src/format.rs (status, reloaded, held_text); crates/efr-protocol/src/settings.rs (FullRefusal); crates/efr-daemon/src/reload.rs (config notices); docs/use/phone.md; crates/efr-daemon/src/remote/tailnet.rs (Down), admission.rs (Refusal), listener.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-cli/src/error.rs (the device errors); app/src/ui (the texts of the app) -->
 
 # Troubleshooting
 
@@ -204,6 +204,71 @@ and efr sees no prompt, a line says `no output for 10 s; press Ctrl+\ to type an
 for the command`. Press Ctrl+\ and type the input. efr does not show what you type.
 [A command that asks for input](../use/hidden-shell.md#a-command-that-asks-for-input)
 tells more.
+
+## The phone
+
+[The phone app](../use/phone.md) tells how to set up the listener and pair a phone.
+The log of efrd shows most problems:
+
+```sh
+journalctl --user -u efrd | grep -E 'remote|Tailscale|tailscaled'
+```
+
+**`efr device add` says `the tailnet listener is off`.** Turn on the listener and
+restart efrd:
+
+```sh
+efr config set remote.enabled true
+systemctl --user restart efrd
+```
+
+**`efr device add` says `the tailnet listener does not run now`.** efrd waits for
+Tailscale. Run `tailscale status` and make sure that Tailscale runs and is logged in.
+The log line `Tailscale is not usable` gives the reason:
+
+| Reason | What to do |
+|---|---|
+| `tailscaled does not answer` | Start tailscaled. If it uses another socket path, set `remote.tailscaled_socket` and restart efrd. |
+| `Tailscale does not run` | Run `tailscale up`. |
+| `tailscaled runs in userspace networking mode` | Run tailscaled with a TUN device. efrd cannot listen on a Tailscale address in this mode. |
+| `tailscaled is older than 1.100` | Update Tailscale. |
+| `this node has no Tailscale IPv4 address` | Let your tailnet give this machine an IPv4 address. |
+| `tailscaled names no node or tailnet id` | Log in again with `tailscale up`. |
+
+**The log says `the remote listener could not bind`.** Another program uses the port.
+Set another `remote.port` and restart efrd. efrd tries the bind again every few
+seconds, so the listener starts when the port is free.
+
+**`efr device add` says `efr device add needs a terminal`.** Run it in a terminal,
+not in a pipe or a script. efr must ask you about the phone.
+
+**The terminal cannot show the code.** Make the window as wide as efr says. On a
+light background, use `efr device add --invert`.
+
+**The pairing ends with `the pairing expired, or the phone left before the
+answer`.** The code is good for 5 minutes, and the phone must wait for your answer.
+Run `efr device add` again and scan the new code.
+
+**The app shows "Tailscale is not connected".** Turn on Tailscale on the phone. iOS
+runs one VPN at a time, so another VPN app stops Tailscale.
+
+**The phone does not connect, and the log says `a remote peer was refused`.** The
+reason in the log line tells why:
+
+- `a node of another user`: the phone uses another Tailscale user. Log in on the
+  phone as your own user.
+- `a tagged node` or `a node shared from another tailnet`: efrd never admits these.
+- `this node is tagged, so no peer is its user's`: this computer is a tagged device.
+  Remove the tag of this computer in the Tailscale admin console.
+- `this node itself` or `an address of this node`: the connection came from this
+  computer. efrd never admits it.
+
+**The app shows "Pair this phone again".** Tailscale on the phone is a new node, for
+example after a new install of Tailscale. Pair the phone again with `efr device add`,
+and revoke the old device with `efr device revoke`.
+
+**The app says that your computer does not know this phone, or that it removed this
+phone.** The device was revoked, or efrd has another database. Pair the phone again.
 
 ## Known limits
 
