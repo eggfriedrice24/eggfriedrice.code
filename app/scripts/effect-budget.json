@@ -1,0 +1,4 @@
+{
+  "$comment": "The number of useEffect and useLayoutEffect calls that a file of src/ may have (test/effect-budget.test.ts). A file that is not here may have none. A budget only goes down: lower it when a file needs fewer, and remove the entry at 0.",
+  "files": {}
+}
