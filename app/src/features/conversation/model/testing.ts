@@ -61,7 +61,7 @@ interface MessageRow {
 export function replay(items: readonly TimedItem[], reduceMotion = false): ReplayResult {
   const frames = manualFrames();
   const stream = createConversationStream(
-    { machine: "replay", conversation: "replay" },
+    { machine: "replay", id: "replay" },
     { schedule: frames.schedule },
   );
   const selectRows = createRowsSelector();

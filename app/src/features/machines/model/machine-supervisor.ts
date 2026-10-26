@@ -21,7 +21,7 @@ import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
 import type { SocketFactory } from "@/lib/net/socket";
 import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
-import type { EventCache } from "@/lib/store/event-cache";
+import { conversationCache, type EventCache } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { PairedDevice, Pairing } from "@/features/pairing/model/paired-device";
 import { endpointLabel, endpointOf } from "./machine";
@@ -34,7 +34,7 @@ import {
   type MachineStatus,
 } from "./machine-connection";
 import type { ConversationId, MachineId } from "./machine-ref";
-import type { ConversationStream, ConversationStreamFactory, StreamDeps } from "./stream-factory";
+import type { ConversationStreamFactory, StreamDeps, SupervisedStream } from "./stream-factory";
 
 /** How long a stream stays after its last hold: 5 minutes (plan section 2.2). */
 export const STREAM_RETAIN_MS = 5 * 60_000;
@@ -44,15 +44,16 @@ export type ClientTuning = Partial<
   Pick<ClientOptions, "backoff" | "liveness" | "handshakeTimeoutMs">
 >;
 
-/** What a supervisor needs. */
-export interface SupervisorDeps {
+/** What a supervisor needs. `S` is the type of the streams that `streams` makes. */
+export interface SupervisorDeps<S extends SupervisedStream = SupervisedStream> {
   readonly sockets: SocketFactory;
   readonly clock: Clock;
   /** A random value in [0, 1) for the backoff ladder. */
   readonly random: () => number;
   /** The `client` member of hello, such as `efr-app 0.0.0`. */
   readonly client: string;
-  readonly streams: ConversationStreamFactory;
+  readonly streams: ConversationStreamFactory<S>;
+  /** The event cache of this machine, or undefined when it did not open. */
   readonly cache: EventCache | undefined;
   readonly schedule: FrameScheduler;
   /** Called with errors that the supervisor goes on after. */
@@ -71,8 +72,8 @@ export type HoldMode =
   | "follow";
 
 /** One hold of a stream. */
-export interface StreamHold {
-  readonly stream: ConversationStream;
+export interface StreamHold<S extends SupervisedStream = SupervisedStream> {
+  readonly stream: S;
   /** Ends the hold. A second call does nothing. */
   release(): void;
 }
@@ -84,9 +85,9 @@ export interface CallOptions {
   readonly timeoutMs?: number;
 }
 
-interface StreamEntry {
+interface StreamEntry<S extends SupervisedStream> {
   readonly id: ConversationId;
-  readonly stream: ConversationStream;
+  readonly stream: S;
   keeps: number;
   follows: number;
   hydrated: boolean;
@@ -96,29 +97,22 @@ interface StreamEntry {
 }
 
 /** The supervisor of one machine. */
-export class MachineSupervisor {
+export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
   readonly id: MachineId;
   /** The connection to the machine. It changes on each state of the client. */
   readonly connection: Readable<MachineConnection>;
   private readonly atom: Atom<MachineConnection>;
-  private readonly deps: SupervisorDeps;
-  private readonly streamDeps: StreamDeps;
-  private readonly entries = new Map<ConversationId, StreamEntry>();
+  private readonly deps: SupervisorDeps<S>;
+  private readonly entries = new Map<ConversationId, StreamEntry<S>>();
   private pairing: Pairing;
   private client: Client | undefined;
   private stopListening: (() => void) | undefined;
   private disposed = false;
 
-  constructor(pairing: Pairing, deps: SupervisorDeps) {
+  constructor(pairing: Pairing, deps: SupervisorDeps<S>) {
     this.id = pairing.device.daemonId;
     this.pairing = pairing;
     this.deps = deps;
-    this.streamDeps = {
-      cache: deps.cache,
-      schedule: deps.schedule,
-      clock: deps.clock,
-      onError: deps.onError,
-    };
     this.atom = createAtom<MachineConnection>(keylessConnection());
     this.connection = this.atom;
     this.attach(pairing, undefined);
@@ -195,7 +189,7 @@ export class MachineSupervisor {
   }
 
   /** Holds the stream of conversation `conversationId`; it makes the stream when needed. */
-  hold(conversationId: ConversationId, mode: HoldMode): StreamHold {
+  hold(conversationId: ConversationId, mode: HoldMode): StreamHold<S> {
     if (this.disposed) {
       throw new Error("the machine was forgotten");
     }
@@ -300,9 +294,9 @@ export class MachineSupervisor {
     this.client = undefined;
   }
 
-  private create(id: ConversationId): StreamEntry {
-    const stream = this.deps.streams({ machine: this.id, id }, this.streamDeps);
-    const entry: StreamEntry = {
+  private create(id: ConversationId): StreamEntry<S> {
+    const stream = this.deps.streams({ machine: this.id, id }, this.streamDeps(id));
+    const entry: StreamEntry<S> = {
       id,
       stream,
       keeps: 0,
@@ -317,10 +311,23 @@ export class MachineSupervisor {
     return entry;
   }
 
-  /** Reads the cache of a new stream, then starts its subscription when it is followed. */
-  private async hydrate(entry: StreamEntry): Promise<void> {
+  /** What the stream of conversation `id` gets: its own view of the machine's cache. */
+  private streamDeps(id: ConversationId): StreamDeps {
+    const { cache, schedule, onError } = this.deps;
+    const deps: { -readonly [K in keyof StreamDeps]: StreamDeps[K] } = {
+      schedule,
+      onCacheError: onError,
+    };
+    if (cache !== undefined) {
+      deps.cache = conversationCache(cache, id);
+    }
+    return deps;
+  }
+
+  /** Waits for the cache of a new stream, then starts its subscription when it is followed. */
+  private async hydrate(entry: StreamEntry<S>): Promise<void> {
     try {
-      await entry.stream.hydrate();
+      await entry.stream.hydrated;
     } catch (error) {
       this.deps.onError(error);
     }
@@ -329,7 +336,7 @@ export class MachineSupervisor {
   }
 
   /** Starts the subscription of a followed stream once its cache is read. */
-  private subscribe(entry: StreamEntry): void {
+  private subscribe(entry: StreamEntry<S>): void {
     const client = this.client;
     if (
       client === undefined ||
@@ -343,7 +350,7 @@ export class MachineSupervisor {
     entry.subscription = client.subscribe(entry.id, entry.stream);
   }
 
-  private release(entry: StreamEntry, mode: HoldMode): void {
+  private release(entry: StreamEntry<S>, mode: HoldMode): void {
     if (mode === "follow") {
       entry.follows -= 1;
       if (entry.follows === 0) {
@@ -364,7 +371,7 @@ export class MachineSupervisor {
     });
   }
 
-  private drop(entry: StreamEntry): void {
+  private drop(entry: StreamEntry<S>): void {
     entry.gone = true;
     entry.timer?.cancel();
     entry.timer = undefined;

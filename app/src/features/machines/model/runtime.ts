@@ -2,7 +2,7 @@
 // each (plan section 2.2, "Multi-machine"). It lives outside React; the root layout makes
 // it once with `createRuntime` and gives it to the screens through a context.
 //
-// - `load` reads the pairing records and opens the event cache, then starts every
+// - `load` reads the pairing records and opens the event caches, then starts every
 //   supervisor at the same time, so all machines connect in parallel.
 // - One AppState listener and one NetInfo listener fan out to every supervisor.
 // - `pair` runs the pairing flow and then adds the machine, or gives a re-paired machine
@@ -18,7 +18,7 @@ import { createAtom, type Atom, type Readable } from "@tanstack/store";
 import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
 import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
-import type { EventCache } from "@/lib/store/event-cache";
+import type { EventCaches } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import {
   pair,
@@ -45,7 +45,7 @@ import {
   type StreamHold,
 } from "./machine-supervisor";
 import { pathChanged, type NetworkPath } from "./network-path";
-import type { ConversationStreamFactory } from "./stream-factory";
+import type { ConversationStreamFactory, SupervisedStream } from "./stream-factory";
 
 /** The listeners of the app's life that the runtime fans out to every machine. */
 export interface Lifecycle {
@@ -57,15 +57,15 @@ export interface Lifecycle {
 
 /**
  * Removes what the app keeps of a forgotten machine, such as its event cache rows, its
- * outbox entries or its drafts. `cache` is the event cache that the runtime opened.
+ * outbox entries or its drafts. `caches` are the event caches that the runtime opened.
  */
 export type MachinePurge = (
   machine: MachineId,
-  cache: EventCache | undefined,
+  caches: EventCaches | undefined,
 ) => Promise<void> | void;
 
-/** What the runtime needs. */
-export interface RuntimeDeps {
+/** What the runtime needs. `S` is the type of the streams that `streams` makes. */
+export interface RuntimeDeps<S extends SupervisedStream = SupervisedStream> {
   /**
    * The effects of the pairing flow: the sockets, the clock, the key store, the record
    * store and the rest. Null when the build has no device key module (Expo Go): the app
@@ -75,11 +75,11 @@ export interface RuntimeDeps {
   /** A random value in [0, 1) for the backoff ladders. */
   readonly random: () => number;
   /** Makes the stream of a conversation (the conversation feature implements it). */
-  readonly streams: ConversationStreamFactory;
+  readonly streams: ConversationStreamFactory<S>;
   /** Runs a callback on the next display frame (requestAnimationFrame in the app). */
   readonly schedule: FrameScheduler;
-  /** Opens the event cache once; without it the streams keep nothing. */
-  readonly openCache?: () => Promise<EventCache>;
+  /** Opens the event caches once; without them the streams keep nothing. */
+  readonly openCache?: () => Promise<EventCaches>;
   readonly lifecycle?: Lifecycle;
   /** Run by `forget`, in parallel, after the record and the key are gone. */
   readonly purges?: readonly MachinePurge[];
@@ -101,13 +101,13 @@ export interface PairOptions {
 }
 
 /** The runtime of the machines, as the screens, the queries and the outbox use it. */
-export interface Runtime {
+export interface Runtime<S extends SupervisedStream = SupervisedStream> {
   /** The paired machines. */
   readonly registry: Readable<RegistryState>;
   /** Reads the records and connects every machine. A second call gives the same promise. */
   load(): Promise<void>;
   /** The supervisor of machine `id`, or undefined when it is not paired. */
-  machine(id: MachineId): MachineSupervisor | undefined;
+  machine(id: MachineId): MachineSupervisor<S> | undefined;
   /**
    * Runs a method on machine `machine`. It rejects with a `ConnectionError` of kind
    * `offline` when the machine is not paired or not connected.
@@ -121,7 +121,7 @@ export interface Runtime {
   /** What efrd said about itself on the connection that is up now. */
   status(machine: MachineId): Promise<MachineStatus>;
   /** Holds the stream of `ref`, or gives undefined when its machine is not paired. */
-  hold(ref: ConversationRef, mode: HoldMode): StreamHold | undefined;
+  hold(ref: ConversationRef, mode: HoldMode): StreamHold<S> | undefined;
   /** Asks machine `machine` to connect now, for "Try again". */
   retry(machine: MachineId): void;
   /**
@@ -141,23 +141,23 @@ export interface Runtime {
 const NO_KEY_MODULE = "This build of the app has no device key, so it cannot pair.";
 
 /** Makes the runtime. It does nothing until `load`. */
-export function createRuntime(deps: RuntimeDeps): Runtime {
+export function createRuntime<S extends SupervisedStream>(deps: RuntimeDeps<S>): Runtime<S> {
   return new MachineRuntime(deps);
 }
 
-class MachineRuntime implements Runtime {
+class MachineRuntime<S extends SupervisedStream> implements Runtime<S> {
   readonly registry: Readable<RegistryState>;
   private readonly atom: Atom<RegistryState>;
-  private readonly deps: RuntimeDeps;
-  private readonly supervisors = new Map<MachineId, MachineSupervisor>();
+  private readonly deps: RuntimeDeps<S>;
+  private readonly supervisors = new Map<MachineId, MachineSupervisor<S>>();
   private readonly readyListeners = new Set<(machine: MachineId) => void>();
   private readonly stops: (() => void)[] = [];
   private loading: Promise<void> | undefined;
-  private cache: EventCache | undefined;
+  private caches: EventCaches | undefined;
   private path: NetworkPath | undefined;
   private disposed = false;
 
-  constructor(deps: RuntimeDeps) {
+  constructor(deps: RuntimeDeps<S>) {
     this.deps = deps;
     this.atom = createAtom<RegistryState>(LOADING_REGISTRY);
     this.registry = this.atom;
@@ -168,7 +168,7 @@ class MachineRuntime implements Runtime {
     return this.loading;
   }
 
-  machine(id: MachineId): MachineSupervisor | undefined {
+  machine(id: MachineId): MachineSupervisor<S> | undefined {
     return this.supervisors.get(id);
   }
 
@@ -197,7 +197,7 @@ class MachineRuntime implements Runtime {
     }
   }
 
-  hold(ref: ConversationRef, mode: HoldMode): StreamHold | undefined {
+  hold(ref: ConversationRef, mode: HoldMode): StreamHold<S> | undefined {
     return this.supervisors.get(ref.machine)?.hold(ref.id, mode);
   }
 
@@ -236,11 +236,11 @@ class MachineRuntime implements Runtime {
         failure = error;
       }
     }
-    const { cache } = this;
+    const { caches } = this;
     await Promise.all(
       (this.deps.purges ?? []).map(async (purge) => {
         try {
-          await purge(machine, cache);
+          await purge(machine, caches);
         } catch (error) {
           this.report(error);
         }
@@ -271,7 +271,7 @@ class MachineRuntime implements Runtime {
 
   private async read(): Promise<void> {
     const { pairing, openCache } = this.deps;
-    const [cache, pairings] = await Promise.all([
+    const [caches, pairings] = await Promise.all([
       openCache === undefined
         ? Promise.resolve(undefined)
         : openCache().catch((error: unknown) => {
@@ -288,7 +288,7 @@ class MachineRuntime implements Runtime {
     if (this.disposed) {
       return;
     }
-    this.cache = cache;
+    this.caches = caches;
     const machines: Machine[] = [];
     for (const one of pairings) {
       this.supervisors.set(one.device.daemonId, this.supervisorOf(one));
@@ -317,7 +317,7 @@ class MachineRuntime implements Runtime {
     return machine;
   }
 
-  private supervisorOf(pairing: Pairing): MachineSupervisor {
+  private supervisorOf(pairing: Pairing): MachineSupervisor<S> {
     const { deps } = this;
     const effects = deps.pairing;
     if (effects === null) {
@@ -329,7 +329,7 @@ class MachineRuntime implements Runtime {
       random: deps.random,
       client: effects.client,
       streams: deps.streams,
-      cache: this.cache,
+      cache: this.caches?.forMachine(pairing.device.daemonId),
       schedule: deps.schedule,
       onError: (error) => this.report(error),
       onReady: (machine) => this.ready(machine),
@@ -394,7 +394,9 @@ function pairingOptions(options: PairOptions): PairingOptions {
 }
 
 /** The optional settings of a supervisor that the runtime passes on. */
-function optionalSupervisorDeps(deps: RuntimeDeps): { retainMs?: number; tuning?: ClientTuning } {
+function optionalSupervisorDeps<S extends SupervisedStream>(
+  deps: RuntimeDeps<S>,
+): { retainMs?: number; tuning?: ClientTuning } {
   const result: { retainMs?: number; tuning?: ClientTuning } = {};
   if (deps.retainMs !== undefined) {
     result.retainMs = deps.retainMs;

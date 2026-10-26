@@ -11,6 +11,7 @@ import {
 } from "@/lib/net/testing";
 import { MemoryEventCache } from "@/lib/store/event-cache";
 import type { DeviceKey } from "@/features/pairing/model/device-key";
+import { createConversationStream } from "@/features/conversation/model/conversation-stream";
 import type { Pairing } from "@/features/pairing/model/paired-device";
 import type { MachineId } from "./machine-ref";
 import { MachineSupervisor, STREAM_RETAIN_MS } from "./machine-supervisor";
@@ -178,6 +179,54 @@ describe("calls and status", () => {
   });
 });
 
+describe("with the stream of the conversation feature", () => {
+  it("reads the machine's cache, resumes after it, and caches the new events", async () => {
+    const record = machineRecord(DESKTOP);
+    const { keys } = await pairedStores([record]);
+    const key = await keys.load(record.keyAlias);
+    const clock = new FakeClock();
+    const sockets = new FakeSockets();
+    const cache = new MemoryEventCache();
+    await cache.append(CONVERSATION, [{ seq: 41, json: JSON.stringify(event(41)) }]);
+    const errors: unknown[] = [];
+    const supervisor = new MachineSupervisor(
+      { device: record, key },
+      {
+        sockets: sockets.factory,
+        clock,
+        random: () => 0,
+        client: "efr-app test",
+        streams: createConversationStream,
+        cache,
+        schedule: (callback) => {
+          callback();
+          return () => {};
+        },
+        onError: (error) => errors.push(error),
+        onReady: () => {},
+      },
+    );
+    supervisor.start();
+    await completeHandshake(sockets.last, HELLO);
+
+    const hold = supervisor.hold(CONVERSATION, "follow");
+    await hold.stream.hydrated;
+    await flush();
+    expect(hold.stream.ref).toEqual({ machine: DESKTOP, id: CONVERSATION });
+    expect(subscribes(sockets.last)).toEqual([
+      { conversation_id: CONVERSATION, drafts: true, after_seq: 41 },
+    ]);
+
+    const id = sockets.last.lastId("conversation.subscribe");
+    sockets.last.receive({ id, item: event(42) });
+    expect(hold.stream.cursor()).toBe(42);
+    await hold.stream.settled();
+    expect((await cache.load(CONVERSATION)).map((row) => row.seq)).toEqual([41, 42]);
+    expect(errors).toEqual([]);
+    supervisor.dispose();
+  });
+});
+
 describe("the streams", () => {
   it("reads the cache first, then subscribes with after_seq from it", async () => {
     const { supervisor, sockets, streams } = await connected();
@@ -263,12 +312,14 @@ describe("the streams", () => {
     expect(streams.made).toHaveLength(2);
   });
 
-  it("gives each conversation its own stream", async () => {
-    const { supervisor, streams } = await connected();
+  it("gives each conversation its own stream and its own cache", async () => {
+    const { supervisor, streams, cache } = await connected();
     supervisor.hold(CONVERSATION, "keep");
     supervisor.hold(OTHER_CONVERSATION, "keep");
     expect(streams.made.map((stream) => stream.ref.id)).toEqual([CONVERSATION, OTHER_CONVERSATION]);
-    expect(streams.last.deps.cache).toBeInstanceOf(MemoryEventCache);
+    await streams.last.deps.cache?.append([{ seq: 3, json: "{}" }]);
+    expect(await cache.load(OTHER_CONVERSATION)).toEqual([{ seq: 3, json: "{}" }]);
+    expect(await cache.load(CONVERSATION)).toEqual([]);
   });
 
   it("subscribes the followed streams when the connection comes up", async () => {

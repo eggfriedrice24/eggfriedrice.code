@@ -11,19 +11,19 @@ import { deviceKeyStore, type DeviceKeyStore } from "@/features/pairing/model/de
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import { FakeKeyBinding, MemoryPairedDevices } from "@/features/pairing/model/testing";
 import type { ConversationRef } from "./machine-ref";
-import type { ConversationStream, ConversationStreamFactory, StreamDeps } from "./stream-factory";
+import type { ConversationStreamFactory, StreamDeps, SupervisedStream } from "./stream-factory";
 
 /** A stream that records its items, its states and its life. */
-export class FakeStream implements ConversationStream {
+export class FakeStream implements SupervisedStream {
   readonly store = createAtom<StreamState>(EMPTY_STREAM);
   readonly items: SubscribeItem[] = [];
   readonly statuses: SubscriptionStatus["state"][] = [];
-  hydrated = false;
+  /** Settles when the fake cache read ends; `slowCache` holds it until `finishCache`. */
+  readonly hydrated: Promise<void>;
   disposed = false;
   /** The cursor that the cache gave, or the last event's sequence number. */
   seq: number | undefined;
   private finish: (() => void) | undefined;
-  private readonly gate: Promise<void>;
 
   constructor(
     readonly ref: ConversationRef,
@@ -31,7 +31,7 @@ export class FakeStream implements ConversationStream {
     options: { readonly cachedSeq?: number; readonly slowCache?: boolean } = {},
   ) {
     this.seq = options.cachedSeq;
-    this.gate =
+    this.hydrated =
       options.slowCache === true
         ? new Promise<void>((resolve) => {
             this.finish = resolve;
@@ -54,11 +54,6 @@ export class FakeStream implements ConversationStream {
     this.statuses.push(status.state);
   }
 
-  async hydrate(): Promise<void> {
-    await this.gate;
-    this.hydrated = true;
-  }
-
   /** Lets a slow cache finish its read. */
   finishCache(): void {
     this.finish?.();
@@ -75,7 +70,7 @@ export class FakeStreams {
   /** The options of the next streams. */
   options: { readonly cachedSeq?: number; readonly slowCache?: boolean } = {};
 
-  readonly factory: ConversationStreamFactory = (ref, deps) => {
+  readonly factory: ConversationStreamFactory<FakeStream> = (ref, deps) => {
     const stream = new FakeStream(ref, deps, this.options);
     this.made.push(stream);
     return stream;

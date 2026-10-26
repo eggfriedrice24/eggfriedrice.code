@@ -9,7 +9,9 @@ import {
   remoteHello,
   type FakeSocket,
 } from "@/lib/net/testing";
-import { MemoryEventCache, type EventCache } from "@/lib/store/event-cache";
+import { MemoryEventCaches, type EventCaches } from "@/lib/store/event-cache";
+import type { MachineCaller } from "@/lib/query/machine-caller";
+import { createConversationStream } from "@/features/conversation/model/conversation-stream";
 import { PairingError, type PairingDeps } from "@/features/pairing/model/pair";
 import {
   PAIRED_DEVICE_V1_KEY,
@@ -20,8 +22,15 @@ import {
 } from "@/features/pairing/model/paired-device";
 import type { MachineId } from "./machine-ref";
 import type { NetworkPath } from "./network-path";
-import { createRuntime, type Lifecycle, type RuntimeDeps } from "./runtime";
-import { DESKTOP, FakeStreams, LAPTOP, machineRecord, pairedStores } from "./testing";
+import { createRuntime, type Lifecycle, type Runtime, type RuntimeDeps } from "./runtime";
+import {
+  DESKTOP,
+  FakeStreams,
+  LAPTOP,
+  machineRecord,
+  pairedStores,
+  type FakeStream,
+} from "./testing";
 
 const DESKTOP_URL = "ws://100.64.0.1:7419/";
 const LAPTOP_URL = "ws://100.64.0.2:7419/";
@@ -63,7 +72,7 @@ class FakeLifecycle implements Lifecycle {
 interface SetupOptions {
   readonly records?: readonly PairedDevice[];
   readonly devices?: PairingDeps["devices"];
-  readonly openCache?: () => Promise<EventCache>;
+  readonly openCache?: () => Promise<EventCaches>;
   readonly noKeyModule?: boolean;
 }
 
@@ -75,8 +84,8 @@ async function setup(options: SetupOptions = {}) {
   const sockets = new FakeSockets();
   const streams = new FakeStreams();
   const lifecycle = new FakeLifecycle();
-  const cache = new MemoryEventCache();
-  const purged: [MachineId, EventCache | undefined][] = [];
+  const cache = new MemoryEventCaches();
+  const purged: [MachineId, EventCaches | undefined][] = [];
   const errors: unknown[] = [];
   let aliases = 0;
   const pairing: PairingDeps = {
@@ -89,7 +98,7 @@ async function setup(options: SetupOptions = {}) {
     now: () => new Date("2026-10-26T12:00:00Z"),
     client: "efr-app test",
   };
-  const deps: RuntimeDeps = {
+  const deps: RuntimeDeps<FakeStream> = {
     pairing: options.noKeyModule === true ? null : pairing,
     random: () => 0,
     streams: streams.factory,
@@ -222,6 +231,37 @@ describe("load", () => {
       kind: "repair_needed",
       reason: "other",
     });
+  });
+
+  it("gives the streams of each machine the cache of that machine", async () => {
+    const { runtime, cache } = await setup();
+    await runtime.load();
+    const desktop = runtime.hold({ machine: DESKTOP, id: CONVERSATION }, "keep");
+    const laptop = runtime.hold({ machine: LAPTOP, id: CONVERSATION }, "keep");
+    await desktop?.stream.deps.cache?.append([{ seq: 1, json: "{}" }]);
+    expect(await cache.forMachine(DESKTOP).load(CONVERSATION)).toEqual([{ seq: 1, json: "{}" }]);
+    expect(await laptop?.stream.deps.cache?.load()).toEqual([]);
+  });
+
+  it("takes the stream of the conversation feature and calls for the queries", async () => {
+    const runtime = createRuntime({
+      pairing: null,
+      random: () => 0,
+      streams: createConversationStream,
+      schedule: () => () => {},
+    });
+    // The types are the test: the screens get the full stream from a hold, and the same
+    // runtime goes where a plain runtime and the caller of the queries go.
+    const loose: Runtime = runtime;
+    const caller: MachineCaller = runtime;
+    await runtime.load();
+    expect(loose.registry.get()).toEqual({ loaded: true, machines: [] });
+    expect(runtime.hold({ machine: DESKTOP, id: CONVERSATION }, "keep")?.stream.rowUi).toBe(
+      undefined,
+    );
+    await expect(caller.call(DESKTOP, "conversations.recent", { limit: 20 })).rejects.toMatchObject(
+      { kind: "offline" },
+    );
   });
 
   it("goes on without the cache when it does not open", async () => {

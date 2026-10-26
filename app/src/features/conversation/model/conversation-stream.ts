@@ -14,60 +14,30 @@
 //   efrd.
 //
 // This module implements the `ConversationStreamFactory` that the machine supervisor
-// uses (plan section 4, W2-MACHINES).
+// uses (plan section 4, W2-MACHINES, in features/machines/model/stream-factory.ts).
 
 import type { Readable } from "@tanstack/store";
 
-import type { SubscriptionSink, SubscriptionStatus } from "@/lib/net/client";
+import type { SubscriptionStatus } from "@/lib/net/client";
 import { decodeEventEnvelope, isJsonObject } from "@/lib/protocol/envelope";
-import type { ConversationSummary } from "@/lib/protocol/generated";
 import type { EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
-import { createFrameStore, type FrameScheduler } from "@/lib/store/frame-store";
+import type { CachedEvent, ConversationCache } from "@/lib/store/event-cache";
+import { createFrameStore } from "@/lib/store/frame-store";
 import { EMPTY_STREAM, reduce, type StreamState, underlay, withLink } from "@/lib/stream/reducer";
+import type { ConversationRef } from "@/features/machines/model/machine-ref";
+import type {
+  ConversationStreamFactory,
+  SupervisedStream,
+} from "@/features/machines/model/stream-factory";
 import { createRowUiStore, type RowUiStore } from "./row-ui-state";
 
-/** A conversation on a machine. `machine` is the daemon id of the machine. */
-export interface ConversationRef {
-  readonly machine: string;
-  readonly conversation: string;
-}
-
-/** One cached event: its sequence number and the JSON of its envelope as efrd sent it. */
-export interface CachedEventRow {
-  readonly seq: number;
-  readonly json: string;
-}
-
-/** The event cache of one conversation, as the runtime adapts the machine's cache. */
-export interface ConversationCache {
-  /** The cached events, oldest first. */
-  load(): Promise<readonly CachedEventRow[]>;
-  /** Adds events; an event with a sequence number that the cache has replaces it. */
-  append(events: readonly CachedEventRow[]): Promise<void>;
-  /** Replaces all events, as after a snapshot. */
-  replace(events: readonly CachedEventRow[]): Promise<void>;
-}
-
-/** What a stream needs from the runtime. */
-export interface StreamDeps {
-  /** The display frames (`animationFrames` in the app). */
-  readonly schedule: FrameScheduler;
-  readonly cache?: ConversationCache;
-  /** Called with the summary of each snapshot, so the lists can show it. */
-  readonly onSummary?: (summary: ConversationSummary) => void;
-  /** Called when the cache fails; the stream goes on without it. */
-  readonly onCacheError?: (error: unknown) => void;
-}
-
 /** The stream of one conversation, and the sink of its subscription. */
-export interface ConversationStream extends SubscriptionSink {
+export interface ConversationStream extends SupervisedStream {
   readonly ref: ConversationRef;
   /** The state of the last frame, for `useSelector` with the selectors of selectors.ts. */
   readonly store: Readable<StreamState>;
   /** The rows that the user opened. */
   readonly rowUi: RowUiStore;
-  /** Settles when the cached events are in the state (also when the cache failed). */
-  readonly hydrated: Promise<void>;
   /** The newest state, ahead of `store` by at most one frame. */
   latest(): StreamState;
   /** Writes the newest state to `store` now, without a frame. */
@@ -80,14 +50,11 @@ export interface ConversationStream extends SubscriptionSink {
   dispose(): void;
 }
 
-/** Makes the stream of a conversation (W2-MACHINES' `ConversationStreamFactory`). */
-export type ConversationStreamFactory = (
-  ref: ConversationRef,
-  deps: StreamDeps,
-) => ConversationStream;
-
 /** A new stream of `ref`. It starts to read the cache at once. */
-export const createConversationStream: ConversationStreamFactory = (ref, deps) => {
+export const createConversationStream: ConversationStreamFactory<ConversationStream> = (
+  ref,
+  deps,
+) => {
   const frame = createFrameStore<StreamState>(EMPTY_STREAM, deps.schedule);
   const rowUi = createRowUiStore();
   let writes: Promise<void> = Promise.resolve();
@@ -116,7 +83,7 @@ export const createConversationStream: ConversationStreamFactory = (ref, deps) =
     if (cache === undefined) {
       return;
     }
-    let rows: readonly CachedEventRow[];
+    let rows: readonly CachedEvent[];
     try {
       rows = await cache.load();
     } catch (error) {
@@ -212,7 +179,7 @@ function withoutKind(raw: unknown): unknown {
   return envelope;
 }
 
-function cachedEvents(raws: readonly unknown[], seqs: readonly number[]): CachedEventRow[] {
+function cachedEvents(raws: readonly unknown[], seqs: readonly number[]): CachedEvent[] {
   return raws.flatMap((raw, index) => {
     const seq = seqs[index];
     return seq === undefined ? [] : [{ seq, json: JSON.stringify(raw) }];

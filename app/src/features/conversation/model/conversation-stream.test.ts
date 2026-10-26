@@ -1,31 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import { CONVERSATION, TURN, item, rawEvent, rawItem } from "@/lib/protocol/testing";
+import type { CachedEvent, ConversationCache } from "@/lib/store/event-cache";
 import { manualFrames } from "@/lib/stream/testing";
-import {
-  type CachedEventRow,
-  type ConversationCache,
-  createConversationStream,
-  type StreamDeps,
-} from "./conversation-stream";
+import type { StreamDeps } from "@/features/machines/model/stream-factory";
+import { createConversationStream } from "./conversation-stream";
 
-const REF = { machine: "019a9b1c-3d00-7a10-8b20-0000000000aa", conversation: CONVERSATION };
+const REF = { machine: "019a9b1c-3d00-7a10-8b20-0000000000aa", id: CONVERSATION };
 
 /** The cache of one conversation, in memory. */
 class MemoryCache implements ConversationCache {
   rows = new Map<number, string>();
 
-  load(): Promise<readonly CachedEventRow[]> {
+  load(): Promise<readonly CachedEvent[]> {
     const sorted = [...this.rows.entries()].sort((a, b) => a[0] - b[0]);
     return Promise.resolve(sorted.map(([seq, json]) => ({ seq, json })));
   }
-  append(events: readonly CachedEventRow[]): Promise<void> {
+  append(events: readonly CachedEvent[]): Promise<void> {
     for (const event of events) {
       this.rows.set(event.seq, event.json);
     }
     return Promise.resolve();
   }
-  replace(events: readonly CachedEventRow[]): Promise<void> {
+  replace(events: readonly CachedEvent[]): Promise<void> {
     this.rows = new Map();
     return this.append(events);
   }
@@ -47,7 +44,7 @@ class BrokenCache implements ConversationCache {
 class SlowCache extends MemoryCache {
   private release: (() => void) | undefined;
 
-  override load(): Promise<readonly CachedEventRow[]> {
+  override load(): Promise<readonly CachedEvent[]> {
     const rows = super.load();
     return new Promise((resolve) => {
       this.release = () => resolve(rows);
