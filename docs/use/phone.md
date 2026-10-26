@@ -1,4 +1,4 @@
-<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/ui (the screens and their texts); app/src/session (the session of the screens); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
+<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/features (the screens and their texts); app/src/features/machines (the connection of each machine); app/src/features/conversation/model/outbox.ts (the outbox of the prompts); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
 
 # The phone app
 
@@ -89,9 +89,10 @@ Scan this code with the efr app on your phone:
 The code is good for one phone until 2026-10-26 14:05:00 CET (in 5m 0s). Ctrl+C stops the pairing.
 ```
 
-On the phone, open the app, tap "Pair this phone", then "Scan the code", and point the
-camera at the code. The app first checks that the code comes from this efrd. Then it
-makes the device key and sends the public key with the code.
+On the phone, open the app. When no machine is paired, the app opens on the first step
+of the pairing, which shows this command. Tap "Scan code" and point the camera at the
+code. The app first checks that the code comes from this efrd. Then it makes the device
+key and sends the public key with the code. iOS asks for the camera on the first scan.
 
 The terminal then shows the facts of the phone and asks you:
 
@@ -103,7 +104,9 @@ A phone wants to pair:
 Compare the key with the one that the app shows. Pair this phone? [y/N]
 ```
 
-Make sure that the key is the same as the key that the app shows. Then press `y`.
+The app shows "Confirm on" with the name of the machine, and under it the name of the
+phone and its key. Make sure that the key in the terminal is the same as the key that
+the app shows. Then press `y`.
 efr prints:
 
 ```text
@@ -146,30 +149,107 @@ of the proof.
 
 The key needs no Face ID. The app proves the key each time that it connects again.
 
+## Pair more machines
+
+The app can pair with more than one computer, and it connects to all of them at the
+same time. To pair another machine, open Settings and tap "Pair a new machine", or
+pick "Pair a new machine" in the machine menu of the blank root. Then run
+`efr device add` on that machine and scan its code. Each machine gives the phone its
+own device key.
+
 ## Use the app
 
 > The app was not run on an iPhone yet. These are the features of its code; the first
 > EAS build must show that they work on a phone.
 
-After the pairing, the app connects on its own. You can:
+After the pairing, the app connects on its own.
 
-- see your conversations,
-- follow a conversation live, also a turn that runs now: the text that the model has
-  sent so far comes at once, and the rest streams in,
-- send a prompt to a conversation; a prompt that you send while a turn runs waits
-  behind it,
-- answer the questions of the agent, with the same choices as in the terminal, except
-  "always allow".
+### The blank root
+
+The app opens on a blank conversation on the machine that you used last. The title in
+the bar is the name of the machine. Type a prompt and tap Send: efrd starts a new
+conversation on that machine, and the app opens it. The blank root stays under it.
+
+The menu at the left of the bar changes the machine of the blank root. It shows each
+paired machine, and the machines that are offline say so. The bar of each screen has
+Settings and New (`+`) at the right. New goes back to the blank root.
+
+### Find a conversation
+
+- Tap the title of the bar. A menu shows the 8 recent conversations of the machine.
+  The conversations that wait for an answer come first.
+- "All conversations" at the end of that menu opens a sheet with the conversations of
+  every machine: first the ones that wait for an answer, then today, this week and
+  older. The search field finds a conversation by its title, its machine or its
+  directory, and then asks efrd.
+- Touch and hold a row of the sheet to copy its title or its id.
+
+The app keeps at most 8 conversations on its stack. A conversation that is on the stack
+opens where it is. Touch and hold the back button to see the stack.
+
+### Follow a conversation
+
+A conversation shows your prompts, the replies of the model, its reasoning, the tools
+that it runs, the edits with their diff, and a line at the end of each turn. A turn
+that runs now comes at once with the text that the model has sent so far, and the rest
+streams in.
+
+- Tap a reasoning row or a tool block to open it.
+- Touch and hold a message to copy its text. A code block has its own copy button.
+- The app asks before it opens a link. A web page then opens in the app.
+- When you scroll up, "Jump to latest" takes you back to the end.
+- A failed turn shows the reason, with "retry" and "copy error". Retry sends the prompt
+  of the turn again.
+
+### Send a prompt
+
+When no turn runs, Send sends your prompt. While a turn runs:
+
+- Stop stops the turn.
+- When you type, a capsule shows Steer or Queue. "Steer now" adds your text to the
+  running turn. "Queue" sends it when the turn ends. Touch and hold the capsule to pick
+  one. The app keeps your choice.
+- A queued prompt shows "withdraw". Tap it to take the prompt back before it runs.
+
+A prompt shows at once, with "sending", until efrd has it. When the connection stops,
+or when iOS closes the app, the app sends the prompt again later. efrd runs it only
+once. Send is off while the machine is offline. The app keeps the draft of each
+conversation.
+
+### Answer a question
+
+A question of the agent shows the command, or the file and its diff, the directory,
+and a line that tells why the permission mode asks. Answer with Allow or Deny. The
+choices are the same as in the terminal, except "always allow".
 
 The first answer wins. When you answer a question on the phone, the terminal shows
 the answer, and the reverse.
 
-A question shows how long it can wait. When nobody answers in time, the app shows
-"The time to answer is over", or "Expired while you were away". The call did not run
-in both cases.
+A question shows how long it can wait. When nobody answers in time, it shows
+"expired", or "expired while you were away". The call did not run in both cases.
 
-When the app comes back to the screen after 10 seconds or more, it connects again at
-once and gets what it missed.
+When another conversation waits for an answer, a strip under the bar tells you. Tap it
+to open that conversation at the question. When two or more wait, the strip opens the
+sheet with them on top. A yolk dot on the title of the bar tells you too.
+
+### When a machine is offline
+
+A line under the bar tells you when the machine of the conversation is offline, or
+when Tailscale on the phone is off. The composer then says so too. When the app comes
+back to the screen after 10 seconds or more, or when the phone changes its network,
+the app connects again at once and gets what it missed.
+
+### Settings
+
+Settings shows each paired machine, with its connection and the version of its efrd.
+The menu of a row copies the node name, pairs the machine again, or forgets it.
+Settings also has the Haptics switch, which turns off all the haptics of the app, and
+the version of the app.
+
+Forget deletes the pairing key of that machine on this iPhone, and its conversations
+leave the app. Nothing changes on the machine: to take the access of the phone away,
+also revoke it there (see [Revoke a device](#revoke-a-device)). After you forget the
+last machine, the app goes back to the first step of the pairing.
 
 ## What the phone cannot do
 
@@ -181,9 +261,11 @@ so a changed app cannot get past them:
   [Permission modes](modes.md).
 - Only your own computer answers some questions: a command that runs as another user
   (`sudo`, `doas`, `su`, `pkexec`, `run0`), a background job, and a delete that full
-  mode guards. The app shows "Answer on your computer", and the turn waits for your
-  answer there.
+  mode guards. The app shows "answer on" and the name of the machine, with the reason,
+  and no buttons. The turn waits for your answer there.
 - The phone cannot choose "always allow". An always-allow rule changes your config.
+  When a question offers it, the app shows Allow and Deny, and tells that the rule is
+  set in the terminal.
 - The phone cannot type an input for a command, such as a password. The app shows
   that the command can ask for input.
 - The phone cannot undo a turn and cannot change settings.
@@ -195,8 +277,6 @@ Limits of this version:
 - No push notifications. A question waits until you open the app.
 - No attachments, such as images.
 - No terminal view of the hidden shell.
-- The app starts no new conversation. It sends prompts to the conversations that
-  exist.
 - A dark theme only.
 - The connection is `ws://` inside Tailscale. WireGuard encrypts it, and efrd adds no
   TLS of its own.
