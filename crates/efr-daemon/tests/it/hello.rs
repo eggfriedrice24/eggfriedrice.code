@@ -30,6 +30,10 @@ async fn hello_names_the_daemon_its_directories_and_a_fresh_challenge() {
     assert_eq!(hello.daemon_id, daemon.daemon_id());
     assert_eq!(hello.capabilities.admin, Some(true));
     assert_eq!(hello.capabilities.screen_snapshots, Some(true));
+    // The streaming features that the phone app hides when an older efrd lacks them.
+    assert_eq!(hello.capabilities.drafts_coalesced, Some(true));
+    assert_eq!(hello.capabilities.snapshot_live, Some(true));
+    assert_eq!(hello.capabilities.approval_local_only, Some(true));
     let data = daemon.dirs().dirs().data();
     assert_eq!(hello.paths.data_dir, data);
     assert_eq!(hello.paths.scratch_root, data.join("scratch"));

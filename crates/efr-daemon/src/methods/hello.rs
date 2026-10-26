@@ -35,6 +35,11 @@ pub(crate) fn handle(
         screen_snapshots: Some(true),
         search: Some(true),
         device_prove: prove.is_some().then_some(true),
+        // NOTE: the streaming features of `conversation.subscribe` and the approval
+        // events, on every connection; the phone app hides what an older efrd lacks.
+        drafts_coalesced: Some(true),
+        snapshot_live: Some(true),
+        approval_local_only: Some(true),
         ..Capabilities::default()
     };
     let result = HelloResult {
