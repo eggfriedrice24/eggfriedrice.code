@@ -1908,7 +1908,7 @@ linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
 `classifier_eval`, `apply_patch`, `backtrace`, `cache_prefix`, `compact`, `home`,
-`snapshots`, `undo_method`, `undo`, `jobs`, `full`, `recordings`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`snapshots`, `undo_method`, `undo`, `jobs`, `full`, `recordings`, `remote`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -1923,6 +1923,21 @@ without a follower, the reviewer's and the user's approval of a wait, the refuse
 password for a contained command (the fake launcher), `shell.interrupt` with and
 without `close` (and from the phone), the next call that fails at once, the preamble
 and the limit run there.
+
+The `remote` module runs the remote listener end to end, as the phone app meets it:
+a test daemon with `TestDaemonBuilder::remote` (a fake tailscaled, the listener on a
+free port of `127.0.0.1`), and `efr-test-daemon`'s `FakePhone` on a real TCP stream
+with a software P-256 key. The terminal opens a pairing on the Unix socket; the
+phone reads the QR code, checks the daemon in its hello, enrolls, and the terminal sees
+its facts (the name, the node, the login, the key fingerprint) and says yes or no. A
+yes writes the device and a no writes none. The paired phone proves its key, lists the
+conversations, subscribes with drafts and builds a streamed reply from them, answers a
+question, gets `forbidden` for a question that only the terminal may answer (a
+`sudo` command) and for an admin method, and a revoke closes its socket at once.
+The listener gives no byte to the self node, a tagged node, a sharee node, another
+user or an unknown peer, and refuses an `Origin` that is not missing or its own. A
+signature of another key, a signature for the challenge of another connection, a
+second proof and a third refusal (which closes the socket) prove nothing.
 
 The `jobs` module starts background jobs through `efr-test-daemon`'s `FakeLauncher`
 (a `/bin/sh` script in place of `efr-sbx`) with a fixed job environment, so it needs no

@@ -41,6 +41,7 @@ mod reach;
 mod receipts;
 mod reconcile;
 mod recordings;
+mod remote;
 mod resume;
 mod routing;
 mod sandbox;
