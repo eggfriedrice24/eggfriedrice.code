@@ -5,8 +5,9 @@
 // Do not add a colour here that the source file does not have, and do not map a role to
 // another role here. When the source file changes, copy the new values and update the
 // commit above. The app reads colours only through these roles: `semantic`, `apps.efr`
-// and `apps.opencode` of the source file. The semantic roles of the terminal, the
-// prompt, fzf, search, git and the shell are left out, because the app has no such parts.
+// and `apps.opencode` of the source file, plus the three tree-sitter captures at the end
+// of this file. The semantic roles of the terminal, the prompt, fzf, search, git and the
+// shell are left out, because the app has no such parts.
 
 /** The `semantic` roles of the design system. */
 export const semantic = {
@@ -121,4 +122,16 @@ export const opencode = {
   syntax_type: "#ffc940",
   syntax_operator: "#6cb8ff",
   syntax_punctuation: "#a8a396",
+} as const;
+
+/**
+ * The tree-sitter captures of eggfriedrice.nvim for the three code tokens that
+ * `apps.opencode` has no syntax role for, copied from lua/eggfriedrice/treesitter.lua at
+ * the same commit 351bd0b (`@property` line 29, `@attribute` line 67, `@tag` line 147),
+ * with the values of their primitives in the source file (`red`, `purple`, `red`).
+ */
+export const treesitter = {
+  property: "#e06c75",
+  attribute: "#c084fc",
+  tag: "#e06c75",
 } as const;
