@@ -57,6 +57,7 @@ export type VisitBoard = (board: GalleryBoard) => Promise<void>;
 /** The function that opens a board, with the demo machines on `server`. */
 export function useVisitBoard(server: DemoServer): VisitBoard {
   const router = useRouter();
+  const runtime = useRuntime();
   const preferences = usePreferences();
   const open = useOpenConversation();
   const machines = useDemoMachines();
@@ -69,6 +70,14 @@ export function useVisitBoard(server: DemoServer): VisitBoard {
     }
     await machines.pairAll();
     const refs = server.stage(STAGES[visit.stage]);
+    // A machine that the stage before took offline waits on its backoff ladder; it
+    // connects now, so the board does not start with an old offline line.
+    for (const machine of DEMO_MACHINES) {
+      const view = runtime.machine(machine.daemonId)?.connection.get().view.kind;
+      if (server.mode(machine.key) === "online" && view !== undefined && view !== "online") {
+        runtime.retry(machine.daemonId);
+      }
+    }
     switch (visit.kind) {
       case "root":
         preferences.setLastMachine(demoMachine(visit.machine).daemonId);
