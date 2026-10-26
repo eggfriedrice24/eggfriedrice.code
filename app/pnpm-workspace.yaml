@@ -23,3 +23,9 @@ allowBuilds:
 hoistPattern:
   - "*"
   - "!@types/jsdom"
+# react-native-menu 2.0.0 imports "RCTBridge.h" with quotes, and React Native 0.88 has
+# the header only as <React/RCTBridge.h>, so the iOS build fails. The patch changes only
+# that import (t3code does the same since its move to SDK 58). Drop it with the next
+# release of the package that has the fix.
+patchedDependencies:
+  "@react-native-menu/menu@2.0.0": patches/@react-native-menu__menu@2.0.0.patch
