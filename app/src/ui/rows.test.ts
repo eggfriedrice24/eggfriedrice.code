@@ -92,6 +92,12 @@ describe("createRowBuilder", () => {
     );
     expect(rows.map((row) => row.key)).toEqual(["w:t1", "r:t1", "p:t1"]);
   });
+
+  it("shows the status of a prompt that waits in the queue", () => {
+    const build = createRowBuilder();
+    const rows = build(feed([event({ kind: "prompt_queued", text: "next", origin: "phone" })]));
+    expect(rows.map((row) => row.key)).toEqual(["w:t1", "p:t1"]);
+  });
 });
 
 function reduceStream(stream: StreamState, item: unknown): StreamState {

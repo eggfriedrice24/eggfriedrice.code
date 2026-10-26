@@ -146,8 +146,9 @@ function turnRows(
       }
     }
   }
+  // A turn that has not ended has a status row: queued, running or waiting for you.
   const ended = turn?.end !== undefined || stream?.ended === true;
-  if (!ended && (turn?.started === true || stream !== undefined)) {
+  if (!ended) {
     rows.push({ kind: "status", key: `w:${turnId}`, turnId });
   }
   if (turn?.end !== undefined) {
