@@ -14,10 +14,15 @@ import {
 } from "@/lib/protocol/generated";
 import {
   constants,
+  definitionOrder,
   generate,
+  generateZod,
   normalize,
+  references,
+  schemaName,
   variantKinds,
   withoutReferenceNotes,
+  zodSchemas,
 } from "../scripts/protocol-codegen.mjs";
 
 const events = import.meta.glob<unknown>("../../crates/efr-protocol/fixtures/v1/events/*.json", {
@@ -246,5 +251,246 @@ describe("the generated constants", () => {
       "d",
       "read",
     ]);
+  });
+});
+
+/** The source of the schema of definition `name` in the output of `zodSchemas`. */
+function schemaOf(defs: Record<string, unknown>, name: string): string {
+  const source = zodSchemas(defs);
+  const start = source.indexOf(`export const ${schemaName(name)}`);
+  if (start < 0) {
+    throw new Error(`no schema for ${name}`);
+  }
+  const end = source.indexOf(";\n", start);
+  return source.slice(start, end < 0 ? undefined : end + 1);
+}
+
+describe("the zod emitter", () => {
+  it("names a schema after its definition in camelCase", () => {
+    expect(schemaName("ConversationSummary")).toBe("conversationSummarySchema");
+    expect(schemaName("Seq")).toBe("seqSchema");
+    expect(() => schemaName("not_pascal")).toThrow(/PascalCase/);
+  });
+
+  it("finds the references of a schema, but not in data", () => {
+    const schema = {
+      properties: { a: { $ref: "#/$defs/A" }, b: { anyOf: [{ $ref: "#/$defs/B" }] } },
+      default: { $ref: "#/$defs/C" },
+    };
+    expect(references(schema)).toEqual(["A", "B"]);
+    expect(() => references({ $ref: "other.json#/x" })).toThrow(/does not name a definition/);
+  });
+
+  it("orders each definition after the ones it names, and groups a cycle", () => {
+    const defs = {
+      A: { $ref: "#/$defs/B" },
+      B: { type: "string" },
+      C: { properties: { d: { $ref: "#/$defs/D" } }, type: "object" },
+      D: { properties: { c: { $ref: "#/$defs/C" } }, type: "object" },
+    };
+    expect(definitionOrder(defs)).toEqual([["B"], ["A"], ["C", "D"]]);
+    expect(() => definitionOrder({ A: { $ref: "#/$defs/Missing" } })).toThrow(/does not exist/);
+  });
+
+  it("writes optional members with exactOptional and null with nullable", () => {
+    const defs = {
+      Summary: {
+        properties: {
+          id: { format: "uuid", type: "string" },
+          title: { type: ["string", "null"] },
+          at: { format: "date-time", type: "string" },
+          parent: { anyOf: [{ $ref: "#/$defs/Seq" }, { type: "null" }] },
+        },
+        required: ["id", "at"],
+        type: "object",
+      },
+      Seq: { format: "uint64", minimum: 0, type: "integer" },
+    };
+    expect(schemaOf(defs, "Summary")).toBe(
+      "export const summarySchema = z.object({ id: z.guid(), title: z.string().nullable().exactOptional(), " +
+        "at: z.iso.datetime({ offset: true }), parent: seqSchema.nullable().exactOptional() }) satisfies z.ZodType<Summary>;",
+    );
+    expect(schemaOf(defs, "Seq")).toBe(
+      "export const seqSchema = z.int().nonnegative() satisfies z.ZodType<Seq>;",
+    );
+  });
+
+  it("maps each integer format and adds only the bounds that it does not imply", () => {
+    const defs = {
+      A: { format: "uint32", minimum: 0, type: "integer" },
+      B: { format: "uint8", maximum: 255, minimum: 0, type: "integer" },
+      C: { format: "uint16", maximum: 100, minimum: 1, type: "integer" },
+      D: { format: "int32", type: "integer" },
+      E: { minimum: 2, type: "integer" },
+    };
+    expect(schemaOf(defs, "A")).toContain("= z.uint32() satisfies");
+    expect(schemaOf(defs, "B")).toContain("= z.int().min(0).max(255) satisfies");
+    expect(schemaOf(defs, "C")).toContain("= z.int().min(0).max(65535).min(1).max(100) satisfies");
+    expect(schemaOf(defs, "D")).toContain("= z.int32() satisfies");
+    expect(schemaOf(defs, "E")).toContain("= z.int().min(2) satisfies");
+    expect(() => zodSchemas({ F: { format: "uint128", type: "integer" } })).toThrow(/uint128/);
+  });
+
+  it("writes constants, enums and a pattern", () => {
+    const defs = {
+      Version: { const: 1, type: "integer" },
+      Mode: {
+        oneOf: [
+          { const: "auto", type: "string" },
+          { const: "manual", type: "string" },
+        ],
+      },
+      Code: { enum: ["busy", "invalid"], type: "string" },
+      Job: { pattern: "^j/[1-9]$", type: "string" },
+    };
+    expect(schemaOf(defs, "Version")).toContain("= z.literal(1) satisfies");
+    expect(schemaOf(defs, "Mode")).toContain('= z.enum(["auto","manual"]) satisfies');
+    expect(schemaOf(defs, "Code")).toContain('= z.enum(["busy","invalid"]) satisfies');
+    expect(schemaOf(defs, "Job")).toContain(String.raw`= z.string().regex(/^j\/[1-9]$/) satisfies`);
+  });
+
+  it("writes a union tagged by a constant member as a discriminated union", () => {
+    const defs = {
+      Base: { properties: { at: { type: "string" } }, required: ["at"], type: "object" },
+      Part: {
+        oneOf: [
+          {
+            properties: { kind: { const: "text", type: "string" }, delta: { type: "string" } },
+            required: ["kind", "delta"],
+            type: "object",
+          },
+          {
+            $ref: "#/$defs/Base",
+            properties: { kind: { const: "base", type: "string" } },
+            required: ["kind"],
+            type: "object",
+          },
+        ],
+      },
+      Request: {
+        oneOf: [
+          {
+            properties: { method: { const: "hello" }, params: {} },
+            required: ["method", "params"],
+            type: "object",
+          },
+          {
+            properties: { method: { const: "bye" }, params: {} },
+            required: ["method", "params"],
+            type: "object",
+          },
+        ],
+      },
+      Loose: { anyOf: [{ $ref: "#/$defs/Base" }, { type: "string" }] },
+    };
+    expect(schemaOf(defs, "Part")).toBe(
+      'export const partSchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("text"), delta: z.string() }), ' +
+        'baseSchema.extend({ kind: z.literal("base") })]) satisfies z.ZodType<Part>;',
+    );
+    expect(schemaOf(defs, "Request")).toContain('z.discriminatedUnion("method", [');
+    expect(schemaOf(defs, "Request")).toContain("params: z.unknown()");
+    expect(schemaOf(defs, "Loose")).toContain("= z.union([baseSchema, z.string()]) satisfies");
+  });
+
+  it("makes an object strict, loose or stripping as additionalProperties says", () => {
+    const defs = {
+      Strict: {
+        additionalProperties: false,
+        properties: { a: { type: "boolean" } },
+        type: "object",
+      },
+      Loose: { additionalProperties: true, properties: {}, type: "object" },
+      Plain: { type: "object" },
+      Map: { additionalProperties: { type: "string" }, type: "object" },
+    };
+    expect(schemaOf(defs, "Strict")).toContain(
+      "= z.strictObject({ a: z.boolean().exactOptional() }) satisfies",
+    );
+    expect(schemaOf(defs, "Loose")).toContain("= z.looseObject({}) satisfies");
+    expect(schemaOf(defs, "Plain")).toContain("= z.object({}) satisfies");
+    expect(schemaOf(defs, "Map")).toContain("= z.object({}).catchall(z.string()) satisfies");
+  });
+
+  it("writes an array of an exact length as a tuple, as the type generator does", () => {
+    const defs = {
+      Rgb: { items: { type: "integer" }, maxItems: 3, minItems: 3, type: "array" },
+      Some: { items: { type: "string" }, maxItems: 4, minItems: 1, type: "array" },
+      Any: { type: "array" },
+    };
+    expect(schemaOf(defs, "Rgb")).toContain("= z.tuple([z.int(), z.int(), z.int()]) satisfies");
+    expect(schemaOf(defs, "Some")).toContain("= z.array(z.string()).min(1).max(4) satisfies");
+    expect(schemaOf(defs, "Any")).toContain("= z.array(z.unknown()) satisfies");
+  });
+
+  it("writes an allOf as an intersection and any value as unknown", () => {
+    const defs = {
+      Id: { properties: { id: { type: "integer" } }, required: ["id"], type: "object" },
+      Method: { properties: { method: { type: "string" } }, required: ["method"], type: "object" },
+      Request: { allOf: [{ $ref: "#/$defs/Id" }, { $ref: "#/$defs/Method" }] },
+      Body: {
+        properties: { data: { description: "Any value." }, item: {} },
+        required: ["item"],
+        type: "object",
+      },
+    };
+    expect(schemaOf(defs, "Request")).toContain(
+      "= z.intersection(idSchema, methodSchema) satisfies",
+    );
+    expect(schemaOf(defs, "Body")).toContain(
+      "= z.object({ data: z.unknown().exactOptional(), item: z.unknown() }) satisfies",
+    );
+  });
+
+  it("names a definition of a cycle lazily and types it", () => {
+    const defs = {
+      Node: {
+        properties: { children: { items: { $ref: "#/$defs/Node" }, type: "array" } },
+        required: ["children"],
+        type: "object",
+      },
+    };
+    expect(schemaOf(defs, "Node")).toBe(
+      "export const nodeSchema: z.ZodType<Node> = z.object({ children: z.array(z.lazy(() => nodeSchema)) });",
+    );
+  });
+
+  it("stops at a keyword, a format or a form that it does not know", () => {
+    expect(() => zodSchemas({ A: { minLength: 1, type: "string" } })).toThrow(
+      /#\/\$defs\/A has the keyword minLength/,
+    );
+    expect(() => zodSchemas({ A: { format: "email", type: "string" } })).toThrow(/email/);
+    expect(() =>
+      zodSchemas({
+        A: { type: "string" },
+        B: { $ref: "#/$defs/A", properties: { x: { type: "string" } }, type: "object" },
+      }),
+    ).toThrow(/not an object/);
+    expect(() => zodSchemas({ A: { type: ["string", "integer"] } })).toThrow(/more than one type/);
+    expect(() => zodSchemas({ A: { properties: {}, required: ["x"], type: "object" } })).toThrow(
+      /requires x/,
+    );
+  });
+
+  it("writes the banner, the type import and the map of the result schemas", async () => {
+    const schema = {
+      $defs: {
+        MethodName: { enum: ["hello"], type: "string" },
+        HelloResult: { properties: { daemon_id: { type: "string" } }, type: "object" },
+        MethodResults: {
+          additionalProperties: false,
+          properties: { hello: { $ref: "#/$defs/HelloResult" } },
+          required: ["hello"],
+          type: "object",
+        },
+      },
+    };
+    const text = await generateZod(JSON.stringify(schema));
+    expect(text.startsWith("// Generated from docs/protocol.schema.json")).toBe(true);
+    expect(text).toContain('import { z } from "zod";');
+    expect(text).toContain(
+      'import type { HelloResult, MethodName, MethodResults } from "./generated";',
+    );
+    expect(text).toContain("export const METHOD_RESULT_SCHEMAS: {");
+    expect(text).toContain("} = methodResultsSchema.shape;");
   });
 });
