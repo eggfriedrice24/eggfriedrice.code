@@ -156,6 +156,12 @@
   font-weight: 600;
 }
 
+@utility text-nav-title {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
 @utility text-button {
   font-size: 15px;
   font-weight: 600;

@@ -20,6 +20,7 @@ export const TYPE_CLASS = {
   heading2: "text-heading-2",
   heading3: "text-heading-3",
   pairingTitle: "text-pairing-title",
+  navTitle: "text-nav-title",
   button: "text-button",
   buttonLarge: "text-button-large",
   capsule: "text-capsule",

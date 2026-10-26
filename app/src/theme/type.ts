@@ -56,6 +56,11 @@ export const TYPE = {
   heading3: { fontSize: 15, lineHeight: 20, ...semibold },
   /** The titles of the pairing screens (Title 3). */
   pairingTitle: { fontSize: 20, lineHeight: 25, ...semibold },
+  /**
+   * The title of the pairing modal's own nav row, at the size of a native bar title
+   * (design item 8.4; the mock draws 16).
+   */
+  navTitle: { fontSize: 17, lineHeight: 22, ...semibold },
   /** Allow and Deny. */
   button: { fontSize: 15, ...semibold },
   /** The primary and the bordered buttons of the pairing screens. */
