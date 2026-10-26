@@ -336,6 +336,8 @@ jobs:
       # The generated protocol types must match docs/protocol.schema.json. The lint
       # job checks the schema against efr-protocol, so this job needs no cargo.
       - run: pnpm run check:protocol
+      # The theme CSS of uniwind must match the palette and the type scale it comes from.
+      - run: pnpm run check:theme
       # Metro bundles the JavaScript of the iOS app on Linux, so a module that does not
       # resolve or a transform error of the React Compiler or uniwind fails here, before
       # an EAS build.
