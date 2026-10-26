@@ -32,34 +32,35 @@ use crate::{
     ConversationSearch, ConversationSearchResult, ConversationSnapshot, ConversationStatus,
     ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
-    ConversationsSearchResult, CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv,
-    DesktopKind, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo, DeviceList,
-    DeviceListResult, DevicePairConfirm, DevicePairConfirmResult, DevicePairStart,
-    DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke, DeviceRevokeResult, Draft,
-    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
-    ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus,
-    FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig, HeldReason, Hello,
-    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo,
-    JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement,
-    LateSteer, Launch, LeaseReport, LeaseReportResult, LiveTurn, LoginKind, Method, Mode,
-    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall, NetworkMode,
-    NewReason, NotSavedReason, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
-    PageCursor, PairEnd, PairingId, PairingQr, PathClassName, PauseReason, PortForward, Presence,
-    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
-    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, ProveContext, ProveMessage, ProviderStatus, PtyAttach, PtyAttachItem,
-    PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand,
-    RecentConversation, RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir,
-    RootFiles, RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
-    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
-    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
-    SurfaceChange, Switch, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
-    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
-    Verdict, Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ConversationsSearchResult, ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor,
+    DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult,
+    DeviceId, DeviceInfo, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
+    DevicePairStart, DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke,
+    DeviceRevokeResult, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
+    ForwardOutcome, FullModeStatus, FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant,
+    HeldConfig, HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult,
+    InputWait, JobCgroup, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop,
+    JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult,
+    LiveTurn, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
+    ModelsListResult, MovedCall, NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName,
+    PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource,
+    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
+    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
+    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
+    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
+    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
+    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact,
+    TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
+    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -894,6 +895,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
                 snapshot_live: None,
                 approval_local_only: None,
                 device_prove: None,
+                conversations_watch: None,
                 extra: Default::default(),
             },
             tty: Some("/dev/pts/3".into()),
@@ -1102,6 +1104,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
         }),
         Method::DeviceList(DeviceList {}),
         Method::DeviceRevoke(DeviceRevoke { device_id: device_id() }),
+        Method::ConversationsWatch(ConversationsWatch { limit: Some(20) }),
     ]
 }
 
@@ -1173,6 +1176,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     snapshot_live: None,
                     approval_local_only: None,
                     device_prove: None,
+                    conversations_watch: None,
                     extra: Default::default(),
                 },
                 paths: DaemonPaths {
@@ -1184,6 +1188,7 @@ fn answer_fixtures() -> Vec<Fixture> {
             },
         ),
         fixture("hello_result_remote.json", &remote_hello_result()),
+        fixture("hello_result_remote_watch.json", &watch_hello_result()),
         fixture(
             "conversations_list_result.json",
             &ConversationsListResult {
@@ -1600,6 +1605,18 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture("conversation_context_result.json", &context_report()),
         fixture("conversations_recent_result.json", &recent_list()),
         fixture(
+            "conversations_watch_item_snapshot.json",
+            &ConversationsWatchItem::Snapshot { conversations: vec![watch_row()] },
+        ),
+        fixture(
+            "conversations_watch_item_changed.json",
+            &ConversationsWatchItem::Changed { conversation: Box::new(waiting_watch_row()) },
+        ),
+        fixture(
+            "conversations_watch_item_removed.json",
+            &ConversationsWatchItem::Removed { conversation_id: conversation_id() },
+        ),
+        fixture(
             "conversation_resume_result.json",
             &ConversationResumeResult::Resumed {
                 conversation_id: conversation_id(),
@@ -1793,6 +1810,7 @@ pub(crate) fn remote_hello_result() -> HelloResult {
             snapshot_live: Some(true),
             approval_local_only: Some(true),
             device_prove: Some(true),
+            conversations_watch: None,
             extra: Default::default(),
         },
         paths: DaemonPaths {
@@ -1802,6 +1820,14 @@ pub(crate) fn remote_hello_result() -> HelloResult {
         challenge: "3q2-7wAAAAAAAAAAAAAAAA".into(),
         prove: Some(prove_context()),
     }
+}
+
+/// The `hello` result of a connection of the tailnet listener of an efrd that answers
+/// `conversations.watch`: [`remote_hello_result`] with its key.
+pub(crate) fn watch_hello_result() -> HelloResult {
+    let mut result = remote_hello_result();
+    result.capabilities.conversations_watch = Some(true);
+    result
 }
 
 /// A running turn in the middle of its second message, with characters of more than
@@ -1942,6 +1968,20 @@ fn recent_row() -> RecentConversation {
         open_in: Some("/dev/pts/4".into()),
         here: true,
     }
+}
+
+/// A row of `conversations.watch`: a phone has no terminal, so no row is `here`.
+fn watch_row() -> RecentConversation {
+    RecentConversation { here: false, ..recent_row() }
+}
+
+/// A row of `conversations.watch` whose turn waits for an answer.
+fn waiting_watch_row() -> RecentConversation {
+    let mut row = watch_row();
+    row.summary.status = ConversationStatus::AwaitingApproval;
+    row.summary.last_seq = Seq::new(44);
+    row.summary.updated_at = at("2026-10-03T12:00:09Z");
+    row
 }
 
 /// The ranges of `disk` and `full` in the title of [`summary`].

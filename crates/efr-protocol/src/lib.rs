@@ -107,6 +107,7 @@ pub use methods::conversations_search::{
     ConversationsSearch, ConversationsSearchResult, SearchHit, SearchIndexState, SearchKind,
     SearchLine, SearchPartial, SearchRow, SearchStats, TextRange,
 };
+pub use methods::conversations_watch::{ConversationsWatch, ConversationsWatchItem};
 pub use methods::device_enroll::{DeviceEnroll, DeviceEnrollResult};
 pub use methods::device_list::{DeviceList, DeviceListResult};
 pub use methods::device_pair_confirm::{DevicePairConfirm, DevicePairConfirmResult};

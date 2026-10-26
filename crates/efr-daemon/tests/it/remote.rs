@@ -18,8 +18,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationId,
-    ConversationSubscribe, ConversationSubscribeItem, ConversationsList, ConversationsListResult,
-    DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceList, DeviceListResult, DevicePairConfirm,
+    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
+    ConversationsListResult, ConversationsWatch, ConversationsWatchItem, DeviceEnroll,
+    DeviceEnrollResult, DeviceId, DeviceList, DeviceListResult, DevicePairConfirm,
     DevicePairConfirmResult, DevicePairStart, DevicePairStartItem, DeviceRevoke,
     DeviceRevokeResult, DraftPart, ErrorBody, ErrorCode, Event, HelloResult, Method,
     PROTOCOL_VERSION, PairEnd, PromptSendResult, RequestId, ScopeName, TurnId,
@@ -420,6 +421,84 @@ async fn a_phone_pairs_proves_follows_a_streamed_reply_answers_a_question_and_is
     assert_eq!(listed.devices[0].revoked_at, Some(revoked.revoked_at));
 
     drop((next, terminal));
+    daemon.stop().await.unwrap();
+}
+
+/// Reads the rows of the phone's watch `id` until one of `conversation_id` has
+/// `status`.
+async fn watched_until(
+    phone: &mut FakePhone,
+    id: RequestId,
+    conversation_id: ConversationId,
+    status: ConversationStatus,
+) {
+    loop {
+        let item: ConversationsWatchItem =
+            phone.next_item(id).await.unwrap().expect("the watch ended");
+        let ConversationsWatchItem::Changed { conversation } = item else {
+            panic!("a row, not {item:?}");
+        };
+        assert_eq!(conversation.summary.id, conversation_id);
+        if conversation.summary.status == status {
+            return;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_proved_phone_watches_a_turn_that_asks_it_a_question() {
+    let (daemon, model) = start().await;
+    let terminal = daemon.client_for_tty(TTY).await.unwrap();
+    let key = PhoneKey::generate().unwrap();
+    let (mut phone, hello, device_id) = pair(&daemon, &terminal, &key).await;
+    phone.prove(&key, &hello, device_id).await.unwrap();
+    assert_eq!(hello.capabilities.conversations_watch, Some(true));
+
+    let watch = phone.send(Method::ConversationsWatch(ConversationsWatch::default())).await;
+    let watch = watch.unwrap();
+    let first: ConversationsWatchItem = phone.next_item(watch).await.unwrap().unwrap();
+    assert_eq!(first, ConversationsWatchItem::Snapshot { conversations: Vec::new() });
+
+    std::fs::write(daemon.cwd().join("notes.md"), NOTES).unwrap();
+    let sent: PromptSendResult =
+        terminal.call(daemon.prompt(1, "update my notes", TTY)).await.unwrap();
+    let conversation_id = sent.conversation_id;
+    watched_until(&mut phone, watch, conversation_id, ConversationStatus::Running).await;
+
+    // The question shows in the list of the phone, and its answer takes it away.
+    let notes = json!({ "path": "notes.md", "content": NEW_NOTES });
+    call_tool(&model, "write_file", &notes);
+    watched_until(&mut phone, watch, conversation_id, ConversationStatus::AwaitingApproval).await;
+    let events = daemon.events(&terminal, conversation_id).await.unwrap();
+    let call_id = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            Event::ApprovalRequested { call_id, .. } => Some(*call_id),
+            _ => None,
+        })
+        .unwrap();
+    let _: ApprovalRespondResult =
+        phone.call(answer(2, conversation_id, call_id, ApprovalDecision::Allow)).await.unwrap();
+    watched_until(&mut phone, watch, conversation_id, ConversationStatus::Running).await;
+
+    model.send(ProviderEvent::TextDelta { text: "Done.".to_owned() }).unwrap();
+    model
+        .send(ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None })
+        .unwrap();
+    watched_until(&mut phone, watch, conversation_id, ConversationStatus::Idle).await;
+
+    // A new watch starts with the conversation.
+    let again = phone.send(Method::ConversationsWatch(ConversationsWatch::default())).await;
+    let again = again.unwrap();
+    let Some(ConversationsWatchItem::Snapshot { conversations }) =
+        phone.next_item(again).await.unwrap()
+    else {
+        panic!("a watch starts with a snapshot");
+    };
+    let [row] = conversations.as_slice() else { panic!("one row: {conversations:?}") };
+    assert_eq!((row.summary.id, row.summary.status), (conversation_id, ConversationStatus::Idle));
+    assert_eq!(std::fs::read_to_string(daemon.cwd().join("notes.md")).unwrap(), NEW_NOTES);
+    drop((phone, terminal));
     daemon.stop().await.unwrap();
 }
 

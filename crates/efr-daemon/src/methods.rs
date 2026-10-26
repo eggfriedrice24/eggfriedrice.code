@@ -57,6 +57,7 @@ mod conversation_subscribe;
 mod conversations_list;
 mod conversations_recent;
 mod conversations_search;
+mod conversations_watch;
 mod device_enroll;
 mod device_list;
 mod device_pair_confirm;
@@ -161,6 +162,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::DeviceProve(_) => ScopeName::Read,
         Method::DeviceList(_) => ScopeName::Admin,
         Method::DeviceRevoke(_) => ScopeName::Admin,
+        Method::ConversationsWatch(_) => ScopeName::Read,
     }
 }
 
@@ -243,7 +245,8 @@ impl Input {
             | Method::ConversationsRecent(_)
             | Method::ShellStatus(_)
             | Method::ConversationsSearch(_)
-            | Method::ConversationSearch(_) => None,
+            | Method::ConversationSearch(_)
+            | Method::ConversationsWatch(_) => None,
             // NOTE: a delete is the user's act, but a deleted conversation records no
             // presence: the store refuses its events.
             Method::ConversationDelete(_) => None,
@@ -604,6 +607,10 @@ impl Dispatcher for Methods {
                 Method::DeviceList(params) => device_list::handle(state, params, &responder).await,
                 Method::DeviceRevoke(params) => {
                     device_revoke::handle(state, params, &responder).await
+                }
+                Method::ConversationsWatch(params) => {
+                    Box::pin(conversations_watch::handle(state, params, &responder, cancelled))
+                        .await
                 }
             };
             state.presence.record(touched).await;

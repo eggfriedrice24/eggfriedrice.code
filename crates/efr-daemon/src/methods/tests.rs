@@ -2,11 +2,11 @@ use efr_protocol::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationCompact, ConversationContext, ConversationHistory, ConversationId,
-    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsSearch, ErrorCode,
-    Hello, InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
-    Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize,
-    PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size,
-    TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsSearch,
+    ConversationsWatch, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
+    PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
+    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
+    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -145,13 +145,14 @@ fn every_method() -> Vec<Method> {
             query: "rsync".to_owned(),
             limit: None,
         }),
+        Method::ConversationsWatch(ConversationsWatch { limit: None }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 30, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 31, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -195,6 +196,7 @@ fn the_scope_table_is_the_designed_one() {
             ("conversation.context", ScopeName::Read),
             ("conversations.search", ScopeName::Read),
             ("conversation.search", ScopeName::Read),
+            ("conversations.watch", ScopeName::Read),
         ]
     );
 }

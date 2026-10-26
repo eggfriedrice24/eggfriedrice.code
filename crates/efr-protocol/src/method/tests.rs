@@ -9,11 +9,11 @@ use crate::{
     Base64Bytes, CallBackground, CallId, Capabilities, CommandId, ConversationCompact,
     ConversationContext, ConversationDelete, ConversationDiff, ConversationHistory, ConversationId,
     ConversationResume, ConversationSearch, ConversationSubscribe, ConversationsList,
-    ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobId, JobsList, JobsStop,
-    LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend,
-    PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt, ShellStatus, Size,
-    TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationsRecent, ConversationsSearch, ConversationsWatch, Hello, InputRespond, JobId,
+    JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
+    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt,
+    ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -424,6 +424,13 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             ScopeName::Terminal,
             true,
             false,
+        ),
+        (
+            Method::ConversationsWatch(ConversationsWatch { limit: Some(20) }),
+            "conversations.watch",
+            ScopeName::Read,
+            false,
+            true,
         ),
     ]
 }

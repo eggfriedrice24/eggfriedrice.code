@@ -121,6 +121,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - A question of the agent now tells a client why the permission mode of the turn
   asks, in one plain line, such as "cautious asks before any network access." The
   phone app can show it below the command. The terminal shows the question as before.
+- efrd sends a client the changes of its lists of conversations as they happen: the
+  title, the status and the count of turns of each one, and its delete. The phone app
+  uses this, so its lists, the strip and the dot show a new question or the end of a
+  turn at once. With an older efrd, the app asks again every 10 seconds, as before.
 - A dev or preview build of the phone app has a gallery of every screen and state of
   its design. A long press on the version in Settings opens it. Three demo machines
   (desktop, laptop and homelab) play efrd inside the app and reach no computer, so you

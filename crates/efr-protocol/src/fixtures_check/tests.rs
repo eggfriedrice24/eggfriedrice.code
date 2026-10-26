@@ -93,10 +93,11 @@ fn method_index(method: &Method) -> usize {
         Method::DeviceProve(_) => 44,
         Method::DeviceList(_) => 45,
         Method::DeviceRevoke(_) => 46,
+        Method::ConversationsWatch(_) => 47,
     }
 }
 
-const METHOD_COUNT: usize = 47;
+const METHOD_COUNT: usize = 48;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -794,6 +795,20 @@ fn the_remote_hello_result_reads_like_the_old_one_without_its_new_members() {
     let result: HelloResult = serde_json::from_value(stripped).unwrap();
     assert_eq!(result.prove, None);
     assert_eq!(result.capabilities, remote_hello_result().capabilities);
+}
+
+/// The watch key is in a fixture of its own, so the remote `hello` result that the phone
+/// read before stays as it was.
+#[test]
+fn the_watch_key_is_its_own_fixture_and_absent_in_the_old_ones() {
+    assert!(!read("hello_result.json").contains("conversations_watch"));
+    assert!(!read("hello_result_remote.json").contains("conversations_watch"));
+    let watch: Value = serde_json::from_str(&read("hello_result_remote_watch.json")).unwrap();
+    assert_eq!(watch["capabilities"]["conversations_watch"], true);
+    let mut stripped = watch.clone();
+    stripped["capabilities"].as_object_mut().unwrap().remove("conversations_watch");
+    let remote: Value = serde_json::from_str(&read("hello_result_remote.json")).unwrap();
+    assert_eq!(stripped, remote);
 }
 
 #[test]

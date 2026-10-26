@@ -99,6 +99,8 @@ import type {
   ConversationsRecentResult,
   ConversationsSearch,
   ConversationsSearchResult,
+  ConversationsWatch,
+  ConversationsWatchItem,
   CountedUse,
   Cursor,
   DaemonId,
@@ -774,6 +776,7 @@ export const callBackgroundResultSchema = z.discriminatedUnion("kind", [
 export const capabilitiesSchema = z.looseObject({
   admin: z.boolean().nullable().exactOptional(),
   approval_local_only: z.boolean().nullable().exactOptional(),
+  conversations_watch: z.boolean().nullable().exactOptional(),
   device_prove: z.boolean().nullable().exactOptional(),
   drafts_coalesced: z.boolean().nullable().exactOptional(),
   screen_snapshots: z.boolean().nullable().exactOptional(),
@@ -913,6 +916,10 @@ export const conversationsSearchSchema = z.object({
   stats: z.boolean().exactOptional(),
   tty: z.string().nullable().exactOptional(),
 }) satisfies z.ZodType<ConversationsSearch>;
+
+export const conversationsWatchSchema = z.object({
+  limit: z.uint32().nullable().exactOptional(),
+}) satisfies z.ZodType<ConversationsWatch>;
 
 export const deviceEnrollSchema = z.object({
   name: z.string(),
@@ -1162,6 +1169,7 @@ export const methodSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("device.prove"), params: deviceProveSchema }),
   z.object({ method: z.literal("device.list"), params: deviceListSchema }),
   z.object({ method: z.literal("device.revoke"), params: deviceRevokeSchema }),
+  z.object({ method: z.literal("conversations.watch"), params: conversationsWatchSchema }),
 ]) satisfies z.ZodType<Method>;
 
 export const clientRequestSchema = z.intersection(
@@ -2237,6 +2245,12 @@ export const conversationsSearchResultSchema = z.object({
   stats: searchStatsSchema.nullable().exactOptional(),
 }) satisfies z.ZodType<ConversationsSearchResult>;
 
+export const conversationsWatchItemSchema = z.discriminatedUnion("kind", [
+  z.object({ conversations: z.array(recentConversationSchema), kind: z.literal("snapshot") }),
+  z.object({ conversation: recentConversationSchema, kind: z.literal("changed") }),
+  z.object({ conversation_id: conversationIdSchema, kind: z.literal("removed") }),
+]) satisfies z.ZodType<ConversationsWatchItem>;
+
 export const cursorSchema = z.object({
   col: z.int().min(0).max(65535),
   hidden: z.boolean().exactOptional(),
@@ -2406,6 +2420,7 @@ export const methodNameSchema = z.enum([
   "device.prove",
   "device.list",
   "device.revoke",
+  "conversations.watch",
 ]) satisfies z.ZodType<MethodName>;
 
 export const methodParamsSchema = z.strictObject({
@@ -2430,6 +2445,7 @@ export const methodParamsSchema = z.strictObject({
   "conversations.list": conversationsListSchema,
   "conversations.recent": conversationsRecentSchema,
   "conversations.search": conversationsSearchSchema,
+  "conversations.watch": conversationsWatchSchema,
   "device.enroll": deviceEnrollSchema,
   "device.list": deviceListSchema,
   "device.pair_confirm": devicePairConfirmSchema,
@@ -2689,6 +2705,7 @@ export const methodResultsSchema = z.strictObject({
   "conversations.list": conversationsListResultSchema,
   "conversations.recent": conversationsRecentResultSchema,
   "conversations.search": conversationsSearchResultSchema,
+  "conversations.watch": conversationsWatchItemSchema,
   "device.enroll": deviceEnrollResultSchema,
   "device.list": deviceListResultSchema,
   "device.pair_confirm": devicePairConfirmResultSchema,
@@ -2745,6 +2762,7 @@ export const streamMethodNameSchema = z.enum([
   "pty.attach",
   "admin.login_openai",
   "device.pair_start",
+  "conversations.watch",
 ]) satisfies z.ZodType<StreamMethodName>;
 
 /** The schema of the result of each method; for a stream method, of each item. */

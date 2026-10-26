@@ -228,6 +228,10 @@ export type Method =
   | {
       method: "device.revoke";
       params: DeviceRevoke;
+    }
+  | {
+      method: "conversations.watch";
+      params: ConversationsWatch;
     };
 /**
  * An enrolled device such as a phone. The Unix socket does not use it.
@@ -2093,7 +2097,8 @@ export type MethodName =
   | "device.enroll"
   | "device.prove"
   | "device.list"
-  | "device.revoke";
+  | "device.revoke"
+  | "conversations.watch";
 /**
  * One item of an `admin.login_openai` stream.
  */
@@ -2385,6 +2390,32 @@ export type DraftPart =
       trigger: CompactionTrigger;
     };
 /**
+ * One item of a `conversations.watch` stream.
+ */
+export type ConversationsWatchItem =
+  | {
+      /**
+       * The rows, as `conversations.recent` gives them. `here` is false and
+       * `open_in` names a terminal that held the conversation when efrd read it.
+       */
+      conversations: RecentConversation[];
+      kind: "snapshot";
+    }
+  | {
+      /**
+       * The row now. Boxed, so the other items stay small.
+       */
+      conversation: RecentConversation;
+      kind: "changed";
+    }
+  | {
+      /**
+       * The deleted conversation.
+       */
+      conversation_id: ConversationId;
+      kind: "removed";
+    };
+/**
  * A permission that a connection holds. The daemon checks the scope of every method
  * before it runs; [`ScopeName::for_method`] is the table.
  *
@@ -2626,7 +2657,8 @@ export type StreamMethodName =
   | "conversation.subscribe"
   | "pty.attach"
   | "admin.login_openai"
-  | "device.pair_start";
+  | "device.pair_start"
+  | "conversations.watch";
 
 /**
  * The efr protocol, generated from efr-protocol by `cargo xtask protocol-schema`; never edit it by hand. Frames are JSON objects: length-prefixed on the Unix socket, one text message each on the WebSocket. Every offset into text counts bytes of UTF-8. An event of a kind not listed here must be accepted and skipped.
@@ -2702,6 +2734,12 @@ export interface Capabilities {
    * and the daemon refuses an answer that it may not give.
    */
   approval_local_only?: boolean | null;
+  /**
+   * The daemon answers `conversations.watch`, so a client can follow the lists of
+   * the machine instead of asking `conversations.recent` again and again. Absent: a
+   * daemon from before the watch.
+   */
+  conversations_watch?: boolean | null;
   /**
    * The daemon takes `device.enroll` and `device.prove` on this connection. Only a
    * connection of the tailnet listener offers them.
@@ -3926,6 +3964,29 @@ export interface DeviceRevoke {
   device_id: DeviceId;
 }
 /**
+ * The params of `conversations.watch`, a streaming read method.
+ *
+ * The stream starts with a `snapshot`: the recent conversations of the machine, newest
+ * first by their last activity, as `conversations.recent` without a `tty` and a `pwd`
+ * gives them. Then efrd sends `changed` each time a commit changes what a list shows
+ * of a conversation: its title, its status, its working directory, its scope, its
+ * project or its count of turns. A commit that changes only the time and the sequence
+ * number of the last activity sends nothing. A conversation that is not in the
+ * snapshot gets `changed` at its first such commit. `removed` follows the delete of a
+ * conversation.
+ *
+ * A subscriber that falls behind is closed with `overflow`. It then watches again and
+ * gets a new snapshot. The `last_seq` of that error names the last commit that the
+ * stream looked at, and a new watch does not use it.
+ */
+export interface ConversationsWatch {
+  /**
+   * The most conversations of the snapshot; efrd picks a default of 20 and a
+   * maximum of 50.
+   */
+  limit?: number | null;
+}
+/**
  * Cancel a request in flight.
  */
 export interface ClientCancel {
@@ -5101,6 +5162,7 @@ export interface MethodParams {
   "conversations.list": ConversationsList;
   "conversations.recent": ConversationsRecent;
   "conversations.search": ConversationsSearch;
+  "conversations.watch": ConversationsWatch;
   "device.enroll": DeviceEnroll;
   "device.list": DeviceList;
   "device.pair_confirm": DevicePairConfirm;
@@ -5153,6 +5215,7 @@ export interface MethodResults {
   "conversations.list": ConversationsListResult;
   "conversations.recent": ConversationsRecentResult;
   "conversations.search": ConversationsSearchResult;
+  "conversations.watch": ConversationsWatchItem;
   "device.enroll": DeviceEnrollResult;
   "device.list": DeviceListResult;
   "device.pair_confirm": DevicePairConfirmResult;
@@ -7328,6 +7391,7 @@ export const METHOD_NAMES = [
   "device.prove",
   "device.list",
   "device.revoke",
+  "conversations.watch",
 ] as const satisfies readonly MethodName[];
 
 /** Every error code. The set is closed: a new code bumps the protocol version. */

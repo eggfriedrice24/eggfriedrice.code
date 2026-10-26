@@ -94,7 +94,7 @@ impl Progress {
 
 /// Stops the live side when the request ends, however it ends.
 #[derive(Debug)]
-struct AbortOnDrop(JoinHandle<()>);
+pub(crate) struct AbortOnDrop(pub(crate) JoinHandle<()>);
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {

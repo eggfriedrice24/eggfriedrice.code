@@ -1091,6 +1091,13 @@
             "null"
           ]
         },
+        "conversations_watch": {
+          "description": "The daemon answers `conversations.watch`, so a client can follow the lists of\nthe machine instead of asking `conversations.recent` again and again. Absent: a\ndaemon from before the watch.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "device_prove": {
           "description": "The daemon takes `device.enroll` and `device.prove` on this connection. Only a\nconnection of the tailnet listener offers them.",
           "type": [
@@ -2903,6 +2910,83 @@
         "rows"
       ],
       "type": "object"
+    },
+    "ConversationsWatch": {
+      "description": "The params of `conversations.watch`, a streaming read method.\n\nThe stream starts with a `snapshot`: the recent conversations of the machine, newest\nfirst by their last activity, as `conversations.recent` without a `tty` and a `pwd`\ngives them. Then efrd sends `changed` each time a commit changes what a list shows\nof a conversation: its title, its status, its working directory, its scope, its\nproject or its count of turns. A commit that changes only the time and the sequence\nnumber of the last activity sends nothing. A conversation that is not in the\nsnapshot gets `changed` at its first such commit. `removed` follows the delete of a\nconversation.\n\nA subscriber that falls behind is closed with `overflow`. It then watches again and\ngets a new snapshot. The `last_seq` of that error names the last commit that the\nstream looked at, and a new watch does not use it.",
+      "properties": {
+        "limit": {
+          "description": "The most conversations of the snapshot; efrd picks a default of 20 and a\nmaximum of 50.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ConversationsWatchItem": {
+      "description": "One item of a `conversations.watch` stream.",
+      "oneOf": [
+        {
+          "description": "The recent conversations, newest first. Always the first item.",
+          "properties": {
+            "conversations": {
+              "description": "The rows, as `conversations.recent` gives them. `here` is false and\n`open_in` names a terminal that held the conversation when efrd read it.",
+              "items": {
+                "$ref": "#/$defs/RecentConversation"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "conversations"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What a list shows of one conversation changed, or the stream did not show it\nbefore. The row replaces the row with the same id.",
+          "properties": {
+            "conversation": {
+              "$ref": "#/$defs/RecentConversation",
+              "description": "The row now. Boxed, so the other items stay small."
+            },
+            "kind": {
+              "const": "changed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "conversation"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The conversation was deleted. A list drops its row.",
+          "properties": {
+            "conversation_id": {
+              "$ref": "#/$defs/ConversationId",
+              "description": "The deleted conversation."
+            },
+            "kind": {
+              "const": "removed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "conversation_id"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "CountedUse": {
       "description": "The provider's own count of the context at the end of a turn.",
@@ -8458,6 +8542,23 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "`conversations.watch`: the recent conversations of the machine, then each\nchange of what a list shows of one (streaming).",
+          "properties": {
+            "method": {
+              "const": "conversations.watch",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/ConversationsWatch"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -8510,7 +8611,8 @@
         "device.enroll",
         "device.prove",
         "device.list",
-        "device.revoke"
+        "device.revoke",
+        "conversations.watch"
       ],
       "type": "string"
     },
@@ -8580,6 +8682,9 @@
         },
         "conversations.search": {
           "$ref": "#/$defs/ConversationsSearch"
+        },
+        "conversations.watch": {
+          "$ref": "#/$defs/ConversationsWatch"
         },
         "device.enroll": {
           "$ref": "#/$defs/DeviceEnroll"
@@ -8707,7 +8812,8 @@
         "device.enroll",
         "device.prove",
         "device.list",
-        "device.revoke"
+        "device.revoke",
+        "conversations.watch"
       ],
       "type": "object"
     },
@@ -8777,6 +8883,9 @@
         },
         "conversations.search": {
           "$ref": "#/$defs/ConversationsSearchResult"
+        },
+        "conversations.watch": {
+          "$ref": "#/$defs/ConversationsWatchItem"
         },
         "device.enroll": {
           "$ref": "#/$defs/DeviceEnrollResult"
@@ -8904,7 +9013,8 @@
         "device.enroll",
         "device.prove",
         "device.list",
-        "device.revoke"
+        "device.revoke",
+        "conversations.watch"
       ],
       "type": "object"
     },
@@ -11551,7 +11661,8 @@
         "conversation.subscribe",
         "pty.attach",
         "admin.login_openai",
-        "device.pair_start"
+        "device.pair_start",
+        "conversations.watch"
       ],
       "type": "string"
     },

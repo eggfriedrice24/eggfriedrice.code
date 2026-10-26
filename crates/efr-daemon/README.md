@@ -482,6 +482,18 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   replay has no place for them: a subscription with drafts gets them as its first
   drafts, so a phone that resumes in the middle of a message keeps the reasoning,
   which the log never has.
+- `conversations.watch` (`methods/conversations_watch.rs`, scope `read`) is the feed of
+  the lists of the phone. It subscribes to the store's commits, reads the rows of the
+  recent conversations (as `conversations.recent` without a `tty` and a `pwd`, 20 by
+  default) and the high-water mark in one read, and sends them as the snapshot. Then
+  it takes each commit above the mark with the commits that already wait, reads the
+  rows of the conversations that they touched in one read, and sends a row only when
+  it differs from the row that it sent last, without the time and the sequence number
+  of the last activity. So the start of a turn, a question, its answer and the end
+  each send one row, and the other events of a turn send nothing. A conversation
+  without a row was deleted, and the watch sends `removed`. The rows go through a
+  64-item queue; a watch that falls behind there or at the commit broadcast ends with
+  `overflow`, and the client watches again.
 - `pty.attach` registers for live output, then sends the output after `since_seq` from
   the recording (a gap of at most 1 MiB) or a screen snapshot plus what was recorded
   after it. The replay sends each size that the recording holds as `resized` at its
@@ -1937,7 +1949,17 @@ question, gets `forbidden` for a question that only the terminal may answer (a
 The listener gives no byte to the self node, a tagged node, a sharee node, another
 user or an unknown peer, and refuses an `Origin` that is not missing or its own. A
 signature of another key, a signature for the challenge of another connection, a
-second proof and a third refusal (which closes the socket) prove nothing.
+second proof and a third refusal (which closes the socket) prove nothing. A proved
+phone watches the lists with `conversations.watch` and gets a row for the start of a
+turn, its question, the phone's answer and the end.
+
+The `watch` module runs `conversations.watch` on the Unix socket as a phone: the
+snapshot holds the recent conversations, and a new prompt sends a row for its start
+and for its end, each one different from the row before. The unit tests of
+`methods/conversations_watch` check the live side without a daemon: the events of a
+running turn send nothing, the commits of the snapshot cost no read, a conversation
+without a row is `removed`, a broadcast that left the watch behind and a full queue end
+it with `overflow`, and a read that fails ends it with the error of the store.
 
 The `jobs` module starts background jobs through `efr-test-daemon`'s `FakeLauncher`
 (a `/bin/sh` script in place of `efr-sbx`) with a fixed job environment, so it needs no

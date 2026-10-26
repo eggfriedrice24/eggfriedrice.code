@@ -1,0 +1,6 @@
+{
+  "method": "conversations.watch",
+  "params": {
+    "limit": 20
+  }
+}

@@ -898,3 +898,17 @@ No protocol version has shipped yet.
   the question as before. efrd makes the line from the reasons of the engine's decision
   and the mode of the turn. The terminal does not show it, so its output does not
   change. New fixture `events/approval_requested_reason.json`. No fixture changes.
+- Version 1, additive: the lists of the phone. New streaming method
+  `conversations.watch` (scope `read`, no command id) with an optional `limit` (20 by
+  default, at most 50). Its first item is `snapshot` with `conversations`, the rows of
+  `conversations.recent` without a `tty` and a `pwd`. Then `changed` with
+  `conversation` comes each time a commit changes the title, the status, the working
+  directory, the scope, the project or the count of turns of a conversation, and
+  `removed` with `conversation_id` follows a delete. A watch that falls behind ends
+  with `overflow`, and the client watches again. New capability key
+  `conversations_watch` in `hello`. A daemon from before refuses the method as a frame
+  that is not valid, so a client without the key asks `conversations.recent` again.
+  New fixtures `conversations_watch_params.json`,
+  `conversations_watch_item_snapshot.json`, `conversations_watch_item_changed.json`,
+  `conversations_watch_item_removed.json` and `hello_result_remote_watch.json`. No
+  fixture changes.

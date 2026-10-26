@@ -46,6 +46,8 @@ pub(crate) fn handle(
         drafts_coalesced: Some(true),
         snapshot_live: Some(true),
         approval_local_only: Some(true),
+        // NOTE: the lists of the phone follow the watch instead of asking again.
+        conversations_watch: Some(true),
         ..Capabilities::default()
     };
     let result = HelloResult {

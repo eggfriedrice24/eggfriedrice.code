@@ -35,6 +35,7 @@ pub(crate) mod conversation_subscribe;
 pub(crate) mod conversations_list;
 pub(crate) mod conversations_recent;
 pub(crate) mod conversations_search;
+pub(crate) mod conversations_watch;
 pub(crate) mod device_enroll;
 pub(crate) mod device_list;
 pub(crate) mod device_pair_confirm;

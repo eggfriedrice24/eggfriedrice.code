@@ -43,6 +43,11 @@ pub struct Capabilities {
     /// connection of the tailnet listener offers them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_prove: Option<bool>,
+    /// The daemon answers `conversations.watch`, so a client can follow the lists of
+    /// the machine instead of asking `conversations.recent` again and again. Absent: a
+    /// daemon from before the watch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversations_watch: Option<bool>,
     /// Keys that this build does not know, sorted by name.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -58,6 +63,7 @@ impl Capabilities {
             && self.snapshot_live.is_none()
             && self.approval_local_only.is_none()
             && self.device_prove.is_none()
+            && self.conversations_watch.is_none()
             && self.extra.is_empty()
     }
 }

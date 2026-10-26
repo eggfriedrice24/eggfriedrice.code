@@ -8,11 +8,11 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
     ConversationCompact, ConversationContext, ConversationDelete, ConversationDiff,
     ConversationHistory, ConversationResume, ConversationSearch, ConversationSubscribe,
-    ConversationsList, ConversationsRecent, ConversationsSearch, DeviceEnroll, DeviceList,
-    DevicePairConfirm, DevicePairStart, DeviceProve, DeviceRevoke, Hello, InputRespond, JobsList,
-    JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
-    PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName,
-    ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer, TurnUndo,
+    ConversationsList, ConversationsRecent, ConversationsSearch, ConversationsWatch, DeviceEnroll,
+    DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve, DeviceRevoke, Hello, InputRespond,
+    JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend,
+    PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond,
+    ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -177,6 +177,10 @@ pub enum Method {
     /// `device.revoke`: take a device's right to connect away (Unix socket only).
     #[serde(rename = "device.revoke")]
     DeviceRevoke(DeviceRevoke),
+    /// `conversations.watch`: the recent conversations of the machine, then each
+    /// change of what a list shows of one (streaming).
+    #[serde(rename = "conversations.watch")]
+    ConversationsWatch(ConversationsWatch),
 }
 
 impl Method {
@@ -231,6 +235,7 @@ impl Method {
             Method::DeviceProve(_) => "device.prove",
             Method::DeviceList(_) => "device.list",
             Method::DeviceRevoke(_) => "device.revoke",
+            Method::ConversationsWatch(_) => "conversations.watch",
         }
     }
 
@@ -285,7 +290,8 @@ impl Method {
             | Method::DeviceEnroll(_)
             | Method::DeviceProve(_)
             | Method::DeviceList(_)
-            | Method::DeviceRevoke(_) => None,
+            | Method::DeviceRevoke(_)
+            | Method::ConversationsWatch(_) => None,
         }
     }
 
@@ -296,7 +302,8 @@ impl Method {
             Method::ConversationSubscribe(_)
             | Method::PtyAttach(_)
             | Method::AdminLoginOpenAi(_)
-            | Method::DevicePairStart(_) => true,
+            | Method::DevicePairStart(_)
+            | Method::ConversationsWatch(_) => true,
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationHistory(_)
@@ -349,8 +356,8 @@ impl ScopeName {
     ///
     /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain`,
     /// `conversation.diff`, `jobs.list`, `conversation.context`,
-    /// `conversations.recent`, `shell.status`, `conversations.search` and
-    /// `conversation.search` need only `read`, which every connection holds. Adding or
+    /// `conversations.recent`, `conversations.watch`, `shell.status`,
+    /// `conversations.search` and `conversation.search` need only `read`, which every connection holds. Adding or
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
     /// a phone never holds. The daemon also refuses the two search methods to a peer
     /// that is not the user's: a search reads the text of every conversation.
@@ -375,7 +382,8 @@ impl ScopeName {
             | Method::ConversationsSearch(_)
             | Method::ConversationSearch(_)
             | Method::DeviceEnroll(_)
-            | Method::DeviceProve(_) => ScopeName::Read,
+            | Method::DeviceProve(_)
+            | Method::ConversationsWatch(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)
