@@ -1052,7 +1052,7 @@
       "properties": {
         "enabled": {
           "default": false,
-          "description": "`true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4\naddress. It needs tailscaled 1.100 or later with a TUN device (not userspace\nnetworking). `false` opens no port. Needs a restart.",
+          "description": "`true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4\naddress. It needs tailscaled 1.100 or later with a TUN device (not userspace\nnetworking). `false` opens no port. Then pair a phone with `efr device add`.\nNeeds a restart.",
           "type": "boolean"
         },
         "port": {

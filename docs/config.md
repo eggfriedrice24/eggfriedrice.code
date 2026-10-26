@@ -250,7 +250,7 @@ The listener for the efr phone app on this machine's Tailscale address.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `enabled` | `false` | restart | `true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4 address. It needs tailscaled 1.100 or later with a TUN device (not userspace networking). `false` opens no port. Needs a restart. |
+| `enabled` | `false` | restart | `true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4 address. It needs tailscaled 1.100 or later with a TUN device (not userspace networking). `false` opens no port. Then pair a phone with `efr device add`. Needs a restart. |
 | `port` | `7419` | restart | The TCP port of the listener on the Tailscale address, from 1024 to 65535. Needs a restart. |
 | `tailscaled_socket` | `"/var/run/tailscale/tailscaled.sock"` | restart | The absolute path of tailscaled's LocalAPI socket, which efrd asks who each peer is. Needs a restart. |
 

@@ -475,7 +475,8 @@
 # The listener for the efr phone app. efrd listens only on this machine's Tailscale
 # IPv4 address, never on another interface, and admits only a paired device of your
 # own Tailscale user. It needs tailscaled 1.100 or later with a TUN device.
-# true lets efrd listen for the efr phone app. false opens no port. (restart)
+# true lets efrd listen for the efr phone app. false opens no port. Then pair a
+# phone with efr device add. (restart)
 # enabled = false
 
 # The TCP port of the listener on the Tailscale address, from 1024 to 65535.

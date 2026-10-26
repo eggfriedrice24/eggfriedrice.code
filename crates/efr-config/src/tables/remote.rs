@@ -23,7 +23,8 @@ pub const DEFAULT_TAILSCALED_SOCKET: &str = "/var/run/tailscale/tailscaled.sock"
 pub struct RemoteSettings {
     /// `true` lets efrd listen for the efr phone app on this machine's Tailscale IPv4
     /// address. It needs tailscaled 1.100 or later with a TUN device (not userspace
-    /// networking). `false` opens no port. Needs a restart.
+    /// networking). `false` opens no port. Then pair a phone with `efr device add`.
+    /// Needs a restart.
     pub enabled: bool,
     /// The TCP port of the listener on the Tailscale address, from 1024 to 65535.
     /// Needs a restart.
