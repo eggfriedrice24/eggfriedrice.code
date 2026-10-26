@@ -21,7 +21,7 @@ The daemon owns the model loop. It talks to the model API directly. It does not 
 
 ## Status
 
-Pre-alpha. The first milestone runs: the daemon with its event log, the model providers (the OpenAI subscription, an OpenAI API key and Anthropic's Claude models with an API key), the shell tool, the permission rules, the zsh plugin and the `efr` CLI. MCP, skills, memory, attaching to a hidden shell and the phone come in later milestones.
+Pre-alpha. The first milestone runs: the daemon with its event log, the model providers (the OpenAI subscription, an OpenAI API key and Anthropic's Claude models with an API key), the shell tool, the permission rules, the zsh plugin and the `efr` CLI. efrd can serve a phone over Tailscale, and the iPhone app in `app/` is a preview that you build yourself. MCP, skills, memory and attaching to a hidden shell come in later milestones.
 
 ## Docs
 

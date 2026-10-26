@@ -40,8 +40,9 @@ a full-screen program.
 efr is pre-alpha. The first milestone runs. It has the daemon with its event log, the
 shell tool, the permission rules, the zsh plugin and the `efr` CLI. It has three model
 providers: the ChatGPT plan, an OpenAI API key, and Anthropic's Claude models with an
-API key. MCP servers, skills, memory, attaching to a hidden shell and the phone come in
-later milestones.
+API key. efrd can also serve the efr phone app over Tailscale; the app is a preview
+that you build yourself ([The phone app](use/phone.md)). MCP servers, skills, memory
+and attaching to a hidden shell come in later milestones.
 
 efr runs on Linux with zsh and a systemd user session.
 

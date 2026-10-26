@@ -1,4 +1,4 @@
-<!-- sources: README.md "Why this exists", "What it is", "Status", "Install", "Use", "The full mode", "Settings"; docs/adr/0006-auto-sandbox.md; docs/adr/0015-full-mode.md; docs/providers.md "The reviewer"; docs/permissions.md "Permission modes", "Full mode", "The settings tool", "Config protection"; docs/storage.md "Directory layout"; shell/ (zsh only) -->
+<!-- sources: README.md "Why this exists", "What it is", "Status", "Install", "Use", "The full mode", "Settings"; docs/adr/0006-auto-sandbox.md; docs/adr/0015-full-mode.md; docs/providers.md "The reviewer"; docs/permissions.md "Permission modes", "Full mode", "The settings tool", "Config protection"; docs/storage.md "Directory layout"; shell/ (zsh only); docs/use/phone.md -->
 
 # FAQ
 
@@ -22,8 +22,17 @@ you, and the permissions follow the path that the agent acts on.
 
 No. efr is pre-alpha. The first milestone runs: the daemon with its event log, the
 model providers, the shell tool, the permission rules, the zsh plugin and the `efr`
-CLI. MCP, skills, memory, attaching to a hidden shell and the phone come in later
+CLI. efrd can also serve a phone over Tailscale, and the phone app is a preview that
+you build yourself. MCP, skills, memory and attaching to a hidden shell come in later
 milestones.
+
+### Can I use efr from my phone?
+
+Yes, with a preview of the efr app for iPhone. The phone connects to efrd directly
+over your Tailscale network, with no relay. efrd admits only a phone of your own
+Tailscale user that you paired with `efr device add`. A turn from the phone runs with
+at most `cautious`, and some questions, such as `sudo`, only your computer can answer.
+[The phone app](../use/phone.md) tells more.
 
 ### Does efr wrap another coding agent?
 
