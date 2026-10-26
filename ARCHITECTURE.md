@@ -32,7 +32,7 @@ shipped binary.
 |---|---|---|---|---|
 | `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
-| `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages, the search index (FTS5) with its reads, its search lanes and the indexer's read connection, the tombstones and steps of conversation deletes | `efr-protocol`, `efr-stdx` |
+| `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages, the search index (FTS5) with its reads, its search lanes and the indexer's read connection, the tombstones and steps of conversation deletes, the enrolled devices with the feed of their revokes | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
 | `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`, `full`), config protection, the exits of the `auto` sandbox, the settle pass of full mode and its delete guard, the views of the host that a line gets with no exit, the rules of the bus filter (the built-in read methods, the checks of `[[dbus.allow]]` and the proxy's arguments), the always-allow rules with their floor checks and their match, and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
@@ -448,6 +448,11 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-daemon/tests/it/conversation_delete.rs` and `jobs.rs`, the store's in
   `crates/efr-store/src/deletes/tests.rs`, and the real fzf's in
   `crates/efr-cli/tests/it/picker.rs`.
+- Enrolled devices (the remote milestone): the table in
+  `crates/efr-store/src/migrations/0011_devices.sql`; its rows, the checks of their
+  shape and the reads in `crates/efr-store/src/devices.rs`; the insert, the revoke with
+  its feed (`WriterHandle::subscribe_revocations`) and the time of the last proof in
+  `crates/efr-store/src/writer.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
