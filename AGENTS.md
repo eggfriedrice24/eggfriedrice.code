@@ -24,6 +24,8 @@ pass. Local gates must equal CI.
   needs Docker and `/dev/kvm`)
 - `just test-ghostty` when `zig` is on `PATH`
 - `just test-fzf` when `fzf` is on `PATH`
+- `just app-check` when a change touches `app/`, `crates/efr-protocol` or
+  `docs/protocol.schema.json` (the CI app job; needs pnpm)
 - `just bench-search` when a change touches the store, the end of a turn or search; run
   it alone, because the numbers of a busy machine are not valid
 
