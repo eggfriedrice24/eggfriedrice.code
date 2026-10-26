@@ -1,0 +1,17 @@
+# What EAS Build uploads from this repository. EAS reads this file instead of .gitignore.
+# Without it, eas-cli searches every directory of the repository for .gitignore files,
+# also the ignored ones, and fails on a directory that it cannot read (a sandbox test can
+# leave one). The phone build needs only app/, so nothing else goes up.
+/*
+!/app
+
+# The same rules as .gitignore for app/. eas-cli gives a directory path without a final
+# slash to its ignore check, so the rules end without one.
+node_modules
+*.snap.new
+app/.expo
+app/ios
+app/android
+app/dist
+app/expo-env.d.ts
+app/*.tsbuildinfo
