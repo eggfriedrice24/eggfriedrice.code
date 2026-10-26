@@ -61,6 +61,13 @@
       }
     },
     {
+      // Tests and their fakes wait for each step in turn on purpose.
+      "files": ["**/*.test.ts", "src/**/testing.ts"],
+      "rules": {
+        "no-await-in-loop": "off"
+      }
+    },
+    {
       // The adapters that give the pure code a real WebSocket, clock or database.
       "files": ["src/net/native/**", "src/store/native/**"],
       "rules": {
