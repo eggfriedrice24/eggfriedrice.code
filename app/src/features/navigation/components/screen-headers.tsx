@@ -4,7 +4,8 @@
 //   menu, Settings and `+`. No strip.
 // - Root without a machine (the pairing intro): Settings only.
 // - Conversation: the native back button (with its history menu), the title of the
-//   conversation with the title menu, Settings and `+`, and the slot under the bar.
+//   conversation, which opens the conversations sheet, Settings and `+`, and the slot
+//   under the bar.
 //
 // The machine menu belongs to the machines feature, and a feature does not import the
 // components of another one, so the root layout passes it in (`machineMenu`).
@@ -15,7 +16,7 @@ import type { ReactNode } from "react";
 import type { ConversationRef, MachineId } from "@/features/machines/model/machine-ref";
 import { rowTitle } from "@/features/conversations/model/list-format";
 import { useMachines, useRootMachine } from "../use-machines";
-import { useConversationTitle } from "../use-title-menu";
+import { useConversationTitle } from "../use-conversation-title";
 import { HeaderActions } from "./header-actions";
 import { HeaderSlot } from "./header-slot";
 import { HeaderTitle } from "./header-title";

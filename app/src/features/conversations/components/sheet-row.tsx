@@ -4,22 +4,25 @@
 // - Title: the system font 15/20 in text_primary, text_bright in the waiting section,
 //   one line with an ellipsis.
 // - Subtitle: mono 11/16 in text_subtle, "[status word in yolk] · machine · cwd · time".
-// - Trailing: the 8 pt yolk dot for an approval, or the 8 x 15 braille cell for a
-//   running turn. Each has its label, and the words of the subtitle say the same.
+// - Leading: an SF Symbol of the status, as a native list has it: the yolk
+//   exclamationmark.circle.fill for an approval, the yolk circle.dotted for a running
+//   turn (a still glyph, as the old title menu had), and a quiet bubble.left in
+//   text_subtle for the others. The two yolk glyphs have their label, and the words of
+//   the subtitle say the same.
 // - A tap opens the conversation. A long press opens a menu with "Copy title" and "Copy
 //   conversation ID"; VoiceOver gets the same two as actions of the row.
 
 import { Pressable, Text, View } from "react-native";
 
-import { BrailleCell } from "@/components/ui/braille-cell";
 import { BodyText } from "@/components/ui/body-text";
-import { Dot } from "@/components/ui/dot";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
 import { MonoText } from "@/components/ui/mono-text";
+import { SymbolIcon, type SymbolName } from "@/components/ui/symbol";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import type { ConversationAddress } from "@/lib/query/keys";
+import type { Role } from "@/theme/roles";
 
 import { joinParts } from "../model/list-format";
 import type { SheetRow as SheetRowModel } from "../model/sheet-sections";
@@ -77,6 +80,7 @@ export function SheetRow(props: SheetRowProps) {
         className="min-h-52 flex-row items-center gap-12 px-gutter py-9 active:bg-selection-bg"
         testID="sheet-row"
       >
+        <RowGlyph mark={row.mark} />
         <View className="min-w-0 flex-1">
           <BodyText
             size="row"
@@ -93,18 +97,34 @@ export function SheetRow(props: SheetRowProps) {
             {row.status === undefined ? row.detail : ` · ${row.detail}`}
           </MonoText>
         </View>
-        <RowMark mark={row.mark} />
       </Pressable>
     </MenuView>
   );
 }
 
-function RowMark(props: { readonly mark: SheetRowModel["mark"] }) {
-  if (props.mark === "approval") {
-    return <Dot size="large" label="Needs approval" />;
-  }
-  if (props.mark === "running") {
-    return <BrailleCell size="row" tint="work" label="Running" />;
-  }
-  return null;
+/** The glyph of each mark: its SF Symbol, its colour role and its VoiceOver label. */
+export const ROW_GLYPHS = {
+  approval: {
+    name: "exclamationmark.circle.fill",
+    tone: "accent_primary",
+    label: "Needs approval",
+  },
+  running: { name: "circle.dotted", tone: "accent_primary", label: "Running" },
+  none: { name: "bubble.left", tone: "text_subtle", label: undefined },
+} as const satisfies Record<
+  SheetRowModel["mark"],
+  { name: SymbolName; tone: Role; label: string | undefined }
+>;
+
+function RowGlyph(props: { readonly mark: SheetRowModel["mark"] }) {
+  const glyph = ROW_GLYPHS[props.mark];
+  return (
+    <View testID={`row-glyph-${props.mark}`} className="w-20 items-center">
+      {glyph.label === undefined ? (
+        <SymbolIcon name={glyph.name} size={17} tone={glyph.tone} />
+      ) : (
+        <SymbolIcon name={glyph.name} size={17} tone={glyph.tone} label={glyph.label} />
+      )}
+    </View>
+  );
 }

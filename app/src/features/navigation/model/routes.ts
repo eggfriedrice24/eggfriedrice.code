@@ -71,6 +71,14 @@ export function conversationsHref(section?: "waiting"): Href {
     : { pathname: "/conversations", params: { section } };
 }
 
+/**
+ * The link to the conversations sheet from the title of a screen on `machine`. The
+ * search hits of that machine come first.
+ */
+export function conversationsSheetHref(machine: MachineId): Href {
+  return { pathname: "/conversations", params: { machine } };
+}
+
 /** The link to Pairing, or to the re-pair of `machine`. */
 export function pairHref(machine?: MachineId): Href {
   return machine === undefined ? "/pair" : { pathname: "/pair", params: { machine } };

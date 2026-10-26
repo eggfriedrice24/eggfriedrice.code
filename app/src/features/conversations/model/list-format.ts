@@ -39,7 +39,7 @@ export function startOfLocalDayBefore(time: number, days: number): number {
 }
 
 /**
- * The case of the words of a list text. The title menu is a system menu with capital
+ * The case of the words of a list text. A system menu has capital
  * words ("Needs approval", "Yesterday"); the sheet draws them lowercase in mono
  * ("needs approval", "yesterday"). Weekdays and months keep their capital in both.
  */

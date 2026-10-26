@@ -146,12 +146,12 @@ async function push(href: string) {
 }
 
 describe("the header of the blank root", () => {
-  it("shows the machine menu and the machine name with its menu", async () => {
+  it("shows the machine menu and the machine name, which opens the sheet", async () => {
     await setup();
     expect(screen.getByText(`machine menu ${DESKTOP}`)).toBeOnTheScreen();
     const title = screen.getByTestId("title-button");
-    expect(title.props.accessibilityLabel).toBe("desktop, recent conversations");
-    expect(screen.getByTestId("title-menu").props.title).toBe("Recent on desktop");
+    expect(title.props.accessibilityLabel).toBe("desktop, all conversations");
+    expect(screen.queryByTestId("title-menu")).toBeNull();
     expect(screen.queryByTestId("title-dot")).toBeNull();
   });
 
@@ -162,58 +162,31 @@ describe("the header of the blank root", () => {
     });
     expect(screen.getByText(`machine menu ${LAPTOP}`)).toBeOnTheScreen();
     expect(screen.getByTestId("title-button").props.accessibilityLabel).toBe(
-      "laptop, recent conversations",
+      "laptop, all conversations",
     );
   });
 
-  it("lists the recent conversations, the waiting ones first, and All conversations", async () => {
-    const { services } = await setup();
-    await settled(() => {
-      setRecent(services.queryClient, DESKTOP, [
-        { id: conversationId(1), title: "Why is the fan loud", minutesAgo: 2 },
-        {
-          id: conversationId(2),
-          title: "Fix steer race",
-          status: "awaiting_approval",
-          minutesAgo: 9,
-        },
-      ]);
-    });
-    const actions = screen.getByTestId("title-menu").props.actions;
-    expect(actions.map((action: { title: string }) => action.title)).toEqual([
-      "Fix steer race",
-      "Why is the fan loud",
-      "",
-    ]);
-    expect(actions[0]).toMatchObject({
-      subtitle: "Needs approval · ~/code/efr",
-      image: "exclamationmark.circle.fill",
-    });
-    expect(actions[2].subactions[0].title).toBe("All conversations…");
-    // A conversation of the root's machine waits, and the menu lists it.
-    expect(screen.getByTestId("title-dot")).toBeOnTheScreen();
-    expect(screen.getByTestId("title-button").props.accessibilityLabel).toBe(
-      "desktop, recent conversations, 1 approval waiting",
-    );
-  });
-
-  it("opens a pick of the menu, and the sheet for All conversations", async () => {
-    const { services } = await setup();
-    await settled(() => {
-      setRecent(services.queryClient, DESKTOP, [{ id: conversationId(1), title: "Fan" }]);
-    });
+  it("opens the conversations sheet on a tap, with the machine of the screen", async () => {
+    await setup();
     await act(async () => {
-      await fireEvent(screen.getByTestId("title-menu"), "pressAction", {
-        nativeEvent: { event: `open:${DESKTOP}:${conversationId(1)}` },
-      });
-    });
-    expect(screen).toHavePathname(`/c/${DESKTOP}/${conversationId(1)}`);
-    await act(async () => {
-      await fireEvent(newest("title-menu"), "pressAction", {
-        nativeEvent: { event: "all" },
-      });
+      await fireEvent.press(screen.getByTestId("title-button"));
     });
     expect(screen).toHavePathname("/conversations");
+    expect(rendered().getSearchParams()).toMatchObject({ machine: DESKTOP });
+  });
+
+  it("shows the dot while a conversation waits, on any machine", async () => {
+    const test = await setup();
+    await online(test, LAPTOP);
+    await settled(() => {
+      setRecent(test.services.queryClient, LAPTOP, [
+        { id: conversationId(2), title: "Fix steer race", status: "awaiting_approval" },
+      ]);
+    });
+    expect(screen.getByTestId("title-dot")).toBeOnTheScreen();
+    expect(screen.getByTestId("title-button").props.accessibilityLabel).toBe(
+      "desktop, all conversations, 1 approval waiting",
+    );
   });
 
   it("shows no machine menu and no title menu without a machine", async () => {
@@ -221,27 +194,6 @@ describe("the header of the blank root", () => {
     expect(screen.getByText("root content")).toBeOnTheScreen();
     expect(screen.queryByTestId("title-button")).toBeNull();
     expect(screen.queryByText(/machine menu/)).toBeNull();
-  });
-});
-
-describe("the title button", () => {
-  it("is expanded while its menu is open", async () => {
-    await setup();
-    expect(screen.getByTestId("title-button").props.accessibilityState).toEqual({
-      expanded: false,
-    });
-    await act(async () => {
-      await fireEvent(screen.getByTestId("title-menu"), "openMenu");
-    });
-    expect(screen.getByTestId("title-button").props.accessibilityState).toEqual({
-      expanded: true,
-    });
-    await act(async () => {
-      await fireEvent(screen.getByTestId("title-menu"), "closeMenu");
-    });
-    expect(screen.getByTestId("title-button").props.accessibilityState).toEqual({
-      expanded: false,
-    });
   });
 });
 
@@ -274,7 +226,7 @@ describe("the bar buttons", () => {
 });
 
 describe("the header of a conversation", () => {
-  it("shows the title of the recent list and checks it in the menu", async () => {
+  it("shows the title of the recent list", async () => {
     const { services } = await setup();
     await settled(() => {
       setRecent(services.queryClient, DESKTOP, [
@@ -283,16 +235,14 @@ describe("the header of a conversation", () => {
     });
     await push(`/c/${DESKTOP}/${conversationId(1)}`);
     expect(newest("title-button").props.accessibilityLabel).toBe(
-      "Why is the fan loud, recent conversations",
+      "Why is the fan loud, all conversations",
     );
-    const menu = newest("title-menu");
-    expect(menu.props.actions[0]).toMatchObject({ title: "Why is the fan loud", state: "on" });
   });
 
   it("reads Untitled for a conversation without a title yet", async () => {
     await setup();
     await push(`/c/${DESKTOP}/${conversationId(5)}`);
-    expect(newest("title-button").props.accessibilityLabel).toBe("Untitled, recent conversations");
+    expect(newest("title-button").props.accessibilityLabel).toBe("Untitled, all conversations");
   });
 
   it("shows the strip and the dot for one approval elsewhere, and opens it", async () => {

@@ -66,12 +66,22 @@ export const CONVERSATION_OPTIONS: NativeStackNavigationOptions = { title: "" };
 /** Settings, pushed, with the native title. */
 export const SETTINGS_OPTIONS: NativeStackNavigationOptions = { title: "Settings" };
 
-/** The All conversations sheet: medium and large, with the grabber. */
+/**
+ * The conversations sheet: medium and large, with the grabber, and an opaque bar on
+ * surface_1 with no hairline. The route sets the bar, not the screen: react-native-screens
+ * insets the content under an opaque bar on iOS 26 only when the bar is opaque from the
+ * first frame. With the transparent bar of the stack the search field lay under the bar.
+ */
 export const CONVERSATIONS_OPTIONS: NativeStackNavigationOptions = {
   title: "All conversations",
   presentation: "formSheet",
   sheetAllowedDetents: [0.5, 1],
   sheetGrabberVisible: true,
+  headerTransparent: false,
+  headerBlurEffect: "none",
+  headerStyle: { backgroundColor: roles.surface_1 },
+  headerShadowVisible: false,
+  scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },
 };
 
 /** Pairing, full screen, with its own nav row. */

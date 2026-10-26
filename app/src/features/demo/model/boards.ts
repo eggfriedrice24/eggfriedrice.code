@@ -133,11 +133,11 @@ const SCREENS: readonly GalleryBoard[] = [
   },
   {
     name: "R-TitleMenu",
-    title: "Title menu open",
+    title: "Title · opens the conversations sheet (was the title menu)",
     section: "screens",
     drawn: true,
     visit: { kind: "conversation", stage: "many", open: ["desktop-notes"] },
-    hint: "Tap the title.",
+    hint: "Tap the title: the conversations sheet opens.",
   },
   {
     name: "R-AllSheet",
@@ -305,12 +305,12 @@ const UNDRAWN: readonly GalleryBoard[] = [
     visit: { kind: "conversation", stage: "loading", open: ["loading"] },
   },
   {
-    name: "Root · title menu",
-    title: "The title menu on the blank root",
+    name: "Root · title sheet",
+    title: "The title of the blank root opens the conversations sheet",
     section: "undrawn",
     drawn: false,
     visit: { kind: "root", stage: "many", machine: "desktop" },
-    hint: "Tap the title.",
+    hint: "Tap the title: the conversations sheet opens.",
   },
 ];
 

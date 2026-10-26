@@ -302,10 +302,11 @@ not a test that pretends.
 
 ### The header and the navigation
 
-16. The title menu (`Stack.Title asChild` with `MenuView`): its layout, the yolk dot
-    and the size of its tap target.
-17. The menu glyphs: `imageColor` must give yolk glyphs, not the colour of the label.
-    The braille glyph of a running conversation: a menu takes only SF Symbols.
+16. The title (`Stack.Title asChild` with our button): its layout, the yolk dot, the
+    size of its tap target, and that a tap opens the conversations sheet.
+17. The menu glyphs: every glyph shows (Settings row menu, Steer/Queue, the copy
+    menus), with no gap before a title and no title on top of the row menu. Before,
+    Fabric gave each glyph a clear colour.
 18. The anchor of a menu that opens from a view (`findNodeHandle`).
 19. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
     (long press on back), and the bar on iOS 26: no fill and no blur of its own, the
@@ -322,7 +323,9 @@ not a test that pretends.
     last machine, go to the root with a short cross-fade (`animation: "fade"` on the
     screen that goes, set just before the reset), and with none when Reduce Motion is
     on.
-22. The All conversations sheet: its two sizes, with the search field.
+22. The conversations sheet: its two sizes, the search field under "New conversation"
+    and not under the bar, the status glyphs, and that a tap on a row closes the sheet
+    and opens the conversation.
 
 ### The composer
 

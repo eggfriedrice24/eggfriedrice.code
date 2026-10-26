@@ -5,7 +5,7 @@
 /** The `meta` of a query. */
 export interface AppQueryMeta {
   /**
-   * True: the persister writes the result to the disk, so the title menu and the sheet
+   * True: the persister writes the result to the disk, so the bar and the sheet
    * show it before the machine connects. Only for small lists and status.
    */
   readonly persist?: boolean;

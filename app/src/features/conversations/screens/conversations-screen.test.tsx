@@ -149,6 +149,7 @@ beforeEach(() => {
     caller,
     registry: createAtom(REGISTRY),
     open: (ref) => opened.push(ref),
+    newConversation: () => undefined,
     now: () => NOW,
   };
 });
@@ -255,5 +256,21 @@ describe("the conversations sheet on the services of the app", () => {
       router.back();
     });
     expect(screen).toHavePathname("/");
+  });
+
+  it("goes back to the blank root on New conversation, from a conversation", async () => {
+    parts = await testServices([machineRecord(MACHINE)]);
+    await renderRouter(wiredRoutes(), { initialUrl: "/" });
+    await act(async () => {
+      router.push(`/c/${MACHINE}/${PICKED}`);
+    });
+    await act(async () => {
+      router.push("/conversations");
+    });
+    await flush();
+    await fireEvent.press(screen.getByRole("button", { name: "New conversation" }));
+    await flush();
+    expect(screen).toHavePathname("/");
+    expect(screen.getByText("root")).toBeOnTheScreen();
   });
 });

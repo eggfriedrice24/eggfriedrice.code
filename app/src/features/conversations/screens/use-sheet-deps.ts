@@ -4,6 +4,7 @@
 // other deps through `SheetDepsContext`.
 
 import type { Readable } from "@tanstack/store";
+import { useRouter } from "expo-router";
 import { createContext, use } from "react";
 
 import type { RegistryState } from "@/features/machines/model/machine-registry";
@@ -23,6 +24,8 @@ export interface SheetDeps {
    * stack (the history helper).
    */
   readonly open: (ref: ConversationAddress) => void;
+  /** Dismisses the sheet and goes back to the blank root, for a new conversation. */
+  readonly newConversation: () => void;
   /** The clock of the list times. */
   readonly now: () => number;
 }
@@ -38,6 +41,7 @@ export function useSheetDeps(): SheetDeps {
   const injected = use(SheetDepsContext);
   const services = use(AppServicesContext);
   const openConversation = useOpenConversation();
+  const router = useRouter();
   if (injected !== null) {
     return injected;
   }
@@ -48,6 +52,8 @@ export function useSheetDeps(): SheetDeps {
     caller: services.runtime,
     registry: services.runtime.registry,
     open: (ref) => openConversation(ref),
+    // The sheet is on the stack, so this pops it and every conversation.
+    newConversation: () => router.dismissAll(),
     now: Date.now,
   };
 }

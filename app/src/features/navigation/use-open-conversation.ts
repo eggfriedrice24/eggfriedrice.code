@@ -1,5 +1,5 @@
 // Opens a conversation by the history rules of model/history.ts (plan section 2.5): the
-// title menu, the sheet, the strip and the first send of the blank root all open a
+// conversations sheet, the strip and the first send of the blank root all open a
 // conversation here.
 //
 // - A conversation in the stack: pop back to it.

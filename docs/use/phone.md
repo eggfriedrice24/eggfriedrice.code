@@ -176,12 +176,11 @@ Settings and New (`+`) at the right. New goes back to the blank root.
 
 ### Find a conversation
 
-- Tap the title of the bar. A menu shows the 8 recent conversations of the machine.
-  The conversations that wait for an answer come first.
-- "All conversations" at the end of that menu opens a sheet with the conversations of
-  every machine: first the ones that wait for an answer, then today, this week and
-  older. The search field finds a conversation by its title, its machine or its
-  directory, and then asks efrd.
+- Tap the title of the bar. A sheet opens with the conversations of every machine:
+  "New conversation" on top, then the ones that wait for an answer, today, this week
+  and older. Pull it up to see more. The search field finds a conversation by its
+  title, its machine or its directory, and then asks efrd.
+- Tap a row to open the conversation. The sheet closes.
 - Touch and hold a row of the sheet to copy its title or its id.
 
 The app keeps at most 8 conversations on its stack. A conversation that is on the stack

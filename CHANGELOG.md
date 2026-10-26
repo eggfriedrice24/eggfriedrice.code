@@ -43,9 +43,8 @@ into the GitHub release notes, and it stops when the section is missing.
   each connection. The app is not in the App Store: you build it with EAS, as
   `app/README.md` tells. It was tested on Linux only and was not run on an iPhone yet.
   `docs/use/phone.md` tells what a phone can and cannot do.
-- The phone app has a native bar on each screen. The title opens a menu of the 8
-  recent conversations of the machine, and the conversations that wait for an answer
-  come first. The blank root has a menu of the paired machines. Settings and New are
+- The phone app has a native bar on each screen. The title opens the conversations
+  sheet, the one place to switch conversations. The blank root has a menu of the paired machines. Settings and New are
   on the right. A strip under the bar of a conversation and a dot on the title tell
   you when another conversation waits for an answer, and the strip tells you when its
   machine is offline. The stack keeps at most 8 conversations, and a conversation that
@@ -101,7 +100,9 @@ into the GitHub release notes, and it stops when the section is missing.
   wait, and "expired while you were away" when its time ran out while the app was
   closed.
 - The All conversations sheet of the phone app lists the conversations of every
-  machine: first the ones that wait for an answer, then today, this week and older. Its
+  machine: "New conversation" on top, then the ones that wait for an answer, today,
+  this week and older. Each row has a glyph of its status, and its machine and
+  directory under the title. Its
   search finds a conversation by title, machine or directory, and then asks efrd.
   Touch and hold a row to copy its title or its id.
 - The phone app connects again at once when the phone changes its network, such as

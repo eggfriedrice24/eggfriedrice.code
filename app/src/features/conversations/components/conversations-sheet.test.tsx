@@ -18,6 +18,7 @@ import { SEARCH_LIMIT } from "../conversations-queries";
 import { october } from "../model/testing";
 import { SEARCH_DEBOUNCE_MS } from "../model/sheet-view";
 import { ConversationsSheet } from "./conversations-sheet";
+import { ROW_GLYPHS } from "./sheet-row";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
@@ -112,6 +113,7 @@ interface Options {
   readonly caller?: FakeCaller;
   readonly machines?: typeof MACHINES;
   readonly onOpen?: (ref: ConversationAddress) => void;
+  readonly onNew?: () => void;
 }
 
 async function renderSheet(options: Options = {}): Promise<FakeCaller> {
@@ -122,6 +124,7 @@ async function renderSheet(options: Options = {}): Promise<FakeCaller> {
       machines={options.machines ?? MACHINES}
       now={NOW}
       onOpen={options.onOpen ?? (() => undefined)}
+      onNew={options.onNew ?? (() => undefined)}
     />,
     { wrapper },
   );
@@ -192,17 +195,32 @@ describe("the sections of the sheet", () => {
     ).toBeOnTheScreen();
   });
 
-  it("marks an approval with the yolk dot and a running turn with the braille cell", async () => {
+  it("gives each row an SF Symbol of its status, yolk for waiting and running", async () => {
     await renderSheet();
     const hidden = { includeHiddenElements: true } as const;
-    expect(screen.getAllByTestId("dot", hidden)).toHaveLength(2);
-    expect(screen.getAllByTestId("braille-cell", hidden)).toHaveLength(1);
+    expect(screen.getAllByTestId("row-glyph-approval", hidden)).toHaveLength(2);
+    expect(screen.getAllByTestId("row-glyph-running", hidden)).toHaveLength(1);
+    expect(screen.getAllByTestId("row-glyph-none", hidden).length).toBeGreaterThan(0);
     const migrate = screen.getByLabelText(
       "Migrate session store to SQLite, running · desktop · ~/code/efr",
     );
-    expect(within(migrate).getByTestId("braille-cell", hidden).props.accessibilityLabel).toBe(
-      "Running",
-    );
+    expect(within(migrate).getByLabelText("Running")).toBeOnTheScreen();
+    expect(ROW_GLYPHS.approval).toEqual({
+      name: "exclamationmark.circle.fill",
+      tone: "accent_primary",
+      label: "Needs approval",
+    });
+    expect(ROW_GLYPHS.running.tone).toBe("accent_primary");
+    expect(ROW_GLYPHS.none.tone).toBe("text_subtle");
+  });
+
+  it("has New conversation on top, before the search field", async () => {
+    const onNew = jest.fn<() => void>();
+    await renderSheet({ onNew });
+    const tops = screen.getAllByRole(/button|search/).map((node) => node.props.accessibilityLabel);
+    expect(tops.slice(0, 2)).toEqual(["New conversation", "Search conversations"]);
+    await fireEvent.press(screen.getByRole("button", { name: "New conversation" }));
+    expect(onNew).toHaveBeenCalledTimes(1);
   });
 
   it("shows the loading line while no machine has answered", async () => {

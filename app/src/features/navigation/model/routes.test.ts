@@ -4,6 +4,7 @@ import {
   conversationHref,
   conversationOfParams,
   conversationsHref,
+  conversationsSheetHref,
   entersInstantly,
   pairHref,
   stackRouteOf,
@@ -32,6 +33,10 @@ describe("the links", () => {
 
   it("links to the sheet, with the waiting section on top when asked", () => {
     expect(conversationsHref()).toBe("/conversations");
+    expect(conversationsSheetHref(MACHINE)).toEqual({
+      pathname: "/conversations",
+      params: { machine: MACHINE },
+    });
     expect(conversationsHref("waiting")).toEqual({
       pathname: "/conversations",
       params: { section: "waiting" },

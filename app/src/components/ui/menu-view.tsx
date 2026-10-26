@@ -1,5 +1,5 @@
-// A native menu (UIMenu) on a view of ours: the title menu of the header, the row menu
-// of Settings and the Steer/Queue pull-down of the composer. A tap opens it
+// A native menu (UIMenu) on a view of ours: the row menu of Settings, the machine menu
+// of the blank root and the Steer/Queue pull-down of the composer. A tap opens it
 // (`showsMenuAsPrimaryAction`); iOS cannot open a UIMenu from code. Menus are native, so
 // they use the system font and cannot animate (design notes 3 and 12).
 //

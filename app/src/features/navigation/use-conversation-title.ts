@@ -1,26 +1,12 @@
-// The data of the header title: the rows of the title menu (the recent conversations of
-// the machine of the screen) and the title of a conversation.
+// The title of a conversation for the bar and the back menu.
 
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
-import type { ConversationRef, MachineId } from "@/features/machines/model/machine-ref";
+import type { MachineId } from "@/features/machines/model/machine-ref";
 import { recentConversationsQueryOptions } from "@/features/conversations/conversations-queries";
-import { titleMenuRows, type TitleMenuRow } from "@/features/conversations/model/title-menu";
 import { streamTitles } from "./model/stream-titles";
 import { useRuntime } from "./use-app-services";
-import { useNow } from "./use-now";
-
-/** The rows of the title menu of `machine`; `current` is the conversation on screen. */
-export function useTitleMenuRows(
-  machine: MachineId,
-  current: ConversationRef | undefined,
-): TitleMenuRow[] {
-  const runtime = useRuntime();
-  const { data } = useQuery(recentConversationsQueryOptions(runtime, machine));
-  const now = useNow();
-  return titleMenuRows({ machine, items: data ?? [], current, now });
-}
 
 /**
  * The title of conversation `id` on `machine`: the title of its stream, else the one of

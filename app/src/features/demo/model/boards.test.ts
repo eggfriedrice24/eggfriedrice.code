@@ -55,7 +55,7 @@ const UNDRAWN = [
   "Conversation · efrd is starting",
   "Pairing · re-paired",
   "Conversation · loading",
-  "Root · title menu",
+  "Root · title sheet",
 ];
 
 describe("the inventory of the gallery", () => {

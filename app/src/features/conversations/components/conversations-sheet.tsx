@@ -1,5 +1,5 @@
-// The body of the All conversations sheet (design-spec 3.15, board R-AllSheet): the
-// search field over two panes. Every paired machine is in it; the waiting conversations
+// The body of the conversations sheet (design-spec 3.15, board R-AllSheet): the "New
+// conversation" row, then the search field over two panes. Every paired machine is in it; the waiting conversations
 // are in their own section on top, then today, this week and older, newest first.
 //
 // - Sections pane: the empty search of each machine (`sheetQueriesOptions` with ""),
@@ -13,7 +13,10 @@
 import { useQueries } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { Activity, useDeferredValue, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+
+import { BodyText } from "@/components/ui/body-text";
+import { SymbolIcon } from "@/components/ui/symbol";
 
 import type { ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
@@ -43,6 +46,8 @@ export interface ConversationsSheetProps {
   readonly now: number;
   /** Opens a picked conversation. */
   readonly onOpen: (ref: ConversationAddress) => void;
+  /** Goes back to the blank root for a new conversation. */
+  readonly onNew: () => void;
 }
 
 /** The search field and the two panes of the sheet. */
@@ -86,9 +91,13 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
       : [{ key: "results", title: resultsTitle(results.length), waiting: false, rows: results }];
 
   return (
-    <View className="flex-1 bg-surface-1">
+    // The views keep their place (`collapsable={false}`), so a list is never a direct
+    // child of the formSheet. react-native-screens gives such a scroll view the size of
+    // the sheet by force, and then it can cover the views beside it.
+    <View collapsable={false} className="flex-1 bg-surface-1">
+      <NewConversationRow onPress={props.onNew} />
       <SearchField value={text} onChangeText={setText} />
-      <View className="flex-1">
+      <View collapsable={false} className="flex-1">
         <Activity mode={pane === "sections" ? "visible" : "hidden"}>
           <SheetList
             sections={sections}
@@ -117,5 +126,29 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
         </Activity>
       </View>
     </View>
+  );
+}
+
+interface NewConversationRowProps {
+  readonly onPress: () => void;
+}
+
+/** The first row of the sheet: a new conversation on the blank root. */
+function NewConversationRow(props: NewConversationRowProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="New conversation"
+      onPress={props.onPress}
+      className="mb-8 min-h-52 flex-row items-center gap-12 px-gutter active:bg-selection-bg"
+      testID="sheet-new"
+    >
+      <View className="w-20 items-center">
+        <SymbolIcon name="square.and.pencil" size={17} tone="accent_primary" />
+      </View>
+      <BodyText size="row" tone="text_bright">
+        New conversation
+      </BodyText>
+    </Pressable>
   );
 }

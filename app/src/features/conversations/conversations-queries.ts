@@ -1,5 +1,5 @@
-// The queries of the conversation lists of each machine: the recent list (title menu,
-// approvals elsewhere) and the search (All conversations sheet). Plan section 2.2.
+// The queries of the conversation lists of each machine: the recent list (the title of a
+// conversation, approvals elsewhere) and the search (the conversations sheet). Plan section 2.2.
 //
 // - Keys start with `machineKey(machine)`, so a `ready` of the machine invalidates them
 //   and Forget removes them.
@@ -52,7 +52,7 @@ export const conversationsKeys = {
 
 /**
  * Writes `summary`, the summary of a snapshot of a conversation of `machine`, into the
- * lists of `machine` in `client`: the title menu and the sheet show its new status at
+ * lists of `machine` in `client`: the bar and the sheet show its new status at
  * once, not on the next poll. A recent list that does not hold the conversation asks
  * efrd again.
  */
