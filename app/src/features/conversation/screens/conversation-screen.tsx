@@ -22,12 +22,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, type Readable } from "@tanstack/store";
 import { useIsFocused } from "expo-router";
-import {
-  useHeaderHeight,
-  useNavigation,
-  type NavigationProp,
-  type ParamListBase,
-} from "expo-router/react-navigation";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useRef, useState } from "react";
 import { View } from "react-native";
 
@@ -115,7 +110,6 @@ function ConversationView(props: ConversationViewProps) {
   const outbox = useOutbox();
   const drafts = useDrafts();
   const preferences = usePreferences();
-  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const route = useRouteConversation(machine, props.routeId);
   const ref: ConversationRef = { machine, id: route.id };
   const list = useRef<TranscriptListHandle>(null);
@@ -126,8 +120,6 @@ function ConversationView(props: ConversationViewProps) {
     focused,
     focus: props.focus,
     list,
-    // The params of the route without `focus` (a merge would keep the key, as undefined).
-    onFocusDone: () => navigation.replaceParams({ machine, id: route.id }),
   });
   const held = stream ?? NO_STREAM;
   const runningTurnId = useSelector(held.store, (state) => runningTurn(state)?.turnId);

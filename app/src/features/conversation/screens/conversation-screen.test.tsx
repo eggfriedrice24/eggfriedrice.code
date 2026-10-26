@@ -237,6 +237,8 @@ describe("the conversation screen", () => {
     expect(announce).toHaveBeenLastCalledWith("Approval needed. git push", { queue: false });
     await send(turnCompleted(NEXT));
     expect(announce).toHaveBeenLastCalledWith("Reply done.", { queue: true });
+    // The renders of the screen kept the one subscription.
+    expect(subscribes()).toHaveLength(1);
   });
 
   it("plays the error haptic once when a turn fails on screen", async () => {
