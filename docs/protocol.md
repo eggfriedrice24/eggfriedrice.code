@@ -10,8 +10,9 @@ page by hand. Add a line to the changelog below for each change of the protocol.
 ## Summary
 
 - Transport: a Unix socket at `$XDG_RUNTIME_DIR/efr/daemon.sock`. Each frame is a
-  4-byte big-endian length followed by one JSON object, at most 16 MiB. The later
-  WebSocket transport sends one JSON frame per text message.
+  4-byte big-endian length followed by one JSON object, at most 16 MiB. A phone uses
+  the tailnet WebSocket of efrd instead, with one JSON frame per text message (see
+  "Remote devices").
 - Client frames: `{id, method, params}` and `{cancel: id}`. Server frames:
   `{id, item}`, `{id, end}`, `{id, error}`, and `{ack: id}` on streams that ask for it.
 - `hello` comes first; both sides send `PROTOCOL_VERSION`, and a mismatch fails with
@@ -42,6 +43,29 @@ The `index` of a message counts the assistant messages of the turn that have tex
 A phone connects to the tailnet listener of efrd. The listener treats every connection
 as the `phone` origin. Before the proof, the connection may call only `hello`,
 `device.enroll` and `device.prove`.
+
+The tailnet WebSocket:
+
+- The URL is `ws://<tailnet IPv4>:<port>/`, with the address and the port of the QR
+  payload. efrd listens only on that address, and only with `[remote] enabled`. The
+  `f` member of the payload gives the MagicDNS name for a second try.
+- Before efrd reads a byte, it asks tailscaled who the peer is. It closes the
+  connection at once for this machine itself, a tagged node, a node that another
+  tailnet shares, a node of another user and a peer that tailscaled does not know.
+- The opening handshake is `GET /` over HTTP/1.1, version 13, with no query, no
+  subprotocol and no extension (no permessage-deflate). The `Origin` header must be
+  absent, or `http://<tailnet IPv4>:<port>` or `http://<MagicDNS name>:<port>`
+  exactly. Every other request gets a plain HTTP error and no upgrade.
+- Each text message holds one JSON frame, the same frames as on the Unix socket,
+  without the length prefix. A client message is at most 1 MiB, a server message at
+  most 16 MiB. A binary message, a fragmented message and an unmasked client frame
+  close the connection.
+- efrd sends a ping every 25 s and closes the connection with 1001 when two pings
+  wait for their pong. A client that cannot see pongs, such as JavaScript, can send a
+  second `hello` as a probe: efrd answers it with `conflict`, and it is not a failed
+  proof.
+- A revoke, a change of the tailnet and the shutdown of efrd close the connection
+  with 1001, and the frames that wait are dropped.
 
 Pairing:
 
@@ -115,6 +139,14 @@ The answers of the tailnet listener:
 - `busy` with `data` `{"starting": true, "retry_after_secs": n}`: efrd cannot check the
   device now. Try again after `n` seconds.
 - The Unix socket refuses `device.enroll` and `device.prove` with `forbidden`.
+
+What a phone may do after the proof, whatever its scopes say:
+
+- A `prompt.send` from a phone runs with a `mode` of at most `cautious`.
+- `approval.respond` is `forbidden` for a question with `local_only`, and for every
+  `allow_always` answer. The question stays open for the user's terminal.
+- `input.respond` and `turn.undo` are `forbidden`.
+- A phone never holds the `admin` or the `terminal` scope.
 
 ## Changelog
 
@@ -255,7 +287,8 @@ No protocol version has shipped yet.
   position of the call in the answer, `tool`, and `bytes` of input so far). `after_seq`
   is the last event that the turn recorded before the draft. A draft has no sequence
   number of its own, the daemon never stores it, drops it when the queue of the
-  subscriber is full, and never closes a subscription for it. A client without the
+  subscriber is full (a later entry, `drafts_coalesced`, replaces this: the daemon
+  merges the drafts that wait), and never closes a subscription for it. A client without the
   flag gets no drafts. The `conversation_subscribe_params.json` fixture now sets the
   flag; the new `conversation_subscribe_item_draft.json` and `draft_parts.json` freeze
   the item and every kind of part.
@@ -835,3 +868,8 @@ No protocol version has shipped yet.
   first drafts hold the reasoning of the running turn and the text of its current
   message from offset 0; a client cuts the bytes that it has. efrd refuses
   `input.respond` from a phone with `forbidden`, whatever scopes the phone holds.
+- Version 1, no change of the frames: the docs now describe the tailnet WebSocket
+  (the URL, the admission, the handshake, the message limits, the pings and the
+  `hello` probe) and what a phone may not do, in the section "Remote devices". The
+  docs of `draft` now say that the daemon merges the drafts of a slow subscriber; it
+  no longer drops them.
