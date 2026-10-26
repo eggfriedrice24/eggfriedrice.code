@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeErrorBody,
   decodeEventEnvelope,
   decodeServerFrame,
   decodeSubscribeItem,
@@ -87,19 +88,7 @@ describe("decodeServerFrame", () => {
 });
 
 describe("decodeEventEnvelope", () => {
-  it("decodes every event fixture, the ones the reducer reads with their fields", () => {
-    const read = new Set([
-      "turn_started",
-      "assistant_message_updated",
-      "assistant_message_completed",
-      "tool_call_started",
-      "tool_call_output_updated",
-      "tool_call_completed",
-      "turn_completed",
-      "turn_failed",
-      "turn_interrupted",
-      "turn_cancelled",
-    ]);
+  it("decodes every event fixture to its own kind, and the unknown one to the skip wrapper", () => {
     const names = Object.keys(events);
     expect(names.length).toBeGreaterThan(40);
     for (const path of names) {
@@ -107,8 +96,15 @@ describe("decodeEventEnvelope", () => {
       const wireKind = isJsonObject(body) ? String(body["kind"]) : "";
       const decoded = decodeEventEnvelope({ seq: 1, at: "2026-10-03T12:00:05Z", event: body });
       const kind = decoded.ok ? decoded.value.event.kind : "failed";
-      expect({ path, kind }).toEqual({ path, kind: read.has(wireKind) ? wireKind : "other" });
+      const want = path.endsWith("/unknown.json") ? "other" : wireKind;
+      expect({ path, kind }).toEqual({ path, kind: want });
     }
+  });
+
+  it("keeps every member of a known event", () => {
+    const body = fixture(events, "approval_requested_local_only");
+    const decoded = decodeEventEnvelope({ seq: 5, at: "t", event: body });
+    expect(decoded).toEqual({ ok: true, value: { seq: 5, at: "t", event: body } });
   });
 
   it("decodes an unknown kind to the skip wrapper and refuses a malformed known kind", () => {
@@ -174,15 +170,55 @@ describe("decodeSubscribeItem", () => {
   });
 
   it("decodes the live part of a snapshot", () => {
-    const decoded = decodeSubscribeItem({
-      kind: "snapshot",
-      events: [],
-      hwm: 3,
-      live: { turn_id: "t", index: 0, text: "so far", reasoning: "r", title: "T" },
-    });
+    const decoded = decodeSubscribeItem(
+      fixture(items, "conversation_subscribe_item_snapshot_live"),
+    );
     expect(decoded).toMatchObject({
       ok: true,
-      value: { live: { turn_id: "t", index: 0, text: "so far", reasoning: "r", title: "T" } },
+      value: {
+        kind: "snapshot",
+        hwm: 42,
+        live: {
+          index: 1,
+          text: "The largest file is ~/日志/größe.log 🙂",
+          text_bytes: 45,
+          reasoning_title: "Checking the logs",
+        },
+      },
+    });
+    const state = decoded.ok ? reduce(EMPTY_STREAM, decoded.value) : EMPTY_STREAM;
+    const turn = state.turns.get("019a9b1c-3d00-7a10-8b20-000000000002");
+    expect(turn?.messages.get(1)?.buffer.bytes).toBe(45);
+    expect(turn?.title).toBe("Checking the logs");
+  });
+
+  it("refuses a snapshot whose live part or conversation is malformed", () => {
+    const base = fixture(items, "conversation_subscribe_item_snapshot_live");
+    const snapshot = isJsonObject(base) ? base : {};
+    const live = isJsonObject(snapshot["live"]) ? snapshot["live"] : {};
+    expect(decodeSubscribeItem({ ...snapshot, live: { ...live, text_bytes: -1 } }).ok).toBe(false);
+    expect(decodeSubscribeItem({ ...snapshot, conversation: { id: 1 } }).ok).toBe(false);
+    expect(decodeSubscribeItem({ ...snapshot, live: null }).ok).toBe(true);
+  });
+
+  it("passes known draft parts that the reducer does not read", () => {
+    expect(
+      decodeSubscribeItem({
+        kind: "draft",
+        turn_id: "t",
+        after_seq: 1,
+        draft: { kind: "compacting", trigger: "auto" },
+      }),
+    ).toMatchObject({ ok: true, value: { draft: { kind: "compacting", trigger: "auto" } } });
+  });
+});
+
+describe("decodeErrorBody", () => {
+  it("refuses a code that the protocol does not have and drops data that is not an object", () => {
+    expect(decodeErrorBody({ code: "teapot", message: "x" }).ok).toBe(false);
+    expect(decodeErrorBody({ code: "busy", message: "x", data: 3 })).toEqual({
+      ok: true,
+      value: { code: "busy", message: "x" },
     });
   });
 });

@@ -9,7 +9,7 @@ import {
   reduce,
   type StreamState,
 } from "./reducer";
-import { chunked } from "./testing";
+import { chunked, toolCallCompleted, toolCallStarted, turnStarted } from "./testing";
 import type { DraftPart, Event, EventEnvelope, SubscribeItem } from "./wire";
 
 const TURN = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -42,7 +42,7 @@ function run(items: readonly SubscribeItem[], from: StreamState = EMPTY_STREAM):
 describe("messages", () => {
   it("merges drafts and updates of one message", () => {
     const state = run([
-      event(1, { kind: "turn_started", turn_id: TURN }),
+      event(1, turnStarted(TURN)),
       draft(1, text(0, 0, "The disk ")),
       event(2, {
         kind: "assistant_message_updated",
@@ -148,12 +148,7 @@ describe("reasoning and tools", () => {
 
     const started = run(
       [
-        event(2, {
-          kind: "tool_call_started",
-          turn_id: TURN,
-          call_id: "call_1",
-          tool: "apply_patch",
-        }),
+        event(2, toolCallStarted(TURN, "call_1", "apply_patch")),
         draft(1, { ...input, bytes: 2400 }),
       ],
       writing,
@@ -176,7 +171,7 @@ describe("reasoning and tools", () => {
           tail: "ok\n",
           bytes: 3,
         }),
-        event(4, { kind: "tool_call_completed", turn_id: TURN, call_id: "call_1" }),
+        event(4, toolCallCompleted(TURN, "call_1", "ok\n")),
       ],
       started,
     );
@@ -193,7 +188,7 @@ describe("snapshots", () => {
   it("rebuilds from the events and seeds the live message", () => {
     const state = applySnapshot(EMPTY_STREAM, {
       events: [
-        envelope(41, { kind: "turn_started", turn_id: TURN }),
+        envelope(41, turnStarted(TURN)),
         envelope(42, {
           kind: "assistant_message_updated",
           turn_id: TURN,
@@ -205,10 +200,12 @@ describe("snapshots", () => {
       hwm: 42,
       live: {
         turn_id: TURN,
+        after_seq: 42,
         index: 0,
         text: "The journal a gap and more",
+        text_bytes: 26,
         reasoning: "**Check**",
-        title: "Check",
+        reasoning_title: "Check",
       },
     });
     expect(state.lastSeq).toBe(42);
@@ -241,7 +238,7 @@ describe("snapshots", () => {
       event(1, { kind: "assistant_message_completed", turn_id: older, index: 0, text: "Old." }),
     ]);
     const state = applySnapshot(held, {
-      events: [envelope(10, { kind: "turn_started", turn_id: TURN })],
+      events: [envelope(10, turnStarted(TURN))],
       hwm: 10,
     });
     expect(state.order).toEqual([older, TURN]);
@@ -259,7 +256,7 @@ describe("properties", () => {
         fc.array(fc.nat(), { maxLength: 40 }),
         fc.array(fc.constantFrom("draft", "update", "both", "drop"), { maxLength: 40 }),
         (whole, cuts, fates) => {
-          const items: SubscribeItem[] = [event(1, { kind: "turn_started", turn_id: TURN })];
+          const items: SubscribeItem[] = [event(1, turnStarted(TURN))];
           let seq = 1;
           chunked(whole, cuts).forEach((chunk, i) => {
             const fate = fates[i] ?? "both";

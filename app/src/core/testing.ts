@@ -1,6 +1,7 @@
 // Helpers for the tests of the core. Only test files import this module.
 
 import { utf8Length } from "./utf8";
+import type { EventOf } from "./wire";
 
 /** One delta of a text: `delta` at UTF-8 byte `offset`. */
 export interface Chunk {
@@ -26,4 +27,34 @@ export function chunked(text: string, cuts: readonly number[]): Chunk[] {
     }
   }
   return chunks;
+}
+
+/** A `turn_started` event with the members that efrd always sends. */
+export function turnStarted(turnId: string): EventOf<"turn_started"> {
+  return { kind: "turn_started", turn_id: turnId, cwd: "/home/me", scope: { kind: "machine" } };
+}
+
+/** A `tool_call_started` event with an empty input. */
+export function toolCallStarted(
+  turnId: string,
+  callId: string,
+  tool: string,
+): EventOf<"tool_call_started"> {
+  return { kind: "tool_call_started", turn_id: turnId, call_id: callId, tool, input: {} };
+}
+
+/** A `tool_call_completed` event that succeeded with `output`. */
+export function toolCallCompleted(
+  turnId: string,
+  callId: string,
+  output = "",
+): EventOf<"tool_call_completed"> {
+  return {
+    kind: "tool_call_completed",
+    turn_id: turnId,
+    call_id: callId,
+    output,
+    truncated: false,
+    is_error: false,
+  };
 }

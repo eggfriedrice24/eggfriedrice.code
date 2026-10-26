@@ -20,7 +20,7 @@
 //   replay and changes nothing.
 
 import { applyDelta, bufferOf, EMPTY_BUFFER, seed, type TextBuffer } from "./text_buffer";
-import type { Draft, Event, EventEnvelope, LiveMessage, Snapshot, SubscribeItem } from "./wire";
+import type { Draft, Event, EventEnvelope, LiveTurn, SnapshotView, SubscribeItem } from "./wire";
 
 /** One assistant message of a turn. */
 export interface MessageView {
@@ -143,33 +143,34 @@ export function applyDraft(state: StreamState, draft: Draft): StreamState {
  * is kept when it agrees with it, so a reconnect does not lose what the app showed.
  * Turns of the previous state with no event in the snapshot stay, before the others.
  */
-export function applySnapshot(state: StreamState, snapshot: Snapshot): StreamState {
+export function applySnapshot(state: StreamState, snapshot: SnapshotView): StreamState {
   let next: StreamState = EMPTY_STREAM;
   for (const envelope of snapshot.events) {
     next = applyEvent(next, envelope);
   }
   next = { ...next, lastSeq: Math.max(next.lastSeq, snapshot.hwm) };
-  if (snapshot.live !== undefined) {
+  if (snapshot.live !== undefined && snapshot.live !== null) {
     next = applyLive(next, snapshot.live);
   }
   return keepPrevious(state, next);
 }
 
 /** Seeds the running message and the reasoning from the snapshot's live part. */
-export function applyLive(state: StreamState, live: LiveMessage): StreamState {
+export function applyLive(state: StreamState, live: LiveTurn): StreamState {
   return updateTurn(state, live.turn_id, (turn) => {
     if (turn.ended) {
       return turn;
     }
     let next = updateMessage(turn, live.index, (message) => seedMessage(message, live.text));
-    if (live.reasoning !== undefined) {
+    if (live.reasoning !== undefined && live.reasoning !== null) {
       const reasoning = seed(next.reasoning, live.reasoning);
       if (reasoning !== next.reasoning) {
         next = { ...next, reasoning };
       }
     }
-    if (live.title !== undefined && live.title !== next.title) {
-      next = { ...next, title: live.title };
+    const title = live.reasoning_title ?? undefined;
+    if (title !== undefined && title !== next.title) {
+      next = { ...next, title };
     }
     return next;
   });
