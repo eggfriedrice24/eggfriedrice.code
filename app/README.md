@@ -6,41 +6,54 @@ app. It lives outside the Cargo workspace, and every JS config file is in this d
 
 The user guide is `docs/use/phone.md`. The protocol is `docs/protocol.md`, section
 "Remote devices". The decision record is `docs/adr/0022-remote-listener-and-device-keys.md`.
+The rules for coding agents are in `AGENTS.md` in this directory.
 
 ## Status
 
-The app is a preview. It is not in the App Store.
+The app is a preview. It is not in the App Store. Nobody ran it on an iPhone yet.
 
-- Done and tested in Vitest: the protocol types, the WebSocket client (hello, the proof,
-  the subscribe with drafts, the liveness probe, the reconnect and the backoff), the
-  store of each conversation, the pairing flow, the session that joins them for the
-  screens (`src/session`), the pacer of the streamed text, and the replay of the
-  recordings of efrd.
-- Written, but not built yet: the screens, the Swift module of the device key and the
-  native adapters. They need an EAS build. Nobody ran the app on an iPhone yet.
-- `src/app/_layout.tsx` gives the screens the session of `src/session/native.ts`. It
-  reads the pairing, connects to efrd and keeps the connection up. A dev build can
-  also open a demo session, which reaches no computer.
-- The app hears of the foreground from AppState. No package of the app reports a
-  change of the network path, such as from Wi-Fi to cellular, so the client finds a
-  dead socket with its liveness rule instead.
+- The screens follow the design canvas of the app: a blank conversation as the root,
+  the conversation with its transcript, composer and approval block, the All
+  conversations sheet, Settings, and the pairing screens with each error. Each screen
+  and each state of the canvas is in the code.
+- The app pairs with more than one machine and connects to all of them at the same time.
+  The route of a conversation names its machine (`/c/<daemon id>/<conversation id>`).
+- Done and tested on Linux: the protocol types and their zod schemas, the WebSocket
+  client (hello, the proof, the subscribe with drafts, the liveness probe, the reconnect
+  and the backoff), the stream store of each conversation, the outbox of the prompts,
+  the drafts, the machine registry and its supervisors, the queries, the pairing flow,
+  the pacer of the streamed text, the replay of the recordings of efrd, and the
+  components and screens in jest-expo.
+- Written, but not built yet: the Swift module of the device key and the native
+  adapters. They need an EAS build.
+- The app hears of the foreground from AppState, and of a change of the network path
+  (such as from Wi-Fi to cellular) from NetInfo. Then each machine connects again at
+  once.
+- A dev build has a demo machine, which reaches no computer, and a gallery of every
+  board of the design canvas. A long press on the version in Settings, section About,
+  opens the gallery.
 
 ## Layout
 
-| Path                     | What it holds                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `src/app/`               | The routes of expo-router: the conversation list, the pairing screen and a conversation.              |
-| `src/core/`              | Pure code: the frame envelope, the reducer, the pacer, the liveness rule, the backoff, UTF-8 offsets. |
-| `src/protocol/`          | `generated.ts` (the protocol types) and the signed message of `device.prove`.                         |
-| `src/net/`               | The WebSocket client and the connection. `native/` holds the adapters of React Native.                |
-| `src/store/`             | The conversations, the approvals and the event cache in expo-sqlite.                                  |
-| `src/pairing/`           | The QR payload, the pairing flow, the device key store and the paired device record.                  |
-| `src/session/`           | The session of the screens over the client, the stores and the pairing flow. `native.ts` wires it.    |
-| `src/ui/`                | The screens, the transcript, the approval cards, the tool cards and the diff view.                    |
-| `src/theme/palette.ts`   | The colours of the design system.                                                                     |
-| `modules/efr-device-key` | The local Expo module of the Secure Enclave key (Swift). Its README tells what it does.               |
-| `test/recordings/`       | What efrd sends to a phone during scripted turns. The replay tests read it.                           |
-| `scripts/`               | The code generator of `src/lib/protocol/generated.ts`.                                                |
+| Path                     | What it holds                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `src/app/`               | The routes of expo-router. Each one renders one screen.                                                |
+| `src/features/`          | The features: machines, pairing, conversation, conversations, navigation, settings and the demo.       |
+| `src/components/ui/`     | The parts of the design that every feature uses: text, buttons, menus, materials and loaders.          |
+| `src/lib/protocol/`      | `generated.ts` (the protocol types), `generated-zod.ts` (their schemas), the frame envelope and prove. |
+| `src/lib/stream/`        | The reducer of a conversation, the text buffer, the pacer and UTF-8 offsets.                           |
+| `src/lib/net/`           | The WebSocket client, the connection, the errors, the liveness rule and the backoff.                   |
+| `src/lib/store/`         | The frame store (one update per display frame), the event cache and the key-value store.               |
+| `src/lib/query/`         | The QueryClient, its persister, its managers and the shared query keys.                                |
+| `src/lib/native/`        | The adapters of React Native and Expo: socket, clock, database, haptics, clipboard, links.             |
+| `src/theme/`             | The palette, the colour roles, the type scale, the metrics, the materials and the generated theme CSS. |
+| `modules/efr-device-key` | The local Expo module of the Secure Enclave key (Swift). Its README tells what it does.                |
+| `assets/icon/`           | The app icon, "the yolk". Its README tells how to make the PNG again.                                  |
+| `test/`                  | The rules of the code (dependency graph, effects budget, React Compiler), the codegen and the harness. |
+| `test/recordings/`       | What efrd sends to a phone during scripted turns. The replay tests read it.                            |
+| `scripts/`               | The code generators of the protocol and the theme, the effects budget and the decoder bench.           |
+
+`AGENTS.md` tells the shape of a feature and the rules of the layers.
 
 ## Toolchain
 
@@ -59,10 +72,12 @@ Every version is pinned exactly. Do not change a version without a reason, and b
 - The React Compiler (`experiments.reactCompiler` in `app.json`) and uniwind 1.13.0 with
   tailwindcss 4.3.3 (`metro.config.js`). Metro writes `uniwind-types.d.ts` again on each
   run; commit it when it changes.
+- TanStack Query 5.104.5 (with its persister), TanStack Store 0.11.2, TanStack Pacer
+  0.23.1 and zod 4.6.7. Store and Pacer are before 1.0, so a bump can change their API.
 
 pnpm 11 keeps its safe defaults. Only the packages in `allowBuilds` of
-`pnpm-workspace.yaml` can run an install script. Add a package only from the table of the
-research, or with the approval of the user.
+`pnpm-workspace.yaml` can run an install script. Add a package only with the approval of
+the user.
 
 ## Work on Linux
 
@@ -79,29 +94,64 @@ The gates are the same as in CI. From the repository root:
 just app-check
 ```
 
-It runs, in this order: `pnpm install --frozen-lockfile`, `pnpm run fmt:check` (oxfmt),
-`pnpm run lint` (oxlint), `pnpm run typecheck` (`tsc --noEmit`), `pnpm run test` (vitest),
-`pnpm run test:ui` (jest), `pnpm run check:protocol`, `pnpm run check:theme` and
-`pnpm run bundle:check` (`expo export --platform ios`, the JavaScript bundle of the app).
+It runs, in this order:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm run fmt:check` (oxfmt)
+3. `pnpm run lint` (oxlint, type-aware)
+4. `pnpm run typecheck` (`tsc --noEmit`)
+5. `pnpm run test` (vitest)
+6. `pnpm run test:ui` (jest)
+7. `pnpm run check:protocol` (the generated protocol files are current)
+8. `pnpm run check:theme` (the generated theme CSS is current)
+9. `pnpm run bundle:check` (`expo export --platform ios`, the JavaScript bundle of the
+   app, with the React Compiler)
+
 `pnpm run fmt` formats the files.
 
-The tests cover the pure code: `src/core`, `src/protocol`, `src/net`, `src/store`,
-`src/pairing`, `src/session`, the pure parts of `src/ui`, and the code generator. They run in Node and
-import nothing from React Native. A test uses a fake socket and a fake clock, and never
-reaches the network.
+There are two test runners:
+
+- Vitest runs the `*.test.ts` files in Node: the pure code of `src/lib`, the models of
+  the features, the schemas over every fixture of efr-protocol, the replay of the
+  recordings, the code generators, and the rules of the code in `test/`. These tests
+  import nothing from React Native.
+- jest-expo runs the `*.test.tsx` files: the components, the screens and the routes,
+  with React Native Testing Library and the testing library of expo-router.
+  `jest-matchers.d.ts` gives the matchers of both libraries their types.
+
+A test uses fake sockets, a fake clock and memory stores, and never reaches the
+network.
+
+The rules of the code are tests too:
+
+- `test/dependency-graph.test.ts`: the layers, the `@/` alias, no cycle, no barrel, and
+  zod calls only in schema files.
+- `test/effect-budget.test.ts`: the `useEffect` and `useLayoutEffect` calls of each file
+  against `scripts/effect-budget.json`. The budget only goes down.
+- `test/react-compiler-coverage.test.ts`: each component and hook compiles with the
+  React Compiler and no bailout.
+
+`node scripts/bench-decode.mjs` measures the decoder of the app in Node, with zod, with
+zod in jitless mode and with the old hand-written guard. Run it alone and at nice 19.
+It does not give a number for the iPhone: the bench route of a dev build does.
 
 ### When the protocol changes
 
-The types in `src/lib/protocol/generated.ts` come from `docs/protocol.schema.json`.
-Do not edit the file by hand. After a change of `efr-protocol`:
+The types in `src/lib/protocol/generated.ts` and the schemas in
+`src/lib/protocol/generated-zod.ts` come from `docs/protocol.schema.json`. Do not edit
+them by hand. After a change of `efr-protocol`:
 
 ```sh
 cargo xtask protocol-schema
 cd app && pnpm gen:protocol
 ```
 
-Commit the schema and `generated.ts` together. `just tidy` fails when the schema is not
-current, and `pnpm run check:protocol` fails when `generated.ts` is not.
+Commit the schema and the generated files together. `just tidy` fails when the schema
+is not current, and `pnpm run check:protocol` fails when the generated files are not.
+
+Each schema satisfies its generated type, so a schema that does not agree with the type
+fails `tsc`. The decoder turns an unknown kind, and a known kind that does not parse,
+into an `other` item, and the stream goes on.
 
 ### The recordings
 
@@ -109,11 +159,20 @@ current, and `pnpm run check:protocol` fails when `generated.ts` is not.
 `just bless` writes them again. Read the diff before you commit it. The README of that
 directory gives the format and the scenarios.
 
-### The colours
+Vitest keeps the list of fixture files in `node_modules/.vitest-cache`. After you add a
+fixture or a recording, delete that directory, or the new file can stay hidden.
+
+### The colours and the theme
 
 `src/theme/palette.ts` holds the colours of the eggfriedrice design system, copied from
 the palette file of eggfriedrice.nvim. Its header names the file and the commit. Use only
-those roles, and never invent a colour or a mapping. The app is dark only.
+those colours, and never invent a colour or a mapping. The app is dark only.
+
+`src/theme/roles.ts` gives each colour of the app a role, and each role names one entry
+of the palette. `pnpm gen:theme` writes `src/theme/theme.css` from the roles, the type
+scale (`type.ts`) and the metrics (`metrics.ts`). The components use its classes with
+uniwind, such as `text-text-muted`, `text-mono-xs` or `rounded-box`. Do not edit
+`theme.css` by hand.
 
 ## Build for an iPhone with EAS
 
@@ -127,7 +186,8 @@ You need:
 
 `eas.json` has one profile, `preview`: a release build for internal distribution, with
 Node 24.22.1 and pnpm 11.28.8. The app has `expo-dev-client`, but `eas.json` has no
-`development` profile yet.
+`development` profile yet. The demo machine, the gallery, the render counter and the
+bench route are only in a dev build, so they need that profile first.
 
 The steps, in `app/`:
 
@@ -161,29 +221,99 @@ The steps, in `app/`:
 5. Open the link of the build on the iPhone and install the app.
 
 A `preview` build holds its JavaScript, so each change of the app needs a new build.
-Collect the changes of native code, so that the builds stay few.
+Collect the changes of native code, so that the builds stay few. The native modules of
+the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
+expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown
+and the module of the device key.
 
-### Checks on the first build
+## Device checklist
+
+Linux cannot build iOS and cannot show the UI. Do these checks on the iPhone after the
+first EAS build. Write down each result. A check that fails needs a change of the code,
+not a test that pretends.
+
+### The build and the connection
 
 1. Do the checks of `modules/efr-device-key/README.md`, section "Checks on an EAS build".
-2. Stream a long reply (about 10,000 tokens) and look at the memory and the lag of
-   react-native-enriched-markdown 1.1.1. If it grows or lags, try 1.2.0.
-3. Compare the inverted FlashList with Legend List on a long transcript. The transcript
-   list is behind one small component (`src/ui/transcript_list.tsx`), so the list library
-   can change.
-4. The app sends everything over the WebSocket and calls no `fetch()` to efrd. Check once
-   that `ws://` to the 100.x address works with only `NSAllowsLocalNetworking`.
+2. The app sends everything over the WebSocket and calls no `fetch()` to efrd. Check
+   once that `ws://` to the 100.x address works with only `NSAllowsLocalNetworking`.
+3. Test with the real efrd: set `[remote] enabled = true`, restart efrd, pair the phone
+   with `efr device add`, send a prompt, answer an approval, and revoke the device with
+   `efr device revoke`.
 
-Then test with the real efrd: set `[remote] enabled = true`, restart efrd, pair the phone
-with `efr device add`, send a prompt, answer an approval, and revoke the device with
-`efr device revoke`.
+### Pairing
+
+4. The scanner (`CameraView.launchScanner`) reads the code of `efr device add`.
+5. "Open Tailscale" opens the Tailscale app.
+6. The terminal shows the model name of the iPhone (expo-device), such as "iPhone 17
+   Pro".
+7. Re-pair one machine from Settings, and check that the other machines stay paired.
+
+### The transcript
+
+8. The list: compare the inverted FlashList 2.3.2 with Legend List 3.6.0 on a recorded
+   fast stream, with the keyboard open, scrolled up, and 500 rows of history. Measure
+   the largest drift and the slowest commit. Check the VoiceOver order in an inverted
+   list. Only `src/features/conversation/components/transcript-list.tsx` knows the list
+   library. Legend List is not installed yet: add it before you try it.
+9. Stream a long reply (about 10,000 tokens). Look at the memory and the lag of
+   react-native-enriched-markdown 1.1.1, the frames of the code blocks, and the fade of
+   the streaming tail.
+10. Markdown with enriched 1.1.1: code blocks use Menlo, the underline of a link is cyan
+    (not purple), strong text is bold (not semibold), and a table has one border width.
+    Check that these look right.
+
+### Speed
+
+11. zod on Hermes: run the bench route of the dev build. It parses each frame of the
+    recordings through the schemas, in three modes. The draft frames must stay under
+    0.5 ms at p95. If they do not, use jitless mode or smaller draft schemas. Check a
+    release build too.
+12. The React Compiler: the app must behave the same with it on. Count the renders of a
+    streaming conversation with the render counter of the dev build.
+
+### The header and the navigation
+
+13. The title menu (`Stack.Title asChild` with `MenuView`): its layout, the yolk dot
+    and the size of its tap target.
+14. The menu glyphs: `imageColor` must give yolk glyphs, not the colour of the label.
+    The braille glyph of a running conversation: a menu takes only SF Symbols.
+15. The anchor of a menu that opens from a view (`findNodeHandle`).
+16. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
+    (long press on back), and the strip under the transparent bar with the scroll edge
+    effect.
+17. The first send on the blank root opens the new conversation with no animation, and
+    the id of the conversation then changes in place (`setParams`).
+18. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
+    goes back to a conversation in the stack.
+19. The All conversations sheet: its two sizes, with the search field.
+
+### The composer
+
+20. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
+    inset.
+21. The input grows to 6 lines.
+22. The Steer and Queue menu opens with a long press on the capsule.
+
+### Look and motion
+
+23. The BrailleCell and the cursor animate with the native driver. With Reduce Motion
+    on, they show a still frame.
+24. `fontFamily: "ui-monospace"` gives SF Mono and follows Dynamic Type. If not, the
+    app uses Menlo.
+25. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
+    layers of `assets/icon/` (this needs a Mac).
 
 ## Rules of the app
 
 - No raw HTML in Markdown and no WebView with JavaScript. The app asks before it opens a
-  link.
+  link, and then opens it in SFSafariViewController.
 - The device key never leaves the Secure Enclave. The app keeps the device id and the
-  endpoint in expo-secure-store.
+  endpoint of each machine in expo-secure-store.
 - The app sends no `input.respond`, no attachments and no "always allow". efrd refuses
   them from a phone anyway.
-- Offsets of text count bytes of UTF-8, never UTF-16 units (`src/core/utf8.ts`).
+- A question that only the terminal can answer (a command that needs a password or
+  runs as another user, a background job, a delete that full mode guards) shows why,
+  and no answer buttons. A question that offers an "always" rule keeps Allow and Deny,
+  and tells that the rule is set in the terminal.
+- Offsets of text count bytes of UTF-8, never UTF-16 units (`src/lib/stream/utf8.ts`).
