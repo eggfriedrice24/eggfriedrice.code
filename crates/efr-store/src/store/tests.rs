@@ -29,7 +29,7 @@ async fn open_creates_a_private_data_dir_and_a_migrated_database() {
 
     assert_eq!(
         store.migration(),
-        &MigrationReport { from: 0, to: 10, backup: None, rebuilt: false }
+        &MigrationReport { from: 0, to: 11, backup: None, rebuilt: false }
     );
     let mode = std::fs::metadata(&data).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o700);
@@ -51,7 +51,7 @@ async fn a_reopened_store_continues_its_log_without_a_backup() {
 
     assert_eq!(
         store.migration(),
-        &MigrationReport { from: 10, to: 10, backup: None, rebuilt: false }
+        &MigrationReport { from: 11, to: 11, backup: None, rebuilt: false }
     );
     assert_eq!(committed.first_seq(), Some(Seq::new(2)));
 }
@@ -71,7 +71,7 @@ async fn an_older_database_is_backed_up_in_the_data_dir_before_it_migrates() {
     let backup = dir.path().join("backups").join("efr.sqlite.3");
     assert_eq!(
         store.migration(),
-        &MigrationReport { from: 3, to: 10, backup: Some(backup.clone()), rebuilt: true }
+        &MigrationReport { from: 3, to: 11, backup: Some(backup.clone()), rebuilt: true }
     );
     assert!(backup.is_file());
 }
@@ -99,7 +99,7 @@ async fn an_in_memory_store_reads_through_its_writer() {
 
     assert_eq!(
         store.migration(),
-        &MigrationReport { from: 0, to: 10, backup: None, rebuilt: false }
+        &MigrationReport { from: 0, to: 11, backup: None, rebuilt: false }
     );
     assert_eq!(read, committed.events());
     store.close().await;

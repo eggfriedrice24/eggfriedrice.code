@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::{CallId, CommandId, ConversationId, PtyId, Seq};
+use efr_protocol::{CallId, CommandId, ConversationId, DeviceId, PtyId, Seq};
 use efr_stdx::StdxError;
 
 use crate::outbox::OutboxId;
@@ -222,6 +222,27 @@ pub enum StoreError {
     OutboxItemNotClaimed {
         /// The id.
         id: OutboxId,
+    },
+
+    /// A value of a device has the wrong shape, so the store keeps no row of it.
+    #[error("the device's {field} is not valid")]
+    DeviceFieldInvalid {
+        /// The field, such as `"name"` or `"public_key"`.
+        field: &'static str,
+    },
+
+    /// A device with this id already has a row.
+    #[error("the device {device_id} already exists")]
+    DeviceExists {
+        /// The device.
+        device_id: DeviceId,
+    },
+
+    /// A device that is not revoked already has this public key.
+    #[error("the key belongs to the device {device_id}, which is not revoked")]
+    DeviceKeyInUse {
+        /// The device that holds the key.
+        device_id: DeviceId,
     },
 
     /// The writer thread could not be started.

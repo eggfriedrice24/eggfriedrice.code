@@ -10,13 +10,14 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, Event, EventEnvelope, Seq};
+use efr_protocol::{ConversationId, DeviceId, Event, EventEnvelope, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::deletes::{self, DeleteStep};
+use crate::devices::{self, Device, NewDevice, RevokeOutcome};
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
 use crate::search::{self, SearchApplied, SearchPage};
 use crate::{StoreError, events, projection, reader, receipts, sql, turn_messages};
@@ -39,6 +40,10 @@ const THREAD_NAME: &str = "efr-store-writer";
 /// subscriber before it reports the subscriber as lagging.
 pub const DEFAULT_BROADCAST_CAPACITY: usize = 1024;
 
+/// The revokes that the broadcast of revoked devices keeps for a slow subscriber. A
+/// revoke is rare; a subscriber that lags must check each device it serves again.
+pub const REVOCATION_CAPACITY: usize = 64;
+
 /// The frames of the write-ahead log at which a commit of the writer runs SQLite's
 /// passive checkpoint (`wal_autocheckpoint`, SQLite's default). A search job
 /// checkpoints at [`SEARCH_CHECKPOINT_FRAMES`], so beside the indexer a turn's commit
@@ -60,6 +65,7 @@ pub(crate) struct WriterState {
     /// The sequence number of the newest committed event.
     last_seq: Seq,
     events: broadcast::Sender<Committed>,
+    revocations: broadcast::Sender<DeviceId>,
 }
 
 /// The running writer thread.
@@ -77,6 +83,7 @@ pub struct StoreWriter {
 pub struct WriterHandle {
     jobs: mpsc::Sender<Job>,
     events: broadcast::Sender<Committed>,
+    revocations: broadcast::Sender<DeviceId>,
 }
 
 impl StoreWriter {
@@ -93,15 +100,23 @@ impl StoreWriter {
         let (jobs_tx, jobs_rx) = mpsc::channel::<Job>(JOB_QUEUE);
         // A broadcast channel of capacity 0 panics.
         let (events_tx, _) = broadcast::channel(broadcast_capacity.max(1));
+        let (revocations_tx, _) = broadcast::channel(REVOCATION_CAPACITY);
         let (stopped_tx, stopped_rx) = oneshot::channel();
-        let state = WriterState { conn, clock, last_seq, events: events_tx.clone() };
+        let state = WriterState {
+            conn,
+            clock,
+            last_seq,
+            events: events_tx.clone(),
+            revocations: revocations_tx.clone(),
+        };
         efr_stdx::thread::spawn_named(THREAD_NAME, STACK_SIZE, move || {
             run(state, jobs_rx);
             // `run` consumed the state, so the connection is closed by now.
             let _ = stopped_tx.send(());
         })
         .map_err(|source| StoreError::SpawnWriter { source })?;
-        Ok((WriterHandle { jobs: jobs_tx, events: events_tx }, StoreWriter { stopped: stopped_rx }))
+        let handle = WriterHandle { jobs: jobs_tx, events: events_tx, revocations: revocations_tx };
+        Ok((handle, StoreWriter { stopped: stopped_rx }))
     }
 
     /// Waits until the writer thread has stopped and closed its connection. It stops
@@ -214,6 +229,45 @@ impl WriterHandle {
     /// until it answers false.
     pub async fn search_merge(&self, pages: u32) -> Result<bool, StoreError> {
         self.run(move |state| state.write_search(|tx| search::merge(tx, pages))).await
+    }
+
+    /// Inserts the enrolled device `device`, with the writer's time as its creation
+    /// time, and returns its row. Fails with [`StoreError::DeviceExists`] for an id that
+    /// has a row, and with [`StoreError::DeviceKeyInUse`] for the key of a device that
+    /// is not revoked.
+    pub async fn device_insert(&self, device: NewDevice) -> Result<Device, StoreError> {
+        self.run(move |state| state.write(|tx, at| devices::insert(tx, &device, at))).await
+    }
+
+    /// Revokes the device `device_id`. When this call revoked it, the id goes to every
+    /// receiver of [`WriterHandle::subscribe_revocations`] after the commit.
+    pub async fn device_revoke(&self, device_id: DeviceId) -> Result<RevokeOutcome, StoreError> {
+        self.run(move |state| {
+            let outcome = state.write(|tx, at| devices::revoke(tx, device_id, at))?;
+            if let RevokeOutcome::Revoked { .. } = outcome {
+                // No receiver is not an error: no device is connected.
+                let _ = state.revocations.send(device_id);
+            }
+            Ok(outcome)
+        })
+        .await
+    }
+
+    /// Sets the time that the device `device_id` was last seen to now; false, with no
+    /// change, for a device that is unknown or revoked.
+    pub async fn device_touch(&self, device_id: DeviceId) -> Result<bool, StoreError> {
+        self.run(move |state| state.write(|tx, at| devices::touch(tx, device_id, at))).await
+    }
+
+    /// A receiver of the id of every device that is revoked from now on, each after
+    /// the commit of its revoke.
+    ///
+    /// To admit a connection of a device without a race with a revoke: subscribe
+    /// first, then read the device's row, then close the connection when its id
+    /// arrives. A receiver that falls more than [`REVOCATION_CAPACITY`] revokes behind
+    /// gets `RecvError::Lagged` and must read the rows of its devices again.
+    pub fn subscribe_revocations(&self) -> broadcast::Receiver<DeviceId> {
+        self.revocations.subscribe()
     }
 
     /// Runs a read on the writer's connection with `query_only` set, for an in-memory

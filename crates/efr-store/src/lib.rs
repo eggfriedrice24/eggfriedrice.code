@@ -2,10 +2,10 @@
 //!
 //! The store keeps the append-only event log, the projections derived from it
 //! (conversations, turns, approvals, shells, compactions, jobs), command receipts, the
-//! outbox, the exact messages of recent turns with the provider's own items, and the
-//! index and segment files of PTY recordings. One writer actor owns the only
-//! read-write connection and commits every write; read-only connections serve reads
-//! through `spawn_blocking`.
+//! outbox, the exact messages of recent turns with the provider's own items, the
+//! enrolled devices, and the index and segment files of PTY recordings. One writer
+//! actor owns the only read-write connection and commits every write; read-only
+//! connections serve reads through `spawn_blocking`.
 //!
 //! Allowed dependencies: `efr-protocol` (the events and ids it stores) and `efr-stdx`
 //! (the clock, the named writer thread, private file creation). What does not belong
@@ -17,8 +17,8 @@
 //! tables (`events`, the projections, `receipts`, `outbox`, `recording`) are public
 //! too: they hold the read functions that run inside `Readers::with`, and their types;
 //! so are `turn_messages`, `user_messages`, `jobs` and `search`, the search index of
-//! the conversations, which efrd fills in the background, and `deletes`, the tombstones
-//! of deleted conversations.
+//! the conversations, which efrd fills in the background, `deletes`, the tombstones
+//! of deleted conversations, and `devices`, the enrolled devices such as a phone.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -29,6 +29,7 @@ pub mod compactions;
 pub mod conversations;
 pub mod db;
 pub mod deletes;
+pub mod devices;
 mod error;
 pub mod events;
 pub mod jobs;
@@ -53,6 +54,6 @@ pub use migrations::{MigrationReport, Migrations};
 pub use reader::{DEFAULT_READERS, Readers};
 pub use store::{BACKUP_DIR, DATABASE_FILE, Store, StoreConfig};
 pub use writer::{
-    Batch, Committed, DEFAULT_BROADCAST_CAPACITY, SEARCH_CHECKPOINT_FRAMES, StoreWriter,
-    WAL_AUTOCHECKPOINT, WriterHandle,
+    Batch, Committed, DEFAULT_BROADCAST_CAPACITY, REVOCATION_CAPACITY, SEARCH_CHECKPOINT_FRAMES,
+    StoreWriter, WAL_AUTOCHECKPOINT, WriterHandle,
 };

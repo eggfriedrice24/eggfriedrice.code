@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_protocol::{
-    CallId, CommandId, ConversationId, Event, Origin, PtyId, Scope, ShellContext, TurnId,
+    CallId, CommandId, ConversationId, DeviceId, Event, Origin, PtyId, Scope, ShellContext, TurnId,
     TurnSettings,
 };
 use efr_stdx::time::{Clock, Sleep};
@@ -82,6 +82,35 @@ pub(crate) fn call(n: u64) -> CallId {
 
 pub(crate) fn pty(n: u64) -> PtyId {
     id(5, n)
+}
+
+pub(crate) fn device(n: u64) -> DeviceId {
+    id(7, n)
+}
+
+/// The phone `n`: a device with its own key (the X9.63 form, every coordinate byte `n`),
+/// paired from the node `node-n` of the user 42 in the tailnet `T1`, with the phone's
+/// scopes.
+pub(crate) fn phone(n: u8) -> crate::devices::NewDevice {
+    use crate::devices::{DevicePeer, DevicePublicKey, NewDevice};
+    use efr_protocol::ScopeName;
+
+    let mut key = [n; DevicePublicKey::LEN];
+    key[0] = 0x04;
+    let peer = DevicePeer {
+        node_stable_id: format!("node-{n}"),
+        user_id: 42,
+        tailnet_stable_id: "T1".to_owned(),
+    };
+    NewDevice::new(
+        device(u64::from(n)),
+        format!("iPhone {n}"),
+        DevicePublicKey::from_x963(&key).unwrap(),
+        format!("SHA256:{n:02x}"),
+        peer,
+        &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve],
+    )
+    .unwrap()
 }
 
 pub(crate) fn created(tty: Option<&str>) -> Event {
