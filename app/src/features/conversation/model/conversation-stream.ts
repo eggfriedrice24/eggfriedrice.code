@@ -48,7 +48,7 @@ export interface ConversationStream extends SupervisedStream {
   /** The subscription changed its state. */
   status(status: SubscriptionStatus): void;
   /** Puts a page of older history under the state, and adds it to the cache. */
-  older(events: readonly EventEnvelope[]): void;
+  older(events: readonly EventEnvelope[], raw?: readonly unknown[]): void;
   /** Waits for the cache writes that are queued now. */
   settled(): Promise<void>;
   /** Stops the frames and the cache writes. Later items change nothing. */
@@ -146,7 +146,7 @@ export const createConversationStream: ConversationStreamFactory<ConversationStr
     }
   };
 
-  const older = (events: readonly EventEnvelope[]): void => {
+  const older = (events: readonly EventEnvelope[], raw?: readonly unknown[]): void => {
     if (disposed || events.length === 0) {
       return;
     }
@@ -162,9 +162,15 @@ export const createConversationStream: ConversationStreamFactory<ConversationStr
       return turnId === undefined || turnId === oldest || !current.turns.has(turnId);
     });
     commit(underlay(current, fresh));
+    // NOTE: the cache keeps each event as efrd sent it, as for the live items, so a later
+    // build can read an event that this one shows as `other`.
+    const kept = raw?.length === events.length ? raw : events;
     write((cache) =>
       cache.append(
-        events.map((envelope) => ({ seq: envelope.seq, json: JSON.stringify(envelope) })),
+        cachedEvents(
+          kept,
+          events.map((envelope) => envelope.seq),
+        ),
       ),
     );
   };

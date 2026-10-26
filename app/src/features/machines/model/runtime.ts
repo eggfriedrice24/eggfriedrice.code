@@ -17,7 +17,8 @@ import { createAtom, type Atom, type Readable } from "@tanstack/store";
 
 import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
-import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
+import type { MethodParams } from "@/lib/protocol/generated";
+import type { CallResults } from "@/lib/protocol/wire";
 import type { EventCaches } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import {
@@ -117,7 +118,7 @@ export interface Runtime<S extends SupervisedStream = SupervisedStream> {
     method: M,
     params: MethodParams[M],
     signal?: AbortSignal,
-  ): Promise<MethodResults[M]>;
+  ): Promise<CallResults[M]>;
   /** What efrd said about itself on the connection that is up now. */
   status(machine: MachineId): Promise<MachineStatus>;
   /** Holds the stream of `ref`, or gives undefined when its machine is not paired. */
@@ -177,7 +178,7 @@ class MachineRuntime<S extends SupervisedStream> implements Runtime<S> {
     method: M,
     params: MethodParams[M],
     signal?: AbortSignal,
-  ): Promise<MethodResults[M]> {
+  ): Promise<CallResults[M]> {
     const supervisor = this.supervisors.get(machine);
     if (supervisor === undefined) {
       return Promise.reject(notPaired());

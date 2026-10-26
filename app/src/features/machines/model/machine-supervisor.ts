@@ -20,7 +20,8 @@ import type { Clock, Timer } from "@/lib/net/clock";
 import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
 import type { SocketFactory } from "@/lib/net/socket";
-import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
+import type { MethodParams } from "@/lib/protocol/generated";
+import type { CallResults } from "@/lib/protocol/wire";
 import { conversationCache, type EventCache } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { PairedDevice, Pairing } from "@/features/pairing/model/paired-device";
@@ -160,7 +161,7 @@ export class MachineSupervisor<S extends SupervisedStream = SupervisedStream> {
     method: M,
     params: MethodParams[M],
     options: CallOptions = {},
-  ): Promise<MethodResults[M]> {
+  ): Promise<CallResults[M]> {
     const client = this.client;
     if (client === undefined) {
       return Promise.reject(offline("the phone has no device key for this machine"));

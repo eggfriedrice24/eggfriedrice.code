@@ -20,7 +20,12 @@
 // closes, and the client connects again.
 
 import { base64Encode } from "@/lib/protocol/bytes";
-import { decodeServerFrame, failureReason, isJsonObject } from "@/lib/protocol/envelope";
+import {
+  decodeHistoryPage,
+  decodeServerFrame,
+  failureReason,
+  isJsonObject,
+} from "@/lib/protocol/envelope";
 import {
   PROTOCOL_VERSION,
   type ErrorBody,
@@ -34,6 +39,7 @@ import {
 } from "@/lib/protocol/generated";
 import { METHOD_RESULT_SCHEMAS, scopeNameSchema } from "@/lib/protocol/generated-zod";
 import { proveFields, proveMessage } from "@/lib/protocol/prove";
+import type { CallResults } from "@/lib/protocol/wire";
 import type { Clock, Timer } from "./clock";
 import type { DeviceKey } from "./device-key";
 import {
@@ -197,14 +203,16 @@ export class Connection {
    * `timeoutMs` passes (the request is then cancelled). A result that fails the schema
    * of the method rejects with kind `malformed`; the connection stays open. The
    * `device.enroll` result keeps only the scopes that this build knows, as the proof does.
+   * A `conversation.history` page keeps an event that the app cannot read as an `other`
+   * event, as the stream does, so one new event never fails the page.
    */
   async call<M extends UnaryMethodName>(
     method: M,
     params: MethodParams[M],
     options: { readonly timeoutMs?: number } = {},
-  ): Promise<MethodResults[M]> {
+  ): Promise<CallResults[M]> {
     const raw = await this.unary(method, params, options.timeoutMs);
-    return checkedResult(method, method === "device.enroll" ? withKnownScopes(raw) : raw);
+    return callResult(method, method === "device.enroll" ? withKnownScopes(raw) : raw);
   }
 
   /** Starts a stream method. Its frames go to `handlers` until it ends or is cancelled. */
@@ -520,6 +528,26 @@ function handshakeError(step: "hello" | "device.prove", body: ErrorBody): Connec
     return new ConnectionError("proof_refused", body.message, details);
   }
   return new ConnectionError("refused", body.message, details);
+}
+
+/** The decoders of the results that the app does not read with their generated schema. */
+const OWN_RESULTS: { readonly [M in UnaryMethodName]?: (value: unknown) => CallResults[M] } = {
+  "conversation.history": (value) => {
+    const page = decodeHistoryPage(value);
+    if (!page.ok) {
+      throw new ConnectionError("malformed", page.reason);
+    }
+    return page.value;
+  },
+};
+
+/**
+ * The result of the call of `method` as the app reads it: a history page through its
+ * own decoder, every other result through `checkedResult`.
+ */
+function callResult<M extends UnaryMethodName>(method: M, value: unknown): CallResults[M] {
+  const own = OWN_RESULTS[method];
+  return own === undefined ? checkedResult(method, value) : own(value);
 }
 
 /**

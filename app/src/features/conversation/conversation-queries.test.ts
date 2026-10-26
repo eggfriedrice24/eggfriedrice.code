@@ -12,6 +12,7 @@ import type {
   ConversationHistory,
   ConversationHistoryResult,
 } from "@/lib/protocol/generated";
+import type { HistoryPage } from "@/lib/protocol/wire";
 import { machineKey } from "@/lib/query/keys";
 import { createQueryClient } from "@/lib/query/query-client";
 import { FakeCaller } from "@/lib/query/testing";
@@ -64,7 +65,7 @@ function history(): FakeCaller {
   });
 }
 
-function pageNumbers(data: InfiniteData<ConversationHistoryResult> | undefined): number[] {
+function pageNumbers(data: InfiniteData<HistoryPage> | undefined): number[] {
   return (data?.pages ?? []).map((page) => 100 - (page.events[0]?.seq ?? 100));
 }
 

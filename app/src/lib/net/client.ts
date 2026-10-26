@@ -18,10 +18,9 @@ import type {
   ErrorBody,
   HelloResult,
   MethodParams,
-  MethodResults,
   ScopeName,
 } from "@/lib/protocol/generated";
-import type { SubscribeItem } from "@/lib/protocol/wire";
+import type { CallResults, SubscribeItem } from "@/lib/protocol/wire";
 import {
   DEFAULT_BACKOFF,
   INITIAL_BACKOFF,
@@ -203,7 +202,7 @@ export class Client {
     method: M,
     params: MethodParams[M],
     options: { readonly timeoutMs?: number } = {},
-  ): Promise<MethodResults[M]> {
+  ): Promise<CallResults[M]> {
     const connection = this.connection;
     if (connection === undefined || this.current.state !== "ready") {
       return Promise.reject(new ConnectionError("offline", "the phone is not connected to efrd"));

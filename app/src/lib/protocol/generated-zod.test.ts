@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 
-import { decodeSubscribeItem, isJsonObject } from "./envelope";
+import { decodeHistoryPage, decodeSubscribeItem, isJsonObject } from "./envelope";
 import { METHOD_NAMES, type ConversationSummary, type MethodName } from "./generated";
 import * as generated from "./generated-zod";
 
@@ -247,6 +247,26 @@ describe("the decoder over the fixtures of the app", () => {
         event: { kind: "other", wireKind: "tool_call_started", invalid: true },
       },
     });
+  });
+
+  it("keeps every event of a history page and makes the ones it cannot read other events", () => {
+    const fixture = local("history-page-unknown-events");
+    const decoded = decodeHistoryPage(fixture);
+    if (!decoded.ok) {
+      throw new Error(decoded.reason);
+    }
+    const page = decoded.value;
+    expect(page.events.map((envelope) => [envelope.seq, envelope.at, envelope.event])).toEqual([
+      [
+        40,
+        "2026-10-03T12:00:04Z",
+        { kind: "turn_cancelled", turn_id: "019a9b1c-3d00-7a10-8b20-000000000002" },
+      ],
+      [41, "2026-10-03T12:00:05Z", { kind: "other", wireKind: "turn_paused" }],
+      [42, "2026-10-03T12:00:06Z", { kind: "other", wireKind: "tool_call_started", invalid: true }],
+    ]);
+    expect(page.next_cursor).toBe("s:40");
+    expect(page.raw).toEqual(isJsonObject(fixture) ? fixture["events"] : undefined);
   });
 
   it("decodes a known draft with an unknown nested value to an invalid other part", () => {

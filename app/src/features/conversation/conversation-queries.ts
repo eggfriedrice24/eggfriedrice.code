@@ -19,7 +19,8 @@ import { infiniteQueryOptions, mutationOptions } from "@tanstack/react-query";
 import { conversationsKeys } from "@/features/conversations/conversations-queries";
 import { conversationScope, machineKey, type ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
-import type { ConversationHistoryResult, TurnInterrupt, TurnSteer } from "@/lib/protocol/generated";
+import type { TurnInterrupt, TurnSteer } from "@/lib/protocol/generated";
+import type { HistoryPage } from "@/lib/protocol/wire";
 
 /** The most history pages in memory. Older pages past it are fetched again on scroll. */
 export const MAX_HISTORY_PAGES = 12;
@@ -76,16 +77,16 @@ export function historyQueryOptions(
       ),
     initialPageParam: first,
     getNextPageParam: (
-      page: ConversationHistoryResult,
-      _pages: ConversationHistoryResult[],
+      page: HistoryPage,
+      _pages: HistoryPage[],
       param: HistoryPageParam,
     ): HistoryPageParam | undefined =>
       page.next_cursor === undefined || page.next_cursor === null
         ? undefined
         : { cursor: page.next_cursor, newer: param },
     getPreviousPageParam: (
-      _page: ConversationHistoryResult,
-      _pages: ConversationHistoryResult[],
+      _page: HistoryPage,
+      _pages: HistoryPage[],
       param: HistoryPageParam,
     ): HistoryPageParam | undefined => param.newer,
     maxPages: MAX_HISTORY_PAGES,

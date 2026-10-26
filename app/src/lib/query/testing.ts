@@ -6,7 +6,8 @@ import type { AsyncStorage } from "@tanstack/react-query-persist-client";
 
 import type { UnaryMethodName } from "@/lib/net/connection";
 import { ConnectionError } from "@/lib/net/errors";
-import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
+import type { MethodParams } from "@/lib/protocol/generated";
+import type { CallResults } from "@/lib/protocol/wire";
 import type { MachineCaller } from "./machine-caller";
 
 /** One request that the fake caller received. */
@@ -20,7 +21,7 @@ export interface FakeCall {
 type Handler<M extends UnaryMethodName> = (
   params: MethodParams[M],
   machine: string,
-) => MethodResults[M] | Promise<MethodResults[M]>;
+) => CallResults[M] | Promise<CallResults[M]>;
 
 /** The answers of a fake caller, by method. */
 export type FakeHandlers = { readonly [M in UnaryMethodName]?: Handler<M> };
@@ -53,7 +54,7 @@ export class FakeCaller implements MachineCaller {
     method: M,
     params: MethodParams[M],
     signal?: AbortSignal,
-  ): Promise<MethodResults[M]> {
+  ): Promise<CallResults[M]> {
     this.calls.push({ machine, method, params, signal });
     const handler = this.handlers[method];
     if (handler === undefined) {

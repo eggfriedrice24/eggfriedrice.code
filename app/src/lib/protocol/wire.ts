@@ -74,6 +74,27 @@ export type SubscribeItem =
   | (Draft & { readonly kind: "draft" })
   | OtherKind;
 
+/** The history page of `conversation.history`, whose events may hold skip wrappers. */
+export type HistoryPage = Omit<Protocol.ConversationHistoryResult, "events"> & {
+  readonly events: EventEnvelope[];
+  /**
+   * The events as efrd sent them, in the same order, for the event cache: a later build
+   * of the app can read an event that this one skips. Absent for a page that the app
+   * made itself, such as one of the demo machines.
+   */
+  readonly raw?: readonly unknown[];
+};
+
+/**
+ * The result of each method as the app reads it: the generated `MethodResults`, with the
+ * history page whose events may hold skip wrappers.
+ */
+export type CallResults = {
+  readonly [M in keyof Protocol.MethodResults]: M extends "conversation.history"
+    ? HistoryPage
+    : Protocol.MethodResults[M];
+};
+
 /**
  * A server frame as the envelope guard decodes it. On the wire the shapes are told
  * apart by their members (`ServerFrame`); `type` names the member that the frame has.

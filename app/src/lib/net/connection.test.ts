@@ -18,6 +18,14 @@ import {
 
 const URL = "ws://100.64.0.1:7419/";
 
+// A history page with events that this build cannot read (protocol/fixtures/README.md).
+const UNKNOWN_EVENTS_PAGE: unknown = Object.values(
+  import.meta.glob<unknown>("../protocol/fixtures/history-page-unknown-events.json", {
+    eager: true,
+    import: "default",
+  }),
+)[0];
+
 function setup(overrides: Partial<ConnectionOptions> = {}, pairing = false) {
   const clock = new FakeClock();
   const sockets = new FakeSockets();
@@ -357,6 +365,27 @@ describe("requests", () => {
     await expect(bad).rejects.toBeInstanceOf(ConnectionError);
     await expect(bad).rejects.toMatchObject({ kind: "malformed" });
     await expect(bad).rejects.toThrow(/^the conversations\.list result\.conversations\.0\.id:/);
+    expect(connection.closed).toBe(false);
+  });
+
+  it("keeps a history page with events that it cannot read, and fails a page without events", async () => {
+    const { connection, socket } = await ready();
+    const page = connection.call("conversation.history", { conversation_id: "x" });
+    await flush();
+    socket.answer("conversation.history", UNKNOWN_EVENTS_PAGE);
+    const result = await page;
+    expect(result.events.map((envelope) => [envelope.seq, envelope.event.kind])).toEqual([
+      [40, "turn_cancelled"],
+      [41, "other"],
+      [42, "other"],
+    ]);
+    expect(result.next_cursor).toBe("s:40");
+
+    const bad = connection.call("conversation.history", { conversation_id: "x" });
+    bad.catch(() => {});
+    await flush();
+    socket.answer("conversation.history", { next_cursor: "s:1" });
+    await expect(bad).rejects.toMatchObject({ kind: "malformed" });
     expect(connection.closed).toBe(false);
   });
 

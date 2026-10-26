@@ -3,7 +3,8 @@
 // (./testing.ts). The factories never see a client or a socket.
 
 import type { UnaryMethodName } from "@/lib/net/connection";
-import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
+import type { MethodParams } from "@/lib/protocol/generated";
+import type { CallResults } from "@/lib/protocol/wire";
 
 /** Sends one request to one machine. */
 export interface MachineCaller {
@@ -18,5 +19,5 @@ export interface MachineCaller {
     method: M,
     params: MethodParams[M],
     signal?: AbortSignal,
-  ): Promise<MethodResults[M]>;
+  ): Promise<CallResults[M]>;
 }

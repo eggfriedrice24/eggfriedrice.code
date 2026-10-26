@@ -11,11 +11,16 @@
 // What must be valid, or the decode fails: the frame, the members of an event envelope
 // (`seq`, `at`, `conversation_id`), and a snapshot with its conversation summary. A
 // draft is best effort, so a draft with bad members is an invalid `other` item instead.
+//
+// A page of `conversation.history` follows the rule of the stream: an event of a kind
+// that the app does not know, or a known one that fails its schema, is an `other` event
+// in the page, and the rest of the page stays.
 
 import type { z } from "zod";
 
 import { DRAFT_PART_KINDS, EVENT_KINDS, type ConversationSummary } from "./generated";
 import {
+  conversationHistoryResultSchema,
   conversationSnapshotSchema,
   conversationSummarySchema,
   draftPartSchema,
@@ -35,6 +40,7 @@ import type {
   Event,
   EventEnvelope,
   EventKind,
+  HistoryPage,
   LiveTurn,
   OtherKind,
   ServerFrame,
@@ -60,6 +66,7 @@ const DRAFT_PART_KIND_SET: ReadonlySet<string> = new Set<string>(DRAFT_PART_KIND
 const ENVELOPE = eventEnvelopeSchema.shape;
 const DRAFT = draftSchema.shape;
 const SNAPSHOT = conversationSnapshotSchema.shape;
+const HISTORY = conversationHistoryResultSchema.shape;
 
 /** The known kinds that failed their schema and that a dev build logged. */
 const loggedInvalid = new Set<string>();
@@ -83,6 +90,14 @@ export function decodeSubscribeItem(item: unknown): Decoded<SubscribeItem> {
 /** Decodes one event envelope, such as an item of `conversation.history`. */
 export function decodeEventEnvelope(value: unknown): Decoded<EventEnvelope> {
   return guard(() => eventEnvelope(value));
+}
+
+/**
+ * Decodes the result of `conversation.history`. An event that the app cannot read is an
+ * `other` event of the page; only a bad envelope or a bad cursor fails the page.
+ */
+export function decodeHistoryPage(value: unknown): Decoded<HistoryPage> {
+  return guard(() => historyPage(value));
 }
 
 /** Decodes the body of an error frame. */
@@ -201,6 +216,26 @@ function subscribeItem(value: unknown): SubscribeItem {
     default:
       return { kind: "other", wireKind: kind };
   }
+}
+
+function historyPage(value: unknown): HistoryPage {
+  const object = record(value, "the conversation.history result");
+  const events = object["events"];
+  if (!Array.isArray(events)) {
+    throw new Invalid("the conversation.history result.events is not an array");
+  }
+  const page: { events: EventEnvelope[]; raw: readonly unknown[]; next_cursor?: string | null } = {
+    events: events.map((envelope: unknown) => eventEnvelope(envelope)),
+    raw: events,
+  };
+  if (object["next_cursor"] !== undefined) {
+    page.next_cursor = check(
+      HISTORY.next_cursor,
+      object["next_cursor"],
+      "the conversation.history result.next_cursor",
+    );
+  }
+  return page;
 }
 
 function eventEnvelope(value: unknown): EventEnvelope {

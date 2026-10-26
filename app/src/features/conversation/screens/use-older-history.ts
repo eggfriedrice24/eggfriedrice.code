@@ -19,7 +19,7 @@ import {
 import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
 
-import type { ConversationHistoryResult } from "@/lib/protocol/generated";
+import type { HistoryPage } from "@/lib/protocol/wire";
 import type { StreamState } from "@/lib/stream/reducer";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { useRuntime } from "@/features/navigation/use-app-services";
@@ -27,9 +27,7 @@ import { historyQueryOptions } from "../conversation-queries";
 import type { ConversationStream } from "../model/conversation-stream";
 
 /** The fetch of the next page of older history, as Query gives it. */
-type FetchOlder = InfiniteQueryObserverResult<
-  InfiniteData<ConversationHistoryResult>
->["fetchNextPage"];
+type FetchOlder = InfiniteQueryObserverResult<InfiniteData<HistoryPage>>["fetchNextPage"];
 
 /**
  * What the top of the transcript calls: it fetches older history for `stream`, whose
@@ -67,7 +65,7 @@ async function loadOlder(stream: ConversationStream, fetchOlder: FetchOlder): Pr
     return;
   }
   const before = stream.latest().order.length;
-  stream.older(page.events);
+  stream.older(page.events, page.raw);
   if (stream.latest().order.length > before || !result.hasNextPage) {
     return;
   }

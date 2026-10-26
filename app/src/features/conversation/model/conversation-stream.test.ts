@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { decodeHistoryPage } from "@/lib/protocol/envelope";
 import { CONVERSATION, TURN, item, rawEvent, rawItem } from "@/lib/protocol/testing";
 import type { CachedEvent, ConversationCache } from "@/lib/store/event-cache";
 import { envelope, manualFrames, messageCompleted, promptQueued } from "@/lib/stream/testing";
@@ -217,6 +218,26 @@ describe("the cache of the conversation stream", () => {
     expect(second.stream.store.get().turns.get(older)?.messages.get(0)?.buffer.text).toBe(
       "The first answer.",
     );
+  });
+
+  it("keeps the events of a history page in the cache as efrd sent them", async () => {
+    const cache = new MemoryCache();
+    const { stream } = setup({ cache });
+    await stream.hydrated;
+    const future = {
+      seq: 3,
+      at: "2026-10-26T12:00:00Z",
+      conversation_id: CONVERSATION,
+      event: { kind: "from_the_future", turn_id: TURN },
+    };
+    const decoded = decodeHistoryPage({ events: [future] });
+    if (!decoded.ok) {
+      throw new Error(decoded.reason);
+    }
+    expect(decoded.value.events[0]?.event).toEqual({ kind: "other", wireKind: "from_the_future" });
+    stream.older(decoded.value.events, decoded.value.raw);
+    await stream.settled();
+    expect(cache.rows.get(3)).toBe(JSON.stringify(future));
   });
 
   it("skips cached rows that do not decode and goes on when the cache fails", async () => {
