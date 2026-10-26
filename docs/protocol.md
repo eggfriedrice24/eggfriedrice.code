@@ -79,6 +79,22 @@ An id is its lowercase hyphenated form. The fixture `device_prove_message.json` 
 set of inputs and the message in hex. A client in another language must give exactly
 these bytes.
 
+The answers of the tailnet listener:
+
+- Before the proof, every method except `hello`, `device.enroll` and `device.prove` is
+  `unauthorized`. After it, the connection holds the `scopes` of the result: those of
+  the device that a phone may hold, never `admin` or `terminal`.
+- A wrong signature, an unknown or revoked device, or a device of another Tailscale
+  user or tailnet gives `unauthorized`, always with the same message.
+- A device that paired from another Tailscale node gives `unauthorized` with `data`
+  `{"re_pair": true, "device_id": ...}`. Tailscale was installed again on the phone,
+  and the phone must pair again. efrd sends it only after a valid signature.
+- After three refusals of `device.prove`, efrd closes the connection. A second proof on
+  one connection is `conflict`.
+- `busy` with `data` `{"starting": true, "retry_after_secs": n}`: efrd cannot check the
+  device now. Try again after `n` seconds.
+- The Unix socket refuses `device.enroll` and `device.prove` with `forbidden`.
+
 ## Changelog
 
 No protocol version has shipped yet.
@@ -780,3 +796,7 @@ No protocol version has shipped yet.
   text, as the draft doc said. New file `docs/protocol.schema.json`, the protocol for
   code generators; the schema of `previous_exits_this_turn` in `exit_requested` is now a
   list of two items, not a tuple, and its wire form is the same.
+- Version 1, no change of the frames: efrd answers `device.prove` and serves the tailnet
+  listener. The section "Remote devices" lists its answers, with the `data` of
+  `re_pair` and of `starting`. The `hello` result of a remote connection has
+  `capabilities.device_prove`.

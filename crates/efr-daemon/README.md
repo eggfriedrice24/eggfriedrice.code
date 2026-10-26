@@ -329,10 +329,14 @@ offers it after the registry's tools, as `settings`.
 twice, once for the scope and once for the handler, so a new protocol method does not
 compile until it has both. One handler per method lives in `methods/<noun_verb>.rs`.
 Connections on the Unix socket hold every scope, `admin` included; a phone connection
-(`Origin::Phone`, the tailnet listener of a later milestone) holds `read`, `operate` and
-`approve`. efrd walks `/proc` for each peer on the Unix socket, also for one that
-declares `phone`, so a model-side process holds `read` only, whatever origin it
-declares. The tailnet listener must grant the phone scopes by its own pairing.
+(`Origin::Phone`) holds `read`, `operate` and `approve`. efrd walks `/proc` for each
+peer on the Unix socket, also for one that declares `phone`, so a model-side process
+holds `read` only, whatever origin it declares. A connection of the tailnet listener
+(Remote listener, below) gets no walk: before its device proved its key it may call
+only `hello`, `device.enroll` and `device.prove` (`unauthorized` for the rest), and
+after the proof it holds its device's scopes, at most `read`, `operate` and `approve`
+(`authorize_remote`). The Unix socket refuses `device.enroll` and `device.prove` with
+`forbidden`.
 
 - Writes (`prompt.send`, `prompt.withdraw`, `turn.interrupt`, `turn.steer`,
   `approval.respond`) answer a retried command id from its receipt. A refusal a retry cannot change (`invalid`,
@@ -1632,6 +1636,59 @@ while efr still reads each line for a small set of floors. efrd's part:
   Background jobs). Such a stop starts no wake turn; its notice rides in the next
   prompt.
 
+### Remote listener
+
+`remote.rs` and `remote/`: the listener of the phone app on this machine's Tailscale
+IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
+`Daemon::serve` starts it next to the Unix socket and ends it before the drain.
+
+- **Where it listens** (`remote/tailnet.rs`). efrd watches tailscaled's IPN bus
+  (`watch-ipn-bus?mask=16386`) on `remote.tailscaled_socket` and reads the status. It
+  listens only while the backend runs with a TUN device (never in userspace
+  networking), with tailscaled 1.100 or later, an IPv4 address in 100.64.0.0/10, and a
+  node and a tailnet with stable ids. A change of the node arrives with every net map,
+  so only a status that differs counts. When the watch ends, the follower asks the
+  status: tailscaled may only have dropped a reader that fell behind. Only a status
+  that fails too stops the listener and closes the phone sockets.
+- **Binds** (`remote/listener.rs`). Any change of the address, the node, its user or
+  name, the other addresses or the tailnet closes the old listener with every phone
+  socket of it and binds again; a failed bind is tried again after 5 s. `daemon.json`
+  gets `tailnet_endpoint` (`<ip>:<port>`) while it listens, and `Remote::endpoint`
+  holds the address, the port and the MagicDNS name for the pairing QR code. At most
+  16 phone connections run at once.
+- **Admission** (`remote/admission.rs`), right after `accept`, before any byte of
+  HTTP: a peer at an address of this node is a local process and is refused with no
+  whois; then tailscaled's whois of the peer's `ip:port`, which fails closed. It
+  refuses an unknown peer (404), the self node, a tagged node, a sharee node and a node
+  of another user; when this node is tagged it refuses every peer. A refused peer
+  gets no byte. Then the handshake of `efr_transport::serve_websocket` with the
+  origins `http://<ip>:<port>` and `http://<MagicDNS name>:<port>` (a missing Origin
+  passes too), and the connection loop with a remote peer whose admission value
+  (`remote::Admission`) holds the whois facts, efrd's node and tailnet, the hello's
+  challenge and, after the proof, the device and its scopes.
+- **`device.prove`** (`remote/prove.rs`). The `hello` result of a remote connection
+  has `prove` (the peer's node, efrd's node and tailnet) and `device_prove`. efrd
+  builds `ProveMessage` from the hello's challenge and those facts and checks the DER
+  signature with aws-lc-rs (`ECDSA_P256_SHA256_ASN1`, which also refuses a key off the
+  curve). Then the row: not revoked, the same user and tailnet. Every one of these
+  refusals is `unauthorized` with one sentence. A row of another node (Tailscale
+  installed again on the phone) is `unauthorized` with `{"re_pair": true}` in `data`,
+  after a valid signature only. Three refusals close the socket. A proof spends the
+  challenge, sets the device's `last_seen_at`, and a second proof on the connection is
+  `conflict`. A busy store is `busy` with `{"starting": true, "retry_after_secs": n}`.
+- **Revokes** (`remote/live.rs`). The feed of revokes is subscribed when the daemon
+  starts. A proof joins the table of live devices before it reads the row, so a
+  revoke can never fall between the read and the proof; a revoke closes each socket of
+  its device at once, and the transport drops the frames still queued for it. A
+  follower that falls behind the feed reads the row of every live device again.
+- `loosens.rs` counts `remote.enabled` turned on and another
+  `remote.tailscaled_socket` as changes that loosen, so the settings tool marks them
+  and the config hold keeps them.
+- A test build binds the listener where `Deps::with_remote_listen` says (feature
+  `test-sandbox-fake`); without the feature it binds only the tailnet address. The
+  in-crate tests (`remote/tests.rs`) call `remote::serve` with `127.0.0.1:0` and a fake
+  tailscaled (`remote/fake.rs`).
+
 ### Features
 
 - `local-pty` (default): hidden shells on PTYs opened in this process through
@@ -1648,7 +1705,8 @@ while efr still reads each line for a small set of floors. efrd's part:
   program that measures the mounts of the mount view, and `Deps::with_test_host_ports`
   binds a free port of `127.0.0.1` for each job port forward (`TestHostPorts`; a test
   build without it gets a map of its own, and only `Deps::with_system_host_ports` and the
-  smoke's `efrd` bind the real ports). Only `efr-test-daemon`
+  smoke's `efrd` bind the real ports), and `Deps::with_remote_listen` binds the remote
+  listener at a test's address in place of the tailnet address. Only `efr-test-daemon`
   turns it on; `just install` refuses an `efrd` whose hidden `--test-seams` says `on`.
 
 `cfg(feature = ...)` appears only in `screens.rs`, `shells.rs` and `sandbox/seams.rs`
@@ -1683,8 +1741,10 @@ challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `ru
 sets and the one-line text of a rule), `tracing`, `tracing-subscriber` (with its reload
 layer for the log filter), `tracing-journald`, `thiserror`, `sha2` (the check of the
 sandbox launcher's copy and the hash of the record that the reviewer read), `libc`
-(glibc's `mallopt` and `malloc_trim`, only in `src/malloc.rs`, ADR 0020), and `anyhow`
-in `main.rs` only.
+(glibc's `mallopt` and `malloc_trim`, only in `src/malloc.rs`, ADR 0020), `aws-lc-rs`
+(the P-256 check of `device.prove`, in `src/remote/prove.rs`; it came with rustls
+already), and `anyhow` in `main.rs` only. The tests also use `fastwebsockets` for the
+phone's side of a WebSocket.
 
 `HOME`, `JOURNAL_STREAM` and the shells' environment are read with `std::env` here, the
 one crate besides `efr-stdx` that may read the environment: they are POSIX and systemd
