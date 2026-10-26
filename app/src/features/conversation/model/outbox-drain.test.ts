@@ -181,6 +181,25 @@ describe("the outbox drain", () => {
     expect(states(outbox)).toEqual(["once:sent"]);
   });
 
+  it("sends again on the new connection when the old socket closes late", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const { calls, send } = manualSend();
+    const drain = drainOf(outbox, send, clock);
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a" });
+    drain.start();
+    expect(calls).toHaveLength(1);
+    // The app came back to the foreground: the client opened a new socket and was
+    // ready before the old socket closed.
+    drain.stop();
+    drain.start();
+    call(calls, 0).reject(new ConnectionError("socket", "the old socket closed"));
+    await flush();
+    expect(drain.running).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(call(calls, 1).params.command_id).toBe(call(calls, 0).params.command_id);
+  });
+
   it("waits the time that a busy error asks for", async () => {
     const clock = new FakeClock();
     const { outbox } = testOutbox();

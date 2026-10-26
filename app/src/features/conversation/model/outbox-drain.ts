@@ -74,6 +74,8 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
   let timer: Timer | undefined;
   let pumping = false;
   let again = false;
+  // The number of the current start; a send keeps the number of the start that sent it.
+  let generation = 0;
 
   const halt = (): void => {
     running = false;
@@ -83,13 +85,16 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     timer = undefined;
   };
 
-  const settle = (commandId: CommandId, error: unknown): void => {
+  const settle = (commandId: CommandId, error: unknown, sentIn: number): void => {
     const reason = outboxError(error);
     if (error instanceof ConnectionError) {
       // The client is down. The supervisor calls `start` on its next ready. The drain
       // halts first: the release changes the outbox, and a running drain would send
-      // the entry again at once.
-      halt();
+      // the entry again at once. A send of an older start is different: its socket
+      // closed after a new connection came up, so the drain sends again on the new one.
+      if (sentIn === generation) {
+        halt();
+      }
       outbox.release(commandId, reason);
       return;
     }
@@ -109,13 +114,14 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     if (!outbox.begin(entry.commandId)) {
       return;
     }
+    const sentIn = generation;
     const run = async (): Promise<void> => {
       let result: PromptSendResult;
       try {
         // A send that throws at once is a failed send too.
         result = await options.send(params);
       } catch (error) {
-        settle(entry.commandId, error);
+        settle(entry.commandId, error, sentIn);
         return;
       }
       outbox.succeed(entry.commandId, result);
@@ -165,6 +171,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
         return;
       }
       running = true;
+      generation += 1;
       const subscription = outbox.store.subscribe(() => pump());
       unsubscribe = () => subscription.unsubscribe();
       pump();
