@@ -1,20 +1,23 @@
-// Tells the client when the app goes to the background and comes back, from React
-// Native's AppState. The client then opens a new socket after 10 s or more away.
+// Tells the app when it goes to the background and comes back, from React Native's
+// AppState. The runtime of the machines hears it once and tells each machine's client,
+// which opens a new socket after 10 s or more away. The focus manager of the queries can
+// use it too.
 //
-// No package of the app reports network path changes (such as Wi-Fi to cellular); a
-// later one can call `client.networkChanged()`.
+// iOS also reports "inactive", for example while the Control Center is open. The app stays
+// on screen then, so this adapter reports nothing for it.
 
 import { AppState, type AppStateStatus } from "react-native";
 
-import type { Client } from "@/lib/net/client";
-
-/** Follows AppState for `client`. Returns the function that stops it. */
-export function followAppState(client: Client): () => void {
+/**
+ * Calls `listener` with true when the app comes to the foreground and with false when it
+ * goes to the background. Returns the function that stops it.
+ */
+export function followAppState(listener: (active: boolean) => void): () => void {
   const changed = (status: AppStateStatus): void => {
     if (status === "active") {
-      client.setForeground(true);
+      listener(true);
     } else if (status === "background") {
-      client.setForeground(false);
+      listener(false);
     }
   };
   const subscription = AppState.addEventListener("change", changed);
