@@ -8,8 +8,8 @@
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { MONO_FONT } from "@/theme/markdown";
 import { semantic } from "@/theme/palette";
+import { MONO_FONT } from "@/theme/type";
 
 export interface ScreenStubProps {
   /** The name of the screen, such as "settings". */

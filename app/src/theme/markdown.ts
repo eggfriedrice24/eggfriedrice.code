@@ -26,12 +26,6 @@ import { SEMIBOLD, TYPE } from "./type";
  */
 export const CODE_BLOCK_FONT = "Menlo";
 
-/**
- * NOTE: The old UI in src/ui reads this name. W1-MOVE deletes that UI; then the
- * integrator deletes this constant. New code takes MONO_FONT of type.ts.
- */
-export const MONO_FONT = CODE_BLOCK_FONT;
-
 /** The 13 token colours of enriched's code highlighter. `embedded` keeps the code colour. */
 export const SYNTAX_COLORS = {
   keyword: roles.syntax_keyword,
