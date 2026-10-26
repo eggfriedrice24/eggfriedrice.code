@@ -125,8 +125,8 @@ impl CloseSlot {
 type Item = Result<Decoded, TransportError>;
 
 /// Starts the reader and the keepalive on a WebSocket whose handshake is done, and
-/// returns the connection's source and sink. `stopping` is the daemon's shutdown, so
-/// the close frame can say that the daemon stops.
+/// returns the connection's source and sink. `stopping` stops the connection from the
+/// daemon's side: the writer then drops the frames still queued and closes with 1001.
 pub(crate) fn start<R, W>(
     read: R,
     write: W,
@@ -319,6 +319,10 @@ where
         loop {
             tokio::select! {
                 biased;
+                // NOTE: once the connection is stopped from the daemon's side (a revoked
+                // device, or the daemon's shutdown), the frames still queued are
+                // dropped: the phone resubscribes after the last seq it has.
+                () = stopping.cancelled() => break,
                 frame = control.recv(), if control_open => match frame {
                     Some(frame) => {
                         send(&mut write, frame).await?;
@@ -331,7 +335,9 @@ where
                         break;
                     };
                     send(&mut write, text(&frame)).await?;
-                    while let Ok(frame) = queue.try_recv() {
+                    while !stopping.is_cancelled()
+                        && let Ok(frame) = queue.try_recv()
+                    {
                         send(&mut write, text(&frame)).await?;
                     }
                     flush(&mut write).await?;
@@ -340,7 +346,7 @@ where
         }
         let (code, reason) = match close.get() {
             Some(reason) => (reason.code(), reason.text()),
-            None if stopping.is_cancelled() => (1001, "the daemon is stopping"),
+            None if stopping.is_cancelled() => (1001, "the server closed the connection"),
             None => (1000, ""),
         };
         send(&mut write, Frame::close(code, reason.as_bytes())).await?;

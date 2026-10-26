@@ -70,6 +70,11 @@ impl WebSocketOptions {
 /// stream breaks, the peer breaks a rule or stops answering pings, or `shutdown` is
 /// cancelled.
 ///
+/// `shutdown` belongs to this connection: the daemon gives each connection a child
+/// token of its own shutdown, so it can close one connection alone, such as the
+/// connections of a revoked device. Once it is cancelled, the frames still queued for
+/// the peer are dropped, every request is cancelled, and the peer gets close code 1001.
+///
 /// The daemon calls it for a stream that it has accepted and admitted; the stream's
 /// first bytes must be the opening handshake. The connection gets an id of its own
 /// ([`ConnId::next`]), and every request carries a context with the remote peer, whose

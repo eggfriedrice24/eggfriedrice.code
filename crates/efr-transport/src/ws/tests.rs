@@ -16,13 +16,14 @@ use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::keepalive::PING_INTERVAL;
 use super::{WebSocketOptions, frames, serve_websocket};
-use crate::connection::{self, ConnectionParams, FrameSource as _};
+use crate::codec::EncodedFrame;
+use crate::connection::{self, ConnectionParams, FrameSink as _, FrameSource as _};
 use crate::testing::{
     FakeDispatcher, InstantClock, StoppedClock, TestClient, cancel_frame, hello_frame, internal,
     list_frame, subscribe_frame,
@@ -696,4 +697,59 @@ async fn the_websocket_and_the_unix_socket_give_the_same_frames() {
     assert!(
         matches!(&ws_frames[6], ServerFrame::Error(frame) if frame.error.code == ErrorCode::Cancelled)
     );
+}
+
+type PipeSink = frames::WsSink<tokio::io::BufWriter<tokio::io::WriteHalf<DuplexStream>>>;
+
+/// A WebSocket sink over a pipe and a queue that already holds `queued` end frames.
+struct QueuedSink {
+    client: Client,
+    sink: PipeSink,
+    _source: frames::WsSource,
+    outbound: mpsc::Sender<EncodedFrame>,
+    queue: mpsc::Receiver<EncodedFrame>,
+    stopping: CancellationToken,
+}
+
+async fn queued_sink(queued: u64) -> QueuedSink {
+    let (client, server) = tokio::io::duplex(1 << 16);
+    let (read, write) = tokio::io::split(server);
+    let stopping = CancellationToken::new();
+    let (source, sink) = frames::start(read, write, Arc::new(StoppedClock), stopping.clone());
+    let (outbound, queue) = mpsc::channel(16);
+    for n in 0..queued {
+        outbound.send(EncodedFrame::new(&ServerFrame::end(id(n))).unwrap()).await.unwrap();
+    }
+    QueuedSink {
+        client: Client { stream: client },
+        sink,
+        _source: source,
+        outbound,
+        queue,
+        stopping,
+    }
+}
+
+#[tokio::test]
+async fn the_sink_sends_every_queued_frame_and_then_a_normal_close() {
+    let QueuedSink { mut client, sink, outbound, queue, .. } = queued_sink(3).await;
+    drop(outbound);
+    sink.drain(queue).await.unwrap();
+    for n in 0..3 {
+        assert_eq!(client.recv().await, ServerFrame::end(id(n)));
+    }
+    assert_eq!(client.next().await, Some(Received::Close(Some(1000), String::new())));
+}
+
+#[tokio::test]
+async fn a_stopped_connection_drops_the_queued_frames_and_closes_with_1001() {
+    let QueuedSink { mut client, sink, outbound, queue, stopping, .. } = queued_sink(8).await;
+    stopping.cancel();
+    // The queue never ends: the stop alone ends the writer.
+    sink.drain(queue).await.unwrap();
+    assert_eq!(
+        client.next().await,
+        Some(Received::Close(Some(1001), "the server closed the connection".to_owned()))
+    );
+    drop(outbound);
 }

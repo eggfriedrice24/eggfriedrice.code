@@ -85,6 +85,11 @@ back into frames:
     their pong at a tick, the connection closes with 1001. A pong answers its ping
     and every older one.
 
+  The shutdown token that `serve_websocket` takes belongs to one connection: efrd
+  gives each connection a child of its own shutdown, so it can close one connection
+  alone, such as those of a revoked device. Once it is cancelled, the frames still
+  queued are dropped and the peer gets close code 1001.
+
   A frame's payload is zeroed once it is decoded. Not zeroed: the bytes left in the
   parser's read buffer when it grows, and serde_json's scratch buffer. So efrd must
   not take a password over the WebSocket.
