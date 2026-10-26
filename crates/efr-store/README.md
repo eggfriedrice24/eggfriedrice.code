@@ -172,6 +172,22 @@ across a restart:
   lets only an event of a deleted conversation from before its tombstone go; the
   tombstone event stays, so the sequence numbers never go back. A rebuild of the
   projections skips the events of a deleted conversation.
+- `devices` (migration 11): the enrolled devices, such as a phone. One row per device:
+  its id, its name, its P-256 public key (65 bytes, X9.63), the fingerprint of the key,
+  the Tailscale `Node.StableID` and `UserProfile.ID` of its pairing, efrd's tailnet
+  `StableID`, its scopes, and the times of its pairing, of its last proof and of its
+  revoke. `WriterHandle::device_insert` writes a row after the user confirms the
+  pairing; `devices::get` and `devices::list` read them. `device_revoke` keeps the row
+  and sets its time once, and after the commit it sends the device's id to each
+  receiver of `subscribe_revocations` (at most `REVOCATION_CAPACITY` behind; a receiver
+  that lags reads its rows again). `device_touch` sets the time of the last proof of an
+  active device only. One active device per key (a partial unique index); a revoked
+  key can pair again as a new device. `NewDevice::new` refuses a value of the wrong
+  shape: a name that a terminal cannot show as it is, a fingerprint or StableID that
+  is not printable ASCII, a key that is not 65 bytes from `0x04`, and the `admin`
+  scope. The store does not check the key's point or derive the fingerprint; efrd
+  does. Not a projection: no event holds a device, and a rebuild leaves the table
+  alone.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

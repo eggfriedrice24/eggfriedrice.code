@@ -206,6 +206,19 @@ conversations or the daemon's socket. The config root stays readable and read-on
   the deleted docs, which no query matches any more, until a merge, and each copy of
   `backups/` from before the delete keeps the conversation.
 
+- The enrolled devices (migration 11): `devices(device_id, name, public_key BLOB,
+  key_fingerprint, node_stable_id, user_id, tailnet_stable_id, scopes JSON,
+  created_at, last_seen_at, revoked_at)`, one row per device such as a phone. efrd
+  writes the row only after the user confirms the pairing in the terminal. The public
+  key is the 65-byte X9.63 form of a P-256 key. `node_stable_id` and `user_id` are the
+  Tailscale `Node.StableID` and `UserProfile.ID` of the pairing connection, and
+  `tailnet_stable_id` is efrd's own `CurrentTailnet.StableID`; each later connection of
+  the device must show the same three. `scopes` is a JSON array of scope names and
+  never holds `admin`. A revoke sets `revoked_at` and keeps the row; a revoked device
+  never comes back. The partial unique index `devices_active_key` allows one device
+  that is not revoked per key. Not a projection: no event holds a device, so a
+  rebuild leaves the table alone.
+
 ## Migrations
 
 - SQL files in `crates/efr-store/src/migrations/`, named `NNNN_<noun>.sql`, embedded
@@ -217,13 +230,13 @@ conversations or the daemon's socket. The config root stays readable and read-on
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
   `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of
   phase C), `0008_routes.sql` (the route columns of the conversations, v0.0.4) and
-  `0009_search.sql` (the search index, v0.0.4) and `0010_deletes.sql` (the tombstones
-  of deleted conversations, v0.0.5). Each step has a flag that says whether it changes
-  a projection. The first start of an efrd with such a migration rebuilds
-  the projections from the log once: about 3 s for 100,000 events in a debug build.
-  `0009_search.sql` and `0010_deletes.sql` have no flag, so they rebuild nothing. The devices and scopes table
-  waits for the phone milestone, because a forward-only migration makes an unused
-  table permanent.
+  `0009_search.sql` (the search index, v0.0.4), `0010_deletes.sql` (the tombstones
+  of deleted conversations, v0.0.5) and `0011_devices.sql` (the enrolled devices of
+  the remote milestone). Each step has a flag that says whether it changes a
+  projection. The first start of an efrd with such a migration rebuilds the
+  projections from the log once: about 3 s for 100,000 events in a debug build.
+  `0009_search.sql`, `0010_deletes.sql` and `0011_devices.sql` have no flag, so they
+  rebuild nothing.
 - `0009_search.sql` creates the search tables empty, with the cursor at 0. After the
   start, efrd's indexer fills them in the background from the log (the backfill): it
   reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and
