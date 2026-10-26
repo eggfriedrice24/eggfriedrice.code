@@ -3,9 +3,11 @@
 //! listener gives a connection. The WebSocket runs over an in-memory pipe with a raw
 //! client that writes its frames by hand.
 
+use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair as _};
 use efr_protocol::{
     Base64Bytes, Capabilities, ClientFrame, DaemonPaths, DeviceEnroll, DeviceEnrollResult,
     DeviceId, DeviceInfo, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
@@ -48,10 +50,15 @@ fn peer() -> EnrollPeer {
     }
 }
 
-fn public_key(fill: u8) -> Base64Bytes {
-    let mut key = vec![fill; 65];
-    key[0] = 0x04;
-    Base64Bytes::new(key)
+/// A real P-256 public key: the same one for each `n` in one test run.
+fn public_key(n: u8) -> Base64Bytes {
+    static KEYS: Mutex<BTreeMap<u8, Vec<u8>>> = Mutex::new(BTreeMap::new());
+    let mut keys = KEYS.lock().unwrap();
+    let key = keys.entry(n).or_insert_with(|| {
+        let pair = EcdsaKeyPair::generate(&ECDSA_P256_SHA256_ASN1_SIGNING).unwrap();
+        pair.public_key().as_ref().to_vec()
+    });
+    Base64Bytes::new(key.clone())
 }
 
 /// A daemon on the Unix socket, with its state for the phone's side.
@@ -342,7 +349,7 @@ async fn a_wrong_token_is_unauthorized_and_the_pairing_stays_open() {
 }
 
 #[tokio::test]
-async fn a_key_that_is_not_a_point_of_65_bytes_is_invalid() {
+async fn a_key_that_is_not_a_p256_point_is_invalid() {
     let daemon = Daemon::start(true, true).await;
     let mut terminal = daemon.terminal().await;
     let mut phone = daemon.phone(peer()).await;
@@ -350,7 +357,14 @@ async fn a_key_that_is_not_a_point_of_65_bytes_is_invalid() {
 
     let short = phone.send(enroll(&qr.token, "iPhone", Base64Bytes::new(vec![4; 33]))).await;
     let refused = phone.answer(short).await.unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Invalid);
 
+    // 65 bytes that start with 0x04, but no point of the curve: no signature could
+    // ever prove it.
+    let mut off_curve = public_key(7).as_bytes().to_vec();
+    off_curve[64] ^= 1;
+    let bad = phone.send(enroll(&qr.token, "iPhone", Base64Bytes::new(off_curve))).await;
+    let refused = phone.answer(bad).await.unwrap_err();
     assert_eq!(refused.code, ErrorCode::Invalid);
     assert!(daemon.state.pairings.check(&qr.token).is_ok(), "the token is not spent");
 }

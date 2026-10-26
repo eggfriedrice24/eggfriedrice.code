@@ -13,7 +13,7 @@
 //! connection joins the table of live devices before the row is read, so a revoke can
 //! never fall between the read and the proof; a refusal takes it out again.
 
-use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1, UnparsedPublicKey};
+use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1, ParsedPublicKey, UnparsedPublicKey};
 use efr_protocol::{
     DeviceId, DeviceProve, DeviceProveResult, PROTOCOL_VERSION, ProveMessage, ScopeName,
 };
@@ -147,6 +147,12 @@ pub(crate) fn verify(
     UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, public_key)
         .verify(message, signature)
         .map_err(|_| DaemonError::ProofRefused)
+}
+
+/// True when `public_key` (65 bytes, uncompressed) is a point on the P-256 curve, so
+/// that a signature can ever verify with it.
+pub(crate) fn is_p256_point(public_key: &[u8]) -> bool {
+    ParsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, public_key).is_ok()
 }
 
 /// The scopes of a proved connection: those of the device that a phone may hold at

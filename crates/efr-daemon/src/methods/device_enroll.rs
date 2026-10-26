@@ -5,7 +5,7 @@
 //!
 //! 1. Refuse the Unix socket, and a remote connection that the listener admitted
 //!    without the whois facts of its peer.
-//! 2. Check the shape of the key, then the token, which counts a wrong one
+//! 2. Check the key (65 bytes, a point on the P-256 curve), then the token, which counts a wrong one
 //!    (`pairing.rs`). A key of a device that is not revoked is a `conflict` before
 //!    the token is spent, so the phone can make a new key and try again.
 //! 3. Spend the token and show the phone's facts at the terminal, then wait for its
@@ -31,7 +31,9 @@ pub(crate) async fn handle(
         return Err(refused(PairingProblem::NotRemote));
     };
     let key = DevicePublicKey::from_x963(params.public_key.as_bytes())
-        .map_err(|_| refused(PairingProblem::BadKey))?;
+        .ok()
+        .filter(|key| crate::remote::prove::is_p256_point(key.as_bytes()))
+        .ok_or_else(|| refused(PairingProblem::BadKey))?;
     let pairing_id = state.pairings.check(&params.token).map_err(refused)?;
     let holder = state
         .readers
