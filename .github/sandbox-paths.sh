@@ -9,7 +9,8 @@
 # when there is no usable BASE, and when any changed file can change what the job tests.
 # Only the files below cannot: docs and the docs site, the CLI and the renderer (the
 # sandbox tests never run `efr`), the Ghostty screen (not in the job's archive),
-# packaging, xtask and lint configs. Every other file, a new one too, runs the job.
+# packaging, xtask, lint configs and the phone app (app/).
+# Every other file, a new one too, runs the job.
 set -euo pipefail
 
 event="${1:?EVENT}"
@@ -39,6 +40,7 @@ while IFS= read -r path; do
         crates/efr-cli/* | crates/efr-render/* | crates/efr-screen-ghostty/*) ;;
         crates/*/README.md) ;;
         typos.toml | rustfmt.toml | clippy.toml | deny.toml | .githooks/*) ;;
+        app/* | .github/app-paths.sh) ;;
         .github/workflows/aur.yml | .github/workflows/release.yml | .github/workflows/pages.yml) ;;
         *) decide true "$path can change what the sandbox job tests" ;;
     esac

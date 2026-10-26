@@ -277,12 +277,14 @@ jobs:
         env:
           EFR_TEST_ZSH: "1"
 
-  # Whether the `sandbox` job must run: a scheduled or a manual run, or a changed file
-  # that can change what the job tests. The script prints the reason in the log.
+  # Whether the `sandbox` and the `app` jobs must run: a scheduled or a manual run, or a
+  # changed file that can change what the job tests. The scripts print the reason in the
+  # log.
   changes:
     runs-on: ubuntu-latest
     outputs:
       sandbox: ${{ steps.paths.outputs.sandbox }}
+      app: ${{ steps.app-paths.outputs.app }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -292,6 +294,43 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: .github/sandbox-paths.sh "$EVENT" "$BASE" >>"$GITHUB_OUTPUT"
+      - id: app-paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: .github/app-paths.sh "$EVENT" "$BASE" >>"$GITHUB_OUTPUT"
+
+  # The phone app in app/, with the toolchain that app/package.json pins: the format
+  # check, the type-aware lint, the type check and the tests of its pure core. It needs no
+  # Rust. As `just app-check`, which runs the same steps.
+  #
+  # The job runs only when `changes` says that a changed file can change what it tests
+  # (.github/app-paths.sh). A skipped job counts as passed for the required check.
+  app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      # pnpm first, so setup-node can cache its store. It reads the version from the
+      # `packageManager` field.
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      # The scripts of app/package.json hold the flags of each gate.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run fmt:check
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run test
 
   # The tests of `just test-sandbox` on real bwrap, Landlock ABI 9 and seccomp. The
   # runner's kernel is older than 7.1 and its AppArmor blocks unprivileged user
