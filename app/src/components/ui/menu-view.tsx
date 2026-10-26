@@ -4,8 +4,9 @@
 // they use the system font and cannot animate (design notes 3 and 12).
 //
 // With `openOnLongPress` a long press opens it instead (UIContextMenuInteraction), and a
-// tap goes to the view inside: the Steer/Queue capsule sends on a tap, and the Copy menus
-// of the transcript let a tap toggle the block.
+// tap goes to the view inside: the Steer/Queue capsule sends on a tap, the Copy menus of
+// the transcript let a tap toggle the block, and a row of the All conversations sheet
+// opens on a tap.
 
 import { MenuView as NativeMenuView } from "@react-native-menu/menu";
 import type { ReactNode } from "react";
