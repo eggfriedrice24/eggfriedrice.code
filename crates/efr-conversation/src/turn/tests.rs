@@ -655,7 +655,7 @@ async fn an_asked_tool_call_waits_for_approval_and_runs_once_approved() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
-            reason: None,
+            reason: Some("cautious asks before a write to user config.".to_owned()),
         }
     );
     assert_eq!(
@@ -884,7 +884,10 @@ async fn a_patch_that_deletes_a_project_file_asks_even_in_auto() {
             exit: None,
             expires_in_secs: None,
             local_only: false,
-            reason: None,
+            reason: Some(
+                "The user approves each delete and move that efr undo cannot bring back."
+                    .to_owned()
+            ),
         }
     );
     h.finish();

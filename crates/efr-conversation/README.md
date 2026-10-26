@@ -107,6 +107,13 @@ turns.
   another character outside letters, digits and `._/:@%+,-`, and with the value of
   `--option=value` left out, so a token on the line is not repeated there. Every other
   line break of the summary is escaped, so a path cannot pass for that line.
+- An approval's `reason` (`turn/reason.rs`) tells in one line why the mode of the turn
+  asks, from the reasons of the decision that ask and the mode that the engine decided
+  with: what the built-in rules of the mode ask before (`cautious asks before any
+  network access.`), what the `auto` sandbox holds back, a rule of the user or of the
+  conversation, a remote turn, or a floor of every mode, in the words of the engine's
+  reasons. A guarded delete is named once, as in the first line of a full question.
+  The terminal does not show it; the phone does.
 - The `auto` mode (`exit.rs`, `questions.rs`, `judge.rs`, `turn/review.rs`). The check
   point runs a shell call that the engine contains (`Effect::Contain`) at once with
   `Launch::Contained` in `CallContext::launch`, and `tool_call_started` names the
