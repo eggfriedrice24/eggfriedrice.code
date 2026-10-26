@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { connectionNotice, pairingNotice, repairText } from "./connection-notice";
+import { connectionNotice, repairText } from "./connection-notice";
 
 const ENDPOINT = "100.101.102.103:7419";
 
@@ -53,30 +53,5 @@ describe("connectionNotice", () => {
       title: "Update efr",
       canRetry: false,
     });
-  });
-});
-
-describe("pairingNotice", () => {
-  it("leads the user through each step", () => {
-    expect(pairingNotice({ kind: "idle" })).toMatchObject({ action: "Scan the code", busy: false });
-    expect(pairingNotice({ kind: "scanning" }).busy).toBe(true);
-    expect(pairingNotice({ kind: "connecting", host: "100.1.2.3" }).body).toContain("100.1.2.3");
-    expect(pairingNotice({ kind: "confirm", host: "h", deviceName: "iPhone" })).toMatchObject({
-      title: "Confirm on your computer",
-      busy: true,
-    });
-    expect(pairingNotice({ kind: "paired" }).action).toBe("Open conversations");
-  });
-
-  it("says why the pairing failed, and prefers the flow's own words", () => {
-    expect(pairingNotice({ kind: "failed", reason: "expired" }).body).toContain("expired");
-    expect(pairingNotice({ kind: "failed", reason: "camera" }).body).toContain("camera");
-    expect(
-      pairingNotice({ kind: "failed", reason: "other_machine", machine: "homelab" }).body,
-    ).toContain("came from homelab");
-    expect(pairingNotice({ kind: "failed", reason: "protocol" }).body).toContain("protocol");
-    expect(pairingNotice({ kind: "failed", reason: "other", message: "No key." }).body).toBe(
-      "No key.",
-    );
   });
 });
