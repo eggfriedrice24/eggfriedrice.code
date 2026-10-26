@@ -7,11 +7,12 @@
     "exactOptionalPropertyTypes": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
+    "verbatimModuleSyntax": true,
     "lib": ["ES2022"],
     "types": [],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx", "**/*.mts", "expo-env.d.ts"]
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts", "uniwind-types.d.ts"]
 }
