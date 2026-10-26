@@ -7,10 +7,6 @@
 // - A file that is not in KNOWN_BAILOUTS must compile without a bailout.
 // - A file in KNOWN_BAILOUTS must still bail out; when it compiles, remove it. The list
 //   only gets shorter.
-//
-// TODO(integrate 1): @babel/core and babel-plugin-react-compiler come with the package
-// of the dependencies (W1-DEPS). Until that merge, the tests are skipped; the integrator
-// removes each `.skip` below and the disable comment above it.
 
 import { createRequire } from "node:module";
 
@@ -41,7 +37,7 @@ const BAILOUT_KINDS = new Set(["CompileError", "PipelineError"]);
 
 const require = createRequire(import.meta.url);
 
-/** Loads @babel/core and the compiler only when a test runs, so a skip needs neither. */
+/** Loads @babel/core and the compiler only when a test runs. */
 function compiler(): { readonly babel: Babel; readonly plugin: string } {
   const babel: Babel = require("@babel/core");
   return { babel, plugin: require.resolve("babel-plugin-react-compiler") };
@@ -94,10 +90,7 @@ function covered(file: string): boolean {
 }
 
 describe("the React Compiler", () => {
-  // TODO(integrate 1): remove `.skip` and this disable comment when W1-DEPS brings
-  // @babel/core and the compiler.
-  // oxlint-disable-next-line vitest/no-disabled-tests
-  it.skip("compiles every component and hook of src/, except the known bailouts", () => {
+  it("compiles every component and hook of src/, except the known bailouts", () => {
     const failed: string[] = [];
     const fixed: string[] = [];
     const files = sourceFiles().filter((source) => covered(source.path));
@@ -115,10 +108,7 @@ describe("the React Compiler", () => {
     expect([...failed, ...fixed]).toEqual([]);
   });
 
-  // TODO(integrate 1): remove `.skip` and this disable comment when W1-DEPS brings
-  // @babel/core and the compiler.
-  // oxlint-disable-next-line vitest/no-disabled-tests
-  it.skip("sees a bailout, so the check above can fail", () => {
+  it("sees a bailout, so the check above can fail", () => {
     const { code, events } = compile(
       "bailout.tsx",
       [
