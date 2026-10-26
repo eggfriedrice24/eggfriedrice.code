@@ -56,3 +56,23 @@ fn forward_ports_on_loosens_and_off_does_not() {
     assert_eq!(loosening(&on, &off), Vec::<&str>::new(), "off closes them");
     assert!(super::jobs_loosens(&off.jobs, &on.jobs));
 }
+
+#[test]
+fn the_phone_listener_on_or_another_tailscaled_socket_loosens() {
+    let off = Settings::default();
+    let mut on = Settings::default();
+    on.remote.enabled = true;
+    assert_eq!(loosening(&off, &on), ["remote.enabled"], "a port opens to the tailnet");
+    assert_eq!(loosening(&on, &off), Vec::<&str>::new(), "off closes it");
+
+    let mut moved = Settings::default();
+    moved.remote.tailscaled_socket = PathBuf::from("/run/user/1000/fake-tailscaled.sock");
+    assert_eq!(
+        loosening(&off, &moved),
+        ["remote.tailscaled_socket"],
+        "another socket's whois decides who comes in"
+    );
+    let mut port = Settings::default();
+    port.remote.port += 1;
+    assert_eq!(loosening(&off, &port), Vec::<&str>::new(), "another port admits no one more");
+}

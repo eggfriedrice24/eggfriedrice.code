@@ -6,7 +6,7 @@
 
 use efr_config::{
     AskDestructive, DbusSettings, IgnoredFiles, JobsSettings, NetworkHost, NetworkSettings,
-    SandboxSettings, Settings, SnapshotSettings, SudoCache, WriteProjects,
+    RemoteSettings, SandboxSettings, Settings, SnapshotSettings, SudoCache, WriteProjects,
 };
 use efr_permissions::{Effect, Rule};
 use efr_protocol::NetworkMode;
@@ -19,8 +19,9 @@ use efr_protocol::NetworkMode;
 /// the user, undo turned on or covering more, so more destructive lines run without a
 /// question, a `[jobs]` key that lets jobs run longer, more often, at a higher
 /// priority or with port forwards, a `[network]` key that opens the network view or
-/// efr's proxy, or a `[dbus]` key that opens the filtered bus (efr's auto spec, section
-/// 13.1). Empty when the change loosens nothing.
+/// efr's proxy, a `[dbus]` key that opens the filtered bus (efr's auto spec, section
+/// 13.1), or a `[remote]` key that opens efrd to the phone listener. Empty when the
+/// change loosens nothing.
 pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str> {
     let mut keys = Vec::new();
     let old = before.permissions.rules.rules();
@@ -57,7 +58,17 @@ pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str>
     keys.extend(jobs_loosening(&before.jobs, &next.jobs));
     keys.extend(network_loosening(&before.network, &next.network));
     keys.extend(dbus_loosening(&before.dbus, &next.dbus));
+    keys.extend(remote_loosening(&before.remote, &next.remote));
     keys
+}
+
+/// The `[remote]` keys that open efrd to more peers: the phone listener turned on, or
+/// another LocalAPI socket, whose whois decides which peers come in.
+fn remote_loosening(before: &RemoteSettings, next: &RemoteSettings) -> Vec<&'static str> {
+    keys([
+        ("remote.enabled", next.enabled && !before.enabled),
+        ("remote.tailscaled_socket", next.tailscaled_socket != before.tailscaled_socket),
+    ])
 }
 
 /// True when the change from `before` to `next` lets more run without a question
