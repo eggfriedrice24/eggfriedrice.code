@@ -12,7 +12,7 @@
 //   around the glass breaks the glass. Hidden, it takes no touches.
 // - Before iOS 26: it fades in and out over 150 ms, and not with Reduce Motion.
 
-import { View } from "react-native";
+import { View, type ViewStyle } from "react-native";
 
 import { GlassButton } from "@/components/ui/glass-button";
 import { LIQUID_GLASS } from "@/components/ui/material";
@@ -25,12 +25,18 @@ import { FadeIn } from "./fade-in";
 /** The space between the button and the top of the composer (design item x2). */
 export const JUMP_GAP = SPACING.item;
 
-const SHADOW = {
-  shadowColor: MATERIALS.jump.shadow.color,
-  shadowOpacity: MATERIALS.jump.shadow.opacity,
-  shadowRadius: MATERIALS.jump.shadow.radius,
-  shadowOffset: { width: 0, height: MATERIALS.jump.shadow.offsetY },
-} as const;
+// A box shadow, not the shadow props: these on a view with no fill made iOS render the
+// shadow offscreen on each frame, and React Native warned about it.
+const SHADOW: ViewStyle = {
+  boxShadow: [
+    {
+      offsetX: 0,
+      offsetY: MATERIALS.jump.shadow.offsetY,
+      blurRadius: MATERIALS.jump.shadow.blurRadius,
+      color: MATERIALS.jump.shadow.color,
+    },
+  ],
+};
 
 export interface JumpToLatestProps {
   readonly visible: boolean;
@@ -55,8 +61,7 @@ export function JumpToLatest(props: JumpToLatestProps) {
         className="absolute right-inset"
         style={{ bottom: props.bottom + JUMP_GAP }}
       >
-        {/* The shadow only while it shows: a shadow on a view with no fill costs an
-            offscreen pass on each frame, and the hidden button draws nothing. */}
+        {/* The shadow only while it shows: the hidden button draws nothing. */}
         <View className="rounded-full" style={props.visible ? SHADOW : undefined}>
           <GlassButton
             symbol="arrow.down"

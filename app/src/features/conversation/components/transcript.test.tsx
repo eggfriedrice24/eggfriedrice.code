@@ -316,7 +316,7 @@ describe("jump to latest", () => {
     });
     expect(jumpGlass().props.glassEffectStyle).toEqual({ style: "regular", animate: true });
     expect(
-      screen.getByTestId("jump-to-latest").props.children.props.style?.shadowRadius,
+      screen.getByTestId("jump-to-latest").props.children.props.style?.boxShadow?.[0]?.blurRadius,
     ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Jump to latest" }).props.pointerEvents).toBe("auto");
   });

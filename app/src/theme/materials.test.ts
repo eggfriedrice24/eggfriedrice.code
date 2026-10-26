@@ -11,7 +11,7 @@ describe("the materials", () => {
     expect(MATERIALS.jump.fill).toBe("rgba(18, 23, 34, 0.7)");
     expect(MATERIALS.dim).toBe("rgba(9, 12, 19, 0.5)");
     expect(MATERIALS.glassButton.borderColor).toBe(roles.border_subtle);
-    expect(MATERIALS.jump.shadow.color).toBe(roles.surface_0);
+    expect(MATERIALS.jump.shadow.color).toBe("rgba(9, 12, 19, 0.6)");
   });
 
   it("keep every opacity between 0 and 1", () => {

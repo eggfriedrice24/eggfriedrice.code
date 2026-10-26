@@ -29,10 +29,13 @@ export const MATERIALS = {
     fill: withOpacity("surface_2", 0.7),
     borderColor: roles.border_subtle,
     borderWidth: BORDER,
+    /**
+     * A box shadow: React Native gives it a path, so iOS draws it without an offscreen
+     * pass, and it does not darken the glass. `blurRadius` is twice the radius of iOS.
+     */
     shadow: {
-      color: roles.surface_0,
-      opacity: 0.6,
-      radius: 18,
+      color: withOpacity("surface_0", 0.6),
+      blurRadius: 36,
       offsetY: 6,
     },
   },
