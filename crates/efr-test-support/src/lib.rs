@@ -18,6 +18,8 @@
 //! - [`PerfCorpus`]: a seeded corpus of long conversations of a [`PerfSize`] or a
 //!   [`PerfShape`], with the saved messages and a compaction, written into a real store
 //!   for the `bench_perf_*` benches.
+//! - [`tailscaled`]: [`FakeTailscaled`], tailscaled's LocalAPI on a Unix socket, for
+//!   the tests of efrd's remote listener, so no test reaches the real tailscaled.
 //! - [`Wait`]: polls a condition that another task or thread makes true, and gives up
 //!   after a real time limit ([`WAIT_LIMIT`]) with an error that names it.
 //!
@@ -31,6 +33,9 @@
 //!
 //! `bench` is a public module because its names (`run`, `slope`, `Report`) read as
 //! `bench::run` at the call site.
+//!
+//! `tailscaled` is a public module because its answers and ids read as
+//! `tailscaled::whois` and `tailscaled::PHONE_NODE` at the call site.
 //!
 //! `fixtures` is a public module because its path is the one the structure document
 //! names for every crate's tests: `efr_test_support::fixtures::path(file!(), "...")`.
@@ -51,6 +56,7 @@ mod replay_provider;
 mod rng;
 mod search_corpus;
 mod store;
+pub mod tailscaled;
 mod wait;
 
 pub use clock::TestClock;
@@ -66,4 +72,5 @@ pub use replay_provider::ReplayProvider;
 pub use rng::TestRng;
 pub use search_corpus::{CORPUS_VERSION, CorpusConversation, CorpusSize, SearchCorpus};
 pub use store::TestStore;
+pub use tailscaled::FakeTailscaled;
 pub use wait::{WAIT_LIMIT, Wait};

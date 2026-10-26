@@ -183,6 +183,16 @@ pub enum TestSupportError {
         next_line: usize,
     },
 
+    /// A Unix socket of a fake server could not be bound.
+    #[error("could not bind the socket {}", .path.display())]
+    BindSocket {
+        /// The socket.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
     /// A condition a test waited for did not hold within the real time limit.
     #[error("gave up waiting for {what} after {limit:?}")]
     TimedOut {

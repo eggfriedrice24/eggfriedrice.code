@@ -47,8 +47,6 @@ use crate::methods::Methods;
 use crate::state::State;
 
 mod admission;
-#[cfg(test)]
-mod fake;
 mod listener;
 mod live;
 pub(crate) mod prove;

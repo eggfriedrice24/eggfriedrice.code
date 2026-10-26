@@ -112,12 +112,23 @@ directories, a store and provider traffic from one place and never from the mach
   directory, appends one JSON object per line to `<dir>/<bench>.jsonl`.
 - `wait`: `Wait`, a poll of a condition that another task or thread makes true:
   `Wait::new("the notice").until(|| ...)`, `until_some` for a value, `until_some_async`
-  for a check that awaits, and `until_blocking` for a thread outside the runtime. The
+  for a check that awaits, `until_ready` for one future such as a read from a socket,
+  and `until_blocking` for a thread outside the runtime. The
   first polls only yield, later ones sleep 2 ms, and after a real time limit
   (`WAIT_LIMIT`, 10 s, or `limit(..)`) the wait fails with `TestSupportError::TimedOut`,
   which names what it waited for. A test uses it in place of a loop that counts yields,
   which passes on a fast machine and fails on a busy CI runner. A check that something
   did not happen still lets the other tasks run for a while and then looks once.
+- `tailscaled`: `FakeTailscaled`, tailscaled's LocalAPI on a Unix socket in a
+  temporary directory, for the tests of efrd's remote listener (`remote.tailscaled_socket`
+  names `socket()`). `status` answers the status that the test set (a running node with
+  a TUN device at `SELF_IP` by default; `set_status(None)` makes it fail), `whois` the
+  identity that the test set for every peer (the phone's node `PHONE_NODE` of `USER` by
+  default; `set_whois(None)` answers 404), and the watch of the IPN bus sends the status
+  as `InitialStatus`, then each line of `push`, until `end_watches`. `seen` lists the
+  target of each request. `status`, `whois` and `sharee_whois` build the answers, so a
+  test sets the self node, a tagged node, a sharee node or another user. The whois does
+  not look at the peer address, so a test connects from `127.0.0.1` as any node.
 - `error`: `TestSupportError`, the crate's one error type.
 
 ## Tier
@@ -139,6 +150,8 @@ Third-party crates: `async-trait`, `base64`, `futures`, `jiff`, `serde`, `serde_
   through another crate (a forbidden edge in `xtask/src/deps.rs`). `TestDaemon` and the
   scenario driver live in `efr-test-daemon`, so a leaf crate's tests never compile the
   daemon and never link two copies of a library.
+- No test reaches the machine's tailscaled: `FakeTailscaled` is the one LocalAPI of
+  the tests, on a socket in a temporary directory.
 - Nothing here reads the wall clock. The one wait on real time is the limit of `Wait`,
   which decides only when a test that would fail stops waiting, never the result of a
   test that passes; code under test still takes a `Clock`.
@@ -172,5 +185,6 @@ the Zipf share of the most common word. The perf corpus tests check the turn sha
 the seed, the order of interleaved conversations, and that a compaction drops the
 saved messages before its cut in a real store. The wait tests see a
 condition made true by a task, by a thread after real time and through an awaited
-check, and check the error at a short limit. They use no network and no Zig, and only
+check, a future that is ready or hangs, and check the error at a short limit. The
+fake tailscaled tests read its status, whois and IPN bus watch over its socket. They use no network and no Zig, and only
 the wait tests sleep, for at most a third of a second.

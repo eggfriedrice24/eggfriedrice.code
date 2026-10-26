@@ -25,12 +25,12 @@ use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::fake::{self, FakeTailscaled};
 use crate::discovery::DaemonInfo;
 use crate::methods::Methods;
 use crate::state::State;
 use crate::testing::{self, RawClient};
 use crate::{DaemonError, Settings};
+use efr_test_support::tailscaled::{self as fake, FakeTailscaled};
 
 /// A daemon with its remote listener on 127.0.0.1 and a fake tailscaled.
 struct Harness {
@@ -51,7 +51,7 @@ impl Harness {
         let socket = daemon.socket_path().to_path_buf();
         let shutdown = CancellationToken::new();
         let served = tokio::spawn(daemon.serve(shutdown.clone()));
-        let fake = FakeTailscaled::start();
+        let fake = FakeTailscaled::start().unwrap();
         let mut settings = RemoteSettings::default();
         settings.enabled = true;
         settings.tailscaled_socket = fake.socket().to_path_buf();
@@ -444,7 +444,7 @@ async fn another_tailnet_rebinds_and_closes_the_phones_of_the_old_one() {
     let before = harness.addr().await;
 
     harness.fake.set_status(Some(fake::status(fake::SELF_IP, "T9999CNTRL")));
-    harness.fake.push(json!({ "State": 6 }));
+    harness.fake.push(&json!({ "State": 6 }));
     phone.closed().await;
     let after = Wait::new("a new listener")
         .until_some(|| {

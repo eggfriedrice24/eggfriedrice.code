@@ -1738,7 +1738,8 @@ IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
 - A test build binds the listener where `Deps::with_remote_listen` says (feature
   `test-sandbox-fake`); without the feature it binds only the tailnet address. The
   in-crate tests (`remote/tests.rs`) call `remote::serve` with `127.0.0.1:0` and a fake
-  tailscaled (`remote/fake.rs`).
+  tailscaled (`efr_test_support::FakeTailscaled`); the integration tests
+  (`tests/it/remote.rs`) get the same through `TestDaemonBuilder::remote`.
 
 ### Features
 

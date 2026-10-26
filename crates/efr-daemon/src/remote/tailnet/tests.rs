@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::{Down, Tailnet, View, follow, publish, view_of};
-use crate::remote::fake::{self, FakeTailscaled};
+use efr_test_support::tailscaled::{self as fake, FakeTailscaled};
 
 /// The status of `value`, with the version that tailscaled's header gives.
 fn parsed(value: Value, version: Option<&str>) -> TailscaleStatus {
@@ -84,7 +84,7 @@ async fn wait_for(views: &mut watch::Receiver<View>, want: &View) {
 
 #[tokio::test]
 async fn the_follower_reads_the_watch_then_asks_the_status_when_it_ends() {
-    let fake = FakeTailscaled::start();
+    let fake = FakeTailscaled::start().unwrap();
     let clock = TestClock::new();
     let api = LocalApi::new(fake.socket(), clock.shared());
     let (views, mut view) = watch::channel(View::Unknown);
@@ -96,14 +96,14 @@ async fn the_follower_reads_the_watch_then_asks_the_status_when_it_ends() {
 
     // A new address arrives as a change of this node; the follower asks the status.
     fake.set_status(Some(fake::status("100.101.102.104", fake::TAILNET)));
-    fake.push(json!({ "SelfChange": { "StableID": fake::SELF_NODE, "Addresses": ["100.101.102.104/32"] } }));
+    fake.push(&json!({ "SelfChange": { "StableID": fake::SELF_NODE, "Addresses": ["100.101.102.104/32"] } }));
     let mut moved = up();
     moved.ipv4 = Ipv4Addr::new(100, 101, 102, 104);
     moved.own_ips[0] = "100.101.102.104".parse().unwrap();
     wait_for(&mut view, &View::Up(moved.clone())).await;
 
     // A reader that fell behind is dropped; the status still answers, so it stays up.
-    fake.push(json!({ "ErrMessage": "IPN bus consumer fell behind" }));
+    fake.push(&json!({ "ErrMessage": "IPN bus consumer fell behind" }));
     fake.end_watches();
     Wait::new("the pause before the next watch")
         .until(|| clock.pending_sleeps() == 1)
