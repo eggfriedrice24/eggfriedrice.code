@@ -44,9 +44,10 @@ import {
 import type { Machine } from "@/features/machines/model/machine";
 import { keylessConnection } from "@/features/machines/model/machine-connection";
 import type { Runtime } from "@/features/machines/model/runtime";
+import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { MachineRow } from "../components/machine-row";
 import { forgetPlan } from "../model/forget-plan";
-import { DEFAULT_PREFERENCES } from "../model/preferences";
+import { DEFAULT_PREFERENCES, type PreferencesStore } from "../model/preferences";
 import {
   FORGET_ACTION,
   forgetFailedText,
@@ -57,7 +58,6 @@ import {
   zoneAt,
   type MachineAction,
 } from "../model/settings-format";
-import { SettingsServicesContext, type SettingsServices } from "./settings-services";
 import { useMinute } from "./use-minute";
 
 /** The route of the dev gallery (wave 4), opened with a long press on the version. */
@@ -74,11 +74,15 @@ const APP_VERSION = versionText(
 
 /** The settings screen. */
 export function SettingsScreen() {
-  const services = use(SettingsServicesContext);
-  return services === null ? <UnwiredSettings /> : <WiredSettings services={services} />;
+  const services = use(AppServicesContext);
+  return services === null ? (
+    <UnwiredSettings />
+  ) : (
+    <WiredSettings runtime={services.runtime} preferences={services.preferences} />
+  );
 }
 
-/** Settings before the layout gives the runtime: no machine, and a switch that keeps nothing. */
+/** Settings without the services of the root layout: no machine, and a switch that keeps nothing. */
 function UnwiredSettings() {
   const router = useRouter();
   return (
@@ -92,11 +96,12 @@ function UnwiredSettings() {
 }
 
 interface WiredSettingsProps {
-  readonly services: SettingsServices;
+  readonly runtime: Runtime;
+  readonly preferences: PreferencesStore;
 }
 
 function WiredSettings(props: WiredSettingsProps) {
-  const { runtime, preferences } = props.services;
+  const { runtime, preferences } = props;
   const router = useRouter();
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const reduceMotion = useReduceMotion();

@@ -1,5 +1,5 @@
-// The Settings screen on the real runtime of the machines, with fake sockets, a fake clock
-// and fake key stores, inside the test router of expo-router. No test reaches a network.
+// The Settings screen on the real services of the app, with fake sockets, a fake clock and
+// fake key stores, inside the test router of expo-router. No test reaches a network.
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
@@ -11,7 +11,6 @@ import { ActionSheetIOS, Alert, Text } from "react-native";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import {
-  FakeClock,
   FakeSockets,
   completeHandshake,
   flush,
@@ -19,20 +18,14 @@ import {
   type FakeSocket,
 } from "@/lib/net/testing";
 import { createQueryClient } from "@/lib/query/query-client";
-import type { KeyValueStorage } from "@/lib/store/key-value";
-import { createRuntime, type Runtime } from "@/features/machines/model/runtime";
-import {
-  DESKTOP,
-  FakeStreams,
-  LAPTOP,
-  machineRecord,
-  pairedStores,
-} from "@/features/machines/model/testing";
-import type { PairingDeps } from "@/features/pairing/model/pair";
+import { createConversationStream } from "@/features/conversation/model/conversation-stream";
+import { createRuntime } from "@/features/machines/model/runtime";
+import { DESKTOP, LAPTOP, machineRecord } from "@/features/machines/model/testing";
+import type { AppServices } from "@/features/navigation/model/app-services";
+import { testServices } from "@/features/navigation/model/testing";
+import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
-import { createPreferences, type PreferencesStore } from "../model/preferences";
 import { SettingsScreen } from "./settings-screen";
-import { SettingsServicesContext, type SettingsServices } from "./settings-services";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
@@ -46,71 +39,23 @@ jest.mock("expo-constants", () => ({
 const DESKTOP_URL = "ws://100.64.0.1:7419/";
 const CONVERSATION = "019a9b1c-3d00-7a10-8b20-000000000001";
 
-/** A key-value store in memory, for the preferences. */
-class MemoryStorage implements KeyValueStorage {
-  readonly items = new Map<string, string>();
-
-  getItemSync(key: string): string | null {
-    return this.items.get(key) ?? null;
-  }
-
-  getItem(key: string): Promise<string | null> {
-    return Promise.resolve(this.items.get(key) ?? null);
-  }
-
-  setItem(key: string, value: string): Promise<void> {
-    this.items.set(key, value);
-    return Promise.resolve();
-  }
-
-  removeItem(key: string): Promise<void> {
-    this.items.delete(key);
-    return Promise.resolve();
-  }
-}
-
 interface Setup {
-  readonly runtime: Runtime;
-  readonly preferences: PreferencesStore;
+  readonly services: AppServices;
   readonly sockets: FakeSockets;
   readonly client: QueryClient;
   readonly devices: { list(): Promise<readonly PairedDevice[]> };
 }
 
-let opened: Runtime[] = [];
+let opened: { dispose(): void }[] = [];
 
 async function setup(records: readonly PairedDevice[]): Promise<Setup> {
-  const stores = await pairedStores(records);
-  const sockets = new FakeSockets();
-  const streams = new FakeStreams();
-  const pairing: PairingDeps = {
-    sockets: sockets.factory,
-    clock: new FakeClock(Date.now()),
-    keys: stores.keys,
-    devices: stores.devices,
-    sha256: () => Promise.resolve(Uint8Array.from({ length: 32 }, (_, i) => i)),
-    newKeyAlias: () => "device-new",
-    now: () => new Date(),
-    client: "efr-app test",
-  };
-  const runtime = createRuntime({
-    pairing,
-    random: () => 0,
-    streams: streams.factory,
-    schedule: (callback) => {
-      callback();
-      return () => {};
-    },
-  });
-  opened.push(runtime);
-  await runtime.load();
-  const preferences = createPreferences({ storage: new MemoryStorage() });
+  const parts = await testServices(records);
+  opened.push(parts.services);
   return {
-    runtime,
-    preferences,
-    sockets,
-    client: createQueryClient(),
-    devices: { list: () => stores.devices.loadAll() },
+    services: parts.services,
+    sockets: parts.sockets,
+    client: parts.services.queryClient,
+    devices: { list: () => parts.devices.loadAll() },
   };
 }
 
@@ -138,13 +83,13 @@ function Pair() {
 }
 
 /** The routes of the app, with Settings and its services. */
-function routes(services: SettingsServices | null, client: QueryClient) {
+function routes(services: AppServices | null, client: QueryClient) {
   function Layout(): ReactNode {
     return (
       <QueryClientProvider client={client}>
-        <SettingsServicesContext value={services}>
+        <AppServicesContext value={services}>
           <Stack />
-        </SettingsServicesContext>
+        </AppServicesContext>
       </QueryClientProvider>
     );
   }
@@ -159,7 +104,7 @@ function routes(services: SettingsServices | null, client: QueryClient) {
 
 /** Opens Settings over the root and, when `conversation` is given, over that conversation. */
 async function openSettings(parts: Setup, conversation?: string): Promise<void> {
-  await renderRouter(routes(parts, parts.client), { initialUrl: "/" });
+  await renderRouter(routes(parts.services, parts.client), { initialUrl: "/" });
   if (conversation !== undefined) {
     await act(async () => {
       router.push(conversation);
@@ -193,8 +138,8 @@ beforeEach(() => {
 
 afterEach(() => {
   jest.restoreAllMocks();
-  for (const runtime of opened) {
-    runtime.dispose();
+  for (const one of opened) {
+    one.dispose();
   }
   opened = [];
 });
@@ -326,7 +271,9 @@ describe("Forget", () => {
 
   it("says so when the key stays on the phone", async () => {
     const parts = await setup([machineRecord(DESKTOP), machineRecord(LAPTOP)]);
-    jest.spyOn(parts.runtime, "forget").mockRejectedValue(new Error("the keychain failed"));
+    jest
+      .spyOn(parts.services.runtime, "forget")
+      .mockRejectedValue(new Error("the keychain failed"));
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     await openSettings(parts);
     answerSheet(0);
@@ -361,7 +308,7 @@ describe("the other groups", () => {
     const toggle = screen.getByLabelText("Haptics");
     expect(toggle.props.value).toBe(true);
     await fireEvent(toggle, "valueChange", false);
-    expect(parts.preferences.store.get().haptics).toBe(false);
+    expect(parts.services.preferences.store.get().haptics).toBe(false);
     expect(screen.getByLabelText("Haptics").props.value).toBe(false);
     expect(screen.getByText("Haptics for taps, copies, scans and errors.")).toBeOnTheScreen();
   });
@@ -379,16 +326,13 @@ describe("the other groups", () => {
     const unloaded = createRuntime({
       pairing: null,
       random: () => 0,
-      streams: new FakeStreams().factory,
+      streams: createConversationStream,
       schedule: () => () => {},
     });
     opened.push(unloaded);
-    await renderRouter(
-      routes({ runtime: unloaded, preferences: parts.preferences }, parts.client),
-      {
-        initialUrl: "/settings",
-      },
-    );
+    await renderRouter(routes({ ...parts.services, runtime: unloaded }, parts.client), {
+      initialUrl: "/settings",
+    });
     expect(screen.getByText("loading the machines")).toBeOnTheScreen();
   });
 });
