@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 
-import { decodeHistoryPage, decodeSubscribeItem, isJsonObject } from "./envelope";
+import { decodeHistoryPage, decodeSubscribeItem, decodeWatchItem, isJsonObject } from "./envelope";
 import { METHOD_NAMES, type ConversationSummary, type MethodName } from "./generated";
 import * as generated from "./generated-zod";
 
@@ -267,6 +267,17 @@ describe("the decoder over the fixtures of the app", () => {
     ]);
     expect(page.next_cursor).toBe("s:40");
     expect(page.raw).toEqual(isJsonObject(fixture) ? fixture["events"] : undefined);
+  });
+
+  it("decodes a watch item of an unknown kind to an other item, and a bad row to an invalid one", () => {
+    expect(decodeWatchItem(local("watch-item-unknown-kind"))).toEqual({
+      ok: true,
+      value: { kind: "other", wireKind: "renamed" },
+    });
+    expect(decodeWatchItem(local("watch-item-changed-unknown-status"))).toEqual({
+      ok: true,
+      value: { kind: "other", wireKind: "changed", invalid: true },
+    });
   });
 
   it("decodes a known draft with an unknown nested value to an invalid other part", () => {
