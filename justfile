@@ -455,7 +455,8 @@ docs:
 
 # The gates of the phone app in app/, as CI's app job: install from the lockfile, the
 # format check (oxfmt), the type-aware lint (oxlint), the type check (tsc 7), the tests
-# (Vitest) and the check that app/src/protocol/generated.ts matches
+# of the pure code (Vitest), the tests of the components and the routes (jest) and the
+# check that app/src/protocol/generated.ts matches
 # docs/protocol.schema.json (`just check` checks the schema against efr-protocol). Needs pnpm; pnpm switches to the pnpm that
 # app/package.json pins and runs the scripts on the Node that it pins, which it
 # downloads when this machine has another one. It also checks that ci.yml pins the same
@@ -479,6 +480,7 @@ app-check:
     pnpm run lint
     pnpm run typecheck
     pnpm run test
+    pnpm run test:ui
     pnpm run check:protocol
 
 # Regenerate docs/protocol.md from efr-protocol.

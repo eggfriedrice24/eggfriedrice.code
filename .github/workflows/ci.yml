@@ -301,8 +301,9 @@ jobs:
         run: .github/app-paths.sh "$EVENT" "$BASE" >>"$GITHUB_OUTPUT"
 
   # The phone app in app/, with the toolchain that app/package.json pins: the format
-  # check, the type-aware lint, the type check and the tests of its pure core. It needs no
-  # Rust. As `just app-check`, which runs the same steps.
+  # check, the type-aware lint, the type check, the tests of its pure core and the tests
+  # of its components and routes. It needs no Rust. As `just app-check`, which runs the
+  # same steps.
   #
   # The job runs only when `changes` says that a changed file can change what it tests
   # (.github/app-paths.sh). A skipped job counts as passed for the required check.
@@ -331,6 +332,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run typecheck
       - run: pnpm run test
+      - run: pnpm run test:ui
       # The generated protocol types must match docs/protocol.schema.json. The lint
       # job checks the schema against efr-protocol, so this job needs no cargo.
       - run: pnpm run check:protocol
