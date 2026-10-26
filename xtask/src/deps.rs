@@ -113,8 +113,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     // Tier T
     ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-transport", "efr-protocol"]),
     // Tooling
-    // config-docs writes docs/config.md and docs/config.schema.json from efr-config.
-    ("xtask", &["efr-config"]),
+    // config-docs writes docs/config.md and docs/config.schema.json from efr-config;
+    // protocol-schema writes docs/protocol.schema.json from efr-protocol.
+    ("xtask", &["efr-config", "efr-protocol"]),
 ];
 
 /// Edges that must not exist, directly or through any chain of normal dependencies.

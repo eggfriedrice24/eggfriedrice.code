@@ -13,6 +13,9 @@ cargo_metadata.workspace = true
 clap.workspace = true
 # The text of docs/config.md and docs/config.schema.json (config-docs).
 efr-config.workspace = true
+# The generator-friendly JSON Schema of the protocol, docs/protocol.schema.json
+# (protocol-schema).
+efr-protocol = { workspace = true, features = ["schema"] }
 # The Markdown parser of mdBook, for the link check of the docs site (docs-links).
 pulldown-cmark.workspace = true
 serde_json.workspace = true

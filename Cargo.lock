@@ -4179,6 +4179,7 @@ dependencies = [
  "cargo_metadata",
  "clap",
  "efr-config",
+ "efr-protocol",
  "pulldown-cmark",
  "serde_json",
  "tempfile",

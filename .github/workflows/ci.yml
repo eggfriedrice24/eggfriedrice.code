@@ -54,6 +54,9 @@ jobs:
       # docs/config.md and docs/config.schema.json come from efr-config; a key changed
       # without `cargo xtask config-docs` fails here.
       - run: cargo xtask config-docs --check
+      # docs/protocol.schema.json comes from efr-protocol; a wire type changed without
+      # `cargo xtask protocol-schema` fails here.
+      - run: cargo xtask protocol-schema --check
       - name: negative cargo tree checks
         shell: bash
         # The same rules as xtask/src/deps.rs, through a second implementation, so the

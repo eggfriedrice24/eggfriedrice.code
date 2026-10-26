@@ -1,5 +1,6 @@
 //! Repository automation that needs Rust: the dependency rule (`deps`), the file rules
-//! (`tidy`), the link check of the docs site (`docs-links`), the size budget of the
+//! (`tidy`), the link check of the docs site (`docs-links`), the protocol schema for code
+//! generators (`protocol-schema`), the size budget of the
 //! release binaries (`bench-size`), the table of two bench runs (`bench-compare`) and,
 //! from milestone 1, protocol docs, fixture blessing and projection rebuilds. The justfile composes these;
 //! it never reimplements them.
@@ -11,6 +12,7 @@ mod docs_links;
 mod fixtures;
 mod output;
 mod protocol_docs;
+mod protocol_schema;
 mod rebuild_projections;
 mod tidy;
 
@@ -45,6 +47,13 @@ enum Command {
     DocsLinks,
     /// Regenerate docs/protocol.md from efr-protocol.
     ProtocolDocs,
+    /// Write docs/protocol.schema.json, the protocol for code generators, from
+    /// efr-protocol.
+    ProtocolSchema {
+        /// Fail when the file is not current instead of writing it.
+        #[arg(long)]
+        check: bool,
+    },
     /// Write docs/config.md and docs/config.schema.json from efr-config.
     ConfigDocs {
         /// Fail when either file is not current instead of writing it.
@@ -96,6 +105,7 @@ fn run(command: Command) -> anyhow::Result<bool> {
         Command::Tidy { fast } => tidy::run(&root, fast),
         Command::DocsLinks => docs_links::run(&root),
         Command::ProtocolDocs => Ok(protocol_docs::run()),
+        Command::ProtocolSchema { check } => protocol_schema::run(&root, check),
         Command::ConfigDocs { check } => config_docs::run(&root, check),
         Command::Fixtures { bless } => Ok(fixtures::run(bless)),
         Command::RebuildProjections => Ok(rebuild_projections::run()),

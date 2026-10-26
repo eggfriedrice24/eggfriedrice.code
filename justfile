@@ -400,10 +400,12 @@ clippy:
 deny:
     cargo deny check
 
-# The file rules of CONVENTIONS.md, then the generated config docs, as CI's tidy job.
+# The file rules of CONVENTIONS.md, then the generated config docs and protocol schema,
+# as CI's tidy job.
 tidy:
     cargo xtask tidy
     cargo xtask config-docs --check
+    cargo xtask protocol-schema --check
 
 # The dependency rule of ARCHITECTURE.md.
 deps:
@@ -452,6 +454,10 @@ docs:
 # Regenerate docs/protocol.md from efr-protocol.
 protocol-docs:
     cargo xtask protocol-docs
+
+# Write docs/protocol.schema.json, the protocol for the phone app's code generator.
+protocol-schema:
+    cargo xtask protocol-schema
 
 # Install efrd and efr to ~/.local/bin, the sandbox launcher to ~/.local/lib/efr and the
 # user unit, reload systemd; never starts it.
