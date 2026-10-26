@@ -2,10 +2,11 @@ import { Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
+import { createNativeSession } from "@/session/native";
 import { semantic } from "@/theme/palette";
 import { createDemoSession, type DemoSession } from "@/ui/demo_session";
 import type { PhoneSession } from "@/ui/session";
-import { SessionProvider, UNPAIRED } from "@/ui/session_context";
+import { SessionProvider } from "@/ui/session_context";
 
 const screenOptions = {
   contentStyle: { backgroundColor: semantic.surface_1 },
@@ -26,16 +27,21 @@ const INDEX = { title: "Conversations" };
 const PAIR = { title: "Pair", headerBackVisible: false };
 const CONVERSATION = { title: "Conversation" };
 
-// NOTE: the store (src/store) gives the session of the paired phone here. Until it
-// does, the app starts as an unpaired phone, and a dev build can open the demo.
+// The session of the phone (src/session): it reads the pairing, connects to efrd and
+// keeps the connection up while the app runs. A dev build can swap in the demo, which
+// reaches no computer.
 export default function RootLayout() {
-  const [session, setSession] = useState<PhoneSession>(UNPAIRED);
+  const [live] = useState(createNativeSession);
   const [demo, setDemo] = useState<DemoSession | undefined>(undefined);
+  const session: PhoneSession = demo ?? live;
+  useEffect(() => {
+    void live.start();
+    return () => live.dispose();
+  }, [live]);
   const openDemo = useCallback(() => {
-    const created = createDemoSession(DEMO_TIMERS);
-    setDemo(created);
-    setSession(created);
-  }, []);
+    live.dispose();
+    setDemo(createDemoSession(DEMO_TIMERS));
+  }, [live]);
   useEffect(() => () => demo?.dispose(), [demo]);
   return (
     <KeyboardProvider>

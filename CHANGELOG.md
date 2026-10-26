@@ -36,13 +36,13 @@ into the GitHub release notes, and it stops when the section is missing.
   was paired and last seen. `efr device revoke <id>` takes a device's access away for
   good; the id can be the start of an id, as the list shows it. `docs/use/phone.md`
   has the details.
-- A preview of the efr phone app for iPhone, in `app/` of the repository. It shows
-  your conversations live, sends prompts to them and answers the questions of the
-  agent. It connects to efrd directly over Tailscale, with no relay. The phone keeps
-  its device key in the Secure Enclave and proves it on each connection. The app is
-  not in the App Store: you build it with EAS, as `app/README.md` tells, and its
-  screens do not use the connection yet. `docs/use/phone.md` tells what a phone can
-  and cannot do.
+- A preview of the efr phone app for iPhone, in `app/` of the repository. It pairs
+  with `efr device add`, shows your conversations live, sends prompts to them and
+  answers the questions of the agent. It connects to efrd directly over Tailscale,
+  with no relay. The phone keeps its device key in the Secure Enclave and proves it on
+  each connection. The app is not in the App Store: you build it with EAS, as
+  `app/README.md` tells. It was tested on Linux only and was not run on an iPhone yet.
+  `docs/use/phone.md` tells what a phone can and cannot do.
 - A new page of the docs, "The phone app", tells how to set up Tailscale and the
   listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
   page has a new section for the phone.

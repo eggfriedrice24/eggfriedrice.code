@@ -1,4 +1,4 @@
-<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/ui (the screens and their texts); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
+<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/ui (the screens and their texts); app/src/session (the session of the screens); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
 
 # The phone app
 
@@ -11,7 +11,8 @@ Tailscale network. There is no relay and no server of a third party.
 > Build. The
 > [README of the app](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/app/README.md)
 > tells how, and what works in the app now. The parts of efrd work: the listener, the
-> pairing, the device keys and the revoke.
+> pairing, the device keys and the revoke. The app was tested on Linux only. Nobody
+> built it for an iPhone and ran it there yet, so the first build can show problems.
 
 ## What you need
 
@@ -146,6 +147,9 @@ of the proof.
 The key needs no Face ID. The app proves the key each time that it connects again.
 
 ## Use the app
+
+> The app was not run on an iPhone yet. These are the features of its code; the first
+> EAS build must show that they work on a phone.
 
 After the pairing, the app connects on its own. You can:
 

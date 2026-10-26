@@ -1,6 +1,6 @@
-// The session of the screens, given by the root layout. Until the root layout passes
-// the session of the store, the screens get `UNPAIRED`: a session with no device key,
-// whose pairing flow says that this build cannot pair.
+// The session of the screens, given by the root layout (src/session). Outside of a
+// provider, the screens get `UNPAIRED`: a session with no device key, whose pairing flow
+// says that it cannot pair.
 
 import { createContext, type ReactNode, useContext } from "react";
 
@@ -24,7 +24,7 @@ export const UNPAIRED: PhoneSession = {
       pairingState.set({
         kind: "failed",
         reason: "other",
-        message: "This build of the app cannot pair yet.",
+        message: "This screen has no session, so it cannot pair.",
       }),
     cancel: () => pairingState.set({ kind: "idle" }),
   },

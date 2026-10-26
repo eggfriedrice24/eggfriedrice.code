@@ -33,10 +33,11 @@
   },
   "overrides": [
     {
-      // The core, the protocol types, the connection and the store are pure TypeScript:
-      // they run in Node under Vitest, so they name no React, React Native or Expo
-      // module. The adapters to the platform live in src/*/native/ (see below).
-      "files": ["src/core/**", "src/protocol/**", "src/net/**", "src/store/**"],
+      // The core, the protocol types, the connection, the store and the session are
+      // pure TypeScript: they run in Node under Vitest, so they name no React, React
+      // Native or Expo module. The adapters to the platform live in src/*/native/ and
+      // src/session/native.ts (see below).
+      "files": ["src/core/**", "src/protocol/**", "src/net/**", "src/store/**", "src/session/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -53,7 +54,7 @@
                   "@expo/**",
                   "@/**"
                 ],
-                "message": "src/core, src/protocol, src/net and src/store are pure TypeScript: import only from them."
+                "message": "src/core, src/protocol, src/net, src/store and src/session are pure TypeScript: import only from them."
               }
             ]
           }
@@ -69,7 +70,7 @@
     },
     {
       // The adapters that give the pure code a real WebSocket, clock or database.
-      "files": ["src/net/native/**", "src/store/native/**"],
+      "files": ["src/net/native/**", "src/store/native/**", "src/session/native.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }

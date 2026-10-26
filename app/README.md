@@ -13,13 +13,17 @@ The app is a preview. It is not in the App Store.
 
 - Done and tested in Vitest: the protocol types, the WebSocket client (hello, the proof,
   the subscribe with drafts, the liveness probe, the reconnect and the backoff), the
-  store of each conversation, the pairing flow, the pacer of the streamed text, and the
-  replay of the recordings of efrd.
+  store of each conversation, the pairing flow, the session that joins them for the
+  screens (`src/session`), the pacer of the streamed text, and the replay of the
+  recordings of efrd.
 - Written, but not built yet: the screens, the Swift module of the device key and the
-  native adapters. They need an EAS build.
-- Not connected yet: the screens do not use the client, the store and the pairing flow.
-  `src/app/_layout.tsx` starts as an unpaired phone, and a dev build can open a demo
-  session. So a build cannot pair yet.
+  native adapters. They need an EAS build. Nobody ran the app on an iPhone yet.
+- `src/app/_layout.tsx` gives the screens the session of `src/session/native.ts`. It
+  reads the pairing, connects to efrd and keeps the connection up. A dev build can
+  also open a demo session, which reaches no computer.
+- The app hears of the foreground from AppState. No package of the app reports a
+  change of the network path, such as from Wi-Fi to cellular, so the client finds a
+  dead socket with its liveness rule instead.
 
 ## Layout
 
@@ -31,6 +35,7 @@ The app is a preview. It is not in the App Store.
 | `src/net/`               | The WebSocket client and the connection. `native/` holds the adapters of React Native.                |
 | `src/store/`             | The conversations, the approvals and the event cache in expo-sqlite.                                  |
 | `src/pairing/`           | The QR payload, the pairing flow, the device key store and the paired device record.                  |
+| `src/session/`           | The session of the screens over the client, the stores and the pairing flow. `native.ts` wires it.    |
 | `src/ui/`                | The screens, the transcript, the approval cards, the tool cards and the diff view.                    |
 | `src/theme/palette.ts`   | The colours of the design system.                                                                     |
 | `modules/efr-device-key` | The local Expo module of the Secure Enclave key (Swift). Its README tells what it does.               |
@@ -74,7 +79,7 @@ It runs, in this order: `pnpm install --frozen-lockfile`, `pnpm run fmt:check` (
 and `pnpm run check:protocol`. `pnpm run fmt` formats the files.
 
 The tests cover the pure code: `src/core`, `src/protocol`, `src/net`, `src/store`,
-`src/pairing`, the pure parts of `src/ui`, and the code generator. They run in Node and
+`src/pairing`, `src/session`, the pure parts of `src/ui`, and the code generator. They run in Node and
 import nothing from React Native. A test uses a fake socket and a fake clock, and never
 reaches the network.
 

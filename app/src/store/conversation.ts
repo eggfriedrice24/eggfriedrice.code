@@ -74,6 +74,12 @@ export interface ConversationStoreOptions {
   readonly onSummary?: (summary: ConversationSummary) => void;
   /** Called when the cache fails; the store goes on without it. */
   readonly onCacheError?: (error: unknown) => void;
+  /**
+   * Called with each item that the store applies, as JSON: the cached events (as
+   * `event` items) and the items of the subscription. A view can run a reducer of its
+   * own over them, such as the details of the transcript.
+   */
+  readonly onItem?: (item: unknown) => void;
 }
 
 /** The store of one conversation, and the sink of its subscription. */
@@ -121,12 +127,15 @@ export class ConversationStore implements SubscriptionSink {
       return;
     }
     let { stream, approvals, prompts } = this.view;
+    const applied: unknown[] = [];
     for (const row of rows) {
-      const envelope = parseEnvelope(row.json);
-      if (envelope !== undefined) {
+      const parsed = parseEnvelope(row.json);
+      if (parsed !== undefined) {
+        const { envelope, raw } = parsed;
         stream = reduce(stream, { kind: "event", ...envelope });
         approvals = applyApprovalEvent(approvals, envelope);
         prompts = withPrompt(prompts, envelope);
+        applied.push({ ...raw, kind: "event" });
       }
     }
     this.commit({
@@ -136,6 +145,9 @@ export class ConversationStore implements SubscriptionSink {
       prompts,
       loaded: rows.length > 0 || this.view.loaded,
     });
+    for (const item of applied) {
+      this.options.onItem?.(item);
+    }
   }
 
   /** The `after_seq` of the next subscribe: the largest sequence number seen. */
@@ -159,6 +171,7 @@ export class ConversationStore implements SubscriptionSink {
           prompts: withPrompt(view.prompts, item),
           loaded: true,
         });
+        this.options.onItem?.(raw);
         this.cache((cache) =>
           cache.append(view.conversationId, cachedEvents([withoutKind(raw)], [item.seq])),
         );
@@ -178,6 +191,7 @@ export class ConversationStore implements SubscriptionSink {
           loaded: true,
         });
         this.options.onSummary?.(item.conversation);
+        this.options.onItem?.(raw);
         const rawEvents = isJsonObject(raw) && Array.isArray(raw["events"]) ? raw["events"] : [];
         this.cache((cache) =>
           cache.replace(
@@ -195,6 +209,7 @@ export class ConversationStore implements SubscriptionSink {
         if (stream !== view.stream) {
           this.commit({ ...view, stream });
         }
+        this.options.onItem?.(raw);
         return;
       }
       default:
@@ -295,7 +310,12 @@ function cachedEvents(raws: readonly unknown[], seqs: readonly number[]): Cached
   });
 }
 
-function parseEnvelope(json: string): EventEnvelope | undefined {
+/** A cached envelope: decoded, and as JSON. */
+function parseEnvelope(
+  json: string,
+):
+  | { readonly envelope: EventEnvelope; readonly raw: Readonly<Record<string, unknown>> }
+  | undefined {
   let value: unknown;
   try {
     value = JSON.parse(json);
@@ -303,5 +323,5 @@ function parseEnvelope(json: string): EventEnvelope | undefined {
     return undefined;
   }
   const decoded = decodeEventEnvelope(value);
-  return decoded.ok ? decoded.value : undefined;
+  return decoded.ok && isJsonObject(value) ? { envelope: decoded.value, raw: value } : undefined;
 }

@@ -13,6 +13,8 @@ export interface AppStoreOptions {
   readonly cache?: EventCache;
   /** Called when the cache fails; the stores go on without it. */
   readonly onCacheError?: (error: unknown) => void;
+  /** Called with each item that the store of a conversation applies, as JSON. */
+  readonly onItem?: (conversationId: string, item: unknown) => void;
 }
 
 /** A conversation store that a screen holds; `release` lets it go. */
@@ -54,7 +56,7 @@ export class AppStore {
   hold(conversationId: string): HeldConversation {
     let open = this.open.get(conversationId);
     if (open === undefined) {
-      const store = new ConversationStore(conversationId, this.storeOptions());
+      const store = new ConversationStore(conversationId, this.storeOptions(conversationId));
       const entry: Open = { store, holders: 0, close: undefined, released: false };
       open = entry;
       this.open.set(conversationId, entry);
@@ -98,11 +100,12 @@ export class AppStore {
     }
   }
 
-  private storeOptions(): ConstructorParameters<typeof ConversationStore>[1] {
-    const { cache, onCacheError } = this.options;
+  private storeOptions(conversationId: string): ConstructorParameters<typeof ConversationStore>[1] {
+    const { cache, onCacheError, onItem } = this.options;
     return {
       ...(cache === undefined ? {} : { cache }),
       ...(onCacheError === undefined ? {} : { onCacheError }),
+      ...(onItem === undefined ? {} : { onItem: (item: unknown) => onItem(conversationId, item) }),
       onSummary: (summary) => this.conversations.upsert(summary),
     };
   }
