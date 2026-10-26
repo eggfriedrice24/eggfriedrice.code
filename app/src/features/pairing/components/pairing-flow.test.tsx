@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { PROTOCOL_VERSION } from "@/lib/protocol/generated";
 
+import { PAIRING_BOARDS } from "../model/pairing-boards";
 import type { PairingPhase } from "../model/pairing-session";
 import type { ErrorAction, PairingProblem } from "../model/pairing-view";
 import { pairedMachine } from "../model/testing";
@@ -247,6 +248,18 @@ describe("the errors (P-Errors)", () => {
       expect.stringContaining("text-mono-heading"),
     );
   });
+});
+
+describe("the boards of the dev gallery", () => {
+  it.each(PAIRING_BOARDS.map((board) => [board.name, board] as const))(
+    "renders %s in the real modal",
+    async (_name, board) => {
+      await flow(board.phase, { title: board.title, daemon: board.daemon });
+      expect(screen.getByRole("header", { name: board.title })).toBeOnTheScreen();
+      // Each board has one action at least, besides Close.
+      expect(screen.getAllByRole("button").length).toBeGreaterThanOrEqual(2);
+    },
+  );
 });
 
 describe("the no-machine root (R-NoMachine)", () => {
