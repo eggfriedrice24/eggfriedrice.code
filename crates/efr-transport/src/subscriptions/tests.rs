@@ -1,4 +1,7 @@
+use std::task::Poll;
+
 use efr_protocol::Seq;
+use futures::FutureExt as _;
 use pretty_assertions::assert_eq;
 
 use super::{
@@ -122,6 +125,36 @@ async fn a_full_lossy_room_drops_the_item_and_keeps_the_subscription() {
     // The room is free again once the subscriber read the queue.
     assert_eq!(tx.offer_lossy("later".to_owned()), LossyOffer::Queued);
     assert_eq!(rx.recv().await, Some(lossy("later")));
+}
+
+#[tokio::test]
+async fn a_wait_for_lossy_room_ends_when_the_subscriber_takes_a_lossy_item() {
+    let (mut tx, mut rx) = subscription();
+    assert_eq!(tx.lossy_room().now_or_never(), Some(()), "an empty room has a place");
+    for n in 0..LOSSY_QUEUE_FRAMES {
+        assert_eq!(tx.offer_lossy(format!("draft {n}")), LossyOffer::Queued, "draft {n}");
+    }
+    assert_eq!(tx.offer(Seq::new(1), "event 1".to_owned()), Offer::Queued);
+    let mut wait = Box::pin(tx.lossy_room());
+    assert_eq!(futures::poll!(&mut wait), Poll::Pending, "the room is full");
+
+    assert_eq!(rx.recv().await, Some(lossy("draft 0")));
+    assert_eq!(wait.await, (), "the subscriber took a lossy item");
+    assert_eq!(tx.offer_lossy("merged".to_owned()), LossyOffer::Queued);
+    assert_eq!(tx.lossy_room().now_or_never(), None, "full again");
+}
+
+#[tokio::test]
+async fn a_wait_for_lossy_room_ends_when_the_subscriber_goes_away() {
+    let (mut tx, rx) = subscription();
+    for n in 0..LOSSY_QUEUE_FRAMES {
+        assert_eq!(tx.offer_lossy(format!("draft {n}")), LossyOffer::Queued, "draft {n}");
+    }
+    let mut wait = Box::pin(tx.lossy_room());
+    assert_eq!(futures::poll!(&mut wait), Poll::Pending);
+    drop(rx);
+    wait.await;
+    assert_eq!(tx.offer_lossy("late".to_owned()), LossyOffer::Closed);
 }
 
 #[tokio::test]

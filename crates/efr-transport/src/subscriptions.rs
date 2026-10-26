@@ -16,15 +16,16 @@
 //! their own room of [`LOSSY_QUEUE_FRAMES`] items next to the room of the sequenced
 //! ones. When that room is full, the lossy item is dropped and the subscription stays
 //! open. A lossy item never takes the room of a sequenced one, so it never causes an
-//! overflow.
+//! overflow. A producer that holds back a lossy item, to merge it with the next ones,
+//! waits for a free place in the room with [`SubscriptionSender::lossy_room`].
 
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use efr_protocol::Seq;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::{Notify, mpsc};
 
 /// How many items a subscriber may have queued before its subscription is closed.
 pub const SUBSCRIBER_QUEUE_FRAMES: usize = 64;
@@ -44,6 +45,7 @@ fn bounded<T>(capacity: usize, lossy: usize) -> (SubscriptionSender<T>, Subscrip
         overflowed: AtomicBool::new(false),
         queued: AtomicUsize::new(0),
         queued_lossy: AtomicUsize::new(0),
+        lossy_taken: Notify::new(),
     });
     (
         SubscriptionSender { tx: Some(tx), shared: Arc::clone(&shared), capacity, lossy },
@@ -59,6 +61,8 @@ struct Shared {
     queued: AtomicUsize,
     /// How many lossy items wait in the queue.
     queued_lossy: AtomicUsize,
+    /// Notified each time the receiver takes a lossy item out of the queue.
+    lossy_taken: Notify,
 }
 
 /// One entry of the queue.
@@ -163,6 +167,10 @@ impl<T> SubscriptionSender<T> {
         let Some(tx) = &self.tx else {
             return LossyOffer::Closed;
         };
+        if tx.is_closed() {
+            self.tx = None;
+            return LossyOffer::Closed;
+        }
         if self.shared.queued_lossy.load(Ordering::Acquire) >= self.lossy {
             return LossyOffer::Dropped;
         }
@@ -177,6 +185,28 @@ impl<T> SubscriptionSender<T> {
                 self.shared.queued_lossy.fetch_sub(1, Ordering::AcqRel);
                 self.tx = None;
                 LossyOffer::Closed
+            }
+        }
+    }
+
+    /// Waits until the room for lossy items has a free place, so the next
+    /// [`offer_lossy`](Self::offer_lossy) queues; at once when it has one. It also
+    /// returns when the subscription closed, and then the next offer says so. It never
+    /// takes the place: only this sender offers, so the place stays free until it does.
+    pub async fn lossy_room(&self) {
+        let Some(tx) = &self.tx else {
+            return;
+        };
+        loop {
+            // NOTE: made before the check, so a take between the check and the wait
+            // still wakes it.
+            let taken = self.shared.lossy_taken.notified();
+            if self.shared.queued_lossy.load(Ordering::Acquire) < self.lossy {
+                return;
+            }
+            tokio::select! {
+                () = taken => {}
+                () = tx.closed() => return,
             }
         }
     }
@@ -242,6 +272,7 @@ impl<T> SubscriptionReceiver<T> {
             let (seq, item) = match slot {
                 Slot::Lossy(item) => {
                     self.shared.queued_lossy.fetch_sub(1, Ordering::AcqRel);
+                    self.shared.lossy_taken.notify_one();
                     return Some(Delivery::Lossy { item });
                 }
                 Slot::Sequenced(seq, item) => {

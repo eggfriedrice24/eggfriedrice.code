@@ -42,7 +42,9 @@ back into frames:
   item, such as a draft of a running turn, has no sequence number and its own room of
   16 items in the same queue, so the order of all items holds: a full room drops the
   item, and a lossy item never takes the room of a sequenced one, so it never causes
-  an overflow.
+  an overflow. `SubscriptionSender::lossy_room` waits for a free place in that room,
+  so a producer that merges the lossy items it holds back sends them as soon as the
+  subscriber reads.
 - `context`: `ConnectionContext { surface, peer, conn_id }`, carried by every
   request. The surface comes from hello. The peer is `Peer::Local(PeerCred)`, whose
   uid and pid come from the kernel, or `Peer::Remote(RemotePeer)`: the socket address
