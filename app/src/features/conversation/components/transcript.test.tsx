@@ -46,6 +46,9 @@ interface MockFlashListProps {
   readonly inverted?: boolean;
   readonly maintainVisibleContentPosition?: unknown;
   readonly onStartReached?: () => void;
+  readonly onContentSizeChange?: (width: number, height: number) => void;
+  readonly onScrollBeginDrag?: () => void;
+  readonly onScrollEndDrag?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   readonly ref?: Ref<MockListRef>;
 }
 
@@ -64,6 +67,9 @@ function MockFlashList({ ref, ...props }: MockFlashListProps) {
       testID="flash-list"
       onScroll={props.onScroll}
       onScrollToTop={props.onStartReached}
+      onContentSizeChange={props.onContentSizeChange}
+      onScrollBeginDrag={props.onScrollBeginDrag}
+      onScrollEndDrag={props.onScrollEndDrag}
       accessibilityHint={JSON.stringify({
         inverted: props.inverted ?? false,
         position: props.maintainVisibleContentPosition,
@@ -124,6 +130,30 @@ async function scrollTo(distance: number): Promise<void> {
   });
 }
 
+/** The scroll event of the fake list at `distance` from the end. */
+function scrollEvent(distance: number) {
+  return {
+    nativeEvent: {
+      contentOffset: { y: CONTENT - 800 - distance, x: 0 },
+      contentSize: { height: CONTENT, width: 402 },
+      layoutMeasurement: { height: 800, width: 402 },
+    },
+  };
+}
+
+/** The user drags the fake list to `distance` from the end and lifts the finger. */
+async function dragTo(distance: number): Promise<void> {
+  const list = screen.getByTestId("flash-list");
+  await fireEvent(list, "scrollBeginDrag");
+  await fireEvent.scroll(list, scrollEvent(distance));
+  await fireEvent(list, "scrollEndDrag", scrollEvent(distance));
+}
+
+/** The content of the fake list changes its size. */
+async function contentSizeChange(): Promise<void> {
+  await fireEvent(screen.getByTestId("flash-list"), "contentSizeChange", 402, CONTENT);
+}
+
 /** The glass of the jump button. */
 function jumpGlass() {
   return within(screen.getByTestId("jump-to-latest")).getByTestId("material-glass", {
@@ -159,7 +189,7 @@ describe("the transcript", () => {
     // The fake list gives its chat props in its hint.
     expect(JSON.parse(String(screen.getByTestId("flash-list").props.accessibilityHint))).toEqual({
       inverted: false,
-      position: { startRenderingFromBottom: true, autoscrollToBottomThreshold: 200 },
+      position: { startRenderingFromBottom: true },
     });
   });
 
@@ -279,6 +309,50 @@ describe("jump to latest", () => {
     expect(screen.getByRole("button", { name: "Jump to latest" })).toBeOnTheScreen();
     await scrollTo(100);
     expect(screen.queryByRole("button", { name: "Jump to latest" })).toBeNull();
+  });
+});
+
+describe("the end of the list", () => {
+  it("follows new content at the end, and never a row that the user opens or closes", async () => {
+    const { scope, store } = testScope(finishedTurn());
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    await contentSizeChange();
+    expect(mockScrollToEnd).toHaveBeenCalledTimes(1);
+    mockScrollToEnd.mockClear();
+    // Open the tool block, then close it: the list does not move for either.
+    const tool = screen.getByRole("button", { name: /Command cargo test, done/ });
+    await fireEvent.press(tool);
+    expect(scope.rowUi.store.get().size).toBe(1);
+    await contentSizeChange();
+    await contentSizeChange();
+    await fireEvent.press(tool);
+    await contentSizeChange();
+    expect(mockScrollToEnd).not.toHaveBeenCalled();
+    // A new event follows again.
+    await act(async () => {
+      store.setState((state) => run([eventItem(7, promptQueued(NEXT, "More."))], state));
+    });
+    await contentSizeChange();
+    expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
+  });
+
+  it("keeps the place of a reader who scrolled away, until the reader is back", async () => {
+    const { scope, store } = testScope(finishedTurn());
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    await contentSizeChange();
+    mockScrollToEnd.mockClear();
+    await dragTo(2_000);
+    await act(async () => {
+      store.setState((state) => run([eventItem(7, promptQueued(NEXT, "More."))], state));
+    });
+    await contentSizeChange();
+    expect(mockScrollToEnd).not.toHaveBeenCalled();
+    await dragTo(100);
+    await act(async () => {
+      store.setState((state) => run([eventItem(8, turnStarted(NEXT))], state));
+    });
+    await contentSizeChange();
+    expect(mockScrollToEnd).toHaveBeenCalledTimes(1);
   });
 });
 

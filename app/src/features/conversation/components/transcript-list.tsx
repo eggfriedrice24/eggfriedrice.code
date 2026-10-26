@@ -5,8 +5,10 @@
 // A FlashList 2.3.2 in chat mode, oldest row first, as t3code has it. It is not
 // inverted: on iOS 26 the scroll edge effect of the bar is drawn in the coordinates of
 // the scroll view, and on a flipped list it covered the whole list. The list starts at
-// the bottom (`startRenderingFromBottom`). New rows keep the reader's place, unless the
-// reader is within 200 pt of the end: then the list scrolls with them. The scroll view is
+// the bottom (`startRenderingFromBottom`). New content keeps the reader's place, unless
+// the reader is within 200 pt of the end: then the list scrolls with it
+// (model/list-position.ts, `createEndFollow`). A row that the user opens or closes never
+// scrolls the list, so the row stays where it is. The scroll view is
 // a KeyboardChatScrollView that lifts the content with the keyboard only when the reader
 // is at the end (`whenAtEnd`), so typing while a reply streams never pulls a reader out
 // of the history.
@@ -24,7 +26,7 @@
 //   new turn is 20 pt under the turn before it (`rowGap` of model/rows.ts).
 
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
-import { type ReactNode, type Ref, useImperativeHandle, useRef } from "react";
+import { type ReactNode, type Ref, useImperativeHandle, useRef, useState } from "react";
 import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -33,9 +35,10 @@ import {
 } from "react-native";
 import { KeyboardChatScrollView } from "react-native-keyboard-controller";
 
+import { reduceMotion } from "@/lib/native/reduce-motion";
 import { SPACING } from "@/theme/metrics";
 
-import { isNearEnd } from "../model/list-position";
+import { createEndFollow, isNearEnd, type ContentMark } from "../model/list-position";
 import { rowGap, type RowGap } from "../model/rows";
 
 /** The key of a row (model/rows.ts), unique in its transcript. */
@@ -62,6 +65,11 @@ export interface TranscriptListProps {
   /** The kind of a row, so the list reuses a view only for a row of the same kind. */
   readonly rowType: (key: RowKey) => string;
   readonly onFollowChange: (following: boolean) => void;
+  /**
+   * What the content holds now. The list reads it when the size of its content changes,
+   * to tell new content from a row that the user opened or closed.
+   */
+  readonly contentMark: () => ContentMark;
   /** The reader got near the oldest row. */
   readonly onReachTop?: () => void;
   readonly insets: TranscriptInsets;
@@ -72,10 +80,11 @@ export interface TranscriptListProps {
 const TOP_THRESHOLD = 1;
 
 /**
- * Chat mode: start at the bottom, and follow new rows while the reader is this close to
- * the end (Happy's value). The scroll to them is animated, as in a chat.
+ * Chat mode: start at the bottom. The list follows the end with its own rule
+ * (`createEndFollow`), not with `autoscrollToBottomThreshold` of FlashList, which also
+ * follows a row that gets shorter or longer.
  */
-const POSITION = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 200 } as const;
+const POSITION = { startRenderingFromBottom: true } as const;
 
 // The list passes its ref in the props (React 19), and the view passes it on.
 function ChatScroll(props: ScrollViewProps) {
@@ -106,24 +115,34 @@ export function Gap(props: GapProps) {
 export function TranscriptList({ ref, ...props }: TranscriptListProps) {
   const list = useRef<FlashListRef<RowKey>>(null);
   const following = useRef(true);
+  const [follow] = useState(createEndFollow);
   const data = props.rows;
   useImperativeHandle(ref, () => ({
     scrollToEnd: (animated) => {
+      follow.jumped();
       list.current?.scrollToEnd({ animated });
     },
     scrollToKey: (key, animated) => {
       const index = data.indexOf(key);
       if (index >= 0) {
+        follow.movedAway();
         void list.current?.scrollToIndex({ index, animated, viewPosition: 0.5 });
       }
     },
   }));
   const onFollowChange = props.onFollowChange;
+  const contentMark = props.contentMark;
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>): void => {
+    follow.scrolled(event.nativeEvent);
     const next = isNearEnd(event.nativeEvent);
     if (next !== following.current) {
       following.current = next;
       onFollowChange(next);
+    }
+  };
+  const onContentSizeChange = (): void => {
+    if (follow.contentChanged(contentMark())) {
+      list.current?.scrollToEnd({ animated: !reduceMotion() });
     }
   };
   const renderRow = props.renderRow;
@@ -143,6 +162,11 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
         paddingBottom: props.insets.bottom + SPACING.item,
       }}
       onScroll={onScroll}
+      onScrollBeginDrag={() => follow.dragStarted()}
+      onScrollEndDrag={(event) => follow.dragEnded(event.nativeEvent)}
+      onMomentumScrollBegin={() => follow.momentumStarted()}
+      onMomentumScrollEnd={(event) => follow.momentumEnded(event.nativeEvent)}
+      onContentSizeChange={onContentSizeChange}
       onStartReached={props.onReachTop}
       onStartReachedThreshold={TOP_THRESHOLD}
       scrollEventThrottle={16}

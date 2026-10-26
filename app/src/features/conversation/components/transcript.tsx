@@ -95,6 +95,15 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
           onFollowChange={(following) => {
             setLeftAt(following ? undefined : scope.store.get());
           }}
+          contentMark={() => {
+            const state = scope.store.get();
+            return {
+              seq: state.lastSeq,
+              running: runningTurn(state),
+              rows: items.length,
+              rowUi: scope.rowUi.store.get(),
+            };
+          }}
           insets={props.insets}
           {...reachTop}
         />

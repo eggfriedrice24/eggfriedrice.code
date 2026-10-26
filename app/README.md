@@ -268,8 +268,11 @@ not a test that pretends.
 ### The transcript
 
 8. The list: FlashList 2.3.2 in chat mode (not inverted, `startRenderingFromBottom`).
-   A conversation opens at its end, a new row scrolls into view while you are at the
-   end, and the keyboard lifts the content only then. Compare it with Legend List 3.6.0
+   A conversation opens at its end, a new row scrolls into view while you are within
+   200 pt of the end, and the keyboard lifts the content only then. Open a tool block
+   with "show all N lines" and close it again: the list must not move to the end, and
+   the block stays where it is on the screen (unless the list was at its very end and
+   gets shorter than the screen). Compare it with Legend List 3.6.0
    on a recorded fast stream, with the keyboard open, scrolled up, and 500 rows of
    history. Measure the largest drift and the slowest commit. Only `src/features/conversation/components/transcript-list.tsx` knows the list
    library. Legend List is not installed yet: add it before you try it.
