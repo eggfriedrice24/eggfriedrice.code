@@ -72,8 +72,8 @@ export type ClientState =
 export interface SubscriptionSink {
   /** The largest sequence number that the sink has, sent as `after_seq`. */
   cursor(): number | undefined;
-  /** One decoded item of the stream. */
-  item(item: SubscribeItem): void;
+  /** One item of the stream: decoded, and as it came on the wire (for a cache). */
+  item(item: SubscribeItem, raw: unknown): void;
   /** The subscription changed its state. */
   status?(status: SubscriptionStatus): void;
 }
@@ -369,7 +369,7 @@ export class Client {
           entry.backoff = backoffConnected(entry.backoff, this.options.clock.now());
           entry.sink.status?.({ state: "live" });
         }
-        entry.sink.item(decoded.value);
+        entry.sink.item(decoded.value, raw);
       },
       end: () => {
         if (entry.handle === handle) {
