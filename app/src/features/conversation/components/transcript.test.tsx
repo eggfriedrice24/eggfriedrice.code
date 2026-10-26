@@ -146,6 +146,27 @@ describe("the transcript", () => {
     expect(gaps).toEqual(["h-item", "h-item", "h-after-prompt"]);
   });
 
+  it("shows the whole output of a tool after a tap on show all", async () => {
+    const lines = Array.from({ length: 8 }, (_, i) => `line ${String(i + 1)}`).join("\n");
+    const { scope } = testScope(
+      run([
+        eventItem(1, promptQueued(TURN, "Run the tests.")),
+        eventItem(2, turnStarted(TURN)),
+        eventItem(3, toolCallStarted(TURN, CALL, "shell", { command: "cargo test" })),
+        eventItem(4, toolCallCompleted(TURN, CALL, lines)),
+        eventItem(5, turnCompleted(TURN)),
+      ]),
+    );
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    expect(screen.queryByText("line 1")).toBeNull();
+    expect(screen.getByText("line 8")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "show all 8 lines" }));
+    expect(screen.getByText("line 1")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "collapse" })).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "collapse" }));
+    expect(screen.queryByText("line 1")).toBeNull();
+  });
+
   it("shows the loading line until the stream has events", async () => {
     const { scope } = testScope(EMPTY_STREAM);
     await render(<Transcript scope={scope} insets={INSETS} />);

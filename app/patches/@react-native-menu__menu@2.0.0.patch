@@ -10,3 +10,52 @@ index 3d149b3e7426b8f7c999603ddf1e15e12331c33a..6816e948876d6b4370e4accfe8717571
  
  #ifdef RCT_NEW_ARCH_ENABLED
  // NEW ARCH
+diff --git a/ios/NewArch/MenuView.mm b/ios/NewArch/MenuView.mm
+index a54e619eb39e3402fa63f2ee4f734063d4f8fc58..709326afb2ad7952ff7e99779c3f9f74620250be 100644
+--- a/ios/NewArch/MenuView.mm
++++ b/ios/NewArch/MenuView.mm
+@@ -20,6 +20,7 @@ using namespace facebook::react;
+ 
+ @implementation MenuView {
+     UIView <FabricViewImplementationProtocol> * _view;
++    UIContextMenuInteraction * _longPressInteraction;
+ }
+ 
+ + (ComponentDescriptorProvider)componentDescriptorProvider
+@@ -167,6 +168,7 @@ using namespace facebook::react;
+     
+     if (oldViewProps.shouldOpenOnLongPress != newViewProps.shouldOpenOnLongPress) {
+         _view.shouldOpenOnLongPress = newViewProps.shouldOpenOnLongPress;
++        [self applyLongPressMode:newViewProps.shouldOpenOnLongPress];
+     }
+ 
+     if (oldViewProps.hitSlop.top != newViewProps.hitSlop.top ||
+@@ -184,6 +186,28 @@ using namespace facebook::react;
+     [super updateProps:props oldProps:oldProps];
+ }
+ 
++// Fabric mounts the children beside the button (the content view), and under it. So the
++// button takes every touch, and a tap never reaches a child. That is correct when a tap
++// opens the menu. When a long press opens it, a tap must reach the children: the button
++// then takes no touches, and the context menu goes on this view, which holds them.
++- (void)applyLongPressMode:(BOOL)longPress
++{
++    if (@available(iOS 14.0, *)) {
++        if (![_view conformsToProtocol:@protocol(UIContextMenuInteractionDelegate)]) {
++            return;
++        }
++        _view.userInteractionEnabled = !longPress;
++        if (longPress && _longPressInteraction == nil) {
++            _longPressInteraction = [[UIContextMenuInteraction alloc]
++                initWithDelegate:(id<UIContextMenuInteractionDelegate>)_view];
++            [self addInteraction:_longPressInteraction];
++        } else if (!longPress && _longPressInteraction != nil) {
++            [self removeInteraction:_longPressInteraction];
++            _longPressInteraction = nil;
++        }
++    }
++}
++
+ Class<RCTComponentViewProtocol> MenuViewCls(void)
+ {
+     return MenuView.class;

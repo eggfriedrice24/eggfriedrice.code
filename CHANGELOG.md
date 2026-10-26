@@ -82,6 +82,8 @@ into the GitHub release notes, and it stops when the section is missing.
   code block has its own copy button. The app asks before it opens a link, and then
   opens it in the app. An image in a reply shows as a link, and HTML shows as text, so
   a reply cannot make the phone load a URL. "Jump to latest" takes you back to the end.
+  A tap on a tool block or on "show all N lines" shows the whole output, also where
+  the block has a copy menu.
   At the top of a long conversation, the app gets the older turns from efrd and keeps
   them on the phone.
 - The composer of the phone app is a glass pill that floats over the end of the

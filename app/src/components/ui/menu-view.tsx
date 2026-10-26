@@ -7,6 +7,11 @@
 // tap goes to the view inside: the Steer/Queue capsule sends on a tap, the Copy menus of
 // the transcript let a tap toggle the block, and a row of the All conversations sheet
 // opens on a tap.
+//
+// NOTE: on Fabric the native menu view is a button that lies over its children, so
+// without help it takes every tap. Our patch of react-native-menu
+// (patches/@react-native-menu__menu@2.0.0.patch) turns the button off in long press
+// mode and puts the context menu on the view that holds the children.
 
 import { MenuView as NativeMenuView } from "@react-native-menu/menu";
 import type { ReactNode } from "react";

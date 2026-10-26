@@ -325,7 +325,11 @@ not a test that pretends.
 23. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
     inset.
 24. The input grows to 6 lines.
-25. The Steer and Queue menu opens with a long press on the capsule.
+25. The Steer and Queue menu opens with a long press on the capsule, and a tap on the
+    capsule sends. This needs the patch of react-native-menu in a new build: without it,
+    the button of a long press menu takes the taps of the views inside it. Check also
+    that a tap on a tool block and on "show all N lines" opens it, and that a tap on a
+    row of the All conversations sheet opens the conversation.
 
 ### Look and motion
 
