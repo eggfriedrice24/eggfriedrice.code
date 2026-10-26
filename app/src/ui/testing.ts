@@ -188,9 +188,19 @@ export function reconnectWithSnapshot(
     .filter((item): item is Record<string, unknown> => isRecord(item) && item["kind"] === "event");
   const lastEvent = events[events.length - 1];
   const hwm = typeof lastEvent?.["seq"] === "number" ? lastEvent["seq"] : 0;
+  const conversationId = events[0]?.["conversation_id"];
+  const stamp = typeof lastEvent?.["at"] === "string" ? lastEvent["at"] : "2026-10-26T12:00:00Z";
   const snapshot = {
     kind: "snapshot",
-    conversation: {},
+    // NOTE: the decoder of the envelope checks the summary, so it has the members that
+    // efrd always sends.
+    conversation: {
+      id: typeof conversationId === "string" ? conversationId : "",
+      status: "running",
+      created_at: stamp,
+      updated_at: stamp,
+      last_seq: hwm,
+    },
     events: events.slice(-window).map((item) => {
       const envelope: Record<string, unknown> = Object.assign({}, item);
       delete envelope["kind"];
