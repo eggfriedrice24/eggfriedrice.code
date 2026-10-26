@@ -2,7 +2,7 @@
 // end of a turn, as efr's terminal says them (`writing apply_patch 2.3 KB`, `compacting
 // context`, `done, ctx 43%`). Pure, so each state has a test.
 
-import type { TurnView } from "../core/reducer";
+import type { TurnView } from "@/lib/stream/reducer";
 import type { TranscriptDetails, TurnDetails, TurnEnd } from "./details";
 import { type ContextGauge, contextGauge, size } from "./format";
 

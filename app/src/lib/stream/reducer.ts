@@ -19,8 +19,15 @@
 // - An event with a sequence number at or below the last one seen is a duplicate of a
 //   replay and changes nothing.
 
-import { applyDelta, bufferOf, EMPTY_BUFFER, seed, type TextBuffer } from "./text_buffer";
-import type { Draft, Event, EventEnvelope, LiveTurn, SnapshotView, SubscribeItem } from "./wire";
+import { applyDelta, bufferOf, EMPTY_BUFFER, seed, type TextBuffer } from "./text-buffer";
+import type {
+  Draft,
+  Event,
+  EventEnvelope,
+  LiveTurn,
+  SnapshotView,
+  SubscribeItem,
+} from "@/lib/protocol/wire";
 
 /** One assistant message of a turn. */
 export interface MessageView {

@@ -10,7 +10,7 @@
 // Numbers: efrd sends u64 values (seq, offset, request id). The app keeps them as JS
 // numbers, which are exact up to 2^53. The envelope guard refuses a larger value.
 
-import type * as Protocol from "../protocol/generated";
+import type * as Protocol from "./generated";
 
 /** A kind that this build does not know, kept only so that the app can skip it. */
 export interface OtherKind {

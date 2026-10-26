@@ -10,7 +10,7 @@ import {
   type StreamState,
 } from "./reducer";
 import { chunked, toolCallCompleted, toolCallStarted, turnStarted } from "./testing";
-import type { DraftPart, Event, EventEnvelope, SubscribeItem } from "./wire";
+import type { DraftPart, Event, EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
 
 const TURN = "019a9b1c-3d00-7a10-8b20-000000000002";
 const AT = "2026-10-03T12:00:05Z";

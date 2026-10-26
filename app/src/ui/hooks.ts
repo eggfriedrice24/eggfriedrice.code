@@ -10,7 +10,7 @@ import {
   type FrameScheduler,
   frameGated,
   type GatedStore,
-} from "./external_store";
+} from "@/lib/store/frame-store";
 
 /**
  * The part of `store` that `select` picks. The component renders again only when the

@@ -1,6 +1,6 @@
 // Why a connection to efrd failed or closed, and what the app does about it.
 
-import type { ErrorBody } from "../protocol/generated";
+import type { ErrorBody } from "@/lib/protocol/generated";
 
 /** Why a connection failed or closed. */
 export type ConnectionErrorKind =

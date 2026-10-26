@@ -6,7 +6,7 @@
 
 import { AppState, type AppStateStatus } from "react-native";
 
-import type { Client } from "../client";
+import type { Client } from "@/lib/net/client";
 
 /** Follows AppState for `client`. Returns the function that stops it. */
 export function followAppState(client: Client): () => void {

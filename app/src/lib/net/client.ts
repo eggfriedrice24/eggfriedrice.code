@@ -19,10 +19,10 @@ import {
   backoffFailed,
   type Backoff,
   type BackoffConfig,
-} from "../core/backoff";
-import { decodeSubscribeItem } from "../core/envelope";
-import { DEFAULT_LIVENESS, replaceOnForeground, type LivenessConfig } from "../core/liveness";
-import type { SubscribeItem } from "../core/wire";
+} from "./backoff";
+import { decodeSubscribeItem } from "@/lib/protocol/envelope";
+import { DEFAULT_LIVENESS, replaceOnForeground, type LivenessConfig } from "./liveness";
+import type { SubscribeItem } from "@/lib/protocol/wire";
 import type {
   ConversationSubscribe,
   ErrorBody,
@@ -30,10 +30,10 @@ import type {
   MethodParams,
   MethodResults,
   ScopeName,
-} from "../protocol/generated";
+} from "@/lib/protocol/generated";
 import type { Clock, Timer } from "./clock";
 import { Connection, type StreamHandle, type UnaryMethodName } from "./connection";
-import type { DeviceKey } from "./device_key";
+import type { DeviceKey } from "./device-key";
 import { socketUrl, type Endpoint } from "./endpoint";
 import { ConnectionError } from "./errors";
 import type { SocketFactory } from "./socket";

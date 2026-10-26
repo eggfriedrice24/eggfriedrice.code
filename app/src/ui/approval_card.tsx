@@ -12,7 +12,7 @@ import { semantic } from "@/theme/palette";
 import { type ApprovalButton, approvalCard, nextTick, type PhoneDecision } from "./approval";
 import type { ApprovalView, TranscriptDetails } from "./details";
 import { DiffView } from "./diff_view";
-import type { ExternalStore } from "./external_store";
+import type { ExternalStore } from "@/lib/store/frame-store";
 import { useStoreSelector, useWallClock } from "./hooks";
 import { useSession } from "./session_context";
 import { BUTTON, BUTTON_OFF, BUTTON_QUIET, BUTTON_QUIET_OFF, common } from "./styles";

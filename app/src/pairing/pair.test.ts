@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { SocketFactory, SocketListener } from "../net/socket";
-import { FakeClock } from "../net/testing";
-import { base64Decode } from "../protocol/bytes";
-import { PROTOCOL_VERSION } from "../protocol/generated";
+import type { SocketFactory, SocketListener } from "@/lib/net/socket";
+import { FakeClock } from "@/lib/net/testing";
+import { base64Decode } from "@/lib/protocol/bytes";
+import { PROTOCOL_VERSION } from "@/lib/protocol/generated";
 import { deviceKeyStore } from "./device_key";
 import { cancellation, pair } from "./pair";
 import type { PairingDeps, PairingStep } from "./pair";

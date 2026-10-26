@@ -6,12 +6,12 @@
 import { memo, useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { StreamState } from "../core/reducer";
+import type { StreamState } from "@/lib/stream/reducer";
 import { semantic } from "@/theme/palette";
 
 import { ApprovalCard } from "./approval_card";
 import type { TranscriptDetails } from "./details";
-import type { ExternalStore } from "./external_store";
+import type { ExternalStore } from "@/lib/store/frame-store";
 import { useStore, useStoreSelector } from "./hooks";
 import { MessageRow } from "./message_row";
 import type { Row } from "./rows";

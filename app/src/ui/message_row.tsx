@@ -14,7 +14,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { MessageView, StreamState } from "../core/reducer";
+import type { MessageView, StreamState } from "@/lib/stream/reducer";
 import { semantic } from "@/theme/palette";
 
 import {
@@ -25,9 +25,9 @@ import {
   fenceBody,
   splitBlocks,
 } from "./blocks";
-import { copyText } from "./copy";
+import { copyText } from "@/lib/native/clipboard";
 import { DiffView } from "./diff_view";
-import type { ExternalStore } from "./external_store";
+import type { ExternalStore } from "@/lib/store/frame-store";
 import { frameNow } from "./hooks";
 import { MarkdownView } from "./markdown_view";
 import { pacedArrive, pacedFrame, type PacedText, startPaced } from "./paced_text";

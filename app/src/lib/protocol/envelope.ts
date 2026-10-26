@@ -15,7 +15,7 @@ import {
   type ErrorCode,
   type Event as KnownEvent,
   type DraftPart as KnownDraftPart,
-} from "../protocol/generated";
+} from "./generated";
 import type {
   Draft,
   DraftPart,

@@ -1,8 +1,8 @@
 // The conversation list: pages of `conversations.list`, the most recently updated first,
 // and the summaries that the snapshots of open conversations bring.
 
-import { decodeConversationSummary } from "../core/envelope";
-import type { ConversationSummary } from "../protocol/generated";
+import { decodeConversationSummary } from "@/lib/protocol/envelope";
+import type { ConversationSummary } from "@/lib/protocol/generated";
 import type { Caller } from "./conversation";
 
 /** The state of the list. */

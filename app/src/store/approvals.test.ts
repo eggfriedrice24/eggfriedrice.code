@@ -9,7 +9,7 @@ import {
   phoneDecisions,
   type ApprovalsState,
 } from "./approvals";
-import { CALL, CONVERSATION, TURN, fixtureEvent } from "./testing";
+import { CALL, CONVERSATION, TURN, fixtureEvent } from "@/lib/protocol/testing";
 
 function run(...names: [string, object?][]): ApprovalsState {
   let state = EMPTY_APPROVALS;

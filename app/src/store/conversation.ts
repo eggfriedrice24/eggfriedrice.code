@@ -9,18 +9,18 @@
 // Order on open: `hydrate` first (the cached events, so a cold start shows the transcript
 // at once), then the subscription, which resumes with `after_seq` from the cache.
 
-import { decodeEventEnvelope, isJsonObject } from "../core/envelope";
-import { EMPTY_STREAM, reduce, type StreamState } from "../core/reducer";
-import type { EventEnvelope, SubscribeItem } from "../core/wire";
-import type { SubscriptionSink, SubscriptionStatus } from "../net/client";
-import type { UnaryMethodName } from "../net/connection";
+import { decodeEventEnvelope, isJsonObject } from "@/lib/protocol/envelope";
+import { EMPTY_STREAM, reduce, type StreamState } from "@/lib/stream/reducer";
+import type { EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
+import type { SubscriptionSink, SubscriptionStatus } from "@/lib/net/client";
+import type { UnaryMethodName } from "@/lib/net/connection";
 import type {
   ApprovalDecision,
   ConversationSummary,
   MethodParams,
   MethodResults,
   Origin,
-} from "../protocol/generated";
+} from "@/lib/protocol/generated";
 import {
   EMPTY_APPROVALS,
   applyApprovalEvent,
@@ -28,7 +28,7 @@ import {
   phoneDecisions,
   type ApprovalsState,
 } from "./approvals";
-import type { CachedEvent, EventCache } from "./event_cache";
+import type { CachedEvent, EventCache } from "@/lib/store/event-cache";
 
 /** The prompt that started a turn. */
 export interface PromptView {

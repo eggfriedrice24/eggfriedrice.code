@@ -3,8 +3,8 @@
 import { randomUUID } from "expo-crypto";
 import { openDatabaseAsync } from "expo-sqlite";
 
-import type { EventCache } from "../event_cache";
-import { SqliteEventCache } from "../sqlite_cache";
+import type { EventCache } from "@/lib/store/event-cache";
+import { SqliteEventCache } from "@/lib/store/sqlite-cache";
 
 /** The file of the event cache in the app's data. It holds no secret. */
 export const CACHE_DATABASE = "efr-events.db";

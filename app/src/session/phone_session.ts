@@ -15,22 +15,22 @@
 // Every effect comes in as a parameter (src/session/native.ts gives the real ones), so
 // the session runs in Vitest with a fake socket, a fake clock and fake key stores.
 
-import { EMPTY_STREAM, type StreamState } from "../core/reducer";
-import { Client, type ClientState } from "../net/client";
-import type { Clock } from "../net/clock";
-import type { Endpoint } from "../net/endpoint";
-import { ConnectionError, ServerError } from "../net/errors";
-import type { SocketFactory } from "../net/socket";
-import { cancellation, pair, type PairingDeps, type PairingFailure } from "../pairing/pair";
-import { forgetPairing, loadPairing, type Pairing } from "../pairing/paired_device";
-import { scanPairingCode, type ScannerApi } from "../pairing/scanner";
-import type { ConversationSummary } from "../protocol/generated";
-import { AppStore, type HeldConversation } from "../store/app_store";
-import { ApprovalRefused } from "../store/conversation";
-import type { EventCache } from "../store/event_cache";
-import type { PhoneDecision } from "../ui/approval";
-import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "../ui/details";
-import { createValueStore, type ExternalStore, type ValueStore } from "../ui/external_store";
+import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
+import { Client, type ClientState } from "@/lib/net/client";
+import type { Clock } from "@/lib/net/clock";
+import type { Endpoint } from "@/lib/net/endpoint";
+import { ConnectionError, ServerError } from "@/lib/net/errors";
+import type { SocketFactory } from "@/lib/net/socket";
+import { cancellation, pair, type PairingDeps, type PairingFailure } from "@/pairing/pair";
+import { forgetPairing, loadPairing, type Pairing } from "@/pairing/paired_device";
+import { scanPairingCode, type ScannerApi } from "@/pairing/scanner";
+import type { ConversationSummary } from "@/lib/protocol/generated";
+import { AppStore, type HeldConversation } from "@/store/app_store";
+import { ApprovalRefused } from "@/store/conversation";
+import type { EventCache } from "@/lib/store/event-cache";
+import type { PhoneDecision } from "@/ui/approval";
+import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "@/ui/details";
+import { createValueStore, type ExternalStore, type ValueStore } from "@/lib/store/frame-store";
 import type {
   ActionResult,
   ConnectionView,
@@ -40,7 +40,7 @@ import type {
   PhoneSession,
   RepairReason,
   PairingFailure as ViewFailure,
-} from "../ui/session";
+} from "@/ui/session";
 
 /** The effects of the session. */
 export interface PhoneSessionDeps {

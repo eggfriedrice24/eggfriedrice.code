@@ -8,9 +8,9 @@ import { PROVE_DOMAIN, proveFields, proveMessage, type ProveFields } from "./pro
 // The frozen fixtures of efr-protocol: the same JSON that the Rust tests read.
 const fixtures = import.meta.glob<unknown>(
   [
-    "../../../crates/efr-protocol/fixtures/v1/device_prove_message.json",
-    "../../../crates/efr-protocol/fixtures/v1/hello_result_remote.json",
-    "../../../crates/efr-protocol/fixtures/v1/hello_result.json",
+    "../../../../crates/efr-protocol/fixtures/v1/device_prove_message.json",
+    "../../../../crates/efr-protocol/fixtures/v1/hello_result_remote.json",
+    "../../../../crates/efr-protocol/fixtures/v1/hello_result.json",
   ],
   { eager: true, import: "default" },
 );

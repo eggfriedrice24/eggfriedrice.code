@@ -1,7 +1,7 @@
 // Helpers for the tests of the core. Only test files import this module.
 
 import { utf8Length } from "./utf8";
-import type { EventOf } from "./wire";
+import type { EventOf } from "@/lib/protocol/wire";
 
 /** One delta of a text: `delta` at UTF-8 byte `offset`. */
 export interface Chunk {

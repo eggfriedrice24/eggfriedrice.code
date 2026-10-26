@@ -4,7 +4,7 @@
 // after the app is active again; the liveness rule then sees the whole silence and
 // closes the old socket, and the client also replaces it on the foreground.
 
-import type { Clock } from "../clock";
+import type { Clock } from "@/lib/net/clock";
 
 /** `Date.now` and `setTimeout`. */
 export const systemClock: Clock = {

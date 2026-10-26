@@ -5,13 +5,13 @@
 import { memo, useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { StreamState } from "../core/reducer";
+import type { StreamState } from "@/lib/stream/reducer";
 import { MONO_FONT } from "@/theme/markdown";
 import { semantic } from "@/theme/palette";
 
 import type { TranscriptDetails } from "./details";
 import { DiffView } from "./diff_view";
-import type { ExternalStore } from "./external_store";
+import type { ExternalStore } from "@/lib/store/frame-store";
 import { lastLines, size } from "./format";
 import { useStoreSelector } from "./hooks";
 import { COLLAPSED, EXPANDED, PLAIN } from "./styles";

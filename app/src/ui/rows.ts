@@ -4,8 +4,8 @@
 // each row object across calls and returns the same list while the keys stay the same,
 // so the list itself renders only when a row comes or goes.
 
-import type { StreamState, TurnView } from "../core/reducer";
-import { memoSelector } from "./external_store";
+import type { StreamState, TurnView } from "@/lib/stream/reducer";
+import { memoSelector } from "@/lib/store/frame-store";
 import type { TranscriptDetails, TurnDetails } from "./details";
 
 /** One row of the transcript. */

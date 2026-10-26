@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SubscribeItem } from "../core/wire";
+import type { SubscribeItem } from "@/lib/protocol/wire";
 import { Client, type ClientState, type SubscriptionSink, type SubscriptionStatus } from "./client";
 import {
   DAEMON_ID,

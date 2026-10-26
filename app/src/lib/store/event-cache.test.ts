@@ -1,13 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
-import { MemoryEventCache, type CachedEvent, type EventCache } from "./event_cache";
+import { MemoryEventCache, type CachedEvent, type EventCache } from "./event-cache";
 import {
   CACHE_SCHEMA_VERSION,
   SqliteEventCache,
   type SqlDatabase,
   type SqlValue,
-} from "./sqlite_cache";
+} from "./sqlite-cache";
 
 /** expo-sqlite's async API over Node's SQLite, for the tests. */
 class NodeDatabase implements SqlDatabase {

@@ -18,7 +18,7 @@ import {
   type ConversationSubscribeItem,
   type MethodParams,
   type MethodResults,
-} from "../src/protocol/generated";
+} from "@/lib/protocol/generated";
 
 const events = import.meta.glob<unknown>("../../crates/efr-protocol/fixtures/v1/events/*.json", {
   eager: true,

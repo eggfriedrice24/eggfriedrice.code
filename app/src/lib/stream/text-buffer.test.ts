@@ -1,7 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { applyDelta, bufferOf, EMPTY_BUFFER, MAX_PENDING_RUNS, seed } from "./text_buffer";
+import { applyDelta, bufferOf, EMPTY_BUFFER, MAX_PENDING_RUNS, seed } from "./text-buffer";
 import { utf8Length } from "./utf8";
 import { chunked, type Chunk } from "./testing";
 

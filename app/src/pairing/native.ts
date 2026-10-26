@@ -8,8 +8,8 @@ import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 
 import { EfrDeviceKey } from "../../modules/efr-device-key";
-import { systemClock } from "../net/native/clock";
-import { nativeSockets } from "../net/native/socket";
+import { systemClock } from "@/lib/native/clock";
+import { nativeSockets } from "@/lib/native/socket";
 import { deviceKeyStore } from "./device_key";
 import type { DeviceKeyStore } from "./device_key";
 import { deviceName } from "./device_name";

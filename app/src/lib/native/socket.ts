@@ -6,7 +6,7 @@
 // the handshake. React Native fires `error` and then `close`; the listener gets one
 // `closed` call for both.
 
-import { CLOSE_ABNORMAL, type SocketFactory } from "../socket";
+import { CLOSE_ABNORMAL, type SocketFactory } from "@/lib/net/socket";
 
 /** Opens a React Native WebSocket. */
 export const nativeSockets: SocketFactory = (url, listener) => {

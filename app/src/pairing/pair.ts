@@ -13,11 +13,11 @@
 // comes in as a parameter, so the flow runs in Vitest. src/pairing/native.ts gives the
 // real ones.
 
-import type { Clock } from "../net/clock";
-import { Connection } from "../net/connection";
-import { ConnectionError, ServerError } from "../net/errors";
-import type { SocketFactory } from "../net/socket";
-import { base64Encode } from "../protocol/bytes";
+import type { Clock } from "@/lib/net/clock";
+import { Connection } from "@/lib/net/connection";
+import { ConnectionError, ServerError } from "@/lib/net/errors";
+import type { SocketFactory } from "@/lib/net/socket";
+import { base64Encode } from "@/lib/protocol/bytes";
 import type { DeviceKey, DeviceKeyStore } from "./device_key";
 import { DeviceKeyError, keyFingerprint } from "./device_key";
 import { deviceName } from "./device_name";

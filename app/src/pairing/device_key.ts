@@ -5,7 +5,7 @@
 //
 // The adapter takes the native functions as a parameter, so it runs in Vitest with a fake.
 
-import { base64Decode, base64Encode } from "../protocol/bytes";
+import { base64Decode, base64Encode } from "@/lib/protocol/bytes";
 
 /** One device key. The private key never leaves the key store. */
 export interface DeviceKey {

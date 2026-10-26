@@ -2,16 +2,19 @@
 // Helpers for the tests of the store: the event fixtures of efr-protocol as envelopes and
 // subscribe items. Only test files import this module.
 
-import { decodeEventEnvelope, decodeSubscribeItem } from "../core/envelope";
-import type { EventEnvelope, SubscribeItem } from "../core/wire";
+import { decodeEventEnvelope, decodeSubscribeItem } from "./envelope";
+import type { EventEnvelope, SubscribeItem } from "./wire";
 
-const events = import.meta.glob<unknown>("../../../crates/efr-protocol/fixtures/v1/events/*.json", {
-  eager: true,
-  import: "default",
-});
+const events = import.meta.glob<unknown>(
+  "../../../../crates/efr-protocol/fixtures/v1/events/*.json",
+  {
+    eager: true,
+    import: "default",
+  },
+);
 
 const items = import.meta.glob<unknown>(
-  "../../../crates/efr-protocol/fixtures/v1/conversation_subscribe_item_*.json",
+  "../../../../crates/efr-protocol/fixtures/v1/conversation_subscribe_item_*.json",
   { eager: true, import: "default" },
 );
 

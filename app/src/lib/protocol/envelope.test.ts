@@ -8,21 +8,27 @@ import {
   decodeSubscribeItem,
   isJsonObject,
 } from "./envelope";
-import { EMPTY_STREAM, reduce } from "./reducer";
+import { EMPTY_STREAM, reduce } from "@/lib/stream/reducer";
 
 // The frozen fixtures of efr-protocol: the same JSON that the Rust tests read.
-const FIXTURES = "../../../crates/efr-protocol/fixtures/v1";
+const FIXTURES = "../../../../crates/efr-protocol/fixtures/v1";
 
-const frames = import.meta.glob<unknown>("../../../crates/efr-protocol/fixtures/v1/frames/*.json", {
-  eager: true,
-  import: "default",
-});
-const events = import.meta.glob<unknown>("../../../crates/efr-protocol/fixtures/v1/events/*.json", {
-  eager: true,
-  import: "default",
-});
+const frames = import.meta.glob<unknown>(
+  "../../../../crates/efr-protocol/fixtures/v1/frames/*.json",
+  {
+    eager: true,
+    import: "default",
+  },
+);
+const events = import.meta.glob<unknown>(
+  "../../../../crates/efr-protocol/fixtures/v1/events/*.json",
+  {
+    eager: true,
+    import: "default",
+  },
+);
 const items = import.meta.glob<unknown>(
-  "../../../crates/efr-protocol/fixtures/v1/conversation_subscribe_item_*.json",
+  "../../../../crates/efr-protocol/fixtures/v1/conversation_subscribe_item_*.json",
   { eager: true, import: "default" },
 );
 

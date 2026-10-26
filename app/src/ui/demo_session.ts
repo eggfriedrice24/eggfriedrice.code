@@ -9,11 +9,11 @@
 // It is also the example of how the store wires a subscribe stream to the screens.
 // The timers are a parameter, so the tests run it on a fake clock.
 
-import { decodeSubscribeItem } from "../core/envelope";
-import { EMPTY_STREAM, reduce } from "../core/reducer";
+import { decodeSubscribeItem } from "@/lib/protocol/envelope";
+import { EMPTY_STREAM, reduce } from "@/lib/stream/reducer";
 import type { PhoneDecision } from "./approval";
 import { EMPTY_DETAILS, reduceDetails } from "./details";
-import { createValueStore } from "./external_store";
+import { createValueStore } from "@/lib/store/frame-store";
 import {
   APPROVAL_CALL,
   DEMO_APPROVAL_TURN,

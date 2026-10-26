@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Client } from "../net/client";
+import { Client } from "@/lib/net/client";
 import {
   DAEMON_ID,
   DEVICE_ID,
@@ -10,12 +10,12 @@ import {
   completeHandshake,
   flush,
   type FakeSocket,
-} from "../net/testing";
-import type { ConversationSummary } from "../protocol/generated";
+} from "@/lib/net/testing";
+import type { ConversationSummary } from "@/lib/protocol/generated";
 import { AppStore } from "./app_store";
 import { ConversationListStore } from "./conversations";
-import { MemoryEventCache } from "./event_cache";
-import { CONVERSATION, rawEvent, rawItem } from "./testing";
+import { MemoryEventCache } from "@/lib/store/event-cache";
+import { CONVERSATION, rawEvent, rawItem } from "@/lib/protocol/testing";
 
 function summary(id: string, updatedAt: string): ConversationSummary {
   return {

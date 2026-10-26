@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { combineStores, createValueStore, frameGated, memoSelector } from "./external_store";
+import { combineStores, createValueStore, frameGated, memoSelector } from "./frame-store";
 
 /** A manual frame clock: `frame()` runs the callbacks of the next frame. */
 function manualFrames() {

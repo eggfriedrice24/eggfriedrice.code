@@ -12,9 +12,9 @@
 //
 // Only test files import this module.
 
-import { decodeSubscribeItem } from "../core/envelope";
-import { EMPTY_STREAM, type MessageView, reduce, type StreamState } from "../core/reducer";
-import { utf16IndexAtByte, utf8Length } from "../core/utf8";
+import { decodeSubscribeItem } from "@/lib/protocol/envelope";
+import { EMPTY_STREAM, type MessageView, reduce, type StreamState } from "@/lib/stream/reducer";
+import { utf16IndexAtByte, utf8Length } from "@/lib/stream/utf8";
 import { type BlockSplit, EMPTY_SPLIT, splitBlocks } from "./blocks";
 import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
 import { pacedArrive, pacedFrame, type PacedText, startPaced } from "./paced_text";

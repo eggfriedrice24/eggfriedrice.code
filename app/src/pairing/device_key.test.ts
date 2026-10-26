@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { base64Decode, base64Encode } from "../protocol/bytes";
+import { base64Decode, base64Encode } from "@/lib/protocol/bytes";
 import { DeviceKeyError, deviceKeyStore, isDerSignature, keyFingerprint } from "./device_key";
 import { FAKE_SIGNATURE, FakeKeyBinding, FIXTURE_PUBLIC_KEY } from "./testing";
 

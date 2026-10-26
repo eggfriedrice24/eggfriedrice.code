@@ -10,7 +10,7 @@ import { AccessibilityInfo, View } from "react-native";
 import { announcements } from "./announce";
 import { Composer } from "./composer";
 import { EMPTY_DETAILS, type TranscriptDetails } from "./details";
-import { combineStores } from "./external_store";
+import { combineStores } from "@/lib/store/frame-store";
 import { useFrameGated, useReduceMotion, useStore } from "./hooks";
 import { createRowBuilder } from "./rows";
 import type { ConversationSource } from "./session";

@@ -6,8 +6,8 @@
 // and never answers with `allow_always`. An approval can expire: `approval_expired`
 // says so, with `away` when the user was away. The app shows both in clear words.
 
-import type { EventEnvelope, EventOf, Snapshot } from "../core/wire";
-import type { ApprovalDecision, Origin } from "../protocol/generated";
+import type { EventEnvelope, EventOf, Snapshot } from "@/lib/protocol/wire";
+import type { ApprovalDecision, Origin } from "@/lib/protocol/generated";
 
 /** What became of an approval. */
 export type ApprovalStatus =

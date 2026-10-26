@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeSubscribeItem } from "../core/envelope";
-import { EMPTY_STREAM, reduce, type StreamState } from "../core/reducer";
+import { decodeSubscribeItem } from "@/lib/protocol/envelope";
+import { EMPTY_STREAM, reduce, type StreamState } from "@/lib/stream/reducer";
 import { EMPTY_DETAILS, reduceDetails, type TranscriptDetails } from "./details";
 import { createRowBuilder } from "./rows";
 

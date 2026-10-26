@@ -4,9 +4,9 @@
 
 import { createContext, type ReactNode, useContext } from "react";
 
-import { EMPTY_STREAM } from "../core/reducer";
+import { EMPTY_STREAM } from "@/lib/stream/reducer";
 import { EMPTY_DETAILS } from "./details";
-import { createValueStore } from "./external_store";
+import { createValueStore } from "@/lib/store/frame-store";
 import type { PairingView, PhoneSession } from "./session";
 
 const pairingState = createValueStore<PairingView>({ kind: "idle" });

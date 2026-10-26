@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_PACER_CONFIG } from "../core/pacer";
+import { DEFAULT_PACER_CONFIG } from "@/lib/stream/pacer";
 import { pacedArrive, pacedFrame, resumePaced, startPaced } from "./paced_text";
 
 const LAG = DEFAULT_PACER_CONFIG.maxLagMs;

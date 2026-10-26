@@ -14,7 +14,7 @@
 // reply, code blocks, a table, emoji and CJK text, reasoning, tool output and an
 // approval in the middle of a turn.
 
-import { utf8Length } from "../core/utf8";
+import { utf8Length } from "@/lib/stream/utf8";
 
 /** One item of a stream with the time it arrives, in ms from the start. */
 export interface TimedItem {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { UnaryMethodName } from "../net/connection";
-import type { MethodParams, MethodResults } from "../protocol/generated";
+import type { UnaryMethodName } from "@/lib/net/connection";
+import type { MethodParams, MethodResults } from "@/lib/protocol/generated";
 import { ApprovalRefused, ConversationStore, type Caller } from "./conversation";
-import { MemoryEventCache, type EventCache } from "./event_cache";
-import { CALL, CONVERSATION, TURN, item, rawEvent, rawItem } from "./testing";
+import { MemoryEventCache, type EventCache } from "@/lib/store/event-cache";
+import { CALL, CONVERSATION, TURN, item, rawEvent, rawItem } from "@/lib/protocol/testing";
 
 function feed(store: ConversationStore, raw: unknown): void {
   store.item(item(raw), raw);

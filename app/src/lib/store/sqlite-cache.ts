@@ -2,7 +2,7 @@
 // which expo-sqlite's `SQLiteDatabase` has (src/store/native/database.ts opens it), so
 // the tests run it on Node's SQLite.
 
-import { MAX_CACHED_EVENTS, type CachedEvent, type EventCache } from "./event_cache";
+import { MAX_CACHED_EVENTS, type CachedEvent, type EventCache } from "./event-cache";
 
 /** A value that SQLite binds to a `?`. */
 export type SqlValue = string | number | null;

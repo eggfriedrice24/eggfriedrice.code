@@ -19,7 +19,7 @@ import {
   pacerFrame,
   pacerJump,
   type PacerConfig,
-} from "../core/pacer";
+} from "@/lib/stream/pacer";
 
 /** The pacing state of one message row. */
 export interface PacedText {

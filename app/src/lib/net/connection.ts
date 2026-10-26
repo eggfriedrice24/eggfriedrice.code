@@ -17,15 +17,15 @@
 // answers the probe with a frame. After a longer silence the connection is dead and
 // closes, and the client connects again.
 
-import { decodeServerFrame, isJsonObject } from "../core/envelope";
+import { decodeServerFrame, isJsonObject } from "@/lib/protocol/envelope";
 import {
   DEFAULT_LIVENESS,
   liveness,
   nextLivenessCheckAt,
   type LivenessConfig,
   type LivenessState,
-} from "../core/liveness";
-import { base64Encode } from "../protocol/bytes";
+} from "./liveness";
+import { base64Encode } from "@/lib/protocol/bytes";
 import {
   PROTOCOL_VERSION,
   type ErrorBody,
@@ -36,10 +36,10 @@ import {
   type MethodResults,
   type ScopeName,
   type StreamMethodName,
-} from "../protocol/generated";
-import { proveFields, proveMessage } from "../protocol/prove";
+} from "@/lib/protocol/generated";
+import { proveFields, proveMessage } from "@/lib/protocol/prove";
 import type { Clock, Timer } from "./clock";
-import type { DeviceKey } from "./device_key";
+import type { DeviceKey } from "./device-key";
 import { ConnectionError, ServerError, asksToRepair, retryAfterMs } from "./errors";
 import { CLOSE_NORMAL, CLOSE_SILENT, type Socket, type SocketFactory } from "./socket";
 

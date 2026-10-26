@@ -15,10 +15,10 @@
 // listener, and ends the subscription when the last listener goes. So a screen follows a
 // conversation exactly while it shows it, and React may call `conversation` again.
 
-import type { StreamState } from "../core/reducer";
+import type { StreamState } from "@/lib/stream/reducer";
 import type { PhoneDecision } from "./approval";
 import type { TranscriptDetails } from "./details";
-import type { ExternalStore } from "./external_store";
+import type { ExternalStore } from "@/lib/store/frame-store";
 
 /** Why the phone has no working connection to efrd. */
 export type ConnectionView =

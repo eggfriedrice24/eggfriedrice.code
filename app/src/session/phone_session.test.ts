@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ConnectionError } from "../net/errors";
+import { ConnectionError } from "@/lib/net/errors";
 import {
   DAEMON_ID,
   DEVICE_ID,
@@ -10,16 +10,16 @@ import {
   flush,
   remoteHello,
   type FakeSocket,
-} from "../net/testing";
-import { deviceKeyStore } from "../pairing/device_key";
-import type { PairingDeps } from "../pairing/pair";
-import type { PairedDevice } from "../pairing/paired_device";
-import type { ScannerApi } from "../pairing/scanner";
-import { FakeKeyBinding, MemoryPairedDevices } from "../pairing/testing";
-import type { ConversationSummary } from "../protocol/generated";
-import { MemoryEventCache } from "../store/event_cache";
-import { CALL, CONVERSATION, rawEvent, rawItem } from "../store/testing";
-import type { ConnectionView, PairingView } from "../ui/session";
+} from "@/lib/net/testing";
+import { deviceKeyStore } from "@/pairing/device_key";
+import type { PairingDeps } from "@/pairing/pair";
+import type { PairedDevice } from "@/pairing/paired_device";
+import type { ScannerApi } from "@/pairing/scanner";
+import { FakeKeyBinding, MemoryPairedDevices } from "@/pairing/testing";
+import type { ConversationSummary } from "@/lib/protocol/generated";
+import { MemoryEventCache } from "@/lib/store/event-cache";
+import { CALL, CONVERSATION, rawEvent, rawItem } from "@/lib/protocol/testing";
+import type { ConnectionView, PairingView } from "@/ui/session";
 import { connectionView, createPhoneSession, pairingFailure, repairReason } from "./phone_session";
 
 const HOST = "100.101.102.103";

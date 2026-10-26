@@ -2,10 +2,10 @@
 // only when a test moves it, sockets that a test drives frame by frame, and a device
 // key. Only test files import this module.
 
-import { isJsonObject } from "../core/envelope";
-import type { HelloResult } from "../protocol/generated";
+import { isJsonObject } from "@/lib/protocol/envelope";
+import type { HelloResult } from "@/lib/protocol/generated";
 import type { Clock, Timer } from "./clock";
-import type { DeviceKey } from "./device_key";
+import type { DeviceKey } from "./device-key";
 import { CLOSE_ABNORMAL, type Socket, type SocketFactory, type SocketListener } from "./socket";
 
 interface FakeTimer {

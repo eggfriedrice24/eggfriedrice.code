@@ -1,7 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { utf8Length } from "../core/utf8";
+import { utf8Length } from "@/lib/stream/utf8";
 import { base64Decode, base64Encode, hex, utf8Bytes } from "./bytes";
 
 function ascii(text: string): Uint8Array {

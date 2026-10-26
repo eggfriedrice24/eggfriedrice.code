@@ -1,6 +1,6 @@
 // Fakes for the tests of pairing. Only test files import this module.
 
-import { base64Encode } from "../protocol/bytes";
+import { base64Encode } from "@/lib/protocol/bytes";
 import type { DeviceKeyBinding } from "./device_key";
 import { isJsonObject } from "./json";
 import type { PairedDevice, PairedDeviceStore } from "./paired_device";

@@ -2,10 +2,10 @@
 // on each new connection, and one store per open conversation, which shows the cache and
 // then follows the conversation while a screen holds it.
 
-import type { Client } from "../net/client";
+import type { Client } from "@/lib/net/client";
 import { ConversationStore } from "./conversation";
 import { ConversationListStore } from "./conversations";
-import type { EventCache } from "./event_cache";
+import type { EventCache } from "@/lib/store/event-cache";
 
 /** The settings of the app's stores. */
 export interface AppStoreOptions {
