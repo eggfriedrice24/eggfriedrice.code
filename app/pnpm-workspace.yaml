@@ -7,3 +7,19 @@ allowBuilds:
   # sources from npm for code highlighting. Math is off in package.json, so it downloads
   # no RaTeX.
   react-native-enriched-markdown: true
+  # jest-haste-map needs it. The prebuilt binary comes as an optional dependency, and
+  # the script only builds it from source when the binary is missing.
+  "@parcel/watcher": false
+  # jest-resolve needs it. The prebuilt binding comes as an optional dependency, and the
+  # script only downloads one when the binding is missing.
+  unrs-resolver: false
+# jest-expo brings jsdom, and pnpm then links it as the optional peer of vitest. The
+# types of vitest/config import "jsdom", and TypeScript finds the hoisted @types/jsdom,
+# which loads the DOM lib into the program of the app. Do not hoist it.
+hoistPattern:
+  - "*"
+  - "!@types/jsdom"
+# The jest tests import describe, it and expect from @jest/globals, for their types.
+# jest-expo depends on it; this makes it importable from the app.
+publicHoistPattern:
+  - "@jest/globals"
