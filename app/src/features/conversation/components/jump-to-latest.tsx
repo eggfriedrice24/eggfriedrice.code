@@ -55,7 +55,9 @@ export function JumpToLatest(props: JumpToLatestProps) {
         className="absolute right-inset"
         style={{ bottom: props.bottom + JUMP_GAP }}
       >
-        <View className="rounded-full" style={SHADOW}>
+        {/* The shadow only while it shows: a shadow on a view with no fill costs an
+            offscreen pass on each frame, and the hidden button draws nothing. */}
+        <View className="rounded-full" style={props.visible ? SHADOW : undefined}>
           <GlassButton
             symbol="arrow.down"
             symbolSize={18}

@@ -257,11 +257,15 @@ describe("jump to latest", () => {
     const { scope, store } = testScope(finishedTurn());
     await render(<Transcript scope={scope} insets={INSETS} />);
     expect(jumpGlass().props.glassEffectStyle).toEqual({ style: "none", animate: true });
+    expect(screen.getByTestId("jump-to-latest").props.children.props.style).toBeUndefined();
     await scrollTo(2_000);
     await act(async () => {
       store.setState((state) => run([eventItem(7, promptQueued(NEXT, "More."))], state));
     });
     expect(jumpGlass().props.glassEffectStyle).toEqual({ style: "regular", animate: true });
+    expect(
+      screen.getByTestId("jump-to-latest").props.children.props.style?.shadowRadius,
+    ).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Jump to latest" }).props.pointerEvents).toBe("auto");
   });
 
