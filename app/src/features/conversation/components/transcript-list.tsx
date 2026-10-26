@@ -21,7 +21,13 @@
 // - The handle (the React 19 `ref` prop) scrolls to the end, and to a row such as an
 //   approval.
 // - The transcript sits under the transparent header and above the docked composer:
-//   `insets` pads the content by their heights. The items are 12 pt apart (design item
+//   `insets` pads the content by their heights. The space under the last row is a row
+//   of its own (END_KEY), not a padding of the content: FlashList fills a short list
+//   from the top with a margin of the height of the list less its rows and the top
+//   padding, so a bottom padding made a short list taller than the screen, and the user
+//   could drag it. A list that fits does not bounce either. With the keyboard up, the
+//   inset of the keyboard makes it scroll, so a drag still closes the keyboard, and a
+//   tap on the empty space closes it too (`keyboardShouldPersistTaps="handled"`). The items are 12 pt apart (design item
 //   8.3) and 20 pt from the screen edges. The answer is 16 pt under your prompt, and a
 //   new turn is 20 pt under the turn before it (`rowGap` of model/rows.ts).
 
@@ -76,6 +82,9 @@ export interface TranscriptListProps {
   readonly ref?: Ref<TranscriptListHandle>;
 }
 
+/** The key of the space under the last row, which no row of model/rows.ts has. */
+export const END_KEY = "end";
+
 /** The top is near when the oldest row is less than one screen away. */
 const TOP_THRESHOLD = 1;
 
@@ -104,8 +113,11 @@ interface GapProps {
   readonly trailingItem: RowKey;
 }
 
-/** The space between two rows. */
+/** The space between two rows. The space under the last row has its own height. */
 export function Gap(props: GapProps) {
+  if (props.trailingItem === END_KEY) {
+    return null;
+  }
   return (
     <View testID="row-gap" className={GAP_CLASS[rowGap(props.leadingItem, props.trailingItem)]} />
   );
@@ -116,7 +128,8 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
   const list = useRef<FlashListRef<RowKey>>(null);
   const following = useRef(true);
   const [follow] = useState(createEndFollow);
-  const data = props.rows;
+  const data = [...props.rows, END_KEY];
+  const endSpace = props.insets.bottom + SPACING.item;
   useImperativeHandle(ref, () => ({
     scrollToEnd: (animated) => {
       follow.jumped();
@@ -150,17 +163,23 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
     <FlashList
       ref={list}
       data={data}
-      renderItem={({ item }) => <>{renderRow(item)}</>}
+      renderItem={({ item }) =>
+        item === END_KEY ? (
+          <View testID="list-end" style={{ height: endSpace }} />
+        ) : (
+          <>{renderRow(item)}</>
+        )
+      }
       keyExtractor={(key) => key}
-      getItemType={(key) => props.rowType(key)}
+      getItemType={(key) => (key === END_KEY ? END_KEY : props.rowType(key))}
       maintainVisibleContentPosition={POSITION}
       renderScrollComponent={ChatScroll}
       ItemSeparatorComponent={Gap}
       contentContainerStyle={{
         paddingHorizontal: SPACING.gutter,
         paddingTop: props.insets.top + SPACING.item,
-        paddingBottom: props.insets.bottom + SPACING.item,
       }}
+      alwaysBounceVertical={false}
       onScroll={onScroll}
       onScrollBeginDrag={() => follow.dragStarted()}
       onScrollEndDrag={(event) => follow.dragEnded(event.nativeEvent)}

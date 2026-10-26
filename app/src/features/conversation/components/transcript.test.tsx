@@ -45,6 +45,8 @@ interface MockFlashListProps {
   readonly ItemSeparatorComponent: ComponentType<{ leadingItem: string; trailingItem: string }>;
   readonly inverted?: boolean;
   readonly maintainVisibleContentPosition?: unknown;
+  readonly contentContainerStyle?: unknown;
+  readonly alwaysBounceVertical?: boolean;
   readonly onStartReached?: () => void;
   readonly onContentSizeChange?: (width: number, height: number) => void;
   readonly onScrollBeginDrag?: () => void;
@@ -73,6 +75,8 @@ function MockFlashList({ ref, ...props }: MockFlashListProps) {
       accessibilityHint={JSON.stringify({
         inverted: props.inverted ?? false,
         position: props.maintainVisibleContentPosition,
+        content: props.contentContainerStyle,
+        bounce: props.alwaysBounceVertical,
       })}
     >
       {props.data.map((item, index) => {
@@ -185,12 +189,24 @@ describe("the transcript", () => {
       `cell-t:${TURN}:${CALL}`,
       `cell-m:${TURN}:0`,
       `cell-e:${TURN}`,
+      "cell-end",
     ]);
     // The fake list gives its chat props in its hint.
     expect(JSON.parse(String(screen.getByTestId("flash-list").props.accessibilityHint))).toEqual({
       inverted: false,
       position: { startRenderingFromBottom: true },
+      // No bottom padding: the space under the last row is a row, so that FlashList
+      // counts it when it fills a short list, and a short list fits the screen.
+      content: { paddingHorizontal: 20, paddingTop: INSETS.top + 12 },
+      bounce: false,
     });
+    expect(screen.getByTestId("list-end").props.style).toEqual({ height: INSETS.bottom + 12 });
+    // No gap before the space under the last row.
+    expect(
+      within(screen.getByTestId(`cell-e:${TURN}`)).queryByTestId("row-gap", {
+        includeHiddenElements: true,
+      }),
+    ).toBeNull();
   });
 
   it("asks for older history when the reader gets near the start", async () => {
@@ -248,7 +264,13 @@ describe("the transcript", () => {
       />,
     );
     expect(screen.getByText("sending")).toBeOnTheScreen();
-    expect(screen.getAllByTestId(/^cell-/).at(-1)?.props.testID).toBe("cell-o:cmd-9");
+    // The space under the last row comes after it.
+    expect(
+      screen
+        .getAllByTestId(/^cell-/)
+        .slice(-2)
+        .map((cell) => cell.props.testID),
+    ).toEqual(["cell-o:cmd-9", "cell-end"]);
   });
 
   it("draws an approval with the view that the screen gives", async () => {
