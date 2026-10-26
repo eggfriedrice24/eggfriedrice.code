@@ -266,11 +266,19 @@ export class Connection {
       throw new ConnectionError("daemon_changed", "another daemon answered at this address");
     }
     this.helloResult = hello;
-    if (device === undefined) {
-      return;
+    if (device !== undefined) {
+      await this.prove(device);
     }
+  }
 
-    const fields = proveFields(hello, device.id);
+  /**
+   * Proves the key of `device` on this connection and returns the scopes that efrd
+   * granted. `open` does it when it has a device; the pairing calls it after
+   * `device.enroll` on the same connection. It rejects with a `ConnectionError`, such as
+   * `proof_refused`; efrd closes the connection after a few failed proofs.
+   */
+  async prove(device: Device): Promise<readonly ScopeName[]> {
+    const fields = proveFields(this.hello, device.id);
     if (fields === undefined) {
       throw new ConnectionError("no_prove_context", "the hello result has no facts to prove");
     }
@@ -285,6 +293,7 @@ export class Connection {
       signature: base64Encode(signature),
     };
     this.grantedScopes = scopesOf(await this.handshakeStep("device.prove", proof));
+    return this.grantedScopes;
   }
 
   /** One request of the handshake; an error answer becomes a `ConnectionError`. */

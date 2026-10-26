@@ -130,6 +130,42 @@ describe("the handshake", () => {
     expect(socket.requests("device.prove")).toEqual([]);
   });
 
+  it("pairs on one connection: hello, enroll, then the proof", async () => {
+    const parts = setup({}, true);
+    const socket = parts.sockets.last;
+    socket.open();
+    await flush();
+    socket.answer("hello", remoteHello());
+    const connection = await parts.opening;
+    const enroll = connection.call("device.enroll", {
+      token: "q83vASNFZ4mrze8BI0VniQ",
+      name: "Anna's iPhone",
+      public_key: "BAE=",
+    });
+    await flush();
+    // efrd answers only after the terminal confirms; the probes keep the socket alive.
+    await parts.clock.advance(DEFAULT_LIVENESS.probeAfterMs);
+    socket.refuse("hello", "conflict", "hello was already sent on this connection");
+    socket.answer("device.enroll", {
+      device_id: DEVICE_ID,
+      scopes: ["read", "operate", "approve"],
+    });
+    expect((await enroll).device_id).toBe(DEVICE_ID);
+
+    const proving = connection.prove({ id: DEVICE_ID, key: parts.key });
+    await flush();
+    expect(socket.requests("device.prove")[0]?.["params"]).toMatchObject({ device_id: DEVICE_ID });
+    socket.answer("device.prove", { scopes: ["read", "operate", "approve"] });
+    expect(await proving).toEqual(["read", "operate", "approve"]);
+    expect(connection.scopes).toEqual(["read", "operate", "approve"]);
+
+    const refused = connection.prove({ id: DEVICE_ID, key: parts.key });
+    await flush();
+    socket.refuse("device.prove", "unauthorized", "bad signature");
+    expect((await failure(refused)).kind).toBe("proof_refused");
+    expect(connection.closed).toBe(false);
+  });
+
   it("stops before the proof when another daemon or protocol answers", async () => {
     for (const [hello, kind] of [
       [remoteHello({ daemon_id: "019a9b1c-3d00-7a10-8b20-00000000ffff" }), "daemon_changed"],
