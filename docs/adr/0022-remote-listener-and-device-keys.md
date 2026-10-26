@@ -60,11 +60,12 @@ signed message all depend on them.
    a "re-pair needed" error, not a plain refusal.
 
 4. **An Origin rule against web pages.** The handshake accepts a missing `Origin`, or
-   exactly the origin of the listener: `http://<tailnet IPv4>:<port>`, or the same
-   with the MagicDNS name. It refuses every other value, `null` too. SocketRocket
-   always sends the origin of the URL, so the app passes. efrd serves no page, so no
-   web page has that origin. Every other request gets a plain HTTP error, never a
-   200, and efrd never reads a `Cookie` or a credential in the URL.
+   exactly the origin of the listener: `http://<tailnet IPv4>:<port>`. It refuses
+   every other value, `null` and the MagicDNS name too. SocketRocket always sends the
+   origin of the URL, and the app dials only the IPv4 address, so the app passes.
+   efrd serves no page, so no web page has that origin. Every other request gets a
+   plain HTTP error, never a 200, and efrd never reads a `Cookie` or a credential in
+   the URL.
 
 5. **A device key in the Secure Enclave, proved on each connection.** The app makes a
    P-256 key in the Secure Enclave (an Expo module of its own in `app/modules`), with
@@ -82,7 +83,7 @@ signed message all depend on them.
 6. **Pairing from the terminal, with a one-time token.** `efr device add` runs only
    over the Unix socket. It shows a QR code inline below the command line (efr is not
    a TUI) with an `efr://pair` URL: the daemon id, the tailnet address and port, the
-   MagicDNS name and a token of 144 random bits. efrd keeps only the token's SHA-256,
+   MagicDNS name (for display only) and a token of 144 random bits. efrd keeps only the token's SHA-256,
    in memory. The token is good for one phone and for 5 minutes, and too many wrong
    tokens end the open pairings. The app checks the daemon id and the protocol before
    it sends the token. The terminal shows the phone's name, its Tailscale node and
@@ -125,9 +126,9 @@ signed message all depend on them.
 - fastwebsockets has had no release for 21 months. If it breaks, tokio-websockets
   0.13.3 is the fallback; it adds one crate. tokio-tungstenite needs the `log` crate,
   so it needs a change of `deny.toml`.
-- The Origin rule also takes the MagicDNS name, which goes past the first decision
-  (the bound address only), so that the app can fall back to the name. The user
-  must confirm it.
+- The app dials only the tailnet IPv4 address, never the MagicDNS name, so the
+  Origin rule takes only the bound address. A later change of the address needs a
+  new pairing code.
 - The payload of a frame is zeroed after its decode, but not every buffer of the
   parser. So efrd must not take a password over the WebSocket, and v1 has no
   `input.respond` from a phone.

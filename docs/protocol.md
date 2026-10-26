@@ -48,7 +48,8 @@ The tailnet WebSocket:
 
 - The URL is `ws://<tailnet IPv4>:<port>/`, with the address and the port of the QR
   payload. efrd listens only on that address, and only with `[remote] enabled`. The
-  `f` member of the payload gives the MagicDNS name for a second try.
+  `f` member of the payload gives the MagicDNS name for display only: a client never
+  dials it.
 - Before efrd reads a byte, it asks tailscaled who the peer is. It closes the
   connection at once for this machine itself, a tagged node, a node that another
   tailnet shares, a node of another user and a peer that tailscaled does not know.
@@ -56,8 +57,7 @@ The tailnet WebSocket:
   in 100.64.0.0/10 or fd7a:115c:a1e0::/48, such as a host behind a subnet route.
 - The opening handshake is `GET /` over HTTP/1.1, version 13, with no query, no
   subprotocol and no extension (no permessage-deflate). The `Origin` header must be
-  absent, or `http://<tailnet IPv4>:<port>` or `http://<MagicDNS name>:<port>`
-  exactly. Every other request gets a plain HTTP error and no upgrade.
+  absent, or exactly `http://<tailnet IPv4>:<port>`. Every other request gets a plain HTTP error and no upgrade.
 - Each text message holds one JSON frame, the same frames as on the Unix socket,
   without the length prefix. A client message is at most 1 MiB, a server message at
   most 16 MiB. A binary message, a fragmented message and an unmasked client frame
@@ -883,4 +883,5 @@ No protocol version has shipped yet.
   `context` names a `tty` is `invalid`. A held reasoning draft of a slow subscriber now
   waits past the end of a message and the start of a tool call, and goes only at the
   end of its turn. efrd closes a connection from an address outside the ranges of
-  Tailscale before its whois.
+  Tailscale before its whois. The `Origin` header may no longer name the MagicDNS name
+  of the node, and the `f` member of the QR payload is for display only.

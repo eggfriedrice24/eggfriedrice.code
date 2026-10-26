@@ -169,19 +169,12 @@ export function decodePairedDevice(text: string): PairedDevice | null {
 }
 
 /**
- * The WebSocket URLs of the daemon, in the order to try: the tailnet IPv4 address, then
- * the MagicDNS name. efrd serves the WebSocket at path `/`.
+ * The WebSocket URL of the daemon: its tailnet IPv4 address and port, at path `/`. The
+ * app never dials the MagicDNS name, because efrd accepts only the Origin
+ * `http://<tailnet IPv4>:<port>`, which React Native sets from the URL.
  */
-export function daemonUrls(target: {
-  readonly host: string;
-  readonly port: number;
-  readonly fqdn?: string;
-}): string[] {
-  const urls = [`ws://${target.host}:${target.port}/`];
-  if (target.fqdn !== undefined) {
-    urls.push(`ws://${target.fqdn}:${target.port}/`);
-  }
-  return urls;
+export function daemonUrl(target: { readonly host: string; readonly port: number }): string {
+  return `ws://${target.host}:${target.port}/`;
 }
 
 /** A pairing record and its device key: what the client needs to connect and prove. */

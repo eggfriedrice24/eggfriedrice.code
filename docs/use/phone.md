@@ -232,9 +232,8 @@ To use the phone again, pair it again with `efr device add`.
   tailnets. A paired device must connect from the Tailscale node, the user and the
   tailnet that it paired from.
 - efrd refuses a web page. A request with an `Origin` header fails, unless the header
-  is the address of the listener: `http://`, the Tailscale IPv4 address or the
-  MagicDNS name of this machine, and the port. So a browser cannot reach efrd
-  through a page.
+  is the address of the listener: `http://`, the Tailscale IPv4 address of this
+  machine, and the port. So a browser cannot reach efrd through a page.
 - The phone proves its device key on each connection.
 - A revoke closes the device's connections at once, and efrd drops what it had not
   sent yet.

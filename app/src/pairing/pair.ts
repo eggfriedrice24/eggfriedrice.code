@@ -21,7 +21,7 @@ import { deviceName } from "./device_name";
 import { isJsonObject, stringArray } from "./json";
 import type { JsonObject } from "./json";
 import type { PairedDevice, PairedDeviceStore } from "./paired_device";
-import { daemonUrls } from "./paired_device";
+import { daemonUrl } from "./paired_device";
 import type { PairingCode } from "./pairing_url";
 import { parsePairingUrl } from "./pairing_url";
 
@@ -253,23 +253,11 @@ class PairingRun {
   }
 
   private async connect(): Promise<PairingConnection> {
-    let last: unknown;
-    for (const url of daemonUrls(this.code)) {
-      this.step({ step: "connecting", url });
-      const opening = PairingConnection.open(this.deps.openSocket, url, this.deps.schedule);
-      void this.closeIfLate(opening);
-      try {
-        // The addresses are tried one after the other: the first one that answers wins.
-        // oxlint-disable-next-line eslint/no-await-in-loop
-        return await this.until(opening);
-      } catch (error) {
-        if (!(error instanceof ConnectionError) || error.problem !== "unreachable") {
-          throw error;
-        }
-        last = error;
-      }
-    }
-    throw last;
+    const url = daemonUrl(this.code);
+    this.step({ step: "connecting", url });
+    const opening = PairingConnection.open(this.deps.openSocket, url, this.deps.schedule);
+    void this.closeIfLate(opening);
+    return this.until(opening);
   }
 
   /** A socket that opens after a cancel, or after the run ended, must still close. */

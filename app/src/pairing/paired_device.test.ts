@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { deviceKeyStore } from "./device_key";
 import { isJsonObject } from "./json";
 import {
-  daemonUrls,
+  daemonUrl,
   decodePairedDevice,
   encodePairedDevice,
   forgetPairing,
@@ -142,12 +142,9 @@ describe("loadPairing and forgetPairing", () => {
   });
 });
 
-describe("daemonUrls", () => {
-  it("tries the tailnet address first, then the MagicDNS name", () => {
-    expect(daemonUrls(DEVICE)).toEqual([
-      "ws://100.101.102.103:7878/",
-      "ws://desk.tail1234.ts.net:7878/",
-    ]);
-    expect(daemonUrls({ host: "100.64.0.1", port: 7419 })).toEqual(["ws://100.64.0.1:7419/"]);
+describe("daemonUrl", () => {
+  it("is the tailnet address, never the MagicDNS name", () => {
+    expect(daemonUrl(DEVICE)).toBe("ws://100.101.102.103:7878/");
+    expect(daemonUrl({ host: "100.64.0.1", port: 7419 })).toBe("ws://100.64.0.1:7419/");
   });
 });

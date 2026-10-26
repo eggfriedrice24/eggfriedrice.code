@@ -223,31 +223,11 @@ describe("pair", () => {
     },
   );
 
-  it("tries the MagicDNS name when the tailnet address does not answer", async () => {
+  it("is unreachable when the tailnet address does not answer, and never dials the name", async () => {
     const daemon = fakeDaemon(answers(), (url) => url.includes("ts.net"));
-    const { deps } = setup(daemon.open);
-    const result = await pair(CODE, deps, { name: "iPhone" });
-    expect(daemon.sockets.map((socket) => socket.url)).toEqual([
-      "ws://100.101.102.103:7878/",
-      "ws://desk.tail1234.ts.net:7878/",
-    ]);
-    expect(result.ok && result.device.host).toBe("100.101.102.103");
-  });
-
-  it("is unreachable when no address answers", async () => {
-    const both = fakeDaemon(answers(), () => false);
-    expect(await pair(CODE, setup(both.open).deps, { name: "iPhone" })).toEqual({
-      ok: false,
-      failure: { kind: "unreachable" },
-    });
-    expect(both.sockets.length).toBe(2);
-
-    const one = fakeDaemon(answers(), () => false);
-    expect(await pair(CODE_WITHOUT_NAME, setup(one.open).deps, { name: "iPhone" })).toEqual({
-      ok: false,
-      failure: { kind: "unreachable" },
-    });
-    expect(one.sockets.length).toBe(1);
+    const result = await pair(CODE, setup(daemon.open).deps, { name: "iPhone" });
+    expect(result).toEqual({ ok: false, failure: { kind: "unreachable" } });
+    expect(daemon.sockets.map((socket) => socket.url)).toEqual(["ws://100.101.102.103:7878/"]);
   });
 
   it("is unreachable when the socket never comes up", async () => {
