@@ -19,6 +19,7 @@
 - [Undo and diff](use/undo-and-diff.md)
 - [The turn view and its keys](use/turn-view.md)
 - [Models, providers and login](use/models-and-login.md)
+- [The phone app](use/phone.md)
 
 # Configuration
 
