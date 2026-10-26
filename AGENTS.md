@@ -7,6 +7,7 @@ not repeat them.
 
 - `ARCHITECTURE.md` and `CONVENTIONS.md` are binding. Read them before you change code.
 - Read the `README.md` of each crate that you change.
+- Before you change `app/`, read `app/AGENTS.md` and `app/README.md`.
 
 ## Gates
 
