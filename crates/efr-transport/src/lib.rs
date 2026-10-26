@@ -15,7 +15,8 @@
 //!   slows the producer. A lossy item, such as a draft, is dropped when its own room
 //!   of [`LOSSY_QUEUE_FRAMES`] is full, and never closes the subscription.
 //! - [`ServerCodec`]: the tokio codec over `efr_protocol::framing`.
-//! - [`ConnectionContext`]: `{ surface, uid, pid, conn_id }`, carried by every request.
+//! - [`ConnectionContext`]: `{ surface, peer, conn_id }`, carried by every request. The
+//!   [`Peer`] is local (the kernel's uid and pid) or remote (a WebSocket peer).
 //! - [`client`]: the client side for `efr`, the test daemon and later the PTY proxy:
 //!   daemon discovery, the connection, hello, calls, streams and cancellation.
 //!
@@ -37,7 +38,7 @@ mod testing;
 mod unix_listener;
 
 pub use codec::ServerCodec;
-pub use context::{ConnId, ConnectionContext, PeerCred};
+pub use context::{ConnId, ConnectionContext, Peer, PeerCred, RemotePeer};
 pub use dispatch::{Dispatcher, Request, Responder};
 pub use error::TransportError;
 pub use subscriptions::{

@@ -48,7 +48,7 @@ fn start_with(
     let shutdown = CancellationToken::new();
     let params = ConnectionParams {
         conn_id: ConnId::new(7),
-        peer: PEER,
+        peer: PEER.into(),
         dispatcher,
         clock,
         shutdown: shutdown.clone(),

@@ -41,8 +41,12 @@ back into frames:
   16 items in the same queue, so the order of all items holds: a full room drops the
   item, and a lossy item never takes the room of a sequenced one, so it never causes
   an overflow.
-- `context`: `ConnectionContext { surface, uid, pid, conn_id }`, carried by every
-  request. The uid and pid come from the kernel, the surface from hello.
+- `context`: `ConnectionContext { surface, peer, conn_id }`, carried by every
+  request. The surface comes from hello. The peer is `Peer::Local(PeerCred)`, whose
+  uid and pid come from the kernel, or `Peer::Remote(RemotePeer)`: the socket address
+  of a WebSocket peer and an opaque admission value that the daemon fills when it
+  admits the connection. A remote peer's surface is always `phone`. `ConnId::next`
+  gives the ids of every listener, so no two connections of a process share one.
 - `codec`: `ServerCodec`, the tokio codec over `efr_protocol::framing`. Because an
   `input.respond` frame carries a password, it overwrites the bytes it read with zeros
   once the push decoder has copied them, and a frame's payload once it is decoded or

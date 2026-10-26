@@ -18,7 +18,6 @@ use std::os::unix::fs::{
     DirBuilderExt as _, FileTypeExt as _, MetadataExt as _, PermissionsExt as _,
 };
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -69,7 +68,6 @@ pub struct UnixListener {
     /// The device and inode of the socket file this listener created.
     identity: (u64, u64),
     allowed_uid: u32,
-    next_conn: AtomicU64,
 }
 
 impl UnixListener {
@@ -113,13 +111,7 @@ impl UnixListener {
         }
         let metadata = fs::symlink_metadata(&path)
             .map_err(|source| TransportError::Inspect { path: path.clone(), source })?;
-        Ok(UnixListener {
-            inner,
-            path,
-            identity: (metadata.dev(), metadata.ino()),
-            allowed_uid,
-            next_conn: AtomicU64::new(1),
-        })
+        Ok(UnixListener { inner, path, identity: (metadata.dev(), metadata.ino()), allowed_uid })
     }
 
     /// The socket's path.
@@ -146,7 +138,7 @@ impl UnixListener {
         let pid = u32::try_from(credentials.pid()).ok().filter(|pid| *pid != 0);
         let peer = PeerCred::new(credentials.uid(), pid);
         authorize(peer, self.allowed_uid)?;
-        let conn_id = ConnId::new(self.next_conn.fetch_add(1, Ordering::Relaxed));
+        let conn_id = ConnId::next();
         Ok(Accepted { stream, peer, conn_id })
     }
 
@@ -179,7 +171,7 @@ impl UnixListener {
                 Ok(Accepted { stream, peer, conn_id }) => {
                     let params = ConnectionParams {
                         conn_id,
-                        peer,
+                        peer: peer.into(),
                         dispatcher: Arc::clone(&dispatcher),
                         clock: Arc::clone(&clock),
                         shutdown: stopping.child_token(),

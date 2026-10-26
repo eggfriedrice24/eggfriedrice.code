@@ -43,7 +43,7 @@ use tracing::Instrument as _;
 use crate::codec::{EncodedFrame, ServerCodec};
 use crate::dispatch::{Request, Responder, ResponseState, cancelled, terminal_frame};
 use crate::hello::{Gate, gate};
-use crate::{ConnId, ConnectionContext, Dispatcher, PeerCred, TransportError};
+use crate::{ConnId, ConnectionContext, Dispatcher, Peer, TransportError};
 
 /// How many encoded frames wait for the writer before senders wait.
 const OUTBOUND_QUEUE_FRAMES: usize = 64;
@@ -102,7 +102,7 @@ impl RequestTable {
 #[derive(Debug)]
 pub(crate) struct ConnectionParams<D> {
     pub(crate) conn_id: ConnId,
-    pub(crate) peer: PeerCred,
+    pub(crate) peer: Peer,
     pub(crate) dispatcher: Arc<D>,
     pub(crate) clock: Arc<dyn Clock>,
     /// Cancelled when the daemon shuts down.
@@ -119,9 +119,18 @@ where
     let span = tracing::info_span!(
         "connection",
         conn_id = %params.conn_id,
-        uid = params.peer.uid(),
+        uid = tracing::field::Empty,
+        remote = tracing::field::Empty,
         surface = tracing::field::Empty,
     );
+    match &params.peer {
+        Peer::Local(cred) => {
+            span.record("uid", cred.uid());
+        }
+        Peer::Remote(remote) => {
+            span.record("remote", tracing::field::display(remote.addr()));
+        }
+    }
     // The writer task is spawned in `new`, inside the span, so its events carry it too.
     let connection = {
         let _entered = span.enter();
@@ -239,7 +248,8 @@ where
     }
 
     async fn hello(&mut self, id: RequestId, hello: Hello) -> Next {
-        let context = ConnectionContext::new(self.params.conn_id, hello.origin, self.params.peer);
+        let context =
+            ConnectionContext::new(self.params.conn_id, hello.origin, self.params.peer.clone());
         let answer = tokio::select! {
             biased;
             () = self.closing.cancelled() => return Next::Close,

@@ -189,7 +189,7 @@ async fn accept_reports_the_kernel_credentials_and_numbers_connections() {
     let first = listener.accept().await.unwrap();
     let second = listener.accept().await.unwrap();
     assert_eq!(first.peer, PeerCred::new(own_uid(), Some(std::process::id())));
-    assert_eq!((first.conn_id.get(), second.conn_id.get()), (1, 2));
+    assert!(first.conn_id < second.conn_id, "{:?} then {:?}", first.conn_id, second.conn_id);
 }
 
 #[tokio::test]
