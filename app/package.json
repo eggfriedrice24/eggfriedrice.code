@@ -10,6 +10,7 @@
     "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:ui": "jest",
     "gen:protocol": "node scripts/gen-protocol.mjs",
     "check:protocol": "node scripts/gen-protocol.mjs --check"
   },
