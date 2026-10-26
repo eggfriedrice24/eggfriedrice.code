@@ -17,7 +17,8 @@ use efr_http::HttpError;
 use efr_oauth_openai::OAuthError;
 use efr_permissions::PermissionsError;
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, TurnId,
+    CallId, CommandId, ConversationId, DeviceId, ErrorBody, ErrorCode, ErrorFrame, PairEnd,
+    PairingId, PtyId, ScopeName, TurnId,
 };
 use efr_provider::ProviderError;
 use efr_providers::anthropic::AnthropicError;
@@ -618,6 +619,12 @@ pub enum DaemonError {
     /// A connection of the tailnet listener has no admission value.
     #[error("the remote connection has no admission")]
     RemoteAdmissionMissing,
+    /// A step of a device's pairing, or a change of a device, was refused.
+    #[error("{problem}")]
+    Pairing {
+        /// What was wrong.
+        problem: PairingProblem,
+    },
 }
 
 /// Why the filtered bus of a call did not start, or its self-test failed (phase E).
@@ -687,6 +694,123 @@ impl fmt::Display for KeyProblem {
     }
 }
 
+/// Why efrd refused a step of a device's pairing (`device.pair_start`,
+/// `device.enroll`, `device.pair_confirm`) or a change of a device (`device.revoke`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PairingProblem {
+    /// `[remote] enabled` is false, so no phone can reach efrd.
+    RemoteOff,
+    /// The tailnet listener is on in the config, but it does not run now.
+    NotListening,
+    /// As many pairings as efrd keeps are open.
+    TooMany,
+    /// `device.enroll` came through the Unix socket, not the tailnet listener.
+    NotRemote,
+    /// The token is wrong, used or expired.
+    BadToken,
+    /// The public key is not an uncompressed P-256 point of 65 bytes.
+    BadKey,
+    /// A value of the device has a shape that efrd does not keep, such as a name with a
+    /// control character.
+    BadField {
+        /// The value: `name`, `key_fingerprint`, `node_stable_id` or
+        /// `tailnet_stable_id`.
+        field: &'static str,
+    },
+    /// A device that is not revoked has the same key.
+    KeyInUse {
+        /// That device.
+        device_id: DeviceId,
+    },
+    /// The pairing does not wait for an answer of the terminal.
+    NotPending {
+        /// The pairing.
+        pairing_id: PairingId,
+    },
+    /// The pairing ended without a device.
+    Ended {
+        /// Why.
+        reason: PairEnd,
+    },
+    /// The phone closed its request before the terminal answered, so no device was
+    /// paired.
+    PhoneLeft,
+    /// No device has this id.
+    UnknownDevice {
+        /// The id that was given.
+        device_id: DeviceId,
+    },
+    /// The terminal said yes, but the store did not take the device.
+    NotStored,
+}
+
+impl PairingProblem {
+    /// The wire code of the problem.
+    fn code(self) -> ErrorCode {
+        match self {
+            PairingProblem::RemoteOff
+            | PairingProblem::KeyInUse { .. }
+            | PairingProblem::PhoneLeft => ErrorCode::Conflict,
+            PairingProblem::NotListening | PairingProblem::TooMany => ErrorCode::Busy,
+            PairingProblem::NotRemote | PairingProblem::Ended { .. } => ErrorCode::Forbidden,
+            PairingProblem::BadToken => ErrorCode::Unauthorized,
+            PairingProblem::BadKey | PairingProblem::BadField { .. } => ErrorCode::Invalid,
+            PairingProblem::NotPending { .. } | PairingProblem::UnknownDevice { .. } => {
+                ErrorCode::NotFound
+            }
+            PairingProblem::NotStored => ErrorCode::Internal,
+        }
+    }
+}
+
+impl fmt::Display for PairingProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PairingProblem::RemoteOff => f.write_str(
+                "the tailnet listener is off: set remote.enabled = true in config.toml, then restart efrd",
+            ),
+            PairingProblem::NotListening => f.write_str(
+                "the tailnet listener does not run now: Tailscale is not connected, or efrd waits for it",
+            ),
+            PairingProblem::TooMany => {
+                f.write_str("too many pairings are open; finish or stop one of them first")
+            }
+            PairingProblem::NotRemote => {
+                f.write_str("a device enrolls only through the tailnet listener")
+            }
+            PairingProblem::BadToken => f.write_str("the pairing token is wrong, used or expired"),
+            PairingProblem::BadKey => {
+                f.write_str("the public key is not an uncompressed P-256 point of 65 bytes")
+            }
+            PairingProblem::BadField { field } => write!(f, "the device's {field} is not valid"),
+            PairingProblem::KeyInUse { device_id } => {
+                write!(f, "the device {device_id} has this key; revoke it first")
+            }
+            PairingProblem::NotPending { pairing_id } => {
+                write!(f, "the pairing {pairing_id} does not wait for an answer")
+            }
+            PairingProblem::Ended { reason: PairEnd::Refused } => {
+                f.write_str("the terminal refused the device")
+            }
+            PairingProblem::Ended { reason: PairEnd::Expired } => {
+                f.write_str("the pairing expired before it was finished")
+            }
+            PairingProblem::Ended { reason: PairEnd::Attempts } => {
+                f.write_str("the pairing closed after too many wrong tokens")
+            }
+            PairingProblem::Ended { .. } => f.write_str("the pairing ended"),
+            PairingProblem::PhoneLeft => {
+                f.write_str("the phone left before the answer; no device was paired")
+            }
+            PairingProblem::UnknownDevice { device_id } => {
+                write!(f, "no device has the id {device_id}")
+            }
+            PairingProblem::NotStored => f.write_str("the device could not be stored"),
+        }
+    }
+}
+
 impl DaemonError {
     /// The wire code of this error.
     pub fn code(&self) -> ErrorCode {
@@ -706,6 +830,7 @@ impl DaemonError {
                 ErrorCode::Invalid
             }
             DaemonError::SandboxUnavailable { .. } => ErrorCode::Conflict,
+            DaemonError::Pairing { problem } => problem.code(),
             DaemonError::SandboxSpec { .. } => ErrorCode::Invalid,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,
             DaemonError::NoRunningTurn { .. }
@@ -852,6 +977,13 @@ impl DaemonError {
                             "starting": true,
                             "retry_after_secs": retry_after_secs,
                         }))
+                    }
+                    // NOTE: a client names the fix of a listener that is off or down.
+                    DaemonError::Pairing { problem: PairingProblem::RemoteOff } => {
+                        body.with_data(serde_json::json!({ "remote": "off" }))
+                    }
+                    DaemonError::Pairing { problem: PairingProblem::NotListening } => {
+                        body.with_data(serde_json::json!({ "remote": "not_listening" }))
                     }
                     DaemonError::ForeignModel { name, provider, .. } => {
                         body.with_data(serde_json::json!({

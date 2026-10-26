@@ -43,6 +43,7 @@ mod loosens;
 mod malloc;
 mod methods;
 mod notices;
+mod pairing;
 mod presence;
 mod proc_view;
 mod projects;
@@ -86,7 +87,7 @@ pub use efr_holder::{
 };
 pub use efr_provider::Provider;
 pub use efr_shell::ScreenFactory;
-pub use error::{BusProxyProblem, DaemonError, KeyProblem};
+pub use error::{BusProxyProblem, DaemonError, KeyProblem, PairingProblem};
 pub use malloc::init as init_malloc;
 pub use methods::SearchRowHook;
 pub use proc_view::ProcView;

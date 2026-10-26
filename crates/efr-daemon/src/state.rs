@@ -24,6 +24,7 @@ use crate::engine::EngineParts;
 use crate::full::FullTurns;
 use crate::jobs::JobTable;
 use crate::methods::SearchRowHook;
+use crate::pairing::Pairings;
 use crate::presence::PresenceTable;
 use crate::proc_view::ProcView;
 use crate::providers::Providers;
@@ -118,4 +119,6 @@ pub(crate) struct State {
     /// The remote listener of the phone app: where it listens, the live connections of
     /// each device and the feed of revokes (`remote.rs`).
     pub(crate) remote: Remote,
+    /// The open pairings of new devices, and where the tailnet listener is.
+    pub(crate) pairings: Pairings,
 }

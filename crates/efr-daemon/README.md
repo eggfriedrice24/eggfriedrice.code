@@ -685,6 +685,47 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   from the user's own terminal (`timestamp_type=global` in sudoers) is gone before the
   line runs. A hidden shell without the integration does not run such a call.
 
+### Device pairing
+
+`pairing.rs` keeps the open pairings of new devices in memory. A restart of efrd ends
+them all. One method file for each step:
+
+- `device.pair_start` (`methods/device_pair_start.rs`, scope `admin`, so only the user's
+  own process on the Unix socket) opens a pairing. It needs the tailnet listener: with
+  `[remote] enabled = false` it is `conflict` (data `{"remote": "off"}`), and while the
+  listener does not run it is `busy` (data `{"remote": "not_listening"}`). The listener
+  gives its address with `Pairings::set_endpoint`. The first item, `started`, holds the
+  QR code: the daemon id, the tailnet IPv4 and port, the MagicDNS name and a token of
+  144 random bits. efrd keeps only the SHA-256 of the token. The token is good for one
+  enroll and for 5 minutes. At most 4 pairings are open at one time (`busy`). The
+  pairing lives as long as the request: a cancel or a client that goes away ends it.
+- `device.enroll` (`methods/device_enroll.rs`, scope `read`) comes only through the
+  tailnet listener, before the proof: on the Unix socket it is `forbidden`. It reads
+  the whois facts of its connection (`pairing::EnrollPeer`) from the admission value
+  of the remote peer. It refuses a key that is not 65 bytes with `04` first
+  (`invalid`), then a wrong, used or expired token (`unauthorized`). A wrong token counts
+  while a pairing is open, and after 5 of them the next one ends every pairing that
+  waits for a phone (`attempts`). A key of a device that is not revoked is `conflict`
+  before the token is spent. Then efrd spends the token, sends `pending` to the
+  terminal (the phone's name, the node's MagicDNS name, the user's login and the key's
+  fingerprint) and waits. The terminal has until the token expires, but at least 2
+  minutes after the enroll. A phone that leaves before the answer ends the pairing
+  (`expired`).
+- `device.pair_confirm` (`methods/device_pair_confirm.rs`, scope `admin`) answers a
+  pending pairing; any other is `not_found`. A no sends `ended` (`refused`) to the
+  terminal and `forbidden` to the phone. A yes writes the row with the scopes `read`,
+  `operate` and `approve`, in a task of its own, so a terminal that goes away cannot
+  stop it between the row and the phone's answer. A phone that left while the row was
+  written gets the row revoked at once, so no device stays that no phone knows.
+- `device.list` (`methods/device_list.rs`, scope `admin`) answers every row, the
+  revoked ones too. The key and the user id stay in efrd.
+- `device.revoke` (`methods/device_revoke.rs`, scope `admin`) marks the row revoked;
+  the store sends the id to the revocation feed after the commit. A second revoke
+  answers the time of the first one, and an unknown id is `not_found`.
+- The key fingerprint is `SHA256:` and the first 8 bytes of the SHA-256 of the 65 key
+  bytes, in lowercase hex (`pairing::key_fingerprint`). The phone shows the same text.
+- `device.prove` is refused with `invalid` until the tailnet listener lands.
+
 ### The auto sandbox
 
 `sandbox.rs` and `sandbox/` hold the daemon's side of the `auto` mode (efr's auto

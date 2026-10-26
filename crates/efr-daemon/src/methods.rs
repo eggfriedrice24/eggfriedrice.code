@@ -57,6 +57,11 @@ mod conversation_subscribe;
 mod conversations_list;
 mod conversations_recent;
 mod conversations_search;
+mod device_enroll;
+mod device_list;
+mod device_pair_confirm;
+mod device_pair_start;
+mod device_revoke;
 mod hello;
 mod input_respond;
 mod jobs_list;
@@ -587,15 +592,19 @@ impl Dispatcher for Methods {
                 Method::DeviceProve(params) => {
                     crate::remote::prove::handle(state, &context, params, &responder).await
                 }
-                // NOTE: the protocol has the device methods before this daemon pairs
-                // devices; it refuses them as a daemon from before them does.
-                Method::DevicePairStart(_)
-                | Method::DevicePairConfirm(_)
-                | Method::DeviceEnroll(_)
-                | Method::DeviceList(_)
-                | Method::DeviceRevoke(_) => Err(DaemonError::InvalidParams {
-                    reason: "this efrd does not pair devices yet",
-                }),
+                Method::DevicePairStart(params) => {
+                    Box::pin(device_pair_start::handle(state, params, &responder)).await
+                }
+                Method::DevicePairConfirm(params) => {
+                    device_pair_confirm::handle(state, params, &responder).await
+                }
+                Method::DeviceEnroll(params) => {
+                    Box::pin(device_enroll::handle(state, &context, params, &responder)).await
+                }
+                Method::DeviceList(params) => device_list::handle(state, params, &responder).await,
+                Method::DeviceRevoke(params) => {
+                    device_revoke::handle(state, params, &responder).await
+                }
             };
             state.presence.record(touched).await;
             if handled.is_ok() {

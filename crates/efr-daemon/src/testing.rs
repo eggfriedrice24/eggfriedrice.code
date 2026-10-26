@@ -392,6 +392,12 @@ impl RawClient {
         id
     }
 
+    /// Sends `frame` as it is, such as a cancel.
+    pub(crate) async fn send_frame(&mut self, frame: &ClientFrame) {
+        let bytes = efr_protocol::framing::encode(frame).unwrap();
+        self.stream.write_all(&bytes).await.unwrap();
+    }
+
     pub(crate) async fn recv(&mut self) -> ServerFrame {
         loop {
             if let Some(frame) = self.frames.pop_front() {

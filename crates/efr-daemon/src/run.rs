@@ -53,6 +53,7 @@ use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
 use crate::methods::SearchRowHook;
+use crate::pairing::Pairings;
 use crate::presence::PresenceTable;
 use crate::proc_view::{ProcView, SystemProcView};
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
@@ -779,6 +780,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             .map_err(|_| DaemonError::TaskPanicked { task: "repo hints" })?
     };
     let roots = roots(&dirs, root_sources);
+    let pairings = Pairings::new(Arc::clone(&clock), Arc::clone(&rng));
     let state = Arc::new(State {
         settings: settings_sender,
         engine: engine_sender,
@@ -820,6 +822,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         search_lanes: store.search_lanes().clone(),
         search_hook,
         remote: Remote::new(&writer, remote_listen),
+        pairings,
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
