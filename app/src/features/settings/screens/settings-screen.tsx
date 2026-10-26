@@ -34,6 +34,7 @@ import { BrailleCell } from "@/components/ui/braille-cell";
 import { InsetGroup, InsetRow, SwitchRow } from "@/components/ui/inset-group";
 import { MonoText } from "@/components/ui/mono-text";
 import { showActionSheet } from "@/components/ui/native/show-action-sheet";
+import { DEV_TOOLS } from "@/lib/dev/dev-tools";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import { useReduceMotion } from "@/lib/native/reduce-motion";
@@ -181,7 +182,7 @@ function WiredSettings(props: WiredSettingsProps) {
       haptics={haptics}
       onHapticsChange={(on) => preferences.setHaptics(on)}
       onPair={() => router.push("/pair")}
-      onVersionLongPress={__DEV__ ? () => router.push(GALLERY_ROUTE) : undefined}
+      onVersionLongPress={DEV_TOOLS ? () => router.push(GALLERY_ROUTE) : undefined}
     />
   );
 }
@@ -266,7 +267,10 @@ interface VersionRowProps {
   readonly onLongPress: (() => void) | undefined;
 }
 
-/** The version of the app. In a dev build a long press opens the gallery of the screens. */
+/**
+ * The version of the app. In a dev or preview build (the dev tools) a long press opens
+ * the gallery of the screens.
+ */
 function VersionRow(props: VersionRowProps) {
   const row = <InsetRow title="Version" value={APP_VERSION} valueMono />;
   const onLongPress = props.onLongPress;

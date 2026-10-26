@@ -13,7 +13,10 @@
     },
     "preview": {
       "extends": "base",
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_EFR_DEV_TOOLS": "1"
+      }
     }
   }
 }
