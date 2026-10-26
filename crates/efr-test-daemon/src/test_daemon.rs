@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write as _;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,7 +37,9 @@ use efr_protocol::{
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
     NetworkMode, Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
 };
-use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript};
+use efr_test_support::{
+    FakeTailscaled, Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript, Wait,
+};
 use efr_transport::client::{Client, ConnectOptions, ItemStream};
 use futures::StreamExt as _;
 use jiff::tz::TimeZone;
@@ -98,6 +100,10 @@ pub const HOME_PLACEHOLDER: &str = "<HOME>";
 /// The zsh the fake holder pretends to run. Only its name matters: a `zsh` gets the
 /// efr integration, so commands are delimited by OSC 133 marks.
 const FAKE_ZSH: &str = "/usr/bin/zsh";
+
+/// The tailscaled socket of a test daemon without a fake: a name in the temporary tree
+/// that nothing binds, so the remote listener can never reach the machine's tailscaled.
+const NO_TAILSCALED: &str = "no-tailscaled.sock";
 
 /// The startup files a real zsh reads, created empty in the stand-in home so a real
 /// shell never asks to configure itself.
@@ -173,6 +179,8 @@ struct Launch {
     system_host_ports: bool,
     /// The hook in the row loop of each search.
     search_hook: Option<SearchRowHook>,
+    /// The fake tailscaled of the remote listener; `None` while it is off.
+    tailscaled: Option<Arc<FakeTailscaled>>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -192,6 +200,8 @@ pub enum PeerSide {
 pub struct TestDaemonBuilder {
     dirs: Option<Arc<TestDirs>>,
     clock: Option<TestClock>,
+    /// Start a fake tailscaled and the remote listener.
+    remote: bool,
     settings: Box<Launch>,
 }
 
@@ -213,6 +223,7 @@ impl Default for TestDaemonBuilder {
         TestDaemonBuilder {
             dirs: None,
             clock: None,
+            remote: false,
             settings: Box::new(Launch {
                 config,
                 seed: DEFAULT_SEED,
@@ -233,6 +244,7 @@ impl Default for TestDaemonBuilder {
                 procs: None,
                 system_host_ports: false,
                 search_hook: None,
+                tailscaled: None,
             }),
         }
     }
@@ -474,13 +486,27 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Turns the remote listener on (`[remote] enabled`) with a [`FakeTailscaled`] of
+    /// its own, which [`TestDaemon::tailscaled`] gives. The listener binds a free port
+    /// of `127.0.0.1` in place of the tailnet address, and the fake's whois decides
+    /// each peer, so a phone of the test connects from loopback as any node of the
+    /// tailnet ([`TestDaemon::remote_addr`]). A restart keeps the fake.
+    #[must_use]
+    pub fn remote(mut self) -> Self {
+        self.remote = true;
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
-    pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
+    pub async fn start(mut self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
             Some(dirs) => dirs,
             None => Arc::new(TestDirs::new()?),
         };
         let clock = self.clock.unwrap_or_default();
+        if self.remote {
+            self.settings.tailscaled = Some(Arc::new(FakeTailscaled::start()?));
+        }
         TestDaemon::launch(dirs, clock, self.settings, 0).await
     }
 }
@@ -537,6 +563,18 @@ impl TestDaemon {
         if !config.dbus.proxy {
             config.set_source("dbus.proxy", Source::Flag("TestDaemon"));
         }
+        // NOTE: a test daemon never reaches the machine's tailscaled: the remote
+        // listener talks to the test's fake, or to a socket that does not exist, also
+        // when a test turns `remote.enabled` on by hand. A source of its own keeps the
+        // path across a reload.
+        config.remote.tailscaled_socket = match &settings.tailscaled {
+            Some(fake) => {
+                config.remote.enabled = true;
+                fake.socket().to_path_buf()
+            }
+            None => dirs.root().join(NO_TAILSCALED),
+        };
+        config.set_source("remote.tailscaled_socket", Source::Flag("TestDaemon"));
         let shell_env = settings.shell_env.clone().unwrap_or_else(|| default_shell_env(&home));
         // NOTE: a later start draws other ids, so a restarted daemon never mints an id
         // that the first one stored.
@@ -588,6 +626,9 @@ impl TestDaemon {
         }
         if let Some(hook) = &settings.search_hook {
             deps = deps.with_search_hook(hook.clone());
+        }
+        if settings.tailscaled.is_some() {
+            deps = deps.with_remote_listen(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());
@@ -729,6 +770,33 @@ impl TestDaemon {
     /// and the stand-in home (`<HOME>`), and timestamps.
     pub fn redactor(&self) -> &Redactor {
         &self.redactor
+    }
+
+    /// The fake tailscaled of the remote listener, with
+    /// [`TestDaemonBuilder::remote`].
+    pub fn tailscaled(&self) -> Option<&FakeTailscaled> {
+        self.settings.tailscaled.as_deref()
+    }
+
+    /// Where the remote listener listens, once it does: the `tailnet_endpoint` of
+    /// `daemon.json`, a free port of `127.0.0.1` in a test daemon. It waits for the
+    /// listener with a real time limit, and does not move the clock.
+    ///
+    /// # Errors
+    ///
+    /// [`TestDaemonError::Support`] when the listener does not listen within the
+    /// limit, such as without [`TestDaemonBuilder::remote`] or while the fake says
+    /// that tailscaled is down.
+    pub async fn remote_addr(&self) -> Result<SocketAddrV4, TestDaemonError> {
+        let path = self.dirs.dirs().daemon_json_path();
+        let addr = Wait::new("the remote listener to listen")
+            .until_some(|| {
+                let text = std::fs::read(&path).ok()?;
+                let info: serde_json::Value = serde_json::from_slice(&text).ok()?;
+                info.get("tailnet_endpoint")?.as_str()?.parse().ok()
+            })
+            .await?;
+        Ok(addr)
     }
 
     /// The fake PTY holder, unless the daemon runs real shells.
