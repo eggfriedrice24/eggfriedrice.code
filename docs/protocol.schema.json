@@ -3458,7 +3458,7 @@
       "type": "object"
     },
     "Draft": {
-      "description": "A draft: part of a running turn as it arrives from the model, before the event log\nhas it.\n\nDrafts are best effort. The daemon sends at most one draft of each part per\n`conversation.draft_interval_ms` (the first one at once). It drops a draft when the\nsubscriber's queue is full, and it never closes a subscription because of a draft.\nThe events stay the source of truth: `assistant_message_updated` and\n`assistant_message_completed` carry the same text at the same offsets.",
+      "description": "A draft: part of a running turn as it arrives from the model, before the event log\nhas it.\n\nDrafts are best effort. The daemon sends at most one draft of each part per\n`conversation.draft_interval_ms` (the first one at once). When the subscriber's\nqueue is full, it merges the drafts of each part that wait and sends them at the\nnext free place (the capability `drafts_coalesced`), so a slow subscriber gets\nfewer, larger drafts with no gap. It never closes a subscription because of a draft.\nThe events stay the source of truth: `assistant_message_updated` and\n`assistant_message_completed` carry the same text at the same offsets.",
       "properties": {
         "after_seq": {
           "$ref": "#/$defs/Seq",

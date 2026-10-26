@@ -55,8 +55,10 @@ pub enum ConversationSubscribeItem {
 /// has it.
 ///
 /// Drafts are best effort. The daemon sends at most one draft of each part per
-/// `conversation.draft_interval_ms` (the first one at once). It drops a draft when the
-/// subscriber's queue is full, and it never closes a subscription because of a draft.
+/// `conversation.draft_interval_ms` (the first one at once). When the subscriber's
+/// queue is full, it merges the drafts of each part that wait and sends them at the
+/// next free place (the capability `drafts_coalesced`), so a slow subscriber gets
+/// fewer, larger drafts with no gap. It never closes a subscription because of a draft.
 /// The events stay the source of truth: `assistant_message_updated` and
 /// `assistant_message_completed` carry the same text at the same offsets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
