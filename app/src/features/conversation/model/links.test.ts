@@ -28,6 +28,10 @@ describe("linkAction", () => {
       "https://",
       "https://a b.com",
       "https://a.com/\u0000",
+      "https://evil.example\\@good.example/",
+      "https://evil.example\\.good.example/",
+      "https://\u202eelpmaxe.lived/",
+      "https://good.example\u2060.evil.example/",
     ]) {
       expect({ url, kind: linkAction(url).kind }).toEqual({ url, kind: "refuse" });
     }

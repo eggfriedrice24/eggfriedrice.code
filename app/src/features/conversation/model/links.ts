@@ -17,6 +17,9 @@ export type LinkAction =
 
 const OPEN_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
+/** Format characters with no width, and the marks and overrides of the text direction. */
+const INVISIBLE = /[\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
+
 /** The action for a tap on a link to `url`. */
 export function linkAction(url: string): LinkAction {
   const trimmed = url.trim();
@@ -33,6 +36,16 @@ export function linkAction(url: string): LinkAction {
   }
   if (hasSpaceOrControl(trimmed)) {
     return { kind: "refuse", url: trimmed, reason: "The link has spaces or control characters." };
+  }
+  // Safari reads `\` as `/`, so `https://evil.example\@good.example/` opens evil.example,
+  // but the title would name good.example. An invisible character can hide or turn the
+  // host around in the title too.
+  if (trimmed.includes("\\") || INVISIBLE.test(trimmed)) {
+    return {
+      kind: "refuse",
+      url: trimmed,
+      reason: "The link has characters that can hide its host.",
+    };
   }
   if (scheme === "mailto:") {
     return { kind: "confirm", url: trimmed, host: "" };
