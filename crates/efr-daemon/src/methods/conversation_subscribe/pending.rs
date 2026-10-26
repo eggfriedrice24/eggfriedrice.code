@@ -165,6 +165,24 @@ impl PendingDrafts {
             }));
         }
     }
+
+    /// The start of the subscription showed `live`, the live parts of the running
+    /// turn, whole: the text and the reasoning go on past them, so a draft that repeats
+    /// their bytes is cut to the new ones. The input of each tool call, which the
+    /// start does not show, is held.
+    pub(super) fn shown(&mut self, conversation_id: efr_protocol::ConversationId, live: LiveTurn) {
+        let LiveTurn { turn_id, after_seq, index, text, reasoning, tools, .. } = live;
+        self.text = Some((turn_id, index, text.len() as u64));
+        self.reasoning = Some((turn_id, reasoning.len() as u64));
+        for tool in tools {
+            self.push(ConversationDraft {
+                conversation_id,
+                turn_id,
+                after_seq,
+                part: DraftPart::ToolInput { call: tool.call, tool: tool.tool, bytes: tool.bytes },
+            });
+        }
+    }
 }
 
 /// `delta` at `offset` without the bytes before `end`, the end of what went already;

@@ -36,6 +36,14 @@
 //! live side; it then builds them again from the turn's live parts
 //! (`ConversationHandle::live_turn`). So a slow subscriber gets fewer, larger drafts,
 //! and every byte of the text and the reasoning of the running message.
+//!
+//! A snapshot carries the live parts of the running turn (`live`): the text of the
+//! message that streams and the reasoning of the turn so far, which the log does not
+//! have yet. The handler reads them after the start, and after the draft channel when
+//! the subscription has drafts, so a client that joins in the middle of a message
+//! shows them at once and every later draft goes on past them: a draft that repeats
+//! their bytes is cut to the new ones. A replay has no place for them, so a
+//! subscription with drafts gets them as its first drafts, after the replay.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -123,7 +131,7 @@ pub(crate) async fn handle(
     };
     let _producer = AbortOnDrop(tokio::spawn(live.produce(drafts, cancelled)));
     let after = params.after_seq;
-    let start = state
+    let mut start = state
         .readers
         .with(move |conn| {
             let Some(summary) = efr_store::conversations::get(conn, conversation_id)? else {
@@ -163,8 +171,13 @@ pub(crate) async fn handle(
             .live(conversation_id)
             .map(|handle| handle.live_drafts())
             .unwrap_or_default();
-        let _ =
-            feed.send(DraftFeed { receiver, held, rebuild: live_parts(state, conversation_id) });
+        // NOTE: read after the subscription too, so every draft that comes later
+        // continues what the start shows.
+        let live = show_live(&mut start, running(state, conversation_id));
+        let rebuild = live_parts(state, conversation_id);
+        let _ = feed.send(DraftFeed { receiver, held, rebuild, live });
+    } else {
+        show_live(&mut start, running(state, conversation_id));
     }
     for item in start.items {
         responder.item(&item).await?;
@@ -189,6 +202,61 @@ pub(crate) struct Start {
     pub(crate) hwm: Seq,
 }
 
+/// What the current model call of `conversation_id`'s running turn streamed so far;
+/// `None` when no turn runs or its first model call has not started.
+fn running(state: &State, conversation_id: ConversationId) -> Option<LiveTurn> {
+    state.conversations.live(conversation_id).and_then(|handle| handle.live_turn())
+}
+
+/// Puts `live`, the live parts of the running turn, in the snapshot of `start`, so a
+/// client that joins in the middle of a message shows its text and reasoning so far.
+/// A replay has no place for them: they go as the first drafts. Returns what the live
+/// side does with them.
+fn show_live(start: &mut Start, live: Option<LiveTurn>) -> LiveStart {
+    let Some(live) = live else {
+        return LiveStart::Nothing;
+    };
+    let snapshot = start.items.iter_mut().find_map(|item| match item {
+        ConversationSubscribeItem::Snapshot(snapshot) => Some(snapshot),
+        _ => None,
+    });
+    match snapshot {
+        Some(snapshot) => {
+            snapshot.live = Some(wire_live(&live));
+            LiveStart::Shown(live)
+        }
+        None => LiveStart::Draft(live),
+    }
+}
+
+/// The wire form of `live`: the text of its current message and the reasoning of its
+/// turn, each whole. The input of its tool calls goes as drafts.
+fn wire_live(live: &LiveTurn) -> efr_protocol::LiveTurn {
+    efr_protocol::LiveTurn {
+        turn_id: live.turn_id,
+        after_seq: live.after_seq,
+        index: live.index,
+        text: live.text.clone(),
+        text_bytes: live.text_bytes(),
+        reasoning: (!live.reasoning.is_empty()).then(|| live.reasoning.clone()),
+        reasoning_title: live.title.clone(),
+    }
+}
+
+/// What the start of a subscription did with the live parts of the running turn,
+/// read after its draft channel.
+#[derive(Debug)]
+enum LiveStart {
+    /// No model call of a turn runs.
+    Nothing,
+    /// The snapshot carries them: the drafts go on past them.
+    Shown(LiveTurn),
+    /// A replay has no place for them: they go first, as drafts, so a client that
+    /// resumes in the middle of a message gets the reasoning and the text that the log
+    /// does not have yet.
+    Draft(LiveTurn),
+}
+
 /// The draft channel of a subscription that asked for drafts, subscribed after the
 /// read of its start.
 #[derive(Debug)]
@@ -200,6 +268,8 @@ struct DraftFeed {
     held: Vec<ConversationDraft>,
     /// Reads the live parts of the running turn, for the drafts that the channel lost.
     rebuild: Rebuild,
+    /// What the start did with the live parts of the running turn.
+    live: LiveStart,
 }
 
 /// Reads what the running turn of a conversation streamed so far and its status
@@ -268,7 +338,7 @@ impl Live {
                 batch = self.committed.recv() => Step::Batch(batch),
                 fed = &mut feed, if feed_open => {
                     feed_open = false;
-                    let Ok(DraftFeed { receiver, held, rebuild }) = fed else {
+                    let Ok(DraftFeed { receiver, held, rebuild, live }) = fed else {
                         continue;
                     };
                     self.drafts = Some(receiver);
@@ -277,6 +347,9 @@ impl Live {
                         if !self.forward_draft(draft) {
                             return;
                         }
+                    }
+                    if !self.start_live(live) {
+                        return;
                     }
                     continue;
                 }
@@ -356,6 +429,30 @@ impl Live {
             return true;
         }
         self.pending.push(draft);
+        self.flush()
+    }
+
+    /// Takes what the start did with the live parts of the running turn, after the
+    /// commits that wait: it holds them as shown, or offers them as drafts; false when
+    /// the subscription ended.
+    fn start_live(&mut self, live: LiveStart) -> bool {
+        let conversation_id = self.conversation_id;
+        match live {
+            LiveStart::Nothing => return true,
+            LiveStart::Shown(live) => {
+                if !self.catch_up() {
+                    return false;
+                }
+                self.pending.shown(conversation_id, live);
+            }
+            LiveStart::Draft(live) => {
+                if !self.catch_up() {
+                    return false;
+                }
+                self.pending.rebuild(conversation_id, Some(live), Vec::new());
+            }
+        }
+        self.pending.drop_before(self.boundary);
         self.flush()
     }
 

@@ -1,8 +1,9 @@
 //! Drafts on `conversation.subscribe` over a `TestDaemon`: they reach only a
 //! subscriber that asked for them, after the events that the turn recorded before
 //! them, within 35 ms at the 95th percentile; the log is the same with and without
-//! them; and a slow subscriber gets merged drafts with every byte of the text and
-//! keeps its subscription.
+//! them; a slow subscriber gets merged drafts with every byte of the text and keeps
+//! its subscription; and a client that joins in the middle of a message gets its text
+//! so far, in the snapshot or as the first draft of a resume.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -491,4 +492,70 @@ async fn subscribe_quietly(
     conversation_id: ConversationId,
 ) -> (ItemStream<ConversationSubscribeItem>, Seq) {
     subscribe(client, conversation_id, false).await
+}
+
+/// Starts a subscription of `client` to `conversation_id` and returns it with its
+/// first item.
+async fn first_item(
+    client: &Client,
+    conversation_id: ConversationId,
+    after_seq: Option<Seq>,
+    drafts: bool,
+) -> (ItemStream<ConversationSubscribeItem>, Option<ConversationSubscribeItem>) {
+    let params = ConversationSubscribe { conversation_id, after_seq, answers_input: false, drafts };
+    let mut stream = client.stream(Method::ConversationSubscribe(params)).await.unwrap();
+    let first = stream.next().await.map(Result::unwrap);
+    (stream, first)
+}
+
+#[tokio::test]
+async fn a_client_that_joins_in_the_middle_of_a_message_gets_its_text_so_far() {
+    let deltas = ["Hëllo ", "wörld, ", "日本語 ", "👩‍👩‍👧 ", "done"];
+    let model = Streamer::held(deltas.iter().map(|delta| (*delta).to_owned()).collect());
+    let whole = model.text();
+    let end = whole.len() as u64;
+    let (daemon, client, conversation_id) = prompted(&model, 0).await;
+    let (mut first, hwm) = subscribe(&client, conversation_id, true).await;
+    model.go.notify_one();
+    // Once this subscriber holds every byte as drafts, the turn's live parts hold them.
+    let mut seen = Seen::after(hwm);
+    let holds_all =
+        |seen: &Seen| seen.texts.last().is_some_and(|(at, delta)| at + delta.len() as u64 == end);
+    seen.read(&mut first, holds_all).await;
+
+    // A snapshot in the middle of the message holds its text so far.
+    let (late, item) = first_item(&client, conversation_id, None, false).await;
+    let Some(ConversationSubscribeItem::Snapshot(snapshot)) = item else {
+        panic!("a subscription without after_seq starts with a snapshot: {item:?}");
+    };
+    let live = snapshot.live.expect("the snapshot holds the message that streams");
+    assert_eq!((live.index, live.text.as_str(), live.text_bytes), (0, whole.as_str(), end));
+    assert_eq!((live.reasoning, live.reasoning_title), (None, None), "the model sent none");
+
+    // A resume with drafts has no snapshot: its first text draft holds the text so far.
+    let (mut resumed, mut item) =
+        first_item(&client, conversation_id, Some(snapshot.hwm), true).await;
+    let text = loop {
+        match item {
+            Some(ConversationSubscribeItem::Draft(draft)) => {
+                if let DraftPart::Text { index, offset, delta } = draft.draft {
+                    break (index, offset, delta);
+                }
+            }
+            Some(ConversationSubscribeItem::Event(_)) => {}
+            other => panic!("a resume gets events and drafts: {other:?}"),
+        }
+        item = resumed.next().await.map(Result::unwrap);
+    };
+    assert_eq!(text, (0, 0, whole.clone()));
+
+    model.end.notify_one();
+    read_turn(&mut first, hwm).await;
+    let (ended, item) = first_item(&client, conversation_id, None, false).await;
+    let Some(ConversationSubscribeItem::Snapshot(snapshot)) = item else {
+        panic!("a snapshot: {item:?}");
+    };
+    assert_eq!(snapshot.live, None, "no turn runs");
+    drop((first, late, resumed, ended, client));
+    daemon.stop().await.unwrap();
 }
