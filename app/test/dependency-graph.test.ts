@@ -5,9 +5,10 @@
 //   features/<name>, lib/<name>, components/<name>, theme or app.
 // - Layers: lib and theme import nothing from features, components or the routes;
 //   components import only lib, theme and components; a feature imports lib, theme,
-//   components and only the model/, *-queries.ts and use-*.ts of another feature; a
-//   route imports only screens/ and model/ of the features (the root _layout.tsx can
-//   import more, for the providers); nothing imports a route.
+//   components and only the model/, *-queries.ts and use-*.ts of another feature (the
+//   demo feature, the dev gallery that shows every screen and component, imports any
+//   of them); a route imports only screens/ and model/ of the features (the root
+//   _layout.tsx can import more, for the providers); nothing imports a route.
 // - No import cycle, and no barrel (index.ts) outside the routes.
 // - zod: only src/lib/protocol/generated-zod.ts and model/*-schemas.ts call `z.`.
 //
@@ -170,7 +171,7 @@ function layerViolation(from: string, to: string): string | undefined {
     case "components":
       return target[1] === "features" ? "components import nothing from features" : undefined;
     case "features": {
-      if (target[1] !== "features" || target[2] === source[2]) {
+      if (target[1] !== "features" || target[2] === source[2] || source[2] === "demo") {
         return undefined;
       }
       const inner = target.slice(3);
@@ -367,6 +368,11 @@ describe("the rules of the dependency graph", () => {
           "@/components/ui/c",
         ],
         "src/app/_layout.tsx": ["@/features/machines/use-machines", "@/app/settings"],
+        "src/features/demo/screens/gallery.tsx": [
+          "@/features/settings/screens/settings-screen",
+          "@/features/conversation/components/transcript",
+          "@/app/settings",
+        ],
       }),
     );
     expect(found).toEqual([
@@ -378,6 +384,7 @@ describe("the rules of the dependency graph", () => {
       'src/features/settings/screens/s.tsx: "@/features/machines/native/n": a feature imports only the model/, *-queries.ts and use-*.ts of another feature',
       'src/app/settings.tsx: "@/components/ui/c": a route imports only the screens/ and model/ of the features',
       'src/app/_layout.tsx: "@/app/settings": nothing imports a route',
+      'src/features/demo/screens/gallery.tsx: "@/app/settings": nothing imports a route',
     ]);
   });
 
