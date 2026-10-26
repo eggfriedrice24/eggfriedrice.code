@@ -18,7 +18,9 @@ back into frames:
   A missing socket directory is created with mode 0700. Every accepted peer's uid, from `SO_PEERCRED`, must be the daemon's own.
   A stale socket is replaced; a socket that answers is never taken over. `serve` runs
   one task per connection and, on shutdown, cancels everything and removes the file.
-- `connection`: the per-connection loop. It owns the request-id table: every request
+- `connection`: the per-connection loop, over a `FrameSource` and a `FrameSink`: the
+  Unix socket's length-prefixed frames, or a WebSocket's text messages. Both get the
+  same loop. It owns the request-id table: every request
   runs in its own task, a `{cancel: id}` frame drops that request's handler and ends
   it with `cancelled`, and when the client goes away or the daemon stops, every
   request in flight is cancelled. A slow reader fills only its own bounded outbound
@@ -53,8 +55,39 @@ back into frames:
   dropped. Not zeroed: a frame left unfinished in the push decoder when the connection
   ends, and serde_json's scratch buffer for a string that holds an escape.
 
-The WebSocket listener for the phone lands here in a later milestone and reuses the
-connection loop.
+- `ws`: `serve_websocket`, the phone's side of the edge. efrd owns the TCP listener on
+  the tailnet address and the check of the peer (the whois of tailscaled), and hands
+  each admitted stream, with its `RemotePeer`, to `serve_websocket`:
+  - `ws/handshake`: a pure parser of the opening handshake. The request head is at
+    most 8 KiB with at most 32 headers. Only `GET /` over HTTP/1.1 with `Upgrade:
+    websocket`, `Connection: upgrade`, version 13, one `Host` and a key of 16 bytes
+    passes. The `Origin` must be missing or equal, byte for byte, to one of the
+    origins of `WebSocketOptions` (efrd gives `http://<bound ip>:<port>`), so `null`
+    and every web page are refused. A query string, a body, a repeated `Host`,
+    `Origin`, key or version are refused too. Every other request gets a plain HTTP
+    error (400, 403, 404, 405, 426, 431 or 505) with `Connection: close`, never a 200.
+    The parser never reads a `Cookie` or `Authorization` header and copies no header
+    value into an error, so nothing a client sends reaches a log. The head must come
+    within 10 s on the injected clock.
+  - `ws/frames`: the frames of fastwebsockets in server role, without extensions
+    (no permessage-deflate) and without a subprotocol. One text message carries one
+    JSON frame, the same frames as on the Unix socket; the sink sends the bare JSON
+    body of each server frame. The client's messages are at most 1 MiB (the limit is
+    set one byte higher, because fastwebsockets refuses a length equal to its
+    limit), the server's at most 16 MiB (`MAX_FRAME_LEN`). A binary frame, a frame
+    without FIN, a continuation frame (close 1003), a larger message (1009), text
+    that is not UTF-8 (1007), an unmasked client frame and any other broken rule
+    (1002) close the connection; `TransportError::WebSocketClosed` names the reason.
+    fastwebsockets does not check the client's mask, so the reader checks the mask
+    bit of every frame itself. The parser is not cancel safe, so a reader task fills
+    a bounded queue that the connection loop reads.
+  - `ws/keepalive`: a ping every 25 s on the injected clock; when two pings wait for
+    their pong at a tick, the connection closes with 1001. A pong answers its ping
+    and every older one.
+
+  A frame's payload is zeroed once it is decoded. Not zeroed: the bytes left in the
+  parser's read buffer when it grows, and serde_json's scratch buffer. So efrd must
+  not take a password over the WebSocket.
 
 ### The client
 
@@ -111,7 +144,8 @@ edge: the transport never touches the database.
 Third-party crates: `tokio`, `tokio-util` (codec and `CancellationToken`), `futures`,
 `bytes`, `nix` (`SO_PEERCRED` and `getuid`), `serde`, `serde_json`, `thiserror`,
 `tracing`, `zeroize` (the bytes of client frames on the server, and the request frames
-of the client).
+of the client), `fastwebsockets` (the WebSocket frames, server role), `httparse` (the
+handshake's request head), `sha1` and `base64` (the handshake's accept value).
 
 The client's tests build their fake daemons from the real server codec and run one
 test against the real listener, so both sides of the protocol are checked against
@@ -122,6 +156,9 @@ each other.
 - Only processes of the daemon's own uid ever exchange a frame with it: the socket is
   0600 from the moment it has its name and unreachable to others before that, and each
   peer's kernel-reported uid is checked before its first frame is read.
+- A WebSocket peer exchanges a frame only after the daemon admitted its stream and
+  its handshake passed, with an allowed origin or none. A remote peer's surface is
+  always `phone`, and it has no uid or pid.
 - No method runs on a connection whose protocol version was not checked.
 - Every request ends with exactly one `end` or `error` frame, and no frame of a request
   follows it. An id is free for reuse by the time the client reads that frame.
@@ -155,7 +192,13 @@ cargo nextest run -p efr-transport
 
 The connection tests drive the real connection loop over an in-memory pipe with a raw
 frame client and a scripted dispatcher; the listener tests use real sockets in a
-temporary directory. The codec has a proptest that any split of a byte stream decodes
+temporary directory. The WebSocket tests drive `serve_websocket` over an in-memory
+pipe with a raw client that encodes and decodes frames by hand, so they check the bytes
+on the wire; a test runs one session over both wires and compares the frames. The
+handshake parser has property tests (every prefix of a valid head is partial, the order
+and case of headers do not matter, any bytes never panic). The ping tests use a manual
+clock whose sleeps end only when the test fires them, after the code under test
+sleeps. The codec has a proptest that any split of a byte stream decodes
 to the same frames. The tests use no network, no real-time sleeps (fake clocks drive
 the close grace) and no Zig.
 
