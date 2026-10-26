@@ -201,10 +201,6 @@ export class FakeKey implements DeviceKey {
   readonly signed: Uint8Array[] = [];
   failing = false;
 
-  publicKey(): Promise<Uint8Array> {
-    return Promise.resolve(Uint8Array.from({ length: 65 }, (_, i) => (i === 0 ? 4 : i)));
-  }
-
   sign(message: Uint8Array): Promise<Uint8Array> {
     if (this.failing) {
       return Promise.reject(new Error("the key is gone"));
