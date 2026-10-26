@@ -34,7 +34,18 @@ into the GitHub release notes, and it stops when the section is missing.
   enabled = true` and Tailscale.
 - `efr device list` shows the paired devices, also the revoked ones, with when each one
   was paired and last seen. `efr device revoke <id>` takes a device's access away for
-  good; the id can be the start of an id, as the list shows it.
+  good; the id can be the start of an id, as the list shows it. `docs/use/phone.md`
+  has the details.
+- A preview of the efr phone app for iPhone, in `app/` of the repository. It shows
+  your conversations live, sends prompts to them and answers the questions of the
+  agent. It connects to efrd directly over Tailscale, with no relay. The phone keeps
+  its device key in the Secure Enclave and proves it on each connection. The app is
+  not in the App Store: you build it with EAS, as `app/README.md` tells, and its
+  screens do not use the connection yet. `docs/use/phone.md` tells what a phone can
+  and cannot do.
+- A new page of the docs, "The phone app", tells how to set up Tailscale and the
+  listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
+  page has a new section for the phone.
 
 ### Changed
 
@@ -42,6 +53,14 @@ into the GitHub release notes, and it stops when the section is missing.
   streamed text. When efrd cannot send each draft at once, it joins the drafts and
   sends them together as soon as the client reads again. The text then grows in
   larger steps, with no gaps.
+- A client that subscribes to a conversation while a turn runs now gets the text
+  that the model has sent so far, and the reasoning of the turn, in the first
+  answer. So the phone app shows a running reply at once.
+- A question that only your own computer may answer (a command that runs as another
+  user, a background job, or a delete that full mode guards) now says so to every
+  client. The phone app then shows "Answer on your computer" in place of the
+  buttons. efrd also refuses an input for a running command, such as a password,
+  from a phone.
 
 ## [0.0.5] - 2026-10-25
 
