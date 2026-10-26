@@ -337,6 +337,34 @@ describe("the demo server", () => {
     services.dispose();
   });
 
+  it("takes back the queued prompt of the script", async () => {
+    const { clock, server, services } = await sandbox(["desktop"]);
+    const ref = server.stage(STAGES.streaming).get("streaming");
+    if (ref === undefined) {
+      throw new Error("the stage has no streaming conversation");
+    }
+    const hold = services.runtime.hold(ref, "follow");
+    await clock.advance(6000);
+    const state = hold?.stream.latest();
+    const queued = state?.order.find(
+      (id) => state.turns.get(id)?.prompt?.text === "then run the whole suite",
+    );
+    expect(queued).toBeDefined();
+    const withdrawn = services.runtime.call(ref.machine, "prompt.withdraw", {
+      conversation_id: ref.id,
+      command_id: server.newId(),
+      target: { kind: "turn", turn_id: queued ?? "" },
+    });
+    await clock.advance(1);
+    expect((await withdrawn).withdrawn.text).toBe("then run the whole suite");
+    await clock.advance(60_000);
+    const after = hold?.stream.latest()?.turns.get(queued ?? "");
+    expect(after?.started).toBe(false);
+    expect(after?.end?.outcome).toBe("withdrawn");
+    hold?.release();
+    services.dispose();
+  });
+
   it("changes the mode of a machine after the first subscription of the stage", async () => {
     const { clock, server, services } = await sandbox(["laptop"]);
     const ref = server.stage(STAGES.offline).get("laptop-disk");

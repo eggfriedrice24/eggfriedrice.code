@@ -435,7 +435,6 @@ export class ServedConversation {
       wait: 0,
       event: { kind: "prompt_queued", turn_id: turn, command_id: commandId, text, origin: "phone" },
     });
-    this.queuedPrompts.set(turn, { seq: sent, text });
     const reply = new DemoScript()
       .wait(queued ? 300 : 400)
       .start(turn)
@@ -548,7 +547,9 @@ export class ServedConversation {
 
   /** Sends one step now, outside the queue. Gives its seq. */
   private sendNow(step: Extract<DemoStep, { kind: "event" }>): number {
-    this.deliver(this.log.send(step, this.server.clock.now()));
+    const item = this.log.send(step, this.server.clock.now());
+    this.track(item);
+    this.deliver(item);
     return this.log.lastSeq;
   }
 
@@ -587,8 +588,14 @@ export class ServedConversation {
 
   /** Follows the prompts that wait in the queue. */
   private track(item: WireItem): void {
-    if (item.kind === "event" && item.event.kind === "turn_started") {
-      this.queuedPrompts.delete(item.event.turn_id);
+    if (item.kind !== "event") {
+      return;
+    }
+    const event = item.event;
+    if (event.kind === "prompt_queued") {
+      this.queuedPrompts.set(event.turn_id, { seq: item.seq, text: event.text });
+    } else if (event.kind === "turn_started" || event.kind === "prompt_withdrawn") {
+      this.queuedPrompts.delete(event.turn_id);
     }
   }
 
