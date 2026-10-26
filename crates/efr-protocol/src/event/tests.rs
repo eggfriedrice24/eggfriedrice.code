@@ -597,6 +597,7 @@ fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not
         interactive,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     };
     let wire = json!({
         "kind": "approval_requested",
@@ -629,6 +630,7 @@ fn expires_in_secs_is_left_out_when_absent() {
         interactive: false,
         exit: None,
         expires_in_secs,
+        local_only: false,
     };
     let old = json!({
         "kind": "approval_requested",

@@ -694,6 +694,7 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
                 interactive: false,
                 exit: None,
                 expires_in_secs: None,
+                local_only: false,
             },
             Event::ApprovalExpired { turn_id: a, call_id: c, away: false },
         ],

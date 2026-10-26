@@ -25,6 +25,7 @@ fn approval_requested(turn: u64, call: u64) -> Event {
         interactive: false,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     }
 }
 

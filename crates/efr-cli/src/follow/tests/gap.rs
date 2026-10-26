@@ -54,6 +54,7 @@ pub(super) fn snapshot(
         events,
         history_cursor: Some(before(cursor)),
         hwm: Seq::new(hwm),
+        live: None,
     })
 }
 

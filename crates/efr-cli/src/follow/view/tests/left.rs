@@ -313,6 +313,7 @@ fn a_completion_first_holds_the_keys_of_a_call_that_may_ask_for_a_password() {
         interactive: true,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     };
     last_step(&mut view, &[started(RSYNC, false), approval], true);
     view.answered(call(), efr_protocol::ApprovalDecision::Allow, WIDE);

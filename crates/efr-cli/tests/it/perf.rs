@@ -709,6 +709,7 @@ fn gap_turn(conn: &mut Conn, gap: u64, pages: &AtomicU64) {
         events: log[usize::try_from(oldest - 4).unwrap()..].to_vec(),
         history_cursor: Some(PageCursor::new(format!("s:{oldest}"))),
         hwm: Seq::new(last),
+        live: None,
     };
     conn.item(second, &ConversationSubscribeItem::Snapshot(snapshot));
     let completed = Event::TurnCompleted {

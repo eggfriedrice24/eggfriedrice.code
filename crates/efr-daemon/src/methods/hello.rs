@@ -42,6 +42,7 @@ pub(crate) fn handle(
             data_dir: state.dirs.data().to_path_buf(),
         },
         challenge: URL_SAFE_NO_PAD.encode(challenge),
+        prove: None,
     };
     // NOTE: recorded last, after anything that could fail, so a hello that is refused
     // leaves nothing behind for `closed` to clean up.

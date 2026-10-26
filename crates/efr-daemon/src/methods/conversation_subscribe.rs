@@ -411,5 +411,5 @@ pub(crate) fn snapshot(
     let before =
         events.first().map_or_else(|| Seq::new(hwm.get().saturating_add(1)), |first| first.seq);
     let history_cursor = older.then(|| cursor(before));
-    ConversationSnapshot { conversation, events, history_cursor, hwm }
+    ConversationSnapshot { conversation, events, history_cursor, hwm, live: None }
 }

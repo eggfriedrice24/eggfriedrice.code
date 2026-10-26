@@ -8,7 +8,8 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
     ConversationCompact, ConversationContext, ConversationDelete, ConversationDiff,
     ConversationHistory, ConversationResume, ConversationSearch, ConversationSubscribe,
-    ConversationsList, ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobsList,
+    ConversationsList, ConversationsRecent, ConversationsSearch, DeviceEnroll, DeviceList,
+    DevicePairConfirm, DevicePairStart, DeviceProve, DeviceRevoke, Hello, InputRespond, JobsList,
     JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
     PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName,
     ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer, TurnUndo,
@@ -155,6 +156,27 @@ pub enum Method {
     /// it.
     #[serde(rename = "conversation.delete")]
     ConversationDelete(ConversationDelete),
+    /// `device.pair_start`: open a pairing for a new device (streaming, Unix socket
+    /// only).
+    #[serde(rename = "device.pair_start")]
+    DevicePairStart(DevicePairStart),
+    /// `device.pair_confirm`: say yes or no to a phone that wants to pair (Unix socket
+    /// only).
+    #[serde(rename = "device.pair_confirm")]
+    DevicePairConfirm(DevicePairConfirm),
+    /// `device.enroll`: a phone sends the token of a pairing and its public key
+    /// (tailnet listener only, before the proof).
+    #[serde(rename = "device.enroll")]
+    DeviceEnroll(DeviceEnroll),
+    /// `device.prove`: a device proves that it holds its key (tailnet listener only).
+    #[serde(rename = "device.prove")]
+    DeviceProve(DeviceProve),
+    /// `device.list`: the enrolled devices (Unix socket only).
+    #[serde(rename = "device.list")]
+    DeviceList(DeviceList),
+    /// `device.revoke`: take a device's right to connect away (Unix socket only).
+    #[serde(rename = "device.revoke")]
+    DeviceRevoke(DeviceRevoke),
 }
 
 impl Method {
@@ -203,6 +225,12 @@ impl Method {
             Method::ConversationsSearch(_) => "conversations.search",
             Method::ConversationSearch(_) => "conversation.search",
             Method::ConversationDelete(_) => "conversation.delete",
+            Method::DevicePairStart(_) => "device.pair_start",
+            Method::DevicePairConfirm(_) => "device.pair_confirm",
+            Method::DeviceEnroll(_) => "device.enroll",
+            Method::DeviceProve(_) => "device.prove",
+            Method::DeviceList(_) => "device.list",
+            Method::DeviceRevoke(_) => "device.revoke",
         }
     }
 
@@ -251,7 +279,13 @@ impl Method {
             | Method::ConversationsRecent(_)
             | Method::ShellStatus(_)
             | Method::ConversationsSearch(_)
-            | Method::ConversationSearch(_) => None,
+            | Method::ConversationSearch(_)
+            | Method::DevicePairStart(_)
+            | Method::DevicePairConfirm(_)
+            | Method::DeviceEnroll(_)
+            | Method::DeviceProve(_)
+            | Method::DeviceList(_)
+            | Method::DeviceRevoke(_) => None,
         }
     }
 
@@ -261,7 +295,8 @@ impl Method {
         match self {
             Method::ConversationSubscribe(_)
             | Method::PtyAttach(_)
-            | Method::AdminLoginOpenAi(_) => true,
+            | Method::AdminLoginOpenAi(_)
+            | Method::DevicePairStart(_) => true,
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationHistory(_)
@@ -299,7 +334,12 @@ impl Method {
             | Method::CallBackground(_)
             | Method::ConversationsSearch(_)
             | Method::ConversationSearch(_)
-            | Method::ConversationDelete(_) => false,
+            | Method::ConversationDelete(_)
+            | Method::DevicePairConfirm(_)
+            | Method::DeviceEnroll(_)
+            | Method::DeviceProve(_)
+            | Method::DeviceList(_)
+            | Method::DeviceRevoke(_) => false,
         }
     }
 }
@@ -314,6 +354,9 @@ impl ScopeName {
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
     /// a phone never holds. The daemon also refuses the two search methods to a peer
     /// that is not the user's: a search reads the text of every conversation.
+    /// `device.enroll` and `device.prove` need only `read`, because a remote connection
+    /// calls them before it holds any other scope; the daemon refuses them on the Unix
+    /// socket. The pairing, the list and the revoke of devices need `admin`.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
@@ -330,7 +373,9 @@ impl ScopeName {
             | Method::ConversationsRecent(_)
             | Method::ShellStatus(_)
             | Method::ConversationsSearch(_)
-            | Method::ConversationSearch(_) => ScopeName::Read,
+            | Method::ConversationSearch(_)
+            | Method::DeviceEnroll(_)
+            | Method::DeviceProve(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)
@@ -362,7 +407,11 @@ impl ScopeName {
             | Method::AdminLoginOpenAi(_)
             | Method::AdminLoginApiKey(_)
             | Method::AdminLogout(_)
-            | Method::AdminSandboxCheck(_) => ScopeName::Admin,
+            | Method::AdminSandboxCheck(_)
+            | Method::DevicePairStart(_)
+            | Method::DevicePairConfirm(_)
+            | Method::DeviceList(_)
+            | Method::DeviceRevoke(_) => ScopeName::Admin,
         }
     }
 }

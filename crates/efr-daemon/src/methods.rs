@@ -147,6 +147,12 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationsSearch(_) => ScopeName::Read,
         Method::ConversationSearch(_) => ScopeName::Read,
         Method::ConversationDelete(_) => ScopeName::Terminal,
+        Method::DevicePairStart(_) => ScopeName::Admin,
+        Method::DevicePairConfirm(_) => ScopeName::Admin,
+        Method::DeviceEnroll(_) => ScopeName::Read,
+        Method::DeviceProve(_) => ScopeName::Read,
+        Method::DeviceList(_) => ScopeName::Admin,
+        Method::DeviceRevoke(_) => ScopeName::Admin,
     }
 }
 
@@ -233,6 +239,12 @@ impl Input {
             // NOTE: a delete is the user's act, but a deleted conversation records no
             // presence: the store refuses its events.
             Method::ConversationDelete(_) => None,
+            Method::DevicePairStart(_)
+            | Method::DevicePairConfirm(_)
+            | Method::DeviceEnroll(_)
+            | Method::DeviceProve(_)
+            | Method::DeviceList(_)
+            | Method::DeviceRevoke(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -512,6 +524,16 @@ impl Dispatcher for Methods {
                 Method::ConversationDelete(params) => {
                     Box::pin(conversation_delete::handle(state, &context, params, &responder)).await
                 }
+                // NOTE: the protocol has the device methods before this daemon pairs
+                // devices; it refuses them as a daemon from before them does.
+                Method::DevicePairStart(_)
+                | Method::DevicePairConfirm(_)
+                | Method::DeviceEnroll(_)
+                | Method::DeviceProve(_)
+                | Method::DeviceList(_)
+                | Method::DeviceRevoke(_) => Err(DaemonError::InvalidParams {
+                    reason: "this efrd does not pair devices yet",
+                }),
             };
             state.presence.record(touched).await;
             if handled.is_ok() {

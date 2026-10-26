@@ -1,0 +1,9 @@
+{
+  "kind": "pending",
+  "pairing_id": "019a9b1c-3d00-7a10-8b20-00000000000b",
+  "device_name": "Anna's iPhone",
+  "node_name": "annas-iphone",
+  "user_login": "anna@example.com",
+  "key_fingerprint": "SHA256:9f86d081884c7d65",
+  "os": "iOS"
+}

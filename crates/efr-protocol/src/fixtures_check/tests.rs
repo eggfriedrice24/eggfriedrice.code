@@ -3,18 +3,20 @@ use std::fs;
 use std::path::Path;
 
 use pretty_assertions::assert_eq;
+use serde_json::Value;
 
 use super::{
     FIXTURES_DIR, all, always_saved_samples, approval_decision_samples, daemon_roots,
-    draft_part_samples, event_path, event_samples, floor_edit_exit_sample, grant_samples,
-    input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
-    route_scope_samples, switch_samples, undo_refused_samples, withdraw_target_samples,
+    draft_part_samples, event_path, event_samples, floor_edit_exit_sample, grant_samples, hex,
+    input_wait_samples, launch_samples, local_only_approval_sample, method_samples, method_stem,
+    models_list_sample, prove_vector, qr_vector, remote_hello_result, route_scope_samples,
+    switch_samples, undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
     AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, BlockReason, BusProxyOff, DraftPart,
-    Event, ExitKind, FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource,
-    NewReason, NotSavedReason, RootSource, RouteScope, SearchKind, SearchPartial, ShellCommandEnd,
-    Switch, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
+    Event, ExitKind, FullRefusal, Grant, HelloResult, InputWait, JudgeKind, Launch, Method, Mode,
+    ModelSource, NewReason, NotSavedReason, PairEnd, RootSource, RouteScope, SearchKind,
+    SearchPartial, ShellCommandEnd, Switch, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -85,10 +87,16 @@ fn method_index(method: &Method) -> usize {
         Method::ConversationsSearch(_) => 38,
         Method::ConversationSearch(_) => 39,
         Method::ConversationDelete(_) => 40,
+        Method::DevicePairStart(_) => 41,
+        Method::DevicePairConfirm(_) => 42,
+        Method::DeviceEnroll(_) => 43,
+        Method::DeviceProve(_) => 44,
+        Method::DeviceList(_) => 45,
+        Method::DeviceRevoke(_) => 46,
     }
 }
 
-const METHOD_COUNT: usize = 41;
+const METHOD_COUNT: usize = 47;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -525,6 +533,19 @@ fn search_partial_index(partial: SearchPartial) -> usize {
 
 const SEARCH_PARTIAL_COUNT: usize = 3;
 
+/// The position of the reason of an ended pairing in the enum, for the same purpose as
+/// `method_index`.
+fn pair_end_index(end: PairEnd) -> usize {
+    match end {
+        PairEnd::Refused => 0,
+        PairEnd::Expired => 1,
+        PairEnd::Attempts => 2,
+        PairEnd::Unknown => 3,
+    }
+}
+
+const PAIR_END_COUNT: usize = 4;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -732,6 +753,57 @@ fn every_search_kind_and_partial_reason_has_a_sample() {
     for partial in SearchPartial::ALL {
         assert_eq!(serde_json::to_value(partial).unwrap(), partial.as_str());
     }
+}
+
+#[test]
+fn every_pair_end_has_a_sample_and_an_unknown_one_reads_as_unknown() {
+    let ends: Vec<usize> = PairEnd::ALL.into_iter().map(pair_end_index).collect();
+    assert_eq!(ends, (0..PAIR_END_COUNT).collect::<Vec<_>>());
+    let later: PairEnd = serde_json::from_str("\"lost\"").unwrap();
+    assert_eq!(later, PairEnd::Unknown);
+}
+
+/// The vector file is what a client in another language copies: its message must be
+/// what this build signs, and must not change without a new domain tag.
+#[test]
+fn the_prove_vector_file_is_the_message_of_its_inputs() {
+    let text = read("device_prove_message.json");
+    let vector: super::ProveVector = serde_json::from_str(&text).unwrap();
+    assert_eq!(vector, prove_vector());
+    assert_eq!(hex(&vector.message().to_bytes()), vector.message_hex);
+    assert!(vector.message_hex.starts_with("00000013"), "the domain tag comes first");
+}
+
+#[test]
+fn the_qr_vector_file_is_the_url_of_its_payload() {
+    let text = read("pairing_qr_url.json");
+    let vector: super::QrVector = serde_json::from_str(&text).unwrap();
+    assert_eq!(vector.qr.url().expose_secret(), vector.url);
+    assert_eq!(vector, qr_vector());
+}
+
+/// The old `hello_result.json` has no prove facts and no new keys; the remote one has
+/// both, and an old reader of either keeps working because every new member is
+/// optional.
+#[test]
+fn the_remote_hello_result_reads_like_the_old_one_without_its_new_members() {
+    let remote: Value = serde_json::from_str(&read("hello_result_remote.json")).unwrap();
+    assert_eq!(remote["prove"]["peer_node"], "nPHONE1CNTRL");
+    let mut stripped = remote.clone();
+    stripped.as_object_mut().unwrap().remove("prove");
+    let result: HelloResult = serde_json::from_value(stripped).unwrap();
+    assert_eq!(result.prove, None);
+    assert_eq!(result.capabilities, remote_hello_result().capabilities);
+}
+
+#[test]
+fn the_local_only_flag_is_its_own_fixture_and_absent_in_the_old_one() {
+    assert!(!read("events/approval_requested.json").contains("local_only"));
+    assert!(read("events/approval_requested_local_only.json").contains("\"local_only\": true"));
+    let Event::ApprovalRequested { local_only, .. } = local_only_approval_sample() else {
+        panic!("the sample is an approval");
+    };
+    assert!(local_only);
 }
 
 #[test]

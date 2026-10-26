@@ -1,0 +1,7 @@
+{
+  "scopes": [
+    "read",
+    "operate",
+    "approve"
+  ]
+}

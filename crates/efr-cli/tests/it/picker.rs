@@ -202,6 +202,7 @@ pub(crate) fn hello_result() -> HelloResult {
         capabilities: Capabilities { search: Some(true), ..Capabilities::default() },
         paths: DaemonPaths::default(),
         challenge: "AAAA".to_owned(),
+        prove: None,
     }
 }
 

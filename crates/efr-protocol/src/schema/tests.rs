@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use super::document;
+use super::{codegen_document, codegen_parts, document};
 use crate::fixtures_check::{event_samples, method_samples};
 use crate::{Event, ScopeName};
 
@@ -107,4 +107,59 @@ fn the_last_command_is_a_member_of_prompt_send_and_never_of_a_shell_context() {
     let params = &doc["$defs"]["PromptSend"]["properties"];
     assert!(params["last_command"].is_object(), "{params:#}");
     assert!(params["recent_commands"].is_object(), "{params:#}");
+}
+
+#[test]
+fn no_top_type_of_the_codegen_file_hides_a_wire_type() {
+    let (definitions, tops) = codegen_parts();
+    assert!(!tops.is_empty());
+    for name in tops.keys() {
+        assert!(!definitions.contains_key(name), "{name} is a wire type already");
+    }
+}
+
+#[test]
+fn every_ref_of_the_codegen_file_points_into_its_definitions() {
+    let doc = codegen_document();
+    let mut found = BTreeSet::new();
+    refs(&doc, &mut found);
+    assert!(!found.is_empty());
+    for target in found {
+        let name = target.strip_prefix("#/$defs/").unwrap_or_else(|| panic!("{target}"));
+        assert!(doc["$defs"].get(name).is_some(), "{target} is not defined");
+    }
+}
+
+#[test]
+fn the_codegen_file_maps_every_method_to_its_params_and_answer() {
+    let doc = codegen_document();
+    let reference = document();
+    let defs = &doc["$defs"];
+    let names: Vec<&str> = method_samples().iter().map(|method| method.name()).collect();
+    assert_eq!(defs["MethodName"]["enum"], json!(names));
+    let streams: Vec<&str> = method_samples()
+        .iter()
+        .filter(|method| method.is_stream())
+        .map(|method| method.name())
+        .collect();
+    assert_eq!(defs["StreamMethodName"]["enum"], json!(streams));
+    for entry in reference["methods"].as_array().unwrap() {
+        let name = entry["name"].as_str().unwrap();
+        let answer = if entry["stream"] == json!(true) { "item" } else { "result" };
+        assert_eq!(defs["MethodParams"]["properties"][name], entry["params"], "{name}");
+        assert_eq!(defs["MethodResults"]["properties"][name], entry[answer], "{name}");
+    }
+    assert_eq!(defs["ProtocolVersion"]["const"], json!(crate::PROTOCOL_VERSION));
+}
+
+#[test]
+fn the_codegen_file_has_the_remote_members() {
+    let doc = codegen_document();
+    let defs = &doc["$defs"];
+    assert!(defs["HelloResult"]["properties"]["prove"].is_object());
+    assert!(defs["ConversationSnapshot"]["properties"]["live"].is_object());
+    assert!(defs["LiveTurn"]["properties"]["text_bytes"].is_object());
+    assert!(defs["ProveContext"]["properties"]["daemon_tailnet"].is_object());
+    let event = serde_json::to_string(&defs["Event"]).unwrap();
+    assert!(event.contains("\"local_only\""));
 }

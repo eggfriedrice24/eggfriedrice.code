@@ -581,6 +581,7 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         },
         Event::ApprovalResolved {
             turn_id: crate::testing::turn(1),

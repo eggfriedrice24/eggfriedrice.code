@@ -39,10 +39,6 @@ pub struct ConversationSubscribe {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "an event is the common item of the stream; a box would cost an allocation for each one"
-)]
 pub enum ConversationSubscribeItem {
     /// One event, replayed or live.
     Event(EventEnvelope),
@@ -88,9 +84,11 @@ pub enum DraftPart {
     /// the same text, so a client can merge the two.
     Text {
         /// The position of the message among the assistant messages of the turn that
-        /// have text.
+        /// have text, from 0. A model answer without text takes no position.
         index: u32,
-        /// The byte offset of `delta` in the text of the message.
+        /// The offset of `delta` in the text of the message, in bytes of UTF-8. It is
+        /// not a count of characters or of UTF-16 units: a JavaScript client compares
+        /// it with the UTF-8 length of its text, never with `text.length`.
         offset: u64,
         /// The text after `offset`.
         delta: String,
@@ -98,9 +96,9 @@ pub enum DraftPart {
     /// More of the reasoning summary of the model. Reasoning never goes into the event
     /// log.
     Reasoning {
-        /// The byte offset of `delta` in the reasoning text of the whole turn. The
-        /// reasoning of a later model call in the same turn continues the text after a
-        /// blank line.
+        /// The offset of `delta` in the reasoning text of the whole turn, in bytes of
+        /// UTF-8. The reasoning of a later model call in the same turn continues the
+        /// text after a blank line.
         offset: u64,
         /// The reasoning text after `offset`.
         delta: String,
@@ -149,4 +147,41 @@ pub struct ConversationSnapshot {
     /// The sequence number that the snapshot is complete up to. Live events after it
     /// follow.
     pub hwm: Seq,
+    /// What the running turn has so far, when a turn runs: the text of its current
+    /// message and its reasoning, which `events` can miss. Only a daemon that announces
+    /// `snapshot_live` sends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<LiveTurn>,
+}
+
+/// The state of a running turn in a [`ConversationSnapshot`]: what a client needs to
+/// show the text and the reasoning so far after it joins in the middle of a message.
+///
+/// `text` is the whole text of message `index` so far, from its start. Drafts and
+/// `assistant_message_updated` events of the same message that follow the snapshot
+/// continue it: one whose `offset` is at most `text_bytes` overlaps it, and a client
+/// keeps the part past `text_bytes`. `reasoning` is the reasoning of the whole turn so
+/// far in the same way, for the reasoning drafts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LiveTurn {
+    /// The running turn.
+    pub turn_id: TurnId,
+    /// The sequence number of the last event that the turn recorded before this state,
+    /// with the meaning that it has in a [`Draft`].
+    pub after_seq: Seq,
+    /// The position of the current message among the assistant messages of the turn
+    /// that have text, from 0, as in [`DraftPart::Text`].
+    pub index: u32,
+    /// The text of the current message so far; empty before its first text.
+    pub text: String,
+    /// The length of `text` in bytes of UTF-8: the offset at which the next draft or
+    /// update of message `index` continues.
+    pub text_bytes: u64,
+    /// The reasoning of the turn so far; absent when the model sent none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    /// The title of the newest reasoning section, as in [`DraftPart::Reasoning`];
+    /// absent until such a line comes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_title: Option<String>,
 }

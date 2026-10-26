@@ -38,6 +38,10 @@ fn extras_are_written_after_the_known_keys_in_name_order() {
         admin: Some(true),
         screen_snapshots: None,
         search: None,
+        drafts_coalesced: None,
+        snapshot_live: None,
+        approval_local_only: None,
+        device_prove: None,
         extra: BTreeMap::from([("zoom".to_owned(), json!(2)), ("pair".to_owned(), json!(true))]),
     };
     assert_eq!(serde_json::to_string(&caps).unwrap(), r#"{"admin":true,"pair":true,"zoom":2}"#);
@@ -49,6 +53,10 @@ fn a_mix_of_known_and_unknown_keys_reads_back_as_itself() {
         admin: None,
         screen_snapshots: Some(true),
         search: Some(true),
+        drafts_coalesced: Some(true),
+        snapshot_live: None,
+        approval_local_only: Some(false),
+        device_prove: None,
         extra: BTreeMap::from([("future".to_owned(), json!([1, 2]))]),
     };
     let back: Capabilities = serde_json::from_value(serde_json::to_value(&caps).unwrap()).unwrap();
@@ -65,4 +73,31 @@ fn the_search_key_reads_into_its_field_and_its_absence_is_no_search() {
     assert_eq!(old.search, None, "a daemon from before the search sends no key");
     let only = Capabilities { search: Some(false), ..Capabilities::default() };
     assert_eq!(serde_json::to_value(&only).unwrap(), json!({ "search": false }));
+}
+
+#[test]
+fn the_remote_keys_read_into_their_fields_and_their_absence_is_an_older_daemon() {
+    let caps: Capabilities = serde_json::from_value(json!({
+        "drafts_coalesced": true,
+        "snapshot_live": true,
+        "approval_local_only": true,
+        "device_prove": true,
+    }))
+    .unwrap();
+    assert_eq!(caps.drafts_coalesced, Some(true));
+    assert_eq!(caps.snapshot_live, Some(true));
+    assert_eq!(caps.approval_local_only, Some(true));
+    assert_eq!(caps.device_prove, Some(true));
+    assert!(caps.extra.is_empty());
+    assert!(!caps.is_empty());
+    let old: Capabilities = serde_json::from_value(json!({ "search": true })).unwrap();
+    assert_eq!(
+        (old.drafts_coalesced, old.snapshot_live, old.approval_local_only, old.device_prove),
+        (None, None, None, None)
+    );
+    for key in ["drafts_coalesced", "snapshot_live", "approval_local_only", "device_prove"] {
+        let one: Capabilities = serde_json::from_value(json!({ key: false })).unwrap();
+        assert!(!one.is_empty(), "{key}");
+        assert_eq!(serde_json::to_value(&one).unwrap(), json!({ key: false }));
+    }
 }

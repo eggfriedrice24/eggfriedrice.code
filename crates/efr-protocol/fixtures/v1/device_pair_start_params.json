@@ -1,0 +1,6 @@
+{
+  "method": "device.pair_start",
+  "params": {
+    "name": "Anna's iPhone"
+  }
+}

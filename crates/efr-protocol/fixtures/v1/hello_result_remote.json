@@ -1,0 +1,22 @@
+{
+  "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+  "protocol": 1,
+  "version": "0.0.6",
+  "capabilities": {
+    "search": true,
+    "drafts_coalesced": true,
+    "snapshot_live": true,
+    "approval_local_only": true,
+    "device_prove": true
+  },
+  "paths": {
+    "scratch_root": "/home/me/.local/share/efr/scratch",
+    "data_dir": "/home/me/.local/share/efr"
+  },
+  "challenge": "3q2-7wAAAAAAAAAAAAAAAA",
+  "prove": {
+    "peer_node": "nPHONE1CNTRL",
+    "daemon_node": "nDESK1CNTRL",
+    "daemon_tailnet": "T1234CNTRL"
+  }
+}

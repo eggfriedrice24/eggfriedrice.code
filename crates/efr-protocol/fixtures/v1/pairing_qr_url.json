@@ -1,0 +1,10 @@
+{
+  "qr": {
+    "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+    "host": "100.101.102.103",
+    "port": 7878,
+    "fqdn": "desk.tail1234.ts.net",
+    "token": "q83vASNFZ4mrze8BI0VniQ"
+  },
+  "url": "efr://pair?v=1&d=019a9b1c-3d00-7a10-8b20-000000000007&h=100.101.102.103&p=7878&f=desk.tail1234.ts.net&t=q83vASNFZ4mrze8BI0VniQ"
+}

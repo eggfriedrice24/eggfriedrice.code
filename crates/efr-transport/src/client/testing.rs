@@ -61,6 +61,7 @@ pub(crate) fn hello_result(protocol: u32) -> HelloResult {
         capabilities: Capabilities::default(),
         paths: DaemonPaths::default(),
         challenge: "AAAA".to_owned(),
+        prove: None,
     }
 }
 

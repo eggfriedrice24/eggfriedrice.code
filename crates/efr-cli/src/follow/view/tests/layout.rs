@@ -92,6 +92,7 @@ fn asked(n: u8, summary: &str, exit: Option<ExitInfo>) -> Event {
         interactive: false,
         exit,
         expires_in_secs: None,
+        local_only: false,
     }
 }
 
@@ -881,6 +882,7 @@ fn patch_asked(n: u8) -> Event {
         interactive: false,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     }
 }
 
@@ -977,6 +979,7 @@ fn an_edit_names_its_file_and_its_question_shows_the_diff() {
         interactive: false,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     };
     let resolved = Event::ApprovalResolved {
         turn_id: turn(),

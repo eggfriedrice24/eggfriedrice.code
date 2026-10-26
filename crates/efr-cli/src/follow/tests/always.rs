@@ -34,6 +34,7 @@ fn write_question(always: Option<&str>) -> Event {
             ..exit_info(&[ExitKind::Write], Launch::Contained { grants })
         }),
         expires_in_secs: None,
+        local_only: false,
     }
 }
 

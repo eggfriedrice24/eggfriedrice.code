@@ -11,8 +11,8 @@
 use std::str::FromStr;
 
 use jiff::Timestamp;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, json};
 
 use crate::{
@@ -33,30 +33,33 @@ use crate::{
     ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
     ConversationsSearchResult, CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv,
-    DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
-    ForwardOutcome, FullModeStatus, FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant,
-    HeldConfig, HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult,
-    InputWait, JobCgroup, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop,
-    JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult,
-    LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult,
-    MovedCall, NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, PortForward, Presence, PresenceSet,
-    PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
-    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
-    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
-    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
-    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact,
-    TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    DesktopKind, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo, DeviceList,
+    DeviceListResult, DevicePairConfirm, DevicePairConfirmResult, DevicePairStart,
+    DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke, DeviceRevokeResult, Draft,
+    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus,
+    FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig, HeldReason, Hello,
+    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo,
+    JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement,
+    LateSteer, Launch, LeaseReport, LeaseReportResult, LiveTurn, LoginKind, Method, Mode,
+    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall, NetworkMode,
+    NewReason, NotSavedReason, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
+    PageCursor, PairEnd, PairingId, PairingQr, PathClassName, PauseReason, PortForward, Presence,
+    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
+    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProveContext, ProveMessage, ProviderStatus, PtyAttach, PtyAttachItem,
+    PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand,
+    RecentConversation, RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir,
+    RootFiles, RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
+    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
+    SurfaceChange, Switch, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
+    Verdict, Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -117,6 +120,8 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("events/exit_requested_floor_edit.json", &floor_edit_exit_sample()));
     fixtures.push(fixture("events/exit_judged_full.json", &full_judged_sample()));
     fixtures.push(fixture("events/job_started_moved.json", &moved_job_sample()));
+    fixtures
+        .push(fixture("events/approval_requested_local_only.json", &local_only_approval_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -150,6 +155,9 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("approved_bys.json", &ApprovedBy::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
+    fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
+    fixtures.push(fixture("device_prove_message.json", &prove_vector()));
+    fixtures.push(fixture("pairing_qr_url.json", &qr_vector()));
     fixtures
 }
 
@@ -881,6 +889,10 @@ pub(crate) fn method_samples() -> Vec<Method> {
                 admin: None,
                 screen_snapshots: Some(true),
                 search: None,
+                drafts_coalesced: None,
+                snapshot_live: None,
+                approval_local_only: None,
+                device_prove: None,
                 extra: Default::default(),
             },
             tty: Some("/dev/pts/3".into()),
@@ -1076,6 +1088,19 @@ pub(crate) fn method_samples() -> Vec<Method> {
             force: true,
             stop: true,
         }),
+        Method::DevicePairStart(DevicePairStart { name: Some("Anna's iPhone".into()) }),
+        Method::DevicePairConfirm(DevicePairConfirm { pairing_id: pairing_id(), accept: true }),
+        Method::DeviceEnroll(DeviceEnroll {
+            token: SecretText::new(PAIRING_TOKEN),
+            name: "Anna's iPhone".into(),
+            public_key: Base64Bytes::new(public_key()),
+        }),
+        Method::DeviceProve(DeviceProve {
+            device_id: device_id(),
+            signature: Base64Bytes::new(signature()),
+        }),
+        Method::DeviceList(DeviceList {}),
+        Method::DeviceRevoke(DeviceRevoke { device_id: device_id() }),
     ]
 }
 
@@ -1143,6 +1168,10 @@ fn answer_fixtures() -> Vec<Fixture> {
                     admin: Some(true),
                     screen_snapshots: Some(true),
                     search: Some(true),
+                    drafts_coalesced: None,
+                    snapshot_live: None,
+                    approval_local_only: None,
+                    device_prove: None,
                     extra: Default::default(),
                 },
                 paths: DaemonPaths {
@@ -1150,8 +1179,10 @@ fn answer_fixtures() -> Vec<Fixture> {
                     data_dir: "/home/me/.local/share/efr".into(),
                 },
                 challenge: "3q2-7wAAAAAAAAAAAAAAAA".into(),
+                prove: None,
             },
         ),
+        fixture("hello_result_remote.json", &remote_hello_result()),
         fixture(
             "conversations_list_result.json",
             &ConversationsListResult {
@@ -1170,6 +1201,17 @@ fn answer_fixtures() -> Vec<Fixture> {
                 events: vec![envelope(42, message_updated())],
                 history_cursor: Some(PageCursor::new("h1:42")),
                 hwm: Seq::new(42),
+                live: None,
+            }),
+        ),
+        fixture(
+            "conversation_subscribe_item_snapshot_live.json",
+            &ConversationSubscribeItem::Snapshot(ConversationSnapshot {
+                conversation: summary(),
+                events: vec![envelope(42, message_updated())],
+                history_cursor: Some(PageCursor::new("h1:42")),
+                hwm: Seq::new(42),
+                live: Some(live_turn()),
             }),
         ),
         fixture(
@@ -1622,7 +1664,233 @@ fn answer_fixtures() -> Vec<Fixture> {
                 title: Some("fix the tests".into()),
             },
         ),
+        fixture(
+            "device_pair_start_item_started.json",
+            &DevicePairStartItem::Started {
+                pairing_id: pairing_id(),
+                expires_at: at("2026-10-26T09:05:00Z"),
+                qr: pairing_qr(),
+            },
+        ),
+        fixture(
+            "device_pair_start_item_pending.json",
+            &DevicePairStartItem::Pending {
+                pairing_id: pairing_id(),
+                device_name: "Anna's iPhone".into(),
+                node_name: "annas-iphone".into(),
+                user_login: "anna@example.com".into(),
+                key_fingerprint: KEY_FINGERPRINT.into(),
+                os: Some("iOS".into()),
+            },
+        ),
+        fixture(
+            "device_pair_start_item_paired.json",
+            &DevicePairStartItem::Paired { pairing_id: pairing_id(), device_id: device_id() },
+        ),
+        fixture(
+            "device_pair_start_item_ended.json",
+            &DevicePairStartItem::Ended { pairing_id: pairing_id(), reason: PairEnd::Expired },
+        ),
+        fixture(
+            "device_pair_confirm_result.json",
+            &DevicePairConfirmResult { device_id: Some(device_id()) },
+        ),
+        fixture(
+            "device_enroll_result.json",
+            &DeviceEnrollResult { device_id: device_id(), scopes: phone_scopes() },
+        ),
+        fixture("device_prove_result.json", &DeviceProveResult { scopes: phone_scopes() }),
+        fixture(
+            "device_list_result.json",
+            &DeviceListResult {
+                devices: vec![
+                    device_info(),
+                    DeviceInfo { last_seen_at: None, revoked_at: None, ..device_info() },
+                ],
+            },
+        ),
+        fixture(
+            "device_revoke_result.json",
+            &DeviceRevokeResult { revoked_at: at("2026-10-26T10:00:00Z") },
+        ),
     ]
+}
+
+/// The one-time token of the pairing samples: 16 bytes as unpadded base64url.
+const PAIRING_TOKEN: &str = "q83vASNFZ4mrze8BI0VniQ";
+
+/// The key fingerprint of the device samples.
+const KEY_FINGERPRINT: &str = "SHA256:9f86d081884c7d65";
+
+fn pairing_id() -> PairingId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000b")
+}
+
+/// A P-256 public key in its 65-byte uncompressed form: `04`, then X and Y. The
+/// coordinates are a pattern, not a point on the curve; the protocol does not check
+/// them.
+fn public_key() -> Vec<u8> {
+    let mut key = vec![0x04];
+    key.extend(1..=64u8);
+    key
+}
+
+/// A DER signature, `SEQUENCE { INTEGER, INTEGER }`, with short integers.
+fn signature() -> Vec<u8> {
+    vec![0x30, 0x06, 0x02, 0x01, 0x2a, 0x02, 0x01, 0x2b]
+}
+
+/// The scopes of a phone.
+fn phone_scopes() -> Vec<ScopeName> {
+    vec![ScopeName::Read, ScopeName::Operate, ScopeName::Approve]
+}
+
+fn pairing_qr() -> PairingQr {
+    PairingQr {
+        daemon_id: daemon_id(),
+        host: parse("100.101.102.103"),
+        port: 7878,
+        fqdn: Some("desk.tail1234.ts.net".into()),
+        token: SecretText::new(PAIRING_TOKEN),
+    }
+}
+
+fn device_info() -> DeviceInfo {
+    DeviceInfo {
+        device_id: device_id(),
+        name: "Anna's iPhone".into(),
+        key_fingerprint: KEY_FINGERPRINT.into(),
+        node: "nPHONE1CNTRL".into(),
+        scopes: phone_scopes(),
+        created_at: at("2026-10-26T09:01:00Z"),
+        last_seen_at: Some(at("2026-10-26T09:30:00Z")),
+        revoked_at: Some(at("2026-10-26T10:00:00Z")),
+    }
+}
+
+/// The prove facts of a remote `hello`.
+pub(crate) fn prove_context() -> ProveContext {
+    ProveContext {
+        peer_node: "nPHONE1CNTRL".into(),
+        daemon_node: "nDESK1CNTRL".into(),
+        daemon_tailnet: "T1234CNTRL".into(),
+    }
+}
+
+/// The `hello` result of a connection of the tailnet listener: the prove facts and
+/// every key that a daemon announces to a phone.
+pub(crate) fn remote_hello_result() -> HelloResult {
+    HelloResult {
+        daemon_id: daemon_id(),
+        protocol: PROTOCOL_VERSION,
+        version: "0.0.6".into(),
+        capabilities: Capabilities {
+            admin: None,
+            screen_snapshots: None,
+            search: Some(true),
+            drafts_coalesced: Some(true),
+            snapshot_live: Some(true),
+            approval_local_only: Some(true),
+            device_prove: Some(true),
+            extra: Default::default(),
+        },
+        paths: DaemonPaths {
+            scratch_root: "/home/me/.local/share/efr/scratch".into(),
+            data_dir: "/home/me/.local/share/efr".into(),
+        },
+        challenge: "3q2-7wAAAAAAAAAAAAAAAA".into(),
+        prove: Some(prove_context()),
+    }
+}
+
+/// A running turn in the middle of its second message, with characters of more than
+/// one UTF-8 byte, so `text_bytes` differs from the count of characters and from the
+/// count of UTF-16 units.
+fn live_turn() -> LiveTurn {
+    let text = "The largest file is ~/日志/größe.log 🙂".to_owned();
+    LiveTurn {
+        turn_id: turn_id(),
+        after_seq: Seq::new(42),
+        index: 1,
+        text_bytes: text.len() as u64,
+        text,
+        reasoning: Some("**Checking the logs**\n\nThe journal holds most of it.".into()),
+        reasoning_title: Some("Checking the logs".into()),
+    }
+}
+
+/// An approval that only the user's own machine may answer.
+pub(crate) fn local_only_approval_sample() -> Event {
+    Event::ApprovalRequested {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        summary: "run `systemctl restart nginx` as root".into(),
+        diff_preview: None,
+        interactive: true,
+        exit: None,
+        expires_in_secs: None,
+        local_only: true,
+    }
+}
+
+/// The byte-exact vector of the message that a device signs for `device.prove`, for
+/// clients in other languages: the inputs, and the message in lowercase hex.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ProveVector {
+    pub(crate) challenge: String,
+    pub(crate) daemon_id: DaemonId,
+    pub(crate) protocol: u32,
+    pub(crate) device_id: DeviceId,
+    pub(crate) peer_node: String,
+    pub(crate) daemon_tailnet: String,
+    pub(crate) message_hex: String,
+}
+
+impl ProveVector {
+    /// The message of the vector's inputs.
+    pub(crate) fn message(&self) -> ProveMessage<'_> {
+        ProveMessage {
+            challenge: &self.challenge,
+            daemon_id: self.daemon_id,
+            protocol: self.protocol,
+            device_id: self.device_id,
+            peer_node: &self.peer_node,
+            daemon_tailnet: &self.daemon_tailnet,
+        }
+    }
+}
+
+/// Lowercase hex of `bytes`.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+pub(crate) fn prove_vector() -> ProveVector {
+    let context = prove_context();
+    let mut vector = ProveVector {
+        challenge: "3q2-7wAAAAAAAAAAAAAAAA".into(),
+        daemon_id: daemon_id(),
+        protocol: PROTOCOL_VERSION,
+        device_id: device_id(),
+        peer_node: context.peer_node,
+        daemon_tailnet: context.daemon_tailnet,
+        message_hex: String::new(),
+    };
+    vector.message_hex = hex(&vector.message().to_bytes());
+    vector
+}
+
+/// The vector of the QR code's text: the payload and its URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct QrVector {
+    pub(crate) qr: PairingQr,
+    pub(crate) url: String,
+}
+
+pub(crate) fn qr_vector() -> QrVector {
+    let qr = pairing_qr();
+    let url = qr.url().expose_secret().to_owned();
+    QrVector { qr, url }
 }
 
 /// The label of the project `app`.
@@ -1975,6 +2243,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 always: Some("write under ~/Documents".into()),
             }),
             expires_in_secs: Some(120),
+            local_only: false,
         },
         Event::ApprovalResolved {
             turn_id: turn_id(),

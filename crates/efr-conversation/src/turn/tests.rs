@@ -654,6 +654,7 @@ async fn an_asked_tool_call_waits_for_approval_and_runs_once_approved() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         }
     );
     assert_eq!(
@@ -881,6 +882,7 @@ async fn a_patch_that_deletes_a_project_file_asks_even_in_auto() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         }
     );
     h.finish();

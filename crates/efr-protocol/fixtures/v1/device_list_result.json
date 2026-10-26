@@ -1,0 +1,30 @@
+{
+  "devices": [
+    {
+      "device_id": "019a9b1c-3d00-7a10-8b20-000000000006",
+      "name": "Anna's iPhone",
+      "key_fingerprint": "SHA256:9f86d081884c7d65",
+      "node": "nPHONE1CNTRL",
+      "scopes": [
+        "read",
+        "operate",
+        "approve"
+      ],
+      "created_at": "2026-10-26T09:01:00Z",
+      "last_seen_at": "2026-10-26T09:30:00Z",
+      "revoked_at": "2026-10-26T10:00:00Z"
+    },
+    {
+      "device_id": "019a9b1c-3d00-7a10-8b20-000000000006",
+      "name": "Anna's iPhone",
+      "key_fingerprint": "SHA256:9f86d081884c7d65",
+      "node": "nPHONE1CNTRL",
+      "scopes": [
+        "read",
+        "operate",
+        "approve"
+      ],
+      "created_at": "2026-10-26T09:01:00Z"
+    }
+  ]
+}

@@ -81,6 +81,7 @@ fn events() -> Vec<EventEnvelope> {
                 interactive: false,
                 exit: None,
                 expires_in_secs: None,
+                local_only: false,
             },
         ),
         envelope(
@@ -448,6 +449,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
                 ..exit_info(&[ExitKind::Privilege], Launch::Unsandboxed)
             }),
             expires_in_secs: None,
+            local_only: false,
         },
         Event::ExitJudged {
             turn_id: turn(),
@@ -746,6 +748,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             interactive: false,
             exit: Some(info),
             expires_in_secs: None,
+            local_only: false,
         },
         started(other, FROM_SRC),
         Event::ApprovalRequested {
@@ -756,6 +759,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
@@ -813,6 +817,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         },
         Event::ApprovalResolved {
             turn_id: turn(),
@@ -1186,6 +1191,7 @@ fn always_events() -> Vec<EventEnvelope> {
                 ..exit_info(&[ExitKind::Write], Launch::Contained { grants: vec![write] })
             }),
             expires_in_secs: None,
+            local_only: false,
         },
         Event::ApprovalResolved {
             turn_id: turn(),

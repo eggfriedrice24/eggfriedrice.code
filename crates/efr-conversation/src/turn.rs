@@ -1583,6 +1583,7 @@ impl Turn {
             expires_in_secs: deadline
                 .filter(|_| !at_once)
                 .map(|deadline| u32::try_from(deadline.as_secs()).unwrap_or(u32::MAX)),
+            local_only: false,
         });
         if let Err(error) = self.record(events).await {
             self.shared.approvals.withdraw(call_id);

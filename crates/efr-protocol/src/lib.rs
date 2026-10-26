@@ -5,7 +5,8 @@
 //! sandbox's launches, grants, exits and reports, the presence of a person at a
 //! conversation, the background jobs and their notices, the files a call or a turn
 //! changed and the undo of a turn, the
-//! context's use and its compactions, the search of conversations,
+//! context's use and its compactions, the search of conversations, the enrolled
+//! devices with their pairing and the message that a device signs to prove its key,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -23,6 +24,7 @@
 mod capabilities;
 mod changes;
 mod compaction;
+mod device;
 mod error;
 mod event;
 #[cfg(test)]
@@ -52,6 +54,7 @@ pub use changes::{
     ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,
 };
 pub use compaction::{Compaction, CompactionTrigger, ContextUse};
+pub use device::{DeviceInfo, PROVE_DOMAIN, PairEnd, PairingQr, ProveContext, ProveMessage};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{
     AlwaysSaved, ApprovalDecision, ApprovedBy, Event, EventEnvelope, InputWait, NotSavedReason,
@@ -59,8 +62,8 @@ pub use event::{
 };
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
-    CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
-    RequestId, Seq, TurnId, UndoId,
+    CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PairingId, PtyId,
+    QuestionId, RequestId, Seq, TurnId, UndoId,
 };
 pub use jobs::{
     ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState, JobStopBy, MovedCall,
@@ -92,6 +95,7 @@ pub use methods::conversation_resume::{ConversationResume, ConversationResumeRes
 pub use methods::conversation_search::{ConversationSearch, ConversationSearchResult};
 pub use methods::conversation_subscribe::{
     ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
+    LiveTurn,
 };
 pub use methods::conversations_list::{
     ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
@@ -103,6 +107,12 @@ pub use methods::conversations_search::{
     ConversationsSearch, ConversationsSearchResult, SearchHit, SearchIndexState, SearchKind,
     SearchLine, SearchPartial, SearchRow, SearchStats, TextRange,
 };
+pub use methods::device_enroll::{DeviceEnroll, DeviceEnrollResult};
+pub use methods::device_list::{DeviceList, DeviceListResult};
+pub use methods::device_pair_confirm::{DevicePairConfirm, DevicePairConfirmResult};
+pub use methods::device_pair_start::{DevicePairStart, DevicePairStartItem};
+pub use methods::device_prove::{DeviceProve, DeviceProveResult};
+pub use methods::device_revoke::{DeviceRevoke, DeviceRevokeResult};
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};
 pub use methods::jobs_list::{JobsList, JobsListResult};

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{Capabilities, DaemonId, DeviceId, Origin};
+use crate::{Capabilities, DaemonId, DeviceId, Origin, ProveContext};
 
 /// The params of `hello`, the first request on every connection.
 ///
@@ -51,9 +51,14 @@ pub struct HelloResult {
     /// Where the daemon keeps its files.
     pub paths: DaemonPaths,
     /// A fresh random nonce for this connection, as unpadded base64url. A remote device
-    /// proves its key by signing it together with `daemon_id` and `protocol`; the Unix
-    /// socket ignores it.
+    /// proves its key by signing it together with `daemon_id`, `protocol` and the facts
+    /// of `prove` (see [`ProveMessage`](crate::ProveMessage)); the Unix socket ignores
+    /// it.
     pub challenge: String,
+    /// The Tailscale facts that a remote device signs with `challenge` for
+    /// `device.prove`. Only a connection of the tailnet listener gets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prove: Option<ProveContext>,
 }
 
 /// Directories of the daemon that clients show to the user.

@@ -1,0 +1,4 @@
+{
+  "method": "device.list",
+  "params": {}
+}

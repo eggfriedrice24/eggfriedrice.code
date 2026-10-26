@@ -106,6 +106,12 @@ uuid_id!(
 );
 
 uuid_id!(
+    /// One pairing of a device that `device.pair_start` opened: its QR code, the
+    /// phone's enroll and the confirmation at the terminal.
+    PairingId
+);
+
+uuid_id!(
     /// A question to the user that is not an approval of a tool call, such as whether
     /// to keep a git setting that a sandboxed call changed.
     QuestionId

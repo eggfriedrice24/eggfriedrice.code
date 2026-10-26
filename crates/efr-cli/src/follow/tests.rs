@@ -180,6 +180,7 @@ async fn a_snapshot_is_shown_and_counts_up_to_its_high_water_mark() {
             events: vec![envelope(39, completed("From the snapshot."))],
             history_cursor: None,
             hwm: Seq::new(40),
+            live: None,
         };
         conn.item(first, &ConversationSubscribeItem::Snapshot(snapshot)).await;
         conn.fail(first, ErrorBody::overflow(Seq::new(40))).await;
@@ -281,6 +282,7 @@ async fn a_key_answers_the_approval() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         conn.item(sub, &item(11, request)).await;
         // A key that answers nothing is ignored; `n` denies.
@@ -428,6 +430,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         let page = ConversationHistoryResult {
             events: vec![
@@ -514,6 +517,7 @@ async fn an_answer_the_daemon_no_longer_takes_is_a_note() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         conn.item(sub, &item(11, request)).await;
         keys.press(b'y').await;
@@ -730,6 +734,7 @@ async fn allow_interactive(conn: &mut Conn, sub: RequestId, presser: &ScriptedKe
         interactive: true,
         exit: None,
         expires_in_secs: None,
+        local_only: false,
     };
     conn.item(sub, &item(12, request)).await;
     presser.press(b'y').await;
@@ -869,6 +874,7 @@ async fn keys_typed_during_a_call_allowed_without_input_stay_for_the_shell() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         conn.item(sub, &item(12, request)).await;
         presser.press(b'y').await;
@@ -1387,6 +1393,7 @@ async fn ctrl_backslash_during_an_approval_is_taken_and_does_nothing() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         conn.item(sub, &item(11, request)).await;
         started(&presser, 1).await;
@@ -1629,6 +1636,7 @@ async fn a_burst_of_events_inside_one_frame_time_gives_one_frame() {
             events: events.collect(),
             history_cursor: None,
             hwm: Seq::new(60),
+            live: None,
         };
         conn.item(sub, &ConversationSubscribeItem::Snapshot(snapshot)).await;
         // The burst waits for the frame time.
@@ -1669,6 +1677,7 @@ async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
             interactive: false,
             exit: None,
             expires_in_secs: None,
+            local_only: false,
         };
         conn.item(sub, &item(12, request)).await;
         shows(&seen, "\x1b[1my\x1b[0m\x1b[2m allow").await;

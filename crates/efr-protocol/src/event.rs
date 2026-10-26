@@ -156,9 +156,11 @@ pub enum Event {
     AssistantMessageUpdated {
         /// The turn.
         turn_id: TurnId,
-        /// The position of the message among the turn's assistant messages, from 0.
+        /// The position of the message among the turn's assistant messages that have
+        /// text, from 0. A model answer without text takes no position.
         index: u32,
-        /// The length in bytes of the message's text before `delta`.
+        /// The length of the message's text before `delta`, in bytes of UTF-8: not a
+        /// count of characters or of UTF-16 units.
         offset: u64,
         /// The text added at `offset`.
         delta: String,
@@ -168,7 +170,8 @@ pub enum Event {
     AssistantMessageCompleted {
         /// The turn.
         turn_id: TurnId,
-        /// The position of the message among the turn's assistant messages, from 0.
+        /// The position of the message among the turn's assistant messages that have
+        /// text, from 0. A model answer without text takes no position.
         index: u32,
         /// The whole text.
         text: String,
@@ -311,6 +314,12 @@ pub enum Event {
         /// no fixed limit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_in_secs: Option<u32>,
+        /// True when only the user's own machine may answer, as for a privilege exit,
+        /// a delete that full mode guards or a job's question: the daemon refuses an
+        /// answer from a phone, and the question stays open. False when absent, also
+        /// from a daemon that does not announce `approval_local_only`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        local_only: bool,
     },
 
     /// The user answered an approval request.
