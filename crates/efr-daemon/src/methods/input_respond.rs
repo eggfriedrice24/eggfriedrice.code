@@ -18,10 +18,15 @@
 //! after the command ended gets `not_found`. The text is a `SecretText`, so it never
 //! reaches a log, an error message, the event log or a receipt; this handler logs only
 //! its length.
+//!
+//! A phone gets `forbidden` before any check, also when its scopes would allow the
+//! method: the text can be a password, and the Unix socket's codec wipes the bytes of
+//! a frame that it read, but the buffers of a WebSocket cannot be wiped. A phone shows
+//! such a wait and leaves the answer to the terminal.
 
-use efr_protocol::{CallId, ConversationId, InputRespond, InputRespondResult};
+use efr_protocol::{CallId, ConversationId, InputRespond, InputRespondResult, Origin};
 use efr_shell::ShellError;
-use efr_transport::Responder;
+use efr_transport::{ConnectionContext, Responder};
 
 use crate::DaemonError;
 use crate::state::State;
@@ -29,9 +34,11 @@ use crate::state::State;
 #[tracing::instrument(skip_all, fields(conversation_id = %params.conversation_id, call_id = %params.call_id, hidden = params.hidden, manual = params.manual))]
 pub(crate) async fn handle(
     state: &State,
+    context: &ConnectionContext,
     params: InputRespond,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
+    from_terminal(context.surface())?;
     let InputRespond { conversation_id, call_id, text, hidden, manual } = params;
     let shells = &state.shells;
     let typed = if manual {
@@ -46,6 +53,11 @@ pub(crate) async fn handle(
     );
     responder.item(&InputRespondResult {}).await?;
     Ok(())
+}
+
+/// Refuses an answer from a phone, whatever scopes its connection holds.
+fn from_terminal(origin: Origin) -> Result<(), DaemonError> {
+    if origin == Origin::Phone { Err(DaemonError::PhoneInput) } else { Ok(()) }
 }
 
 /// The daemon error for an answer that the shell did not type. This is the one mapping

@@ -504,7 +504,7 @@ impl Dispatcher for Methods {
                 Method::PtyWrite(params) => pty_write::handle(state, params, &responder).await,
                 Method::PtyResize(params) => pty_resize::handle(state, params, &responder).await,
                 Method::InputRespond(params) => {
-                    input_respond::handle(state, params, &responder).await
+                    input_respond::handle(state, &context, params, &responder).await
                 }
                 Method::LeaseReport(params) => {
                     lease_report::handle(state, &context, params, &responder).await

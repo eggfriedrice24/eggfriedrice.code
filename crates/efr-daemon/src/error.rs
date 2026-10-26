@@ -546,6 +546,10 @@ pub enum DaemonError {
         /// The method.
         method: &'static str,
     },
+    /// `input.respond` came from a phone. A phone types no input for a command: the
+    /// text can be a password, and the buffers of its connection cannot be wiped.
+    #[error("a phone does not type input for a command; answer it at the terminal")]
+    PhoneInput,
     /// `conversation.resume` came from a connection that is not the shell's or
     /// `efr`'s on the terminal that its context names: a phone, or a made-up tty.
     #[error("a conversation moves only to the terminal that asks, and this is not {tty}")]
@@ -817,6 +821,7 @@ impl DaemonError {
         match self {
             DaemonError::Forbidden { .. }
             | DaemonError::ModelSidePeer { .. }
+            | DaemonError::PhoneInput
             | DaemonError::ResumeOffTerminal { .. }
             | DaemonError::RemoteOnly { .. } => ErrorCode::Forbidden,
             DaemonError::ProofNeeded { .. }

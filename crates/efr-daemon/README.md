@@ -476,7 +476,12 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   reasoning once, in fewer drafts. The drafts start with the status of the
   running turn (`ConversationHandle::live_drafts`: its newest `context` draft, and
   `compacting` while it compacts), so a client that attaches during a long model call
-  shows the gauge at once.
+  shows the gauge at once. A snapshot carries the turn's live parts (`live`: the text
+  of the message that streams and the reasoning of the turn so far), read after the
+  start and after the draft channel, so the drafts that follow go on past them. A
+  replay has no place for them: a subscription with drafts gets them as its first
+  drafts, so a phone that resumes in the middle of a message keeps the reasoning,
+  which the log never has.
 - `pty.attach` registers for live output, then sends the output after `since_seq` from
   the recording (a gap of at most 1 MiB) or a screen snapshot plus what was recorded
   after it. The replay sends each size that the recording holds as `resized` at its
@@ -591,7 +596,10 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   conversation for a phone) answers the quarantine question, with receipts as for
   `approval.respond`.
 - `input.respond` types the line a user gave for a running tool call that waits for
-  input into the conversation's hidden shell, through `ShellSessions::answer`: only
+  input into the conversation's hidden shell. A phone gets `forbidden` first, whatever
+  scopes it holds: the line can be a password, and the buffers of a WebSocket cannot be
+  wiped as the Unix socket's codec wipes its frames. The handler goes
+  through `ShellSessions::answer`: only
   while that call's command runs, a wait of it of the answer's kind was reported
   (`hidden` for a hidden wait, not for a visible one) and the job that waited (by its
   process group) still holds the terminal, and for a hidden answer only while the
@@ -2019,7 +2027,8 @@ a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
 interval); a subscriber that attaches during a model call gets the turn's `context`
 draft first; and a subscriber on a raw socket that does not read while the model
 streams gets merged drafts that hold every byte of the text once, keeps its
-subscription and gets every event. The unit tests of
+subscription and gets every event. A client that joins in the middle of a message gets
+its text so far in the snapshot's `live`, and as the first text draft of a resume. The unit tests of
 `methods/conversation_subscribe` check the merge and the rebuild without a daemon:
 any split of a text, with any drafts lost and built again and any pace of the room,
 gives the whole text with no gap and no byte twice.

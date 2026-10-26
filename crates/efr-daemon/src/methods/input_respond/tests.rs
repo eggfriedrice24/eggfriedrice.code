@@ -1,8 +1,8 @@
-use efr_protocol::{CallId, ConversationId, ErrorCode};
+use efr_protocol::{CallId, ConversationId, ErrorCode, Origin};
 use efr_shell::ShellError;
 use pretty_assertions::assert_eq;
 
-use super::refused;
+use super::{from_terminal, refused};
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -37,4 +37,14 @@ fn a_refusal_names_the_call() {
     let message = refused(not_waiting, conversation, call).to_string();
     assert!(message.contains(&call.to_string()), "{message}");
     assert!(message.contains("another call runs"), "{message}");
+}
+
+#[test]
+fn a_phone_never_answers_a_waiting_command() {
+    let refused = from_terminal(Origin::Phone).unwrap_err();
+    assert_eq!(refused.code(), ErrorCode::Forbidden);
+    assert!(refused.to_string().contains("terminal"), "{refused}");
+    for origin in [Origin::Shell, Origin::Cli] {
+        assert!(from_terminal(origin).is_ok(), "{origin:?}");
+    }
 }
