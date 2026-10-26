@@ -35,9 +35,6 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr device list` shows the paired devices, also the revoked ones, with when each one
   was paired and last seen. `efr device revoke <id>` takes a device's access away for
   good; the id can be the start of an id, as the list shows it.
-- When the model asks to turn on `remote.enabled`, or to change
-  `remote.tailscaled_socket`, the question of the settings tool says that the change
-  loosens permissions.
 
 ### Changed
 

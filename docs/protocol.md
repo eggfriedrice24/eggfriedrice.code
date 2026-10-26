@@ -825,5 +825,6 @@ No protocol version has shipped yet.
   `device.pair_confirm`, `device.enroll`, `device.list` and `device.revoke`.
   `device.pair_start` is `conflict` with the data `{"remote": "off"}` when `[remote]
   enabled` is false, and `busy` with `{"remote": "not_listening"}` while the listener
-  does not run. The section "Remote devices" now gives the rules of a pairing (the token, the count of
-  wrong tokens, the time to answer) and the key fingerprint with its test vector.
+  does not run. The section "Remote devices" now gives the rules of a pairing (the
+  token, the count of wrong tokens, the time to answer) and the key fingerprint with its
+  test vector.
