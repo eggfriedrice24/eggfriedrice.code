@@ -278,51 +278,62 @@ not a test that pretends.
 10. Markdown with enriched 1.1.1: code blocks use Menlo, the underline of a link is cyan
     (not purple), strong text is bold (not semibold), and a table has one border width.
     Check that these look right.
+11. Recycled rows: scroll fast up and down a long conversation with many replies. Each
+    row must show its own text, and a "copied" or a cursor of one reply must never show
+    on another one. The jest tests mock the list, so only the phone shows this.
+12. Older history: open a conversation that is longer than its snapshot and scroll to
+    the top. The older turns come in above, the place of the reader stays, and "Jump to
+    latest" does not show for them. Kill the app, open it again without a network, and
+    check that the older turns are still there.
+13. A reply with an image (`![x](https://example.com/x.png)`) and an HTML block
+    (`<video src="https://example.com/v.mp4">`): the image shows as "!" and the link
+    "x", the video line shows as text, and nothing loads (watch the log of a proxy, or
+    of the web server).
 
 ### Speed
 
-11. zod on Hermes: run the bench route of a preview build, which is a release build. Open
+14. zod on Hermes: run the bench route of a preview build, which is a release build. Open
     it right after a launch, to get a cold first parse. It parses each frame of the
     recordings through the schemas, in three modes. The draft frames must stay under
     0.5 ms at p95. If they do not, use jitless mode or smaller draft schemas.
-12. The React Compiler: the app must behave the same with it on. Count the renders of a
-    streaming conversation with the render counter of the dev build.
+15. The React Compiler: the app must behave the same with it on. Count the renders of a
+    streaming conversation with the render counter of a `development` build.
 
 ### The header and the navigation
 
-13. The title menu (`Stack.Title asChild` with `MenuView`): its layout, the yolk dot
+16. The title menu (`Stack.Title asChild` with `MenuView`): its layout, the yolk dot
     and the size of its tap target.
-14. The menu glyphs: `imageColor` must give yolk glyphs, not the colour of the label.
+17. The menu glyphs: `imageColor` must give yolk glyphs, not the colour of the label.
     The braille glyph of a running conversation: a menu takes only SF Symbols.
-15. The anchor of a menu that opens from a view (`findNodeHandle`).
-16. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
+18. The anchor of a menu that opens from a view (`findNodeHandle`).
+19. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
     (long press on back), and the strip under the transparent bar with the scroll edge
     effect.
-17. The first send on the blank root opens the new conversation with no animation, and
+20. The first send on the blank root opens the new conversation with no animation, and
     the id of the conversation then changes in place (`replaceParams`). The new params
     have no `enter`, so back and the edge swipe from that conversation have the normal
     animation.
-18. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
+21. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
     goes back to a conversation in the stack. Start after a pairing, and Forget of the
     last machine, go to the root with a short cross-fade (`animation: "fade"` on the
     screen that goes, set just before the reset), and with none when Reduce Motion is
     on.
-19. The All conversations sheet: its two sizes, with the search field.
+22. The All conversations sheet: its two sizes, with the search field.
 
 ### The composer
 
-20. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
+23. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
     inset.
-21. The input grows to 6 lines.
-22. The Steer and Queue menu opens with a long press on the capsule.
+24. The input grows to 6 lines.
+25. The Steer and Queue menu opens with a long press on the capsule.
 
 ### Look and motion
 
-23. The BrailleCell and the cursor animate with the native driver. With Reduce Motion
+26. The BrailleCell and the cursor animate with the native driver. With Reduce Motion
     on, they show a still frame.
-24. `fontFamily: "ui-monospace"` gives SF Mono and follows Dynamic Type. If not, the
+27. `fontFamily: "ui-monospace"` gives SF Mono and follows Dynamic Type. If not, the
     app uses Menlo.
-25. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
+28. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
     layers of `assets/icon/` (this needs a Mac).
 
 ## Rules of the app
