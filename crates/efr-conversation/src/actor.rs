@@ -70,7 +70,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tracing::Instrument as _;
 
 use crate::approvals::Approvals;
-use crate::drafts::{ConversationDraft, LiveStatus};
+use crate::drafts::{ConversationDraft, LiveStatus, LiveTurn};
 use crate::fresh::Fresh;
 use crate::gap::CallGap;
 use crate::history::CachedTurn;
@@ -1594,6 +1594,15 @@ impl ConversationHandle {
     /// Empty when no turn runs or the turn has sent neither yet.
     pub fn live_drafts(&self) -> Vec<ConversationDraft> {
         self.status.drafts()
+    }
+
+    /// What the current model call of the running turn streamed so far: the text of
+    /// the message that streams, the reasoning of the turn with its title, and the
+    /// input of each tool call of the answer. A subscriber that lost drafts builds them
+    /// again from it, and a client that attaches during a model call shows it at once.
+    /// `None` when no turn runs or its first model call has not started.
+    pub fn live_turn(&self) -> Option<LiveTurn> {
+        self.status.live_turn()
     }
 
     /// Sends a prompt. It runs at once when the conversation is idle and queues behind

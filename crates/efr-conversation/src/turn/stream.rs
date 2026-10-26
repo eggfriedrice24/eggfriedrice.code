@@ -88,7 +88,7 @@ impl Turn {
         let mut builder = CompletionBuilder::new();
         let mut updates = Coalescer::new(self.config.update_interval);
         self.streamed = 0;
-        self.drafter.begin_call();
+        self.drafter.begin_call(self.assistant_index);
         let streamed = loop {
             let now = clock.now();
             let flush = updates.flush_after(now);
@@ -101,7 +101,7 @@ impl Turn {
                     self.record_text(builder.text()).await?;
                 }
                 () = sleep_or_pending(&*clock, draft_flush) => {
-                    self.drafter.flush(clock.now(), &builder, self.assistant_index);
+                    self.drafter.flush(clock.now());
                 }
                 item = stream.next() => match item {
                     None => break Streamed::Ended,
@@ -124,7 +124,7 @@ impl Turn {
                         // NOTE: the draft goes before the update, which waits for the commit,
                         // so a live client sees the text first.
                         if self.drafter.push(&event) {
-                            self.drafter.offer(clock.now(), &builder, self.assistant_index);
+                            self.drafter.offer(clock.now());
                         }
                         let text_grew = matches!(&event, ProviderEvent::TextDelta { text } if !text.is_empty());
                         if text_grew && updates.offer(clock.now()) {
@@ -137,6 +137,7 @@ impl Turn {
         // NOTE: dropping the stream closes the provider's connection, so an interrupted
         // answer stops costing tokens before the interrupt is recorded as done.
         drop(stream);
+        self.drafter.answer_ended();
         let partial = builder.text();
         let outcome = match streamed {
             Streamed::Ended => builder.finish().map_err(Response::Failed),
@@ -207,6 +208,7 @@ impl Turn {
         };
         self.record(vec![event]).await?;
         self.assistant_index += 1;
+        self.drafter.message_completed(self.assistant_index);
         self.streamed = 0;
         Ok(())
     }

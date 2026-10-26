@@ -437,7 +437,14 @@ carries the same `index` and byte offsets as the updates; a reasoning draft carr
 the new reasoning at its offset in the reasoning of the whole turn, with the title of
 the newest section (the last all-bold line); a tool-input draft carries the tool and the input bytes so far of each
 call of the answer. Drafts never reach the log, and a turn that nobody follows live
-does no draft work and sets no timer. Earlier turns are
+does no draft work and sets no timer. The drafter keeps the parts themselves in the
+conversation's live holder, also when nobody listens: `ConversationHandle::live_turn`
+gives a `LiveTurn` with the running turn, its `after_seq`, the index and the text so
+far of the message that streams (empty once `assistant_message_completed` has it), the
+reasoning of the turn with its title, and the input bytes of each tool call of the
+answer (cleared when the answer ends). Drafts are cut from the same text, so a
+subscriber that lost drafts builds them again from the holder at the same byte
+offsets. Earlier turns are
 rebuilt from the newest events without `tool_call_output_updated`, so a long command's
 progress cannot push them out of the page. Every tool call is recorded
 with `tool_call_started`, judged at the check point, run when allowed or approved
@@ -1286,7 +1293,8 @@ a tool call, an approval that times out, a provider 401, a cwd move between turn
 provider items passed back to the same provider, also after a restart, and dropped
 for another provider, steering, coalesced updates, drafts (`turn/tests/drafts.rs`: their parts
 and `after_seq`, coalescing on the clock, the same log with and without a listener, no
-timer without one), a queued second prompt, receipts and
+timer without one; `turn/drafter/tests.rs`: the live parts equal the builder's text
+and the joined drafts for any stream of events), a queued second prompt, receipts and
 the refusals, a steer after the last model call, and the requests of a client that has
 just seen the end of a turn (`actor/tests.rs` holds the turn's task after its work
 with a tracing layer, so an end recorded too early shows every time). The input row

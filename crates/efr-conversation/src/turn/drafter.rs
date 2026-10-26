@@ -1,29 +1,36 @@
 //! The drafts of one turn: what the model sent since the last draft, at most once per
 //! draft interval.
 //!
-//! The drafter sees every provider event before the turn records anything, and keeps
-//! its own position in each part: the bytes of the current message's text that drafts
-//! carried, the reasoning of the whole turn, and the input bytes of each tool call of
-//! the current answer. The first change goes at once; later changes inside the
-//! interval wait, and one flush sends every part that changed. While nobody listens on
-//! the channel, the drafter sends nothing and its positions stay, so the first draft
-//! to a new listener carries everything since the last one sent.
+//! The drafter sees every provider event before the turn records anything. It keeps
+//! the parts themselves in the conversation's [`LiveStatus`]: the text of the current
+//! message, with its blocks joined as the completed text joins them, the reasoning of
+//! the whole turn, and the input bytes of each tool call of the current answer. A
+//! subscriber that lost drafts, or a client that attaches late, reads them there. The
+//! drafter keeps its own position in each part: how much of it drafts carried. The
+//! first change goes at once; later changes inside the interval wait, and one flush
+//! sends every part that changed. While nobody listens on the channel, the drafter
+//! sends nothing and its positions stay, so the first draft to a new listener carries
+//! everything since the last one sent.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId};
-use efr_provider::{CompletionBuilder, ProviderEvent};
+use efr_provider::ProviderEvent;
 use jiff::Timestamp;
 use tokio::sync::broadcast;
 
 use super::coalesce::Coalescer;
 use crate::ConversationDraft;
-use crate::drafts::LiveStatus;
+use crate::drafts::{LiveStatus, LiveToolInput, TurnParts, bold_title};
 
 /// What goes between the reasoning of two model calls of one turn.
 const REASONING_BREAK: &str = "\n\n";
+
+/// What goes between two text blocks of one message, as `CompletionBuilder::text`
+/// joins them.
+const TEXT_BREAK: &str = "\n\n";
 
 /// The input of one tool call as the model writes it.
 #[derive(Debug)]
@@ -40,7 +47,8 @@ struct ToolInput {
 #[derive(Debug)]
 pub(super) struct Drafter {
     sender: broadcast::Sender<ConversationDraft>,
-    /// The status that a client which attaches late sees at once.
+    /// The status that a client which attaches late sees at once, and the parts of the
+    /// current model call.
     status: Arc<LiveStatus>,
     conversation_id: ConversationId,
     turn_id: TurnId,
@@ -48,20 +56,22 @@ pub(super) struct Drafter {
     /// The sequence number of the last event that the turn recorded: the `after_seq`
     /// of its drafts. Atomic, because the turn records through a shared borrow.
     recorded: AtomicU64,
+    /// The index of the current message.
+    index: u32,
     /// The text grew since the last draft.
     text_changed: bool,
+    /// The last block of the current model call is text: the next text delta grows it.
+    text_block: bool,
     /// How many bytes of the current message's text drafts carried.
     text_sent: usize,
-    /// The reasoning of the whole turn so far.
-    reasoning: String,
-    /// How many bytes of `reasoning` drafts carried.
+    /// How many bytes of the turn's reasoning drafts carried.
     reasoning_sent: usize,
     /// True once the current model call sent reasoning.
     reasoning_in_call: bool,
     /// The title of the newest reasoning section.
     title: Option<String>,
-    /// Where the next search for a title starts: the start of the last line, which may
-    /// still grow.
+    /// Where the next search for a title starts in the turn's reasoning: the start of
+    /// the last line, which may still grow.
     title_from: usize,
     /// The tool calls of the current answer, in the order they started.
     calls: Vec<ToolInput>,
@@ -82,9 +92,10 @@ impl Drafter {
             turn_id,
             coalescer: Coalescer::new(interval),
             recorded: AtomicU64::new(0),
+            index: 0,
             text_changed: false,
+            text_block: false,
             text_sent: 0,
-            reasoning: String::new(),
             reasoning_sent: 0,
             reasoning_in_call: false,
             title: None,
@@ -93,59 +104,104 @@ impl Drafter {
         }
     }
 
-    /// A new model call starts: its text is a new message (or continues the current
-    /// one at offset 0 when the last call had no text), and its tool calls count from 0.
-    pub(super) fn begin_call(&mut self) {
+    /// A new model call starts: its text is message `index`, a new message, or the
+    /// current one again from offset 0 when the last call had no text; its tool calls
+    /// count from 0.
+    pub(super) fn begin_call(&mut self, index: u32) {
+        self.index = index;
         self.text_changed = false;
+        self.text_block = false;
         self.text_sent = 0;
         self.reasoning_in_call = false;
         self.calls.clear();
+        self.with_parts(|parts| {
+            parts.index = index;
+            parts.text.clear();
+            parts.tools.clear();
+        });
+    }
+
+    /// The model's answer ended: the input of its tool calls is no news any more, the
+    /// calls themselves follow as events.
+    pub(super) fn answer_ended(&self) {
+        if let Some(parts) = self.status.parts().as_mut() {
+            parts.tools.clear();
+        }
+    }
+
+    /// The turn recorded the whole text of the current message, and the next one is
+    /// `next`. The log has the text now, so the live parts drop it.
+    pub(super) fn message_completed(&self, next: u32) {
+        if let Some(parts) = self.status.parts().as_mut() {
+            parts.index = next;
+            parts.text.clear();
+        }
     }
 
     /// The turn recorded events up to `seq`; later drafts come after them.
     pub(super) fn recorded(&self, seq: Seq) {
         self.recorded.fetch_max(seq.get(), Ordering::AcqRel);
+        if let Some(parts) = self.status.parts().as_mut() {
+            parts.after_seq = parts.after_seq.max(seq);
+        }
     }
 
     /// Takes in one provider event; true when a draft part changed.
     pub(super) fn push(&mut self, event: &ProviderEvent) -> bool {
         match event {
             ProviderEvent::TextDelta { text } if !text.is_empty() => {
+                let new_block = !self.text_block;
+                self.text_block = true;
                 self.text_changed = true;
+                self.with_parts(|parts| {
+                    if new_block && !parts.text.is_empty() {
+                        parts.text.push_str(TEXT_BREAK);
+                    }
+                    parts.text.push_str(text);
+                });
                 true
             }
             ProviderEvent::ReasoningDelta { text } if !text.is_empty() => {
-                if !self.reasoning_in_call {
-                    if !self.reasoning.is_empty() {
-                        self.reasoning.push_str(REASONING_BREAK);
-                    }
-                    // The title of the last call's reasoning says nothing about this one.
-                    self.title = None;
-                }
+                let first = !self.reasoning_in_call;
                 self.reasoning_in_call = true;
-                self.reasoning.push_str(text);
+                self.text_block = false;
+                let call_start = self.with_parts(|parts| {
+                    if first {
+                        if !parts.reasoning.is_empty() {
+                            parts.reasoning.push_str(REASONING_BREAK);
+                        }
+                        parts.call_reasoning = parts.reasoning.len();
+                    }
+                    parts.reasoning.push_str(text);
+                    parts.call_reasoning
+                });
+                if first {
+                    // The title of the last call's reasoning says nothing about this one,
+                    // and the search for the next title starts in this call.
+                    self.title = None;
+                    self.title_from = call_start;
+                }
                 true
             }
             ProviderEvent::ToolCallStart { call_id, name, .. } => {
+                self.text_block = false;
+                let call = u32::try_from(self.calls.len()).unwrap_or(u32::MAX);
                 self.calls.push(ToolInput {
                     call_id: call_id.clone(),
                     tool: name.clone(),
                     bytes: 0,
                     sent: None,
                 });
+                self.with_parts(|parts| {
+                    parts.tools.push(LiveToolInput { call, tool: name.clone(), bytes: 0 });
+                });
                 true
             }
             ProviderEvent::ToolCallDelta { call_id, arguments } => {
-                self.call(call_id).is_some_and(|call| {
-                    call.bytes = call.bytes.saturating_add(arguments.len() as u64);
-                    true
-                })
+                self.grow_call(call_id, |bytes| bytes.saturating_add(arguments.len() as u64))
             }
             ProviderEvent::ToolCallEnd { call_id, arguments } => {
-                self.call(call_id).is_some_and(|call| {
-                    call.bytes = arguments.len() as u64;
-                    true
-                })
+                self.grow_call(call_id, |_| arguments.len() as u64)
             }
             _ => false,
         }
@@ -154,12 +210,12 @@ impl Drafter {
     /// A part changed at `now`: sends the drafts at once when the interval allows,
     /// otherwise holds them for [`flush`](Self::flush). Without a listener it does
     /// nothing, so a turn that nobody follows live sets no timer.
-    pub(super) fn offer(&mut self, now: Timestamp, builder: &CompletionBuilder, index: u32) {
+    pub(super) fn offer(&mut self, now: Timestamp) {
         if self.sender.receiver_count() == 0 {
             return;
         }
         if self.coalescer.offer(now) {
-            self.send(builder, index);
+            self.send();
         }
     }
 
@@ -169,43 +225,47 @@ impl Drafter {
     }
 
     /// Sends the held drafts.
-    pub(super) fn flush(&mut self, now: Timestamp, builder: &CompletionBuilder, index: u32) {
+    pub(super) fn flush(&mut self, now: Timestamp) {
         self.coalescer.flushed(now);
-        self.send(builder, index);
+        self.send();
     }
 
     /// Sends a draft of every part that changed since the last draft: the reasoning,
-    /// then the text of message `index`, then the input of each tool call.
-    fn send(&mut self, builder: &CompletionBuilder, index: u32) {
+    /// then the text of the current message, then the input of each tool call.
+    fn send(&mut self) {
         // NOTE: without a receiver nothing moves, so the next listener gets everything
         // since the last draft that went out.
         if self.sender.receiver_count() == 0 {
             return;
         }
-        if self.reasoning.len() > self.reasoning_sent {
-            self.find_title();
-            let part = DraftPart::Reasoning {
-                offset: self.reasoning_sent as u64,
-                delta: self.reasoning[self.reasoning_sent..].to_owned(),
-                title: self.title.clone(),
-            };
-            self.reasoning_sent = self.reasoning.len();
-            self.emit(part);
-        }
-        if self.text_changed {
-            self.text_changed = false;
-            let text = builder.text();
-            if let Some(delta) = text.get(self.text_sent..).filter(|delta| !delta.is_empty()) {
-                let part = DraftPart::Text {
-                    index,
-                    offset: self.text_sent as u64,
+        let mut parts = Vec::new();
+        {
+            let held = self.status.parts();
+            let reasoning = held.as_ref().map_or("", |held| held.reasoning.as_str());
+            if let Some(delta) =
+                reasoning.get(self.reasoning_sent..).filter(|delta| !delta.is_empty())
+            {
+                find_title(reasoning, &mut self.title_from, &mut self.title);
+                parts.push(DraftPart::Reasoning {
+                    offset: self.reasoning_sent as u64,
                     delta: delta.to_owned(),
-                };
-                self.text_sent = text.len();
-                self.emit(part);
+                    title: self.title.clone(),
+                });
+                self.reasoning_sent = reasoning.len();
+            }
+            if self.text_changed {
+                self.text_changed = false;
+                let text = held.as_ref().map_or("", |held| held.text.as_str());
+                if let Some(delta) = text.get(self.text_sent..).filter(|delta| !delta.is_empty()) {
+                    parts.push(DraftPart::Text {
+                        index: self.index,
+                        offset: self.text_sent as u64,
+                        delta: delta.to_owned(),
+                    });
+                    self.text_sent = text.len();
+                }
             }
         }
-        let mut parts = Vec::new();
         for (position, call) in self.calls.iter_mut().enumerate() {
             if call.sent == Some(call.bytes) {
                 continue;
@@ -270,24 +330,50 @@ impl Drafter {
         let _ = self.sender.send(draft);
     }
 
-    fn call(&mut self, call_id: &str) -> Option<&mut ToolInput> {
-        self.calls.iter_mut().rev().find(|call| call.call_id == call_id)
+    /// Runs `change` on the live parts of this turn, which it starts when the holder
+    /// has none of this turn.
+    fn with_parts<R>(&self, change: impl FnOnce(&mut TurnParts) -> R) -> R {
+        let mut held = self.status.parts();
+        let parts = match &mut *held {
+            Some(parts) if parts.turn_id == self.turn_id => parts,
+            other => {
+                let after = Seq::new(self.recorded.load(Ordering::Acquire));
+                other.insert(TurnParts::new(self.turn_id, after, self.index))
+            }
+        };
+        change(parts)
     }
 
-    /// Reads the lines that arrived since the last search for a bold title line.
-    fn find_title(&mut self) {
-        let fresh = &self.reasoning[self.title_from..];
-        if let Some(title) = fresh.rsplit('\n').find_map(bold_title) {
-            self.title = Some(title.to_owned());
-        }
-        self.title_from += fresh.rfind('\n').map_or(0, |at| at + 1);
+    /// Sets the input bytes of the newest call `call_id` to `grow` of them; false when
+    /// no such call started.
+    fn grow_call(&mut self, call_id: &str, grow: impl FnOnce(u64) -> u64) -> bool {
+        let Some(position) = self.calls.iter().rposition(|call| call.call_id == call_id) else {
+            return false;
+        };
+        let Some(call) = self.calls.get_mut(position) else {
+            return false;
+        };
+        call.bytes = grow(call.bytes);
+        let bytes = call.bytes;
+        let call = u32::try_from(position).unwrap_or(u32::MAX);
+        self.with_parts(|parts| {
+            if let Some(live) = parts.tools.iter_mut().find(|live| live.call == call) {
+                live.bytes = bytes;
+            }
+        });
+        true
     }
 }
 
-/// The text of `line` when the whole line is bold, as in `**Title**`.
-fn bold_title(line: &str) -> Option<&str> {
-    let inner = line.trim().strip_prefix("**")?.strip_suffix("**")?.trim();
-    (!inner.is_empty() && !inner.contains("**")).then_some(inner)
+/// Reads the lines of `reasoning` that arrived since the last search for a bold title
+/// line, from `from` on, and moves `from` to the start of the last line, which may
+/// still grow.
+fn find_title(reasoning: &str, from: &mut usize, title: &mut Option<String>) {
+    let fresh = reasoning.get(*from..).unwrap_or_default();
+    if let Some(found) = fresh.rsplit('\n').find_map(bold_title) {
+        *title = Some(found.to_owned());
+    }
+    *from += fresh.rfind('\n').map_or(0, |at| at + 1);
 }
 
 #[cfg(test)]

@@ -30,7 +30,8 @@
 //!   tool caches ([`CacheDeleteOutcome`]).
 //! - Drafts ([`ConversationDraft`], [`draft_channel`]): the text, the reasoning and the
 //!   tool input of a running turn as they arrive from the model, sent at most once per
-//!   [`ConversationConfig::draft_interval`] to the daemon for live clients, never stored.
+//!   [`ConversationConfig::draft_interval`] to the daemon for live clients, never stored;
+//!   and what the current model call streamed so far ([`LiveTurn`]).
 //! - [`ScopeResolver`] ([`GitScopeResolver`]): the scope of each turn, derived again
 //!   from the shell's working directory through `efr-scope`.
 //! - The `auto` sandbox: the check point runs a contained call with no question, asks
@@ -100,7 +101,7 @@ pub use context::{
     PRUNED_OUTPUT_STUB, SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS,
     estimate_tokens,
 };
-pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
+pub use drafts::{ConversationDraft, DRAFT_CAPACITY, LiveToolInput, LiveTurn, draft_channel};
 pub use error::{ConversationError, UndoBusyReason};
 pub use history::HistoryLimits;
 pub use index_text::{REDACTION_VERSION, redact_for_index};

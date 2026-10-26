@@ -1,14 +1,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_protocol::{ConversationId, DraftPart, TurnId};
+use efr_protocol::{ConversationId, DraftPart, Seq, TurnId};
 use efr_provider::{CompletionBuilder, ProviderEvent};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
+use proptest::prelude::*;
 use tokio::sync::broadcast;
 
-use super::{Drafter, bold_title};
-use crate::{ConversationDraft, draft_channel};
+use super::Drafter;
+use crate::drafts::{LiveStatus, bold_title};
+use crate::{ConversationDraft, LiveToolInput, draft_channel};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -27,7 +29,7 @@ fn drafter() -> (Drafter, broadcast::Sender<ConversationDraft>, CompletionBuilde
 fn feed(drafter: &mut Drafter, builder: &mut CompletionBuilder, event: &ProviderEvent) {
     builder.push(event).unwrap();
     if drafter.push(event) {
-        drafter.offer(Timestamp::UNIX_EPOCH, builder, 0);
+        drafter.offer(Timestamp::UNIX_EPOCH);
     }
 }
 
@@ -83,7 +85,7 @@ fn the_reasoning_of_a_new_model_call_drops_the_title_of_the_last_one() {
     let (mut drafter, sender, mut builder) = drafter();
     let mut receiver = sender.subscribe();
     feed(&mut drafter, &mut builder, &reasoning("**Checking the build**\n\nRun it."));
-    drafter.begin_call();
+    drafter.begin_call(0);
     let mut builder = CompletionBuilder::new();
     feed(&mut drafter, &mut builder, &reasoning("**Reading"));
     feed(&mut drafter, &mut builder, &reasoning(" the error**\n"));
@@ -176,11 +178,11 @@ fn a_new_model_call_starts_its_text_and_its_calls_again() {
     let (mut drafter, sender, mut builder) = drafter();
     let mut receiver = sender.subscribe();
     feed(&mut drafter, &mut builder, &text("One."));
-    drafter.begin_call();
+    drafter.begin_call(1);
     let mut builder = CompletionBuilder::new();
     builder.push(&text("Two.")).unwrap();
     assert!(drafter.push(&text("Two.")));
-    drafter.offer(Timestamp::UNIX_EPOCH, &builder, 1);
+    drafter.offer(Timestamp::UNIX_EPOCH);
     assert_eq!(
         parts(&mut receiver),
         vec![
@@ -199,4 +201,165 @@ fn events_without_a_draft_part_change_nothing() {
     let unknown =
         ProviderEvent::ToolCallDelta { call_id: "nobody".to_owned(), arguments: "x".to_owned() };
     assert!(!drafter.push(&unknown), "a call that never started");
+}
+
+/// A drafter that sends every change at once, with the status it writes its parts to.
+fn drafter_with_status() -> (Drafter, Arc<LiveStatus>, broadcast::Sender<ConversationDraft>) {
+    let sender = draft_channel();
+    let status = Arc::new(LiveStatus::default());
+    let drafter = Drafter::new(
+        sender.clone(),
+        Arc::clone(&status),
+        CONVERSATION.parse().unwrap(),
+        TURN.parse().unwrap(),
+        Duration::ZERO,
+    );
+    (drafter, status, sender)
+}
+
+fn start(id: &str, name: &str) -> ProviderEvent {
+    ProviderEvent::ToolCallStart { call_id: id.to_owned(), name: name.to_owned(), freeform: false }
+}
+
+#[test]
+fn the_live_turn_holds_the_parts_also_without_a_listener() {
+    let (mut drafter, status, _sender) = drafter_with_status();
+    assert_eq!(status.live_turn(), None, "no model call started");
+    drafter.begin_call(0);
+    let mut builder = CompletionBuilder::new();
+    feed(&mut drafter, &mut builder, &reasoning("**Looking** around\n**Reading the logs**\n"));
+    feed(&mut drafter, &mut builder, &text("Grüße, "));
+    feed(&mut drafter, &mut builder, &text("世界 😀"));
+    feed(&mut drafter, &mut builder, &start("a", "shell"));
+    let arguments = "{\"c".to_owned();
+    feed(
+        &mut drafter,
+        &mut builder,
+        &ProviderEvent::ToolCallDelta { call_id: "a".to_owned(), arguments },
+    );
+    drafter.recorded(Seq::new(7));
+
+    let live = status.live_turn().unwrap();
+    assert_eq!(live.turn_id, TURN.parse().unwrap());
+    assert_eq!(live.after_seq, Seq::new(7));
+    assert_eq!(live.index, 0);
+    assert_eq!(live.text, "Grüße, 世界 😀");
+    assert_eq!(live.text, builder.text());
+    assert_eq!(live.text_bytes(), "Grüße, 世界 😀".len() as u64, "bytes, not chars");
+    assert_eq!(live.reasoning, "**Looking** around\n**Reading the logs**\n");
+    assert_eq!(live.title.as_deref(), Some("Reading the logs"));
+    assert_eq!(live.tools, vec![LiveToolInput { call: 0, tool: "shell".to_owned(), bytes: 3 }]);
+}
+
+#[test]
+fn the_live_turn_drops_what_the_log_has_and_what_ended() {
+    let (mut drafter, status, _sender) = drafter_with_status();
+    drafter.begin_call(0);
+    let mut builder = CompletionBuilder::new();
+    feed(&mut drafter, &mut builder, &reasoning("**Plan**"));
+    feed(&mut drafter, &mut builder, &text("One."));
+    feed(&mut drafter, &mut builder, &start("a", "shell"));
+    drafter.answer_ended();
+    assert!(status.live_turn().unwrap().tools.is_empty(), "the calls follow as events");
+    drafter.message_completed(1);
+    let live = status.live_turn().unwrap();
+    assert_eq!((live.index, live.text.as_str()), (1, ""), "the log has the text");
+    assert_eq!(live.reasoning, "**Plan**", "reasoning is never in the log");
+
+    drafter.begin_call(1);
+    let mut builder = CompletionBuilder::new();
+    feed(&mut drafter, &mut builder, &reasoning("Next"));
+    let live = status.live_turn().unwrap();
+    assert_eq!(live.reasoning, "**Plan**\n\nNext");
+    assert_eq!(live.title, None, "the title of the last call says nothing about this one");
+
+    status.clear(true);
+    assert!(status.live_turn().is_some(), "a compaction keeps the parts");
+    status.clear(false);
+    assert_eq!(status.live_turn(), None, "the end of the turn drops them");
+}
+
+#[test]
+fn a_bold_last_line_of_the_last_call_is_no_title_of_the_next() {
+    let (mut drafter, sender, mut builder) = drafter();
+    let mut receiver = sender.subscribe();
+    feed(&mut drafter, &mut builder, &reasoning("Look.\n**Done looking**"));
+    drafter.begin_call(0);
+    feed(&mut drafter, &mut builder, &reasoning("Now the fix"));
+    let titles: Vec<Option<String>> = parts(&mut receiver)
+        .into_iter()
+        .map(|part| match part {
+            DraftPart::Reasoning { title, .. } => title,
+            other => panic!("only reasoning: {other:?}"),
+        })
+        .collect();
+    assert_eq!(titles, vec![Some("Done looking".to_owned()), None]);
+}
+
+/// One provider event of a generated stream.
+#[derive(Debug, Clone)]
+enum Step {
+    Text(String),
+    Reasoning(String),
+    Call,
+    Arguments(String),
+}
+
+fn step() -> impl Strategy<Value = Step> {
+    let piece = proptest::sample::select(vec!["", "a", "b c", "é", "世界", "😀", "\n", "**T**\n"]);
+    let pieces = proptest::collection::vec(piece, 0..4).prop_map(|pieces| pieces.concat());
+    prop_oneof![
+        4 => pieces.clone().prop_map(Step::Text),
+        2 => pieces.clone().prop_map(Step::Reasoning),
+        1 => Just(Step::Call),
+        1 => pieces.prop_map(Step::Arguments),
+    ]
+}
+
+proptest! {
+    /// Any stream of events gives live parts that equal the builder's text, and drafts
+    /// that, joined at their offsets, equal the live parts.
+    #[test]
+    fn the_live_parts_and_the_drafts_follow_the_builder(
+        steps in proptest::collection::vec(step(), 0..40),
+    ) {
+        let (mut drafter, status, sender) = drafter_with_status();
+        let mut receiver = sender.subscribe();
+        drafter.begin_call(0);
+        let mut builder = CompletionBuilder::new();
+        let mut calls = 0;
+        for step in steps {
+            let event = match step {
+                Step::Text(text) => ProviderEvent::TextDelta { text },
+                Step::Reasoning(text) => ProviderEvent::ReasoningDelta { text },
+                Step::Call => {
+                    calls += 1;
+                    start(&format!("c{calls}"), "shell")
+                }
+                Step::Arguments(arguments) if calls > 0 => {
+                    ProviderEvent::ToolCallDelta { call_id: format!("c{calls}"), arguments }
+                }
+                Step::Arguments(_) => continue,
+            };
+            feed(&mut drafter, &mut builder, &event);
+        }
+        let (mut text, mut reasoning) = (String::new(), String::new());
+        for part in parts(&mut receiver) {
+            match part {
+                DraftPart::Text { offset, delta, .. } => {
+                    prop_assert_eq!(offset, text.len() as u64);
+                    text.push_str(&delta);
+                }
+                DraftPart::Reasoning { offset, delta, .. } => {
+                    prop_assert_eq!(offset, reasoning.len() as u64);
+                    reasoning.push_str(&delta);
+                }
+                _ => {}
+            }
+        }
+        let live = status.live_turn().unwrap();
+        prop_assert_eq!(&live.text, &builder.text());
+        prop_assert_eq!(&live.text, &text);
+        prop_assert_eq!(&live.reasoning, &reasoning);
+    }
 }
