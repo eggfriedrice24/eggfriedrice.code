@@ -6,10 +6,12 @@ import { EMPTY_STREAM, withLink, type StreamState } from "@/lib/stream/reducer";
 import {
   approvalRequested,
   approvalResolved,
+  envelope,
   eventItem,
   manualFrames,
   promptQueued,
   run,
+  snapshotItem,
   turnCompleted,
   turnStarted,
 } from "@/lib/stream/testing";
@@ -147,7 +149,7 @@ describe("followApprovalFocus", () => {
 
   it("waits for the stream to bring the approval", () => {
     const test = follow(EMPTY_STREAM);
-    test.store.setState((state) => apply(withLink(state, "subscribing"), event(turnStarted("t2"))));
+    test.store.setState((state) => apply(withLink(state, "live"), event(turnStarted("t2"))));
     expect(test.done()).toBe(0);
     test.store.setState((state) => apply(state, event(approvalRequested("t2", "c1"))));
     test.frames.frame();
@@ -158,10 +160,31 @@ describe("followApprovalFocus", () => {
     expect(test.scrolled).toEqual(["a:t2:c1"]);
   });
 
-  it("ends with no scroll when the live stream has no approval that waits", () => {
+  it("finds the approval in a snapshot", () => {
     const test = follow(loaded());
-    expect(test.done()).toBe(0);
+    test.store.setState((state) =>
+      apply(
+        state,
+        snapshotItem(
+          "conversation",
+          "awaiting_approval",
+          [envelope(1, turnStarted("t2")), envelope(2, approvalRequested("t2", "c1", "git push"))],
+          2,
+        ),
+      ),
+    );
+    test.frames.frame();
+    expect(test.scrolled).toEqual(["a:t2:c1"]);
+    expect(test.done()).toBe(1);
+  });
+
+  it("ends with no scroll when a snapshot has no approval that waits", () => {
+    const test = follow(loaded());
     test.store.setState((state) => withLink(state, "live"));
+    expect(test.done()).toBe(0);
+    test.store.setState((state) =>
+      apply(state, snapshotItem("conversation", "idle", [envelope(1, turnStarted("t1"))], 1)),
+    );
     expect(test.done()).toBe(1);
     test.frames.frame();
     expect(test.scrolled).toEqual([]);

@@ -95,9 +95,11 @@ export interface ApprovalFocusDeps {
 }
 
 /**
- * Scrolls to the approval that waits, once the stream has it. When the stream is live
- * and no approval waits (the question was answered or expired), the request ends with no
- * scroll. Returns the function that stops the request.
+ * Scrolls to the approval that waits, once the stream has it. When a snapshot of efrd
+ * comes after the request and no approval waits in it (the question was answered or
+ * expired), the request ends with no scroll. Else it waits while the screen has the
+ * focus: the events after the cursor of a kept stream can bring the question late.
+ * Returns the function that stops the request.
  */
 export function followApprovalFocus(
   store: Readable<StreamState>,
@@ -106,6 +108,7 @@ export function followApprovalFocus(
   let cancel: (() => void) | undefined;
   let finished = false;
   let subscription: { unsubscribe(): void } | undefined;
+  const asked = store.get().summary;
   const finish = (): void => {
     finished = true;
     subscription?.unsubscribe();
@@ -124,7 +127,7 @@ export function followApprovalFocus(
         deps.scrollTo(key);
         deps.done();
       });
-    } else if (state.loaded && state.link === "live") {
+    } else if (state.summary !== asked) {
       finish();
       deps.done();
     }
