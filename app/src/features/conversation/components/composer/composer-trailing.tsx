@@ -140,6 +140,7 @@ export function sendModeEntries(mode: SendMode): MenuEntry[] {
     id: choice.mode,
     title: choice.title,
     subtitle: choice.subtitle,
+    image: choice.image,
     state: choice.mode === mode ? "on" : "off",
   }));
 }

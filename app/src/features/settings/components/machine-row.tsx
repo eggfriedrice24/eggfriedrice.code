@@ -38,7 +38,6 @@ export function MachineRow(props: MachineRowProps) {
     <InsetRow
       accessory={
         <MenuView
-          title={text.name}
           entries={MACHINE_MENU}
           onOpenChange={setOpen}
           onAction={(id) => {

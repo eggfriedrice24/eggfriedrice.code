@@ -3,9 +3,11 @@
 //
 // - An item never gets an empty image. @react-native-menu/menu 2.0.0 logs a CoreUI fault
 //   (about 50 ms) for an empty icon, so an item without a symbol sends no `image` key.
-// - A glyph that must keep its colour (the yolk glyphs of the title menu, design item
-//   8.11) sets `imageTone`: the package then draws the image in that colour instead of
-//   the label colour.
+// - Every image gets a colour. On Fabric the package always gets an `imageColor`: a
+//   missing one arrives as 0, which is clear, so the glyph does not show and leaves only
+//   a gap before the title. A glyph takes text_bright, the colour of a menu label in the
+//   dark style; a destructive one takes state_error. A glyph that must keep another
+//   colour (the yolk glyphs, design item 8.11) sets `imageTone`.
 // - A section is an inline group (`displayInline`): iOS draws it after a gap, such as
 //   "Pair a new machine" under the machines.
 
@@ -22,7 +24,7 @@ export interface MenuItem {
   readonly subtitle?: string;
   /** An SF Symbol name. Leave it out for no image; never pass "". */
   readonly image?: string;
-  /** A colour role that the image keeps. Without it the image takes the label colour. */
+  /** The colour role of the image. Without it: text_bright, or state_error when destructive. */
   readonly imageTone?: Role;
   /** "on" draws the check of the current item. */
   readonly state?: "on" | "off" | "mixed";
@@ -44,6 +46,14 @@ function isSection(entry: MenuEntry): entry is MenuSection {
   return "section" in entry;
 }
 
+/** The colour role of the image of `item`. */
+function imageToneOf(item: MenuItem): Role {
+  if (item.imageTone !== undefined) {
+    return item.imageTone;
+  }
+  return item.destructive === true ? "state_error" : "text_bright";
+}
+
 function toAction(item: MenuItem): MenuAction {
   const action: MenuAction = { id: item.id, title: item.title };
   if (item.subtitle !== undefined && item.subtitle !== "") {
@@ -51,9 +61,7 @@ function toAction(item: MenuItem): MenuAction {
   }
   if (item.image !== undefined && item.image !== "") {
     action.image = item.image;
-    if (item.imageTone !== undefined) {
-      action.imageColor = roles[item.imageTone];
-    }
+    action.imageColor = roles[imageToneOf(item)];
   }
   if (item.state !== undefined) {
     action.state = item.state;

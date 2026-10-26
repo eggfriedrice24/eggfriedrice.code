@@ -379,10 +379,20 @@ describe("the status line", () => {
 });
 
 describe("the Steer/Queue menu", () => {
-  it("has Steer now and Queue with their subtitles", () => {
+  it("has Steer now and Queue with their subtitles and glyphs", () => {
     expect(SEND_MODE_CHOICES).toEqual([
-      { mode: "steer", title: "Steer now", subtitle: "Joins the running turn" },
-      { mode: "queue", title: "Queue", subtitle: "Sends when this turn ends" },
+      {
+        mode: "steer",
+        title: "Steer now",
+        subtitle: "Joins the running turn",
+        image: "arrow.turn.left.up",
+      },
+      {
+        mode: "queue",
+        title: "Queue",
+        subtitle: "Sends when this turn ends",
+        image: "list.number",
+      },
     ]);
     expect(capsuleLabel("steer")).toBe("Steer");
     expect(capsuleLabel("queue")).toBe("Queue");

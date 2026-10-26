@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAtom, createStore, type Atom, type Readable } from "@tanstack/store";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { processColor, StyleSheet } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { ConnectionView } from "@/features/machines/model/connection-view";
@@ -16,6 +16,7 @@ import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { StreamState } from "@/lib/stream/reducer";
 import { eventItem, promptQueued, run, turnCompleted, turnStarted } from "@/lib/stream/testing";
 import { RADII, SPACING } from "@/theme/metrics";
+import { roles } from "@/theme/roles";
 
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";
@@ -269,9 +270,20 @@ describe("the states of the composer", () => {
     await renderComposer({ runningTurnId: "t1", text: "Use TurnState" });
     const menu = screen.getByTestId("composer-send-mode");
     expect(menu.props.shouldOpenOnLongPress).toBe(true);
-    expect(menu.props.actions).toEqual([
-      { id: "steer", title: "Steer now", subtitle: "Joins the running turn", state: "on" },
-      { id: "queue", title: "Queue", subtitle: "Sends when this turn ends", state: "off" },
+    expect(
+      menu.props.actions.map((action: { id: string; image: string; state: string }) => [
+        action.id,
+        action.image,
+        action.state,
+      ]),
+    ).toEqual([
+      ["steer", "arrow.turn.left.up", "on"],
+      ["queue", "list.number", "off"],
+    ]);
+    // Every glyph has a colour, so Fabric does not draw it clear.
+    expect(menu.props.actions.map((action: { imageColor?: number }) => action.imageColor)).toEqual([
+      processColor(roles.text_bright),
+      processColor(roles.text_bright),
     ]);
     await fireEvent(menu, "openMenu");
     expect(screen.getByRole("button", { name: "Steer, more options" })).toBeExpanded();

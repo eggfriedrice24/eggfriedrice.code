@@ -59,7 +59,7 @@ into the GitHub release notes, and it stops when the section is missing.
   paired, the app opens on the first step.
 - Settings in the phone app lists each paired machine with its connection and its
   efrd version. The menu of a row copies the node name, pairs the machine again or
-  forgets it. Forget asks first. After the last machine, the app goes back to
+  forgets it, and each item shows its glyph. Forget asks first. After the last machine, the app goes back to
   pairing. Settings also has the Haptics switch and the version of the app.
 - The phone app opens on a blank conversation of the machine that you used last. It
   shows the machine, `~` and the mode, and a prompt with a cursor. Your first message

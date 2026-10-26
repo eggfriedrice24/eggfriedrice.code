@@ -36,9 +36,14 @@ describe("the actions of a menu", () => {
     });
   });
 
-  it("let an image take the label colour without a tone", () => {
+  it("give every image a colour, because Fabric turns a missing one into clear", () => {
     const [action] = menuActions([{ id: "d", title: "desktop", image: "desktopcomputer" }]);
-    expect(action).toEqual({ id: "d", title: "desktop", image: "desktopcomputer" });
+    expect(action).toEqual({
+      id: "d",
+      title: "desktop",
+      image: "desktopcomputer",
+      imageColor: roles.text_bright,
+    });
   });
 
   it("send the check, the destructive and the disabled attributes", () => {
@@ -53,6 +58,7 @@ describe("the actions of a menu", () => {
         id: "forget",
         title: "Forget this machine",
         image: "trash",
+        imageColor: roles.state_error,
         attributes: { destructive: true },
       },
       { id: "off", title: "laptop", attributes: { disabled: true } },
@@ -73,7 +79,14 @@ describe("the actions of a menu", () => {
         id: "pair",
         title: "",
         displayInline: true,
-        subactions: [{ id: "pair", title: "Pair a new machine", image: "qrcode.viewfinder" }],
+        subactions: [
+          {
+            id: "pair",
+            title: "Pair a new machine",
+            image: "qrcode.viewfinder",
+            imageColor: roles.text_bright,
+          },
+        ],
       },
     ]);
   });

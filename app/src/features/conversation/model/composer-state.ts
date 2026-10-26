@@ -365,12 +365,19 @@ export interface SendModeChoice {
   readonly mode: SendMode;
   readonly title: string;
   readonly subtitle: string;
+  /** The SF Symbol of the item, as t3code has them. */
+  readonly image: string;
 }
 
 /** The two choices of the Steer/Queue menu, in order. */
 export const SEND_MODE_CHOICES: readonly SendModeChoice[] = [
-  { mode: "steer", title: "Steer now", subtitle: "Joins the running turn" },
-  { mode: "queue", title: "Queue", subtitle: "Sends when this turn ends" },
+  {
+    mode: "steer",
+    title: "Steer now",
+    subtitle: "Joins the running turn",
+    image: "arrow.turn.left.up",
+  },
+  { mode: "queue", title: "Queue", subtitle: "Sends when this turn ends", image: "list.number" },
 ];
 
 /** The label of the capsule of `mode`. */

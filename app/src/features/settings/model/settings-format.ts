@@ -103,16 +103,14 @@ export function machineAction(id: string): MachineAction | undefined {
 }
 
 /**
- * The row menu of a machine. Every item works while the machine is offline. Forget is in
- * a section of its own, in system red.
+ * The row menu of a machine. Every item works while the machine is offline. Each item
+ * has its glyph, and Forget is last, in red. The menu has no title and no section: the
+ * row above it names the machine.
  */
 export const MACHINE_MENU: readonly MenuEntry[] = [
   { id: "copy", title: "Copy node name", image: "doc.on.doc" },
   { id: "repair", title: "Re-pair", image: "arrow.triangle.2.circlepath" },
-  {
-    section: "forget",
-    items: [{ id: "forget", title: "Forget this machine", image: "trash", destructive: true }],
-  },
+  { id: "forget", title: "Forget this machine", image: "trash", destructive: true },
 ];
 
 /** The id of the destructive action of the Forget sheet. */

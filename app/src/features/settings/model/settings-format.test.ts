@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { menuActions } from "@/components/ui/menu-actions";
+import { roles } from "@/theme/roles";
 import { sheetOptions } from "@/components/ui/action-sheet";
 import { machineOf } from "@/features/machines/model/machine";
 import type {
@@ -159,22 +160,21 @@ describe("nodeName", () => {
 });
 
 describe("the row menu", () => {
-  it("has Copy node name, Re-pair and a destructive Forget in its own section", () => {
+  it("has Copy node name, Re-pair and a destructive Forget, each with a visible glyph", () => {
     expect(menuActions(MACHINE_MENU)).toEqual([
-      { id: "copy", title: "Copy node name", image: "doc.on.doc" },
-      { id: "repair", title: "Re-pair", image: "arrow.triangle.2.circlepath" },
+      { id: "copy", title: "Copy node name", image: "doc.on.doc", imageColor: roles.text_bright },
+      {
+        id: "repair",
+        title: "Re-pair",
+        image: "arrow.triangle.2.circlepath",
+        imageColor: roles.text_bright,
+      },
       {
         id: "forget",
-        title: "",
-        displayInline: true,
-        subactions: [
-          {
-            id: "forget",
-            title: "Forget this machine",
-            image: "trash",
-            attributes: { destructive: true },
-          },
-        ],
+        title: "Forget this machine",
+        image: "trash",
+        imageColor: roles.state_error,
+        attributes: { destructive: true },
       },
     ]);
   });

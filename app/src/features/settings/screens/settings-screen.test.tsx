@@ -189,7 +189,8 @@ describe("the machine rows", () => {
     await openSettings(parts);
     expect(screen.getByRole("button", { name: "desktop actions" })).toBeOnTheScreen();
     const menu = screen.getByTestId("machine-menu-desktop");
-    expect(menu.props.title).toBe("desktop");
+    // No title on top: the row already names the machine.
+    expect(menu.props.title).toBe("");
     expect(menu.props.actions.map((action: { id: string }) => action.id)).toEqual([
       "copy",
       "repair",
