@@ -2,7 +2,7 @@
   "expo": {
     "name": "efr",
     "slug": "efr",
-    "version": "0.0.0",
+    "version": "0.0.1",
     "orientation": "portrait",
     "scheme": "efr",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
@@ -35,6 +36,12 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "419d2f79-b2ca-4c12-9a28-b97fc000bbe5"
+      }
+    },
+    "owner": "eggfriedrice"
   }
 }

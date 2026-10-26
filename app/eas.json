@@ -1,7 +1,7 @@
 {
   "cli": {
     "version": ">= 25.0.0",
-    "appVersionSource": "local"
+    "appVersionSource": "remote"
   },
   "build": {
     "base": {
@@ -21,6 +21,17 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_EFR_DEV_TOOLS": "1"
+      }
+    },
+    "production": {
+      "extends": "base",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "bundleIdentifier": "dev.eggfriedrice.efr"
       }
     }
   }
