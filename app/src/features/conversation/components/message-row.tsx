@@ -8,6 +8,10 @@
 //   our code block frame. Each segment has a view of its own, keyed by where it begins,
 //   so a final segment keeps its native view and never parses again (the BlockView idea
 //   of the old UI, now with the React Compiler instead of a hand-written memo).
+// - The list recycles row instances: one instance can show a row of another turn. So
+//   the paced part is keyed by its turn and index, and it remounts with a new message.
+//   No state of one message (the paced view, the fade, the cursor, "copied") can show
+//   on another one.
 // - A new generation of the message (the completed text replaced the text) remounts the
 //   body, so the fade of the tail never misaligns.
 // - While the text arrives, the yolk prose cursor sits under it: solid while tokens
@@ -33,6 +37,17 @@ export interface MessageRowProps {
 
 /** The row of message `index` of turn `turnId`. */
 export function MessageRow(props: MessageRowProps) {
+  // A recycled instance with a new message remounts all of the paced part.
+  return (
+    <PacedMessageRow
+      key={`${props.turnId}:${props.index}`}
+      turnId={props.turnId}
+      index={props.index}
+    />
+  );
+}
+
+function PacedMessageRow(props: MessageRowProps) {
   const scope = useTranscriptScope();
   const shown = usePacedMessage(scope.store, props.turnId, props.index);
   const message = shown.message;

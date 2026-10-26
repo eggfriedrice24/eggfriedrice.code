@@ -8,6 +8,7 @@ import {
   promptQueued,
   run,
   textPart,
+  turnCompleted,
   turnStarted,
 } from "@/lib/stream/testing";
 
@@ -172,5 +173,36 @@ describe("a streaming message", () => {
     });
     await frames(100);
     expect(screen.queryByTestId("block-cursor", HIDDEN)).toBeNull();
+  });
+});
+
+describe("a recycled row", () => {
+  it("shows the text of its new message when the list gives it another turn", async () => {
+    const other = "019a9b1c-3d00-7a10-8b20-000000000003";
+    const state = run(
+      [
+        eventItem(3, messageCompleted(TURN, 0, "The reply of turn A.")),
+        eventItem(4, turnCompleted(TURN)),
+        eventItem(5, promptQueued(other, "And now?")),
+        eventItem(6, turnStarted(other)),
+        eventItem(7, messageCompleted(other, 0, "The reply of turn B.")),
+      ],
+      started(),
+    );
+    const { scope } = testScope(state);
+    // The list recycles: one row instance gets the props of another message.
+    const view = await render(
+      <InScope scope={scope}>
+        <MessageRow turnId={TURN} index={0} />
+      </InScope>,
+    );
+    expect(markdowns()).toEqual([{ markdown: "The reply of turn A.", flavor: "github" }]);
+    await view.rerender(
+      <InScope scope={scope}>
+        <MessageRow turnId={other} index={0} />
+      </InScope>,
+    );
+    await frames(100);
+    expect(markdowns()).toEqual([{ markdown: "The reply of turn B.", flavor: "github" }]);
   });
 });
