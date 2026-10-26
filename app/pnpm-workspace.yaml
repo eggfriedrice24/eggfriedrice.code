@@ -19,7 +19,3 @@ allowBuilds:
 hoistPattern:
   - "*"
   - "!@types/jsdom"
-# The jest tests import describe, it and expect from @jest/globals, for their types.
-# jest-expo depends on it; this makes it importable from the app.
-publicHoistPattern:
-  - "@jest/globals"
