@@ -8,6 +8,11 @@
 // `stream` is the stream reducer of the core (src/core/reducer.ts) and changes on each
 // draft; `details` is the details reducer (src/ui/details.ts) and changes on events. The
 // store runs both reducers on each item.
+//
+// `conversation(id)` has no side effect a screen must undo: the store subscribes to the
+// conversation (`conversation.subscribe` with drafts) while any of its stores has a
+// listener, and ends the subscription when the last listener goes. So a screen follows a
+// conversation exactly while it shows it, and React may call `conversation` again.
 
 import type { StreamState } from "../core/reducer";
 import type { PhoneDecision } from "./approval";
@@ -53,20 +58,13 @@ export interface ConversationItem {
   readonly cwd?: string;
 }
 
-/** The stores of one open conversation. */
+/** The stores of one conversation. */
 export interface ConversationSource {
   readonly id: string;
   readonly stream: ExternalStore<StreamState>;
   readonly details: ExternalStore<TranscriptDetails>;
   /** The title of the conversation, when it has one. */
   readonly title: ExternalStore<string | undefined>;
-}
-
-/** An open conversation: its stores, and a way to stop following it. */
-export interface OpenConversation {
-  readonly source: ConversationSource;
-  /** Ends the subscription. The stores keep their last values. */
-  readonly close: () => void;
 }
 
 /** The result of an action that efrd must accept. */
@@ -122,8 +120,11 @@ export interface PhoneSession {
   readonly connection: ExternalStore<ConnectionView>;
   readonly conversations: ExternalStore<readonly ConversationItem[]>;
   readonly pairing: PairingFlow;
-  /** Subscribes to a conversation, with drafts. */
-  readonly open: (conversationId: string) => OpenConversation;
+  /**
+   * The stores of a conversation, the same objects on each call for the same id. They
+   * follow the conversation while they have listeners.
+   */
+  readonly conversation: (conversationId: string) => ConversationSource;
   /** Sends a prompt to a conversation (`prompt.send`). */
   readonly sendPrompt: (conversationId: string, text: string) => Promise<ActionResult>;
   /** Answers an approval question (`approval.respond`). */
