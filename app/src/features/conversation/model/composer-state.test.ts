@@ -5,6 +5,7 @@ import type { MachineConnection } from "@/features/machines/model/machine-connec
 import { EMPTY_STREAM } from "@/lib/stream/reducer";
 import {
   capsuleLabel,
+  composerDraftKey,
   composerEditable,
   composerLink,
   composerPlaceholder,
@@ -49,6 +50,10 @@ function input(change: Partial<ComposerInput>): ComposerInput {
 
 const WORDS = { machineName: "laptop", tailnetDown: false };
 
+function connection(view: ConnectionView): MachineConnection {
+  return { client: { state: "off" }, view, seenAt: undefined };
+}
+
 describe("the link of the composer", () => {
   it("is online, reconnecting or disconnected by the connection", () => {
     expect(composerLink(undefined, ONLINE)).toEqual({ kind: "online" });
@@ -87,11 +92,6 @@ describe("the link of the composer", () => {
 
   it("keeps the last link in a selector of the connection atom", () => {
     const select = createLinkSelector();
-    const connection = (view: ConnectionView): MachineConnection => ({
-      client: { state: "off" },
-      view,
-      seenAt: undefined,
-    });
     const links: ComposerLink["kind"][] = [ONLINE, RETRYING, UNREACHABLE, CONNECTING, ONLINE].map(
       (view) => select(connection(view)).kind,
     );
@@ -176,13 +176,34 @@ describe("the trailing action", () => {
     [{ kind: "blank" }, { kind: "send", enabled: false }],
     [{ kind: "idle" }, { kind: "send", enabled: false }],
     [{ kind: "typing" }, { kind: "send", enabled: true }],
-    [{ kind: "running", hasText: false, sendMode: "steer" }, { kind: "stop", capsule: null }],
-    [{ kind: "running", hasText: true, sendMode: "steer" }, { kind: "stop", capsule: "steer" }],
-    [{ kind: "running", hasText: true, sendMode: "queue" }, { kind: "stop", capsule: "queue" }],
-    [{ kind: "sending", running: false }, { kind: "sending", stop: false }],
-    [{ kind: "sending", running: true }, { kind: "sending", stop: true }],
-    [{ kind: "reconnecting", running: true }, { kind: "send", enabled: false }],
-    [{ kind: "disconnected", reason: "starting" }, { kind: "send", enabled: false }],
+    [
+      { kind: "running", hasText: false, sendMode: "steer" },
+      { kind: "stop", capsule: null },
+    ],
+    [
+      { kind: "running", hasText: true, sendMode: "steer" },
+      { kind: "stop", capsule: "steer" },
+    ],
+    [
+      { kind: "running", hasText: true, sendMode: "queue" },
+      { kind: "stop", capsule: "queue" },
+    ],
+    [
+      { kind: "sending", running: false },
+      { kind: "sending", stop: false },
+    ],
+    [
+      { kind: "sending", running: true },
+      { kind: "sending", stop: true },
+    ],
+    [
+      { kind: "reconnecting", running: true },
+      { kind: "send", enabled: false },
+    ],
+    [
+      { kind: "disconnected", reason: "starting" },
+      { kind: "send", enabled: false },
+    ],
   ];
   it.each(cases)("of %j is %j", (state, trailing) => {
     expect(composerTrailing(state)).toEqual(trailing);
@@ -227,12 +248,23 @@ describe("the placeholder", () => {
 describe("the target of a send", () => {
   const conversation: ComposerTarget = { machine: DESKTOP, id: CONVERSATION_A, isBlankRoot: false };
 
+  it("keeps one draft per conversation, and one for the blank root of each machine", () => {
+    expect(composerDraftKey(conversation)).toBe(`${DESKTOP}:${CONVERSATION_A}`);
+    expect(composerDraftKey({ machine: DESKTOP, id: "local-1", isBlankRoot: true })).toBe(
+      `${DESKTOP}:new`,
+    );
+    expect(composerDraftKey({ machine: DESKTOP, id: "local-2", isBlankRoot: true })).toBe(
+      `${DESKTOP}:new`,
+    );
+  });
+
   it("is a new conversation on the blank root, and the conversation elsewhere", () => {
     const { outbox } = testOutbox();
     const snapshot = outbox.store.get();
-    expect(outboxTargetOf(snapshot, { machine: DESKTOP, id: "local", isBlankRoot: true })).toEqual(
-      { kind: "new", localId: "local" },
-    );
+    expect(outboxTargetOf(snapshot, { machine: DESKTOP, id: "local", isBlankRoot: true })).toEqual({
+      kind: "new",
+      localId: "local",
+    });
     expect(outboxTargetOf(snapshot, conversation)).toEqual({
       kind: "conversation",
       conversationId: CONVERSATION_A,

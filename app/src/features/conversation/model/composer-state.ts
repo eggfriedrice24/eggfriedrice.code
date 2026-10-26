@@ -21,6 +21,7 @@ import type { MachineConnection } from "@/features/machines/model/machine-connec
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { SendMode } from "@/features/settings/model/preferences";
 import { shortPath } from "@/features/conversations/model/list-format";
+import { BLANK_ROOT, draftKey, type DraftKey } from "./drafts";
 import { contextGauge } from "./format";
 import { entriesFor, resolveAlias, type OutboxSnapshot, type OutboxTarget } from "./outbox";
 import { selectStatus, type Waiting } from "./selectors";
@@ -57,7 +58,10 @@ const DISCONNECTED: Readonly<Record<DisconnectReason, ComposerLink>> = {
  * undefined for the first one. A link is one of a few constant objects, so a compare
  * with `===` finds a change.
  */
-export function composerLink(previous: ComposerLink | undefined, view: ConnectionView): ComposerLink {
+export function composerLink(
+  previous: ComposerLink | undefined,
+  view: ConnectionView,
+): ComposerLink {
   switch (view.kind) {
     case "online":
       return ONLINE;
@@ -173,9 +177,18 @@ export function composerTrailing(state: ComposerState): ComposerTrailing {
   }
 }
 
-/** True when the input takes text. A send in flight and no connection stop it. */
+/**
+ * True when the input takes text. A send in flight and no connection stop it. While a
+ * send is in flight, the native input stays editable, so the keyboard does not go down
+ * for each send; the composer only drops the changes.
+ */
 export function composerEditable(state: ComposerState): boolean {
   return state.kind !== "disconnected" && state.kind !== "sending";
+}
+
+/** The key of the draft of `target`: the blank root has one draft per machine. */
+export function composerDraftKey(target: ComposerTarget): DraftKey {
+  return draftKey(target.machine, target.isBlankRoot ? BLANK_ROOT : target.id);
 }
 
 /** The words of a placeholder that need the app. */
