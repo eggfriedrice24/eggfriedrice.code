@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 // Replay tests of the transcript: the scripted streams of scenarios.ts and the
-// recordings of efrd's TestDaemon (test/recordings/*.jsonl), with faults on top. Any
+// recordings of efrd's TestDaemon (test/recordings/*.ndjson), with faults on top. Any
 // chunking and any drop pattern must end with the completed text, the shown text must
 // never move back, and a final block must never change.
 
@@ -26,7 +26,7 @@ const SEED = 20261026;
 const SCENARIOS = scenarios();
 
 /** The recordings of efrd's TestDaemon, as text, by path. */
-const RECORDINGS = import.meta.glob<string>("../../test/recordings/*.jsonl", {
+const RECORDINGS = import.meta.glob<string>("../../test/recordings/*.ndjson", {
   eager: true,
   query: "?raw",
   import: "default",
