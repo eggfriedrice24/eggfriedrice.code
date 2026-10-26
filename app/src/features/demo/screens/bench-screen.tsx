@@ -31,7 +31,7 @@ import { BENCH_DECODERS, zodCompiles } from "@/lib/dev/decode-modes";
 import { DEV_TOOLS } from "@/lib/dev/dev-tools";
 import { engineName } from "@/lib/dev/native/engine";
 import { highResolutionNow } from "@/lib/dev/native/high-resolution-now";
-import { RECORDINGS } from "@/lib/dev/recordings";
+import { RECORDINGS, type Recording } from "@/lib/dev/recordings";
 import { SheetScroll } from "../components/sheet-layout";
 
 /** Where the bench is. */
@@ -51,6 +51,8 @@ function pause(): Promise<void> {
 export interface BenchScreenProps {
   /** The rounds over all items; the plan's 100 by default. A test runs fewer. */
   readonly rounds?: number;
+  /** The recordings to decode; all of them by default. A test gives a small one. */
+  readonly recordings?: readonly Recording[];
 }
 
 /** The bench screen. A build without the dev tools goes to the root. */
@@ -58,10 +60,12 @@ export function BenchScreen(props: BenchScreenProps) {
   if (!DEV_TOOLS) {
     return <Redirect href="/" />;
   }
-  return <Bench rounds={props.rounds ?? BENCH_ROUNDS} />;
+  return (
+    <Bench rounds={props.rounds ?? BENCH_ROUNDS} recordings={props.recordings ?? RECORDINGS} />
+  );
 }
 
-function Bench(props: { readonly rounds: number }) {
+function Bench(props: { readonly rounds: number; readonly recordings: readonly Recording[] }) {
   const [phase, setPhase] = useState<BenchPhase>({ kind: "idle" });
   const [clock] = useState(highResolutionNow);
   const [facts] = useState<BenchFacts>(() => ({
@@ -72,7 +76,7 @@ function Bench(props: { readonly rounds: number }) {
 
   const start = (): void => {
     setPhase({ kind: "running", done: 0, total: 1 });
-    runDecodeBench(benchItems(RECORDINGS), {
+    runDecodeBench(benchItems(props.recordings), {
       decoders: BENCH_DECODERS,
       now: clock.now,
       rounds: props.rounds,
