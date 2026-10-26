@@ -1,0 +1,9 @@
+# The pnpm settings of the app. The app is one package outside the Cargo workspace, so
+# this file names no other packages. pnpm 11 keeps its safe defaults (minimumReleaseAge,
+# strictDepBuilds, blockExoticSubdeps). Only the packages in allowBuilds can run their
+# install scripts.
+allowBuilds:
+  # Its postinstall downloads the tree-sitter runtime (SHA-256 checked) and the grammar
+  # sources from npm for code highlighting. Math is off in package.json, so it downloads
+  # no RaTeX.
+  react-native-enriched-markdown: true

@@ -3,3 +3,13 @@ target/
 .insta/
 research/
 .claude/worktrees/
+
+# The phone app (app/): installed packages, the Expo cache and the native projects
+# that `expo prebuild` writes. EAS makes the native projects again on each build.
+node_modules/
+app/.expo/
+app/ios/
+app/android/
+app/dist/
+app/expo-env.d.ts
+app/*.tsbuildinfo

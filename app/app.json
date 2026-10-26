@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "efr",
+    "slug": "efr",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "scheme": "efr",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0d111a",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "dev.eggfriedrice.efr",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "efr uses the camera to scan the pairing code that efr device add shows.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      ["expo-secure-store", { "faceIDPermission": false }],
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

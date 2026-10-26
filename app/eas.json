@@ -1,0 +1,19 @@
+{
+  "cli": {
+    "version": ">= 25.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "base": {
+      "node": "24.22.1",
+      "pnpm": "11.28.8",
+      "ios": {
+        "image": "auto"
+      }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal"
+    }
+  }
+}

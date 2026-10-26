@@ -1,0 +1,64 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "eslint",
+    "typescript",
+    "unicorn",
+    "oxc",
+    "react",
+    "react-perf",
+    "import",
+    "promise",
+    "vitest"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "options": {
+    "typeAware": true
+  },
+  "env": {
+    "builtin": true,
+    "es2022": true
+  },
+  "rules": {
+    // The JSX runtime of React 17 and later needs no React in scope.
+    "react/react-in-jsx-scope": "off",
+    // Its fix is Array#toSorted (ES2023), which Hermes may lack. Sort a fresh copy.
+    "unicorn/no-array-sort": "off",
+    "react-hooks/exhaustive-deps": "error",
+    "react-hooks/rules-of-hooks": "error"
+  },
+  "overrides": [
+    {
+      // The core is pure TypeScript: it runs in Node under Vitest, so it names no React,
+      // React Native or Expo module.
+      "files": ["src/core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "react",
+                  "react-*",
+                  "react/**",
+                  "expo",
+                  "expo-*",
+                  "expo/**",
+                  "@expo/**",
+                  "@/**"
+                ],
+                "message": "src/core is pure TypeScript: import only from src/core."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "ignorePatterns": ["node_modules/", "ios/", "android/", ".expo/", "dist/"]
+}
