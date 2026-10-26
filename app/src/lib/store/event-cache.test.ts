@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { MemoryEventCaches, type CachedEvent, type EventCaches } from "./event-cache";
+import {
+  conversationCache,
+  MemoryEventCaches,
+  type CachedEvent,
+  type EventCaches,
+} from "./event-cache";
 import { CACHE_SCHEMA_VERSION, SqliteEventCaches } from "./sqlite-cache";
 import { NodeDatabase } from "./testing";
 
@@ -51,6 +56,17 @@ describe.each(KINDS)("the %s event cache", (_name, make) => {
     await cache.remove("a");
     expect(await cache.load("a")).toEqual([]);
     expect(await cache.load("b")).toEqual(events(1));
+  });
+
+  it("gives one conversation of one machine to its stream", async () => {
+    const caches = await make(100);
+    const desktop = conversationCache(caches.forMachine(DESKTOP), "a");
+    await desktop.append(events(2, 1));
+    await conversationCache(caches.forMachine(LAPTOP), "a").append(events(7));
+    expect(await desktop.load()).toEqual(events(1, 2));
+    await desktop.replace(events(5));
+    expect(await caches.forMachine(DESKTOP).load("a")).toEqual(events(5));
+    expect(await caches.forMachine(LAPTOP).load("a")).toEqual(events(7));
   });
 
   it("writes a large batch in chunks", async () => {

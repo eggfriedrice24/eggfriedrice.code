@@ -38,6 +38,25 @@ export interface EventCaches {
   removeMachine(daemonId: string): Promise<void>;
 }
 
+/** The cache of one conversation of one machine, as the stream of the conversation uses it. */
+export interface ConversationCache {
+  /** The cached events, oldest first. */
+  load(): Promise<readonly CachedEvent[]>;
+  /** Adds events; an event with a sequence number that the cache has replaces it. */
+  append(events: readonly CachedEvent[]): Promise<void>;
+  /** Replaces all events, as after a snapshot. */
+  replace(events: readonly CachedEvent[]): Promise<void>;
+}
+
+/** The cache of conversation `conversationId` in the cache of its machine. */
+export function conversationCache(cache: EventCache, conversationId: string): ConversationCache {
+  return {
+    load: () => cache.load(conversationId),
+    append: (events) => cache.append(conversationId, events),
+    replace: (events) => cache.replace(conversationId, events),
+  };
+}
+
 /** The most events that the cache keeps per conversation; older ones go first. */
 export const MAX_CACHED_EVENTS = 2000;
 
