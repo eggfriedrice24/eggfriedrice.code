@@ -388,8 +388,7 @@ pub(crate) fn run(root: &Path, fast: bool) -> anyhow::Result<bool> {
     let mut files = 0_usize;
 
     let walker = WalkDir::new(root).sort_by_file_name().into_iter().filter_entry(|entry| {
-        !(entry.file_type().is_dir()
-            && entry.path().strip_prefix(root).is_ok_and(|relative| skipped_dir(relative)))
+        !(entry.file_type().is_dir() && entry.path().strip_prefix(root).is_ok_and(skipped_dir))
     });
     for entry in walker {
         let entry = entry.context("walking the repository")?;
