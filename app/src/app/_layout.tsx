@@ -10,6 +10,7 @@ import { setHapticsEnabled } from "@/lib/native/haptics";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
+import { withDevMachines } from "@/features/demo/native/demo-machines";
 import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
 import { RootStack } from "@/features/navigation/components/root-stack";
@@ -33,7 +34,8 @@ function report(error: unknown): void {
 }
 
 const services = createAppServices({
-  pairing: nativePairingDeps(),
+  // A dev or preview build sends the sockets of the demo machines to the demo server.
+  pairing: withDevMachines(nativePairingDeps()),
   random: Math.random,
   schedule: animationFrames,
   clock: systemClock,
