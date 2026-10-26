@@ -22,7 +22,7 @@
 // A segment's key is the offset where it begins, so a segment keeps its view while it
 // grows, and an open fence keeps its view when it closes.
 
-import { type BlockSplit, completeBlocks, fenceBody } from "./blocks";
+import { type BlockSplit, completeBlocks } from "./blocks";
 
 /** From this length (UTF-16 units) each final block of a message is a segment of its own. */
 export const BLOCKS_FROM = 20_000;
@@ -56,6 +56,9 @@ export type Segment =
     };
 
 const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/** The fence languages of a diff, as blocks.ts knows them. */
+const DIFF_LANGUAGES: ReadonlySet<string> = new Set(["diff", "patch", "udiff"]);
 
 /** The language of a fence's first line, or undefined when the line opens no fence. */
 export function fenceLanguage(line: string): string | undefined {
@@ -168,30 +171,43 @@ export function messageSegments(
     run = run === undefined ? { start, end } : { start: run.start, end };
   };
 
-  for (const block of blocks) {
-    const range = `c${String(block.start)}:${String(block.end)}`;
-    const held = cache.get(range);
+  // A closed fence never changes, so its segment is kept by where it begins: the tail's
+  // segment of a fence that just closed is the same object as its final block's.
+  const fence = (at: number, source: string, language: string, whole: boolean): Segment => {
+    const key = `c${String(at)}`;
+    const held = cache.get(key);
     if (held !== undefined) {
-      flush(false);
-      segments.push(held);
-      continue;
+      return held;
     }
-    const source = text.slice(block.start, block.end).replace(/\n+$/, "");
-    const key = `c${String(block.start)}`;
-    if (block.kind === "diff") {
-      flush(false);
-      segments.push(kept(range, () => ({ kind: "diff", key, body: fenceBody(source) })));
-      continue;
+    const parsed = parseFence(source, whole);
+    // A final block is whole: a fence that the message never closed ends with it.
+    const closed = parsed.closed || whole;
+    const segment: Segment =
+      parsed.closed && DIFF_LANGUAGES.has(language)
+        ? { kind: "diff", key, body: parsed.body }
+        : {
+            kind: "code",
+            key,
+            language,
+            source: source.replace(/\n+$/, ""),
+            body: parsed.body,
+            closed,
+          };
+    if (closed) {
+      cache.set(key, segment);
     }
+    return segment;
+  };
+
+  for (const block of blocks) {
+    const source = text.slice(block.start, block.end);
     const language = fenceLanguage(firstLine(source));
     if (language === undefined) {
       markdown(block.start, block.end);
       continue;
     }
     flush(false);
-    // A final block is whole: a fence that the message never closed ends with it.
-    const body = parseFence(source, true).body;
-    segments.push(kept(range, () => ({ kind: "code", key, language, source, body, closed: true })));
+    segments.push(fence(block.start, source, language, true));
   }
 
   if (final) {
@@ -207,7 +223,7 @@ export function messageSegments(
   const tailLanguage = tail.includes("\n") ? fenceLanguage(firstLine(tail)) : undefined;
   if (tailLanguage !== undefined) {
     flush(false);
-    segments.push(openCode(`c${String(tailStart)}`, tailLanguage, tail));
+    segments.push(fence(tailStart, tail, tailLanguage, false));
     return segments;
   }
   // A last line that can still become a fence waits for its newline.
@@ -219,17 +235,12 @@ export function messageSegments(
     }
     flush(true);
     const language = fenceLanguage(lastLine) ?? "";
-    segments.push(openCode(`c${String(tailStart + lastLineStart)}`, language, lastLine));
+    segments.push(fence(tailStart + lastLineStart, lastLine, language, false));
     return segments;
   }
   markdown(tailStart, text.length);
   flush(true);
   return segments;
-}
-
-function openCode(key: string, language: string, source: string): Segment {
-  const fence = parseFence(source, false);
-  return { kind: "code", key, language, source, body: fence.body, closed: fence.closed };
 }
 
 /** The label of a code block header: `rust`, or `rust · streaming` while the fence is open. */

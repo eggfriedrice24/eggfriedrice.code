@@ -145,4 +145,14 @@ describe("the segment cache", () => {
     expect(second[1]).toBe(first[1]);
     expect(second[2]).not.toBe(first[2]);
   });
+
+  it("keeps the segment of a fence that closed in the tail when it becomes final", () => {
+    const cache = new Map<string, Segment>();
+    const closed = "Guard it:\n\n```rust\nfn a() {}\n```\n";
+    const inTail = messageSegments(closed, splitBlocks(closed, EMPTY_SPLIT), false, cache);
+    const later = `${closed}\nThen test it.`;
+    const asFinal = messageSegments(later, splitBlocks(later, EMPTY_SPLIT), false, cache);
+    expect(inTail[1]).toMatchObject({ kind: "code", closed: true });
+    expect(asFinal[1]).toBe(inTail[1]);
+  });
 });
