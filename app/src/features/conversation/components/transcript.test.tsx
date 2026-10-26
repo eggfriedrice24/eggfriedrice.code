@@ -198,7 +198,6 @@ describe("the transcript", () => {
       // No bottom padding: the space under the last row is a row, so that FlashList
       // counts it when it fills a short list, and a short list fits the screen.
       content: { paddingHorizontal: 20, paddingTop: INSETS.top + 12 },
-      bounce: false,
     });
     expect(screen.getByTestId("list-end").props.style).toEqual({ height: INSETS.bottom + 12 });
     // No gap before the space under the last row.
@@ -217,14 +216,14 @@ describe("the transcript", () => {
     expect(onReachTop).toHaveBeenCalledTimes(1);
   });
 
-  it("puts 16 pt under your prompt and 12 pt between the other rows", async () => {
+  it("puts 16 pt under your prompt, 12 pt between the other rows and 4 pt over the end line", async () => {
     const { scope } = testScope(finishedTurn());
     await render(<Transcript scope={scope} insets={INSETS} />);
     const gaps = screen
       .getAllByTestId("row-gap", { includeHiddenElements: true })
       .map((gap) => String(gap.props.className));
     // Oldest first: prompt over tool, tool over message, message over end.
-    expect(gaps).toEqual(["h-after-prompt", "h-item", "h-item"]);
+    expect(gaps).toEqual(["h-after-prompt", "h-item", "h-4"]);
   });
 
   it("shows the whole output of a tool after a tap on show all", async () => {

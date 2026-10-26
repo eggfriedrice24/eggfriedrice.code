@@ -1,9 +1,11 @@
-// The line at the end of a turn (design 3.9 and the C-Failed board): mono 11/15 in
-// text_subtle between two flexible hairlines, such as "14:32 · 3m 08s · 18k tokens".
+// The line at the end of a turn (design 3.9 and the C-Failed board): one small mono 11/15
+// line in text_subtle right under the answer, left aligned as the terminal prints it, such
+// as "14:32 · 3m 08s · 18k tokens". The user asked for it in place of the centred line
+// between two hairlines.
 //
 // - Interrupted: "■" in text_muted, then "interrupted by you · 14:31 · 1m 02s".
 // - Failed: "✗" in state_error and "turn failed" in text_primary, then the time; under
-//   it the reason in mono 11/16 text_muted, centred; under that the plain buttons
+//   it the reason in mono 11/16 text_muted; under that the plain buttons
 //   "retry" and "copy error", 18 pt apart. Retry sends the turn's prompt again as a new
 //   prompt (decision D8). The composer goes back to idle by itself.
 //
@@ -13,7 +15,6 @@
 import { useSelector } from "@tanstack/react-store";
 import { Text, View } from "react-native";
 
-import { Hairline } from "@/components/ui/hairline";
 import { MonoText } from "@/components/ui/mono-text";
 import { PlainButton } from "@/components/ui/plain-button";
 import { copyText } from "@/lib/native/clipboard";
@@ -36,9 +37,8 @@ export function TurnEndLineView(props: TurnEndLineViewProps) {
   const onRetry = props.onRetry;
   return (
     <View>
-      <View accessible accessibilityLabel={view.label} className="flex-row items-center gap-8">
-        <Hairline grow />
-        <Text className="shrink text-center text-mono-xs-tight text-text-subtle">
+      <View accessible accessibilityLabel={view.label}>
+        <Text className="text-mono-xs-tight text-text-subtle">
           {view.glyph === undefined ? null : (
             <Text className={view.glyph === "✗" ? "text-state-error" : "text-text-muted"}>
               {`${view.glyph} `}
@@ -49,15 +49,14 @@ export function TurnEndLineView(props: TurnEndLineViewProps) {
           )}
           {view.detail}
         </Text>
-        <Hairline grow />
       </View>
       {view.reason === undefined ? null : (
-        <MonoText tone="text_muted" className="mt-4 text-center">
+        <MonoText tone="text_muted" className="mt-4">
           {view.reason}
         </MonoText>
       )}
       {view.canRetry ? (
-        <View className="mt-2 flex-row justify-center gap-18">
+        <View className="mt-2 flex-row gap-18">
           {onRetry === undefined ? null : (
             <PlainButton label="retry" accessibilityLabel="Retry the turn" onPress={onRetry} />
           )}

@@ -132,6 +132,11 @@ describe("rowGap", () => {
     expect(rowGap("o:k1", "w:t1")).toBe("afterPrompt");
   });
 
+  it("puts the end line of a turn 4 pt under the last row of the turn", () => {
+    expect(rowGap("m:t1:0", "e:t1")).toBe("end");
+    expect(rowGap("t:t1:c1", "e:t1")).toBe("end");
+  });
+
   it("puts 20 pt between the end of a turn and the next prompt", () => {
     expect(rowGap("e:t1", "p:t2")).toBe("turn");
     expect(rowGap("e:t1", "o:k1")).toBe("turn");
@@ -140,7 +145,7 @@ describe("rowGap", () => {
 
   it("keeps the 12 pt of the design between the other rows", () => {
     expect(rowGap("m:t1:0", "t:t1:c1")).toBe("item");
-    expect(rowGap("t:t1:c1", "e:t1")).toBe("item");
+    expect(rowGap("t:t1:c1", "m:t1:1")).toBe("item");
     expect(rowGap("r:t1", "m:t1:0")).toBe("item");
   });
 });

@@ -104,6 +104,7 @@ const GAP_CLASS = {
   item: "h-item",
   afterPrompt: "h-after-prompt",
   turn: "h-turn",
+  end: "h-4",
 } as const satisfies Record<RowGap, string>;
 
 interface GapProps {
@@ -179,7 +180,6 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
         paddingHorizontal: SPACING.gutter,
         paddingTop: props.insets.top + SPACING.item,
       }}
-      alwaysBounceVertical={false}
       onScroll={onScroll}
       onScrollBeginDrag={() => follow.dragStarted()}
       onScrollEndDrag={(event) => follow.dragEnded(event.nativeEvent)}

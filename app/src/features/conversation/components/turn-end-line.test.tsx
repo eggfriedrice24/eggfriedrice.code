@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 describe("the turn end line", () => {
-  it("shows the time, the duration and the tokens between hairlines", async () => {
+  it("shows the time, the duration and the tokens on one plain line", async () => {
     const view = turnEndView(
       {
         outcome: "completed",
@@ -39,7 +39,7 @@ describe("the turn end line", () => {
     );
     await render(<TurnEndLineView view={view} onRetry={undefined} />);
     expect(screen.getByText("14:32 · 3m 08s · 18k tokens")).toBeOnTheScreen();
-    expect(screen.getAllByTestId("hairline", { includeHiddenElements: true })).toHaveLength(2);
+    expect(screen.queryAllByTestId("hairline", { includeHiddenElements: true })).toHaveLength(0);
     expect(screen.queryByRole("button")).toBeNull();
   });
 

@@ -70,9 +70,10 @@ export function rowKindOf(key: string): RowKind | undefined {
 /**
  * The space between two rows of the transcript. Most rows are 12 pt apart (design item
  * 8.3). The answer starts 16 pt under your prompt, and a new turn starts 20 pt under the
- * end of the turn before it, so that each turn reads as one group.
+ * end of the turn before it, so that each turn reads as one group. The end line of a turn
+ * sits 4 pt under the last row of its turn, as the terminal prints it under the answer.
  */
-export type RowGap = "item" | "afterPrompt" | "turn";
+export type RowGap = "item" | "afterPrompt" | "turn" | "end";
 
 /** True for a row that holds your text: a prompt, a steer or a prompt of the outbox. */
 function isPromptKey(key: string): boolean {
@@ -88,6 +89,9 @@ function startsTurn(key: string): boolean {
 export function rowGap(above: string, below: string): RowGap {
   if (startsTurn(below)) {
     return "turn";
+  }
+  if (below.startsWith("e:")) {
+    return "end";
   }
   return isPromptKey(above) ? "afterPrompt" : "item";
 }
