@@ -12,6 +12,11 @@ fn a_timeout_is_not_transient_because_the_request_may_have_reached_the_server() 
     assert!(!HttpError::Timeout { url: url() }.is_transient());
     assert!(!HttpError::BodyTooLarge { url: url(), limit: 1 }.is_transient());
     assert!(!HttpError::SseEventTooLarge { limit: 1 }.is_transient());
+    assert!(!HttpError::LineTooLarge { url: url(), limit: 1 }.is_transient());
+    assert!(
+        !HttpError::LocalApiStatus { url: url(), status: http::StatusCode::NOT_FOUND }
+            .is_transient()
+    );
     assert!(
         !HttpError::UnixTimedOut { socket: PathBuf::from("/s"), after: Duration::from_secs(1) }
             .is_transient()
@@ -50,6 +55,26 @@ fn messages_name_what_failed_in_one_sentence() {
             "the response body from https://x.test/a is larger than 10 bytes",
         ),
         (HttpError::SseEventTooLarge { limit: 5 }, "a server-sent event is larger than 5 bytes"),
+        (
+            HttpError::LineTooLarge { url: "http://local-tailscaled.sock/w".to_owned(), limit: 8 },
+            "a line of the response body from http://local-tailscaled.sock/w is larger than 8 bytes",
+        ),
+        (
+            HttpError::LocalApiStatus {
+                url: "http://local-tailscaled.sock/localapi/v0/status".to_owned(),
+                status: http::StatusCode::FORBIDDEN,
+            },
+            "the LocalAPI request http://local-tailscaled.sock/localapi/v0/status failed with \
+             403 Forbidden",
+        ),
+        (
+            HttpError::LocalApiReply {
+                url: "http://local-tailscaled.sock/localapi/v0/whois".to_owned(),
+                problem: "the node has no stable id",
+            },
+            "the LocalAPI reply from http://local-tailscaled.sock/localapi/v0/whois is not \
+             usable: the node has no stable id",
+        ),
         (
             HttpError::UnixTimedOut {
                 socket: PathBuf::from("/var/run/tailscale/tailscaled.sock"),

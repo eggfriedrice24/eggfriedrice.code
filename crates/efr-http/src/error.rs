@@ -121,6 +121,35 @@ pub enum HttpError {
         limit: usize,
     },
 
+    /// A line of a newline-delimited body is longer than the reader allows.
+    #[error("a line of the response body from {url} is larger than {limit} bytes")]
+    LineTooLarge {
+        /// The redacted URL.
+        url: String,
+        /// The largest line the reader accepts, without its line end.
+        limit: usize,
+    },
+
+    /// tailscaled's LocalAPI answered with a status that is not a success, other than
+    /// the 404 of a whois for an unknown peer. The body is not kept.
+    #[error("the LocalAPI request {url} failed with {status}")]
+    LocalApiStatus {
+        /// The redacted URL.
+        url: String,
+        /// The status of the answer.
+        status: http::StatusCode,
+    },
+
+    /// tailscaled's LocalAPI sent a reply that parses but lacks what the caller must
+    /// check, so the caller refuses instead of guessing.
+    #[error("the LocalAPI reply from {url} is not usable: {problem}")]
+    LocalApiReply {
+        /// The redacted URL.
+        url: String,
+        /// What is missing.
+        problem: &'static str,
+    },
+
     /// A WebSocket handshake got an answer other than `101 Switching Protocols`. The
     /// server did not open a socket and did not act on a message.
     #[error("the server at {url} refused the websocket upgrade with {status}")]

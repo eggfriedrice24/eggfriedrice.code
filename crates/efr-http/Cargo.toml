@@ -1,6 +1,6 @@
 [package]
 name = "efr-http"
-description = "HTTP for efr: one rustls reqwest client, a clock-driven retry policy, an SSE parser, a Unix-socket client and header redaction"
+description = "HTTP for efr: one rustls reqwest client, a clock-driven retry policy, an SSE parser, a Unix-socket client, a tailscaled LocalAPI client and header redaction"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

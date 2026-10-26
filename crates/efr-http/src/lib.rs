@@ -9,14 +9,18 @@
 //! - [`WebSocket`]: a WebSocket client connection that
 //!   [`HttpClient::websocket`] opens over the same TLS stack, for the Responses API's
 //!   WebSocket transport.
-//! - [`UnixClient`]: HTTP/1.1 over a Unix socket through hyper, for tailscaled's
-//!   LocalAPI at the phone milestone.
+//! - [`UnixClient`]: HTTP/1.1 over a Unix socket through hyper.
+//! - [`JsonLines`]: newline-delimited JSON over a body that may never end, with a cap
+//!   on each line.
+//! - [`LocalApi`]: a small typed client of tailscaled's LocalAPI over [`UnixClient`]:
+//!   the status of this node, the whois of a peer and the watch of the IPN bus, for
+//!   efrd's remote listener.
 //! - [`redact`]: header and URL redaction for logs, errors and transcripts.
 //! - [`Recorder`]: the hook through which the daemon records provider traffic as an
 //!   NDJSON transcript.
 //!
-//! Allowed dependencies: `efr-stdx` only. What does not belong here: any provider's
-//! endpoints, headers or event names (`efr_providers::openai`), token handling
+//! Allowed dependencies: `efr-stdx` only. What does not belong here: any model
+//! provider's endpoints, headers or event names (`efr_providers::openai`), token handling
 //! (`efr-oauth-openai`), and the transcript file format (`efr-daemon`,
 //! `efr-test-support`).
 //!
@@ -29,6 +33,8 @@
 
 mod client;
 mod error;
+mod json_lines;
+mod localapi;
 mod recorder;
 pub mod redact;
 mod request;
@@ -44,6 +50,12 @@ pub use bytes::Bytes;
 pub use client::{HttpClient, HttpConfig};
 pub use error::HttpError;
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
+pub use json_lines::JsonLines;
+pub use localapi::{
+    BackendState, CurrentTailnet, IpnNotify, IpnState, IpnWatch, LOCALAPI_HOST, LocalApi,
+    PeerIdentity, SelfChange, StatusNode, TailscaleStatus, TailscaleVersion, VERSION_HEADER,
+    WATCH_MASK, WATCH_MAX_LINE_BYTES,
+};
 pub use recorder::{BodyEnd, ExchangeId, Record, Recorder};
 pub use request::HttpRequest;
 pub use response::{ByteStream, HttpResponse};

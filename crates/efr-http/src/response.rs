@@ -8,7 +8,7 @@ use futures::{Stream, StreamExt as _};
 use http::{HeaderMap, StatusCode};
 use serde::de::DeserializeOwned;
 
-use crate::{HttpError, SseStream, redact};
+use crate::{HttpError, JsonLines, SseStream, redact};
 
 /// The body of a response as a stream of chunks.
 pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, HttpError>> + Send>>;
@@ -86,6 +86,12 @@ impl HttpResponse {
     /// The body as a stream of chunks, without a size limit.
     pub fn into_stream(self) -> ByteStream {
         self.body
+    }
+
+    /// The body as newline-delimited JSON, one value per line, with no cap on the
+    /// whole body and `max_line_bytes` on each line.
+    pub fn into_json_lines(self, max_line_bytes: usize) -> JsonLines {
+        JsonLines::new(self.body, self.url, max_line_bytes)
     }
 
     /// The body as server-sent events, with the default [`SseDecoder`](crate::SseDecoder).

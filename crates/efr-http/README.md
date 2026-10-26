@@ -34,16 +34,41 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   caller bounds the wait. The handshake
   key comes from the injected `Rng`. The handshake is never retried and never
   recorded.
-- `unix`: `UnixClient`, HTTP/1.1 over a Unix socket with hyper and hyper-util, for
-  tailscaled's LocalAPI at the phone milestone. Its timeout runs on the injected
-  clock.
+- `unix`: `UnixClient`, HTTP/1.1 over a Unix socket with hyper and hyper-util. Its
+  timeout runs on the injected clock. The caller names the socket; this crate has no
+  default path.
+- `json_lines`: `JsonLines`, newline-delimited JSON over a body that may never end
+  (`HttpResponse::into_json_lines`). It holds one line at a time and refuses a line
+  longer than its cap (`HttpError::LineTooLarge`) before the rest of the line
+  arrives. `next_line` and `next_json` are cancel safe.
+- `localapi`: `LocalApi`, a small typed client of tailscaled's LocalAPI over
+  `UnixClient`, for efrd's remote listener. `status` sends
+  `GET /localapi/v0/status?peers=false` and keeps `BackendState`, `TUN`,
+  `TailscaleIPs`, `Self` (its `ID`, the stable node id) and `CurrentTailnet` (its
+  `StableID`) in a `TailscaleStatus`. `whois` sends
+  `GET /localapi/v0/whois?addr=<ip:port>&proto=tcp` (an IPv4 address mapped into
+  IPv6 is unmapped first) and keeps `Node.StableID`, `Node.Name`, `Node.Tags`,
+  `Node.Hostinfo.ShareeNode`, `Node.Hostinfo.Hostname` and `UserProfile.ID`,
+  `LoginName` and `DisplayName` in a `PeerIdentity`; it never reads the numeric
+  `Node.ID`, which can pass 2^53. A 404 is `None` (an unknown peer, which a caller
+  refuses); another failure status is `HttpError::LocalApiStatus`, and a reply
+  without a node, a user or a stable node id is an error, never a partial identity.
+  `watch` sends `GET /localapi/v0/watch-ipn-bus?mask=16386` (`WATCH_MASK`:
+  `NotifyInitialState` and `NotifyInitialStatus`, never bit 8, which tailscaled
+  refuses) and returns an `IpnWatch`, whose `next` reads one `IpnNotify` per line
+  (`Version`, `ErrMessage`, `State`, `SelfChange`, `InitialStatus`) with a cap of
+  8 MiB per line. A reader that falls behind gets an `ErrMessage` and then the end of
+  the stream (`IpnNotify::fell_behind`). `TailscaleVersion` reads the
+  `Tailscale-Version` header (each result keeps it) and `MINIMUM_REMOTE` (1.100.0)
+  is the oldest tailscaled that efrd's remote listener supports. What efrd admits or
+  binds from these answers is the daemon's decision, not this crate's.
 - `redact`: header and URL redaction for logs, errors and transcripts.
 - `recorder`: the `Recorder` hook that receives provider traffic, for capturing a
   transcript later; no binary installs one yet. Recording is opt-in per request.
 
 Consumers: `efr_providers::openai` (the streaming Responses API over HTTP and over a
 WebSocket), `efr-oauth-openai`
-(token exchange and refresh), and later the daemon's tailnet whois check.
+(token exchange and refresh), and efrd's remote listener (`LocalApi`).
 
 ## Tier
 
@@ -73,8 +98,11 @@ are re-exported, so callers need no direct dependency on `http`, `reqwest` or `h
   timer, so tests drive them without sleeping.
 - A request that is not idempotent is never sent a second time after it may have
   reached the server.
-- The crate knows no vendor: endpoints, provider headers and event names belong to the
-  provider crates.
+- The crate knows no model vendor: endpoints, provider headers and event names belong
+  to the provider crates. The one service it knows is tailscaled's LocalAPI, a local
+  daemon on a Unix socket, because the remote listener needs it below `efr-daemon`.
+- No LocalAPI request sends an `Origin` or `Referer` header, and each one sends
+  `Host: local-tailscaled.sock`, which tailscaled requires.
 
 ## Tests
 
@@ -85,8 +113,10 @@ cargo nextest run -p efr-http
 ```
 
 The client tests talk to a `wiremock` server on the loopback interface and the
-Unix-socket tests to a fake server on a socket in a temporary directory; the WebSocket
+Unix-socket and LocalAPI tests to a fake server on a socket in a temporary directory
+(never the real tailscaled); the WebSocket
 tests run a fake server on the loopback interface that answers the handshake by hand
 and frames with `fastwebsockets`. Nothing leaves the machine. The SSE decoder has a proptest that checks that any split of a
-stream into chunks yields the same events. The tests use no real-time sleeps and no
+stream into chunks yields the same events, and `JsonLines` has one that checks the same
+for lines. The tests use no real-time sleeps and no
 Zig.

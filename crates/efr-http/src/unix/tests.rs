@@ -139,7 +139,7 @@ async fn a_silent_server_times_out_on_the_clock() {
 
 #[test]
 fn defaults() {
-    let client = UnixClient::new("/var/run/tailscale/tailscaled.sock", Arc::new(StoppedClock));
-    assert_eq!(client.socket(), Path::new("/var/run/tailscale/tailscaled.sock"));
+    let client = UnixClient::new("/srv/tailscaled.sock", Arc::new(StoppedClock));
+    assert_eq!(client.socket(), Path::new("/srv/tailscaled.sock"));
     assert_eq!(UnixClient::DEFAULT_TIMEOUT, Duration::from_secs(5));
 }

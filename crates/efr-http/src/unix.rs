@@ -1,10 +1,11 @@
 //! HTTP/1.1 over a Unix socket, for local daemons such as tailscaled's LocalAPI.
 //!
-//! The phone milestone asks tailscaled who a tailnet peer is with
-//! `GET http://local-tailscaled.sock/localapi/v0/whois?addr=<ip:port>` over
-//! `/var/run/tailscale/tailscaled.sock`. This client sends any [`HttpRequest`] that
-//! way: the URL's host becomes the `Host` header, its path and query become the
-//! request target, and the bytes go to the socket instead of a TCP connection.
+//! [`LocalApi`](crate::LocalApi) asks tailscaled who a tailnet peer is with
+//! `GET http://local-tailscaled.sock/localapi/v0/whois?addr=<ip:port>` over the socket
+//! that the caller names (efrd takes it from `remote.tailscaled_socket`). This client
+//! sends any [`HttpRequest`] that way: the URL's host becomes the `Host` header, its
+//! path and query become the request target, and the bytes go to the socket instead
+//! of a TCP connection.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
