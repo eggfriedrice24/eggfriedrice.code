@@ -27,14 +27,21 @@
 //! already got and that ends what the draft shows (`assistant_message_completed`,
 //! `tool_call_started`, the end of a turn). The drafts start with the status of the
 //! running turn (`ConversationHandle::live_drafts`), so a client that attaches during
-//! a long model call or a compaction shows it at once. A draft goes through the queue's
-//! lossy room: a full room drops the draft, and a draft channel that left this
-//! subscriber behind drops the oldest drafts. Neither closes the subscription.
+//! a long model call or a compaction shows it at once.
+//!
+//! A draft goes through the queue's lossy room, and it never closes the subscription.
+//! A draft that finds the room full waits in the live side, merged with the later
+//! drafts of its part ([`pending`]), and goes at the next free place in the room. A
+//! draft channel that left this subscriber behind lost drafts that never reached the
+//! live side; it then builds them again from the turn's live parts
+//! (`ConversationHandle::live_turn`). So a slow subscriber gets fewer, larger drafts,
+//! and every byte of the text and the reasoning of the running message.
 
-use std::sync::Arc;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
-use efr_conversation::ConversationDraft;
+use efr_conversation::{ConversationDraft, LiveTurn};
 use efr_protocol::{
     ConversationId, ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft,
     Event, EventEnvelope, ScopeName, Seq,
@@ -43,14 +50,18 @@ use efr_store::Committed;
 use efr_transport::{
     ConnectionContext, LossyOffer, Offer, Responder, SubscriptionSender, TransportError,
 };
+use futures::FutureExt as _;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use self::pending::PendingDrafts;
 use crate::DaemonError;
 use crate::methods::{cursor, granted, peer_side};
 use crate::state::State;
+
+mod pending;
 
 /// The most events a resume replays, and the most a snapshot carries.
 pub(crate) const MAX_EVENTS: usize = 128;
@@ -84,7 +95,7 @@ impl Drop for AbortOnDrop {
 }
 
 pub(crate) async fn handle(
-    state: &State,
+    state: &Arc<State>,
     context: &ConnectionContext,
     params: ConversationSubscribe,
     responder: &Responder,
@@ -107,6 +118,8 @@ pub(crate) async fn handle(
         progress: Arc::clone(&progress),
         drafts: None,
         boundary: Seq::ZERO,
+        pending: PendingDrafts::default(),
+        rebuild: None,
     };
     let _producer = AbortOnDrop(tokio::spawn(live.produce(drafts, cancelled)));
     let after = params.after_seq;
@@ -150,7 +163,8 @@ pub(crate) async fn handle(
             .live(conversation_id)
             .map(|handle| handle.live_drafts())
             .unwrap_or_default();
-        let _ = feed.send(DraftFeed { receiver, held });
+        let _ =
+            feed.send(DraftFeed { receiver, held, rebuild: live_parts(state, conversation_id) });
     }
     for item in start.items {
         responder.item(&item).await?;
@@ -184,6 +198,31 @@ struct DraftFeed {
     /// while it compacts), so a subscriber that attaches during a long model call or a
     /// compaction shows it at once.
     held: Vec<ConversationDraft>,
+    /// Reads the live parts of the running turn, for the drafts that the channel lost.
+    rebuild: Rebuild,
+}
+
+/// Reads what the running turn of a conversation streamed so far and its status
+/// drafts: what a subscriber needs to build the drafts it lost again.
+struct Rebuild(Box<dyn Fn() -> (Option<LiveTurn>, Vec<ConversationDraft>) + Send>);
+
+impl fmt::Debug for Rebuild {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Rebuild")
+    }
+}
+
+/// The live parts and the status drafts of `conversation_id`'s running turn, read when
+/// a subscriber lost drafts. It holds the state weakly, so a subscription never keeps
+/// the daemon's state alive.
+fn live_parts(state: &Arc<State>, conversation_id: ConversationId) -> Rebuild {
+    let state = Arc::downgrade(state);
+    Rebuild(Box::new(move || {
+        Weak::upgrade(&state)
+            .and_then(|state| state.conversations.live(conversation_id))
+            .map(|handle| (handle.live_turn(), handle.live_drafts()))
+            .unwrap_or_default()
+    }))
 }
 
 /// The live side of one subscription.
@@ -198,12 +237,18 @@ struct Live {
     /// The sequence number of the last event offered to the subscriber that ends what
     /// a draft shows ([`ends_drafts`]). A draft made before it is old.
     boundary: Seq,
+    /// The drafts that wait for a free place in the lossy room, merged.
+    pending: PendingDrafts,
+    /// Reads the live parts of the running turn, once the draft channel came.
+    rebuild: Option<Rebuild>,
 }
 
 /// What the live side does next.
 enum Step {
     Batch(Result<Committed, RecvError>),
     Draft(Result<ConversationDraft, RecvError>),
+    /// The lossy room has a free place for a held draft.
+    Room,
 }
 
 impl Live {
@@ -223,10 +268,11 @@ impl Live {
                 batch = self.committed.recv() => Step::Batch(batch),
                 fed = &mut feed, if feed_open => {
                     feed_open = false;
-                    let Ok(DraftFeed { receiver, held }) = fed else {
+                    let Ok(DraftFeed { receiver, held, rebuild }) = fed else {
                         continue;
                     };
                     self.drafts = Some(receiver);
+                    self.rebuild = Some(rebuild);
                     for draft in held {
                         if !self.forward_draft(draft) {
                             return;
@@ -235,18 +281,20 @@ impl Live {
                     continue;
                 }
                 draft = next_draft(self.drafts.as_mut()) => Step::Draft(draft),
+                () = self.sender.lossy_room(), if !self.pending.is_empty() => Step::Room,
             };
             let open = match step {
                 Step::Batch(batch) => self.forward(batch),
                 Step::Draft(Ok(draft)) => self.forward_draft(draft),
                 Step::Draft(Err(RecvError::Lagged(missed))) => {
-                    tracing::debug!(missed, "a subscriber missed drafts");
-                    true
+                    tracing::debug!(missed, "a subscriber missed drafts and builds them again");
+                    self.rebuild()
                 }
                 Step::Draft(Err(RecvError::Closed)) => {
                     self.drafts = None;
                     true
                 }
+                Step::Room => self.catch_up() && self.flush(),
             };
             if !open {
                 return;
@@ -276,6 +324,7 @@ impl Live {
                     self.progress.raise(envelope.seq);
                     if ends_drafts(&envelope.event) {
                         self.boundary = self.boundary.max(envelope.seq);
+                        self.pending.drop_before(self.boundary);
                     }
                 }
                 Offer::Overflowed | Offer::Closed => return false,
@@ -291,17 +340,46 @@ impl Live {
 
     /// Offers `draft` when it belongs to this conversation, after every commit that
     /// already waits, unless an event that ends what it shows went first; false when
-    /// the subscription ended.
+    /// the subscription ended. A draft that finds the lossy room full waits, merged.
     fn forward_draft(&mut self, draft: ConversationDraft) -> bool {
         if draft.conversation_id != self.conversation_id {
             return true;
         }
         // NOTE: the turn sent the draft after the commits it made before it, so those
         // commits wait here already; they go first.
+        if !self.catch_up() {
+            return false;
+        }
+        if draft.after_seq < self.boundary {
+            // NOTE: the turn made the draft before an event that the subscriber already
+            // has ended its part: an old draft would only show the past again.
+            return true;
+        }
+        self.pending.push(draft);
+        self.flush()
+    }
+
+    /// The draft channel left this subscriber behind: holds again what the running
+    /// turn streamed past what went here, after the commits that wait, and offers it.
+    fn rebuild(&mut self) -> bool {
+        if !self.catch_up() {
+            return false;
+        }
+        let Some(rebuild) = &self.rebuild else {
+            return true;
+        };
+        let (live, status) = (rebuild.0)();
+        self.pending.rebuild(self.conversation_id, live, status);
+        self.pending.drop_before(self.boundary);
+        self.flush()
+    }
+
+    /// Forwards every commit that already waits; false when the subscription ended.
+    fn catch_up(&mut self) -> bool {
         loop {
             let batch = match self.committed.try_recv() {
                 Ok(batch) => Ok(batch),
-                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Empty) => return true,
                 Err(TryRecvError::Lagged(missed)) => Err(RecvError::Lagged(missed)),
                 Err(TryRecvError::Closed) => Err(RecvError::Closed),
             };
@@ -309,20 +387,31 @@ impl Live {
                 return false;
             }
         }
-        if draft.after_seq < self.boundary {
-            // NOTE: the turn made the draft before an event that the subscriber already
-            // has ended its part: an old draft would only show the past again.
-            return true;
+    }
+
+    /// Offers the held drafts, oldest first, while the lossy room has a place; false
+    /// when the subscription ended.
+    fn flush(&mut self) -> bool {
+        // NOTE: only this side offers lossy items, so a place that the check finds
+        // stays free for the offer.
+        while self.sender.lossy_room().now_or_never().is_some() {
+            let Some(draft) = self.pending.pop() else {
+                return true;
+            };
+            if draft.after_seq < self.boundary {
+                continue;
+            }
+            let item = ConversationSubscribeItem::Draft(Draft {
+                turn_id: draft.turn_id,
+                after_seq: draft.after_seq,
+                draft: draft.part,
+            });
+            match self.sender.offer_lossy(item) {
+                LossyOffer::Queued | LossyOffer::Dropped => {}
+                LossyOffer::Closed => return false,
+            }
         }
-        let item = ConversationSubscribeItem::Draft(Draft {
-            turn_id: draft.turn_id,
-            after_seq: draft.after_seq,
-            draft: draft.part,
-        });
-        match self.sender.offer_lossy(item) {
-            LossyOffer::Queued | LossyOffer::Dropped => true,
-            LossyOffer::Closed => false,
-        }
+        true
     }
 }
 
@@ -413,3 +502,6 @@ pub(crate) fn snapshot(
     let history_cursor = older.then(|| cursor(before));
     ConversationSnapshot { conversation, events, history_cursor, hwm, live: None }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,7 +1,8 @@
 //! Drafts on `conversation.subscribe` over a `TestDaemon`: they reach only a
 //! subscriber that asked for them, after the events that the turn recorded before
 //! them, within 35 ms at the 95th percentile; the log is the same with and without
-//! them; and a slow subscriber loses drafts but keeps its subscription.
+//! them; and a slow subscriber gets merged drafts with every byte of the text and
+//! keeps its subscription.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -388,11 +389,13 @@ async fn read_frames(
     }
 }
 
-#[tokio::test]
-async fn a_slow_subscriber_loses_drafts_and_keeps_its_subscription() {
-    // Big deltas fill the socket and the queues while the subscriber does not read.
-    let deltas: Vec<String> = (0..600).map(|n| format!("{n:04}{}", "x".repeat(4092))).collect();
-    let model = Streamer::new(deltas, Duration::ZERO);
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_slow_subscriber_gets_merged_drafts_with_every_byte_and_keeps_its_subscription() {
+    // Big deltas fill the socket and the queues while the subscriber does not read. The
+    // model holds the end of its answer, so the merged drafts are not old yet when the
+    // subscriber reads again.
+    let deltas: Vec<String> = (0..600).map(|n| format!("{n:04}{}é", "x".repeat(4090))).collect();
+    let model = Streamer::held(deltas);
     let (daemon, client, conversation_id) = prompted(&model, 0).await;
 
     let mut socket = UnixStream::connect(daemon.socket_path()).await.unwrap();
@@ -427,49 +430,57 @@ async fn a_slow_subscriber_loses_drafts_and_keeps_its_subscription() {
     )
     .await;
 
-    // The subscriber stops reading while the whole turn runs.
+    // The subscriber does not read while the model sends every delta.
     let (mut watcher, hwm) = subscribe_quietly(&client, conversation_id).await;
     model.go.notify_one();
-    read_turn(&mut watcher, hwm).await;
+    while model.sent.lock().unwrap_or_else(PoisonError::into_inner).len() < model.deltas.len() {
+        SystemClock.sleep(Duration::from_millis(5)).await;
+    }
 
-    let frames = read_frames(&mut socket, &mut decoder, |frame| match frame {
-        ServerFrame::Item { item, .. } => {
-            serde_json::from_value::<ConversationSubscribeItem>(item.clone()).is_ok_and(|item| {
-                matches!(item, ConversationSubscribeItem::Event(ref envelope)
-                    if matches!(envelope.event, Event::TurnCompleted { .. }))
-            })
+    // Then it reads the drafts until they hold the whole text.
+    let whole = model.text();
+    let mut text = String::new();
+    let mut drafts = 0;
+    let item = |frame: &ServerFrame| match frame {
+        ServerFrame::Item { id, item } if *id == subscribe_id => {
+            Some(serde_json::from_value::<ConversationSubscribeItem>(item.clone()).unwrap())
         }
-        ServerFrame::Error(error) => error.id == Some(subscribe_id),
-        ServerFrame::End { id } => *id == subscribe_id,
+        ServerFrame::Error(error) if error.id == Some(subscribe_id) => {
+            panic!("the subscription stays open: {error:?}")
+        }
+        ServerFrame::End { id } if *id == subscribe_id => panic!("the subscription stays open"),
+        _ => None,
+    };
+    read_frames(&mut socket, &mut decoder, |frame| {
+        if let Some(ConversationSubscribeItem::Draft(draft)) = item(frame) {
+            drafts += 1;
+            if let DraftPart::Text { offset, delta, .. } = draft.draft {
+                assert_eq!(offset, text.len() as u64, "no gap and no byte twice");
+                text.push_str(&delta);
+            }
+        }
+        text.len() == whole.len()
+    })
+    .await;
+    assert!(text == whole, "the drafts hold the whole text");
+    assert!(drafts < model.deltas.len(), "the full room merged drafts: {drafts}");
+
+    model.end.notify_one();
+    read_turn(&mut watcher, hwm).await;
+    let mut completed = None;
+    read_frames(&mut socket, &mut decoder, |frame| match item(frame) {
+        Some(ConversationSubscribeItem::Event(envelope)) => match envelope.event {
+            Event::AssistantMessageCompleted { text, .. } => {
+                completed = Some(text);
+                false
+            }
+            Event::TurnCompleted { .. } => true,
+            _ => false,
+        },
         _ => false,
     })
     .await;
-    let mut drafts = 0;
-    let mut completed = None;
-    for frame in &frames {
-        match frame {
-            ServerFrame::Item { id, item } if *id == subscribe_id => {
-                match serde_json::from_value::<ConversationSubscribeItem>(item.clone()).unwrap() {
-                    ConversationSubscribeItem::Draft(_) => drafts += 1,
-                    ConversationSubscribeItem::Event(envelope) => {
-                        if let Event::AssistantMessageCompleted { text, .. } = envelope.event {
-                            completed = Some(text);
-                        }
-                    }
-                    other => panic!("only events and drafts after the start: {other:?}"),
-                }
-            }
-            ServerFrame::Error(error) if error.id == Some(subscribe_id) => {
-                panic!("the subscription stays open: {error:?}")
-            }
-            ServerFrame::End { id } if *id == subscribe_id => {
-                panic!("the subscription stays open")
-            }
-            _ => {}
-        }
-    }
-    assert!(drafts < model.deltas.len(), "the full queue dropped drafts: {drafts}");
-    assert_eq!(completed.as_deref(), Some(model.text().as_str()), "every event arrived");
+    assert_eq!(completed.as_deref(), Some(whole.as_str()), "every event arrived");
     drop((socket, watcher, client));
     daemon.stop().await.unwrap();
 }

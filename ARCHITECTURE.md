@@ -171,7 +171,8 @@ dependencies of its own, or a second binary needs it.
 - Every fan-out has a bounded queue per consumer. Overflow closes that consumer with
   `Overflow { last_seq }`; it never slows the producer. Drafts of a running turn are the
   one lossy item: they have a small room of their own in that queue, and a full room
-  drops the draft without closing the consumer.
+  never closes the consumer. The subscription holds the drafts that do not fit, merged
+  per part, and sends them at the next free place.
 
 ## Startup and restart order
 

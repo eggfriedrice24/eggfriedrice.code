@@ -460,7 +460,14 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   it also forwards the drafts of the running turn (`State::drafts`, a broadcast from
   the turns): after the commits that wait, through the queue's lossy room of 16. It
   drops a draft that is older than an event it sent that ends what the draft shows. A
-  draft never closes the subscription. The drafts start with the status of the
+  draft never closes the subscription. A draft that finds the room full waits in the
+  subscription, merged with the later drafts of its part (one text per message, the
+  reasoning, one input per tool call, the newest `context` and `compacting`), and
+  goes at the next free place (`methods/conversation_subscribe/pending.rs`). When the
+  draft broadcast left the subscription behind, it builds the lost drafts again from
+  the turn's live parts (`ConversationHandle::live_turn`) and cuts the bytes that went
+  already from later drafts, so a slow client gets every byte of the text and the
+  reasoning once, in fewer drafts. The drafts start with the status of the
   running turn (`ConversationHandle::live_drafts`: its newest `context` draft, and
   `compacting` while it compacts), so a client that attaches during a long model call
   shows the gauge at once.
@@ -1907,8 +1914,12 @@ a subscriber that asked gets them, each after the events that its `after_seq` na
 the log is the same with and without them; with the test clock following real time,
 a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
 interval); a subscriber that attaches during a model call gets the turn's `context`
-draft first; and a subscriber on a raw socket that does not read loses drafts but
-keeps its subscription and gets every event.
+draft first; and a subscriber on a raw socket that does not read while the model
+streams gets merged drafts that hold every byte of the text once, keeps its
+subscription and gets every event. The unit tests of
+`methods/conversation_subscribe` check the merge and the rebuild without a daemon:
+any split of a text, with any drafts lost and built again and any pace of the room,
+gives the whole text with no gap and no byte twice.
 
 The `proxy` module runs the network proxy (phase D2) through efrd with the shared fake
 launcher, background jobs and the test seams, which resolve no name unless a test maps
