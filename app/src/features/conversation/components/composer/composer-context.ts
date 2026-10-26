@@ -11,7 +11,7 @@ import type { ComposerState, ComposerTrailing } from "../../model/composer-state
 export interface ComposerModel {
   readonly state: ComposerState;
   readonly trailing: ComposerTrailing;
-  /** True on the blank root: no status line, no material and no hairline. */
+  /** True on the blank root: a prompt there starts a new conversation. */
   readonly isBlankRoot: boolean;
   /** The text in the field: the draft, or the prompt that is sent now. */
   readonly value: string;

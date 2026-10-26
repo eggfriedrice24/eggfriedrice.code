@@ -3,8 +3,8 @@
 //
 // - The shell block under the bar: the machine, the cwd `~` and the mode, then the yolk ❯
 //   with the blinking cursor (solid with Reduce Motion).
-// - The blank composer at the bottom, with no status line, no material and no hairline.
-//   The first send puts the prompt in the outbox for a new conversation and pushes that
+// - The composer at the bottom, the same glass pill as in a conversation. Its status line
+//   shows the cwd and the mode of a new conversation. The first send puts the prompt in the outbox for a new conversation and pushes that
 //   conversation with no animation. The root then has an empty draft and a new local id,
 //   so it stays blank under the new screen.
 // - A pick in the machine menu changes the machine of the root. The body follows it at
@@ -33,22 +33,12 @@ import {
 import { useMachineConnections, useRootMachine } from "@/features/navigation/use-machines";
 import { useOpenConversation } from "@/features/navigation/use-open-conversation";
 import { DockedComposer } from "../components/composer/composer";
-import type { ComposerTarget } from "../model/composer-state";
+import { BLANK_CWD, BLANK_MODE, type ComposerTarget } from "../model/composer-state";
 import type { Outbox, OutboxEntry } from "../model/outbox";
 import type { ComposerDeps } from "../use-composer-actions";
 
 /** The space between the bottom of the bar and the shell block (top 128 on the canvas). */
 export const SHELL_TOP = 22;
-
-/** The cwd of a new conversation: it starts in the home directory (design note 6). */
-export const BLANK_CWD = "~";
-
-/**
- * The mode of the shell block. A turn from the phone runs with at most `cautious`, which
- * is also the default mode of efrd (docs/config.md, `permissions.mode`). The phone cannot
- * read the config of the machine, so it shows the most that its turns can get.
- */
-export const BLANK_MODE = "cautious";
 
 export interface BlankRootScreenProps {
   /** The root when no machine is paired: the pairing intro. */

@@ -190,9 +190,14 @@ function sendButton() {
 }
 
 describe("the states of the composer", () => {
-  it("is blank on the root: the glass pill with no status line, Send off", async () => {
+  it("is blank on the root: the pill and the status line of a new conversation, Send off", async () => {
     await renderComposer({ target: ROOT });
-    expect(screen.queryByTestId("composer-status-line")).toBeNull();
+    expect(screen.getByTestId("composer-pill")).toContainElement(
+      screen.getByTestId("composer-status-line"),
+    );
+    expect(screen.getByText("~")).toBeOnTheScreen();
+    expect(screen.getByText("cautious")).toBeOnTheScreen();
+    expect(screen.queryByText(/^ctx/)).toBeNull();
     expect(screen.getByTestId("material-glass", HIDDEN)).toBeOnTheScreen();
     expect(input().props.placeholder).toBe("Message efr");
     expect(sendButton()).toBeDisabled();

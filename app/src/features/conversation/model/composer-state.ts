@@ -293,6 +293,28 @@ export interface ComposerStatus {
   readonly waiting: Waiting;
 }
 
+/** The cwd of a new conversation: it starts in the home directory (design note 6). */
+export const BLANK_CWD = "~";
+
+/**
+ * The mode of a new conversation. A turn from the phone runs with at most `cautious`,
+ * which is also the default mode of efrd (docs/config.md, `permissions.mode`). The phone
+ * cannot read the config of the machine, so it shows the most that its turns can get.
+ */
+export const BLANK_MODE: Mode = "cautious";
+
+/**
+ * The status line of the blank root: the cwd and the mode of a new conversation. The
+ * user chose to show the line there too, as in a conversation. A new conversation has
+ * used no context yet, so the line has no `ctx` part.
+ */
+export const BLANK_STATUS: ComposerStatus = {
+  cwd: BLANK_CWD,
+  mode: BLANK_MODE,
+  context: undefined,
+  waiting: "none",
+};
+
 /** The status line selector of the stream store. Compare with `shallow`. */
 export function selectComposerStatus(state: StreamState): ComposerStatus {
   const status = selectStatus(state);

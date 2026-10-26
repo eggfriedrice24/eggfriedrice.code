@@ -9,7 +9,8 @@
 // - Under the pill is the bottom edge: the safe area, but never less than 12 pt, then a
 //   gap of 6 pt. With the keyboard up, the sticky view moves the composer down by the
 //   bottom edge, so only the gap of 6 pt stays over the keyboard.
-// - The blank root has the same pill without the status line (design item 8.13).
+// - The blank root has the same pill and the same status line. The user chose this over
+//   design item 8.13, which had no status line and no material there.
 
 import type { ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";

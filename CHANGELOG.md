@@ -87,7 +87,8 @@ into the GitHub release notes, and it stops when the section is missing.
   At the top of a long conversation, the app gets the older turns from efrd and keeps
   them on the phone.
 - The composer of the phone app is a glass pill that floats over the end of the
-  transcript, with the status line at its top. It sends a prompt, and stops the
+  transcript, with the status line at its top. The blank root has the same composer,
+  and its status line shows `~` and the mode of a new conversation. It sends a prompt, and stops the
   running turn. While a
   turn runs, "Steer now" adds your text to the turn, and "Queue" sends it when the turn
   ends; touch and hold the capsule to pick one. A queued prompt can be withdrawn. A

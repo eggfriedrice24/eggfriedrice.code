@@ -4,6 +4,7 @@ import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import { EMPTY_STREAM } from "@/lib/stream/reducer";
 import {
+  BLANK_STATUS,
   capsuleLabel,
   composerDraftKey,
   composerEditable,
@@ -358,6 +359,13 @@ describe("the status line", () => {
       { key: "waiting", text: "waiting in the terminal", tone: "text_muted" },
     ]);
     expect(statusParts({ ...base, waiting: "none" })).toEqual([]);
+  });
+
+  it("shows the cwd and the mode of a new conversation on the blank root, with no ctx", () => {
+    expect(statusParts(BLANK_STATUS)).toEqual([
+      { key: "cwd", text: "~", tone: "text_muted" },
+      { key: "mode", text: "cautious", tone: "text_subtle" },
+    ]);
   });
 
   it("reads the stream store", () => {

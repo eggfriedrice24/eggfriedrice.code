@@ -61,7 +61,10 @@ export const Composer = {
 } as const;
 
 export interface DockedComposerProps extends Omit<ComposerRootProps, "children"> {
-  /** The stream store of the conversation, for the status line. None on the blank root. */
+  /**
+   * The stream store of the conversation, for the status line. None on the blank root,
+   * where the line shows the cwd and the mode of a new conversation.
+   */
   readonly stream?: Readable<StreamState>;
 }
 

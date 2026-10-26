@@ -1,9 +1,10 @@
 // Slot A of the composer, the status line (design 3.3, 3.19 and item 8.2): 30 pt high at
 // the top of the pill, mono 11 in text_subtle, no wrap. Its 16 pt sides line up with the
-// text of the field. It shows the cwd in text_muted, the mode and
+// text of the field. The blank root has the line too (a choice of the user), with the
+// cwd and the mode of a new conversation. It shows the cwd in text_muted, the mode and
 // `ctx 42%`, then "waiting for you" in yolk while an approval waits here, and the grey
-// braille cell with "reconnecting…" while the connection opens. The blank root has no
-// status line. Later the line holds chips and the mode and model pickers.
+// braille cell with "reconnecting…" while the connection opens. Later the line holds
+// chips and the mode and model pickers.
 
 import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow, type Readable } from "@tanstack/store";
@@ -14,7 +15,7 @@ import { BrailleCell } from "@/components/ui/braille-cell";
 import { MonoText } from "@/components/ui/mono-text";
 import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
 
-import { selectComposerStatus, statusParts } from "../../model/composer-state";
+import { BLANK_STATUS, selectComposerStatus, statusParts } from "../../model/composer-state";
 import { ComposerContext } from "./composer-context";
 
 /** The store of a composer without a conversation: it never changes. */
@@ -25,10 +26,10 @@ export interface ComposerStatusLineProps {
   readonly children?: ReactNode;
 }
 
-/** The status line row. It is not there on the blank root. */
+/** The status line row. */
 export function ComposerStatusLine(props: ComposerStatusLineProps) {
   const model = use(ComposerContext);
-  if (model === null || model.isBlankRoot) {
+  if (model === null) {
     return null;
   }
   return (
@@ -47,7 +48,7 @@ export interface ComposerStatusProps {
 export function ComposerStatus(props: ComposerStatusProps) {
   const model = use(ComposerContext);
   const status = useSelector(props.store ?? NO_STREAM, selectComposerStatus, { compare: shallow });
-  const parts = statusParts(status);
+  const parts = statusParts(model?.isBlankRoot === true ? BLANK_STATUS : status);
   const reconnecting = model?.state.kind === "reconnecting";
   return (
     <>
