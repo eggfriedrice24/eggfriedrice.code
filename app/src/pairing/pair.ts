@@ -204,8 +204,10 @@ class PairingRun {
     );
     const { deviceId, scopes } = enrollResult(enrolled);
 
+    // efrd keeps the device now, so a cancel no longer stops the run: a record that the
+    // phone drops would leave a device at efrd that no phone can use.
     this.step({ step: "saving" });
-    const previous = await this.until(this.deps.devices.load().catch(() => null));
+    const previous = await this.deps.devices.load().catch(() => null);
     const device: PairedDevice = {
       deviceId,
       daemonId: this.code.daemonId,
@@ -217,14 +219,12 @@ class PairingRun {
       scopes,
       pairedAt: this.deps.now().toISOString(),
     };
-    await this.until(
-      this.deps.devices.save(device).catch((error: unknown) => {
-        throw new Failure({
-          kind: "failed",
-          message: `the phone could not keep the pairing: ${messageOf(error)}`,
-        });
-      }),
-    );
+    await this.deps.devices.save(device).catch((error: unknown) => {
+      throw new Failure({
+        kind: "failed",
+        message: `the phone could not keep the pairing: ${messageOf(error)}`,
+      });
+    });
     // The new record names the new key; from here on a failure must not remove it.
     this.newAlias = undefined;
     if (previous !== null && previous.keyAlias !== alias) {

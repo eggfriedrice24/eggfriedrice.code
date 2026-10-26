@@ -283,6 +283,23 @@ describe("pair", () => {
     expect(devices.device).toBeNull();
   });
 
+  it("keeps the record when the cancel comes after efrd enrolled the device", async () => {
+    const { binding, devices, deps } = setup(fakeDaemon(answers()).open);
+    const { signal, cancel } = cancellation();
+    const result = await pair(CODE, deps, {
+      name: "iPhone",
+      signal,
+      onStep: (step) => {
+        if (step.step === "saving") {
+          cancel();
+        }
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(devices.device?.deviceId).toBe(DEVICE_ID);
+    expect([...binding.keys.keys()]).toEqual(["device-1"]);
+  });
+
   it("cancels while the socket opens and closes the socket once it is up", async () => {
     const { open, sockets } = fakeSockets();
     const { deps } = setup(open);
