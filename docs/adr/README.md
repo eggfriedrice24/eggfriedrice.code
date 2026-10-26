@@ -27,6 +27,7 @@ sections Context, Decision and Consequences.
 - [0019: Conversation search](0019-conversation-search.md). Status: accepted, 2026-10-22.
 - [0020: efrd gives freed heap back with glibc's allocator controls](0020-malloc-trim.md). Status: accepted, 2026-10-24.
 - [0021: A cgroup for each background job, below efrd's delegated cgroup](0021-job-cgroups.md). Status: accepted, 2026-10-24.
+- [0022: A tailnet listener for the phone, with paired device keys](0022-remote-listener-and-device-keys.md). Status: accepted, 2026-10-26.
 
 Record 0005 is still open. efr-render uses syntect for now, and the project can
 change this choice later.
