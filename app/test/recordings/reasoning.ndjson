@@ -1,0 +1,34 @@
+{"kind":"snapshot","conversation":{"id":"01a106c9-0600-7bfa-b505-9be7821a2c63","title":"how big is the log","status":"idle","created_at":"2026-10-04T12:00:00Z","updated_at":"2026-10-04T12:00:00Z","last_seq":2,"cwd":"/home/you/project","tty":"/dev/pts/efr-test"},"events":[{"seq":1,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00Z","event":{"kind":"conversation_created","origin":"shell","tty":"/dev/pts/efr-test","route":{"kind":"outside"}}},{"seq":2,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00Z","event":{"kind":"prompt_queued","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","command_id":"0192f0c1-7a00-7000-8000-000000000001","text":"how big is the log","origin":"shell","context":{"pwd":"/home/you/project","tty":"/dev/pts/efr-test"}}}],"hwm":2}
+{"kind":"event","seq":3,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.05Z","event":{"kind":"turn_started","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","cwd":"/home/you/project","scope":{"kind":"machine"},"settings":{"mode":"cautious","model":"gpt-6.1-sol"}}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"context","tokens":4498,"limit":206720,"window":272000}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":0,"delta":"**Reading "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":10,"delta":"the "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":14,"delta":"request**\n\nThe ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":29,"delta":"user ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":34,"delta":"wants ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":40,"delta":"the ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":44,"delta":"size ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":49,"delta":"of ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":52,"delta":"the ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":56,"delta":"log. ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":61,"delta":"I ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":63,"delta":"check ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":69,"delta":"the ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":73,"delta":"store ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":79,"delta":"first.\n\n**Planning ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":98,"delta":"the ","title":"Reading the request"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":102,"delta":"answer**\n\nTwo ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":116,"delta":"numbers ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":124,"delta":"matter: ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":132,"delta":"the ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":136,"delta":"events ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":143,"delta":"and ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":147,"delta":"the ","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"reasoning","offset":151,"delta":"bytes.","title":"Planning the answer"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"text","index":0,"offset":0,"delta":"The log "}}
+{"kind":"event","seq":4,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.25Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":0,"delta":"The log "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":8,"delta":"holds **1204 "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":21,"delta":"events** in "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":33,"delta":"3.2 MB."}}
+{"kind":"event","seq":5,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.4Z","event":{"kind":"assistant_message_completed","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"text":"The log holds **1204 events** in 3.2 MB."}}
+{"kind":"event","seq":6,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.4Z","event":{"kind":"turn_completed","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","context":{"tokens":4498,"limit":206720,"window":272000}}}

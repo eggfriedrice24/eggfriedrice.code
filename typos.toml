@@ -1,5 +1,6 @@
 [files]
-extend-exclude = ["target/", "*.snap", "Cargo.lock"]
+# The subscribe recordings of the phone app cut words into drafts at any character.
+extend-exclude = ["target/", "*.snap", "Cargo.lock", "app/test/recordings/*.ndjson"]
 
 [default]
 # Commit hashes (ghostty 7bb45ba, helix ba40e547, ...) are not words.

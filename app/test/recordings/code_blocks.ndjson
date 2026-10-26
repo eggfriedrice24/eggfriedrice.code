@@ -1,0 +1,78 @@
+{"kind":"snapshot","conversation":{"id":"01a106c9-0600-7bfa-b505-9be7821a2c63","title":"show the code","status":"idle","created_at":"2026-10-04T12:00:00Z","updated_at":"2026-10-04T12:00:00Z","last_seq":2,"cwd":"/home/you/project","tty":"/dev/pts/efr-test"},"events":[{"seq":1,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00Z","event":{"kind":"conversation_created","origin":"shell","tty":"/dev/pts/efr-test","route":{"kind":"outside"}}},{"seq":2,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00Z","event":{"kind":"prompt_queued","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","command_id":"0192f0c1-7a00-7000-8000-000000000001","text":"show the code","origin":"shell","context":{"pwd":"/home/you/project","tty":"/dev/pts/efr-test"}}}],"hwm":2}
+{"kind":"event","seq":3,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.05Z","event":{"kind":"turn_started","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","cwd":"/home/you/project","scope":{"kind":"machine"},"settings":{"mode":"cautious","model":"gpt-6.1-sol"}}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"context","tokens":4496,"limit":206720,"window":272000}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":3,"draft":{"kind":"text","index":0,"offset":0,"delta":"Here is t"}}
+{"kind":"event","seq":4,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.05Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":0,"delta":"Here is t"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":9,"delta":"he change"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":18,"delta":" in Rust:"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":4,"draft":{"kind":"text","index":0,"offset":27,"delta":"\n\n```rust"}}
+{"kind":"event","seq":5,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.25Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":9,"delta":"he change in Rust:\n\n```rust"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":5,"draft":{"kind":"text","index":0,"offset":36,"delta":"\nfn utf8_"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":5,"draft":{"kind":"text","index":0,"offset":45,"delta":"len(text:"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":5,"draft":{"kind":"text","index":0,"offset":54,"delta":" &str) ->"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":5,"draft":{"kind":"text","index":0,"offset":63,"delta":" usize {\n"}}
+{"kind":"event","seq":6,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.45Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":36,"delta":"\nfn utf8_len(text: &str) -> usize {\n"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":6,"draft":{"kind":"text","index":0,"offset":72,"delta":"    text."}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":6,"draft":{"kind":"text","index":0,"offset":81,"delta":"len()\n}\n`"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":6,"draft":{"kind":"text","index":0,"offset":90,"delta":"``\n\nAnd t"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":6,"draft":{"kind":"text","index":0,"offset":99,"delta":"he same r"}}
+{"kind":"event","seq":7,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.65Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":72,"delta":"    text.len()\n}\n```\n\nAnd the same r"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":7,"draft":{"kind":"text","index":0,"offset":108,"delta":"ule in Ty"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":7,"draft":{"kind":"text","index":0,"offset":117,"delta":"peScript:"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":7,"draft":{"kind":"text","index":0,"offset":126,"delta":"\n\n```ts\ne"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":7,"draft":{"kind":"text","index":0,"offset":135,"delta":"xport fun"}}
+{"kind":"event","seq":8,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:00.85Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":108,"delta":"ule in TypeScript:\n\n```ts\nexport fun"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":8,"draft":{"kind":"text","index":0,"offset":144,"delta":"ction utf"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":8,"draft":{"kind":"text","index":0,"offset":153,"delta":"8Length(t"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":8,"draft":{"kind":"text","index":0,"offset":162,"delta":"ext: stri"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":8,"draft":{"kind":"text","index":0,"offset":171,"delta":"ng): numb"}}
+{"kind":"event","seq":9,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.05Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":144,"delta":"ction utf8Length(text: string): numb"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":9,"draft":{"kind":"text","index":0,"offset":180,"delta":"er {\n  le"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":9,"draft":{"kind":"text","index":0,"offset":189,"delta":"t bytes ="}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":9,"draft":{"kind":"text","index":0,"offset":198,"delta":" 0;\n  for"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":9,"draft":{"kind":"text","index":0,"offset":207,"delta":" (const c"}}
+{"kind":"event","seq":10,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.25Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":180,"delta":"er {\n  let bytes = 0;\n  for (const c"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":10,"draft":{"kind":"text","index":0,"offset":216,"delta":"har of te"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":10,"draft":{"kind":"text","index":0,"offset":225,"delta":"xt) {\n   "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":10,"draft":{"kind":"text","index":0,"offset":234,"delta":" const co"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":10,"draft":{"kind":"text","index":0,"offset":243,"delta":"de = char"}}
+{"kind":"event","seq":11,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.45Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":216,"delta":"har of text) {\n    const code = char"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":11,"draft":{"kind":"text","index":0,"offset":252,"delta":".codePoin"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":11,"draft":{"kind":"text","index":0,"offset":261,"delta":"tAt(0) ??"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":11,"draft":{"kind":"text","index":0,"offset":270,"delta":" 0;\n    b"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":11,"draft":{"kind":"text","index":0,"offset":279,"delta":"ytes += c"}}
+{"kind":"event","seq":12,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.65Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":252,"delta":".codePointAt(0) ?? 0;\n    bytes += c"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":12,"draft":{"kind":"text","index":0,"offset":288,"delta":"ode < 0x8"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":12,"draft":{"kind":"text","index":0,"offset":297,"delta":"0 ? 1 : c"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":12,"draft":{"kind":"text","index":0,"offset":306,"delta":"ode < 0x8"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":12,"draft":{"kind":"text","index":0,"offset":315,"delta":"00 ? 2 : "}}
+{"kind":"event","seq":13,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:01.85Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":288,"delta":"ode < 0x80 ? 1 : code < 0x800 ? 2 : "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":13,"draft":{"kind":"text","index":0,"offset":324,"delta":"code < 0x"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":13,"draft":{"kind":"text","index":0,"offset":333,"delta":"10000 ? 3"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":13,"draft":{"kind":"text","index":0,"offset":342,"delta":" : 4;\n  }"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":13,"draft":{"kind":"text","index":0,"offset":351,"delta":"\n  return"}}
+{"kind":"event","seq":14,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.05Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":324,"delta":"code < 0x10000 ? 3 : 4;\n  }\n  return"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":14,"draft":{"kind":"text","index":0,"offset":360,"delta":" bytes;\n}"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":14,"draft":{"kind":"text","index":0,"offset":369,"delta":"\n```\n\nRun"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":14,"draft":{"kind":"text","index":0,"offset":378,"delta":" the test"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":14,"draft":{"kind":"text","index":0,"offset":387,"delta":"s with `j"}}
+{"kind":"event","seq":15,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.25Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":360,"delta":" bytes;\n}\n```\n\nRun the tests with `j"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":15,"draft":{"kind":"text","index":0,"offset":396,"delta":"ust test`"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":15,"draft":{"kind":"text","index":0,"offset":405,"delta":":\n\n```bas"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":15,"draft":{"kind":"text","index":0,"offset":414,"delta":"h\njust te"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":15,"draft":{"kind":"text","index":0,"offset":423,"delta":"st\n```\n\nA"}}
+{"kind":"event","seq":16,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.45Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":396,"delta":"ust test`:\n\n```bash\njust test\n```\n\nA"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":16,"draft":{"kind":"text","index":0,"offset":432,"delta":"n inline "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":16,"draft":{"kind":"text","index":0,"offset":441,"delta":"`code spa"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":16,"draft":{"kind":"text","index":0,"offset":450,"delta":"n` and a "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":16,"draft":{"kind":"text","index":0,"offset":459,"delta":"fence wit"}}
+{"kind":"event","seq":17,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.65Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":432,"delta":"n inline `code span` and a fence wit"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":17,"draft":{"kind":"text","index":0,"offset":468,"delta":"hout a la"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":17,"draft":{"kind":"text","index":0,"offset":477,"delta":"nguage:\n\n"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":17,"draft":{"kind":"text","index":0,"offset":486,"delta":"```\nplain"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":17,"draft":{"kind":"text","index":0,"offset":495,"delta":" text in "}}
+{"kind":"event","seq":18,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.85Z","event":{"kind":"assistant_message_updated","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"offset":468,"delta":"hout a language:\n\n```\nplain text in "}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":18,"draft":{"kind":"text","index":0,"offset":504,"delta":"a fence\n`"}}
+{"kind":"draft","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","after_seq":18,"draft":{"kind":"text","index":0,"offset":513,"delta":"``"}}
+{"kind":"event","seq":19,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.9Z","event":{"kind":"assistant_message_completed","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","index":0,"text":"Here is the change in Rust:\n\n```rust\nfn utf8_len(text: &str) -> usize {\n    text.len()\n}\n```\n\nAnd the same rule in TypeScript:\n\n```ts\nexport function utf8Length(text: string): number {\n  let bytes = 0;\n  for (const char of text) {\n    const code = char.codePointAt(0) ?? 0;\n    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;\n  }\n  return bytes;\n}\n```\n\nRun the tests with `just test`:\n\n```bash\njust test\n```\n\nAn inline `code span` and a fence without a language:\n\n```\nplain text in a fence\n```"}}
+{"kind":"event","seq":20,"conversation_id":"01a106c9-0600-7bfa-b505-9be7821a2c63","at":"2026-10-04T12:00:02.9Z","event":{"kind":"turn_completed","turn_id":"01a106c9-0600-7eb3-854a-df5403eb3064","context":{"tokens":4496,"limit":206720,"window":272000}}}

@@ -421,12 +421,14 @@ hack:
 typos:
     typos
 
-# Accept snapshot changes, rewrite the frozen protocol fixtures and the scenario fixtures.
+# Accept snapshot changes, rewrite the protocol fixtures, scenario fixtures and app recordings.
 bless:
     cargo insta accept
     cargo xtask fixtures --bless
     # The scenario fixtures of efr-test-daemon: outbound records only; review the diff.
     cargo nextest run -p efr-test-daemon --test it --run-ignored only -E 'test(/^bless::/)'
+    # The subscribe recordings of the phone app (app/test/recordings); review the diff.
+    cargo nextest run -p efr-daemon --test it --run-ignored only -E 'test(/^recordings::bless/)'
 
 # The docs with warnings denied, as CI's lint job builds them.
 doc-check:

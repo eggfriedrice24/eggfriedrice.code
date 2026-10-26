@@ -1907,7 +1907,7 @@ linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
 `classifier_eval`, `apply_patch`, `backtrace`, `cache_prefix`, `compact`, `home`,
-`snapshots`, `undo_method`, `undo`, `jobs`, `full`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`snapshots`, `undo_method`, `undo`, `jobs`, `full`, `recordings`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -2028,10 +2028,21 @@ interval); a subscriber that attaches during a model call gets the turn's `conte
 draft first; and a subscriber on a raw socket that does not read while the model
 streams gets merged drafts that hold every byte of the text once, keeps its
 subscription and gets every event. A client that joins in the middle of a message gets
-its text so far in the snapshot's `live`, and as the first text draft of a resume. The unit tests of
-`methods/conversation_subscribe` check the merge and the rebuild without a daemon:
-any split of a text, with any drafts lost and built again and any pace of the room,
-gives the whole text with no gap and no byte twice.
+its text so far in the snapshot's `live`, and as the first text draft of a resume. The
+unit tests of `methods/conversation_subscribe` check the merge and the rebuild without
+a daemon: any split of a text, with any drafts lost and built again and any pace of the
+room, gives the whole text with no gap and no byte twice, and the drafts after a start
+that showed the live parts go on past them.
+
+The `recordings` module records what a phone that subscribes with drafts gets during
+a scripted turn, for the replay tests of the phone app (`app/test/recordings/`, whose
+README gives the format): a long reply, code blocks, tables, text in many scripts,
+reasoning, a tool call with its output, approvals in the middle (one that the phone
+answers, one that is local only) and a phone that joins in the middle of a reply. Its
+model sends one delta at a time, after the draft of the last one came. Each test runs
+its scenario, checks that the snapshot, the drafts and the updates build every
+completed text with no gap, and that the events match the committed recording.
+`recordings::bless_recordings`, which `just bless` runs, writes them again.
 
 The `proxy` module runs the network proxy (phase D2) through efrd with the shared fake
 launcher, background jobs and the test seams, which resolve no name unless a test maps

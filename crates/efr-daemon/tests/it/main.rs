@@ -40,6 +40,7 @@ mod pty_attach;
 mod reach;
 mod receipts;
 mod reconcile;
+mod recordings;
 mod resume;
 mod routing;
 mod sandbox;
