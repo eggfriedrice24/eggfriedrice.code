@@ -231,6 +231,13 @@ export interface StreamState {
   /** True once the cache or efrd gave events. */
   readonly loaded: boolean;
   readonly link: LinkState;
+  /**
+   * Where the older history begins, from the last snapshot: the cursor of
+   * `conversation.history` for the events before its window, or null when the window
+   * starts at the first event. Undefined before a snapshot, as after a resume from the
+   * cache.
+   */
+  readonly historyCursor: string | null | undefined;
 }
 
 /** The state before the first item. */
@@ -243,6 +250,7 @@ export const EMPTY_STREAM: StreamState = {
   summary: undefined,
   loaded: false,
   link: "waiting",
+  historyCursor: undefined,
 };
 
 /** Applies one item of the subscribe stream. */
@@ -265,9 +273,9 @@ export function withLink(state: StreamState, link: LinkState): StreamState {
 }
 
 /**
- * Applies the events of the cache under `current`, as when the cache answered after
- * the subscription gave items: what `current` holds wins, and cached turns that it does
- * not hold come first.
+ * Applies older events under `current`, as when the cache answered after the
+ * subscription gave items, or a page of `conversation.history` came: what `current`
+ * holds wins, and turns that it does not hold come first.
  */
 export function underlay(current: StreamState, cached: readonly EventEnvelope[]): StreamState {
   let older = EMPTY_STREAM;
@@ -278,7 +286,12 @@ export function underlay(current: StreamState, cached: readonly EventEnvelope[])
     return current;
   }
   if (current.order.length === 0 && current.lastSeq === 0) {
-    return { ...older, link: current.link, summary: current.summary };
+    return {
+      ...older,
+      link: current.link,
+      summary: current.summary,
+      historyCursor: current.historyCursor,
+    };
   }
   return { ...keepPrevious(older, current, true), link: current.link, loaded: true };
 }
@@ -361,7 +374,13 @@ function applySnapshot(state: StreamState, snapshot: Snapshot): StreamState {
   }
   const waits = snapshot.conversation.status === "awaiting_approval";
   const merged = keepPrevious(state, next, waits);
-  return { ...merged, summary: snapshot.conversation, loaded: true, link: state.link };
+  return {
+    ...merged,
+    summary: snapshot.conversation,
+    loaded: true,
+    link: state.link,
+    historyCursor: snapshot.history_cursor ?? null,
+  };
 }
 
 /** Seeds the running message and the reasoning from the snapshot's live part. */

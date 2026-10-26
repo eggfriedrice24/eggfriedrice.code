@@ -56,6 +56,7 @@ interface MockFlashListProps {
   readonly renderItem: (info: { item: string; index: number }) => ReactNode;
   readonly keyExtractor: (item: string) => string;
   readonly onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  readonly onEndReached?: () => void;
   readonly ref?: Ref<MockListRef>;
 }
 
@@ -66,7 +67,8 @@ function MockFlashList({ ref, ...props }: MockFlashListProps) {
     scrollToIndex: mockScrollToIndex,
   }));
   return (
-    <ScrollView testID="flash-list" onScroll={props.onScroll}>
+    // The test gets to the top (the end of the inverted list) with a `scrollToTop`.
+    <ScrollView testID="flash-list" onScroll={props.onScroll} onScrollToTop={props.onEndReached}>
       {props.data.map((item, index) => (
         <View key={props.keyExtractor(item)} testID={`cell-${item}`}>
           {props.renderItem({ item, index })}
@@ -299,6 +301,97 @@ describe("the conversation screen", () => {
     });
     expect(cells.indexOf(`cell-a:${NEXT}:${CALL}`)).toBeGreaterThanOrEqual(0);
     expect(view?.getSearchParams()).not.toHaveProperty("focus");
+  });
+
+  it("fetches the older history when the reader gets to the top", async () => {
+    const OLDER = "019a9b1c-3d00-7a10-8b20-0000000000f4";
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    const window = snapshotItem(
+      CONVERSATION,
+      "idle",
+      [envelope(4, promptQueued(TURN, "Why is the fan loud?")), envelope(5, turnStarted(TURN))],
+      5,
+    );
+    if (window.kind !== "snapshot") {
+      throw new Error("not a snapshot");
+    }
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [{ ...window, history_cursor: "before-4" }]);
+    });
+    const socket = socketOf(services(), DESKTOP);
+    expect(socket.requests("conversation.history")).toHaveLength(0);
+    await act(async () => {
+      await fireEvent(screen.getByTestId("flash-list"), "scrollToTop");
+      await flush();
+    });
+    expect(socket.requests("conversation.history").map((frame) => frame["params"])).toEqual([
+      { conversation_id: CONVERSATION, cursor: "before-4" },
+    ]);
+    await act(async () => {
+      socket.answer("conversation.history", {
+        events: [
+          envelope(1, promptQueued(OLDER, "What changed?")),
+          envelope(2, turnStarted(OLDER)),
+          envelope(3, turnCompleted(OLDER)),
+        ],
+      });
+      await flush();
+    });
+    await frames();
+    const cells = screen.getAllByTestId(/^cell-/).map((cell) => String(cell.props.testID));
+    // The fake list draws the newest row first: the older turn comes after.
+    expect(cells.indexOf(`cell-p:${OLDER}`)).toBeGreaterThan(cells.indexOf(`cell-p:${TURN}`));
+    expect(screen.getByLabelText("You: What changed?")).toBeOnTheScreen();
+    // The page reached the first event: the top asks for nothing more.
+    await act(async () => {
+      await fireEvent(screen.getByTestId("flash-list"), "scrollToTop");
+      await flush();
+    });
+    expect(socket.requests("conversation.history")).toHaveLength(1);
+  });
+
+  it("pages back from the newest event when the stream saw no snapshot", async () => {
+    const OLDER = "019a9b1c-3d00-7a10-8b20-0000000000f4";
+    const held = [
+      envelope(4, promptQueued(TURN, "Why is the fan loud?")),
+      envelope(5, turnStarted(TURN)),
+    ];
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    // A resume: events, and no snapshot with a cursor.
+    await act(async () => {
+      await stream(
+        services(),
+        DESKTOP,
+        CONVERSATION,
+        held.map((item) => eventItem(item.seq, item.event)),
+      );
+    });
+    const socket = socketOf(services(), DESKTOP);
+    await act(async () => {
+      await fireEvent(screen.getByTestId("flash-list"), "scrollToTop");
+      await flush();
+    });
+    await act(async () => {
+      // The newest page holds only what the stream has: the next page follows at once.
+      socket.answer("conversation.history", { events: held, next_cursor: "before-4" });
+      await flush();
+    });
+    expect(socket.requests("conversation.history").map((frame) => frame["params"])).toEqual([
+      { conversation_id: CONVERSATION, cursor: null },
+      { conversation_id: CONVERSATION, cursor: "before-4" },
+    ]);
+    await act(async () => {
+      socket.answer("conversation.history", {
+        events: [
+          envelope(1, promptQueued(OLDER, "What changed?")),
+          envelope(2, turnStarted(OLDER)),
+        ],
+      });
+      await flush();
+    });
+    await frames();
+    expect(screen.getByLabelText("You: What changed?")).toBeOnTheScreen();
+    expect(screen.getByLabelText("You: Why is the fan loud?")).toBeOnTheScreen();
   });
 
   it("keeps the transcript and says why it cannot send when the machine is offline", async () => {

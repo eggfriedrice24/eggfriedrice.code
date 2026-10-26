@@ -52,6 +52,7 @@ import { composerDraftKey, outboxTargetOf, type ComposerTarget } from "../model/
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
 import type { ComposerDeps } from "../use-composer-actions";
+import { useOlderHistory } from "./use-older-history";
 import { useRouteConversation } from "./use-route-conversation";
 import { useScreenStream } from "./use-screen-stream";
 
@@ -122,6 +123,7 @@ function ConversationView(props: ConversationViewProps) {
     list,
   });
   const held = stream ?? NO_STREAM;
+  const loadOlder = useOlderHistory(stream, held.store, ref);
   const runningTurnId = useSelector(held.store, (state) => runningTurn(state)?.turnId);
   const pending = useSelector(
     outbox.store,
@@ -184,6 +186,7 @@ function ConversationView(props: ConversationViewProps) {
         scope={scope}
         pending={pending}
         insets={{ top, bottom: composerHeight }}
+        onReachTop={loadOlder}
       />
       <View className="absolute right-0 bottom-0 left-0">
         <DockedComposer

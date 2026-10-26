@@ -12,6 +12,8 @@
 //   inverted list the end is offset 0.
 // - `onFollowChange` says whether the reader is within one screen of the end (design
 //   3.12: "Jump to latest" shows beyond it). It is called only on a change.
+// - `onReachTop` is called when the reader gets near the oldest row, so the screen can
+//   fetch older history. Inverted, the oldest row is the end of the list for FlashList.
 // - The handle (the React 19 `ref` prop) scrolls to the end, and to a row such as an
 //   approval.
 // - The transcript sits under the transparent header and above the docked composer:
@@ -54,9 +56,14 @@ export interface TranscriptListProps {
   /** The kind of a row, so the list reuses a view only for a row of the same kind. */
   readonly rowType: (key: RowKey) => string;
   readonly onFollowChange: (following: boolean) => void;
+  /** The reader got near the oldest row. */
+  readonly onReachTop?: () => void;
   readonly insets: TranscriptInsets;
   readonly ref?: Ref<TranscriptListHandle>;
 }
+
+/** The top is near when the oldest row is less than one screen away. */
+const TOP_THRESHOLD = 1;
 
 /** New rows keep the reader's place unless the reader is this close to the end (Happy's value). */
 const POSITION = { autoscrollToTopThreshold: 200 } as const;
@@ -114,6 +121,8 @@ export function TranscriptList({ ref, ...props }: TranscriptListProps) {
         paddingBottom: props.insets.top + SPACING.item,
       }}
       onScroll={onScroll}
+      onEndReached={props.onReachTop}
+      onEndReachedThreshold={TOP_THRESHOLD}
       scrollEventThrottle={16}
       keyboardDismissMode="interactive"
       keyboardShouldPersistTaps="handled"

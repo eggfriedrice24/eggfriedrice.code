@@ -199,6 +199,8 @@ streams in.
 - The app asks before it opens a link. A web page then opens in the app. An image in
   a reply shows as a link, so the app loads nothing that you did not tap.
 - When you scroll up, "Jump to latest" takes you back to the end.
+- At the top, the app gets the older turns from efrd. It keeps them on the phone, so
+  they are there when you open the app again.
 - A failed turn shows the reason, with "retry" and "copy error". Retry sends the prompt
   of the turn again.
 

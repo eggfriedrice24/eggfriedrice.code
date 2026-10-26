@@ -16,7 +16,7 @@ import { useSelector } from "@tanstack/react-store";
 import { type Ref, useImperativeHandle, useRef, useState } from "react";
 import { View } from "react-native";
 
-import type { StreamState } from "@/lib/stream/reducer";
+import { runningTurn, type StreamState } from "@/lib/stream/reducer";
 import type { Row } from "../model/rows";
 import { compareRows, createRowsSelector } from "../model/selectors";
 import { JumpToLatest } from "./jump-to-latest";
@@ -35,16 +35,23 @@ export interface TranscriptProps {
   /** The prompts of the outbox for this conversation that efrd has not echoed yet. */
   readonly pending?: readonly PendingPrompt[];
   readonly insets: TranscriptInsets;
+  /** The reader got near the oldest row: fetch older history. */
+  readonly onReachTop?: () => void;
   /** The handle of the list, to scroll to an approval (the React 19 `ref` prop). */
   readonly ref?: Ref<TranscriptListHandle>;
 }
 
 const NO_PENDING: readonly PendingPrompt[] = [];
 
-/** The new content of `state` since `left`: what makes "Jump to latest" show. */
+/**
+ * The new content of `state` since `left`: what makes "Jump to latest" show. A new event
+ * or a draft of the running turn counts. Older history that comes in at the top does
+ * not, because it changes neither.
+ */
 function changedSince(left: StreamState | undefined): (state: StreamState) => boolean {
   return (state) =>
-    left !== undefined && (state.lastSeq !== left.lastSeq || state.turns !== left.turns);
+    left !== undefined &&
+    (state.lastSeq !== left.lastSeq || runningTurn(state) !== runningTurn(left));
 }
 
 /** The transcript of one conversation. */
@@ -63,6 +70,10 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
   }));
   const items = transcriptItems(rows, props.pending ?? NO_PENDING);
   const byKey = new Map(items.map((item) => [item.key, item]));
+  const reachTop: { onReachTop?: () => void } = {};
+  if (props.onReachTop !== undefined) {
+    reachTop.onReachTop = props.onReachTop;
+  }
   const jump = (animated: boolean): void => {
     list.current?.scrollToEnd(animated);
     setLeftAt(undefined);
@@ -82,6 +93,7 @@ export function Transcript({ ref, ...props }: TranscriptProps) {
             setLeftAt(following ? undefined : scope.store.get());
           }}
           insets={props.insets}
+          {...reachTop}
         />
         {!loaded && items.length === 0 ? (
           <View

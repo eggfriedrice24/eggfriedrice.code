@@ -12,6 +12,9 @@
 // - Each event goes to the cache as efrd sent it, and a snapshot replaces the cached
 //   events. The cache is not the truth: a cache that fails only makes the app wait for
 //   efrd.
+// - A page of older history (`conversation.history`, which the screen fetches when the
+//   reader gets to the top) goes under the state and into the cache, so its turns are
+//   there after a cold start too, until the next snapshot.
 //
 // This module implements the `ConversationStreamFactory` that the machine supervisor
 // uses (plan section 4, W2-MACHINES, in features/machines/model/stream-factory.ts).
@@ -44,6 +47,8 @@ export interface ConversationStream extends SupervisedStream {
   flush(): void;
   /** The subscription changed its state. */
   status(status: SubscriptionStatus): void;
+  /** Puts a page of older history under the state, and adds it to the cache. */
+  older(events: readonly EventEnvelope[]): void;
   /** Waits for the cache writes that are queued now. */
   settled(): Promise<void>;
   /** Stops the frames and the cache writes. Later items change nothing. */
@@ -141,6 +146,29 @@ export const createConversationStream: ConversationStreamFactory<ConversationStr
     }
   };
 
+  const older = (events: readonly EventEnvelope[]): void => {
+    if (disposed || events.length === 0) {
+      return;
+    }
+    // A cache that answers after this goes under the state too.
+    sawItems = true;
+    // Only the oldest turn of the state can begin before its window. The events of the
+    // other turns that it holds are there already, and a merge of them would only make
+    // their rows render again.
+    const current = frame.latest();
+    const oldest = current.order[0];
+    const fresh = events.filter((envelope) => {
+      const turnId = turnOf(envelope);
+      return turnId === undefined || turnId === oldest || !current.turns.has(turnId);
+    });
+    commit(underlay(current, fresh));
+    write((cache) =>
+      cache.append(
+        events.map((envelope) => ({ seq: envelope.seq, json: JSON.stringify(envelope) })),
+      ),
+    );
+  };
+
   const status = (next: SubscriptionStatus): void => {
     if (!disposed) {
       commit(withLink(frame.latest(), next.state));
@@ -167,8 +195,15 @@ export const createConversationStream: ConversationStreamFactory<ConversationStr
     },
     item,
     status,
+    older,
   };
 };
+
+/** The turn of an event, or undefined for an event of no turn. */
+function turnOf(envelope: EventEnvelope): string | undefined {
+  const turnId: unknown = Reflect.get(envelope.event, "turn_id");
+  return typeof turnId === "string" ? turnId : undefined;
+}
 
 /** The raw event item without its `kind` member: the envelope as efrd sent it. */
 function withoutKind(raw: unknown): unknown {

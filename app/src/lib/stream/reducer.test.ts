@@ -529,6 +529,26 @@ describe("underlay", () => {
   });
 });
 
+describe("the history cursor", () => {
+  it("comes from the last snapshot, and a page of history under it keeps it", () => {
+    expect(EMPTY_STREAM.historyCursor).toBeUndefined();
+    const window = snapshotItem(CONVERSATION, "idle", [envelope(5, turnStarted(TURN))], 5);
+    if (window.kind !== "snapshot") {
+      throw new Error("not a snapshot");
+    }
+    const windowed = reduce(EMPTY_STREAM, { ...window, history_cursor: "c5" });
+    expect(windowed.historyCursor).toBe("c5");
+    const older = "019a9b1c-3d00-7a10-8b20-000000000003";
+    const paged = underlay(windowed, [envelope(1, messageCompleted(older, 0, "Old."))]);
+    expect(paged.order).toEqual([older, TURN]);
+    expect(paged.historyCursor).toBe("c5");
+    // A window that starts at the first event has no older history.
+    expect(reduce(EMPTY_STREAM, snapshotItem(CONVERSATION, "idle", [], 0)).historyCursor).toBe(
+      null,
+    );
+  });
+});
+
 describe("the fixtures", () => {
   it("reads every event fixture without a throw", () => {
     let state = EMPTY_STREAM;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { CONVERSATION, TURN, item, rawEvent, rawItem } from "@/lib/protocol/testing";
 import type { CachedEvent, ConversationCache } from "@/lib/store/event-cache";
-import { manualFrames } from "@/lib/stream/testing";
+import { envelope, manualFrames, messageCompleted, promptQueued } from "@/lib/stream/testing";
 import type { StreamDeps } from "@/features/machines/model/stream-factory";
 import { createConversationStream } from "./conversation-stream";
 
@@ -192,6 +192,31 @@ describe("the cache of the conversation stream", () => {
     expect(turn?.prompt?.text).toBe("why is the disk full");
     expect(turn?.messages.get(0)?.final).toBe(true);
     expect(stream.cursor()).toBe(5);
+  });
+
+  it("puts a page of older history under the state and keeps it for the next start", async () => {
+    const older = "019a9b1c-3d00-7a10-8b20-000000000003";
+    const cache = new MemoryCache();
+    const first = setup({ cache });
+    await first.stream.hydrated;
+    first.feed(rawEvent("prompt_queued", 5));
+    first.stream.older([
+      envelope(1, promptQueued(older, "the first question")),
+      envelope(2, messageCompleted(older, 0, "The first answer.")),
+    ]);
+    first.stream.flush();
+    expect(first.stream.store.get().order).toEqual([older, TURN]);
+    expect(first.stream.cursor()).toBe(5);
+    await first.stream.settled();
+    expect([...cache.rows.keys()].sort((a, b) => a - b)).toEqual([1, 2, 5]);
+
+    // After a cold start the older turns are still there.
+    const second = setup({ cache });
+    await second.stream.hydrated;
+    expect(second.stream.store.get().order).toEqual([older, TURN]);
+    expect(second.stream.store.get().turns.get(older)?.messages.get(0)?.buffer.text).toBe(
+      "The first answer.",
+    );
   });
 
   it("skips cached rows that do not decode and goes on when the cache fails", async () => {
