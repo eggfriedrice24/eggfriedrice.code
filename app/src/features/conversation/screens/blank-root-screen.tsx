@@ -17,7 +17,7 @@
 
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useDeferredValue, useState, type ReactNode } from "react";
-import { Text, View } from "react-native";
+import { Keyboard, Pressable, Text, View } from "react-native";
 
 import { BlockCursor } from "@/components/ui/block-cursor";
 import { MonoText } from "@/components/ui/mono-text";
@@ -96,10 +96,18 @@ function BlankRoot(props: BlankRootProps) {
     setLocalId(newLocalId(outbox));
   };
   return (
-    <View className="flex-1 bg-surface-1">
+    // A tap on the empty screen puts the keyboard away, as in any iOS text screen. The
+    // composer sits on top, so its own taps never reach this.
+    <Pressable
+      accessible={false}
+      onPress={() => Keyboard.dismiss()}
+      className="flex-1 bg-surface-1"
+    >
       <ShellBlock top={top + SHELL_TOP} machineName={machine.name} />
       {supervisor === undefined ? null : (
-        <View className="absolute right-0 bottom-0 left-0">
+        // The wrapper fills the screen for the same reason as in conversation-screen.tsx:
+        // a shorter one would drop the taps on the composer that the keyboard moved up.
+        <View pointerEvents="box-none" className="absolute inset-0 justify-end">
           <DockedComposer
             deps={deps}
             target={target}
@@ -110,7 +118,7 @@ function BlankRoot(props: BlankRootProps) {
           />
         </View>
       )}
-    </View>
+    </Pressable>
   );
 }
 

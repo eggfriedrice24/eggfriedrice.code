@@ -116,7 +116,11 @@ import is allowed. oxlint enforces it.
   `useDeferredValue` for slow updates, and `Activity` to keep the state of a hidden pane.
   Never put `Activity` around a stack screen.
 - Each route file exports `ErrorBoundary`.
-- No Reanimated loops: oxlint stops `withRepeat`. A loop (the cursor blink, the
+- No Reanimated loops: oxlint stops `withRepeat`. `package.json` sets Reanimated's
+  `DISABLE_COMMIT_PAUSING_MECHANISM` (as t3code does), so that the transform of
+  `KeyboardStickyView` reaches the shadow tree and a tap on the moved composer still
+  presses. Without commit pausing, a Reanimated loop can starve the commits of React and
+  freeze the app, so a loop must never use Reanimated. A loop (the cursor blink, the
   BrailleCell) uses RN `Animated.loop` with `useNativeDriver: true`, so no JS runs on each
   frame. Reanimated is only for the keyboard and the fade of the streaming tail.
 - Each animation has a still frame for Reduce Motion (`lib/native/reduce-motion.ts`).

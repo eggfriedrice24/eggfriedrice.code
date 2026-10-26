@@ -188,7 +188,11 @@ function ConversationView(props: ConversationViewProps) {
         insets={{ top, bottom: composerHeight }}
         onReachTop={loadOlder}
       />
-      <View className="absolute right-0 bottom-0 left-0">
+      {/* The wrapper fills the screen, so the composer stays inside it when
+          KeyboardStickyView moves it up over the keyboard. Fabric hit-tests a view with
+          no layout overflow as if it clipped, so a shorter wrapper would drop every tap
+          on the moved composer. box-none lets the other touches through. */}
+      <View pointerEvents="box-none" className="absolute inset-0 justify-end">
         <DockedComposer
           {...composer}
           deps={deps}

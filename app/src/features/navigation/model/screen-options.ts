@@ -12,6 +12,10 @@ import { entersInstantly } from "./routes";
 export const HEADER_OPTIONS: NativeStackNavigationOptions = {
   headerTransparent: true,
   headerBlurEffect: "systemChromeMaterialDark",
+  // iOS 26 adds its own blur where content runs under a bar. With our header blur it
+  // doubles, and on the inverted transcript list it covered the whole list when the
+  // keyboard changed the insets. The header blur is enough.
+  scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },
   headerBackButtonDisplayMode: "minimal",
   headerBackButtonMenuEnabled: true,
   headerLargeTitle: false,

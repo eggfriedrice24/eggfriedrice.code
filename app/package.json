@@ -116,5 +116,10 @@
         "typescript"
       ]
     }
+  },
+  "reanimated": {
+    "staticFeatureFlags": {
+      "DISABLE_COMMIT_PAUSING_MECHANISM": true
+    }
   }
 }
