@@ -18,6 +18,66 @@ page by hand. Add a line to the changelog below for each change of the protocol.
   `ProtocolMismatch` before any method runs. Additive changes do not bump the version.
 - The frozen fixtures in `crates/efr-protocol/fixtures/v1/` are compared byte for byte.
   Changing one needs `just bless` and a line in the changelog below.
+- `docs/protocol.schema.json` holds every type of the protocol in the form that a code
+  generator reads (JSON Schema draft 2020-12, a root and `$defs`). The phone app makes
+  its TypeScript types from it. `cargo xtask protocol-schema` writes it, and
+  `just tidy` fails when it is not current. Do not edit it by hand.
+
+## Text offsets
+
+Every offset into text counts bytes of UTF-8. This applies to `offset` in
+`assistant_message_updated`, to `offset` in the `text` and `reasoning` drafts, and to
+`text_bytes` in the `live` member of a snapshot. An offset is not a count of characters
+and not a count of UTF-16 units. A JavaScript client must compare an offset with the
+UTF-8 length of its text, never with `text.length`. For example, `größe` is 5
+characters, 5 UTF-16 units and 7 bytes of UTF-8; `🙂` is 1 character, 2 UTF-16 units and
+4 bytes.
+
+The `index` of a message counts the assistant messages of the turn that have text, from
+0. A model answer without text gets no index. Drafts, `assistant_message_updated` and
+`assistant_message_completed` use the same `index`.
+
+## Remote devices
+
+A phone connects to the tailnet listener of efrd. The listener treats every connection
+as the `phone` origin. Before the proof, the connection may call only `hello`,
+`device.enroll` and `device.prove`.
+
+Pairing:
+
+1. `efr device add` calls `device.pair_start` on the Unix socket. The first item,
+   `started`, holds the QR payload. Its text is an `efr://pair` URL (see below).
+2. The phone scans the code, connects, and calls `hello`. It stops when the `daemon_id`
+   or the `protocol` of the result is not the one it expects.
+3. The phone calls `device.enroll` with the token, its name and its public key. efrd
+   sends the item `pending` with the facts of the phone to the terminal.
+4. The user compares the facts and answers. `efr` calls `device.pair_confirm`. The
+   stream then sends `paired` or `ended` and ends. The `device.enroll` request gets its
+   result after the answer.
+
+The QR payload is `efr://pair?v=1&d=<daemon_id>&h=<tailnet IPv4>&p=<port>&f=<fqdn>&t=<token>`.
+The members come in this order. `f` is absent when efrd has no MagicDNS name. Each
+value is percent-encoded: every byte that is not an ASCII letter, a digit, `-`, `.`,
+`_` or `~` becomes `%` and two uppercase hex digits. The fixture `pairing_qr_url.json`
+holds a payload and its URL.
+
+Proof: the `hello` result of a remote connection has `challenge` and `prove`
+(`peer_node`, `daemon_node`, `daemon_tailnet`). The device signs this message with its
+P-256 key (ECDSA with SHA-256, the signature in DER) and sends it with `device.prove`.
+The message is seven fields in this order:
+
+1. the domain tag `efr-device-prove-v1`,
+2. `challenge`, the string as efrd sent it,
+3. `daemon_id`,
+4. `protocol`, in decimal, such as `1`,
+5. `device_id`,
+6. `prove.peer_node`,
+7. `prove.daemon_tailnet`.
+
+Each field is its UTF-8 text after its length in bytes as a 4-byte big-endian number.
+An id is its lowercase hyphenated form. The fixture `device_prove_message.json` holds a
+set of inputs and the message in hex. A client in another language must give exactly
+these bytes.
 
 ## Changelog
 
@@ -678,3 +738,45 @@ No protocol version has shipped yet.
 - Version 1, no change of the frames: the `summary.title` of each row of
   `conversations.recent` is now the title with its secrets replaced, the same title
   that the row of `conversations.search` with an empty query shows.
+- Version 1, additive: remote devices. New methods `device.pair_start` (scope `admin`,
+  a stream, with an optional `name`; its items are `started` with `pairing_id`,
+  `expires_at` and `qr`, `pending` with `pairing_id`, `device_name`, `node_name`,
+  `user_login`, `key_fingerprint` and an optional `os`, `paired` with `pairing_id` and
+  `device_id`, and `ended` with `pairing_id` and `reason`: `refused`, `expired` or
+  `attempts`; a reason that a reader does not know reads as `unknown`),
+  `device.pair_confirm` (scope `admin`, with `pairing_id` and `accept`; its result has
+  `device_id`, absent for a no), `device.enroll` (scope `read`, with `token`, `name` and
+  `public_key`, the 65-byte P-256 point as standard base64; its result has `device_id`
+  and `scopes`), `device.prove` (scope `read`, with `device_id` and `signature`, DER as
+  standard base64; its result has `scopes`), `device.list` (scope `admin`, no params;
+  its result has `devices`, each with `device_id`, `name`, `key_fingerprint`, `node`,
+  `scopes`, `created_at`, and `last_seen_at` and `revoked_at`, each absent when not
+  set) and `device.revoke` (scope `admin`, with `device_id`; its result has
+  `revoked_at`). None has a command id. The `hello` result gains an optional `prove`
+  (`peer_node`, `daemon_node`, `daemon_tailnet`) for a remote connection. The message
+  that a device signs is in the section "Remote devices". A daemon from before refuses
+  the methods as frames that are not valid, and this efrd refuses them with `invalid`
+  until it pairs devices. New fixtures `device_*_params.json`,
+  `device_pair_start_item_started.json`, `device_pair_start_item_pending.json`,
+  `device_pair_start_item_paired.json`, `device_pair_start_item_ended.json`,
+  `device_pair_confirm_result.json`, `device_enroll_result.json`,
+  `device_prove_result.json`, `device_list_result.json`, `device_revoke_result.json`,
+  `hello_result_remote.json`, `pair_ends.json`, and the vectors
+  `device_prove_message.json` and `pairing_qr_url.json`.
+- Version 1, additive: streams for the phone. New capability keys in `hello`:
+  `drafts_coalesced` (a slow subscriber gets merged drafts, not gaps),
+  `snapshot_live` (the snapshot has `live`), `approval_local_only` (the
+  `approval_requested` event has `local_only`) and `device_prove` (the connection takes
+  `device.enroll` and `device.prove`). The snapshot of `conversation.subscribe` gains an
+  optional `live` with `turn_id`, `after_seq`, `index`, `text`, `text_bytes`, and
+  `reasoning` and `reasoning_title`, each absent when not set. The
+  `approval_requested` event gains `local_only`, false when absent: only the user's own
+  machine may answer the question. New fixtures
+  `conversation_subscribe_item_snapshot_live.json` and
+  `events/approval_requested_local_only.json`. No fixture changes.
+- Version 1, no change of the frames: the docs now say that every text offset counts
+  bytes of UTF-8 (section "Text offsets"), and the `index` of `assistant_message_updated`
+  and `assistant_message_completed` counts only the messages of the turn that have
+  text, as the draft doc said. New file `docs/protocol.schema.json`, the protocol for
+  code generators; the schema of `previous_exits_this_turn` in `exit_requested` is now a
+  list of two items, not a tuple, and its wire form is the same.

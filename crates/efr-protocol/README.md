@@ -16,7 +16,7 @@ Where things are:
 | File | Holds |
 |---|---|
 | `src/version.rs` | `PROTOCOL_VERSION` |
-| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `CompactionId`, `UndoId` (shown as `u-<uuid>`), `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
+| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `PairingId`, `QuestionId`, `CompactionId`, `UndoId` (shown as `u-<uuid>`), `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
 | `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell and whether it has `$XAUTHORITY` |
 | `src/settings.rs` | `Mode` (`manual`, `cautious`, `auto` and `full`), `FullRefusal` (why the daemon refuses full mode although the config allows it), `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
@@ -28,7 +28,8 @@ Where things are:
 | `src/sandbox/status.rs` | the probe's `SandboxStatus` (with `netview`, the result of the network view self-test, and `netview_off`, which efrd sets when the user's `network.netview` is false, and `proxy`, the result of the proxy self-test of phase D2, and from phase E `bus_proxy` and `bus_proxy_off`), `BusProxyOff` (why the bus filter is off), `SandboxCheck`, `CheckOutcome`, `SandboxPaths` |
 | `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary` (with the paths that it deleted in a private cache layer, and from phase D2 `blocked_more` and `proxied`, and from phase E `bus_refused` and `bus_refused_more`), `Blocked` (one entry per host, port and reason, with a `count`), `BlockReason` (from v0.0.4 with `Denied` for a host that a deny holds; it reads a reason that it does not know as `Unknown`), `SurfaceChange`, `ReportedFile`, `BusRefusal` (one bus call that the bus filter refused, with a `count`) |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
-| `src/capabilities.rs` | `Capabilities`: known keys (`admin`, `screen_snapshots`, and `search` from v0.0.4) plus extras |
+| `src/capabilities.rs` | `Capabilities`: known keys (`admin`, `screen_snapshots`, `search` from v0.0.4, and for the phone `drafts_coalesced`, `snapshot_live`, `approval_local_only` and `device_prove`) plus extras |
+| `src/device.rs` | enrolled devices: `ProveContext` (the Tailscale facts of a remote `hello`), `ProveMessage` and `PROVE_DOMAIN` (the bytes that a device signs for `device.prove`), `PairingQr` (the QR payload and its `efr://pair` URL), `DeviceInfo` (a row of `device.list`) and `PairEnd` (why a pairing ended; an unknown value reads as `Unknown`) |
 | `src/compaction.rs` | the model's context: `ContextUse` (how full it is against the point where efrd compacts), `CompactionTrigger` and `Compaction`, the body of `conversation_compacted` and of the `conversation.compact` result; the rules are in the README of `efr-conversation`, section "Context" |
 | `src/changes.rs` | what a call or a turn changed in files: `FileChanges`, `FileChange`, `ChangeKind`, and the caps `MAX_LISTED_FILES`, `MAX_CALL_DIFF_LINES` and `MAX_TURN_DIFF_LINES` |
 | `src/undo.rs` | the undo of a turn (phase B): `SnapshotPhase`, `RootFiles`, `TurnUndoInfo` (what `efr undo` can take back, at the end of a turn), `UndoAction`, `UndoReason`, `UndoEntry`, `RefChange`, `UndoableTurn`, `UndoRefused` (why `turn.undo` changes nothing), and the caps `MAX_UNDO_ENTRIES` and `MAX_NOT_COVERED` |
@@ -37,11 +38,11 @@ Where things are:
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision` (with `AllowAlways` from phase E), `AlwaysSaved` and `NotSavedReason` (what became of the rule of an `AllowAlways` answer; each reads an unknown value as `Unknown`), `InputWait`, `Usage`, `TurnStop` and `StopReason` (why the model of a completed turn stopped); from v0.0.4 the events of a command that a `shell` call left running in the hidden shell (`shell_command_detached`, `shell_command_input_changed`, `shell_command_ended`), with `ShellCommandEnd` (how it ended) and `ApprovedBy` (who approved its call); each reads an unknown value as `Unknown` |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
 | `src/methods.rs` | the types that several methods share: `PageCursor`, `Base64Bytes`, `ConfigFileError` |
-| `src/methods/*.rs` | one file per method: its params, and its result or stream item; `prompt_send.rs` also holds `RecentCommand` (one of the terminal's recent command lines, which travel like `last_command`), `turn_steer.rs` `LateSteer`, `turn_interrupt.rs` `ResentSteers` and `prompt_withdraw.rs` `WithdrawTarget` and `WithdrawnPrompt`; `conversation_context.rs` also holds the parts of the report of what fills the model's context (`ContextPartKind`, `ContextPart`, `ContextItem`, `CountedUse`, `CompactionSummary`, `CompactionBrief`, `CacheSummary`, `MAX_LARGEST`), which hold sizes and labels, never the text of a message; `conversations_recent.rs` also holds `RecentConversation`, one row of the list of `,resume`; `shell_status.rs` also holds `BusyShell`, the command that a `shell` call left running in the hidden shell (from v0.0.4); `call_background.rs` holds the move of a running `shell` call to a background job, whose result is `moved` or, for a call outside the sandbox, a `preview` that the user must answer first (from v0.0.4); `conversations_search.rs` (from v0.0.4) also holds the types of a search that `conversation_search.rs` shares: `SearchRow`, `SearchHit`, `SearchLine`, `TextRange` (a half-open range of Unicode code points, which a client cuts to its text), `SearchKind` and `SearchPartial` (each reads an unknown value as `Unknown`), `SearchIndexState` and `SearchStats`; the two search methods need `read`, and efrd answers them only to a peer that is the user's |
+| `src/methods/*.rs` | one file per method: its params, and its result or stream item; `prompt_send.rs` also holds `RecentCommand` (one of the terminal's recent command lines, which travel like `last_command`), `turn_steer.rs` `LateSteer`, `turn_interrupt.rs` `ResentSteers` and `prompt_withdraw.rs` `WithdrawTarget` and `WithdrawnPrompt`; `conversation_subscribe.rs` also holds `LiveTurn`, the text and the reasoning of the running turn in a snapshot; `device_*.rs` hold the pairing (`device.pair_start`, `device.pair_confirm`), the enroll and the proof of a remote device (`device.enroll`, `device.prove`), and the list and revoke of devices (`device.list`, `device.revoke`); `conversation_context.rs` also holds the parts of the report of what fills the model's context (`ContextPartKind`, `ContextPart`, `ContextItem`, `CountedUse`, `CompactionSummary`, `CompactionBrief`, `CacheSummary`, `MAX_LARGEST`), which hold sizes and labels, never the text of a message; `conversations_recent.rs` also holds `RecentConversation`, one row of the list of `,resume`; `shell_status.rs` also holds `BusyShell`, the command that a `shell` call left running in the hidden shell (from v0.0.4); `call_background.rs` holds the move of a running `shell` call to a background job, whose result is `moved` or, for a call outside the sandbox, a `preview` that the user must answer first (from v0.0.4); `conversations_search.rs` (from v0.0.4) also holds the types of a search that `conversation_search.rs` shares: `SearchRow`, `SearchHit`, `SearchLine`, `TextRange` (a half-open range of Unicode code points, which a client cuts to its text), `SearchKind` and `SearchPartial` (each reads an unknown value as `Unknown`), `SearchIndexState` and `SearchStats`; the two search methods need `read`, and efrd answers them only to a peer that is the user's |
 | `src/secret_text.rs` | `SecretText`, typed text such as a password: a plain string on the wire, redacted in `Debug`; its own buffer and each clone's are zeroed on drop, copies made outside it are not |
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |
 | `src/framing.rs` | `encode` and `Decoder`: the 4-byte big-endian length prefix, 16 MiB cap |
-| `src/schema.rs` | the JSON Schema document, behind the `schema` feature |
+| `src/schema.rs` | the JSON Schema documents, behind the `schema` feature: `document` (the reference with the method table) and `codegen_document` (the form for code generators, `docs/protocol.schema.json`) |
 | `src/fixtures_check.rs` | the samples behind `fixtures/v1/` and their checks (tests only) |
 
 ### Wire rules
@@ -59,6 +60,9 @@ Where things are:
   fields are ignored, and ids are lowercase hyphenated UUIDs. `Seq` and `RequestId` are
   JSON numbers. Timestamps are RFC 3339 strings in UTC. PTY bytes are standard base64.
 - Every internally tagged enum uses the member `kind` as its tag.
+- Every offset into text counts bytes of UTF-8, never characters or UTF-16 units:
+  `offset` of `assistant_message_updated` and of the drafts, and `text_bytes` of the
+  snapshot's `live`. `docs/protocol.md` gives examples.
 - `conversation.subscribe` with `drafts` also streams `draft` items: parts of a running
   turn before the event log has them. A draft has no sequence number of its own, the
   daemon never stores it, and it is best effort. Its `after_seq` names the last event
@@ -208,7 +212,12 @@ file starts with a metadata header, and the phone repository needs plain JSON fi
 ### The schema feature
 
 `--features schema` builds `efr_protocol::schema::document()`, a JSON Schema document of
-every frame, method, result, item and event, for `cargo xtask protocol-docs`. The
+every frame, method, result, item and event, for `cargo xtask protocol-docs`, and
+`codegen_document()`, the same types as a root and `$defs` with top unions
+(`ClientFrame`, `ServerFrame`, `MethodParams`, `MethodResults`), which
+`cargo xtask protocol-schema` writes to `docs/protocol.schema.json` for the phone app's
+TypeScript generator. That command fails on a tuple (`prefixItems`), which the generator
+cannot read, so no wire type may be a Rust tuple in its schema. The
 `JsonSchema` derives on the wire types are always compiled, so `schemars` is a normal
 dependency: the tidy rule allows `cfg(feature)` in this crate only on the one
 `mod schema;` line of `lib.rs`, which rules out a `cfg_attr` derive on each type, and
