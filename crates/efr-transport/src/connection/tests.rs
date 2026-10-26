@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::{ConnectionParams, RequestTable, run, write_frames};
+use super::{ConnectionParams, PrefixedSink, RequestTable, run, write_frames};
 use crate::codec::EncodedFrame;
 use crate::subscriptions::{Offer, subscription};
 use crate::testing::{
@@ -612,7 +612,7 @@ async fn logged_write_failure(kind: io::ErrorKind) -> String {
     outbound.send(EncodedFrame::new(&ServerFrame::end(id(1))).unwrap()).await.unwrap();
     drop(outbound);
     let closing = CancellationToken::new();
-    write_frames(FailingSocket(kind), queue, closing.clone()).await;
+    write_frames(PrefixedSink::new(FailingSocket(kind)), queue, closing.clone()).await;
     assert!(closing.is_cancelled());
     logs.text()
 }

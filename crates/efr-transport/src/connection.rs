@@ -1,9 +1,11 @@
 //! One connection: the hello gate, the request-id table, cancellation, and cleanup on
 //! close.
 //!
-//! A connection runs as one reader loop plus one writer task:
+//! A connection runs as one reader loop plus one writer task, over a
+//! [`FrameSource`] and a [`FrameSink`] (the Unix socket's length-prefixed frames, or a
+//! WebSocket's text messages):
 //!
-//! - The reader decodes client frames. It answers `hello` itself (through
+//! - The reader takes client frames from the source. It answers `hello` itself (through
 //!   [`Dispatcher::hello`]) before it reads the next frame, so nothing runs before the
 //!   version check. Every other request gets an entry in the request-id table and a task
 //!   of its own; a cancel frame cancels that entry's token.
@@ -13,7 +15,7 @@
 //!   but every frame is queued under the state's lock and fails once the state has
 //!   ended, so no item can follow the end frame. An id is free again by the time the
 //!   client reads that frame.
-//! - The writer drains a bounded queue of encoded frames to the socket. A client that
+//! - The writer drains a bounded queue of encoded frames into the sink. A client that
 //!   reads slowly fills the queue and slows its own requests, nothing else.
 //!
 //! When the client closes its side, the stream breaks, or the daemon shuts down, every
@@ -32,8 +34,7 @@ use efr_protocol::{
     ServerFrame,
 };
 use efr_stdx::time::Clock;
-use futures::StreamExt as _;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _, BufWriter};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
 use tokio::task::{self, JoinError, JoinSet};
 use tokio_util::codec::FramedRead;
@@ -41,9 +42,14 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use crate::codec::{EncodedFrame, ServerCodec};
+
 use crate::dispatch::{Request, Responder, ResponseState, cancelled, terminal_frame};
 use crate::hello::{Gate, gate};
 use crate::{ConnId, ConnectionContext, Dispatcher, Peer, TransportError};
+
+mod frames;
+
+pub(crate) use self::frames::{FrameSink, FrameSource, PrefixedSink};
 
 /// How many encoded frames wait for the writer before senders wait.
 const OUTBOUND_QUEUE_FRAMES: usize = 64;
@@ -109,11 +115,24 @@ pub(crate) struct ConnectionParams<D> {
     pub(crate) shutdown: CancellationToken,
 }
 
-/// Serves one connection until the client closes it, the stream breaks or `shutdown`
-/// is cancelled.
+/// Serves one connection of length-prefixed frames on `stream` until the client closes
+/// it, the stream breaks or `shutdown` is cancelled.
 pub(crate) async fn run<S, D>(stream: S, params: ConnectionParams<D>)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
+    D: Dispatcher,
+{
+    let (read_half, write_half) = tokio::io::split(stream);
+    let source = FramedRead::new(read_half, ServerCodec::new());
+    run_frames(source, PrefixedSink::new(write_half), params).await;
+}
+
+/// Serves one connection that reads from `source` and writes to `sink` until the client
+/// closes it, the wire breaks or `shutdown` is cancelled.
+pub(crate) async fn run_frames<Src, Snk, D>(source: Src, sink: Snk, params: ConnectionParams<D>)
+where
+    Src: FrameSource,
+    Snk: FrameSink,
     D: Dispatcher,
 {
     let span = tracing::info_span!(
@@ -134,14 +153,14 @@ where
     // The writer task is spawned in `new`, inside the span, so its events carry it too.
     let connection = {
         let _entered = span.enter();
-        Connection::new(stream, params)
+        Connection::new(source, sink, params)
     };
     connection.serve().instrument(span).await;
 }
 
 /// The reader loop's state.
-struct Connection<S, D> {
-    frames: FramedRead<tokio::io::ReadHalf<S>, ServerCodec>,
+struct Connection<Src, D> {
+    frames: Src,
     outbound: mpsc::Sender<EncodedFrame>,
     writer: task::JoinHandle<()>,
     params: ConnectionParams<D>,
@@ -166,19 +185,17 @@ enum Next {
     Close,
 }
 
-impl<S, D> Connection<S, D>
+impl<Src, D> Connection<Src, D>
 where
-    S: AsyncRead + AsyncWrite + Send + 'static,
+    Src: FrameSource,
     D: Dispatcher,
 {
-    fn new(stream: S, params: ConnectionParams<D>) -> Self {
-        let (read_half, write_half) = tokio::io::split(stream);
+    fn new<Snk: FrameSink>(source: Src, sink: Snk, params: ConnectionParams<D>) -> Self {
         let (outbound, queue) = mpsc::channel(OUTBOUND_QUEUE_FRAMES);
         let closing = params.shutdown.child_token();
-        let writer =
-            tokio::spawn(write_frames(write_half, queue, closing.clone()).in_current_span());
+        let writer = tokio::spawn(write_frames(sink, queue, closing.clone()).in_current_span());
         Connection {
-            frames: FramedRead::new(read_half, ServerCodec::new()),
+            frames: source,
             outbound,
             writer,
             params,
@@ -201,7 +218,7 @@ where
                     self.reap(joined).await;
                     continue;
                 }
-                next = self.frames.next() => next,
+                next = self.frames.next_frame() => next,
             };
             let step = match next {
                 None => {
@@ -463,26 +480,14 @@ impl Drop for EndOnDrop {
     }
 }
 
-/// Writes queued frames until every sender is gone, batching whatever is already queued
-/// into one flush. A write error closes the connection.
-async fn write_frames<W: AsyncWrite + Unpin>(
-    write_half: W,
-    mut queue: mpsc::Receiver<EncodedFrame>,
+/// Writes queued frames into `sink` until every sender is gone. A write error closes the
+/// connection.
+async fn write_frames<Snk: FrameSink>(
+    sink: Snk,
+    queue: mpsc::Receiver<EncodedFrame>,
     closing: CancellationToken,
 ) {
-    let mut writer = BufWriter::new(write_half);
-    let result: io::Result<()> = async {
-        while let Some(frame) = queue.recv().await {
-            writer.write_all(frame.as_bytes()).await?;
-            while let Ok(frame) = queue.try_recv() {
-                writer.write_all(frame.as_bytes()).await?;
-            }
-            writer.flush().await?;
-        }
-        writer.shutdown().await
-    }
-    .await;
-    if let Err(error) = result {
+    if let Err(error) = sink.drain(queue).await {
         if peer_closed(&error) {
             // NOTE: a client such as `efr send` closes its end as soon as it has its
             // answer, while frames of its subscription are still queued; nobody waits
