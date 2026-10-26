@@ -14,6 +14,10 @@
 //!   items; overflow closes that subscription with `overflow` and `last_seq`, and never
 //!   slows the producer. A lossy item, such as a draft, is dropped when its own room
 //!   of [`LOSSY_QUEUE_FRAMES`] is full, and never closes the subscription.
+//! - [`serve_websocket`]: one WebSocket connection of the phone, on a stream that the
+//!   daemon accepted and admitted: the bounded handshake (refusals are
+//!   [`WebSocketRefusal`]), one JSON frame per text message, the server's pings, and
+//!   the same connection loop as the Unix socket.
 //! - [`ServerCodec`]: the tokio codec over `efr_protocol::framing`.
 //! - [`ConnectionContext`]: `{ surface, peer, conn_id }`, carried by every request. The
 //!   [`Peer`] is local (the kernel's uid and pid) or remote (a WebSocket peer).
@@ -22,8 +26,9 @@
 //!
 //! Allowed dependencies: `efr-protocol` and `efr-stdx`. What does not belong here: the
 //! meaning of any method (the daemon's `methods/`), the database (`efr-transport ->
-//! efr-store` is a forbidden edge), and the mapping from daemon errors to wire errors
-//! (`efr-daemon/src/error.rs`). The WebSocket listener for the phone lands here later.
+//! efr-store` is a forbidden edge), the mapping from daemon errors to wire errors
+//! (`efr-daemon/src/error.rs`), and the TCP listener and the peer check of the WebSocket
+//! (the daemon's, because they need tailscaled).
 
 pub mod client;
 mod codec;
@@ -36,6 +41,7 @@ mod subscriptions;
 #[cfg(test)]
 mod testing;
 mod unix_listener;
+mod ws;
 
 pub use codec::ServerCodec;
 pub use context::{ConnId, ConnectionContext, Peer, PeerCred, RemotePeer};
@@ -46,3 +52,4 @@ pub use subscriptions::{
     SubscriptionSender, subscription,
 };
 pub use unix_listener::{Accepted, UnixListener};
+pub use ws::{WebSocketCloseReason, WebSocketOptions, WebSocketRefusal, serve_websocket};

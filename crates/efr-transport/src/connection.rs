@@ -49,7 +49,7 @@ use crate::{ConnId, ConnectionContext, Dispatcher, Peer, TransportError};
 
 mod frames;
 
-pub(crate) use self::frames::{FrameSink, FrameSource, PrefixedSink};
+pub(crate) use self::frames::{Decoded, FrameSink, FrameSource, PrefixedSink};
 
 /// How many encoded frames wait for the writer before senders wait.
 const OUTBOUND_QUEUE_FRAMES: usize = 64;
@@ -124,17 +124,13 @@ where
 {
     let (read_half, write_half) = tokio::io::split(stream);
     let source = FramedRead::new(read_half, ServerCodec::new());
-    run_frames(source, PrefixedSink::new(write_half), params).await;
+    let span = span(&params);
+    run_frames(source, PrefixedSink::new(write_half), params, span).await;
 }
 
-/// Serves one connection that reads from `source` and writes to `sink` until the client
-/// closes it, the wire breaks or `shutdown` is cancelled.
-pub(crate) async fn run_frames<Src, Snk, D>(source: Src, sink: Snk, params: ConnectionParams<D>)
-where
-    Src: FrameSource,
-    Snk: FrameSink,
-    D: Dispatcher,
-{
+/// The span of one connection: its id, and the uid of a local peer or the address of
+/// a remote one. The surface is recorded once hello has named it.
+pub(crate) fn span<D>(params: &ConnectionParams<D>) -> tracing::Span {
     let span = tracing::info_span!(
         "connection",
         conn_id = %params.conn_id,
@@ -150,6 +146,22 @@ where
             span.record("remote", tracing::field::display(remote.addr()));
         }
     }
+    span
+}
+
+/// Serves one connection that reads from `source` and writes to `sink`, inside `span`
+/// (see [`span`]), until the client closes it, the wire breaks or `shutdown` is
+/// cancelled.
+pub(crate) async fn run_frames<Src, Snk, D>(
+    source: Src,
+    sink: Snk,
+    params: ConnectionParams<D>,
+    span: tracing::Span,
+) where
+    Src: FrameSource,
+    Snk: FrameSink,
+    D: Dispatcher,
+{
     // The writer task is spawned in `new`, inside the span, so its events carry it too.
     let connection = {
         let _entered = span.enter();

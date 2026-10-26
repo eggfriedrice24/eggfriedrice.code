@@ -1292,16 +1292,20 @@ dependencies = [
 name = "efr-transport"
 version = "0.0.5"
 dependencies = [
+ "base64 0.23.1",
  "bytes",
  "efr-protocol",
  "efr-stdx",
+ "fastwebsockets",
  "futures",
+ "httparse",
  "jiff",
  "nix",
  "pretty_assertions",
  "proptest",
  "serde",
  "serde_json",
+ "sha1",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -44,3 +44,17 @@ fn io_errors_convert_for_the_codec() {
     let error = TransportError::from(io::Error::from(io::ErrorKind::BrokenPipe));
     assert!(matches!(error, TransportError::Io { .. }));
 }
+
+#[test]
+fn websocket_errors_name_the_status_or_the_close_code() {
+    let refused = TransportError::HandshakeRefused { refusal: crate::WebSocketRefusal::Origin };
+    assert_eq!(
+        refused.to_string(),
+        "refused a WebSocket handshake with HTTP 403: the origin is not allowed"
+    );
+    let closed = TransportError::WebSocketClosed { reason: crate::WebSocketCloseReason::TooLarge };
+    assert_eq!(
+        closed.to_string(),
+        "closed a WebSocket with code 1009: the message is larger than 1 MiB"
+    );
+}

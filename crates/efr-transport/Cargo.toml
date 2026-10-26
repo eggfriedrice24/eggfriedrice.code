@@ -1,6 +1,6 @@
 [package]
 name = "efr-transport"
-description = "Both sides of the efr protocol's transport: the daemon's edge (the frame codec, the 0600 Unix listener, the request-id table, bounded subscriptions, hello and the Dispatcher trait) and the client (daemon discovery, the connection, calls, streams and cancellation)"
+description = "Both sides of the efr protocol's transport: the daemon's edge (the frame codec, the 0600 Unix listener, the WebSocket entry for the phone, the request-id table, bounded subscriptions, hello and the Dispatcher trait) and the client (daemon discovery, the connection, calls, streams and cancellation)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,13 +12,19 @@ publish = false
 doctest = false
 
 [dependencies]
+# base64, httparse and sha1: the opening handshake of the WebSocket listener (src/ws/).
+base64.workspace = true
 bytes.workspace = true
 efr-protocol.workspace = true
 efr-stdx.workspace = true
+# The frames of the WebSocket listener after its handshake, in server role.
+fastwebsockets.workspace = true
 futures.workspace = true
+httparse.workspace = true
 nix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

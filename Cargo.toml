@@ -91,6 +91,9 @@ url = { version = "2.5.8", default-features = false, features = ["std"] }
 # connection that reqwest upgrades, so the socket keeps the one rustls stack. Without
 # its default `simd` feature and without `upgrade`, it pulls no hyper of its own.
 fastwebsockets = { version = "0.10.0", default-features = false, features = ["unstable-split"] }
+# The request head of the WebSocket listener's handshake (efr-transport/src/ws/). It
+# was in Cargo.lock already, through hyper.
+httparse = { version = "1.10.1", default-features = false }
 
 # Credentials and crypto
 sha2 = { version = "0.11.0", default-features = false, features = ["alloc"] }

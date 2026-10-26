@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use efr_protocol::{ProtocolError, RequestId, Seq};
 
+use crate::{WebSocketCloseReason, WebSocketRefusal};
+
 /// Every way an `efr-transport` operation can fail.
 ///
 /// Variants carry the data a caller acts on (the path, the uid, the sequence number).
@@ -119,6 +121,27 @@ pub enum TransportError {
         pid: Option<u32>,
         /// The only uid that may connect.
         allowed: u32,
+    },
+
+    /// A WebSocket peer sent a request head that the handshake refuses. The peer got a
+    /// plain HTTP error with the refusal's status, and the connection was closed.
+    #[error("refused a WebSocket handshake with HTTP {}: {refusal}", .refusal.status())]
+    HandshakeRefused {
+        /// Why the head was refused.
+        refusal: WebSocketRefusal,
+    },
+
+    /// A WebSocket peer did not send its whole request head in time, so the connection
+    /// was closed without an answer.
+    #[error("a WebSocket peer did not send its handshake in time")]
+    HandshakeTimedOut,
+
+    /// The WebSocket was closed because its peer broke a rule of the connection or
+    /// stopped answering pings.
+    #[error("closed a WebSocket with code {}: {reason}", .reason.code())]
+    WebSocketClosed {
+        /// Why it was closed.
+        reason: WebSocketCloseReason,
     },
 
     /// Reading from or writing to a connection failed.

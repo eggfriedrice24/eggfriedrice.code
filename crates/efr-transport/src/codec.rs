@@ -98,6 +98,11 @@ impl EncodedFrame {
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
+
+    /// The JSON body without its length prefix, as a WebSocket text message carries it.
+    pub(crate) fn body(&self) -> &[u8] {
+        self.0.get(framing::HEADER_LEN..).unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
