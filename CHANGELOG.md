@@ -25,6 +25,16 @@ into the GitHub release notes, and it stops when the section is missing.
   A revoked device loses its connections at once. `daemon.json` shows the address as
   `tailnet_endpoint`. The settings tool marks `remote.enabled` and
   `remote.tailscaled_socket` as changes that loosen permissions.
+- `efr device add` pairs a phone with efrd for the coming efr phone app. It shows a QR
+  code in the terminal, below the command line. The code holds a one-time token that
+  is good for one phone and for 5 minutes. When the phone sends it, efr shows the
+  phone's name, its Tailscale node and user, and the fingerprint of its key, and asks
+  you. Only your yes pairs the phone. `--invert` swaps the dark and light parts of the
+  code for a terminal with a light background. `efr device add` needs `[remote]
+  enabled = true` and Tailscale.
+- `efr device list` shows the paired devices, also the revoked ones, with when each one
+  was paired and last seen. `efr device revoke <id>` takes a device's access away for
+  good; the id can be the start of an id, as the list shows it.
 
 ### Changed
 

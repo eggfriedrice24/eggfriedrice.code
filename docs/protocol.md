@@ -55,6 +55,27 @@ Pairing:
    stream then sends `paired` or `ended` and ends. The `device.enroll` request gets its
    result after the answer.
 
+Rules of efrd for a pairing:
+
+- The token has 144 random bits. efrd keeps only its SHA-256, and only in memory: a
+  restart of efrd ends every pairing. The token is good for one `device.enroll` and for
+  5 minutes. At most 4 pairings are open at one time.
+- A wrong token is `unauthorized`. While a pairing is open, efrd counts the wrong
+  tokens. After 5 of them, the next one ends each pairing that waits for a phone with
+  `attempts`.
+- A key that a device holds that is not revoked is `conflict`, and the token stays
+  good, so the phone can make a new key and try again.
+- After the phone enrolled, the terminal has until the token expires to answer, but
+  at least 2 minutes. When the phone closes its request before the answer, the pairing
+  ends with `expired`.
+- A cancel of `device.pair_start`, or a closed connection, ends the pairing. A phone
+  that waits for the answer then gets `forbidden`.
+
+The key fingerprint of `pending` and of `device.list` is `SHA256:` and the first 8
+bytes of the SHA-256 of the 65 bytes of the key, in lowercase hex. For the key `04`,
+then the bytes `01` to `40` (hex), it is `SHA256:0ed3a6ab957ff6f5`. The phone shows the
+same text, so the user can compare the two.
+
 The QR payload is `efr://pair?v=1&d=<daemon_id>&h=<tailnet IPv4>&p=<port>&f=<fqdn>&t=<token>`.
 The members come in this order. `f` is absent when efrd has no MagicDNS name. Each
 value is percent-encoded: every byte that is not an ASCII letter, a digit, `-`, `.`,
@@ -800,3 +821,9 @@ No protocol version has shipped yet.
   listener. The section "Remote devices" lists its answers, with the `data` of
   `re_pair` and of `starting`. The `hello` result of a remote connection has
   `capabilities.device_prove`.
+- Version 1, no change of the frames: efrd now answers `device.pair_start`,
+  `device.pair_confirm`, `device.enroll`, `device.list` and `device.revoke`.
+  `device.pair_start` is `conflict` with the data `{"remote": "off"}` when `[remote]
+  enabled` is false, and `busy` with `{"remote": "not_listening"}` while the listener
+  does not run. The section "Remote devices" now gives the rules of a pairing (the token, the count of
+  wrong tokens, the time to answer) and the key fingerprint with its test vector.
