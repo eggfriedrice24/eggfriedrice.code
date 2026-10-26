@@ -110,7 +110,7 @@ function ConversationView(props: ConversationViewProps) {
   const outbox = useOutbox();
   const drafts = useDrafts();
   const preferences = usePreferences();
-  const route = useRouteConversation(machine, props.routeId);
+  const route = useRouteConversation(machine, props.routeId, props.focus);
   const ref: ConversationRef = { machine, id: route.id };
   const list = useRef<TranscriptListHandle>(null);
   const focused = useIsFocused();

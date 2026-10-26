@@ -291,7 +291,9 @@ not a test that pretends.
     (long press on back), and the strip under the transparent bar with the scroll edge
     effect.
 17. The first send on the blank root opens the new conversation with no animation, and
-    the id of the conversation then changes in place (`setParams`).
+    the id of the conversation then changes in place (`replaceParams`). The new params
+    have no `enter`, so back and the edge swipe from that conversation have the normal
+    animation.
 18. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
     goes back to a conversation in the stack.
 19. The All conversations sheet: its two sizes, with the search field.

@@ -148,6 +148,8 @@ describe("the blank root", () => {
       await flush();
     });
     expect(screen).toHavePathname(`/c/${DESKTOP}/${CONVERSATION}`);
+    // The pop of this screen has the normal animation again.
+    expect(rendered().getSearchParams()["enter"]).toBeUndefined();
     expect(socket.requests("conversation.subscribe").at(-1)?.["params"]).toMatchObject({
       conversation_id: CONVERSATION,
     });
