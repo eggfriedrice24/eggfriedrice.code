@@ -71,15 +71,13 @@ export function ToolBlockView(props: ToolBlockViewProps) {
   };
   return (
     <MenuView entries={entries} onAction={copy} trigger="long-press" testID="tool-menu">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={toolLabel(header, status)}
-        accessibilityState={{ expanded }}
-        accessibilityHint={expanded ? "Shows less output." : "Shows all the output."}
-        onPress={props.onToggle}
-        className="overflow-hidden rounded-box border border-border-subtle"
-      >
-        <View
+      <View className="overflow-hidden rounded-box border border-border-subtle">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={toolLabel(header, status)}
+          accessibilityState={{ expanded }}
+          accessibilityHint={expanded ? "Shows less output." : "Shows all the output."}
+          onPress={props.onToggle}
           className={cn(
             "flex-row gap-8 px-12",
             header.wraps ? "items-start py-9" : "min-h-34 items-center",
@@ -98,11 +96,12 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             </Text>
           )}
           <StatusMark status={status} />
-        </View>
+        </Pressable>
         {output.lines.length > 0 ? (
           <>
             <Hairline />
-            <View className="px-12 pt-7 pb-8">
+            {/* A tap on the output toggles too; VoiceOver reads its lines one by one. */}
+            <Pressable accessible={false} onPress={props.onToggle} className="px-12 pt-7 pb-8">
               {output.lines.map((line) => (
                 <FadeIn key={line.key}>
                   <OutputText line={line} wraps={expanded} />
@@ -113,7 +112,7 @@ export function ToolBlockView(props: ToolBlockViewProps) {
                   {`showing the last 200 of ${String(output.total)} lines`}
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
           </>
         ) : null}
         {more === undefined ? null : (
@@ -122,7 +121,7 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             <PlainButton label={more} height="row" wide onPress={props.onToggle} />
           </>
         )}
-      </Pressable>
+      </View>
     </MenuView>
   );
 }

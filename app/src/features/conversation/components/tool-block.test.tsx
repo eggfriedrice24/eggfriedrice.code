@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
@@ -177,6 +177,13 @@ describe("expanding a tool block", () => {
     await render(<ToolBlockView call={done} turnEnded={false} expanded onToggle={jest.fn()} />);
     expect(screen.getByText("test case_1 ... ok")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "collapse" })).toBeOnTheScreen();
+  });
+
+  it("keeps the output out of the header button, so VoiceOver reads it", async () => {
+    const done = call({ done: true, exitCode: 0, endedAt: NOW + 1000, output: TAIL });
+    await render(<ToolBlockView call={done} turnEnded={false} expanded onToggle={jest.fn()} />);
+    const header = screen.getByRole("button", { name: /Command cargo test/ });
+    expect(within(header).queryByText("test case_1 ... ok")).toBeNull();
   });
 });
 

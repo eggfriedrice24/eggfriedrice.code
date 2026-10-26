@@ -57,15 +57,17 @@ export function ThoughtRowView(props: ThoughtRowViewProps) {
   const line = thoughtLine(props.title, props.live, elapsed(props.startedAt, now));
   const expanded = props.expanded;
   const parts = paragraphs(props.text);
+  // Only the line is the button, so VoiceOver can read the reasoning under it.
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={line}
-      accessibilityState={{ expanded }}
-      accessibilityHint={expanded ? "Hides the reasoning." : "Shows the reasoning."}
-      onPress={props.onToggle}
-    >
-      <View className="min-h-24 flex-row items-center gap-6">
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={line}
+        accessibilityState={{ expanded }}
+        accessibilityHint={expanded ? "Hides the reasoning." : "Shows the reasoning."}
+        onPress={props.onToggle}
+        className="min-h-24 flex-row items-center gap-6"
+      >
         <SymbolIcon
           name={expanded ? "chevron.down" : "chevron.right"}
           size={10}
@@ -76,7 +78,7 @@ export function ThoughtRowView(props: ThoughtRowViewProps) {
         <MonoText numberOfLines={1} className="flex-1">
           {line}
         </MonoText>
-      </View>
+      </Pressable>
       {expanded ? (
         parts.length > 0 ? (
           <View className="gap-8 pl-16">
@@ -90,7 +92,7 @@ export function ThoughtRowView(props: ThoughtRowViewProps) {
           <MonoText className="-mt-6 pl-16">the reasoning isn't kept after the turn ends</MonoText>
         )
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 

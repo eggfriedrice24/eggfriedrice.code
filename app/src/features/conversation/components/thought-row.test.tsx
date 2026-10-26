@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 
 import { draftItem, eventItem, promptQueued, run, turnStarted } from "@/lib/stream/testing";
 
@@ -65,6 +65,9 @@ describe("the thought row", () => {
     expect(screen.getByText("412 JSON files.")).toBeOnTheScreen();
     expect(screen.getByText("SQLite with WAL.")).toBeOnTheScreen();
     expect(screen.getAllByTestId("braille-cell", HIDDEN)).toHaveLength(1);
+    // Only the line is the button, so VoiceOver reads the reasoning on its own.
+    const line = screen.getByRole("button", { name: /^thinking/ });
+    expect(within(line).queryByText("412 JSON files.")).toBeNull();
   });
 
   it("says the reasoning is gone when efrd kept only the title", async () => {
