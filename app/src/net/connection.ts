@@ -384,7 +384,8 @@ export class Connection {
       this.fail(new ConnectionError("malformed", `efrd sent a bad frame: ${decoded.reason}`));
       return;
     }
-    this.livenessState = { ...this.livenessState, lastFrameAt: this.options.clock.now() };
+    // A frame answers any probe, also one sent in the same millisecond.
+    this.livenessState = { lastFrameAt: this.options.clock.now(), probeSentAt: undefined };
     const frame = decoded.value;
     if (frame.type === "error" && frame.id === null) {
       // An error without an id: efrd closes the connection after it.

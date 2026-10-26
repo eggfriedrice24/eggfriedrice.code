@@ -26,6 +26,8 @@ export type ConnectionErrorKind =
   | "key_unavailable"
   /** efrd refused hello or the proof with another error. */
   | "refused"
+  /** The client has no ready connection now. */
+  | "offline"
   /** The app closed the connection. */
   | "closed";
 
@@ -48,6 +50,7 @@ const RECOVERY: Readonly<Record<ConnectionErrorKind, Recovery>> = {
   starting: "retry",
   no_prove_context: "retry",
   refused: "retry",
+  offline: "retry",
   protocol_mismatch: "update",
   daemon_changed: "repair",
   proof_refused: "repair",

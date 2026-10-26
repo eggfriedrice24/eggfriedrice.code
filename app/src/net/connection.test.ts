@@ -389,6 +389,11 @@ describe("the liveness rule", () => {
     });
     // The transport of efrd answers a second hello with `conflict`.
     socket.refuse("hello", "conflict", "hello was already sent on this connection");
+    // The answer came in the same millisecond as the probe; it still counts, so the next
+    // silence probes again instead of closing.
+    await clock.advance(DEFAULT_LIVENESS.probeAfterMs);
+    expect(socket.requests("hello")).toHaveLength(3);
+    socket.refuse("hello", "conflict", "hello was already sent on this connection");
     await clock.advance(DEFAULT_LIVENESS.deadAfterMs - 1);
     expect(connection.closed).toBe(false);
   });
