@@ -19,8 +19,12 @@ Three binaries ship:
   (`efr-sbx run --job`), with no terminal, in a session of its own.
 
 All clients speak one protocol, defined in `efr-protocol`, over a Unix socket at
-`$XDG_RUNTIME_DIR/efr/daemon.sock`. The phone client and the WebSocket listener come in
-a later milestone and use the same frames.
+`$XDG_RUNTIME_DIR/efr/daemon.sock`. With `[remote] enabled`, efrd also listens on the
+machine's Tailscale IPv4 address for the phone app in `app/` (React Native and Expo,
+outside the Cargo workspace). That listener is a WebSocket with the same frames, one
+per text message. efrd checks each peer with tailscaled's whois before it reads a
+byte, and the phone proves a paired device key before any other method runs
+(ADR 0022).
 
 ## Crate map
 
@@ -200,6 +204,11 @@ when the daemon stops. `efrd` starts in this order (the roots come from
    probe, whose status decides whether `auto` turns run as `auto` or as `cautious`.
 6. Open the Unix socket (0600) and write `daemon.json` for discovery.
 7. Send `READY=1` to systemd.
+8. With `[remote] enabled`, start the tailnet listener as a task. It reads the status
+   of tailscaled, binds when Tailscale is usable, adds `tailnet_endpoint` to
+   `daemon.json`, and binds again when the address or the tailnet changes. A
+   tailscaled that is down only delays the listener; efrd serves the Unix socket
+   without it.
 
 Clients that connect during a restart get a refused connection and retry; writes carry
 a `command_id`, so a retried write returns the stored receipt instead of running twice.
@@ -454,6 +463,17 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   shape and the reads in `crates/efr-store/src/devices.rs`; the insert, the revoke with
   its feed (`WriterHandle::subscribe_revocations`) and the time of the last proof in
   `crates/efr-store/src/writer.rs`.
+- The tailnet listener of the phone (ADR 0022): the listener, its rebinds and the
+  connection cap in `crates/efr-daemon/src/remote/listener.rs`; the view of
+  tailscaled's status and IPN bus in `remote/tailnet.rs`; the whois admission in
+  `remote/admission.rs`; `device.prove` in `remote/prove.rs`; the close of a revoked
+  device's sockets in `remote/live.rs`; the fake LocalAPI of the tests in
+  `remote/fake.rs`. The LocalAPI client is in `crates/efr-http/src/localapi.rs`;
+  the WebSocket handshake, frames and pings in `crates/efr-transport/src/ws.rs` and
+  `ws/`; the pairings in `crates/efr-daemon/src/pairing.rs`, with the device methods
+  in `crates/efr-daemon/src/methods/device_*.rs`; and `efr device` in
+  `crates/efr-cli/src/commands/device.rs`. The phone app is in `app/`
+  (`app/README.md`).
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
