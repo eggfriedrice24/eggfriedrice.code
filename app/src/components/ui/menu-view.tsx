@@ -3,8 +3,9 @@
 // (`showsMenuAsPrimaryAction`); iOS cannot open a UIMenu from code. Menus are native, so
 // they use the system font and cannot animate (design notes 3 and 12).
 //
-// With `trigger="long-press"` a long press opens it instead (UIContextMenuInteraction),
-// and a tap goes to the view inside: the Copy menus of the transcript.
+// With `openOnLongPress` a long press opens it instead (UIContextMenuInteraction), and a
+// tap goes to the view inside: the Steer/Queue capsule sends on a tap, and the Copy menus
+// of the transcript let a tap toggle the block.
 
 import { MenuView as NativeMenuView } from "@react-native-menu/menu";
 import type { ReactNode } from "react";
@@ -19,10 +20,13 @@ export interface MenuViewProps {
   readonly onAction: (id: string) => void;
   /** Called with true when the menu opens and with false when it closes. */
   readonly onOpenChange?: (open: boolean) => void;
+  /**
+   * True to open the menu on a long press, so that a tap reaches the children. The
+   * default opens it on a tap.
+   */
+  readonly openOnLongPress?: boolean;
   /** The view that opens the menu on a tap. It holds its own label and role. */
   readonly children: ReactNode;
-  /** What opens the menu: a tap (the default) or a long press. */
-  readonly trigger?: "tap" | "long-press";
   readonly testID?: string;
 }
 
@@ -33,7 +37,7 @@ export function MenuView(props: MenuViewProps) {
     <NativeMenuView
       title={props.title ?? ""}
       actions={menuActions(props.entries)}
-      shouldOpenOnLongPress={props.trigger === "long-press"}
+      shouldOpenOnLongPress={props.openOnLongPress === true}
       themeVariant="dark"
       onPressAction={({ nativeEvent }) => props.onAction(nativeEvent.event)}
       onOpenMenu={() => onOpenChange?.(true)}

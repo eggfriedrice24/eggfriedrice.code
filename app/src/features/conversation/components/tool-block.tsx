@@ -70,7 +70,7 @@ export function ToolBlockView(props: ToolBlockViewProps) {
     haptic("light");
   };
   return (
-    <MenuView entries={entries} onAction={copy} trigger="long-press" testID="tool-menu">
+    <MenuView entries={entries} onAction={copy} openOnLongPress testID="tool-menu">
       <View className="overflow-hidden rounded-box border border-border-subtle">
         <Pressable
           accessibilityRole="button"

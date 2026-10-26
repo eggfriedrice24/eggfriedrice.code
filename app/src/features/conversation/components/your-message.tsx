@@ -82,7 +82,7 @@ export function YourMessageView(props: YourMessageViewProps) {
     }
   };
   return (
-    <MenuView entries={MENU} onAction={onAction} trigger="long-press" testID="your-message-menu">
+    <MenuView entries={MENU} onAction={onAction} openOnLongPress testID="your-message-menu">
       <View className="flex-row gap-10">
         <Text
           accessibilityElementsHidden
