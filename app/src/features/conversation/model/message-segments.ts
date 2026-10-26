@@ -21,6 +21,11 @@
 //
 // A segment's key is the offset where it begins, so a segment keeps its view while it
 // grows, and an open fence keeps its view when it closes.
+//
+// The text of a Markdown segment is inert (inertMarkdown): enriched 1.1.1 loads each
+// image URL with no tap, and makes a `<video src>` HTML block into a video. A reply of
+// the model could send a request from the phone with them. So no image and no HTML block
+// stays in the Markdown.
 
 import { type BlockSplit, completeBlocks } from "./blocks";
 
@@ -56,6 +61,28 @@ export type Segment =
     };
 
 const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/** U+2060 WORD JOINER: it has no width, so a code span still shows its text as it is. */
+const WORD_JOINER = "\u2060";
+
+/** A `<` that begins the content of a line: after spaces, `>` and list markers. */
+const LINE_START_TAG = /^((?:[ \t]*(?:>|[-+*](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*)</gm;
+
+/**
+ * `markdown` with no image and no HTML block, for enriched.
+ *
+ * - `![alt](url)` becomes `!` and the link `[alt](url)`: a tap asks first, as for each
+ *   link (links.ts). A word joiner goes between `!` and `[`.
+ * - A line that begins with `<` cannot begin an HTML block: a word joiner goes before
+ *   the `<`. Inline HTML is text in enriched already.
+ *
+ * It does not look for code spans: a wrong guess would keep an image. The word joiner
+ * has no width, so a code span such as `vec![1]` looks the same. The text only grows
+ * when `markdown` only grows, so the fade of the tail stays aligned.
+ */
+export function inertMarkdown(markdown: string): string {
+  return markdown.replaceAll("![", `!${WORD_JOINER}[`).replace(LINE_START_TAG, `$1${WORD_JOINER}<`);
+}
 
 /** The fence languages of a diff, as blocks.ts knows them. */
 const DIFF_LANGUAGES: ReadonlySet<string> = new Set(["diff", "patch", "udiff"]);
@@ -155,7 +182,7 @@ export function messageSegments(
       const build = (): Segment => ({
         kind: "markdown",
         key: `m${String(start)}`,
-        text: text.slice(start, end).replace(/\n+$/, ""),
+        text: inertMarkdown(text.slice(start, end).replace(/\n+$/, "")),
         open,
       });
       const segment = open ? build() : kept(`m${String(start)}:${String(end)}`, build);

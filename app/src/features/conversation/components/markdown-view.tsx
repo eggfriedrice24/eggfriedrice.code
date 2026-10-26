@@ -1,9 +1,13 @@
 // One Markdown text of the transcript (design 3.5): react-native-enriched-markdown in its
 // GitHub flavour, with the style of theme/markdown.ts. Native Text runs, no web view.
 //
-// - Raw HTML never renders, math is off, and the system's link preview is off, because
-//   it would load the page. A tap on a link asks first, then opens it in
-//   SFSafariViewController (model/links.ts and lib/native/links.ts).
+// - Enriched loads images and makes a `<video src>` HTML block into a video, with no tap.
+//   So the message row gives only inert Markdown (inertMarkdown of
+//   model/message-segments.ts): an image is a link, and no line begins an HTML block.
+//   Inline HTML is text (enriched sets MD_FLAG_NOHTMLSPANS).
+// - Math is off, and the system's link preview is off, because it would load the page.
+//   A tap on a link asks first, then opens it in SFSafariViewController (model/links.ts
+//   and lib/native/links.ts).
 // - While the text streams, `streaming` turns on enriched's fade of the appended tail
 //   (design 4: the streaming tail), unless Reduce Motion is on. The text must then only
 //   grow: the message row gives each segment a view of its own, and remounts the

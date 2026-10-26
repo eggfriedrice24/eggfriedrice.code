@@ -314,8 +314,10 @@ not a test that pretends.
 
 ## Rules of the app
 
-- No raw HTML in Markdown and no WebView with JavaScript. The app asks before it opens a
-  link, and then opens it in SFSafariViewController.
+- No image, no video and no raw HTML in Markdown, and no WebView with JavaScript. The app
+  gives enriched only inert Markdown: an image becomes a link, and no line can begin an
+  HTML block. So a reply cannot make the phone load a URL. The app asks before it opens
+  a link, and then opens it in SFSafariViewController.
 - The device key never leaves the Secure Enclave. The app keeps the device id and the
   endpoint of each machine in expo-secure-store.
 - The app sends no `input.respond`, no attachments and no "always allow". efrd refuses
