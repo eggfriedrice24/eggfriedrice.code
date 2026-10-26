@@ -709,8 +709,10 @@ pub enum PairingProblem {
     NotListening,
     /// As many pairings as efrd keeps are open.
     TooMany,
-    /// `device.enroll` came through the Unix socket, not the tailnet listener.
-    NotRemote,
+    /// `device.enroll` came on a remote connection that has no whois facts of its
+    /// peer. The tailnet listener gives every connection its facts, and the Unix
+    /// socket refuses the method before it runs (`RemoteOnly`), so it shows a bug.
+    NoAdmission,
     /// The token is wrong, used or expired.
     BadToken,
     /// The public key is not an uncompressed P-256 point of 65 bytes.
@@ -757,7 +759,7 @@ impl PairingProblem {
             | PairingProblem::KeyInUse { .. }
             | PairingProblem::PhoneLeft => ErrorCode::Conflict,
             PairingProblem::NotListening | PairingProblem::TooMany => ErrorCode::Busy,
-            PairingProblem::NotRemote | PairingProblem::Ended { .. } => ErrorCode::Forbidden,
+            PairingProblem::NoAdmission | PairingProblem::Ended { .. } => ErrorCode::Forbidden,
             PairingProblem::BadToken => ErrorCode::Unauthorized,
             PairingProblem::BadKey | PairingProblem::BadField { .. } => ErrorCode::Invalid,
             PairingProblem::NotPending { .. } | PairingProblem::UnknownDevice { .. } => {
@@ -780,8 +782,8 @@ impl fmt::Display for PairingProblem {
             PairingProblem::TooMany => {
                 f.write_str("too many pairings are open; finish or stop one of them first")
             }
-            PairingProblem::NotRemote => {
-                f.write_str("a device enrolls only through the tailnet listener")
+            PairingProblem::NoAdmission => {
+                f.write_str("the connection has no Tailscale facts of its peer")
             }
             PairingProblem::BadToken => f.write_str("the pairing token is wrong, used or expired"),
             PairingProblem::BadKey => {

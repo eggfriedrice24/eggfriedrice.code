@@ -3,11 +3,12 @@
 //!
 //! The order keeps the token single use and the terminal in charge:
 //!
-//! 1. Refuse the Unix socket, and a remote connection that the listener admitted
-//!    without the whois facts of its peer.
-//! 2. Check the key (65 bytes, a point on the P-256 curve), then the token, which counts a wrong one
-//!    (`pairing.rs`). A key of a device that is not revoked is a `conflict` before
-//!    the token is spent, so the phone can make a new key and try again.
+//! 1. Refuse a remote connection that has no whois facts of its peer. The Unix socket
+//!    never gets here: the dispatch refuses it with `forbidden` (`RemoteOnly`).
+//! 2. Check the key (65 bytes, a point on the P-256 curve), then the token, which
+//!    counts a wrong one (`pairing.rs`). A key of a device that is not revoked is a
+//!    `conflict` before the token is spent, so the phone can make a new key and try
+//!    again.
 //! 3. Spend the token and show the phone's facts at the terminal, then wait for its
 //!    answer. Only a yes writes the row; the answer then has the device's id and
 //!    scopes. A no or an expiry is `forbidden`.
@@ -28,7 +29,7 @@ pub(crate) async fn handle(
     responder: &Responder,
 ) -> Result<(), DaemonError> {
     let Some(peer) = pairing::enroll_peer(context) else {
-        return Err(refused(PairingProblem::NotRemote));
+        return Err(refused(PairingProblem::NoAdmission));
     };
     let key = DevicePublicKey::from_x963(params.public_key.as_bytes())
         .ok()
