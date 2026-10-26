@@ -143,3 +143,34 @@ export function memoSelector<T, S>(
     return output;
   };
 }
+
+/**
+ * A store of `combine(a, b)` over two stores. It computes the value again only when one
+ * of the two values changed, so its snapshot is the same object until then; `combine`
+ * can keep its own results with memoSelector.
+ */
+export function combineStores<A, B, T>(
+  a: ExternalStore<A>,
+  b: ExternalStore<B>,
+  combine: (a: A, b: B) => T,
+): ExternalStore<T> {
+  let last: { readonly a: A; readonly b: B; readonly value: T } | undefined;
+  return {
+    getSnapshot: () => {
+      const valueA = a.getSnapshot();
+      const valueB = b.getSnapshot();
+      if (last === undefined || !Object.is(last.a, valueA) || !Object.is(last.b, valueB)) {
+        last = { a: valueA, b: valueB, value: combine(valueA, valueB) };
+      }
+      return last.value;
+    },
+    subscribe: (listener) => {
+      const offA = a.subscribe(listener);
+      const offB = b.subscribe(listener);
+      return () => {
+        offA();
+        offB();
+      };
+    },
+  };
+}

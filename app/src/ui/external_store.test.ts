@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createValueStore, frameGated, memoSelector } from "./external_store";
+import { combineStores, createValueStore, frameGated, memoSelector } from "./external_store";
 
 /** A manual frame clock: `frame()` runs the callbacks of the next frame. */
 function manualFrames() {
@@ -100,5 +100,28 @@ describe("memoSelector", () => {
     expect(runs).toBe(1);
     expect(select([0, 2, 3])).toBe(out);
     expect(select([2])).toEqual([2]);
+  });
+});
+
+describe("combineStores", () => {
+  it("computes again only when one of its stores changed", () => {
+    const a = createValueStore(1);
+    const b = createValueStore(10);
+    let runs = 0;
+    const sum = combineStores(a, b, (x, y) => {
+      runs++;
+      return { total: x + y };
+    });
+    const first = sum.getSnapshot();
+    expect(sum.getSnapshot()).toBe(first);
+    expect(runs).toBe(1);
+    let calls = 0;
+    const off = sum.subscribe(() => calls++);
+    b.set(20);
+    expect(calls).toBe(1);
+    expect(sum.getSnapshot()).toEqual({ total: 21 });
+    off();
+    a.set(2);
+    expect(calls).toBe(1);
   });
 });
