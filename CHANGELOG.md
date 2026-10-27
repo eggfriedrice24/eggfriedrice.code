@@ -10,6 +10,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- efrd reads the output of your shell with the terminal core of Ghostty 1.4 (a commit
+  from six days before the 1.4.0 release). It follows xterm more closely, parses
+  output faster and keeps the fixes of the 1.4 cycle. A build from source now needs
+  Zig 0.17.0 in place of 0.16.0. The `efr-code` AUR package downloads it for you.
+
 ## [0.0.6] - 2026-10-27
 
 ### Added
