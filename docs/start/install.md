@@ -30,15 +30,19 @@ These programs are optional. efr works without them, but some parts do not:
 
 ## Install from the AUR
 
-There are two packages. Install one of them:
+There are three packages. Install one of them:
 
 - `efr-code` builds efr from the source of the release tag. For the build, it
   downloads Zig 0.17.0 from ziglang.org. It does not use the Zig of the Arch
   repositories.
 - `efr-code-bin` installs the release build from GitHub.
+- `efr-code-git` builds the newest commit of `main`. It gets the changes before a
+  release, and it can break between releases. For the build, it downloads the
+  Zig and the ghostty commit that `docs/ghostty-pin.md` of that commit names. To
+  update it, build it again, for example with `yay -S efr-code-git`.
 
 ```sh
-yay -S efr-code                       # or: yay -S efr-code-bin
+yay -S efr-code                       # or: yay -S efr-code-bin, yay -S efr-code-git
 ```
 
 The packages install these files:

@@ -36,10 +36,10 @@ The guide to install and use efr is in [`docs/`](docs/). mdBook builds the same 
 
 ## Install
 
-On Arch Linux, install a package from the AUR. `efr-code` builds from source, and `efr-code-bin` installs the release build. Then do the three steps as your own user:
+On Arch Linux, install a package from the AUR. `efr-code` builds from source, `efr-code-bin` installs the release build, and `efr-code-git` builds the newest commit of `main`. Then do the three steps as your own user:
 
 ```sh
-yay -S efr-code                       # or: yay -S efr-code-bin
+yay -S efr-code                       # or: yay -S efr-code-bin, yay -S efr-code-git
 echo "source /usr/share/zsh/plugins/efr/efr.plugin.zsh" >> ~/.zshrc
 systemctl --user enable --now efrd    # start the daemon now and at every login
 efr login openai                      # log in to your ChatGPT plan in a browser
@@ -113,7 +113,7 @@ All settings are in one optional file, `config.toml` in the config root (`~/.con
 | `crates/` | The Rust workspace, one crate for each bounded context |
 | `shell/zsh/` | The zsh plugin |
 | `systemd/` | The user unit for the daemon |
-| `packaging/` | The AUR packages `efr-code` and `efr-code-bin`; `docs/releasing.md` tells how a release reaches them |
+| `packaging/` | The AUR packages `efr-code`, `efr-code-bin` and `efr-code-git`; `docs/releasing.md` tells how they reach the AUR |
 
 ## Building
 
