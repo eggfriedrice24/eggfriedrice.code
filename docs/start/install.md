@@ -33,7 +33,7 @@ These programs are optional. efr works without them, but some parts do not:
 There are two packages. Install one of them:
 
 - `efr-code` builds efr from the source of the release tag. For the build, it
-  downloads Zig 0.16.0 from ziglang.org. It does not use the Zig of the Arch
+  downloads Zig 0.17.0 from ziglang.org. It does not use the Zig of the Arch
   repositories.
 - `efr-code-bin` installs the release build from GitHub.
 
@@ -56,7 +56,7 @@ prints them when you install it.
 
 ## Install from a clone
 
-You need `just`, rustup and Zig 0.16.0. `rust-toolchain.toml` pins Rust 1.99, and
+You need `just`, rustup and Zig 0.17.0. `rust-toolchain.toml` pins Rust 1.99, and
 rustup installs it for you. Only the ghostty screen backend needs Zig. `just install`
 makes a release build, and a release build enables that backend.
 

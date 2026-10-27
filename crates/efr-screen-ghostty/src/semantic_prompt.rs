@@ -159,14 +159,14 @@ impl CrossCheck {
     }
 
     /// Reads libghostty-vt's working directory into `self.pwd`. False when it cannot
-    /// be read; `self.pwd` then keeps the last value read.
+    /// be read or is not UTF-8; `self.pwd` then keeps the last value read.
     fn read_pwd(&mut self, terminal: &Terminal<'_, '_>) -> bool {
-        match terminal.pwd() {
-            Ok(pwd) => {
+        match terminal.pwd().ok().and_then(|pwd| str::from_utf8(pwd).ok()) {
+            Some(pwd) => {
                 self.pwd = (!pwd.is_empty()).then(|| pwd.to_owned());
                 true
             }
-            Err(_) => false,
+            None => false,
         }
     }
 }

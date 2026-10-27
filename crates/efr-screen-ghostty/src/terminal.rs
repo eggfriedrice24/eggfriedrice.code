@@ -174,9 +174,14 @@ impl Screen for GhosttyScreen {
     }
 
     /// The working directory as libghostty-vt stores it: the raw OSC 7 URL
-    /// (`kitty-shell-cwd://host/path` or `file://host/path`), not a decoded path.
+    /// (`kitty-shell-cwd://host/path` or `file://host/path`), not a decoded path. A URL
+    /// that is not UTF-8 shows as no working directory.
     fn pwd(&self) -> Option<&str> {
-        self.terminal.pwd().ok().filter(|pwd| !pwd.is_empty())
+        self.terminal
+            .pwd()
+            .ok()
+            .and_then(|pwd| str::from_utf8(pwd).ok())
+            .filter(|pwd| !pwd.is_empty())
     }
 }
 

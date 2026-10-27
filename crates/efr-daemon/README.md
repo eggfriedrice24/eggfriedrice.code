@@ -1758,7 +1758,7 @@ IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
 - `local-pty` (default): hidden shells on PTYs opened in this process through
   `efr_pty::LocalPtyHolder`. Without it, and unless a holder is injected, every shell
   start fails with a clear error. The PTY holder milestone deletes the feature.
-- `screen-ghostty`: the libghostty-vt screen backend (needs Zig 0.16.0). With it, the
+- `screen-ghostty`: the libghostty-vt screen backend (needs Zig 0.17.0). With it, the
   screens are ghostty unless `EFR_SCREEN=vt100`; without it, vt100.
 
 - `test-sandbox-fake`: the test seams of the `auto` sandbox in `sandbox/seams.rs`:

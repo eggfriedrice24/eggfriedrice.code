@@ -52,9 +52,9 @@ impl Effects {
             .on_pty_write(move |_, bytes| replies.replies.borrow_mut().extend_from_slice(bytes))?
             .on_bell(move |_| bells.notices.borrow_mut().push(Notice::Bell))?
             .on_title_changed(move |terminal| {
-                // NOTE: a title that is not UTF-8 cannot be read through the safe API,
-                // so it is not reported; title() then shows no title either.
-                if let Ok(title) = terminal.title() {
+                // NOTE: libghostty-vt gives the title as bytes. A title that is not
+                // UTF-8 is not reported; title() then shows no title either.
+                if let Some(title) = terminal.title().ok().and_then(|t| str::from_utf8(t).ok()) {
                     titles.notices.borrow_mut().push(Notice::Title(title.to_owned()));
                 }
             })?
