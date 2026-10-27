@@ -1,0 +1,198 @@
+# Builds packaging/efr-code-git, the AUR package "efr-code-git" that builds the newest
+# commit of main, and publishes it to the AUR when its files change.
+#
+# Required repository secret (only to publish):
+#   AUR_SSH_PRIVATE_KEY  the key of aur.yml; docs/releasing.md has the setup.
+#
+# Triggers:
+#   - pull_request that changes the package or this workflow: a test build of the
+#     commit of the pull request. Nothing is pushed.
+#   - push to main that changes the package or this workflow: a test build of the
+#     commit, then a push to ssh://aur@aur.archlinux.org/efr-code-git.git when the
+#     PKGBUILD, the install file or the LICENSE differ from the AUR. A new commit of
+#     main alone is no reason to push: an AUR -git package keeps its pkgver until its
+#     PKGBUILD changes, and makepkg finds the newest commit itself.
+#   - schedule, every Monday: a test build of main. It finds a change on main that
+#     breaks the package, such as a new pin in docs/ghostty-pin.md, before a user does.
+#   - workflow_dispatch: as a push to main.
+#
+# The test build always builds the checked-out commit: the source line of the PKGBUILD
+# is pointed at the checkout. In an archlinux:base-devel container, makepkg runs
+# prepare(), build(), check() and package(), and namcap checks the result. The PKGBUILD
+# that goes to the AUR keeps its source line, with the pkgver of the test build.
+
+name: aur-git
+
+on:
+  pull_request:
+    paths:
+      - packaging/efr-code-git/**
+      - packaging/efr-code/efr-code.install
+      - .github/workflows/aur-git.yml
+  push:
+    branches:
+      - main
+    paths:
+      - packaging/efr-code-git/**
+      - packaging/efr-code/efr-code.install
+      - .github/workflows/aur-git.yml
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-git-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build efr-code-git
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    env:
+      PKG: efr-code-git
+      AUR_SSH: ssh://aur@aur.archlinux.org
+      # Only a push to main or a manual run publishes.
+      PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Install tooling
+        # git before checkout so the action produces a real git checkout. rust is
+        # installed here, so that makepkg -s finds cargo and does not pick rustup for
+        # it. The image's keyring may predate a packager key, so it is refreshed first.
+        run: |
+          pacman -Sy --noconfirm --needed archlinux-keyring
+          pacman -Su --noconfirm --needed git namcap openssh rust sudo
+
+      # The whole history, so that pkgver() counts the commits of main.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create non-root build user
+        # makepkg refuses to run as root. makepkg -s installs the dependencies of the
+        # PKGBUILD through pacman, so the user may run it. The checkout belongs to
+        # root, so git must trust it for the builder.
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/builder
+          su - builder -c "git config --global --add safe.directory '*'"
+
+      - name: Test build and namcap
+        id: build
+        run: |
+          set -euo pipefail
+          build="/home/builder/$PKG"
+          install -d -o builder -g builder "$build"
+          # install copies the target of a link: efr-code-git links efr-code.install
+          # from packaging/efr-code.
+          for file in "packaging/$PKG"/*; do
+            install -o builder -g builder -m 644 "$file" "$build/"
+          done
+          commit=$(git rev-parse HEAD)
+          sed -i "s|^source=.*|source=(\"\$pkgname::git+file://$GITHUB_WORKSPACE#commit=$commit\")|" "$build/PKGBUILD"
+          grep '^source=' "$build/PKGBUILD"
+
+          su - builder -c "cd '$build' && makepkg -sf --noconfirm"
+          pkgver=$(sed -n 's/^pkgver=//p' "$build/PKGBUILD")
+          echo "pkgver=$pkgver" >> "$GITHUB_OUTPUT"
+          echo "built $PKG $pkgver from $commit"
+
+          log=$(mktemp)
+          for target in "$build/PKGBUILD" "$build/$PKG"-[0-9]*.pkg.tar.zst; do
+            if [[ ! -f "$target" ]]; then
+              echo "::error::$target does not exist"
+              exit 1
+            fi
+            echo "::group::namcap $target"
+            namcap "$target" | tee -a "$log"
+            echo "::endgroup::"
+          done
+          echo "::group::files"
+          pacman -Qlp "$build/$PKG"-[0-9]*.pkg.tar.zst
+          echo "::endgroup::"
+          # namcap prints findings as "<name> E: ..." and its own failures to read a
+          # target as "Error: ...", always exiting 0; both must fail.
+          if grep -E '^([^ ]+( \([^)]*\))? E: |Error: )' "$log"; then
+            echo "::error::namcap reported errors or could not analyse a target (warnings above are informational)"
+            exit 1
+          fi
+
+      - name: Set up SSH for aur.archlinux.org
+        if: env.PUBLISH == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo "::error::secret AUR_SSH_PRIVATE_KEY is not set"
+            exit 1
+          fi
+          ssh_dir="$HOME/.ssh"
+          install -d -m 700 "$ssh_dir"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$ssh_dir/aur"
+          chmod 600 "$ssh_dir/aur"
+          ssh-keygen -y -f "$ssh_dir/aur" > /dev/null
+
+          # The pinned host keys of aur.archlinux.org, the same as in aur.yml; change
+          # both files together. Their fingerprints match the "SSH Fingerprints" box on
+          # https://aur.archlinux.org/.
+          cat > "$ssh_dir/aur_known_hosts" <<'KNOWN_HOSTS'
+          aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN
+          aur.archlinux.org ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBLMiLrP8pVi5BFX2i3vepSUnpedeiewE5XptnUnau+ZoeUOPkpoCgZZuYfpaIQfhhJJI5qgnjJmr4hyJbe/zxow=
+          aur.archlinux.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDKF9vAFWdgm9Bi8uc+tYRBmXASBb5cB5iZsB7LOWWFeBrLp3r14w0/9S2vozjgqY5sJLDPONWoTTaVTbhe3vwO8CBKZTEt1AcWxuXNlRnk9FliR1/eNB9uz/7y1R0+c1Md+P98AJJSJWKN12nqIDIhjl2S1vOUvm7FNY43fU2knIhEbHybhwWeg+0wxpKwcAd/JeL5i92Uv03MYftOToUijd1pqyVFdJvQFhqD4v3M157jxS5FTOBrccAEjT+zYmFyD8WvKUa9vUclRddNllmBJdy4NyLB8SvVZULUPrP3QOlmzemeKracTlVOUG1wsDbxknF1BwSCU7CmU6UFP90kpWIyz66bP0bl67QAvlIc52Yix7pKJPbw85+zykvnfl2mdROsaT8p8R9nwCdFsBc9IiD0NhPEHcyHRwB8fokXTajk2QnGhL+zP5KnkmXnyQYOCUYo3EKMXIlVOVbPDgRYYT/XqvBuzq5S9rrU70KoI/S5lDnFfx/+lPLdtcnnEPk=
+          KNOWN_HOSTS
+          chmod 600 "$ssh_dir/aur_known_hosts"
+          echo "GIT_SSH_COMMAND=ssh -i ${ssh_dir}/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=${ssh_dir}/aur_known_hosts -o StrictHostKeyChecking=yes" >> "$GITHUB_ENV"
+
+      - name: Push to AUR
+        if: env.PUBLISH == 'true'
+        env:
+          PKGVER: ${{ steps.build.outputs.pkgver }}
+        run: |
+          set -euo pipefail
+          aur_dir="$HOME/aur-$PKG"
+          # A package that does not exist yet clones as an empty repository.
+          git clone "$AUR_SSH/$PKG.git" "$aur_dir"
+
+          # The files of packaging/ with the pkgver of the test build. The PKGBUILD keeps
+          # its source line.
+          stage="/home/builder/stage-$PKG"
+          install -d -o builder -g builder "$stage"
+          files=(.SRCINFO)
+          for file in "packaging/$PKG"/*; do
+            install -o builder -g builder -m 644 "$file" "$stage/"
+            files+=("${file##*/}")
+          done
+          sed -i "s/^pkgver=.*/pkgver=$PKGVER/" "$stage/PKGBUILD"
+          su - builder -c "cd '$stage' && makepkg --printsrcinfo > .SRCINFO"
+
+          # Only a change of the files counts; a different pkgver alone does not.
+          changed=false
+          for file in "${files[@]}"; do
+            [[ "$file" == .SRCINFO ]] && continue
+            if [[ ! -f "$aur_dir/$file" ]] ||
+              ! diff -q <(sed '/^pkgver=/d' "$stage/$file") <(sed '/^pkgver=/d' "$aur_dir/$file") > /dev/null; then
+              changed=true
+            fi
+          done
+          if [[ "$changed" != true ]]; then
+            echo "$PKG: the AUR has these files already; nothing to push"
+            exit 0
+          fi
+
+          for file in "${files[@]}"; do
+            cp "$stage/$file" "$aur_dir/"
+          done
+          git -C "$aur_dir" config user.name "eggfriedrice"
+          git -C "$aur_dir" config user.email "eggfriedricew.g.o@gmail.com"
+          git -C "$aur_dir" add -- "${files[@]}"
+          git -C "$aur_dir" commit -m "upgpkg: $PKGVER-1"
+          git -C "$aur_dir" push origin HEAD:master

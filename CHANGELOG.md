@@ -10,6 +10,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- A third AUR package, `efr-code-git`. It builds the newest commit of `main`, so you
+  get changes before a release. It can break between releases. The install page tells
+  how to install and update it.
+
 ### Fixed
 
 - A build of the `efr-code` AUR package on a computer with many cores no longer fails

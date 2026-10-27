@@ -24,7 +24,7 @@ Do these steps once, before the first release.
    `"resultcount":0`, or show packages of the account `eggfriedrice`:
 
    ```sh
-   curl -s 'https://aur.archlinux.org/rpc/v5/info?arg[]=efr-code&arg[]=efr-code-bin'
+   curl -s 'https://aur.archlinux.org/rpc/v5/info?arg[]=efr-code&arg[]=efr-code-bin&arg[]=efr-code-git'
    ```
 
 2. Give the AUR account `eggfriedrice` an SSH key for the workflow. You can use a key
@@ -37,8 +37,13 @@ Do these steps once, before the first release.
    gh secret set AUR_SSH_PRIVATE_KEY < aur
    ```
 
-The AUR makes the package repositories `efr-code` and `efr-code-bin` on the first
-push.
+The AUR makes the package repositories `efr-code`, `efr-code-bin` and `efr-code-git`
+on the first push.
+
+`efr-code-git` has no release step. `aur-git.yml` builds it on each pull request that
+changes `packaging/efr-code-git/`, and each Monday from `main`. After a merge that
+changes its files, it pushes them to the AUR. A new commit of `main` alone changes
+nothing on the AUR: `makepkg` finds the newest commit itself.
 
 For the docs site, do these steps once in the settings of the repository on GitHub:
 
