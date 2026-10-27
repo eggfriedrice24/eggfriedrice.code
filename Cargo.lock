@@ -700,7 +700,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "efr-cli"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "efr-config"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-permissions",
  "efr-protocol",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "efr-conversation"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-permissions",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "efr-credentials"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-stdx",
  "jiff",
@@ -798,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "efr-daemon"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "efr-holder"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-protocol",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "efr-http"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "efr-oauth-openai"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -934,7 +934,7 @@ dependencies = [
 
 [[package]]
 name = "efr-permissions"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-protocol",
  "efr-test-support",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "efr-protocol"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "base64 0.23.1",
  "jiff",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "efr-provider"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-protocol",
@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "efr-providers"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-http",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "efr-proxy"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-permissions",
  "efr-protocol",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "efr-pty"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-holder",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "efr-render"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-test-support",
  "insta",
@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "efr-sandbox"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-protocol",
  "pretty_assertions",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "efr-sbx"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "clap",
  "efr-protocol",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "efr-scope"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-protocol",
  "efr-stdx",
@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "efr-screen"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "bytes",
  "efr-protocol",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "efr-screen-ghostty"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "bytes",
  "efr-render",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "efr-shell"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "efr-snapshot"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-protocol",
  "efr-scope",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "efr-stdx"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "etcetera",
  "jiff",
@@ -1211,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "efr-store"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "efr-protocol",
  "efr-stdx",
@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "efr-test-daemon"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "efr-test-support"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "efr-tools"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "async-trait",
  "efr-protocol",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "efr-transport"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -4190,7 +4190,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "anyhow",
  "cargo_metadata",
