@@ -10,6 +10,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Fixed
+
+- A build of the `efr-code` AUR package on a computer with many cores no longer fails
+  in its tests. The package now runs them with `cargo-nextest`, as CI does, so each
+  test runs in a process of its own.
+
 ### Changed
 
 - efrd reads the output of your shell with the terminal core of Ghostty 1.4 (a commit

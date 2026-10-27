@@ -18,8 +18,8 @@ url='https://github.com/eggfriedrice24/eggfriedrice.code'
 license=('MIT')
 depends=('glibc' 'libgcc' 'zsh')
 makedepends=('cargo')
-# The scope tests of check() run git.
-checkdepends=('git')
+# check() runs the tests with nextest, as CI does; the scope tests run git.
+checkdepends=('cargo-nextest' 'git')
 optdepends=('bubblewrap: the kernel sandbox of the auto mode (also needs Linux 7.1 or newer)'
             'fzf: the live search picker of ,resume (0.46 or newer)'
             'git: project roots and the git facts of a turn'
@@ -109,7 +109,8 @@ check() {
   export CARGO_TARGET_DIR=target
   # The leaf crates of the justfile, as `just test-leaf` runs them. The other tests
   # need a real zsh session, bubblewrap and a kernel sandbox, which a build chroot
-  # does not have.
+  # does not have. nextest runs each test in a process of its own, as the tests
+  # expect: some of them install a log subscriber for their thread only.
   local crate crates args=()
   read -ra crates <<<"$(sed -nE 's/^leaf_crates := "(.*)"$/\1/p' justfile)"
   if (( ${#crates[@]} == 0 )); then
@@ -120,7 +121,7 @@ check() {
     args+=(-p "$crate")
   done
   _drop_cflags_optimization
-  INSTA_UPDATE=no cargo test --frozen "${args[@]}" --lib --tests
+  INSTA_UPDATE=no cargo nextest run --frozen "${args[@]}" --lib --tests
 }
 
 package() {
