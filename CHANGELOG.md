@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-10-27
+
 ### Added
 
 - A preview of the efr phone app for iPhone, in `app/` of the repository. It pairs
@@ -1724,7 +1726,8 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.2...v0.0.3
