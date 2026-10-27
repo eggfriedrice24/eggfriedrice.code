@@ -46,7 +46,7 @@ build:
     cargo build
 
 # Release build of efrd, efr and the sandbox launcher efr-sbx, with the ghostty screen
-# backend (needs Zig 0.16.0). Only these three packages, so efrd never gets the test
+# backend (needs Zig 0.17.0). Only these three packages, so efrd never gets the test
 # seams that efr-test-daemon turns on.
 build-release:
     cargo build --release -p efr-daemon -p efr-cli -p efr-sbx --features efr-daemon/screen-ghostty
@@ -166,7 +166,7 @@ test-fzf:
     EFR_TEST_FZF=1 EFR_TEST_FZF_BIN="$fzf" cargo nextest run -p efr-cli \
         --success-output immediate -E 'test(/^picker::e2e_fzf_/)'
 
-# The ghostty conformance suite and daemon tests on the real backend (needs Zig 0.16.0).
+# The ghostty conformance suite and daemon tests on the real backend (needs Zig 0.17.0).
 test-ghostty:
     #!/usr/bin/env bash
     set -euo pipefail

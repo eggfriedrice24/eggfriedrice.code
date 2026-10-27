@@ -447,14 +447,14 @@ jobs:
           fi
       - if: steps.present.outputs.run == 'true'
         run: rustup toolchain install
-      # Zig 0.16.0 exactly: the pin triple in docs/ghostty-pin.md.
+      # Zig 0.17.0 exactly: the pin triple in docs/ghostty-pin.md.
       # NOTE: every release of setup-zig up to v2.2.1, on GitHub and on Codeberg, still
       # declares node20; GitHub runs it on Node 24 and warns. Move to the first release
       # that declares node24.
       - if: steps.present.outputs.run == 'true'
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       # Caches the ghostty clone and the zig build output under target/. This job keeps
       # a build of its own: the archive of `build` would need Zig there too, and the
       # zig build of ghostty would then hold up every test job.

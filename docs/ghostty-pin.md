@@ -5,21 +5,21 @@ and all three parts move together.
 
 | Component | Pinned value | Why |
 |---|---|---|
-| libghostty-rs | git rev `8953a740bc378cec3e07e1f6ca949f0595eab19b` (master, 2026-09-28; workspace version 0.2.1) | master has `snapshot.rs` (the GHOSTSNP record stream behind `Terminal::encode_snapshot` and `Decoder`) and `io.rs`; attach snapshots need them. The constructor is `Terminal::new(cols, rows)`. |
-| ghostty | `22d13172cde98a0a4dda05d3d6a3fcb0dd8ed018` (2026-08-06) | the `GHOSTTY_COMMIT` that this rev's `crates/libghostty-vt-sys/build.rs` clones and builds. It follows from the rev; it is not a separate choice. |
-| Zig | 0.16.0 exactly | ghostty 22d13172's `build.zig.zon` sets `minimum_zig_version = "0.16.0"`, and libghostty-rs pins 0.16.0. A build of 22d13172 under Zig 0.17.0 (released 2026-10-01) is unverified, so the pin is exact. |
+| libghostty-rs | git rev `9ede35b8ea94a55ed3608408d67e102883129f1e` (master, 2026-10-24; workspace version 0.2.1) | master has `snapshot.rs` (the GHOSTSNP record stream behind `Terminal::encode_snapshot` and `Decoder`) and `io.rs`; attach snapshots need them. `Terminal::title` and `Terminal::pwd` return bytes, not `&str`. The constructor is `Terminal::new(cols, rows)`. |
+| ghostty | `521cf2c5d30bd48028ca61546c64e7913764073d` (2026-10-21, 85 commits before the v1.4.0 tag) | the `GHOSTTY_COMMIT` that this rev's `crates/libghostty-vt-sys/build.rs` clones and builds. It follows from the rev; it is not a separate choice. |
+| Zig | 0.17.0 exactly | ghostty 521cf2c5's `build.zig.zon` sets `minimum_zig_version = "0.17.0"`, and the flake of libghostty-rs pins 0.17.0. Ghostty 1.4 needs 0.17 too. A later Zig is unverified, so the pin is exact. |
 
 In `Cargo.toml`:
 
 ```toml
-libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "8953a740bc378cec3e07e1f6ca949f0595eab19b", default-features = false }
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "9ede35b8ea94a55ed3608408d67e102883129f1e", default-features = false }
 ```
 
 `deny.toml` allows this one git source. CI installs Zig with `mlugg/setup-zig` at
-`version: 0.16.0` in the `ghostty` job of `ci.yml` and in `release.yml`. The AUR
+`version: 0.17.0` in the `ghostty` job of `ci.yml` and in `release.yml`. The AUR
 source package (`packaging/efr-code/PKGBUILD`) downloads the ghostty archive of the pinned
-commit and the official Zig 0.16.0 tarball, each with a pinned sum, because the Zig of
-Arch does not stay at 0.16.0. This file, `Cargo.toml`, `ci.yml`, `release.yml` and
+commit and the official Zig 0.17.0 tarball, each with a pinned sum, because the Zig of
+Arch does not stay at 0.17.0. This file, `Cargo.toml`, `ci.yml`, `release.yml` and
 that PKGBUILD are the only places the triple is written.
 
 ## Isolation

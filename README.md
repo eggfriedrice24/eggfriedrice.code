@@ -45,7 +45,7 @@ systemctl --user enable --now efrd    # start the daemon now and at every login
 efr login openai                      # log in to your ChatGPT plan in a browser
 ```
 
-From a clone of this repository (it needs `just`, rustup and Zig 0.16.0):
+From a clone of this repository (it needs `just`, rustup and Zig 0.17.0):
 
 ```sh
 just install                          # efrd and efr to ~/.local/bin, efr-sbx to ~/.local/lib/efr, the user unit
@@ -117,7 +117,7 @@ All settings are in one optional file, `config.toml` in the config root (`~/.con
 
 ## Building
 
-Rust 1.99 is pinned in `rust-toolchain.toml`; rustup installs it. `cargo build` and `cargo test` work without Zig. Only the ghostty screen backend needs Zig 0.16.0, and only release builds enable it, `just install` among them. `just` lists the development recipes. `just test-shell` runs the tests that drive a real zsh, and `just test-shell-ubuntu` runs them as CI's shell job does, in an Ubuntu 24.04 container set up like GitHub's runner (it needs Docker). `just lint` also runs CI's `cargo hack` check of every feature combination without Zig.
+Rust 1.99 is pinned in `rust-toolchain.toml`; rustup installs it. `cargo build` and `cargo test` work without Zig. Only the ghostty screen backend needs Zig 0.17.0, and only release builds enable it, `just install` among them. `just` lists the development recipes. `just test-shell` runs the tests that drive a real zsh, and `just test-shell-ubuntu` runs them as CI's shell job does, in an Ubuntu 24.04 container set up like GitHub's runner (it needs Docker). `just lint` also runs CI's `cargo hack` check of every feature combination without Zig.
 
 ## Licence
 

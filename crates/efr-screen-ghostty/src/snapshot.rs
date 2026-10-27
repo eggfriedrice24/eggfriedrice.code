@@ -61,8 +61,13 @@ pub(crate) fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
 }
 
 /// The title the program set; libghostty-vt reports "no title" as an empty string.
+/// A title that is not UTF-8 shows as no title.
 pub(crate) fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
-    terminal.title().ok().filter(|title| !title.is_empty())
+    terminal
+        .title()
+        .ok()
+        .and_then(|title| str::from_utf8(title).ok())
+        .filter(|title| !title.is_empty())
 }
 
 /// The whole terminal as a GHOSTSNP record stream.

@@ -1,7 +1,7 @@
 # Release build for efr, triggered by pushing a tag v<version>.
 #
 # Builds efrd, efr and efr-sbx as `just build-release` does (the ghostty screen
-# backend with Zig 0.16.0), packs efr-code-<version>-x86_64-linux.tar.gz in
+# backend with Zig 0.17.0), packs efr-code-<version>-x86_64-linux.tar.gz in
 # the layout that packaging/efr-code-bin/PKGBUILD installs from, writes a .sha256 next
 # to it, and creates the GitHub release with the CHANGELOG.md section of the
 # version as its notes. The version is taken from the tag (leading v
@@ -40,12 +40,12 @@ jobs:
       # The toolchain of rust-toolchain.toml.
       - run: rustup toolchain install
 
-      # Zig 0.16.0 exactly: the pin triple in docs/ghostty-pin.md.
+      # Zig 0.17.0 exactly: the pin triple in docs/ghostty-pin.md.
       # NOTE: every release of setup-zig up to v2.2.1 still declares node20; GitHub
       # runs it on Node 24 and warns, as in ci.yml.
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - uses: taiki-e/install-action@v2
         with:

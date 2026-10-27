@@ -22,7 +22,7 @@ default = ["local-pty"]
 # Hidden shells on PTYs that this process opens (efr-pty). The PTY holder milestone
 # deletes it together with the efr-pty edge.
 local-pty = ["dep:efr-pty"]
-# The libghostty-vt screen backend; needs Zig 0.16.0 (docs/ghostty-pin.md).
+# The libghostty-vt screen backend; needs Zig 0.17.0 (docs/ghostty-pin.md).
 screen-ghostty = ["dep:efr-screen-ghostty"]
 # The test seams of the auto sandbox: `Deps` names the launcher to copy and can replace
 # the probe's result. Only efr-test-daemon turns it on; `just install` refuses a build
