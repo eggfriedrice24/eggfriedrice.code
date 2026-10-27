@@ -89,24 +89,32 @@ function covered(file: string): boolean {
   return file.endsWith(".tsx") || /^use-.*\.ts$/.test(name);
 }
 
+// The check compiles every component and hook of src/ in one test: about 2.5 s on a
+// desktop and 6 s on a CI runner, which is over the 5 s default of Vitest.
+const WHOLE_TREE_TIMEOUT_MS = 30_000;
+
 describe("the React Compiler", () => {
-  it("compiles every component and hook of src/, except the known bailouts", () => {
-    const failed: string[] = [];
-    const fixed: string[] = [];
-    const files = sourceFiles().filter((source) => covered(source.path));
-    expect(files.length).toBeGreaterThan(5);
-    for (const file of files) {
-      const reasons = bailouts(compile(file.path, file.text).events);
-      const known = KNOWN_BAILOUTS.includes(file.path);
-      if (reasons.length > 0 && !known) {
-        failed.push(`${file.path}: ${reasons.join("; ")}`);
+  it(
+    "compiles every component and hook of src/, except the known bailouts",
+    () => {
+      const failed: string[] = [];
+      const fixed: string[] = [];
+      const files = sourceFiles().filter((source) => covered(source.path));
+      expect(files.length).toBeGreaterThan(5);
+      for (const file of files) {
+        const reasons = bailouts(compile(file.path, file.text).events);
+        const known = KNOWN_BAILOUTS.includes(file.path);
+        if (reasons.length > 0 && !known) {
+          failed.push(`${file.path}: ${reasons.join("; ")}`);
+        }
+        if (reasons.length === 0 && known) {
+          fixed.push(`${file.path}: compiles now; remove it from KNOWN_BAILOUTS`);
+        }
       }
-      if (reasons.length === 0 && known) {
-        fixed.push(`${file.path}: compiles now; remove it from KNOWN_BAILOUTS`);
-      }
-    }
-    expect([...failed, ...fixed]).toEqual([]);
-  });
+      expect([...failed, ...fixed]).toEqual([]);
+    },
+    WHOLE_TREE_TIMEOUT_MS,
+  );
 
   it("sees a bailout, so the check above can fail", () => {
     const { code, events } = compile(
