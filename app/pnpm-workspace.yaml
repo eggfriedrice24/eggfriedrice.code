@@ -29,3 +29,11 @@ hoistPattern:
 # release of the package that has the fix.
 patchedDependencies:
   "@react-native-menu/menu@2.0.0": patches/@react-native-menu__menu@2.0.0.patch
+# eas-cli 25.3.0 reads app.config.ts through @expo/config 55, whose @expo/require-utils
+# 55.0.8 asks for TypeScript 5 as an optional peer. The app pins TypeScript 7.0.2. It is
+# safe: that package finds no transpileModule in TypeScript 7 and then strips the types
+# with its own transform, and eas-cli loaded app.config.ts so for the EAS builds of the
+# app. The rule covers only that one package and that one peer.
+peerDependencyRules:
+  allowedVersions:
+    "@expo/require-utils@55>typescript": "7"
