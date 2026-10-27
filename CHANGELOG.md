@@ -12,10 +12,20 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
-- A new `[remote]` table in `config.toml` for the coming efr phone app: `enabled`
-  (default `false`), `port` (default 7419) and `tailscaled_socket` (default
+- A preview of the efr phone app for iPhone, in `app/` of the repository. It pairs
+  with `efr device add`, shows your conversations live, sends prompts to them and
+  answers the questions of the agent. It connects to efrd directly over Tailscale,
+  with no relay. The phone keeps its device key in the Secure Enclave and proves it on
+  each connection. The app is not in the App Store: you build it with EAS, as
+  `app/README.md` tells, also for its dev, preview and production variants. It was
+  tested on Linux only and was not run on an iPhone yet. A new page of the docs, "The
+  phone app", tells how to set up Tailscale and the listener, pair a phone, revoke
+  it, and what a phone cannot do. The troubleshooting page has a new section for the
+  phone.
+- A new `[remote]` table in `config.toml` for the phone app: `enabled` (default
+  `false`), `port` (default 7419) and `tailscaled_socket` (default
   `/var/run/tailscale/tailscaled.sock`). Each key needs a restart of efrd.
-- With `[remote] enabled = true`, efrd listens for the efr phone app on the Tailscale
+- With `[remote] enabled = true`, efrd listens for the phone app on the Tailscale
   IPv4 address of this machine, and on no other address. It needs tailscaled 1.100 or
   later with a TUN device (not userspace networking). efrd asks tailscaled who each
   peer is before it reads a byte, and it lets in only a device of your own Tailscale
@@ -25,126 +35,100 @@ into the GitHub release notes, and it stops when the section is missing.
   A revoked device loses its connections at once. `daemon.json` shows the address as
   `tailnet_endpoint`. The settings tool marks `remote.enabled` and
   `remote.tailscaled_socket` as changes that loosen permissions.
-- `efr device add` pairs a phone with efrd for the coming efr phone app. It shows a QR
-  code in the terminal, below the command line. The code holds a one-time token that
-  is good for one phone and for 5 minutes. When the phone sends it, efr shows the
-  phone's name, its Tailscale node and user, and the fingerprint of its key, and asks
-  you. Only your yes pairs the phone. `--invert` swaps the dark and light parts of the
-  code for a terminal with a light background. `efr device add` needs `[remote]
-  enabled = true` and Tailscale.
+- `efr device add` pairs a phone with efrd. It shows a QR code in the terminal, below
+  the command line. The code holds a one-time token that is good for one phone and for
+  5 minutes. When the phone sends it, efr shows the phone's name, its Tailscale node
+  and user, and the fingerprint of its key, and asks you. Only your yes pairs the
+  phone. `--invert` swaps the dark and light parts of the code for a terminal with a
+  light background. `efr device add` needs `[remote] enabled = true` and Tailscale.
 - `efr device list` shows the paired devices, also the revoked ones, with when each one
   was paired and last seen. `efr device revoke <id>` takes a device's access away for
-  good; the id can be the start of an id, as the list shows it. `docs/use/phone.md`
-  has the details.
-- A preview of the efr phone app for iPhone, in `app/` of the repository. It pairs
-  with `efr device add`, shows your conversations live, sends prompts to them and
-  answers the questions of the agent. It connects to efrd directly over Tailscale,
-  with no relay. The phone keeps its device key in the Secure Enclave and proves it on
-  each connection. The app is not in the App Store: you build it with EAS, as
-  `app/README.md` tells. It was tested on Linux only and was not run on an iPhone yet.
-  `docs/use/phone.md` tells what a phone can and cannot do.
-- The phone app has a native bar on each screen. The title opens the conversations
-  sheet, the one place to switch conversations. The blank root has a menu of the paired machines. Settings and New are
-  on the right. A strip under the bar of a conversation and a dot on the title tell
-  you when another conversation waits for an answer, and the strip tells you when its
-  machine is offline. The stack keeps at most 8 conversations, and a conversation that
-  is in the stack opens where it is.
-- The phone app pairs in one full screen step after step: the command to run, the
+  good; the id can be the start of an id, as the list shows it.
+- A question of the agent now tells a client why the permission mode of the turn
+  asks, in one plain line, such as "cautious asks before any network access." The
+  phone app shows it below the command. The terminal shows the question as before.
+- efrd can send a client each change of its lists of conversations as it happens
+  (`conversations.watch`): the title, the status and the count of turns of each
+  conversation, and its delete. The phone app uses it, so a new question or the end of
+  a turn shows in its lists at once. With an older efrd, the app asks again every 10
+  seconds.
+- The phone app pairs in one full screen, step after step: the command to run, the
   scan, the name and the key to compare with the terminal, and the paired machine.
   Each error has its own screen and one action: an expired code, a code of another
   machine, Tailscale off, a no in the terminal, an efrd that is too old or too new, and
   the camera off. When Tailscale was off, the app tries again by itself when you come
-  back to it. You can pair one machine again from its own screen. When no machine is
-  paired, the app opens on the first step.
-- Settings in the phone app lists each paired machine with its connection and its
-  efrd version. The menu of a row copies the node name, pairs the machine again or
-  forgets it, and each item shows its glyph. Forget asks first. After the last machine, the app goes back to
-  pairing. Settings also has the Haptics switch and the version of the app.
-- The phone app opens on a blank conversation of the machine that you used last. It
-  shows the machine, `~` and the mode, and a prompt with a cursor. Your first message
-  there starts a new conversation on that machine, and the app opens it at once. The
-  menu at the left of the bar picks another machine. A conversation shows the reply
-  while it streams, the tool calls, the questions with Allow and Deny, and the end of
-  each turn. Retry sends the prompt of a failed turn again. When the machine goes
-  offline, the conversation keeps its transcript, and it gets the new events when the
-  machine is back. A tap on the strip of a waiting question opens that conversation at
-  the question. VoiceOver tells you when a question waits and when a reply is done. A
-  turn that fails while you look at it gives an error haptic.
+  back to it. When no machine is paired, the app opens on the first step.
 - The phone app pairs with more than one machine, and connects to all of them at the
   same time. Each machine has its own device key. Pair another one from Settings or
-  from the machine menu. A conversation on another machine opens with that machine.
+  from the machine menu. Settings lists each paired machine with its connection and
+  its efrd version. The menu of a row copies the node name, pairs the machine again
+  or forgets it. Forget asks first, and after the last machine the app goes back to
+  pairing. Settings also has the Haptics switch and the version of the app.
+- The phone app opens on a blank conversation of the machine that you used last. Its
+  composer shows `~` and the mode of a new conversation. Your first message there
+  starts a new conversation on that machine, and the app opens it at once. The menu
+  at the left of the bar picks another machine.
+- Each screen of the phone app has a native bar, with Settings and New on the right.
+  The title opens the conversations sheet, the one place to switch conversations. On
+  iOS 26 the bar is Liquid Glass, and the system softens the transcript only under
+  the bar. The stack keeps at most 8 conversations, and a conversation that is in the
+  stack opens where it is.
+- The conversations sheet of the phone app lists the conversations of every machine:
+  "New conversation" on top, then the ones that wait for an answer, today, this week
+  and older. Each row has a glyph of its status, and its machine and directory under
+  the title. Its search finds a conversation by title, machine or directory, and then
+  asks efrd. Touch and hold a row to copy its title or its id.
 - A conversation in the phone app shows your prompts, the replies as they stream, the
   reasoning, the tools that run, the edits with their diff, and a line at the end of
-  each turn. The answer starts 16 pt under your prompt, and a new turn 20 pt under
-  the turn before it. Tap a reasoning row or a tool block to open it. A failed turn shows its
-  reason, with "retry" and "copy error". Touch and hold a message to copy it, and a
-  code block has its own copy button. The app asks before it opens a link, and then
-  opens it in the app. An image in a reply shows as a link, and HTML shows as text, so
-  a reply cannot make the phone load a URL. "Jump to latest" takes you back to the end.
-  A tap on a tool block or on "show all N lines" shows the whole output, also where
-  the block has a copy menu. The list follows new content only while you are near the
-  end, and it does not move when you open or close a block. A short conversation
-  stays in place at the bottom and does not scroll.
-  At the top of a long conversation, the app gets the older turns from efrd and keeps
-  them on the phone.
+  each turn. Tap a reasoning row or a tool block to open it, or "show all N lines" to
+  see the whole output. A failed turn shows its reason, with "retry" and "copy error".
+  Touch and hold a message to copy it, and a code block has its own copy button. The app
+  asks before it opens a link, and then opens it in the app. An image in a reply shows
+  as a link, and HTML shows as text, so a reply cannot make the phone load a URL. The
+  list follows new content only while you are near the end, and it does not move when
+  you open or close a block. A short conversation stays at the bottom. When you are more
+  than one screen from the end, "Jump to latest" takes you back. At the top of a long
+  conversation, the app gets the older turns from efrd and keeps them on the phone. When
+  the machine goes offline, the conversation keeps its transcript and gets the new
+  events when the machine is back. VoiceOver tells you when a question waits and when a
+  reply is done, and a turn that fails while you look at it gives an error haptic.
 - The composer of the phone app is a glass pill that floats over the end of the
-  transcript, with the status line at its top. The blank root has the same composer,
-  and its status line shows `~` and the mode of a new conversation. It sends a prompt,
-  also a follow-up in a conversation that you open from the sheet or the back history,
-  and stops the running turn. While a
-  turn runs, "Steer now" adds your text to the turn, and "Queue" sends it when the turn
-  ends; touch and hold the capsule to pick one. A queued prompt can be withdrawn. A
-  prompt shows at once, and the app sends it again after a lost connection or after
-  iOS closed the app; efrd runs it only once. The app keeps the draft of each
-  conversation.
+  transcript, with a status line at its top. It sends a prompt and stops the running
+  turn. While a turn runs, "Steer now" adds your text to the turn, and "Queue" sends
+  it when the turn ends; touch and hold the capsule to pick one. A queued prompt can be
+  withdrawn. A prompt shows at once, and the app sends it again after a lost
+  connection or after iOS closed the app; efrd runs it only once. The app keeps the
+  draft of each conversation.
 - A question of the agent in the phone app shows the command or the diff of the file,
-  the directory and why the mode asks, with Allow and Deny. A question that only the
-  terminal can answer tells why, and has no buttons. A question shows how long it can
-  wait, and "expired while you were away" when its time ran out while the app was
-  closed.
-- The All conversations sheet of the phone app lists the conversations of every
-  machine: "New conversation" on top, then the ones that wait for an answer, today,
-  this week and older. Each row has a glyph of its status, and its machine and
-  directory under the title. Its
-  search finds a conversation by title, machine or directory, and then asks efrd.
-  Touch and hold a row to copy its title or its id.
+  the directory and why the mode asks, with Allow and Deny. A question that only your
+  computer can answer says "Answer on" and the name of the machine, with no buttons.
+  A question shows how long it can wait, and "expired while you were away" when its
+  time ran out while the app was closed. When another conversation waits for an
+  answer, a strip under the bar and a dot on the title tell you. A tap on the strip
+  opens that conversation at the question; when two or more wait, it opens the sheet
+  with them on top.
 - The phone app connects again at once when the phone changes its network, such as
   from Wi-Fi to cellular. A glass capsule under the bar tells you when a machine is
   offline or when Tailscale on the phone is off.
-- On iOS 26 the bar of the phone app is Liquid Glass with no fill of its own, and
-  the system softens the transcript only under the bar. No blur covers the older
-  turns. The title of a conversation has the size of a native bar title.
-- The phone app has a new icon, "the yolk": an egg with a yolk, and a ❯ in the yolk.
-- A new page of the docs, "The phone app", tells how to set up Tailscale and the
-  listener, pair a phone, revoke it, and what the phone cannot do. The troubleshooting
-  page has a new section for the phone.
-- A question of the agent now tells a client why the permission mode of the turn
-  asks, in one plain line, such as "cautious asks before any network access." The
-  phone app can show it below the command. The terminal shows the question as before.
-- efrd sends a client the changes of its lists of conversations as they happen: the
-  title, the status and the count of turns of each one, and its delete. The phone app
-  uses this, so its lists, the strip and the dot show a new question or the end of a
-  turn at once. With an older efrd, the app asks again every 10 seconds, as before.
+- The phone app has its own icon, "the yolk": an egg with a yolk, and a ❯ in the yolk.
 - A dev or preview build of the phone app has a gallery of every screen and state of
   its design. A long press on the version in Settings opens it. Three demo machines
   (desktop, laptop and homelab) play efrd inside the app and reach no computer, so you
-  can see each screen without a paired machine. The gallery also has a bench of the
-  frame decoder and a counter of the renders of a conversation that streams.
+  can see each screen without a paired machine.
 
 ### Changed
 
 - A client that follows a turn live on a slow link no longer loses parts of the
-  streamed text. When efrd cannot send each draft at once, it joins the drafts and
-  sends them together as soon as the client reads again. The text then grows in
-  larger steps, with no gaps.
-- A client that subscribes to a conversation while a turn runs now gets the text
-  that the model has sent so far, and the reasoning of the turn, in the first
-  answer. So the phone app shows a running reply at once.
+  streamed text. When efrd cannot send each part at once, it joins the parts and sends
+  them together as soon as the client reads again. The text then grows in larger
+  steps, with no gaps.
+- A client that opens a conversation while a turn runs now gets the text that the
+  model has sent so far, and the reasoning of the turn, at once. So the phone app shows
+  a running reply at once.
 - A question that only your own computer may answer (a command that runs as another
   user, a background job, or a delete that full mode guards) now says so to every
-  client. The phone app then shows "Answer on your computer" in place of the
-  buttons. efrd also refuses an input for a running command, such as a password,
-  from a phone.
+  client. efrd refuses an answer to it from a phone, and it also refuses from a phone
+  an input for a running command, such as a password.
 
 ## [0.0.5] - 2026-10-25
 

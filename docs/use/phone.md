@@ -1,4 +1,4 @@
-<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/features (the screens and their texts); app/src/features/machines (the connection of each machine); app/src/features/conversation/model/outbox.ts (the outbox of the prompts); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
+<!-- sources: docs/config.md [remote]; docs/protocol.md "Remote devices"; docs/permissions.md (the phone rules); crates/efr-config/src/tables/remote.rs; crates/efr-cli/src/cli.rs (DeviceCommand, DeviceAddArgs); crates/efr-cli/src/commands/device.rs; crates/efr-cli/src/error.rs (the device errors and hints); crates/efr-daemon/src/pairing.rs; crates/efr-daemon/src/remote/listener.rs, tailnet.rs, admission.rs, prove.rs, live.rs; crates/efr-daemon/src/error.rs (RemoteOff, NotListening); crates/efr-transport/README.md "ws"; app/src/features (the screens and their texts); app/src/features/machines (the connection of each machine); app/src/features/conversation/model/outbox.ts (the outbox of the prompts); app/src/features/conversations/conversations-queries.ts (the watch and the poll of the lists); app/modules/efr-device-key/README.md; docs/adr/0022-remote-listener-and-device-keys.md -->
 
 # The phone app
 
@@ -10,7 +10,8 @@ Tailscale network. There is no relay and no server of a third party.
 > `app/` directory of the efr repository, with an Apple Developer account and EAS
 > Build. The
 > [README of the app](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/app/README.md)
-> tells how, and what works in the app now. The parts of efrd work: the listener, the
+> tells how, with the steps of EAS and the dev, preview and production variants of the
+> app, and what works in the app now. The parts of efrd work: the listener, the
 > pairing, the device keys and the revoke. The app was tested on Linux only. Nobody
 > built it for an iPhone and ran it there yet, so the first build can show problems.
 
@@ -167,7 +168,8 @@ After the pairing, the app connects on its own.
 ### The blank root
 
 The app opens on a blank conversation on the machine that you used last. The title in
-the bar is the name of the machine. Type a prompt and tap Send: efrd starts a new
+the bar is the name of the machine. The status line of the composer shows `~` and the
+mode of the new conversation. Type a prompt and tap Send: efrd starts a new
 conversation on that machine, and the app opens it. The blank root stays under it.
 
 The menu at the left of the bar changes the machine of the blank root. It shows each
@@ -196,14 +198,21 @@ streams in.
 - Tap a reasoning row or a tool block to open it.
 - Touch and hold a message to copy its text. A code block has its own copy button.
 - The app asks before it opens a link. A web page then opens in the app. An image in
-  a reply shows as a link, so the app loads nothing that you did not tap.
-- When you scroll up, "Jump to latest" takes you back to the end.
+  a reply shows as a link, and HTML shows as text, so the app loads nothing that you
+  did not tap.
+- Near the end, the list follows the new text. When you are more than one screen from
+  the end, "Jump to latest" shows above the composer. Tap it to go back to the end.
 - At the top, the app gets the older turns from efrd. It keeps them on the phone, so
   they are there when you open the app again.
 - A failed turn shows the reason, with "retry" and "copy error". Retry sends the prompt
   of the turn again.
 
 ### Send a prompt
+
+The composer floats over the end of the transcript. Its status line shows the
+directory and the mode of the conversation and how full the context of the model is,
+such as `ctx 42%`. It shows "waiting for you" while a question of this conversation
+waits, and "reconnecting" while the app connects again.
 
 When no turn runs, Send sends your prompt. While a turn runs:
 
@@ -232,7 +241,10 @@ A question shows how long it can wait. When nobody answers in time, it shows
 
 When another conversation waits for an answer, a strip under the bar tells you. Tap it
 to open that conversation at the question. When two or more wait, the strip opens the
-sheet with them on top. A yolk dot on the title of the bar tells you too.
+sheet with them on top. A yolk dot on the title of the bar tells you too. efrd sends
+each change of its list of conversations to the app, so the strip and the dot show a
+new question at once. With an older efrd, the app asks every 10 seconds, so they can
+come up to 10 seconds late.
 
 ### When a machine is offline
 
