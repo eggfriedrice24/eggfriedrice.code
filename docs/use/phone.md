@@ -11,9 +11,9 @@ Tailscale network. There is no relay and no server of a third party.
 > Build. The
 > [README of the app](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/app/README.md)
 > tells how, with the steps of EAS and the dev, preview and production variants of the
-> app, and what works in the app now. The parts of efrd work: the listener, the
-> pairing, the device keys and the revoke. The app was tested on Linux only. Nobody
-> built it for an iPhone and ran it there yet, so the first build can show problems.
+> app, and what works in the app now. The app ran as a dev build on an iPhone with iOS 26:
+> the pairing, the chat, the approvals, steer and queue, and the conversations sheet
+> work.
 
 ## What you need
 
@@ -159,9 +159,6 @@ pick "Pair a new machine" in the machine menu of the blank root. Then run
 own device key.
 
 ## Use the app
-
-> The app was not run on an iPhone yet. These are the features of its code; the first
-> EAS build must show that they work on a phone.
 
 After the pairing, the app connects on its own.
 

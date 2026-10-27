@@ -17,8 +17,8 @@ into the GitHub release notes, and it stops when the section is missing.
   answers the questions of the agent. It connects to efrd directly over Tailscale,
   with no relay. The phone keeps its device key in the Secure Enclave and proves it on
   each connection. The app is not in the App Store: you build it with EAS, as
-  `app/README.md` tells, also for its dev, preview and production variants. It was
-  tested on Linux only and was not run on an iPhone yet. A new page of the docs, "The
+  `app/README.md` tells, also for its dev, preview and production variants. It ran as a
+  dev build on an iPhone with iOS 26. A new page of the docs, "The
   phone app", tells how to set up Tailscale and the listener, pair a phone, revoke
   it, and what a phone cannot do. The troubleshooting page has a new section for the
   phone.

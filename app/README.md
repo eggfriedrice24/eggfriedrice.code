@@ -10,7 +10,8 @@ The rules for coding agents are in `AGENTS.md` in this directory.
 
 ## Status
 
-The app is a preview. It is not in the App Store. Nobody ran it on an iPhone yet.
+The app is a preview. It is not in the App Store. It ran as a dev build on an iPhone
+with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet work.
 
 - The screens follow the design canvas of the app: a blank conversation as the root,
   the conversation with its transcript, composer and approval block, the All
