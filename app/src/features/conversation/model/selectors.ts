@@ -32,6 +32,7 @@ import {
 import type { TextBuffer } from "@/lib/stream/text-buffer";
 import { createRowBuilder, type Row, sameRows } from "./rows";
 import { turnStatus } from "./status";
+import type { ToolApproval } from "./tool-block";
 
 /** The structure selector of one stream store, with its own memo of rows. */
 export function createRowsSelector(): (state: StreamState) => readonly Row[] {
@@ -79,6 +80,19 @@ export function selectApproval(
   callId: string,
 ): (state: StreamState) => ApprovalView | undefined {
   return (state) => state.turns.get(turnId)?.approvals.get(callId);
+}
+
+/** The approval question of a tool call, as its tool block needs it. Compare with `shallow`. */
+export function selectToolApproval(
+  turnId: string,
+  callId: string,
+): (state: StreamState) => ToolApproval | undefined {
+  return (state) => {
+    const approval = state.turns.get(turnId)?.approvals.get(callId);
+    return approval === undefined
+      ? undefined
+      : { pending: approval.status === "pending", closedAt: approval.closedAt };
+  };
 }
 
 /** One steer of a turn. */

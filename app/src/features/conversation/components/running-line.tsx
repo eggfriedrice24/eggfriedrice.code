@@ -5,6 +5,10 @@
 // Above it sit the writing blocks: a tool input that the model still writes ("writing
 // patch" and the size that grows, design 3.7). The tool block takes its place when the
 // call starts.
+//
+// While an approval of the turn waits, nothing runs (design R4 item 5): the line goes
+// away, the waiting tool block says why, and the composer's status line says "waiting
+// for you".
 
 import { useSelector } from "@tanstack/react-store";
 import { Text, View } from "react-native";
@@ -46,12 +50,23 @@ interface StatusRowView {
   readonly inputs: ReadonlyMap<number, ToolInputView> | undefined;
   readonly startedAt: number | undefined;
   readonly compacting: boolean;
+  /** An approval of the turn waits for an answer. */
+  readonly waiting: boolean;
 }
 
 function selectStatusRow(turnId: string): (state: StreamState) => StatusRowView {
   return (state) => {
     const turn = state.turns.get(turnId);
-    return { inputs: turn?.toolInputs, startedAt: turn?.startedAt, compacting: state.compacting };
+    let waiting = false;
+    for (const approval of turn?.approvals.values() ?? []) {
+      waiting ||= approval.status === "pending";
+    }
+    return {
+      inputs: turn?.toolInputs,
+      startedAt: turn?.startedAt,
+      compacting: state.compacting,
+      waiting,
+    };
   };
 }
 
@@ -66,12 +81,17 @@ export function RunningRow(props: RunningRowProps) {
     compare: compareShallow,
   });
   const inputs = [...(row.inputs?.entries() ?? [])];
+  if (row.waiting && inputs.length === 0) {
+    return null;
+  }
   return (
     <View className="gap-item">
       {inputs.map(([position, input]) => (
         <WritingBlockView key={position} input={input} />
       ))}
-      <RunningLineView startedAt={row.startedAt} compacting={row.compacting} />
+      {row.waiting ? null : (
+        <RunningLineView startedAt={row.startedAt} compacting={row.compacting} />
+      )}
     </View>
   );
 }

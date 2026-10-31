@@ -169,6 +169,7 @@ function ConversationView(props: ConversationViewProps) {
         machineName={machineName}
         connected={connected}
         caller={runtime}
+        linked
       />
     ),
   };

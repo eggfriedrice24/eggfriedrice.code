@@ -49,6 +49,11 @@ export interface ApprovalBlockProps {
   readonly caller: MachineCaller;
   /** The clock of the countdown. The default is the real one. */
   readonly clock?: Clock;
+  /**
+   * The tool block of the call is right above, joined by a line: the open block does
+   * not repeat the command (design R4 item 5). The sheet and the strip still show it.
+   */
+  readonly linked?: boolean;
 }
 
 /** The block of the approval `callId` of turn `turnId`. */
@@ -75,19 +80,23 @@ export function ApprovalBlock(props: ApprovalBlockProps) {
     expiry,
     answer: answering.state,
   });
-  return <ApprovalBlockView model={model} onAnswer={answering.answer} />;
+  return (
+    <ApprovalBlockView model={model} onAnswer={answering.answer} linked={props.linked === true} />
+  );
 }
 
 export interface ApprovalBlockViewProps {
   readonly model: ApprovalBlockModel;
   readonly onAnswer: (decision: PhoneDecision) => void;
+  /** The tool block above shows the command: the open block leaves it out. */
+  readonly linked?: boolean;
 }
 
 /** The block of a model. */
 export function ApprovalBlockView(props: ApprovalBlockViewProps) {
   const model = props.model;
   return model.kind === "open" ? (
-    <OpenBlock model={model} onAnswer={props.onAnswer} />
+    <OpenBlock model={model} onAnswer={props.onAnswer} linked={props.linked === true} />
   ) : (
     <ClosedBlock model={model} />
   );
@@ -96,6 +105,7 @@ export function ApprovalBlockView(props: ApprovalBlockViewProps) {
 interface OpenBlockProps {
   readonly model: OpenApproval;
   readonly onAnswer: (decision: PhoneDecision) => void;
+  readonly linked: boolean;
 }
 
 function OpenBlock(props: OpenBlockProps) {
@@ -115,8 +125,10 @@ function OpenBlock(props: OpenBlockProps) {
         </MonoText>
         {model.expiry === undefined ? null : <MonoText>{model.expiry}</MonoText>}
       </View>
-      <SubjectText subject={model.subject} />
-      {model.cwd === undefined ? null : <MonoText className="mt-2">in {model.cwd}</MonoText>}
+      {props.linked ? null : <SubjectText subject={model.subject} />}
+      {props.linked || model.cwd === undefined ? null : (
+        <MonoText className="mt-2">in {model.cwd}</MonoText>
+      )}
       {model.details.map((detail) => (
         <MonoText key={detail} className="mt-2">
           {detail}

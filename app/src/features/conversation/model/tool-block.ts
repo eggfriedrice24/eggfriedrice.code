@@ -10,6 +10,7 @@
 // - Collapsed, the block shows the last 3 lines of the output; expanded, the whole
 //   output, at most 200 lines. Each line has a key from its byte offset in the whole
 //   output, so a line keeps its view (and fades in only once) while the output grows.
+// - While the call's approval waits, the status is "waiting for approval", with no time.
 // - The word "error" in an output line is red (design: stderr "error" words).
 
 import type { ToolCallView, ToolInputView } from "@/lib/stream/reducer";
@@ -53,16 +54,39 @@ export function toolHeader(call: Pick<ToolCallView, "tool" | "summary">): ToolHe
 
 /** The status of a tool block: what runs, or how it ended. */
 export type ToolStatus =
+  | { readonly kind: "waiting" }
   | { readonly kind: "running"; readonly elapsed: string | undefined }
   | { readonly kind: "done"; readonly detail: string }
   | { readonly kind: "failed"; readonly detail: string };
 
-/** The status of `call` at `now`. `turnEnded` is true when its turn has ended. */
-export function toolStatus(call: ToolCallView, turnEnded: boolean, now: number): ToolStatus {
+/** The approval question of a call, as its tool block needs it. */
+export interface ToolApproval {
+  /** The question still waits for an answer. */
+  readonly pending: boolean;
+  /** When it was answered, in ms since the epoch. */
+  readonly closedAt: number | undefined;
+}
+
+/**
+ * The status of `call` at `now`. `turnEnded` is true when its turn has ended.
+ *
+ * While its approval waits, the call is paused: it shows no timer (design R4 item 5).
+ * After an answer, the time counts from the answer, not from the start of the call.
+ */
+export function toolStatus(
+  call: ToolCallView,
+  turnEnded: boolean,
+  now: number,
+  approval?: ToolApproval,
+): ToolStatus {
   if (!call.done && !turnEnded) {
-    return { kind: "running", elapsed: elapsed(call.startedAt, now) };
+    if (approval?.pending === true) {
+      return { kind: "waiting" };
+    }
+    return { kind: "running", elapsed: elapsed(approval?.closedAt ?? call.startedAt, now) };
   }
-  const time = between(call.startedAt, call.endedAt);
+  // NOTE: after an approval the time counts from the answer, as the loader did.
+  const time = between(approval?.closedAt ?? call.startedAt, call.endedAt);
   const parts: string[] = [];
   if (call.exitCode !== undefined) {
     parts.push(String(call.exitCode));
@@ -206,6 +230,8 @@ export function toolLabel(header: ToolHeader, status: ToolStatus): string {
   const what =
     header.verb === "$" ? `Command ${header.subject}` : `${header.verb} ${header.subject}`;
   switch (status.kind) {
+    case "waiting":
+      return `${what.trim()}, waiting for approval`;
     case "running":
       return `${what.trim()}, running${status.elapsed === undefined ? "" : `, ${status.elapsed}`}`;
     case "done":

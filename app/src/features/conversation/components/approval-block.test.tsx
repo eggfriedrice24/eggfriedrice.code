@@ -98,6 +98,16 @@ describe("the approval block while it waits", () => {
     expect(onAnswer.mock.calls).toEqual([["allow"], ["deny"]]);
   });
 
+  it("leaves out the command and the cwd under its linked tool block", async () => {
+    await render(
+      <ApprovalBlockView model={approvalBlock(PUSH, CONTEXT)} onAnswer={jest.fn()} linked />,
+    );
+    expect(screen.getByText("needs approval")).toBeOnTheScreen();
+    expect(screen.queryByText("$ git push -u origin fix/steer-race")).toBeNull();
+    expect(screen.queryByText("in ~/code/efr")).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeOnTheScreen();
+  });
+
   it("draws no reason line without a reason", async () => {
     await show(PUSH);
     expect(screen.queryByText(/asks before/)).toBeNull();

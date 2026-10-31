@@ -31,6 +31,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- In the phone app, a tap anywhere on the composer focuses the text field. Before,
+  only a tap on the field itself did.
+- In the phone app, a tool call that waits for your approval says "waiting for
+  approval" with no timer, and a line joins it to the approval under it. The approval
+  no longer repeats the command. The running line hides while an approval waits, and
+  the time of the call counts from your answer.
 - efrd reads the output of your shell with the terminal core of Ghostty 1.4 (a commit
   from six days before the 1.4.0 release). It follows xterm more closely, parses
   output faster and keeps the fixes of the 1.4 cycle. A build from source now needs

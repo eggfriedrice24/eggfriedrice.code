@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { act, render, screen } from "@testing-library/react-native";
 
-import { draftItem, eventItem, promptQueued, run, turnStarted } from "@/lib/stream/testing";
+import {
+  approvalRequested,
+  approvalResolved,
+  draftItem,
+  eventItem,
+  promptQueued,
+  run,
+  toolCallStarted,
+  turnStarted,
+} from "@/lib/stream/testing";
 
 import { LoadingLine } from "./loading-line";
 import { RunningLineView, RunningRow } from "./running-line";
@@ -58,6 +67,32 @@ describe("the running line", () => {
     );
     expect(screen.getByLabelText("writing patch, 2.3 KB")).toBeOnTheScreen();
     expect(screen.getAllByTestId("braille-cell", HIDDEN)).toHaveLength(2);
+  });
+
+  it("goes away while an approval of the turn waits, and comes back after the answer", async () => {
+    const asked = [
+      eventItem(1, promptQueued(TURN, "Go.")),
+      eventItem(2, turnStarted(TURN)),
+      eventItem(3, toolCallStarted(TURN, "call-1", "shell", { command: "git push" })),
+      eventItem(4, approvalRequested(TURN, "call-1")),
+    ];
+    const waiting = testScope(run(asked)).scope;
+    const view = await render(
+      <InScope scope={waiting}>
+        <RunningRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(screen.queryByText("running")).toBeNull();
+    await view.unmount();
+    const answered = testScope(
+      run([...asked, eventItem(5, approvalResolved(TURN, "call-1", "allow"))]),
+    ).scope;
+    await render(
+      <InScope scope={answered}>
+        <RunningRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(screen.getByText("running")).toBeOnTheScreen();
   });
 });
 

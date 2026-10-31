@@ -5,7 +5,7 @@ import { useSelector } from "@tanstack/react-store";
 
 import type { StreamState } from "@/lib/stream/reducer";
 import { rowFlag } from "../model/row-ui-state";
-import { selectTool } from "../model/selectors";
+import { compareShallow, selectTool, selectToolApproval } from "../model/selectors";
 import { EditBlockView } from "./edit-block";
 import { ToolBlockView } from "./tool-block";
 import { useTranscriptScope } from "./use-transcript-scope";
@@ -25,6 +25,9 @@ export function ToolRow(props: ToolRowProps) {
   const scope = useTranscriptScope();
   const call = useSelector(scope.store, selectTool(props.turnId, props.callId));
   const turnEnded = useSelector(scope.store, selectTurnEnded(props.turnId));
+  const approval = useSelector(scope.store, selectToolApproval(props.turnId, props.callId), {
+    compare: compareShallow,
+  });
   const expanded = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "expanded"));
   const allHunks = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "all_hunks"));
   if (call === undefined) {
@@ -44,5 +47,13 @@ export function ToolRow(props: ToolRowProps) {
       />
     );
   }
-  return <ToolBlockView call={call} turnEnded={turnEnded} expanded={expanded} onToggle={toggle} />;
+  return (
+    <ToolBlockView
+      call={call}
+      turnEnded={turnEnded}
+      approval={approval}
+      expanded={expanded}
+      onToggle={toggle}
+    />
+  );
 }

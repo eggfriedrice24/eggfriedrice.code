@@ -10,6 +10,10 @@
 //   recycles row views.
 // - New output lines fade in at the bottom; with Reduce Motion they appear at once.
 // - A long press opens Copy command and Copy output.
+// - While the call's approval waits (design R4 item 5): a still yolk dot and "waiting for
+//   approval" where the loader and the time go, the border_accent outline, and a 12 pt
+//   border_accent line down to the approval block under it. After an answer the
+//   outline and the line go, and the time counts from the answer.
 // - The writing block shows a tool input that the model still writes: "writing patch",
 //   the braille cell and the size that grows.
 
@@ -17,6 +21,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { cn } from "@/components/ui/cn";
+import { Dot } from "@/components/ui/dot";
 import { Hairline } from "@/components/ui/hairline";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
@@ -30,6 +35,7 @@ import {
   toolHeader,
   toolLabel,
   toolOutput,
+  type ToolApproval,
   type ToolStatus,
   toolStatus,
   writingBlock,
@@ -41,6 +47,8 @@ export interface ToolBlockViewProps {
   readonly call: ToolCallView;
   /** True when the turn of the call has ended: a call still open then failed. */
   readonly turnEnded: boolean;
+  /** The approval question of the call, if efrd asked one. */
+  readonly approval?: ToolApproval | undefined;
   readonly expanded: boolean;
   readonly onToggle: () => void;
 }
@@ -48,10 +56,12 @@ export interface ToolBlockViewProps {
 /** A tool block. */
 export function ToolBlockView(props: ToolBlockViewProps) {
   const { call, expanded } = props;
-  const running = !call.done && !props.turnEnded;
+  const status0 = toolStatus(call, props.turnEnded, 0, props.approval);
+  const running = status0.kind === "running";
+  const waiting = status0.kind === "waiting";
   const now = useNow(running);
   const header = toolHeader(call);
-  const status = toolStatus(call, props.turnEnded, now);
+  const status = toolStatus(call, props.turnEnded, now, props.approval);
   const output = toolOutput(call, expanded);
   const more = moreLabel(output, expanded);
   const outputText = call.output ?? call.tail;
@@ -71,62 +81,78 @@ export function ToolBlockView(props: ToolBlockViewProps) {
   };
   return (
     <MenuView entries={entries} onAction={copy} openOnLongPress testID="tool-menu">
-      <View className="overflow-hidden rounded-box border border-border-subtle">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={toolLabel(header, status)}
-          accessibilityState={{ expanded }}
-          accessibilityHint={expanded ? "Shows less output." : "Shows all the output."}
-          onPress={props.onToggle}
+      <View>
+        <View
+          testID="tool-block"
           className={cn(
-            "flex-row gap-8 px-12",
-            header.wraps ? "items-start py-9" : "min-h-34 items-center",
+            "overflow-hidden rounded-box border",
+            waiting ? "border-border-accent" : "border-border-subtle",
           )}
         >
-          <Text className="text-mono-xs text-text-subtle">{header.verb}</Text>
-          {header.wraps ? (
-            <Text className="flex-1 text-mono-xs text-text-bright">{header.subject}</Text>
-          ) : (
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="middle"
-              className="flex-1 text-mono-xs text-text-bright"
-            >
-              {header.subject}
-            </Text>
-          )}
-          <StatusMark status={status} />
-        </Pressable>
-        {output.lines.length > 0 ? (
-          <>
-            <Hairline />
-            {/* A tap on the output toggles too; VoiceOver reads its lines one by one. */}
-            <Pressable accessible={false} onPress={props.onToggle} className="px-12 pt-7 pb-8">
-              {/* Only new lines of a running call fade in: a block that the list
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={toolLabel(header, status)}
+            accessibilityState={{ expanded }}
+            accessibilityHint={expanded ? "Shows less output." : "Shows all the output."}
+            onPress={props.onToggle}
+            className={cn(
+              "flex-row gap-8 px-12",
+              header.wraps ? "items-start py-9" : "min-h-34 items-center",
+            )}
+          >
+            <Text className="text-mono-xs text-text-subtle">{header.verb}</Text>
+            {header.wraps ? (
+              <Text className="flex-1 text-mono-xs text-text-bright">{header.subject}</Text>
+            ) : (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="middle"
+                className="flex-1 text-mono-xs text-text-bright"
+              >
+                {header.subject}
+              </Text>
+            )}
+            <StatusMark status={status} />
+          </Pressable>
+          {output.lines.length > 0 ? (
+            <>
+              <Hairline />
+              {/* A tap on the output toggles too; VoiceOver reads its lines one by one. */}
+              <Pressable accessible={false} onPress={props.onToggle} className="px-12 pt-7 pb-8">
+                {/* Only new lines of a running call fade in: a block that the list
                   recycles or that the user opens shows its lines at once. */}
-              {output.lines.map((line) =>
-                running ? (
-                  <FadeIn key={line.key}>
-                    <OutputText line={line} wraps={expanded} />
-                  </FadeIn>
-                ) : (
-                  <OutputText key={line.key} line={line} wraps={expanded} />
-                ),
-              )}
-              {output.capped ? (
-                <Text className="text-mono-xs text-text-subtle">
-                  {`showing the last 200 of ${String(output.total)} lines`}
-                </Text>
-              ) : null}
-            </Pressable>
-          </>
+                {output.lines.map((line) =>
+                  running ? (
+                    <FadeIn key={line.key}>
+                      <OutputText line={line} wraps={expanded} />
+                    </FadeIn>
+                  ) : (
+                    <OutputText key={line.key} line={line} wraps={expanded} />
+                  ),
+                )}
+                {output.capped ? (
+                  <Text className="text-mono-xs text-text-subtle">
+                    {`showing the last 200 of ${String(output.total)} lines`}
+                  </Text>
+                ) : null}
+              </Pressable>
+            </>
+          ) : null}
+          {more === undefined ? null : (
+            <>
+              <Hairline />
+              <PlainButton label={more} height="row" wide onPress={props.onToggle} />
+            </>
+          )}
+        </View>
+        {waiting ? (
+          // The row gap of the transcript is 12 pt: the line fills it down to the block.
+          <View
+            testID="approval-link"
+            pointerEvents="none"
+            className="absolute -bottom-12 left-15 h-12 w-px bg-border-accent"
+          />
         ) : null}
-        {more === undefined ? null : (
-          <>
-            <Hairline />
-            <PlainButton label={more} height="row" wide onPress={props.onToggle} />
-          </>
-        )}
       </View>
     </MenuView>
   );
@@ -162,6 +188,14 @@ function OutputText(props: { readonly line: OutputLine; readonly wraps: boolean 
 /** The glyph and the number of a status. */
 export function StatusMark(props: { readonly status: ToolStatus }) {
   const status = props.status;
+  if (status.kind === "waiting") {
+    return (
+      <View className="flex-row items-center gap-6">
+        <Dot size="large" />
+        <Text className="text-mono-xs text-accent-primary">waiting for approval</Text>
+      </View>
+    );
+  }
   if (status.kind === "running") {
     return (
       <View className="flex-row items-center gap-6">

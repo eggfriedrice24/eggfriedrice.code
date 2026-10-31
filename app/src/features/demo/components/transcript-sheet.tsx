@@ -43,7 +43,7 @@ function approvalRow(state: StreamState, row: ApprovalRowRef) {
     expiry: undefined,
     answer: NO_ANSWER,
   });
-  return <ApprovalBlockView model={model} onAnswer={() => undefined} />;
+  return <ApprovalBlockView model={model} onAnswer={() => undefined} linked />;
 }
 
 /** The scope of a sheet of `kind`; with `expanded`, every tool block shows in full. */

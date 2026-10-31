@@ -66,6 +66,23 @@ describe("toolStatus", () => {
     expect(toolStatus(call(), false, 13_500)).toEqual({ kind: "running", elapsed: "12s" });
   });
 
+  it("waits with no time while its approval waits, then counts from the answer", () => {
+    expect(toolStatus(call(), false, 60_000, { pending: true, closedAt: undefined })).toEqual({
+      kind: "waiting",
+    });
+    const answered = { pending: false, closedAt: 50_000 };
+    expect(toolStatus(call(), false, 51_000, answered)).toEqual({
+      kind: "running",
+      elapsed: undefined,
+    });
+    expect(toolStatus(call(), false, 62_500, answered)).toEqual({
+      kind: "running",
+      elapsed: "12s",
+    });
+    const done = call({ done: true, exitCode: 0, endedAt: 53_000 });
+    expect(toolStatus(done, false, 0, answered)).toEqual({ kind: "done", detail: "0 · 3s" });
+  });
+
   it("gives the exit code and the time when done", () => {
     const done = call({ done: true, exitCode: 0, endedAt: 39_000 });
     expect(toolStatus(done, false, 0)).toEqual({ kind: "done", detail: "0 · 38s" });
