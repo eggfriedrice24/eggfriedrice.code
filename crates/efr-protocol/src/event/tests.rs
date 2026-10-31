@@ -178,6 +178,7 @@ fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
         mode: Mode::Cautious,
         model: "gpt-5.5".to_owned(),
         effort: Some("medium".to_owned()),
+        provider: None,
         overridden: OverriddenSettings { effort: true, ..OverriddenSettings::default() },
         fallback: None,
     };

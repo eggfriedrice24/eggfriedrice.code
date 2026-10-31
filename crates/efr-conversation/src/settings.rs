@@ -113,6 +113,7 @@ pub(crate) fn resolve(
         mode,
         model,
         effort,
+        provider: None,
         overridden: OverriddenSettings {
             mode: asked.mode.is_some(),
             model: asked.model.is_some(),

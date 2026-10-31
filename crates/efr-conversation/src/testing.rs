@@ -1167,6 +1167,8 @@ pub(crate) fn default_settings() -> Option<EffectiveSettings> {
         mode: Mode::Cautious,
         model: MODEL.to_owned(),
         effort: None,
+        // NOTE: the id of the harness's ReplayProvider.
+        provider: Some("replay".to_owned()),
         overridden: OverriddenSettings::default(),
         fallback: None,
     })

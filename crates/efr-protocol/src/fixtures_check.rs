@@ -555,6 +555,7 @@ fn effective_settings() -> EffectiveSettings {
         mode: Mode::Auto,
         model: "gpt-5.4".into(),
         effort: Some("high".into()),
+        provider: None,
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
         fallback: None,
     }

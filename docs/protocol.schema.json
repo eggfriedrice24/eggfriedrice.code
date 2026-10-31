@@ -3729,6 +3729,13 @@
         "overridden": {
           "$ref": "#/$defs/OverriddenSettings",
           "description": "Which values came from the prompt rather than from the config. Absent when none\ndid."
+        },
+        "provider": {
+          "description": "The provider that runs the turn, such as `anthropic-api`. Absent from a daemon\nbefore it recorded the provider.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

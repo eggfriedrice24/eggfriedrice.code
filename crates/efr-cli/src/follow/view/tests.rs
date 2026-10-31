@@ -1405,6 +1405,7 @@ fn started_in(scope: Scope, fallback: Option<ModeFallback>) -> Event {
             mode: if fallback.is_some() { Mode::Cautious } else { Mode::Auto },
             model: "gpt-5.5".to_owned(),
             effort: None,
+            provider: None,
             overridden: OverriddenSettings::default(),
             fallback,
         }),

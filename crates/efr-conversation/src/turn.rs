@@ -594,15 +594,22 @@ impl Turn {
             home: engine.locations().home(),
             wake: self.spec.is_wake(),
         };
-        let settings =
+        let mut settings =
             match settings::resolve(&self.spec.settings, &config, self.spec.origin, place) {
                 Ok(settings) => settings,
                 Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
             };
+        // NOTE: the log records which provider ran the turn, so a later turn can tell a
+        // switch of provider (its counts and raw items are not this one's).
+        settings.provider = Some(self.shared.deps.provider.id().as_str().to_owned());
         self.settings = Some(settings.clone());
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
-        self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
+        self.meter = Meter::new(context::context_base(
+            &snapshot.page,
+            &settings.model,
+            settings.provider.as_deref(),
+        ));
         self.user_messages = if self.spec.is_wake() {
             let waiting = exit::waiting_turns(&snapshot.turns);
             exit::UserMessages::of_wake_turn(&snapshot.user_events, &waiting)

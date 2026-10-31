@@ -1342,6 +1342,7 @@ export const effectiveSettingsSchema = z.object({
   mode: modeSchema,
   model: z.string(),
   overridden: overriddenSettingsSchema.exactOptional(),
+  provider: z.string().nullable().exactOptional(),
 }) satisfies z.ZodType<EffectiveSettings>;
 
 export const errorCodeSchema = z.enum([

@@ -267,6 +267,7 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
         mode: Mode::Cautious,
         model: "gpt-6-sol".to_owned(),
         effort: Some("low".to_owned()),
+        provider: Some("replay".to_owned()),
         overridden: OverriddenSettings { mode: true, model: true, effort: false },
         fallback: Some(ModeFallback {
             asked: Mode::Auto,

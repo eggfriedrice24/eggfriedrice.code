@@ -180,7 +180,7 @@ async fn a_retried_command_returns_its_receipt_instead_of_running_again() {
             "conversation_id": h.conversation_id,
             "turn_id": first.turn_id,
             "queued": false,
-            "settings": { "mode": "cautious", "model": "test-model" },
+            "settings": { "mode": "cautious", "model": "test-model", "provider": "replay" },
         }),
         "the result is stored without its seq"
     );

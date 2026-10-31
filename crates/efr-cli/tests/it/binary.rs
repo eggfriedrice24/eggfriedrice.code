@@ -427,6 +427,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
             mode: Mode::Auto,
             model: "gpt-5.4".to_owned(),
             effort: Some("high".to_owned()),
+            provider: None,
             overridden: OverriddenSettings { mode: true, model: true, effort: false },
             fallback: None,
         };

@@ -115,22 +115,26 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         undo: None,
     };
 
-    assert_eq!(context_base(&[envelope(1, ended(800)), envelope(2, ended(900))], MODEL), Some(900));
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, uncounted)], MODEL),
+        context_base(&[envelope(1, ended(800)), envelope(2, ended(900))], MODEL, None),
+        Some(900)
+    );
+    assert_eq!(
+        context_base(&[envelope(1, ended(800)), envelope(2, uncounted)], MODEL, None),
         None,
         "the newest turn is in no count"
     );
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, estimated)], MODEL),
+        context_base(&[envelope(1, ended(800)), envelope(2, estimated)], MODEL, None),
         None,
         "no call of the newest turn reported a count"
     );
-    assert_eq!(context_base(&[], MODEL), None);
+    assert_eq!(context_base(&[], MODEL, None), None);
     assert_eq!(
         context_base(
             &[envelope(1, ended(800)), envelope(2, Event::TurnCancelled { turn_id: turn })],
-            MODEL
+            MODEL,
+            None
         ),
         None,
         "a cancelled turn, as after a restart, is in no count"
@@ -142,7 +146,7 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         settings: None,
     };
     assert_eq!(
-        context_base(&[envelope(1, ended(800)), envelope(2, started)], MODEL),
+        context_base(&[envelope(1, ended(800)), envelope(2, started)], MODEL, None),
         None,
         "a turn without an end is in no count"
     );
@@ -160,6 +164,7 @@ fn the_count_of_another_model_is_no_base() {
             mode: Mode::Cautious,
             model: model.to_owned(),
             effort: None,
+            provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
         }),
@@ -174,12 +179,53 @@ fn the_count_of_another_model_is_no_base() {
     };
     let claude = [envelope(1, started("claude-opus-5-5")), envelope(2, ended.clone())];
 
-    assert_eq!(context_base(&claude, "claude-opus-5-5"), Some(500_887));
-    assert_eq!(context_base(&claude, "gpt-5.5"), None, "a switch drops the base");
+    assert_eq!(context_base(&claude, "claude-opus-5-5", None), Some(500_887));
+    assert_eq!(context_base(&claude, "gpt-5.5", None), None, "a switch drops the base");
     assert_eq!(
-        context_base(&[envelope(2, ended)], "gpt-5.5"),
+        context_base(&[envelope(2, ended)], "gpt-5.5", None),
         Some(500_887),
         "a turn whose start is not in the page keeps its count"
+    );
+}
+
+#[test]
+fn the_count_of_another_provider_is_no_base() {
+    let turn = TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(4)));
+    let limits = ContextLimits::new(Some(1_000_000), CompactionConfig::default());
+    let started = |provider: Option<&str>| Event::TurnStarted {
+        turn_id: turn,
+        cwd: "/home/u".into(),
+        scope: efr_protocol::Scope::Machine,
+        settings: Some(EffectiveSettings {
+            mode: Mode::Cautious,
+            model: "gpt-5.5".to_owned(),
+            effort: None,
+            provider: provider.map(str::to_owned),
+            overridden: OverriddenSettings::default(),
+            fallback: None,
+        }),
+    };
+    let ended = Event::TurnCompleted {
+        turn_id: turn,
+        usage: Some(Usage { context_tokens: 500_000, ..Usage::default() }),
+        context: Some(limits.gauge(500_887)),
+        changes: None,
+        stop: None,
+        undo: None,
+    };
+    let page = |provider| [envelope(1, started(provider)), envelope(2, ended.clone())];
+
+    let same = page(Some("openai-api"));
+    assert_eq!(context_base(&same, "gpt-5.5", Some("openai-api")), Some(500_887));
+    assert_eq!(
+        context_base(&same, "gpt-5.5", Some("openai-subscription")),
+        None,
+        "the same model on another provider drops the base"
+    );
+    assert_eq!(
+        context_base(&page(None), "gpt-5.5", Some("openai-api")),
+        Some(500_887),
+        "a turn from before efrd recorded the provider counts as the same provider"
     );
 }
 

@@ -185,6 +185,10 @@ pub struct EffectiveSettings {
     /// default for the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// The provider that runs the turn, such as `anthropic-api`. Absent from a daemon
+    /// before it recorded the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Which values came from the prompt rather than from the config. Absent when none
     /// did.
     #[serde(default, skip_serializing_if = "OverriddenSettings::is_empty")]

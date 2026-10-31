@@ -622,7 +622,9 @@ impl ConversationActor {
             // NOTE: a wake turn never comes through here: the actor starts it itself.
             wake: false,
         };
-        settings::resolve(settings, &config, origin, place)
+        let mut effective = settings::resolve(settings, &config, origin, place)?;
+        effective.provider = Some(self.shared.deps.provider.id().as_str().to_owned());
+        Ok(effective)
     }
 
     /// When the turns that job notices started in this conversation began, within the

@@ -912,3 +912,7 @@ No protocol version has shipped yet.
   `conversations_watch_item_snapshot.json`, `conversations_watch_item_changed.json`,
   `conversations_watch_item_removed.json` and `hello_result_remote_watch.json`. No
   fixture changes.
+- Version 1, additive: the effective `settings` of `turn_started` and of the
+  `prompt.send` result gain an optional `provider`: the provider that runs the turn,
+  such as `anthropic-api`. Absent from a daemon before, and in the events of its turns.
+  A later turn uses it to tell a switch of provider. No fixture changes.

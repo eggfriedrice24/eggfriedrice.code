@@ -768,6 +768,7 @@ fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
         mode: Mode::Auto,
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
+        provider: None,
         overridden,
         fallback: None,
     }

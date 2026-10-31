@@ -239,6 +239,7 @@ impl Script {
             mode: Mode::Cautious,
             model: model.to_owned(),
             effort: None,
+            provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
         });

@@ -4022,6 +4022,11 @@ export interface EffectiveSettings {
    * did.
    */
   overridden?: OverriddenSettings;
+  /**
+   * The provider that runs the turn, such as `anthropic-api`. Absent from a daemon
+   * before it recorded the provider.
+   */
+  provider?: string | null;
 }
 /**
  * Why a turn that asked for one mode runs with a stricter one: `auto` without a

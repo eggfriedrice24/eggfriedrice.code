@@ -49,7 +49,11 @@ fn assert_same_facts(thin: &Snapshot, full: &Snapshot, what: &str) {
     assert_eq!(thin.agent_cwd(), full.agent_cwd(), "{what}");
     assert_eq!(thin.newest_settings(), full.newest_settings(), "{what}");
     for model in ["m", "n"] {
-        assert_eq!(context_base(&thin.page, model), context_base(&full.page, model), "{what}");
+        assert_eq!(
+            context_base(&thin.page, model, None),
+            context_base(&full.page, model, None),
+            "{what}"
+        );
     }
     assert_eq!(breakdown::counted(&thin.page), breakdown::counted(&full.page), "{what}");
     let ends = |snapshot: &Snapshot| -> Vec<EventEnvelope> {

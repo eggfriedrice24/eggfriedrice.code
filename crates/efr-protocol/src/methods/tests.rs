@@ -190,6 +190,7 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
             mode: Mode::Auto,
             model: "gpt-5.4".to_owned(),
             effort: None,
+            provider: None,
             overridden: OverriddenSettings { model: true, ..OverriddenSettings::default() },
             fallback: None,
         }),

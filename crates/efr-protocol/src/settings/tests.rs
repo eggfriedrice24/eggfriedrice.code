@@ -91,6 +91,7 @@ fn effective_settings_leave_out_an_absent_effort_and_unset_flags() {
         mode: Mode::Cautious,
         model: "gpt-5.5".to_owned(),
         effort: None,
+        provider: None,
         overridden: OverriddenSettings::default(),
         fallback: None,
     };

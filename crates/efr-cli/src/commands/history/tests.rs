@@ -344,6 +344,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         mode: Mode::Auto,
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
+        provider: None,
         overridden: OverriddenSettings { mode: true, ..OverriddenSettings::default() },
         fallback: None,
     };
@@ -351,6 +352,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         mode: Mode::Cautious,
         model: "gpt-5.5".to_owned(),
         effort: None,
+        provider: None,
         overridden: OverriddenSettings::default(),
         fallback: None,
     };
@@ -378,6 +380,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
         mode: Mode::Cautious,
         model: "gpt-5.5".to_owned(),
         effort: None,
+        provider: None,
         overridden: OverriddenSettings::default(),
         fallback: Some(ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() }),
     };

@@ -41,6 +41,7 @@ fn started(mode: Mode) -> Event {
             mode,
             model: "gpt-5.5".to_owned(),
             effort: None,
+            provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
         }),

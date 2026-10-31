@@ -84,6 +84,7 @@ fn a_prompt_without_settings_runs_with_the_config_defaults() {
             mode: Mode::Manual,
             model: "gpt-5.5".to_owned(),
             effort: Some("high".to_owned()),
+            provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
         }

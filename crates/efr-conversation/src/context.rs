@@ -218,9 +218,14 @@ impl Meter {
 /// count), when the newest ended turn has no `context` (a turn from before efr counted
 /// it, or one that ended before it sent anything) or no real count (no call of it
 /// reported its usage): its messages are then not in any count, and an estimate is no
-/// base. `None` too when the newest turn ran with another model, as before a switch to
-/// another provider: that model's count says nothing about the tokens of `model`.
-pub(crate) fn context_base(page: &[EventEnvelope], model: &str) -> Option<u64> {
+/// base. `None` too when the newest turn ran with another model or another provider,
+/// as before a switch: that count says nothing about the tokens of `model` at
+/// `provider`. A turn that recorded no provider counts as the same provider.
+pub(crate) fn context_base(
+    page: &[EventEnvelope],
+    model: &str,
+    provider: Option<&str>,
+) -> Option<u64> {
     let (turn, tokens) = page.iter().rev().find_map(|envelope| match &envelope.event {
         Event::ConversationCompacted(_)
         | Event::TurnCancelled { .. }
@@ -235,7 +240,13 @@ pub(crate) fn context_base(page: &[EventEnvelope], model: &str) -> Option<u64> {
     })??;
     let other_model = page.iter().rev().find_map(|envelope| match &envelope.event {
         Event::TurnStarted { turn_id, settings, .. } if *turn_id == turn => {
-            Some(settings.as_ref().is_some_and(|settings| settings.model != model))
+            Some(settings.as_ref().is_some_and(|settings| {
+                let other_provider = match (settings.provider.as_deref(), provider) {
+                    (Some(was), Some(now)) => was != now,
+                    _ => false,
+                };
+                settings.model != model || other_provider
+            }))
         }
         _ => None,
     });
