@@ -37,6 +37,7 @@ use efr_provider::{
 };
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::openai::config::{Backend, OpenAiConfig, ReasoningMode};
 use crate::openai::models::is_reasoning_model;
@@ -492,7 +493,7 @@ fn push_canonical(
                 flush(items, role, &mut content);
                 items.push(json!({
                     "type": CUSTOM_CALL,
-                    "call_id": call_id,
+                    "call_id": call_id_of(call_id),
                     "name": name,
                     "input": arguments_text(input),
                 }));
@@ -505,7 +506,7 @@ fn push_canonical(
                 };
                 items.push(json!({
                     "type": "function_call",
-                    "call_id": call_id,
+                    "call_id": call_id_of(call_id),
                     "name": name,
                     "arguments": arguments,
                 }));
@@ -522,7 +523,7 @@ fn push_canonical(
                 };
                 items.push(json!({
                     "type": kind,
-                    "call_id": call_id,
+                    "call_id": call_id_of(call_id),
                     "output": output,
                 }));
             }
@@ -537,6 +538,29 @@ fn flush(items: &mut Vec<Value>, role: &str, content: &mut Vec<Value>) {
     if !content.is_empty() {
         items.push(json!({"type": "message", "role": role, "content": std::mem::take(content)}));
     }
+}
+
+/// The longest `call_id` that the code keeps as it is.
+const MAX_CALL_ID: usize = 64;
+
+/// The `call_id` of a canonical tool call as the Responses API gets it. An id in the
+/// form of OpenAI's own (`call_`, then only `[a-zA-Z0-9_-]`, at most 64 characters)
+/// goes as it is. Another id, such as Claude's `toolu_...` after a switch of provider,
+/// becomes `call_` and 24 hex digits of its SHA-256: the same each time, so the call
+/// and its result (both go through here) still match, and the bytes of the request
+/// stay the same for the prompt cache.
+fn call_id_of(id: &str) -> String {
+    let own = id.len() <= MAX_CALL_ID
+        && id.strip_prefix("call_").is_some_and(|rest| {
+            !rest.is_empty()
+                && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        });
+    if own {
+        return id.to_owned();
+    }
+    let digest = Sha256::digest(id.as_bytes());
+    let hex: String = digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect();
+    format!("call_{hex}")
 }
 
 /// The arguments text of a canonical tool call. Arguments that were not JSON were kept

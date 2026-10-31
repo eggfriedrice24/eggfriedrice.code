@@ -65,6 +65,7 @@ use efr_provider::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
+use sha2::{Digest as _, Sha256};
 
 use self::breakpoints::{Layout, Shape, Target, Ttl, place_breakpoints, summary};
 use crate::anthropic::AnthropicConfig;
@@ -632,16 +633,20 @@ fn answer_open_calls(drafts: &mut Vec<Draft>) {
     }
 }
 
-/// The id of a tool call as the API takes it: every character outside
-/// `[a-zA-Z0-9_-]` becomes `_`, so an id that another provider wrote still matches its
-/// result.
+/// The id of a tool call as the API takes it (`^[a-zA-Z0-9_-]+$`). A valid id goes as it
+/// is. In another id, such as one that another provider wrote, every other character
+/// becomes `_`, and `_` and 8 hex digits of the SHA-256 of the whole id follow, so two
+/// ids that differ only in those characters stay apart. The call and its result go
+/// through this one function, so they still match.
 fn tool_id(id: &str) -> String {
-    if id.is_empty() {
-        return "_".to_owned();
+    let valid = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    if !id.is_empty() && id.chars().all(valid) {
+        return id.to_owned();
     }
-    id.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect()
+    let cleaned: String = id.chars().map(|c| if valid(c) { c } else { '_' }).collect();
+    let digest = Sha256::digest(id.as_bytes());
+    let suffix: String = digest.iter().take(4).map(|byte| format!("{byte:02x}")).collect();
+    if cleaned.is_empty() { suffix } else { format!("{cleaned}_{suffix}") }
 }
 
 /// The input of a canonical tool call as a `tool_use` takes it, which is always an

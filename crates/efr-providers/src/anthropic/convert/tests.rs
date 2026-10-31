@@ -508,14 +508,14 @@ fn a_rebuilt_answer_keeps_text_and_calls_and_drops_reasoning() {
         body["messages"][1],
         json!({"role": "assistant", "content": [
             {"type": "text", "text": "I look."},
-            {"type": "tool_use", "id": "call_Qm8s_X2_vR", "name": "shell", "input": {"command": "ls"}},
+            {"type": "tool_use", "id": "call_Qm8s_X2_vR_672005d8", "name": "shell", "input": {"command": "ls"}},
             {"type": "tool_use", "id": "call_2", "name": "apply_patch", "input": {"input": "*** Begin Patch\n*** End Patch"}},
         ]})
     );
     assert_eq!(
         body["messages"][2]["content"],
         json!([
-            {"type": "tool_result", "tool_use_id": "call_Qm8s_X2_vR", "content": "src"},
+            {"type": "tool_result", "tool_use_id": "call_Qm8s_X2_vR_672005d8", "content": "src"},
             {
                 "type": "tool_result",
                 "tool_use_id": "call_2",
@@ -738,9 +738,23 @@ fn a_fixed_time_to_live_is_on_every_marker(#[case] ttl: CacheTtl, #[case] sent: 
 
 #[rstest]
 #[case("toolu_01AbC-_9", "toolu_01AbC-_9")]
-#[case("call_Qm8s.X2/vR", "call_Qm8s_X2_vR")]
-#[case("fc:é", "fc__")]
-#[case("", "_")]
-fn a_tool_id_keeps_only_the_characters_that_the_api_takes(#[case] id: &str, #[case] sent: &str) {
+#[case("call_Qm8sX2vR", "call_Qm8sX2vR")]
+fn a_valid_tool_id_goes_as_it_is(#[case] id: &str, #[case] sent: &str) {
     assert_eq!(tool_id(id), sent);
+}
+
+#[test]
+fn a_tool_id_keeps_only_the_characters_that_the_api_takes_and_stays_apart() {
+    let dotted = tool_id("call_Qm8s.X2/vR");
+    assert!(dotted.starts_with("call_Qm8s_X2_vR_"), "{dotted}");
+    let ids = ["a.b", "a:b", "a/b", "", "fc:é"].map(tool_id);
+    for id in &ids {
+        assert!(
+            !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+            "{id}"
+        );
+    }
+    let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    assert_eq!(tool_id("a.b"), tool_id("a.b"), "the same id maps the same way each time");
 }

@@ -442,6 +442,62 @@ fn members<'a>(value: &'a Value, key: &str, found: &mut Vec<&'a Value>) {
 }
 
 #[test]
+fn a_claude_tool_call_after_a_switch_gets_a_call_id_of_openai_form_that_its_result_shares() {
+    let switched = [
+        Message::user("List the files."),
+        Message::new(
+            Role::Assistant,
+            vec![call("toolu_01AbCdEfGh", "shell", json!({"command": "ls"}))],
+        ),
+        Message::new(Role::User, vec![result("toolu_01AbCdEfGh", "file.txt", false)]),
+        Message::new(Role::Assistant, vec![call("call_own_1", "shell", json!({"command": "pwd"}))]),
+        Message::new(Role::User, vec![result("call_own_1", "/home", false)]),
+    ];
+
+    let items = input_items(&switched, true, |_| true);
+    let ids: Vec<&str> = items.iter().filter_map(|item| item["call_id"].as_str()).collect();
+
+    let [claude_call, claude_result, own_call, own_result] = ids.as_slice() else {
+        panic!("{items:#?}");
+    };
+    assert_eq!(claude_call, claude_result, "the call and its result still match");
+    assert!(
+        claude_call.starts_with("call_") && claude_call.len() == "call_".len() + 24,
+        "{claude_call}"
+    );
+    assert_ne!(*claude_call, "toolu_01AbCdEfGh");
+    assert_eq!((*own_call, *own_result), ("call_own_1", "call_own_1"), "an own id goes as it is");
+    let again = input_items(&switched, true, |_| true);
+    assert_eq!(items, again, "the same history makes the same bytes, for the prompt cache");
+}
+
+#[rstest]
+#[case("")]
+#[case("call_")]
+#[case("call_has.dot")]
+#[case("fc_123")]
+fn an_id_not_in_openai_form_is_mapped(#[case] id: &str) {
+    let items = input_items(
+        &[Message::new(Role::Assistant, vec![call(id, "shell", json!({}))])],
+        true,
+        |_| true,
+    );
+    let sent = items[0]["call_id"].as_str().unwrap();
+    assert!(sent.starts_with("call_") && sent.len() == 29, "{sent}");
+}
+
+#[test]
+fn a_long_id_is_mapped_too() {
+    let long = format!("call_{}", "a".repeat(80));
+    let items = input_items(
+        &[Message::new(Role::Assistant, vec![call(&long, "shell", json!({}))])],
+        true,
+        |_| true,
+    );
+    assert_eq!(items[0]["call_id"].as_str().unwrap().len(), 29);
+}
+
+#[test]
 fn a_body_after_a_model_switch_holds_no_reasoning_or_item_id_of_the_other_model() {
     // NOTE: the conversation sends another model's turns without their provider_raw;
     // this is the body that such messages become.
