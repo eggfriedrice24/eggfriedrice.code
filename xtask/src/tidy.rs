@@ -181,6 +181,12 @@ fn is_extra_test_binary(path: &str) -> bool {
     }
 }
 
+/// A context or removed line of a `.patch` file holds the upstream text as it is, which a
+/// patch cannot change; only its added lines are ours.
+fn is_upstream_patch_line(path: &str, line: &str) -> bool {
+    path.ends_with(".patch") && !line.starts_with('+')
+}
+
 /// Rules over a text file's contents. `fast` keeps only the rules the pre-commit hook
 /// runs: dashes, inline test modules and the unsafe allowlist.
 pub(crate) fn check_contents(path: &str, contents: &str, fast: bool) -> Vec<Violation> {
@@ -192,7 +198,8 @@ pub(crate) fn check_contents(path: &str, contents: &str, fast: bool) -> Vec<Viol
 
     for (index, line) in contents.lines().enumerate() {
         let line_no = Some(index + 1);
-        if line.contains(EM_DASH) || line.contains(EN_DASH) {
+        if (line.contains(EM_DASH) || line.contains(EN_DASH)) && !is_upstream_patch_line(path, line)
+        {
             found.push(violation(path, line_no, "em or en dash; use a plain hyphen"));
         }
         if token_rules {

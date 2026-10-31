@@ -163,6 +163,14 @@ fn dashes_fail_in_any_text_file() {
 }
 
 #[test]
+fn dashes_fail_only_in_the_added_lines_of_a_patch() {
+    let patch =
+        "--- a/x.h\n+++ b/x.h\n@@ -1,2 +1,2 @@\n /// a \u{2014} b\n-/// c \u{2014} d\n+/// c - d\n";
+    assert!(rules("app/patches/x@1.0.0.patch", patch).is_empty());
+    assert_eq!(rules("app/patches/x@1.0.0.patch", "+/// e \u{2013} f\n").len(), 1);
+}
+
+#[test]
 fn plain_hyphen_is_clean() {
     assert!(rules("README.md", "a - b\n").is_empty());
 }
