@@ -5,7 +5,7 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAtom, createStore, type Atom, type Readable } from "@tanstack/store";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { processColor, StyleSheet } from "react-native";
+import { processColor, StyleSheet, TextInput } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { ConnectionView } from "@/features/machines/model/connection-view";
@@ -184,6 +184,19 @@ async function settleQuery(): Promise<void> {
       setTimeout(resolve, 0);
     });
   });
+}
+
+/** The `focus` of every TextInput: the jest mock puts its native methods on the prototype. */
+function textInputFocus(): jest.Mock {
+  const prototype: unknown = Reflect.get(TextInput, "prototype");
+  const focus: unknown =
+    typeof prototype === "object" && prototype !== null
+      ? Reflect.get(prototype, "focus")
+      : undefined;
+  if (!jest.isMockFunction(focus)) {
+    throw new Error("the jest mock of TextInput has no focus");
+  }
+  return focus;
 }
 
 function input() {
@@ -381,6 +394,25 @@ describe("the states of the composer", () => {
     expect(sendButton()).toBeDisabled();
     expect(screen.getByText("reconnecting…")).toBeOnTheScreen();
     expect(screen.getByRole("status")).toBeOnTheScreen();
+  });
+
+  it("focuses the input on a tap anywhere on the pill", async () => {
+    await renderComposer({ stream: endedStream() });
+    const focus = textInputFocus();
+    focus.mockClear();
+    await fireEvent.press(screen.getByTestId("composer-pill"));
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes no focus from a tap on the pill while disconnected", async () => {
+    await renderComposer({
+      stream: endedStream(),
+      view: { kind: "unreachable", endpoint: ENDPOINT },
+    });
+    const focus = textInputFocus();
+    focus.mockClear();
+    await fireEvent.press(screen.getByTestId("composer-pill"));
+    expect(focus).not.toHaveBeenCalled();
   });
 
   it("docks to the keyboard with 6 pt over it and the safe area and 6 pt under it", async () => {

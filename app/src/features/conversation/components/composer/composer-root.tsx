@@ -9,18 +9,21 @@
 // - Under the pill is the bottom edge: the safe area, but never less than 12 pt, then a
 //   gap of 6 pt. With the keyboard up, the sticky view moves the composer down by the
 //   bottom edge, so only the gap of 6 pt stays over the keyboard.
+// - The whole pill is one tap target (design R4 item 2): a tap on the status line, the
+//   padding or the field focuses the input. The picker and the trailing buttons are
+//   controls of their own, so they keep their taps. Disconnected takes no focus.
 // - The blank root has the same pill and the same status line. The user chose this over
 //   design item 8.13, which had no status line and no material there.
 
-import type { ReactNode } from "react";
-import { View, type LayoutChangeEvent } from "react-native";
+import { useRef, type ReactNode } from "react";
+import { Pressable, View, type LayoutChangeEvent, type TextInputInstance } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Material } from "@/components/ui/material";
 import { RADII } from "@/theme/metrics";
 
-import { ComposerContext } from "./composer-context";
+import { ComposerContext, ComposerInputRefContext } from "./composer-context";
 import { useComposer, type ComposerOptions } from "./use-composer";
 
 /** The gap between the pill and the keyboard, or between the pill and the bottom edge. */
@@ -52,25 +55,37 @@ export interface ComposerRootProps extends ComposerOptions {
 export function ComposerRoot(props: ComposerRootProps) {
   const { children, onHeightChange, ...options } = props;
   const model = useComposer(options);
+  const inputRef = useRef<TextInputInstance>(null);
   const bottom = bottomEdge(useSafeAreaInsets().bottom);
   const layout = (event: LayoutChangeEvent): void => {
     onHeightChange?.(event.nativeEvent.layout.height);
   };
   return (
     <ComposerContext value={model}>
-      <KeyboardStickyView
-        testID="composer"
-        offset={{ closed: 0, opened: bottom }}
-        onLayout={layout}
-      >
-        <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
-          <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
-          <View testID="composer-pill" className="overflow-hidden rounded-composer">
-            <Material kind="glass" radius={RADII.composer} />
-            {children}
+      <ComposerInputRefContext value={inputRef}>
+        <KeyboardStickyView
+          testID="composer"
+          offset={{ closed: 0, opened: bottom }}
+          onLayout={layout}
+        >
+          <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
+            <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
+            <Pressable
+              testID="composer-pill"
+              accessible={false}
+              onPress={() => {
+                if (model.state.kind !== "disconnected") {
+                  inputRef.current?.focus();
+                }
+              }}
+              className="overflow-hidden rounded-composer"
+            >
+              <Material kind="glass" radius={RADII.composer} />
+              {children}
+            </Pressable>
           </View>
-        </View>
-      </KeyboardStickyView>
+        </KeyboardStickyView>
+      </ComposerInputRefContext>
     </ComposerContext>
   );
 }

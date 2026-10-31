@@ -14,17 +14,19 @@ import { TextInput } from "react-native";
 import { cn } from "@/components/ui/cn";
 import { roles } from "@/theme/roles";
 
-import { ComposerContext } from "./composer-context";
+import { ComposerContext, ComposerInputRefContext } from "./composer-context";
 
 /** The text input of the composer. It reads the draft through the composer. */
 export function ComposerInput() {
   const model = use(ComposerContext);
+  const inputRef = use(ComposerInputRefContext);
   if (model === null) {
     return null;
   }
   const kind = model.state.kind;
   return (
     <TextInput
+      ref={inputRef ?? undefined}
       testID="composer-input"
       accessibilityLabel="Message"
       multiline

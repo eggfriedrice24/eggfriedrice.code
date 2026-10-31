@@ -2,7 +2,8 @@
 // `use()`. Only the composer renders when its value changes: typing renders the
 // composer, never the screen (t3code PR #21261).
 
-import { createContext } from "react";
+import { createContext, type RefObject } from "react";
+import type { TextInputInstance } from "react-native";
 
 import type { SendMode } from "@/features/settings/model/preferences";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
@@ -32,3 +33,11 @@ export interface ComposerModel {
 
 /** The context of the composer. Null outside `Composer.Root`. */
 export const ComposerContext = createContext<ComposerModel | null>(null);
+
+/**
+ * The ref of the composer's text input, apart from the model, so a tap anywhere on the
+ * pill can focus it (design R4 item 2). `Composer.Root` gives it.
+ */
+export const ComposerInputRefContext = createContext<RefObject<TextInputInstance | null> | null>(
+  null,
+);
