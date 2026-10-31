@@ -196,6 +196,12 @@ export interface TurnView {
   readonly reasoning: TextBuffer;
   /** The title of the newest reasoning section. */
   readonly title: string | undefined;
+  /**
+   * When the first thought of the turn ended, in ms since the epoch: the time of the
+   * first answer text or tool call after reasoning came. The thought row shows how long
+   * it thought.
+   */
+  readonly thoughtEndedAt: number | undefined;
   /** Tool input drafts by the call's position in the model's answer. */
   readonly toolInputs: ReadonlyMap<number, ToolInputView>;
   /** The sequence number of the last `tool_call_started`; older tool input drafts drop. */
@@ -301,8 +307,30 @@ function applyEvent(state: StreamState, envelope: EventEnvelope): StreamState {
   if (envelope.seq <= state.lastSeq) {
     return state;
   }
-  const next = applyEventBody(state, envelope.event, envelope.seq, time(envelope.at));
+  const at = time(envelope.at);
+  const next = endThought(
+    applyEventBody(state, envelope.event, envelope.seq, at),
+    envelope.event,
+    at,
+  );
   return { ...next, lastSeq: envelope.seq, loaded: true };
+}
+
+/** Marks the end of the first thought of a turn at the first answer after reasoning. */
+function endThought(state: StreamState, event: Event, at: number | undefined): StreamState {
+  if (
+    at === undefined ||
+    (event.kind !== "assistant_message_updated" &&
+      event.kind !== "assistant_message_completed" &&
+      event.kind !== "tool_call_started")
+  ) {
+    return state;
+  }
+  const turn = state.turns.get(event.turn_id);
+  if (turn === undefined || turn.thoughtEndedAt !== undefined || turn.reasoning.bytes === 0) {
+    return state;
+  }
+  return updateTurn(state, event.turn_id, (found) => ({ ...found, thoughtEndedAt: at }));
 }
 
 function applyDraft(state: StreamState, draft: Draft): StreamState {
@@ -806,6 +834,7 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     messages,
     reasoning,
     title: rebuilt.title ?? old.title,
+    thoughtEndedAt: rebuilt.thoughtEndedAt ?? old.thoughtEndedAt,
     tools: mergeParts(old.tools, rebuilt.tools),
     approvals: mergeParts(old.approvals, approvals),
     steers: mergeParts(old.steers, rebuilt.steers),
@@ -902,6 +931,7 @@ function newTurn(turnId: string): TurnView {
     messages: new Map(),
     reasoning: EMPTY_BUFFER,
     title: undefined,
+    thoughtEndedAt: undefined,
     toolInputs: new Map(),
     toolStartedSeq: 0,
     tools: new Map(),

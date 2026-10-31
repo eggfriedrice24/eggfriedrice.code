@@ -148,6 +148,28 @@ describe("reasoning and tools", () => {
     expect(turn?.started).toBe(true);
   });
 
+  it("marks the end of the first thought at the first answer after reasoning", () => {
+    const thinking = [
+      event(1, promptQueued(TURN, "Go.")),
+      event(2, turnStarted(TURN), at(0)),
+      draft(2, { kind: "reasoning", offset: 0, delta: "Checking 97 first." }),
+    ];
+    expect(run(thinking).turns.get(TURN)?.thoughtEndedAt).toBeUndefined();
+    const answered = run([
+      ...thinking,
+      event(3, messageUpdated(TURN, 0, 0, "Only 97"), at(9)),
+      event(4, messageUpdated(TURN, 0, 7, " is prime."), at(10)),
+    ]);
+    expect(answered.turns.get(TURN)?.thoughtEndedAt).toBe(AT_MS + 9_000);
+    // No reasoning, no thought to end.
+    const plain = run([
+      event(1, promptQueued(TURN, "Go.")),
+      event(2, turnStarted(TURN), at(0)),
+      event(3, messageUpdated(TURN, 0, 0, "Hi"), at(1)),
+    ]);
+    expect(plain.turns.get(TURN)?.thoughtEndedAt).toBeUndefined();
+  });
+
   it("clears tool input drafts when the call starts, drops older ones, and records the result", () => {
     const input: DraftPart = { kind: "tool_input", call: 0, tool: "apply_patch", bytes: 2300 };
     const writing = run([draft(1, input)]);

@@ -132,6 +132,8 @@ export interface ReasoningRowView {
   /** The turn still runs, so the text can grow. */
   readonly live: boolean;
   readonly startedAt: number | undefined;
+  /** When the first thought ended. */
+  readonly endedAt: number | undefined;
 }
 
 /** The thought row of a turn. Compare with `shallow`. */
@@ -143,6 +145,7 @@ export function selectReasoning(turnId: string): (state: StreamState) => Reasoni
       title: turn?.title,
       live: turn !== undefined && turn.end === undefined,
       startedAt: turn?.startedAt,
+      endedAt: turn?.thoughtEndedAt,
     };
   };
 }

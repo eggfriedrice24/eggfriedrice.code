@@ -37,6 +37,9 @@ into the GitHub release notes, and it stops when the section is missing.
   approval" with no timer, and a line joins it to the approval under it. The approval
   no longer repeats the command. The running line hides while an approval waits, and
   the time of the call counts from your answer.
+- In the phone app, the thought row of a reasoning without a bold title, such as
+  Claude's, shows the first words of the reasoning in italic. The row also shows how
+  long the model thought.
 - efrd reads the output of your shell with the terminal core of Ghostty 1.4 (a commit
   from six days before the 1.4.0 release). It follows xterm more closely, parses
   output faster and keeps the fixes of the 1.4 cycle. A build from source now needs
