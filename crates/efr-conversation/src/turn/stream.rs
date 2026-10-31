@@ -137,6 +137,12 @@ impl Turn {
         // NOTE: dropping the stream closes the provider's connection, so an interrupted
         // answer stops costing tokens before the interrupt is recorded as done.
         drop(stream);
+        // NOTE: the end of an answer can come inside one draft interval, after drafts
+        // that wait for the timer of the loop. They go now: the reasoning is in no
+        // event, so a held reasoning draft would be lost.
+        if self.drafter.flush_after(clock.now()).is_some() {
+            self.drafter.flush(clock.now());
+        }
         self.drafter.answer_ended();
         let partial = builder.text();
         let outcome = match streamed {

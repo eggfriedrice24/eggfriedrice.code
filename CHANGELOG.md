@@ -24,6 +24,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - The phone app shows the text of a code block again. Before, the body of a code block
   was empty on iOS, but its copy button worked. The cause was a bug in the Markdown
   library. The app now patches it with the upstream fix.
+- The reasoning of a model shows in full in the phone app. Before, a fast answer, such
+  as one from Claude, often showed only the first word of its reasoning. efrd held the
+  last drafts of an answer for a short interval and dropped them when the answer ended
+  first. Now it sends them when the answer ends.
 
 ### Changed
 

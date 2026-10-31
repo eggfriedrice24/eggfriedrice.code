@@ -255,6 +255,44 @@ async fn drafts_are_coalesced_on_the_clock_and_the_first_goes_at_once() {
 }
 
 #[tokio::test]
+async fn an_answer_that_ends_inside_the_interval_still_drafts_all_its_reasoning() {
+    // Claude sends its summarized thinking in a burst after the first chunk, so the
+    // rest of an answer can arrive and end inside one draft interval. Reasoning is in
+    // no event, so a held draft that never went would lose it.
+    let mut setup = Setup::new();
+    setup.config.draft_interval = Duration::from_millis(16);
+    let state = setup.live_state(&setup.cwd, "think");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "think")])),
+        answer(&[
+            reasoning("Checking 97 "),
+            reasoning("first: 91 is 7 times 13."),
+            text("Only 97"),
+            text(" is prime."),
+            done(StopReason::EndTurn, None),
+        ]),
+    ];
+    let mut receiver = setup.drafts.subscribe();
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("think").await;
+    h.wait_end(sent.turn_id).await;
+
+    let mut reasoning_text = String::new();
+    for draft in drained(&mut receiver) {
+        if let DraftPart::Reasoning { offset, delta, .. } = draft.part {
+            assert_eq!(offset, reasoning_text.len() as u64, "the drafts leave no gap");
+            reasoning_text.push_str(&delta);
+        }
+    }
+    assert_eq!(
+        reasoning_text, "Checking 97 first: 91 is 7 times 13.",
+        "the held reasoning goes when the answer ends"
+    );
+    h.finish();
+}
+
+#[tokio::test]
 async fn a_turn_that_nobody_follows_live_sets_no_draft_timer() {
     let mut setup = Setup::new();
     setup.config.draft_interval = Duration::from_millis(16);
