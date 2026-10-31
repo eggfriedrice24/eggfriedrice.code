@@ -108,8 +108,13 @@ when one of them changes.
 - A `v*` tag cannot move and cannot be deleted. If the commit of the tag is wrong,
   make a new version.
 - If `release.yml` fails before the release exists, fix the cause on `main`, then
-  run the workflow again on the same tag. It uses the code of the tag, so a fix of
-  the code needs a new version.
+  run the workflow again on the same tag. A run by hand takes the workflow from
+  `main` and builds the code of the tag, so a fix of the workflow is enough, but a fix
+  of the code needs a new version:
+
+  ```sh
+  gh workflow run release.yml --ref main -f tag=v0.0.7
+  ```
 - If `aur.yml` fails, nothing is pushed to the AUR. Run it again on the same tag:
 
   ```sh

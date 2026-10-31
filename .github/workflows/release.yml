@@ -1,4 +1,7 @@
-# Release build for efr, triggered by pushing a tag v<version>.
+# Release build for efr, triggered by pushing a tag v<version>, or by hand for a tag
+# that is already pushed (`gh workflow run release.yml --ref main -f tag=v<version>`),
+# when the run of its push failed before the release existed. A run by hand takes this
+# file from main and builds the code of the tag.
 #
 # Builds efrd, efr and efr-sbx as `just build-release` does (the ghostty screen
 # backend with Zig 0.17.0), packs efr-code-<version>-x86_64-linux.tar.gz in
@@ -6,7 +9,8 @@
 # to it, and creates the GitHub release with the CHANGELOG.md section of the
 # version as its notes. The version is taken from the tag (leading v
 # stripped). It must equal the workspace version in Cargo.toml and the pkgver
-# of every PKGBUILD in packaging/, and CHANGELOG.md must have its section: the
+# of every PKGBUILD in packaging/ except efr-code-git, whose pkgver() finds its
+# version when it builds, and CHANGELOG.md must have its section: the
 # release commit sets all of them before the tag (docs/releasing.md).
 #
 # A release created with GITHUB_TOKEN does not fire the "release" event for
@@ -19,6 +23,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to release again, such as v0.0.7"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -26,6 +36,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # The tag of the release: the pushed tag, or the input of a run by hand.
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   release:
@@ -36,6 +48,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The code of the tag, also in a run by hand from main.
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       # The toolchain of rust-toolchain.toml.
       - run: rustup toolchain install
@@ -55,16 +70,19 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           for package in efr-daemon efr-cli efr-sbx; do
             cargo_version=$(cargo metadata --no-deps --format-version 1 \
               | jq -r --arg name "$package" '.packages[] | select(.name == $name) | .version')
             if [[ "$version" != "$cargo_version" ]]; then
-              echo "::error::tag ${GITHUB_REF_NAME} does not match the version ${cargo_version} of ${package} in Cargo.toml"
+              echo "::error::tag ${TAG} does not match the version ${cargo_version} of ${package} in Cargo.toml"
               exit 1
             fi
           done
           for pkgbuild in packaging/*/PKGBUILD; do
+            # NOTE: efr-code-git builds the newest commit of main; its pkgver() finds
+            # the version when it builds, so its file holds only a placeholder.
+            [[ "$pkgbuild" == packaging/efr-code-git/PKGBUILD ]] && continue
             pkgver=$(sed -n 's/^pkgver=//p' "$pkgbuild")
             if [[ "$version" != "$pkgver" ]]; then
               echo "::error::${pkgbuild} has pkgver '${pkgver}', expected ${version}; see docs/releasing.md"
@@ -138,12 +156,12 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             args+=(--prerelease)
           fi
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
             # Created by hand first (which also pushed the tag): just attach.
-            echo "release ${GITHUB_REF_NAME} already exists; uploading assets"
-            gh release upload "$GITHUB_REF_NAME" --clobber "$TARBALL" "${TARBALL}.sha256"
+            echo "release ${TAG} already exists; uploading assets"
+            gh release upload "$TAG" --clobber "$TARBALL" "${TARBALL}.sha256"
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$TAG" \
               --verify-tag \
               --title "efr ${VERSION}" \
               --notes-file "$RUNNER_TEMP/notes.md" \
@@ -156,7 +174,7 @@ jobs:
         if: ${{ !contains(steps.version.outputs.version, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run aur.yml --ref main -f "tag=${GITHUB_REF_NAME}"
+        run: gh workflow run aur.yml --ref main -f "tag=${TAG}"
 
       - name: Trigger the docs site deploy
         # Stable releases only, as for the AUR: the root of the site is the newest
@@ -164,4 +182,4 @@ jobs:
         if: ${{ !contains(steps.version.outputs.version, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run pages.yml --ref main -f "tag=${GITHUB_REF_NAME}"
+        run: gh workflow run pages.yml --ref main -f "tag=${TAG}"
