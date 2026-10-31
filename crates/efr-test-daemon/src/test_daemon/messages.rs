@@ -118,6 +118,24 @@ impl MessagesAnswer {
         MessagesAnswer::new(status, body.to_string())
     }
 
+    /// The answer a `provider_sse` text stands for. A first line `: status <code>`, a
+    /// comment that any SSE reader skips, sets the status and is dropped; otherwise
+    /// the status is 200.
+    pub fn from_sse(text: &str) -> Self {
+        let status = text
+            .lines()
+            .next()
+            .and_then(|line| line.strip_prefix(": status "))
+            .and_then(|code| code.trim().parse::<u16>().ok());
+        match status {
+            Some(status) => {
+                let body = text.split_once('\n').map_or("", |(_, rest)| rest);
+                MessagesAnswer::new(status, body.trim_start_matches('\n'))
+            }
+            None => MessagesAnswer::new(200, text),
+        }
+    }
+
     /// The same answer, asking the client to wait `seconds` before it tries again.
     #[must_use]
     pub fn with_retry_after(mut self, seconds: u64) -> Self {

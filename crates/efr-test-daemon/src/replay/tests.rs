@@ -33,7 +33,9 @@ fn every_scenario_has_a_fixture_and_every_fixture_a_scenario() {
         SCENARIOS.iter().map(|spec| format!("{}.ndjson", spec.name)).collect();
 
     assert_eq!(files, named);
-    assert_eq!(SCENARIOS.len(), 14, "the fourteen scenarios of the structure document");
+    // The fourteen scenarios of the structure document come first.
+    assert_eq!(SCENARIOS[..14].len(), 14);
+    assert_eq!(SCENARIOS[13].name, "pty_attach_since_seq");
     for spec in SCENARIOS {
         Scenario::load(spec.name).unwrap();
     }

@@ -160,7 +160,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   placeholders (`<conversation:1>`, `<turn:2>`, `<call:1>`, `<pty:1>`, numbered in the
   order the replay sees them, `Bindings`); paths and timestamps are the redactor's
   (`<TMP>`, `<CWD>`, `<HOME>`, `<TIMESTAMP>`). The commit and the time of a
-  `snapshot_taken` are `<COMMIT>` and `<MS>`, because they change from run to run. A scenario in the Responses mode queues
+  `snapshot_taken` are `<COMMIT>` and `<MS>`, because they change from run to run. A scenario in the Responses mode (OpenAI's wire)
+  or the Messages mode (Anthropic's wire, the real `anthropic-api` provider) queues
   each exchange's `provider_sse` bodies as the answer, with a first line `: status <code>`
   (an SSE comment) setting the HTTP status, and compares the requests at the end.
   `Replay::bless(name)` rewrites a fixture's outbound records with what the daemon
@@ -173,8 +174,10 @@ The fourteen fixtures are the milestone 1 list: `single_turn_text`,
 `queue_second_prompt`, `subscribe_resume_after_seq`,
 `subscribe_gap_too_large_snapshot`, `duplicate_command_id_receipt`,
 `provider_401_refresh_once`, `restart_reconcile_inflight_turn` and
-`pty_attach_since_seq`. The tests in `crates/efr-daemon/tests/` replay them and add the
-assertions of each case.
+`pty_attach_since_seq`. Later fixtures build on them: `messages_thinking_two_turns` runs
+Claude over Anthropic's wire and checks that signed thinking goes back unchanged, the
+first step to cross-provider tests. The tests in `crates/efr-daemon/tests/` replay them
+and add the assertions of each case.
 
 ## Tier
 

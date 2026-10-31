@@ -167,9 +167,10 @@ pub enum TestDaemonError {
         line: usize,
     },
 
-    /// The fake Responses server got a request that differs from its record.
-    #[error("request {index} to the Responses server differs from the record at line {line}")]
-    ResponsesMismatch {
+    /// The fake model server (Responses or Messages) got a request that differs from
+    /// its record.
+    #[error("request {index} to the model server differs from the record at line {line}")]
+    ServerMismatch {
         /// The request, from 0.
         index: usize,
         /// The line of the `provider_request` record.
@@ -180,9 +181,9 @@ pub enum TestDaemonError {
         actual: Value,
     },
 
-    /// The fake Responses server got another number of requests than its records.
-    #[error("the Responses server got {received} requests, but the transcript has {expected}")]
-    ResponsesCount {
+    /// The fake model server got another number of requests than its records.
+    #[error("the model server got {received} requests, but the transcript has {expected}")]
+    ServerCount {
         /// The requests it got.
         received: usize,
         /// The `provider_request` records.

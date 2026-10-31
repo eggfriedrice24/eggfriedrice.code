@@ -28,7 +28,8 @@
 //! `<HOME>`, `<TIMESTAMP>`). [`Replay::verify`] checks at the end that the provider got
 //! every request of the transcript and nothing else.
 //!
-//! In the Responses mode the server queues every exchange's answer at the start: the
+//! In the Responses mode and the Messages mode (Anthropic's wire, `anthropic-api`) the
+//! server queues every exchange's answer at the start: the
 //! `provider_sse` records of an exchange, joined, are the body of a 200 answer, unless
 //! the first line is the comment `: status <code>`, which sets the status. The requests
 //! are compared with the `provider_request` records at the end. A subscription
@@ -59,7 +60,9 @@ use serde_json::Value;
 
 pub use self::bindings::Bindings;
 use crate::pty_script::bytes_json;
-use crate::test_daemon::{ResponsesAnswer, ResponsesServer, TTY, working_dir};
+use crate::test_daemon::{
+    MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer, TTY, working_dir,
+};
 use crate::{FakeTerminal, TestDaemon, TestDaemonError};
 
 /// Event kinds whose number depends on how a stream is chunked.
@@ -76,6 +79,9 @@ pub const REFRESHED_ACCESS_TOKEN: &str = "efr-test-access-2";
 /// The refresh token it rotates to.
 pub const REFRESHED_REFRESH_TOKEN: &str = "efr-test-refresh-2";
 
+/// The one model of the Messages server's list in a Messages mode scenario.
+const MESSAGES_MODEL: &str = "claude-opus-5-5";
+
 /// How many runs a bless may take: each provider request that changed costs one.
 const MAX_BLESS_RUNS: usize = 16;
 
@@ -88,6 +94,9 @@ pub struct ScenarioSpec {
     /// The real OpenAI provider against a [`ResponsesServer`] instead of a replay
     /// provider.
     pub responses: bool,
+    /// The real `anthropic-api` provider against a [`MessagesServer`] instead of a replay
+    /// provider.
+    pub messages: bool,
     /// With `responses`, the `openai-subscription` provider with a stored login instead
     /// of `openai-api`; the server's token endpoint answers one refresh grant with
     /// [`REFRESHED_ACCESS_TOKEN`] and [`REFRESHED_REFRESH_TOKEN`].
@@ -110,6 +119,7 @@ impl ScenarioSpec {
         ScenarioSpec {
             name,
             responses: false,
+            messages: false,
             subscription: false,
             persistent: false,
             update_interval_ms: None,
@@ -122,6 +132,11 @@ impl ScenarioSpec {
     const fn subscription(mut self) -> Self {
         self.responses = true;
         self.subscription = true;
+        self
+    }
+
+    const fn messages(mut self) -> Self {
+        self.messages = true;
         self
     }
 
@@ -175,7 +190,33 @@ pub const SCENARIOS: &[ScenarioSpec] = &[
     // After the second prompt queued behind the running turn.
     ScenarioSpec::new("restart_reconcile_inflight_turn").persistent().restart_after_event(4),
     ScenarioSpec::new("pty_attach_since_seq"),
+    // Claude over Anthropic's wire: the signed thinking of the first turn goes back
+    // unchanged in the request of the second.
+    ScenarioSpec::new("messages_thinking_two_turns").messages(),
 ];
+
+/// The fake model server of a scenario that runs a real provider.
+#[derive(Debug)]
+pub(crate) enum WireServer {
+    /// OpenAI's Responses API, for `openai-api` and `openai-subscription`.
+    Responses(ResponsesServer),
+    /// Anthropic's Messages API, for `anthropic-api`.
+    Messages(MessagesServer),
+}
+
+impl WireServer {
+    /// The bodies of the model calls that the server got, in order.
+    fn received_bodies(&self) -> Vec<Value> {
+        match self {
+            WireServer::Responses(server) => {
+                server.received().into_iter().map(|request| request.body).collect()
+            }
+            WireServer::Messages(server) => {
+                server.received().into_iter().map(|request| request.body).collect()
+            }
+        }
+    }
+}
 
 /// A scenario: its spec and its transcript.
 #[derive(Debug, Clone)]
@@ -263,7 +304,7 @@ pub struct Replay {
     daemon: TestDaemon,
     client: Client,
     provider: Option<Arc<ReplayProvider>>,
-    server: Option<ResponsesServer>,
+    server: Option<WireServer>,
     redactor: Redactor,
     bindings: Bindings,
     conversation: Option<ConversationId>,
@@ -336,7 +377,15 @@ impl Replay {
             } else {
                 builder.responses(&server)
             };
-            (None, Some(server))
+            (None, Some(WireServer::Responses(server)))
+        } else if spec.messages {
+            let server = MessagesServer::start().await;
+            server.set_models(vec![MessagesServer::model(MESSAGES_MODEL)]);
+            for (_, _, answer) in exchanges(&scenario.transcript)? {
+                server.push(MessagesAnswer::from_sse(&answer));
+            }
+            builder = builder.messages(&server);
+            (None, Some(WireServer::Messages(server)))
         } else {
             let provider =
                 ReplayProvider::new(&scenario.transcript)?.with_redactor(redactor.clone()).paced();
@@ -392,7 +441,18 @@ impl Replay {
 
     /// The Responses server of a scenario in the Responses mode.
     pub fn server(&self) -> Option<&ResponsesServer> {
-        self.server.as_ref()
+        match &self.server {
+            Some(WireServer::Responses(server)) => Some(server),
+            _ => None,
+        }
+    }
+
+    /// The Messages server of a scenario in the Messages mode.
+    pub fn messages_server(&self) -> Option<&MessagesServer> {
+        match &self.server {
+            Some(WireServer::Messages(server)) => Some(server),
+            _ => None,
+        }
     }
 
     /// The ids bound so far.
@@ -512,23 +572,18 @@ impl Replay {
         }
         if let Some(server) = &self.server {
             let expected = exchanges(&self.scenario.transcript)?;
-            let received = server.received();
+            let received = server.received_bodies();
             if received.len() != expected.len() {
-                return Err(TestDaemonError::ResponsesCount {
+                return Err(TestDaemonError::ServerCount {
                     received: received.len(),
                     expected: expected.len(),
                 });
             }
             for (index, (request, (line, body, _))) in received.iter().zip(expected).enumerate() {
-                let actual = self.redactor.redact_json(&request.body);
+                let actual = self.redactor.redact_json(request);
                 let expected = self.redactor.redact_json(&body);
                 if actual != expected {
-                    return Err(TestDaemonError::ResponsesMismatch {
-                        index,
-                        line,
-                        expected,
-                        actual,
-                    });
+                    return Err(TestDaemonError::ServerMismatch { index, line, expected, actual });
                 }
             }
         }
@@ -569,11 +624,11 @@ impl Replay {
             outcome?;
             let mut rewrites = replay.rewrites.take().unwrap_or_default();
             if let Some(server) = &replay.server {
-                let received = server.received();
+                let received = server.received_bodies();
                 for ((line, _, _), request) in
                     exchanges(&scenario.transcript)?.into_iter().zip(received)
                 {
-                    let body = replay.redactor.redact_json(&request.body);
+                    let body = replay.redactor.redact_json(&request);
                     rewrites.insert(line, Record::ExpectOutbound(Outbound::ProviderRequest(body)));
                 }
             }

@@ -24,7 +24,7 @@ use efr_protocol::{
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
     ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, Client, ClientError, MessagesAnswer, MessagesServer,
-    TTY, TestDaemon, command_id, events_until,
+    Replay, TTY, TestDaemon, command_id, events_until,
 };
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -745,4 +745,29 @@ async fn after_a_restart_the_next_request_still_starts_with_the_one_before_it() 
         "the anchor of the first turn and a new one at the second prompt"
     );
     daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn messages_thinking_two_turns() {
+    let replay = Replay::run("messages_thinking_two_turns").await.unwrap();
+    let server = replay.messages_server().unwrap();
+
+    let received = server.received();
+    assert_eq!(received.len(), 2, "one model call per turn");
+    // The signed thinking of the first answer goes back unchanged: Anthropic checks
+    // the signature, and the next model call reads the earlier reasoning.
+    let thinking: Vec<&Value> = received[1].body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|message| message["content"].as_array().into_iter().flatten())
+        .filter(|block| block["type"] == "thinking")
+        .collect();
+    assert_eq!(
+        thinking,
+        [
+            &json!({"type": "thinking", "thinking": "The user says hello.", "signature": "sig-efr-1"})
+        ]
+    );
+    replay.stop().await.unwrap();
 }
