@@ -38,7 +38,8 @@
   "submit": {
     "production": {
       "ios": {
-        "bundleIdentifier": "dev.eggfriedrice.efr"
+        "bundleIdentifier": "dev.eggfriedrice.efr",
+        "ascAppId": "6827451005"
       }
     }
   }
