@@ -27,8 +27,15 @@ hoistPattern:
 # the header only as <React/RCTBridge.h>, so the iOS build fails. The patch changes only
 # that import (t3code does the same since its move to SDK 58). Drop it with the next
 # release of the package that has the fix.
+# react-native-enriched-markdown 1.1.1 on iOS gives text with more than one line the full
+# max width. In the horizontal ScrollView of our code block frame, that width is
+# infinite, so the fence body draws no text. The patch is upstream PR #1017 (issue #990,
+# merged 2026-10-16): only soft-wrapped text takes the max width. It leaves out the
+# `subtractExtraLineFragment` argument of #885, which 1.1.1 does not have. Drop it with
+# the first release after 1.1.1 (1.2.0 has the fix).
 patchedDependencies:
   "@react-native-menu/menu@2.0.0": patches/@react-native-menu__menu@2.0.0.patch
+  react-native-enriched-markdown@1.1.1: patches/react-native-enriched-markdown@1.1.1.patch
 # eas-cli 25.3.0 reads app.config.ts through @expo/config 55, whose @expo/require-utils
 # 55.0.8 asks for TypeScript 5 as an optional peer. The app pins TypeScript 7.0.2. It is
 # safe: that package finds no transpileModule in TypeScript 7 and then strips the types

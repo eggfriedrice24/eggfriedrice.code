@@ -21,6 +21,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A build of the `efr-code` AUR package on a computer with many cores no longer fails
   in its tests. The package now runs them with `cargo-nextest`, as CI does, so each
   test runs in a process of its own.
+- The phone app shows the text of a code block again. Before, the body of a code block
+  was empty on iOS, but its copy button worked. The cause was a bug in the Markdown
+  library. The app now patches it with the upstream fix.
 
 ### Changed
 
