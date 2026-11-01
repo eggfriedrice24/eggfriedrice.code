@@ -2485,11 +2485,13 @@ export const modelInfoSchema = z.object({
   id: z.string(),
   max_context_window: z.int().nonnegative().nullable().exactOptional(),
   prefer_websockets: z.boolean().exactOptional(),
+  provider: z.string().nullable().exactOptional(),
   source: modelSourceSchema,
 }) satisfies z.ZodType<ModelInfo>;
 
 export const modelsListResultSchema = z.object({
   catalog: catalogStatusSchema.nullable().exactOptional(),
+  catalogs: z.array(catalogStatusSchema).exactOptional(),
   models: z.array(modelInfoSchema),
 }) satisfies z.ZodType<ModelsListResult>;
 

@@ -3,6 +3,7 @@ use super::{EFFORT_MAX_LEN, ModelInfo, ModelSource, is_effort_word};
 fn model(efforts: &[&str]) -> ModelInfo {
     ModelInfo {
         id: "gpt-5.5".to_owned(),
+        provider: None,
         efforts: efforts.iter().map(|effort| (*effort).to_owned()).collect(),
         default_effort: None,
         default: false,

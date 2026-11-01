@@ -1,16 +1,17 @@
 //! The model catalog over a `TestDaemon` with the real subscription provider: efrd
 //! fetches the backend's list in the background, `models.list` and the turns follow
 //! it, the cache file brings it back after a restart while the backend is down, and a
-//! fetch that hangs never holds up a prompt.
+//! fetch that hangs never holds up a prompt. A second provider with a login adds its
+//! list after the first.
 
 use std::time::Duration;
 
 use efr_protocol::{
-    AdminStatus, AdminStatusResult, CatalogOrigin, Event, Method, ModelsList, ModelsListResult,
-    PromptSendResult,
+    AdminLoginApiKey, AdminLoginApiKeyResult, AdminStatus, AdminStatusResult, CatalogOrigin, Event,
+    Method, ModelsList, ModelsListResult, PromptSendResult, SecretText,
 };
 use efr_test_daemon::{
-    ModelsAnswer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon, events_until,
+    MessagesServer, ModelsAnswer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon, events_until,
 };
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -184,5 +185,61 @@ async fn a_turn_after_the_fetch_uses_the_backends_default_and_tool_form() {
     let patch = body["tools"].as_array().unwrap().iter().find(|tool| tool["name"] == "apply_patch");
     assert_eq!(patch.map(|tool| tool["type"].clone()), Some(json!("custom")));
     drop((follow, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_second_provider_with_a_login_adds_its_models_after_those_of_the_first() {
+    let responses = ResponsesServer::start().await;
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let anthropic_url = messages.base_url();
+    let daemon = TestDaemon::builder()
+        .responses(&responses)
+        .config(|config| config.anthropic.base_url = Some(anthropic_url))
+        .start()
+        .await
+        .unwrap();
+    let before = models(&daemon).await;
+    assert!(before.catalogs.is_empty(), "one provider says it all in `catalog`");
+    assert!(before.models.iter().all(|model| model.provider.as_deref() == Some("openai-api")));
+    let client = daemon.client().await.unwrap();
+
+    let _: AdminLoginApiKeyResult = client
+        .call(Method::AdminLoginApiKey(AdminLoginApiKey {
+            provider: "anthropic-api".to_owned(),
+            key: SecretText::new("sk-ant-api03-efr-catalog-test-key-c3d4"),
+            check: false,
+        }))
+        .await
+        .unwrap();
+
+    let list = Wait::new("the list of the second provider")
+        .until_some_async(async || {
+            let list = models(&daemon).await;
+            list.models
+                .iter()
+                .any(|model| model.provider.as_deref() == Some("anthropic-api"))
+                .then_some(list)
+        })
+        .await
+        .unwrap();
+    let providers: Vec<&str> =
+        list.models.iter().filter_map(|model| model.provider.as_deref()).collect();
+    let first_other = providers.iter().position(|provider| *provider == "anthropic-api").unwrap();
+    assert!(providers[..first_other].iter().all(|provider| *provider == "openai-api"));
+    assert!(providers[first_other..].iter().all(|provider| *provider == "anthropic-api"));
+    assert!(
+        list.models
+            .iter()
+            .filter(|model| model.default)
+            .all(|model| model.provider.as_deref() == Some("openai-api")),
+        "only the provider of new conversations has the default"
+    );
+    let catalogs: Vec<Option<&str>> =
+        list.catalogs.iter().map(|catalog| catalog.provider.as_deref()).collect();
+    assert_eq!(catalogs, [Some("openai-api"), Some("anthropic-api")]);
+    assert_eq!(list.catalog, list.catalogs.first().cloned());
+    drop(client);
     daemon.stop().await.unwrap();
 }

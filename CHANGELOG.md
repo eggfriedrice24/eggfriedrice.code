@@ -10,6 +10,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- The model list now also holds the models of each other provider that you are
+  logged in to, after the models of the provider of new conversations. Each model
+  names its provider. efrd keeps the list of each provider up to date on its own, and
+  the OpenAI API key list now has a cache file of its own,
+  `openai_api_model_catalog.json`.
+
 ## [0.0.7] - 2026-10-31
 
 ### Added

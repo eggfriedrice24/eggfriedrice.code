@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use super::list::{ANTHROPIC_CATALOG_FILE, CATALOG_FILE};
+use super::list::{ANTHROPIC_CATALOG_FILE, API_CATALOG_FILE, CATALOG_FILE};
 use super::{
     Clamp, Fetcher, ModelList, Models, ProviderCatalog, REFRESH_INTERVAL, cache_path,
     default_model, effective_models, load, retry_wait,
@@ -128,6 +128,7 @@ fn the_effective_list_is_the_catalog_then_the_configured_ids() {
         models[1],
         ModelInfo {
             id: "gpt-7-sol".to_owned(),
+            provider: None,
             efforts: vec!["low".to_owned(), "high".to_owned()],
             default_effort: Some("low".to_owned()),
             default: false,
@@ -522,15 +523,21 @@ fn write_anthropic_cache(path: &Path, base_url: &str, models: &[Value]) {
 }
 
 #[test]
-fn each_company_keeps_its_catalog_in_a_file_of_its_own() {
+fn each_provider_keeps_its_catalog_in_a_file_of_its_own() {
     let state = Path::new("/state");
 
     assert_eq!(cache_path(&Settings::default(), state), state.join(CATALOG_FILE));
     let mut api = Settings::default();
     api.model.provider = API.to_owned();
-    assert_eq!(cache_path(&api, state), state.join(CATALOG_FILE));
+    assert_eq!(cache_path(&api, state), state.join(API_CATALOG_FILE));
     assert_eq!(cache_path(&anthropic_settings(), state), state.join(ANTHROPIC_CATALOG_FILE));
-    assert_ne!(CATALOG_FILE, ANTHROPIC_CATALOG_FILE);
+    let files = [CATALOG_FILE, API_CATALOG_FILE, ANTHROPIC_CATALOG_FILE];
+    let unique: std::collections::BTreeSet<_> = files.iter().collect();
+    assert_eq!(
+        unique.len(),
+        files.len(),
+        "both OpenAI lists run at once, so they never share a file"
+    );
 }
 
 #[tokio::test]

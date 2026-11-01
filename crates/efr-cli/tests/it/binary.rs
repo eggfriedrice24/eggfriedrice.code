@@ -498,6 +498,7 @@ fn listing_models(roots: &Roots) -> JoinHandle<()> {
         assert!(matches!(method, Method::ModelsList(_)), "{}", method.name());
         let model = |id: &str, default| ModelInfo {
             id: id.to_owned(),
+            provider: None,
             efforts: vec!["low".to_owned(), "medium".to_owned(), "high".to_owned()],
             default_effort: Some("medium".to_owned()),
             default,
@@ -511,6 +512,7 @@ fn listing_models(roots: &Roots) -> JoinHandle<()> {
             &ModelsListResult {
                 models: vec![model("gpt-5.5", true), model("gpt-5.4", false)],
                 catalog: None,
+                catalogs: Vec::new(),
             },
         );
         conn.drain();

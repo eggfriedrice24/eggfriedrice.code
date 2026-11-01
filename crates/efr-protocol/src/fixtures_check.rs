@@ -2145,6 +2145,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
         models: vec![
             ModelInfo {
                 id: "gpt-5.5".into(),
+                provider: None,
                 efforts: vec!["low".into(), "medium".into(), "high".into()],
                 default_effort: Some("medium".into()),
                 default: true,
@@ -2155,6 +2156,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
             },
             ModelInfo {
                 id: "gpt-5.5-preview".into(),
+                provider: None,
                 efforts: Vec::new(),
                 default_effort: None,
                 default: false,
@@ -2169,6 +2171,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
             origin: CatalogOrigin::Cache,
             fetched_at: Some(at("2026-10-03T07:00:00Z")),
         }),
+        catalogs: Vec::new(),
     }
 }
 

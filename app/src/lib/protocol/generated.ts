@@ -6642,6 +6642,12 @@ export interface ModelsListResult {
    */
   catalog?: CatalogStatus | null;
   /**
+   * Where the catalog of each provider in `models` came from: the provider of new
+   * conversations first, then each other provider with a login. Absent when the
+   * daemon lists only the provider of new conversations, as before.
+   */
+  catalogs?: CatalogStatus[];
+  /**
    * Every model: the ones of the provider's catalog first, best priority first, then
    * the ones that the config adds.
    */
@@ -6686,6 +6692,12 @@ export interface ModelInfo {
    * True when the backend prefers that a client reach the model over a WebSocket.
    */
   prefer_websockets?: boolean;
+  /**
+   * The provider whose catalog lists the model, such as `anthropic-api`. One id can
+   * be in the list of more than one provider. Absent from a daemon before it listed
+   * more than one provider.
+   */
+  provider?: string | null;
   /**
    * Where the model comes from.
    */

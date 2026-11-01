@@ -209,6 +209,7 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
 fn a_model_without_efforts_or_default_is_its_id_and_source() {
     let model = ModelInfo {
         id: "gpt-5.5-preview".to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default: false,
@@ -228,6 +229,7 @@ fn the_default_model_and_its_efforts_are_written() {
     let result = ModelsListResult {
         models: vec![ModelInfo {
             id: "gpt-5.5".to_owned(),
+            provider: None,
             efforts: vec!["low".to_owned(), "high".to_owned()],
             default_effort: Some("low".to_owned()),
             default: true,
@@ -237,6 +239,7 @@ fn the_default_model_and_its_efforts_are_written() {
             prefer_websockets: false,
         }],
         catalog: None,
+        catalogs: Vec::new(),
     };
     assert_eq!(
         serde_json::to_value(&result).unwrap(),

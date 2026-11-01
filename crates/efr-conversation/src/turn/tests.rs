@@ -56,6 +56,7 @@ fn unknown_window() -> ContextLimits {
 /// A model list with the test model and two others, each with its efforts.
 fn models() -> Vec<ModelInfo> {
     let model = |id: &str, efforts: &[&str]| ModelInfo {
+        provider: None,
         id: id.to_owned(),
         efforts: efforts.iter().map(|effort| (*effort).to_owned()).collect(),
         default_effort: Some("medium".to_owned()),

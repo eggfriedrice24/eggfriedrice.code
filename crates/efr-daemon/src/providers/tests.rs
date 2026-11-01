@@ -14,9 +14,9 @@ use pretty_assertions::assert_eq;
 
 use crate::catalog::ProviderCatalog;
 use crate::providers::{
-    ANTHROPIC, API, KeyLogin, KeySource, ProviderFactory, ProviderParts, Providers, SUBSCRIPTION,
-    StoredApiKey, anthropic_config, login_command, openai_config, provider_status,
-    warn_foreign_model,
+    ANTHROPIC, API, CatalogStart, KeyLogin, KeySource, PROVIDERS, ProviderFactory, ProviderParts,
+    Providers, SUBSCRIPTION, StoredApiKey, anthropic_config, login_command, openai_config,
+    provider_status, warn_foreign_model,
 };
 use crate::testing::OneAnswerFactory;
 use crate::{DaemonError, KeyProblem};
@@ -40,10 +40,23 @@ fn parts(
         rng: Arc::new(TestRng::new(2)),
         factory,
         issuer: None,
-        catalog: ProviderCatalog::OpenAi(ModelCatalog::new(Catalog::builtin(
-            Backend::Subscription,
-        ))),
-        catalog_cache: dir.join("state").join("model_catalog.json"),
+        catalogs: PROVIDERS
+            .map(|provider| CatalogStart {
+                provider,
+                catalog: match provider {
+                    ANTHROPIC => {
+                        ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new())
+                    }
+                    API => {
+                        ProviderCatalog::OpenAi(ModelCatalog::new(Catalog::builtin(Backend::Api)))
+                    }
+                    _ => ProviderCatalog::OpenAi(ModelCatalog::new(Catalog::builtin(
+                        Backend::Subscription,
+                    ))),
+                },
+                cache: crate::catalog::cache_path_of(provider, &dir.join("state")),
+            })
+            .into(),
     }
 }
 
@@ -270,8 +283,7 @@ fn the_anthropic_provider_is_built_and_fetches_its_catalog_without_a_list_yet() 
     let clock = TestClock::new();
     let mut config = Settings::default();
     config.model.provider = ANTHROPIC.to_owned();
-    let mut parts = parts(&clock, dir.path(), None);
-    parts.catalog = ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new());
+    let parts = parts(&clock, dir.path(), None);
 
     let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
 
@@ -365,8 +377,7 @@ async fn a_login_or_a_logout_forgets_that_the_old_key_was_refused() {
     let clock = TestClock::new();
     let mut config = Settings::default();
     config.model.provider = ANTHROPIC.to_owned();
-    let mut parts = parts(&clock, dir.path(), None);
-    parts.catalog = ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new());
+    let parts = parts(&clock, dir.path(), None);
     let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
     let key = SecretText::new("sk-ant-api03-efr-test-a1b2");
     providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();

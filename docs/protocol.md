@@ -916,3 +916,10 @@ No protocol version has shipped yet.
   `prompt.send` result gain an optional `provider`: the provider that runs the turn,
   such as `anthropic-api`. Absent from a daemon before, and in the events of its turns.
   A later turn uses it to tell a switch of provider. No fixture changes.
+- Version 1, additive: the models of more than one provider. A model of `models.list`
+  gains an optional `provider`, such as `anthropic-api`. The result gains an optional
+  `catalogs`, the status of the catalog of each listed provider, first the provider of
+  new conversations. The list holds the models of that provider first, then the models
+  of each other provider with a login, which are never the default. With one provider,
+  `catalogs` is absent and `catalog` says it all. Absent from a daemon before. No
+  fixture changes.

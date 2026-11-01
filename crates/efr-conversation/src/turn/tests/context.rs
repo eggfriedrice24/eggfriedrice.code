@@ -21,6 +21,7 @@ use crate::{CompactionConfig, ContextLimits, ConversationDraft, HistoryLimits};
 fn with_window(setup: &mut Setup, window: u64) -> ContextLimits {
     setup.config.models = vec![ModelInfo {
         id: MODEL.to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default: true,

@@ -643,6 +643,7 @@ async fn settings_that_cannot_work_give_way_to_the_turns_own_when_steers_go_agai
     let mut setup = Setup::new();
     setup.config.models = vec![efr_protocol::ModelInfo {
         id: crate::testing::MODEL.to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default: true,

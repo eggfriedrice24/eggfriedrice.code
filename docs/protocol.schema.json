@@ -9115,6 +9115,13 @@
           "description": "True when the backend prefers that a client reach the model over a WebSocket.",
           "type": "boolean"
         },
+        "provider": {
+          "description": "The provider whose catalog lists the model, such as `anthropic-api`. One id can\nbe in the list of more than one provider. Absent from a daemon before it listed\nmore than one provider.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source": {
           "$ref": "#/$defs/ModelSource",
           "description": "Where the model comes from."
@@ -9158,6 +9165,13 @@
             }
           ],
           "description": "Where the provider's catalog came from. Absent when the daemon does not report\nit, as before the catalog came from the backend."
+        },
+        "catalogs": {
+          "description": "Where the catalog of each provider in `models` came from: the provider of new\nconversations first, then each other provider with a login. Absent when the\ndaemon lists only the provider of new conversations, as before.",
+          "items": {
+            "$ref": "#/$defs/CatalogStatus"
+          },
+          "type": "array"
         },
         "models": {
           "description": "Every model: the ones of the provider's catalog first, best priority first, then\nthe ones that the config adds.",

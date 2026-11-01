@@ -333,6 +333,7 @@ pub(crate) fn models() -> ModelsListResult {
         models: vec![
             ModelInfo {
                 id: "gpt-5.5".to_owned(),
+                provider: None,
                 efforts: efforts(&["low", "medium", "high", "xhigh"]),
                 default_effort: Some("medium".to_owned()),
                 default: true,
@@ -343,6 +344,7 @@ pub(crate) fn models() -> ModelsListResult {
             },
             ModelInfo {
                 id: "gpt-5.4".to_owned(),
+                provider: None,
                 efforts: efforts(&["low", "medium", "high"]),
                 default_effort: None,
                 default: false,
@@ -353,6 +355,7 @@ pub(crate) fn models() -> ModelsListResult {
             },
             ModelInfo {
                 id: "my-model".to_owned(),
+                provider: None,
                 efforts: Vec::new(),
                 default_effort: None,
                 default: false,
@@ -367,6 +370,7 @@ pub(crate) fn models() -> ModelsListResult {
             origin: CatalogOrigin::Backend,
             fetched_at: Some(now() - jiff::SignedDuration::from_mins(5)),
         }),
+        catalogs: Vec::new(),
     }
 }
 

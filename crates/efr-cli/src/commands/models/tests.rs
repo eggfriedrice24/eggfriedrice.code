@@ -1,7 +1,7 @@
 use efr_protocol::Origin;
 use pretty_assertions::assert_eq;
 
-use super::{listing, names};
+use super::{listing, names, of_new_conversations};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{TestEnv, capture, command, models, now};
@@ -14,6 +14,24 @@ fn the_listing_marks_the_default_and_names_the_efforts() {
 #[test]
 fn names_are_the_ids_alone() {
     assert_eq!(names(&models()), "gpt-5.5\ngpt-5.4\nmy-model\n");
+}
+
+#[test]
+fn only_the_models_of_the_provider_of_new_conversations_are_offered() {
+    let mut list = models();
+    list.catalog = Some(efr_protocol::CatalogStatus {
+        provider: Some("openai-api".to_owned()),
+        origin: efr_protocol::CatalogOrigin::Builtin,
+        fetched_at: None,
+    });
+    list.catalogs = vec![list.catalog.clone().unwrap()];
+    list.models[0].provider = Some("openai-api".to_owned());
+    list.models[1].provider = Some("anthropic-api".to_owned());
+
+    let list = of_new_conversations(list);
+
+    assert_eq!(names(&list), "gpt-5.5\nmy-model\n", "a model that names no provider stays");
+    assert!(list.catalogs.is_empty());
 }
 
 #[test]

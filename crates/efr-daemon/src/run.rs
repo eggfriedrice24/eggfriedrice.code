@@ -69,7 +69,7 @@ use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
 use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
 use crate::trusted_programs::TrustedPrograms;
-use crate::{DaemonError, backups, catalog, gc, home, notices, reconcile, screens, signals};
+use crate::{DaemonError, backups, gc, home, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
 const RECORDINGS_DIR: &str = "recordings";
@@ -557,7 +557,6 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
-    let catalog_cache = catalog::cache_path(&settings, dirs.state());
     let providers = Providers::build(
         &settings,
         secrets,
@@ -567,8 +566,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             rng: Arc::clone(&rng),
             factory: providers,
             issuer: oauth_issuer,
-            catalog: catalog::load(&settings, &catalog_cache).await,
-            catalog_cache,
+            catalogs: crate::providers::catalog_starts(&settings, dirs.state()).await,
         },
     )?;
     let models = providers.models();
@@ -907,7 +905,15 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_recordings(Arc::clone(&state), stop.clone())),
-        tokio::spawn(state.providers.models().serve(stop.clone())),
+        // NOTE: each provider's catalog has a fetch task of its own.
+        tokio::spawn({
+            let catalogs = state.providers.all_models();
+            let stop = stop.clone();
+            async move {
+                let serving = catalogs.into_iter().map(|models| models.serve(stop.clone()));
+                futures::future::join_all(serving).await;
+            }
+        }),
         tokio::spawn(search_index::follow(
             state.writer.clone(),
             index_reader,

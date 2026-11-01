@@ -25,8 +25,18 @@ pub(crate) async fn run(
     args: &ModelsArgs,
 ) -> Result<(), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
-    let list: ModelsListResult = client.call(Method::ModelsList(ModelsList {})).await?;
+    let list = of_new_conversations(client.call(Method::ModelsList(ModelsList {})).await?);
     out.out(&if args.names { names(&list) } else { listing(&list, ctx.clock.now()) })
+}
+
+/// `list` without the models of other providers than the provider of new
+/// conversations: a turn runs only on that one for now. A model that names no provider
+/// comes from a daemon before the lists of more providers, and stays.
+pub(crate) fn of_new_conversations(mut list: ModelsListResult) -> ModelsListResult {
+    let provider = list.catalog.as_ref().and_then(|catalog| catalog.provider.clone());
+    list.models.retain(|model| model.provider.is_none() || model.provider == provider);
+    list.catalogs.clear();
+    list
 }
 
 /// Each id on a line of its own.

@@ -13,12 +13,26 @@ use jiff::Timestamp;
 
 use crate::providers::{ANTHROPIC, API};
 
-/// The cache file of the OpenAI catalogs, in the state root.
+/// The cache file of the `openai-subscription` catalog, in the state root.
 pub(crate) const CATALOG_FILE: &str = "model_catalog.json";
+
+/// The cache file of the `openai-api` catalog, in the state root. Each provider has a
+/// file of its own, so the two OpenAI providers, whose lists both run at once, never
+/// write over each other's list.
+pub(crate) const API_CATALOG_FILE: &str = "openai_api_model_catalog.json";
 
 /// The cache file of the Anthropic catalog, in the state root. It has a name of its
 /// own, so a change of `[model] provider` never reads the list of the other company.
 pub(crate) const ANTHROPIC_CATALOG_FILE: &str = "anthropic_model_catalog.json";
+
+/// The cache file of the catalog of `provider`, in the state root.
+pub(crate) fn cache_file(provider: &str) -> &'static str {
+    match provider {
+        API => API_CATALOG_FILE,
+        ANTHROPIC => ANTHROPIC_CATALOG_FILE,
+        _ => CATALOG_FILE,
+    }
+}
 
 /// The company whose models a provider serves, which decides the form of its catalog
 /// and the config table that adds models to it.
@@ -49,14 +63,6 @@ impl Vendor {
         match self {
             Vendor::OpenAi => "the OpenAI model list",
             Vendor::Anthropic => "Claude's model list",
-        }
-    }
-
-    /// The cache file of the catalog, in the state root.
-    pub(crate) fn cache_file(self) -> &'static str {
-        match self {
-            Vendor::OpenAi => CATALOG_FILE,
-            Vendor::Anthropic => ANTHROPIC_CATALOG_FILE,
         }
     }
 

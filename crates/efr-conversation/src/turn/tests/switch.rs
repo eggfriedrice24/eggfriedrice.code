@@ -125,6 +125,7 @@ impl Provider for Windowed {
 fn model(id: &str, window: u64, default: bool) -> ModelInfo {
     ModelInfo {
         id: id.to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default,

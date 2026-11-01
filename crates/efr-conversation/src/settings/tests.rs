@@ -46,6 +46,7 @@ fn woke(sandbox: &SandboxStatus) -> Place<'_> {
 fn model(id: &str, efforts: &[&str], default_effort: &str) -> ModelInfo {
     ModelInfo {
         id: id.to_owned(),
+        provider: None,
         efforts: efforts.iter().map(|effort| (*effort).to_owned()).collect(),
         default_effort: Some(default_effort.to_owned()),
         default: id == "gpt-5.5",
@@ -225,6 +226,7 @@ fn a_model_whose_efforts_are_not_known_takes_any_effort_word() {
     let mut config = config();
     config.models.push(ModelInfo {
         id: "gpt-next".to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default: false,

@@ -19,6 +19,11 @@ pub struct ModelsListResult {
     /// it, as before the catalog came from the backend.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog: Option<CatalogStatus>,
+    /// Where the catalog of each provider in `models` came from: the provider of new
+    /// conversations first, then each other provider with a login. Absent when the
+    /// daemon lists only the provider of new conversations, as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalogs: Vec<CatalogStatus>,
 }
 
 /// Where the daemon's model catalog came from, and when.
@@ -61,6 +66,11 @@ pub enum CatalogOrigin {
 pub struct ModelInfo {
     /// The model id, such as `gpt-5.5`.
     pub id: String,
+    /// The provider whose catalog lists the model, such as `anthropic-api`. One id can
+    /// be in the list of more than one provider. Absent from a daemon before it listed
+    /// more than one provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// The reasoning efforts that the model takes, such as `low`, `medium` and `high`.
     /// A prompt's `settings.effort` must be one of them. Empty for a model whose
     /// efforts efr does not know.

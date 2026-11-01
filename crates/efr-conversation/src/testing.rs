@@ -1390,6 +1390,7 @@ pub(crate) fn compacting() -> Setup {
     let mut setup = Setup::new();
     setup.config.models = vec![ModelInfo {
         id: MODEL.to_owned(),
+        provider: None,
         efforts: Vec::new(),
         default_effort: None,
         default: true,

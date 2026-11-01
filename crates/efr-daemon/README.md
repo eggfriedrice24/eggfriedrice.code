@@ -204,17 +204,22 @@ reload also reads the pacman files again, and an engine whose list differs is se
 
 ### The model catalog
 
-`catalog.rs` keeps the model catalog of the active provider (`Models`), and every
-reader takes it from memory: a turn when it starts, a prompt when it arrives,
-`models.list`, `admin.status` and the settings tool. A new list applies from the next
+`catalog.rs` keeps the model catalog of each provider (`Models`, one per provider in
+`Providers`), and every reader takes it from memory: a turn when it starts, a prompt
+when it arrives, `models.list`, `admin.status` and the settings tool. Turns and
+`admin.status` use the catalog of the configured provider. `models.list` lists its
+models first, then the models of each other provider with a login, each with its
+`provider` and never as the default, and gives the status of each listed catalog in
+`catalogs`. Each catalog fetches on its own task, with its own cache file. A new list applies from the next
 turn on. The catalog has the form of the provider's company (`ProviderCatalog`, an
 OpenAI or an Anthropic catalog), and the provider reads the same shared catalog for
 each request. Each reader sees it as one `ModelList`: the models, the default, where
 the list came from and when.
 
-- At start, efrd reads the cache file of the configured provider in its state root:
-  `model_catalog.json` for OpenAI, `anthropic_model_catalog.json` for Anthropic, the
-  last list that the configured backend sent. A file of another backend, a broken file
+- At start, efrd reads the cache file of each provider in its state root:
+  `model_catalog.json` for the subscription, `openai_api_model_catalog.json` for the
+  OpenAI API key, `anthropic_model_catalog.json` for Anthropic, the last list that
+  that backend sent. A file of another backend, a broken file
   or a list that offers no model is not used. Then the table built into efr stands in
   for OpenAI, and Anthropic has no list. So a start while offline offers the last
   list.

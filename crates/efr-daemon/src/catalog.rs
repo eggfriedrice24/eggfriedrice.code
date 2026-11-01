@@ -235,11 +235,20 @@ impl Models {
         default_model(settings, &self.list())
     }
 
-    /// The effective model list with `settings`. A window of the config's list above
-    /// the model's largest one is cut down to it, with one warning per entry.
+    /// The provider whose catalog this is.
+    pub(crate) fn provider(&self) -> &str {
+        &self.provider
+    }
+
+    /// The effective model list with `settings`, each model with this provider. A
+    /// window of the config's list above the model's largest one is cut down to it, with
+    /// one warning per entry.
     pub(crate) fn effective(&self, settings: &Settings) -> Vec<WireModel> {
         let list = self.list();
-        let (models, clamps) = effective_models(settings, &list);
+        let (mut models, clamps) = effective_models(settings, &list);
+        for model in &mut models {
+            model.provider = Some(self.provider.clone());
+        }
         if !clamps.is_empty() {
             let mut warned = self.warned.lock().unwrap_or_else(PoisonError::into_inner);
             for clamp in clamps {
@@ -449,17 +458,30 @@ where
 
 /// The path of the cache file of the catalog of `settings`' provider in `state`, the
 /// state root.
+#[cfg(test)]
 pub(crate) fn cache_path(settings: &Settings, state: &Path) -> PathBuf {
-    state.join(Vendor::of(&settings.model.provider).cache_file())
+    cache_path_of(&settings.model.provider, state)
+}
+
+/// The cache file of the catalog of `provider` in the state root `state`.
+pub(crate) fn cache_path_of(provider: &str, state: &Path) -> PathBuf {
+    state.join(list::cache_file(provider))
 }
 
 /// The catalog that efrd starts with, for the provider of `settings`: the cache file
 /// at `path` when it holds a list of that provider's backend that offers a model,
 /// else the built-in table (OpenAI) or no list (Anthropic).
+#[cfg(test)]
 pub(crate) async fn load(settings: &Settings, path: &Path) -> ProviderCatalog {
-    match Vendor::of(&settings.model.provider) {
+    load_of(settings, &settings.model.provider, path).await
+}
+
+/// The catalog that efrd starts with for `provider`, as [`load`] reads it for the
+/// provider of new conversations.
+pub(crate) async fn load_of(settings: &Settings, provider: &str, path: &Path) -> ProviderCatalog {
+    match Vendor::of(provider) {
         Vendor::OpenAi => {
-            let catalog = load_openai(settings, path).await;
+            let catalog = load_openai(settings, provider, path).await;
             ProviderCatalog::OpenAi(efr_providers::openai::ModelCatalog::new(catalog))
         }
         Vendor::Anthropic => {
@@ -473,10 +495,14 @@ pub(crate) async fn load(settings: &Settings, path: &Path) -> ProviderCatalog {
 }
 
 /// The OpenAI catalog of the cache file at `path`, else the built-in table.
-async fn load_openai(settings: &Settings, path: &Path) -> efr_providers::openai::Catalog {
+async fn load_openai(
+    settings: &Settings,
+    provider: &str,
+    path: &Path,
+) -> efr_providers::openai::Catalog {
     use efr_providers::openai::Catalog;
 
-    let backend = backend(&settings.model.provider);
+    let backend = backend(provider);
     let base_url = openai_base_url(settings, backend).unwrap_or_default();
     let owned = path.to_path_buf();
     let read = tokio::task::spawn_blocking(move || {
@@ -589,6 +615,7 @@ pub(crate) fn effective_models(
         .map(|model| WireModel {
             default: model.id == default,
             id: model.id.clone(),
+            provider: None,
             efforts: model.efforts.clone(),
             default_effort: model.default_effort.clone(),
             source: ModelSource::Builtin,
@@ -614,6 +641,7 @@ pub(crate) fn effective_models(
         }
         models.push(WireModel {
             id: entry.id().to_owned(),
+            provider: None,
             efforts: Vec::new(),
             default_effort: None,
             default: entry.id() == default,
