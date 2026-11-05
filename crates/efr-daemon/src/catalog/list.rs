@@ -127,7 +127,7 @@ impl ProviderCatalog {
 
     /// The OpenAI catalog to share with an OpenAI provider of `backend`: this one, or a
     /// new one with the built-in table when this is the catalog of another company.
-    /// efrd loads the catalog of `[model] provider`, so it never needs the new one.
+    /// efrd gives each provider the catalog of its own id, so it never needs the new one.
     pub(crate) fn openai(
         &self,
         backend: efr_providers::openai::Backend,

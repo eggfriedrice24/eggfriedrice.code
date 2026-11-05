@@ -5,8 +5,12 @@
 //! first, with the default model marked; then the models of each other provider with
 //! a login, in the order of [`PROVIDERS`](crate::providers::PROVIDERS), never marked as
 //! the default. Without a login another provider's list cannot serve a turn, so it is
-//! left out, and a model id that two providers list goes to the first one that can
-//! serve it. Each model names its provider.
+//! left out. Each model names its provider.
+//!
+//! The turns read the same list in the order of routing ([`Catalogs::routed`]): the
+//! provider of new conversations moves behind the others while it has no login, so a
+//! model id that two providers list, such as a GPT model of the ChatGPT plan and of an
+//! API key, goes to the first one that can serve it.
 //!
 //! The logins are read from the credential store once at start and then follow each
 //! login and logout of efrd, so the list comes from memory and never waits.
@@ -100,6 +104,18 @@ impl Catalogs {
             catalogs.push(other.status());
         }
         Listed { models, catalogs }
+    }
+
+    /// The list of [`listed`](Self::listed) in the order of routing: the models of the
+    /// providers with a login first, each group in its own order. A turn goes to the
+    /// first provider that lists its model.
+    pub(crate) fn routed(&self, settings: &Settings) -> Vec<ModelInfo> {
+        let (mut first, rest): (Vec<ModelInfo>, Vec<ModelInfo>) =
+            self.listed(settings).models.into_iter().partition(|model| {
+                model.provider.as_deref().is_some_and(|provider| self.logged_in(provider))
+            });
+        first.extend(rest);
+        first
     }
 }
 

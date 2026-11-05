@@ -20,7 +20,8 @@ use std::time::{Duration, SystemTime};
 
 use efr_config::{RecordingSettings, Settings};
 use efr_conversation::{
-    ConversationDeps, ExitJudge, GitScopeResolver, HostInfo, PresenceReader, draft_channel,
+    ConversationDeps, ExitJudge, GitScopeResolver, HostInfo, PresenceReader, ProviderRouter,
+    draft_channel,
 };
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
@@ -41,7 +42,6 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::catalog::Vendor;
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
@@ -595,6 +595,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // above. Turns read the settings when they start; tool calls read the engine. A
     // change of the mode alone needs no new engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
+    let providers = providers.with_settings(settings_receiver.clone());
     let (reloads, reload_requests) = Reloads::new();
     reloads.held_at_start(held);
     let settings_tool = SettingsTool::new(
@@ -602,7 +603,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings_receiver.clone(),
         engine_receiver.clone(),
         reloads.clone(),
-        providers.models(),
+        providers.catalogs(),
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
@@ -723,12 +724,12 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone())
             .with_connections(Arc::clone(&connections)),
     );
-    // NOTE: the judge asks the provider of every conversation, whose company names the
-    // small model; `[model] provider` needs a restart, so the company stays.
+    // NOTE: one router for the turns and the judge, which asks the provider of each
+    // exit's turn; its company names the small model.
+    let routes: Arc<dyn ProviderRouter> = Arc::new(providers.routes(settings_receiver.clone()));
     let judge: Arc<dyn ExitJudge> = Arc::new(ClassifierJudge::new(
-        providers.active(),
+        Arc::clone(&routes),
         settings_receiver.clone(),
-        Vendor::of(&settings.model.provider),
         Arc::clone(&clock),
     ));
     let live_settings = LiveSettings::new(
@@ -753,7 +754,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let (idle_trims, idle_trims_watch) = watch::channel(0);
     let heap_committed = writer.subscribe();
     let conversation_deps = ConversationDeps {
-        providers: Arc::new(providers.routes(settings_receiver.clone())),
+        providers: routes,
         toolbox: Arc::new(toolbox),
         engine: engine_receiver,
         scope: Arc::new(resolver),

@@ -88,7 +88,7 @@ A running turn keeps its settings. The next turn uses the new ones. The
 | `restart` | Only after `systemctl --user restart efrd`. |
 | `client` | Only `efr` reads the key, each time it runs. |
 
-The keys that need a restart are `screen`, `model.provider`, the base URLs, and a few
+The keys that need a restart are `screen`, the base URLs, and a few
 keys of `[openai]` and `[anthropic]`, such as `openai.originator`. For such a key,
 `efr config reload` says `config.toml reloaded; new turns use it, except a change of
 <keys>, which needs a restart: systemctl --user restart efrd`. `efr status` shows the

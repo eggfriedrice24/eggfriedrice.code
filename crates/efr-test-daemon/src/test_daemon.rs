@@ -702,6 +702,12 @@ impl TestDaemon {
                 store_login(dirs.dirs().data())?;
             }
         }
+        // NOTE: a reload reads config.toml, where `[model] provider` applies at once, so
+        // the file names the provider of these settings too; else a reload, such as the
+        // one after a project is added, would go back to the default provider.
+        if !matches!(settings.provider, ProviderChoice::Replay(_) | ProviderChoice::Custom(_)) {
+            pin_provider(dirs.dirs().config(), &config.model.provider)?;
+        }
         for also in &settings.also {
             match also {
                 ProviderChoice::Responses(base_url) => {
@@ -1070,6 +1076,22 @@ fn default_shell_env(home: &Path) -> BTreeMap<String, String> {
 fn store_api_key(data: &Path) -> Result<(), TestDaemonError> {
     let record = serde_json::json!({ "version": 1, "kind": "api_key", "key": API_KEY });
     store_credential(&data.join(API_CREDENTIAL), &record)
+}
+
+/// Sets `[model] provider` to `provider` in the `config.toml` of `config_dir`, created
+/// when missing, keeping what the file says besides.
+fn pin_provider(config_dir: &Path, provider: &str) -> Result<(), TestDaemonError> {
+    let invalid = |source: efr_daemon::ConfigError| TestDaemonError::Config { source };
+    DirBuilder::new()
+        .recursive(true)
+        .create(config_dir)
+        .map_err(|source| TestDaemonError::Io { what: "create the config dir", source })?;
+    let file =
+        efr_daemon::ConfigFile::open(&config_dir.join(efr_daemon::CONFIG_FILE)).map_err(invalid)?;
+    let mut edit = file.edit().map_err(invalid)?;
+    edit.set_text("model.provider", provider).map_err(invalid)?;
+    file.write(&edit).map_err(invalid)?;
+    Ok(())
 }
 
 /// Stores [`ANTHROPIC_API_KEY`] as the `anthropic-api` credential.

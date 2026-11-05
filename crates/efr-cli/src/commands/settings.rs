@@ -53,7 +53,6 @@ pub(crate) async fn run(
     let asked = Asked::read(ctx, args)?;
     let client = ctx.connect(Origin::Cli, None).await?;
     let list: ModelsListResult = client.call(Method::ModelsList(ModelsList {})).await?;
-    let list = super::models::of_new_conversations(list);
     let lines = resolve(&asked, &ctx.settings.turn, &list.models)?;
     // `,mode auto` and `,mode full` check the value with `--mode`: say at once what the
     // turns will get, instead of at the next prompt.

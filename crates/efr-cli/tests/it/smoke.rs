@@ -260,7 +260,9 @@ async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() 
     assert!(text(&first.stderr).contains(&note), "{}", text(&first.stderr));
 
     let file = daemon.dirs().dirs().config().join("config.toml");
-    std::fs::write(&file, format!("[model]\neffort = \"{reloaded}\"\n")).unwrap();
+    // NOTE: the provider stays in the file, or the reload goes back to the default.
+    let config = format!("[model]\nprovider = \"openai-subscription\"\neffort = \"{reloaded}\"\n");
+    std::fs::write(&file, config).unwrap();
     let reload = run({
         let mut command = efr(&daemon);
         command.args(["config", "reload"]);

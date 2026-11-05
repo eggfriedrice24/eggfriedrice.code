@@ -1,9 +1,10 @@
 //! Which provider answers a turn: the daemon keeps one provider per id, and each turn
 //! takes the one of its model.
 //!
-//! The model list of [`ConversationConfig::models`] names the provider of each model,
-//! the provider of new conversations first. A turn takes the first provider that lists
-//! its model; a model that no list names goes to the default provider
+//! The model list of [`ConversationConfig::models`] names the provider of each model, in
+//! the order of routing that the daemon gives it: the providers with a login first, the
+//! provider of new conversations first among them. A turn takes the first provider that
+//! lists its model; a model that no list names goes to the default provider
 //! ([`ProviderRouter::default_provider`]), and the backend's answer decides. The turn keeps
 //! its provider to its end, for each model call, a compaction, the key of its raw
 //! items and its edit tool. A manual compaction and the context view pick theirs the

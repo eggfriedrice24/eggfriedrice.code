@@ -139,9 +139,13 @@ async fn send(
     }
     refuse_foreign_model(state, &params.settings)?;
     reprobe_for_auto(state, &params.settings).await;
-    state.providers.models().ready().await;
+    // NOTE: one value of the settings for the pick and the check, so a reload while the
+    // prompt waits for a list cannot check one provider's list for another's turn. The
+    // turn resolves again against the settings of its start.
     let settings = Arc::clone(&state.settings.borrow());
-    state.providers.check_list(&settings, params.settings.model.as_deref())?;
+    let asked = params.settings.model.as_deref();
+    let provider = state.providers.provider_of_prompt(&settings, asked).await;
+    state.providers.check_list(&settings, &provider, asked)?;
     validate(&params)?;
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.

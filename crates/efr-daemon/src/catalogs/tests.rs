@@ -70,3 +70,29 @@ fn the_list_follows_the_provider_of_the_settings() {
     assert_eq!(providers(&catalogs, &settings), [ANTHROPIC]);
     assert_eq!(catalogs.configured(&settings).provider(), ANTHROPIC);
 }
+
+#[test]
+fn the_routing_order_puts_a_provider_without_a_login_behind_the_others() {
+    let catalogs = catalogs();
+    let settings = Settings::default();
+    assert_eq!(settings.model.provider, SUBSCRIPTION);
+    catalogs.set_logged_in(API, true);
+
+    let routed: Vec<_> =
+        catalogs.routed(&settings).into_iter().map(|model| model.provider.unwrap()).collect();
+    let first_subscription = routed.iter().position(|provider| provider == SUBSCRIPTION);
+    assert_eq!(routed.first().map(String::as_str), Some(API), "{routed:?}");
+    assert!(first_subscription.is_some(), "the configured provider stays in the list");
+    assert!(routed[..first_subscription.unwrap()].iter().all(|provider| provider == API));
+    // The listing keeps its own order: the configured provider first.
+    let listed = catalogs.listed(&settings).models;
+    assert_eq!(listed[0].provider.as_deref(), Some(SUBSCRIPTION));
+
+    // With a login, the configured provider routes first again.
+    catalogs.set_logged_in(SUBSCRIPTION, true);
+    assert_eq!(
+        catalogs.routed(&settings)[0].provider.as_deref(),
+        Some(SUBSCRIPTION),
+        "a shared id goes to the provider of new conversations"
+    );
+}

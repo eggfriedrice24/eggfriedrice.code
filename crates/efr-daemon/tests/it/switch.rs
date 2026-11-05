@@ -5,11 +5,12 @@
 //! Claude turn again. Each request reaches only its own server and carries the text of
 //! every earlier turn. The signed thinking of Claude never reaches OpenAI, and the
 //! second Claude request sends it back, because it is the same model on the same
-//! provider. Each turn records the provider that ran it.
+//! provider. Each turn records the provider that ran it. A reload that changes
+//! `[model] provider` moves the next turn that names no model, with no restart.
 
 use efr_protocol::{
-    ConversationId, Event, EventEnvelope, Method, ModelsList, ModelsListResult, PromptSend,
-    PromptSendResult, ShellContext, TurnSettings,
+    AdminConfigReload, AdminConfigReloadResult, ConversationId, Event, EventEnvelope, Method,
+    ModelsList, ModelsListResult, PromptSend, PromptSendResult, ShellContext, TurnSettings,
 };
 use efr_test_daemon::{
     MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon, command_id,
@@ -140,20 +141,8 @@ async fn a_conversation_moves_from_claude_to_gpt_and_back_with_no_restart() {
     messages.set_models(vec![MessagesServer::model(CLAUDE)]);
     let daemon =
         TestDaemon::builder().responses(&responses).also_messages(&messages).start().await.unwrap();
-    // NOTE: efrd fetches the list of Claude models in the background.
-    Wait::new("the Claude model in the list")
-        .until_some_async(async || {
-            let list = models(&daemon).await;
-            list.models
-                .iter()
-                .any(|model| {
-                    model.id == CLAUDE && model.provider.as_deref() == Some("anthropic-api")
-                })
-                .then_some(())
-        })
-        .await
-        .unwrap();
-
+    // NOTE: no wait for the Claude list: the first prompt on a Claude model waits for
+    // the first fetch of the list of Anthropic, which has a key.
     messages.push(think_then_say("claude answer one"));
     let (first, events) = turn(&daemon, 1, "prompt one", Some(CLAUDE)).await;
     assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
@@ -195,4 +184,46 @@ async fn a_conversation_moves_from_claude_to_gpt_and_back_with_no_restart() {
             "{members:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_reload_that_changes_the_provider_moves_the_next_turn_with_no_restart() {
+    let responses = ResponsesServer::start().await;
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let daemon =
+        TestDaemon::builder().responses(&responses).also_messages(&messages).start().await.unwrap();
+    Wait::new("the Claude model in the list")
+        .until_some_async(async || {
+            models(&daemon).await.models.iter().any(|model| model.id == CLAUDE).then_some(())
+        })
+        .await
+        .unwrap();
+    responses.push(ResponsesAnswer::text("gpt answer one"));
+    let (_, events) = turn(&daemon, 1, "prompt one", None).await;
+    assert_eq!(ran_on(&events).0, "openai-api");
+
+    let config = daemon.dirs().dirs().config().join("config.toml");
+    std::fs::create_dir_all(daemon.dirs().dirs().config()).unwrap();
+    std::fs::write(&config, "[model]\nprovider = \"anthropic-api\"\n").unwrap();
+    let client = daemon.client().await.unwrap();
+    let reloaded: AdminConfigReloadResult =
+        client.call(Method::AdminConfigReload(AdminConfigReload::default())).await.unwrap();
+    assert!(reloaded.applied, "{reloaded:?}");
+    // NOTE: the test's base URLs are not in the file; they wait for a restart, the
+    // provider does not.
+    assert!(!reloaded.restart_needed.iter().any(|key| key == "model.provider"), "{reloaded:?}");
+
+    let list = models(&daemon).await;
+    let default = list.models.iter().find(|model| model.default).unwrap();
+    assert_eq!(
+        (default.id.as_str(), default.provider.as_deref()),
+        (CLAUDE, Some("anthropic-api")),
+        "the default model is the one of the new provider"
+    );
+    messages.push(MessagesAnswer::text("claude answer two"));
+    let (_, events) = turn(&daemon, 2, "prompt two", None).await;
+    assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
+    assert_eq!(messages.received().len(), 1);
+    assert_eq!(responses.received().len(), 1);
 }

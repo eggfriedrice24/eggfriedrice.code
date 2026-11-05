@@ -23,7 +23,6 @@ use super::{
     ClassifierJudge, Failure, MAX_CATEGORY_CHARS, MAX_RATIONALE_CHARS, MIN_RATIONALE_CHARS, PROMPT,
     SCHEMA_NAME,
 };
-use crate::catalog::Vendor;
 
 mod prompt;
 mod wire;
@@ -81,8 +80,16 @@ impl Scripted {
     }
 
     fn listing(models: Vec<ModelInfo>, replies: impl IntoIterator<Item = Reply>) -> Arc<Self> {
+        Self::named("test", models, replies)
+    }
+
+    fn named(
+        id: &str,
+        models: Vec<ModelInfo>,
+        replies: impl IntoIterator<Item = Reply>,
+    ) -> Arc<Self> {
         Arc::new(Scripted {
-            id: ProviderId::new("test").unwrap(),
+            id: ProviderId::new(id).unwrap(),
             models,
             replies: Mutex::new(replies.into_iter().collect()),
             requests: Mutex::new(Vec::new()),
@@ -148,12 +155,8 @@ fn setup_with(provider: Arc<Scripted>, change: impl FnOnce(&mut Settings)) -> Se
     change(&mut settings);
     let (sender, receiver) = watch::channel(Arc::new(settings));
     let clock = TestClock::new();
-    let judge = ClassifierJudge::new(
-        Arc::clone(&provider) as Arc<dyn Provider>,
-        receiver,
-        Vendor::OpenAi,
-        clock.shared(),
-    );
+    let router = efr_conversation::OneProvider::new(Arc::clone(&provider) as Arc<dyn Provider>);
+    let judge = ClassifierJudge::new(Arc::new(router), receiver, clock.shared());
     Setup { provider, judge, clock, settings: sender }
 }
 
@@ -202,6 +205,7 @@ fn input<'a>(ids: &Ids, record: &'a ExitRecord) -> JudgeInput<'a> {
         turn_id: ids.turn,
         call_id: ids.call,
         turn_model: TURN,
+        turn_provider: None,
         turn_effort: Some("high"),
         record,
         egress: efr_permissions::Egress::None,
@@ -978,4 +982,43 @@ async fn a_refused_format_is_left_out_from_then_on() {
     let outputs: Vec<bool> =
         setup.provider.requests().iter().map(|request| request.output.is_some()).collect();
     assert_eq!(outputs, [true, false, false]);
+}
+
+/// Two providers, OpenAI's the default.
+#[derive(Debug)]
+struct TwoProviders(Arc<Scripted>, Arc<Scripted>);
+
+impl efr_conversation::ProviderRouter for TwoProviders {
+    fn default_provider(&self) -> Arc<dyn Provider> {
+        Arc::clone(&self.0) as Arc<dyn Provider>
+    }
+
+    fn get(&self, id: &str) -> Option<Arc<dyn Provider>> {
+        [&self.0, &self.1]
+            .into_iter()
+            .find(|provider| provider.id.as_str() == id)
+            .map(|provider| Arc::clone(provider) as Arc<dyn Provider>)
+    }
+}
+
+#[tokio::test]
+async fn the_judge_asks_the_provider_of_the_turn_with_the_small_model_of_its_company() {
+    let openai = Scripted::named("openai-api", Vec::new(), [Reply::Text(ALLOW)]);
+    let anthropic = Scripted::named("anthropic-api", Vec::new(), [Reply::Text(ALLOW)]);
+    let (_, settings) = watch::channel(Arc::new(Settings::default()));
+    let router = TwoProviders(Arc::clone(&openai), Arc::clone(&anthropic));
+    let judge = ClassifierJudge::new(Arc::new(router), settings, TestClock::new().shared());
+    let record = record();
+
+    let claude_turn =
+        JudgeInput { turn_provider: Some("anthropic-api"), ..input(&ids(1), &record) };
+    let outcome = judge.judge(claude_turn).await;
+    assert_eq!(outcome.judgement, Some(allowed()));
+    assert_eq!(anthropic.models_asked(), [efr_providers::anthropic::CLASSIFIER_MODEL]);
+    assert!(openai.requests().is_empty());
+
+    // A turn that names no provider, or one that efrd does not run, goes to the default.
+    let gone = JudgeInput { turn_provider: Some("openai-subscription"), ..input(&ids(2), &record) };
+    judge.judge(gone).await;
+    assert_eq!(openai.models_asked(), [efr_providers::openai::CLASSIFIER_MODEL]);
 }

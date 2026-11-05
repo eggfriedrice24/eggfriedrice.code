@@ -10,13 +10,31 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- efr now runs every provider that you are logged in to at the same time. A turn on a
+  model goes to a provider with a login that lists it, so `,model claude-opus-5-5` sends the next
+  turns of a terminal to Anthropic, also when `[model] provider` names OpenAI. One
+  conversation can change its provider between two turns. The text, the tool calls
+  and their results go to the new model; the reasoning of the old model does not. A
+  model id that two providers list, such as a GPT model of the ChatGPT plan and of an
+  API key, goes to the provider of new conversations first, unless it has no login. For now, a turn that a
+  background job starts uses the model of the job's turn, and the phone and each
+  terminal keep their own choice of model.
+
 ### Changed
 
 - The model list now also holds the models of each other provider that you are
   logged in to, after the models of the provider of new conversations. Each model
   names its provider. efrd keeps the list of each provider up to date on its own, and
   the OpenAI API key list now has a cache file of its own,
-  `openai_api_model_catalog.json`.
+  `openai_api_model_catalog.json`. `efr models` shows the models of each provider
+  under a line with its name.
+- A change of `model.provider` applies from the next turn. It no longer needs a
+  restart of efrd. A login or a logout also applies at once.
+- The reviewer of `auto` asks the provider of the turn, with the small model of that
+  company. Before, it asked the provider of new conversations at the start of efrd,
+  also after you changed it.
 - With full mode off, the model now knows that full mode exists, that it is off, and
   that only you turn it on. Before, it told you that efr has only three modes. The
   text that efr sends to the model changed, so the prompt cache of each conversation
@@ -30,9 +48,9 @@ into the GitHub release notes, and it stops when the section is missing.
   its own message that tells you to use `efr config edit`.
 - The error for full mode while it is off now names the command that turns it on:
   `efr config set permissions.allow_full true`.
-- After a change of a key that needs a restart, such as `model.provider`, `efr config
-  set` and `efr config reload` no longer start with a line that says that new turns
-  use the change. The first line now names the keys that need a restart and the
+- After a change of a key that needs a restart, such as `screen`, `efr config set`
+  and `efr config reload` no longer start with a line that says that new turns use the
+  change. The first line now names the keys that need a restart and the
   command for it.
 
 ## [0.0.7] - 2026-10-31

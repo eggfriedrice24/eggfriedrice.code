@@ -70,7 +70,7 @@ fn new_keys_that_wait_for_a_restart_are_told_once() {
     let none = Outcome::default();
     let screen = Outcome { restart_needed: vec!["screen".to_owned()], ..Outcome::default() };
     let both = Outcome {
-        restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+        restart_needed: vec!["screen".to_owned(), "anthropic.cache_ttl".to_owned()],
         ..Outcome::default()
     };
 
@@ -78,7 +78,7 @@ fn new_keys_that_wait_for_a_restart_are_told_once() {
     assert_eq!(notice(&screen, &screen), None);
     assert_eq!(
         notice(&screen, &both).as_deref(),
-        Some("efr: restart efrd to apply: screen, model.provider")
+        Some("efr: restart efrd to apply: screen, anthropic.cache_ttl")
     );
     assert_eq!(notice(&both, &none), None);
 }

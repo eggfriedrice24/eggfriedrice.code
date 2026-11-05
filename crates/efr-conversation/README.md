@@ -33,8 +33,9 @@ turns.
   the fix of efrd's refusal of a new prompt) while the config's default model is a
   model of another company than its provider (`ConversationConfig::foreign_model`), so
   a prompt that queued before a reload made the default foreign gets the same text
-  (v0.0.4). The model list names the provider of each model, the provider of new
-  conversations first; the turn goes to the first provider that lists its model, and
+  (v0.0.4). The model list names the provider of each model, in the order of routing
+  that the daemon gives it (the providers with a login first); the turn goes to the
+  first provider that lists its model, and
   a model that no list names to the default provider
   (`ConversationDeps::providers`, a `ProviderRouter`; `router.rs`). The turn keeps
   that provider to its end, for each model call, a compaction, the key of its raw

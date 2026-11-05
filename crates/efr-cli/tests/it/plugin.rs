@@ -2986,7 +2986,12 @@ impl Routed {
             ),
         )
         .unwrap();
-        std::fs::write(config.join("config.toml"), "[render]\nturn_input = false\n").unwrap();
+        // NOTE: the provider stays in the file, or a reload goes back to the default.
+        std::fs::write(
+            config.join("config.toml"),
+            "[model]\nprovider = \"openai-api\"\n[render]\nturn_input = false\n",
+        )
+        .unwrap();
         Routed { home, daemon, server, app }
     }
 

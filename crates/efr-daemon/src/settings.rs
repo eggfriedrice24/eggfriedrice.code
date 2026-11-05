@@ -84,7 +84,7 @@ pub(crate) fn conversation_config(
         .with_host(host);
     config.effort.clone_from(&settings.model.effort);
     config.mode = settings.permissions.mode;
-    config.models = catalogs.listed(settings).models;
+    config.models = catalogs.routed(settings);
     config.max_output_tokens = settings.model.max_output_tokens;
     config.compaction =
         CompactionConfig::new(settings.compaction.auto, settings.compaction.auto_at);

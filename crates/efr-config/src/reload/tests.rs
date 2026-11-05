@@ -52,20 +52,28 @@ fn a_restart_key_set_back_to_its_running_value_needs_no_restart() {
 
 #[test]
 fn a_removed_restart_key_keeps_its_running_value() {
-    let running = file("[model]\nprovider = \"openai-api\"\n");
+    let running = file("[anthropic]\ncache_ttl = \"1h\"\n");
 
     let reloaded = running.reloaded(file("")).unwrap();
 
-    assert_eq!(reloaded.restart_needed, ["model.provider"]);
-    assert_eq!(reloaded.settings.model.provider, "openai-api");
-    assert_eq!(reloaded.settings.source("model.provider"), Source::File);
+    assert_eq!(reloaded.restart_needed, ["anthropic.cache_ttl"]);
+    assert_eq!(reloaded.settings.source("anthropic.cache_ttl"), Source::File);
+}
+
+#[test]
+fn a_change_of_the_provider_applies_without_a_restart() {
+    let running = file("[model]\nprovider = \"openai-api\"\n");
+
+    let reloaded = running.reloaded(file("[model]\nprovider = \"anthropic-api\"\n")).unwrap();
+
+    assert_eq!(reloaded.restart_needed, Vec::<String>::new());
+    assert_eq!(reloaded.settings.model.provider, "anthropic-api");
 }
 
 #[test]
 fn every_restart_key_is_kept_when_it_changes() {
     let changed = [
         ("screen", "ghostty"),
-        ("model.provider", "openai-api"),
         ("openai.originator", "someone-else"),
         ("openai.subscription_base_url", "https://example.com/codex"),
         ("openai.api_base_url", "https://example.com/v1"),

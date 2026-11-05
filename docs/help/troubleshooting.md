@@ -96,9 +96,9 @@ key needs `systemctl --user restart efrd`.
 with a 400 that names `anthropic-workspace-id`. Make a key that is scoped to one
 workspace, or set `[anthropic] workspace_id` and restart efrd.
 
-**A login does not change the provider.** Set `model.provider`, then restart the
-daemon. [When a prompt fails](../use/models-and-login.md#when-a-prompt-fails) tells
-more.
+**A login does not change the provider.** Choose a model of the new provider with
+`,model`, or set `model.provider`. Neither needs a restart. [When a prompt
+fails](../use/models-and-login.md#when-a-prompt-fails) tells more.
 
 ## The config file
 
@@ -113,7 +113,7 @@ its old settings. You see the error in three places:
 Fix the file with `efr config edit`. It checks the file when you save.
 
 **A change has no effect.** Some keys apply only after a restart, such as `screen` and
-`model.provider`. `efr status` shows them in the `restart needed` line. Run
+the base URLs. `efr status` shows them in the `restart needed` line. Run
 `systemctl --user restart efrd`. A running turn also keeps its settings until it ends.
 
 **A value does not come from the file.** `efr config show` names the source of each

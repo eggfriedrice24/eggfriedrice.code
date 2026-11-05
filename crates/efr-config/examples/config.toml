@@ -19,7 +19,7 @@
 [model]
 # The provider of new conversations: openai-subscription (the ChatGPT plan, after
 # efr login openai), openai-api (an OpenAI API key) or anthropic-api (an Anthropic
-# API key; efrd cannot use it yet). (restart)
+# API key). A turn on a model of another provider with a login goes to that provider.
 # provider = "openai-subscription"
 
 # The default model of a turn. Unset: the model with the best priority in the

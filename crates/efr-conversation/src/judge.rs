@@ -29,6 +29,9 @@ pub struct JudgeInput<'a> {
     pub call_id: CallId,
     /// The turn's model, the second step of the chain.
     pub turn_model: &'a str,
+    /// The provider that runs the turn, such as `anthropic-api`, which the judge asks;
+    /// `None` leaves it to the judge.
+    pub turn_provider: Option<&'a str>,
     /// The turn's reasoning effort; `None` leaves it to the backend.
     pub turn_effort: Option<&'a str>,
     /// The record of the exit.

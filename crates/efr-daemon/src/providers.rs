@@ -34,7 +34,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use efr_config::{AnthropicSettings, CacheTtlChoice, OpenAiSettings, Settings, WebSocketChoice};
+use efr_config::{
+    AnthropicSettings, CacheTtlChoice, ModelCompany, OpenAiSettings, Settings, WebSocketChoice,
+};
 use efr_credentials::{CredentialId, CredentialRecord, SecretStore};
 use efr_http::HttpClient;
 use efr_oauth_openai::{OAuthConfig, OpenAiLogin, OpenAiTokenSource, PendingLogin};
@@ -86,8 +88,12 @@ pub(crate) struct Providers {
     subscription: Arc<OpenAiTokenSource>,
     login: OpenAiLogin,
     checks: KeyChecks,
-    /// The provider of new conversations, as `[model] provider` names it.
+    /// The provider of new conversations at start, as `[model] provider` named it.
     configured: String,
+    /// The latest settings, whose `[model] provider` is the provider of new
+    /// conversations from then on; `None` until efrd hands them over
+    /// ([`with_settings`](Self::with_settings)).
+    settings: Option<watch::Receiver<Arc<Settings>>>,
     /// The provider of `configured`, under its id.
     active: (String, Arc<dyn Provider>),
     /// The other providers that efrd runs, each under its id. A daemon whose provider
@@ -256,13 +262,21 @@ impl Providers {
             Ok((id.to_owned(), provider))
         };
         let active = route(provider)?;
+        // NOTE: another provider that cannot be built, such as one with a bad value in
+        // `[openai]`, does not stop efrd; its models then go to no provider.
         let others = catalogs
             .all()
             .iter()
             .map(|models| models.provider())
             .filter(|id| *id != provider)
-            .map(route)
-            .collect::<Result<Vec<_>, _>>()?;
+            .filter_map(|id| match route(id) {
+                Ok(route) => Some(route),
+                Err(error) => {
+                    tracing::warn!(provider = %id, error = %error, "a provider could not be built; a turn on its models fails");
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         let model = models.default_model(config);
         warn_unfit_defaults(config, &models);
         tracing::info!(provider = %active.1.id(), model = %model, fetches_catalog = models.fetches(), "provider ready");
@@ -273,11 +287,29 @@ impl Providers {
             login,
             checks,
             configured,
+            settings: None,
             active,
             others,
             catalogs,
             refusals,
         })
+    }
+
+    /// Follows `settings`: a reload that changes `[model] provider` changes the
+    /// provider of new conversations at once, since every provider runs.
+    pub(crate) fn with_settings(mut self, settings: watch::Receiver<Arc<Settings>>) -> Self {
+        self.settings = Some(settings);
+        self
+    }
+
+    /// The provider of new conversations now: `[model] provider` of the latest
+    /// settings.
+    fn configured(&self) -> String {
+        match &self.settings {
+            // NOTE: the id is cloned out so the watch's read lock is held only here.
+            Some(settings) => settings.borrow().model.provider.clone(),
+            None => self.configured.clone(),
+        }
     }
 
     /// Reads from the credential store which providers have a login, for the model
@@ -294,6 +326,14 @@ impl Providers {
         Arc::clone(&self.active.1)
     }
 
+    /// The running provider `id`, else the provider of new conversations at start.
+    fn route(&self, id: &str) -> Arc<dyn Provider> {
+        std::iter::once(&self.active)
+            .chain(&self.others)
+            .find(|(route, _)| route == id)
+            .map_or_else(|| self.active(), |(_, provider)| Arc::clone(provider))
+    }
+
     /// The router of the conversations: every provider that efrd runs, with the
     /// default from the latest `settings`.
     pub(crate) fn routes(&self, settings: watch::Receiver<Arc<Settings>>) -> Routes {
@@ -302,7 +342,7 @@ impl Providers {
 
     /// The model catalog of the provider of new conversations, and its fetch.
     pub(crate) fn models(&self) -> Arc<Models> {
-        Arc::clone(self.catalogs.of(&self.configured).unwrap_or_else(|| self.catalogs.first()))
+        Arc::clone(self.catalogs.of(&self.configured()).unwrap_or_else(|| self.catalogs.first()))
     }
 
     /// Every catalog and the logins: the model list of `models.list` and of the turns.
@@ -323,27 +363,74 @@ impl Providers {
 
     /// True when `provider` is the provider of new conversations, `[model] provider`.
     pub(crate) fn is_active(&self, provider: &str) -> bool {
-        provider == self.configured
+        provider == self.configured()
     }
 
-    /// Refuses a prompt whose turn cannot run because the catalog still has no list
-    /// after [`Models::ready`], with the cause: no key is stored, or the fetch failed
-    /// or gave no list. A turn on a model whose output limit the config gives (in the
-    /// config's list of models or as `[model] max_output_tokens`) runs without a list,
-    /// unless no key is stored. `asked` is the prompt's own model.
-    pub(crate) fn check_list(
+    /// The provider of a prompt that asks for the model `asked` (`None`: the default
+    /// model) with `settings`, as its turn picks it: the first provider whose list
+    /// names the model in the order of routing ([`Catalogs::routed`]), else the
+    /// provider of new conversations. It waits first for a
+    /// first list of the provider of new conversations ([`Models::ready`]), and, for a
+    /// model that no list names yet, for a first list of each provider of the model's
+    /// company with a login, such as a Claude list that efrd still fetches.
+    pub(crate) async fn provider_of_prompt(
         &self,
         settings: &Settings,
         asked: Option<&str>,
+    ) -> String {
+        let configured = self.catalogs.configured(settings);
+        configured.ready().await;
+        let default;
+        let model = match asked {
+            Some(model) => model,
+            None => {
+                default = configured.default_model(settings);
+                &default
+            }
+        };
+        if let Some(provider) = self.listed_provider(settings, model) {
+            return provider;
+        }
+        let Some(company) = ModelCompany::of_model(model) else {
+            return configured.provider().to_owned();
+        };
+        let waiting = self.catalogs.all().iter().filter(|models| {
+            ModelCompany::of_provider(models.provider()) == Some(company)
+                && self.catalogs.logged_in(models.provider())
+                && models.missing().is_some()
+        });
+        futures::future::join_all(waiting.map(|models| models.ready())).await;
+        self.listed_provider(settings, model).unwrap_or_else(|| configured.provider().to_owned())
+    }
+
+    /// The first provider whose list names `model`, in the order of routing.
+    fn listed_provider(&self, settings: &Settings, model: &str) -> Option<String> {
+        self.catalogs
+            .routed(settings)
+            .into_iter()
+            .filter(|info| info.id == model)
+            .find_map(|info| info.provider)
+    }
+
+    /// Refuses a prompt whose turn cannot run on `provider` because its catalog still
+    /// has no list after [`Models::ready`], with the cause: no key is stored, or the
+    /// fetch failed or gave no list. A turn on a model whose output limit the config
+    /// gives (in the config's list of models or as `[model] max_output_tokens`) runs
+    /// without a list, unless no key is stored. `asked` is the prompt's own model.
+    pub(crate) fn check_list(
+        &self,
+        settings: &Settings,
+        provider: &str,
+        asked: Option<&str>,
     ) -> Result<(), DaemonError> {
-        let models = self.models();
+        let models = Arc::clone(self.models_of(provider).unwrap_or_else(|| self.catalogs.first()));
         let Some(missing) = models.missing() else {
             return Ok(());
         };
         if !matches!(missing, NoList::NotLoggedIn) {
             let model = asked.map_or_else(|| models.default_model(settings), str::to_owned);
             let limited = self
-                .active()
+                .route(provider)
                 .models()
                 .iter()
                 .any(|info| info.id == model && info.max_output_tokens.is_some());
@@ -352,10 +439,11 @@ impl Providers {
             }
         }
         let list = models.list().vendor().list_name();
+        let provider = models.provider();
         Err(match missing {
             NoList::NotLoggedIn => DaemonError::NoModelListWithoutKey {
-                provider: self.configured.clone(),
-                login: login_command(&self.configured),
+                provider: provider.to_owned(),
+                login: login_command(provider),
             },
             NoList::Failed(source) => DaemonError::ModelListFetch { list, source },
             NoList::NoActiveModel => {
@@ -416,7 +504,7 @@ impl Providers {
         if check {
             self.refusals.checked(provider);
         }
-        let active = provider == self.configured;
+        let active = provider == self.configured();
         self.catalogs.set_logged_in(provider, true);
         if let Some(models) = self.models_of(provider) {
             models.refresh_now();
@@ -468,10 +556,11 @@ impl Providers {
         let Ok(loaded) = loaded else {
             return Vec::new();
         };
+        let configured = self.configured();
         loaded
             .into_iter()
             .map(|(id, record)| {
-                let mut status = provider_status(id, record.as_ref(), id == self.configured);
+                let mut status = provider_status(id, record.as_ref(), id == configured);
                 if status.login == Some(LoginKind::ApiKey) {
                     status.key_refused_at = self.refusals.refused_at(id);
                     status.key_checked_at = self.refusals.checked_at(id);

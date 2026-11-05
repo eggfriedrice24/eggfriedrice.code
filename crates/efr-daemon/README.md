@@ -115,8 +115,7 @@ the old settings stay, the error (with its line, column and key) is kept for
 `admin.status`, and each terminal with a conversation active within
 `conversation.tty_idle_hours` gets the notice "efr: config.toml has an error; the old
 settings stay: ...", once per new error. A valid file is laid over the running settings
-with `Settings::reloaded`: a restart key (`screen`, `model.provider`,
-`openai.originator`, `openai.subscription_base_url`, `openai.api_base_url`,
+with `Settings::reloaded`: a restart key (`screen`, `openai.originator`, `openai.subscription_base_url`, `openai.api_base_url`,
 `openai.websocket`) keeps its running value and is listed in `restart_needed` (and in
 the notice "efr: restart efrd to apply: ..."), and a value from `EFR_LOG`,
 `EFR_SCREEN` or a flag still wins. Then
@@ -212,7 +211,8 @@ makes the one model list of the latest settings: the models of the configured
 provider first, then the models of each other provider with a login, each with its
 `provider` and never as the default. `models.list` answers it, with the status of
 each listed catalog in `catalogs`, and the turns check their model against it and go
-to the first provider that lists the model (`providers/routes.rs`, the
+to the first provider with a login that lists the model (`Catalogs::routed`;
+`providers/routes.rs`, the
 `ProviderRouter` of the conversations). The logins come from the credential store at
 start and then follow each login and logout. `admin.status` and the wait of a prompt
 for a first list use the catalog of the configured provider. Each catalog fetches on its own task, with its own cache file. A new list applies from the next
@@ -527,8 +527,9 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   the key belongs to the provider of `[model] provider`, asks for a fetch of the model
   list. The answer has the key's hint (the known prefix and the last four
   characters), whether the key was checked and whether the provider is the active
-  one. The provider of new conversations never changes: another provider needs
-  `[model] provider` and a restart. The key reaches no event, no log line and no
+  one. A login never changes the provider of new conversations; a change of
+  `[model] provider` applies from the next turn, with no restart, since every
+  provider runs. The key reaches no event, no log line and no
   error text; `StoredApiKey` reads it again at each request, so a new key works
   without a restart.
 - `admin.logout` (`methods/admin_logout.rs`) deletes the credential of a provider and

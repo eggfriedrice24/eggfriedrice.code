@@ -97,13 +97,16 @@ impl Turn {
         let call_id = call.context.call_id;
         let decision = &ruling.decision;
         let kinds = exit::kinds(decision);
-        let model = self.model_key().model;
+        let key = self.model_key();
+        let model = key.model;
+        let provider = key.provider;
         let effort = self.settings.as_ref().and_then(|settings| settings.effort.clone());
         let input = JudgeInput {
             conversation_id: self.shared.conversation_id,
             turn_id,
             call_id,
             turn_model: &model,
+            turn_provider: Some(provider.as_str()),
             turn_effort: effort.as_deref(),
             record,
             egress: ruling.engine.support().egress,

@@ -2,7 +2,7 @@
 //!
 //! Two kinds of value do not come from the new file. A key of [`RESTART_KEYS`] keeps
 //! its running value, because the daemon built something from it at start that it
-//! cannot rebuild (the screen backend, the provider); the key is listed as needing a
+//! cannot rebuild (the screen backend, a base URL); the key is listed as needing a
 //! restart. A key that an environment variable or a flag set keeps that value and its
 //! source, because the variable or the flag still wins over the file, as it did at start.
 

@@ -71,8 +71,13 @@ impl Fixture {
                 });
             }
         });
-        let tool =
-            SettingsTool::new(&config, receiver, engine, reloads, crate::testing::builtin_models());
+        let tool = SettingsTool::new(
+            &config,
+            receiver,
+            engine,
+            reloads,
+            crate::testing::builtin_catalogs(),
+        );
         Fixture { home, tool, settings, reloads: asked }
     }
 

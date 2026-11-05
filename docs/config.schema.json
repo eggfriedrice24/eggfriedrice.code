@@ -742,7 +742,7 @@
         },
         "provider": {
           "default": "openai-subscription",
-          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan),\n`openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs\na restart.",
+          "description": "The provider of new conversations: `openai-subscription` (the ChatGPT plan),\n`openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). A turn\non a model of another provider with a login goes to that provider.",
           "type": "string"
         },
         "system_prompt": {

@@ -11,9 +11,10 @@
 //! `admin.login_api_key` as `SecretText`; the daemon checks it unless `--no-check` says
 //! not to, and stores it. The CLI shows only the hint of the key that the daemon
 //! answers. A login never changes the provider of new conversations: when the key is
-//! not for it, the CLI says how to change `[model] provider` and that efrd needs a
-//! restart. After a login to `openai-api`, one line says that OpenAI bills the key per
-//! token, apart from a ChatGPT plan.
+//! not for it, the CLI says that a turn on a model that only it lists goes to it, and how
+//! to make it the provider of new conversations, with no restart. After a login to
+//! `openai-api`, one line says that OpenAI bills the key per token, apart from a ChatGPT
+//! plan.
 
 mod key;
 
@@ -31,9 +32,6 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::format;
 use crate::output::Output;
-
-/// How efrd restarts as a user service, after a change of `[model] provider`.
-const RESTART: &str = "systemctl --user restart efrd";
 
 pub(crate) async fn run(
     ctx: &Context,
@@ -97,13 +95,14 @@ fn switch(provider: KeyProvider, configured: &str) -> String {
     let id = provider.id();
     if configured == id {
         return format!(
-            "config.toml names {id} under [model], and efrd uses it after a restart: {RESTART}\n"
+            "config.toml names {id} under [model], and efrd uses it after it reads the file \
+             again: efr config reload\n"
         );
     }
     format!(
-        "New conversations keep their provider. To use {id}, set provider = \"{id}\" under \
-         [model] in config.toml (efr config set model.provider {id}), then restart efrd: \
-         {RESTART}\n"
+        "efr models now lists the models of {id}, and a turn on a model that only {id} lists \
+         goes to it. To make it the provider of new conversations: efr config set \
+         model.provider {id}\n"
     )
 }
 

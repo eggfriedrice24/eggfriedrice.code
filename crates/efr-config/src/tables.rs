@@ -132,8 +132,8 @@ pub enum SudoCache {
 #[non_exhaustive]
 pub struct ModelSettings {
     /// The provider of new conversations: `openai-subscription` (the ChatGPT plan),
-    /// `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs
-    /// a restart.
+    /// `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). A turn
+    /// on a model of another provider with a login goes to that provider.
     pub provider: String,
     /// The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset:
     /// the default of the provider's model catalog: for OpenAI the model with the best

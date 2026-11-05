@@ -95,7 +95,7 @@ pub(super) fn toolbox_with(
         receiver.clone(),
         engine,
         reloads,
-        crate::testing::builtin_models(),
+        crate::testing::builtin_catalogs(),
     );
     let toolbox = DaemonToolbox::new(
         registry,

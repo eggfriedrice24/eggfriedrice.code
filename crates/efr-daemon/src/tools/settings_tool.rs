@@ -49,7 +49,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use crate::catalog::{self, ModelList, Models};
+use crate::catalog::{self, ModelList};
+use crate::catalogs::Catalogs;
 use crate::loosens::loosens;
 use crate::reload::{Outcome, Reloads};
 
@@ -119,8 +120,9 @@ pub(crate) struct SettingsTool {
     engine: watch::Receiver<Arc<Engine>>,
     /// The reload task, asked after a write.
     reloads: Reloads,
-    /// The model catalog, which the default model and effort are checked against.
-    models: Arc<Models>,
+    /// The model catalogs: the default model and effort are checked against the one of
+    /// the provider of new conversations in the new file.
+    catalogs: Arc<Catalogs>,
     /// The changes the user saw, by call.
     shown: Mutex<VecDeque<(CallId, Shown)>>,
 }
@@ -151,14 +153,14 @@ impl SettingsTool {
         settings: watch::Receiver<Arc<Settings>>,
         engine: watch::Receiver<Arc<Engine>>,
         reloads: Reloads,
-        models: Arc<Models>,
+        catalogs: Arc<Catalogs>,
     ) -> Self {
         SettingsTool {
             path: config_dir.join(CONFIG_FILE),
             settings,
             engine,
             reloads,
-            models,
+            catalogs,
             shown: Mutex::default(),
         }
     }
@@ -235,8 +237,8 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
-        let models = self.models.list();
-        blocking(move || plan(&path, &input, &engine, &running, &models)).await
+        let catalogs = Arc::clone(&self.catalogs);
+        blocking(move || plan(&path, &input, &engine, &running, &catalogs)).await
     }
 
     /// Plans `input` again and writes it when the user saw exactly this change.
@@ -244,9 +246,9 @@ impl SettingsTool {
         let path = self.path.clone();
         let engine = Arc::clone(&self.engine.borrow());
         let running = Arc::clone(&self.settings.borrow());
-        let models = self.models.list();
+        let catalogs = Arc::clone(&self.catalogs);
         blocking(move || {
-            let plan = plan(&path, &input, &engine, &running, &models)?;
+            let plan = plan(&path, &input, &engine, &running, &catalogs)?;
             if plan.shown != shown {
                 return Err(CHANGED.to_owned());
             }
@@ -331,8 +333,9 @@ impl SettingsTool {
             Ok(file) => file,
             Err(_) => FileState::of(&self.path),
         };
-        let models = self.models.effective(&running);
-        let key = self.models.list().vendor().models_key();
+        let configured = self.catalogs.configured(&running);
+        let models = configured.effective(&running);
+        let key = configured.list().vendor().models_key();
         read_text(&file, &self.reloads.last(), &running, &models, key)
     }
 
@@ -422,7 +425,7 @@ fn plan(
     input: &SettingsInput,
     engine: &Engine,
     running: &Settings,
-    models: &ModelList,
+    catalogs: &Catalogs,
 ) -> Result<Plan, String> {
     let file = ConfigFile::open(path).map_err(|error| describe(&error))?;
     let mut edit = file.edit().map_err(|error| describe(&error))?;
@@ -455,7 +458,9 @@ fn plan(
     {
         refuse_full("permissions.mode", Some(&Value::from(Mode::Full.as_str())))?;
     }
-    check_models(&next, models)?;
+    // NOTE: the list of the provider that the new file names, which a change of
+    // `model.provider` switches without a restart.
+    check_models(&next, &catalogs.configured(&next).list())?;
     let loosens = loosens(&before_settings, &next);
     Ok(Plan { file, edit, shown: Shown { before, after }, summary, loosens, key })
 }

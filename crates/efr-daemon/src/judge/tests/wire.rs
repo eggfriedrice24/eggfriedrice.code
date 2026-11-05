@@ -15,7 +15,6 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{ALLOW, allowed, ids, input, record};
-use crate::catalog::Vendor;
 use crate::judge::{ClassifierJudge, PROMPT};
 use efr_conversation::ExitJudge as _;
 use efr_protocol::ChainStep;
@@ -103,9 +102,11 @@ async fn bodies(server: &MockServer, at: &str) -> Vec<Value> {
         .collect()
 }
 
-fn judge(provider: Arc<dyn Provider>, vendor: Vendor, clock: &TestClock) -> ClassifierJudge {
+/// A judge of `provider`, whose id names the company of the small model.
+fn judge(provider: Arc<dyn Provider>, clock: &TestClock) -> ClassifierJudge {
     let (_, settings) = tokio::sync::watch::channel(Arc::new(crate::Settings::default()));
-    ClassifierJudge::new(provider, settings, vendor, clock.shared())
+    let router = efr_conversation::OneProvider::new(provider);
+    ClassifierJudge::new(Arc::new(router), settings, clock.shared())
 }
 
 #[tokio::test]
@@ -126,7 +127,7 @@ async fn judge_wire_openai_end_to_end() {
         clock.shared(),
         Arc::new(TestRng::new(8)),
     );
-    let judge = judge(Arc::new(provider), Vendor::OpenAi, &clock);
+    let judge = judge(Arc::new(provider), &clock);
     let record = record();
 
     let outcome = judge.judge(input(&ids(1), &record)).await;
@@ -177,7 +178,7 @@ async fn judge_wire_anthropic_end_to_end() {
         clock.shared(),
         Arc::new(TestRng::new(8)),
     );
-    let judge = judge(Arc::new(provider), Vendor::Anthropic, &clock);
+    let judge = judge(Arc::new(provider), &clock);
     let record = record();
 
     let outcome = judge.judge(input(&ids(1), &record)).await;
@@ -230,7 +231,7 @@ async fn a_claude_model_without_a_cap_is_missing_and_the_turn_model_reviews() {
         clock.shared(),
         Arc::new(TestRng::new(8)),
     );
-    let judge = judge(Arc::new(provider), Vendor::Anthropic, &clock);
+    let judge = judge(Arc::new(provider), &clock);
     let record = record();
 
     let outcome = judge.judge(input(&ids(1), &record)).await;
@@ -300,8 +301,8 @@ async fn the_wire_schema_puts_the_rationale_before_the_verdict() {
         Arc::new(TestRng::new(8)),
     );
     let record = record();
-    judge(Arc::new(openai), Vendor::OpenAi, &clock).judge(input(&ids(1), &record)).await;
-    judge(Arc::new(anthropic), Vendor::Anthropic, &clock).judge(input(&ids(2), &record)).await;
+    judge(Arc::new(openai), &clock).judge(input(&ids(1), &record)).await;
+    judge(Arc::new(anthropic), &clock).judge(input(&ids(2), &record)).await;
 
     let required = json!(["category", "rationale", "risk", "user_authorization", "verdict"]);
     for at in ["/v1/responses", "/v1/messages"] {

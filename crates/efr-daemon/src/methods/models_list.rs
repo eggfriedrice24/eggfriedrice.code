@@ -7,7 +7,7 @@
 //! model marked; then the models of each other provider with a login, the same way but
 //! never marked as the default. Each model names its provider (`catalogs.rs`). A turn
 //! checks its model and effort against the same list when it starts, and goes to the
-//! first provider that lists its model. Everything comes from memory; the answer never
+//! first provider with a login that lists its model (`Catalogs::routed`). Everything comes from memory; the answer never
 //! waits for a fetch.
 
 use efr_protocol::{ModelsList, ModelsListResult};

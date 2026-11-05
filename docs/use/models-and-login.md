@@ -71,17 +71,18 @@ agent can then read the key with `env`. Only the `auto` sandbox removes names su
 
 ## Change the provider
 
-A login does not change the provider of new conversations. When the new login is not
-for the active provider, efr tells you what to do:
+A login does not change the provider of new conversations. But after a login,
+`efr models` lists the models of the new provider too, and a turn on a model that only
+it lists goes to it: `,model claude-opus-5-5` is enough. To make it the provider of new
+conversations:
 
 ```sh
 efr config set model.provider anthropic-api
-systemctl --user restart efrd
 ```
 
-`[model] provider` needs a restart of efrd. Also change `[model] name` when it names a
-model of the other company, or remove it. If not, every prompt that names no model
-fails.
+efrd applies the change from the next turn, with no restart. Also change `[model]
+name` when it names a model of the other company, or remove it. If not, every prompt
+that names no model fails.
 `efr config check` warns about such a name.
 
 A terminal that chose a model with `,model` keeps that choice. Choose a model of the

@@ -67,19 +67,25 @@ environment. But efrd gives its whole environment to the hidden shells. In the
 
 ## Change the provider
 
-A login does not change the provider of new conversations. After the login, efr tells
-you what to do when the provider is not the active one:
+efr runs every provider that you logged in to at the same time. `efr models` lists the
+models of the provider of new conversations first, then the models of each other
+provider with a login, each group under its provider. A turn on a model goes to the
+first provider with a login that lists it, so `,model claude-opus-5-5` sends the next
+turns of the terminal to Anthropic, also when `[model] provider` is `openai-api`. A
+model id that two providers with a login list, such as `gpt-5.5` of the ChatGPT plan
+and of an API key, goes to the provider of new conversations. A conversation
+can change its provider between two turns. The text, the tool calls and their results
+go to the new model; the reasoning of the old model does not.
+
+A login does not change the provider of new conversations. To change it:
 
 ```sh
 efr config set model.provider anthropic-api
-systemctl --user restart efrd
 ```
 
-`[model] provider` needs a restart of efrd. `efr models` then lists the models of the
-new provider, and its last line names the provider, such as `models: anthropic-api,
-from the backend, fetched 5m ago`. A terminal that chose a model with `,model` keeps
-that choice: choose a model of the new provider, or clear the choice with `,model
-default`.
+efrd applies the change from the next turn, with no restart. A terminal that chose a
+model with `,model` keeps that choice: choose a model of the new provider, or clear
+the choice with `,model default`.
 
 Also change `[model] name` when it names a model of the other company, such as
 `gpt-5.5` with `anthropic-api`, or remove it. Else every prompt that names no model of

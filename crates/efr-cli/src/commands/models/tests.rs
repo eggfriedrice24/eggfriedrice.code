@@ -1,7 +1,7 @@
 use efr_protocol::Origin;
 use pretty_assertions::assert_eq;
 
-use super::{listing, names, of_new_conversations};
+use super::{listing, names};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{TestEnv, capture, command, models, now};
@@ -17,21 +17,26 @@ fn names_are_the_ids_alone() {
 }
 
 #[test]
-fn only_the_models_of_the_provider_of_new_conversations_are_offered() {
-    let mut list = models();
-    list.catalog = Some(efr_protocol::CatalogStatus {
-        provider: Some("openai-api".to_owned()),
+fn the_models_of_each_provider_with_a_login_are_listed_under_their_provider() {
+    let status = |provider: &str| efr_protocol::CatalogStatus {
+        provider: Some(provider.to_owned()),
         origin: efr_protocol::CatalogOrigin::Builtin,
         fetched_at: None,
-    });
-    list.catalogs = vec![list.catalog.clone().unwrap()];
-    list.models[0].provider = Some("openai-api".to_owned());
-    list.models[1].provider = Some("anthropic-api".to_owned());
+    };
+    let mut list = models();
+    list.catalog = Some(status("openai-subscription"));
+    list.catalogs = vec![status("openai-subscription"), status("openai-api")];
+    list.models[0].provider = Some("openai-subscription".to_owned());
+    list.models[1].provider = Some("openai-subscription".to_owned());
+    list.models[2].provider = Some("openai-api".to_owned());
+    let mut again = list.models[0].clone();
+    again.provider = Some("openai-api".to_owned());
+    again.default = false;
+    list.models.push(again);
 
-    let list = of_new_conversations(list);
-
-    assert_eq!(names(&list), "gpt-5.5\nmy-model\n", "a model that names no provider stays");
-    assert!(list.catalogs.is_empty());
+    insta::assert_snapshot!(listing(&list, now()));
+    // The completion offers each id once.
+    assert_eq!(names(&list), "gpt-5.5\ngpt-5.4\nmy-model\n");
 }
 
 #[test]

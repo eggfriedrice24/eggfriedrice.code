@@ -28,7 +28,6 @@ pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/e
 /// `resume` keys belong to `efr`.
 pub const RESTART_KEYS: &[&str] = &[
     "screen",
-    "model.provider",
     "openai.originator",
     "openai.subscription_base_url",
     "openai.api_base_url",

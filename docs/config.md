@@ -36,7 +36,7 @@ The provider, the default model of a turn and what each request carries.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `provider` | `"openai-subscription"` | restart | The provider of new conversations: `openai-subscription` (the ChatGPT plan), `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). Needs a restart. |
+| `provider` | `"openai-subscription"` | live | The provider of new conversations: `openai-subscription` (the ChatGPT plan), `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). A turn on a model of another provider with a login goes to that provider. |
 | `name` | unset | live | The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset: the default of the provider's model catalog: for OpenAI the model with the best priority, for Anthropic `claude-opus-5-5` when the API lists it. |
 | `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`. Unset: the provider's default for the model (`medium` for Claude models). |
 | `system_prompt` | built in | live | The system prompt of every request. |

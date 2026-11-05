@@ -191,9 +191,9 @@ async fn a_key_on_stdin_is_trimmed_checked_and_shown_only_by_its_hint() {
         stdout,
         "logged in to openai-api with key sk-proj-...9f3c\n\
          note: OpenAI bills the API key per token; a ChatGPT plan does not cover it\n\
-         New conversations keep their provider. To use openai-api, set provider = \"openai-api\" \
-         under [model] in config.toml (efr config set model.provider openai-api), then restart \
-         efrd: systemctl --user restart efrd\n"
+         efr models now lists the models of openai-api, and a turn on a model that only \
+         openai-api lists goes to it. To make it the provider of new conversations: efr config \
+         set model.provider openai-api\n"
     );
     assert!(!format!("{params:?}").contains(KEY));
 }
@@ -321,7 +321,7 @@ async fn a_check_without_an_answer_offers_to_store_the_key_without_it() {
 }
 
 #[tokio::test]
-async fn a_key_for_the_provider_of_the_config_needs_only_a_restart() {
+async fn a_key_for_the_provider_of_the_config_needs_only_a_reload() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let input = FixedKeyInput { stdin: "sk-ant-api03-efr-cli-a1b2", ..Default::default() };
@@ -338,8 +338,8 @@ async fn a_key_for_the_provider_of_the_config_needs_only_a_restart() {
     assert_eq!(
         stdout,
         "logged in to anthropic-api with key sk-ant-...a1b2\n\
-         config.toml names anthropic-api under [model], and efrd uses it after a restart: \
-         systemctl --user restart efrd\n"
+         config.toml names anthropic-api under [model], and efrd uses it after it reads the \
+         file again: efr config reload\n"
     );
 }
 

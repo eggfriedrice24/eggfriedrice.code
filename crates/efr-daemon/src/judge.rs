@@ -11,8 +11,10 @@
 //! all its requests: a step that sends its request again, without the output form or
 //! for a placeholder rationale, stays within that one time.
 //!
-//! The chain: the classifier model (`classifier.model`, else the small model of the
-//! provider's company, [`Vendor::classifier_model`]), then the turn's model when
+//! The judge asks the provider of the exit's turn (`JudgeInput::turn_provider`), else
+//! the provider of new conversations. The chain: the classifier model
+//! (`classifier.model`, else the small model of that provider's company,
+//! [`Vendor::classifier_model`]), then the turn's model when
 //! `classifier.fallback_to_turn_model` is on, then the user. A step goes to the next one
 //! when its model is missing, refuses, times out or gives an answer that does not fit
 //! the schema. A provider that refuses the credentials, or an account without quota,
@@ -42,19 +44,18 @@
 //! more without it, and leaves the form out for that model for the daemon's life; the
 //! prompt still asks for the JSON.
 //!
-//! What the judge keeps (`memory`): a model that is missing or refuses is skipped for
-//! the rest of the conversation; a timeout or another error is tried again at the next
+//! What the judge keeps (`memory`), each for a model of one provider: a model that is
+//! missing or refuses is skipped for the rest of the conversation; a timeout or another error is tried again at the next
 //! exit. An `allow` or a `deny` serves every later exit of the same turn whose record
 //! differs only in its counters (`previous_exits_this_turn` and the refusal and denial
-//! counts), with `cached` set and no request. The provider and the small model stay the
-//! same for the daemon's life, so each conversation keeps one first model until
-//! `classifier.model` changes. The SHA-256 of the record that the model read goes into
+//! counts), with `cached` set and no request. A conversation keeps one first model while
+//! its turns stay on one company and `classifier.model` does not change. The SHA-256 of the record that the model read goes into
 //! the outcome, so `efr-conversation` needs no hash function.
 //!
 //! The judge returns the model's judgement as it is. The turn applies the allow rule and
 //! the naming rule of 9.4 (`efr-conversation`).
 //!
-//! efrd builds one judge over the provider of every conversation (`run.rs`) and passes
+//! efrd builds one judge over the providers of the conversations (`run.rs`) and passes
 //! it as `ConversationDeps::judge`. `classifier.enabled = false` keeps the turn from
 //! asking it.
 
@@ -65,7 +66,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_config::{ClassifierSettings, Settings};
-use efr_conversation::{ExitJudge, JudgeInput, JudgeOutcome};
+use efr_conversation::{ExitJudge, JudgeInput, JudgeOutcome, ProviderRouter};
 use efr_permissions::Egress;
 use efr_protocol::{ChainStep, ExitRecord, Judgement, Risk, UserAuthorization, Verdict};
 use efr_provider::{
@@ -123,10 +124,9 @@ const RATIONALE_RULE: &str = "In one or two sentences, name the user message tha
 
 /// The judge of the daemon: one value serves every conversation.
 pub(crate) struct ClassifierJudge {
-    provider: Arc<dyn Provider>,
+    /// The providers of the turns: the judge asks the provider of each exit's turn.
+    providers: Arc<dyn ProviderRouter>,
     settings: watch::Receiver<Arc<Settings>>,
-    /// The first model of the chain when `classifier.model` names none.
-    small_model: &'static str,
     clock: Arc<dyn Clock>,
     memory: Memory,
     /// How often the classifier model wrote a placeholder rationale since efrd started.
@@ -159,19 +159,17 @@ impl Placeholders {
 }
 
 impl ClassifierJudge {
-    /// A judge that asks `provider`, the provider of every conversation, with the
-    /// `[classifier]` settings of `settings` at each exit. `vendor` is the company of
-    /// the provider, which names its small model.
+    /// A judge that asks the provider of each exit's turn among `providers`, with the
+    /// `[classifier]` settings of `settings` at each exit. The company of that provider
+    /// names the small model.
     pub(crate) fn new(
-        provider: Arc<dyn Provider>,
+        providers: Arc<dyn ProviderRouter>,
         settings: watch::Receiver<Arc<Settings>>,
-        vendor: Vendor,
         clock: Arc<dyn Clock>,
     ) -> Self {
         ClassifierJudge {
-            provider,
+            providers,
             settings,
-            small_model: vendor.classifier_model(),
             clock,
             memory: Memory::default(),
             placeholders: Placeholders::default(),
@@ -186,8 +184,12 @@ impl ClassifierJudge {
     }
 
     /// The steps of the chain for `input`, in order: each model with its step.
-    fn steps(&self, settings: &ClassifierSettings, input: &JudgeInput<'_>) -> Vec<Step> {
-        let first = settings.model.clone().unwrap_or_else(|| self.small_model.to_owned());
+    fn steps(
+        settings: &ClassifierSettings,
+        input: &JudgeInput<'_>,
+        small_model: &str,
+    ) -> Vec<Step> {
+        let first = settings.model.clone().unwrap_or_else(|| small_model.to_owned());
         let mut steps = vec![Step {
             model: first,
             chain_step: ChainStep::ClassifierModel,
@@ -214,25 +216,27 @@ impl ClassifierJudge {
     /// classifier model wrote a placeholder as its rationale, which sets `reasked`.
     async fn run_step(
         &self,
+        provider: &dyn Provider,
         step: &Step,
         settings: &ClassifierSettings,
-        models: &[ModelInfo],
         record: &str,
         egress: Egress,
         reasked: &mut bool,
     ) -> Result<Judgement, Failure> {
+        let models = provider.models();
         let info = models.iter().find(|info| info.id == step.model);
         if step.check_list && !models.is_empty() && info.is_none() {
             return Err(Failure::Missing);
         }
         let effort = effort(settings, info);
-        let mut with_format = self.memory.takes_format(&step.model);
+        let remembered = remembered(provider, &step.model);
+        let mut with_format = self.memory.takes_format(&remembered);
         // NOTE: only the classifier model is asked again, once, before the turn's model.
         let mut ask_again = step.chain_step == ChainStep::ClassifierModel;
         let requests = async {
             loop {
                 let request = request(&step.model, effort.clone(), record, with_format, egress);
-                let answer = self.send(request).await;
+                let answer = self.send(provider, request).await;
                 let counts = match &answer {
                     Ok(_) | Err(Failure::Placeholder)
                         if step.chain_step == ChainStep::ClassifierModel =>
@@ -244,7 +248,7 @@ impl ClassifierJudge {
                 match answer {
                     Err(Failure::FormatRefused) if with_format => {
                         tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
-                        self.memory.refuses_format(&step.model);
+                        self.memory.refuses_format(&remembered);
                         with_format = false;
                     }
                     Err(Failure::FormatRefused) => return Err(Failure::Refused),
@@ -264,16 +268,16 @@ impl ClassifierJudge {
         self.clock.timeout(timeout, requests).await.unwrap_or(Err(Failure::Timeout))
     }
 
-    /// Sends `request` and reads the answer.
-    async fn send(&self, request: Request) -> Result<Judgement, Failure> {
+    /// Sends `request` to `provider` and reads the answer.
+    async fn send(&self, provider: &dyn Provider, request: Request) -> Result<Judgement, Failure> {
         let span = tracing::debug_span!(
             "provider_request",
-            provider = %self.provider.id(),
+            provider = %provider.id(),
             model = %request.model,
             purpose = "classifier",
         );
         let with_format = request.output.is_some();
-        let answer = self.provider.complete(request).instrument(span);
+        let answer = provider.complete(request).instrument(span);
         match answer.await {
             Err(error) => Err(Failure::of(&error, with_format)),
             Ok(completion) => read(&completion),
@@ -332,16 +336,24 @@ impl ExitJudge for ClassifierJudge {
                 reasked: false,
             };
         }
-        let models = self.provider.models();
+        // NOTE: the provider of the turn, so a judge never asks a provider that the
+        // user left, such as one without credits after a switch.
+        let provider = input
+            .turn_provider
+            .and_then(|id| self.providers.get(id))
+            .unwrap_or_else(|| self.providers.default_provider());
+        let small_model = Vendor::of(provider.id().as_str()).classifier_model();
         let mut skipped = Vec::new();
         let mut reasked = false;
-        for step in self.steps(&settings, &input) {
-            if let Some(reason) = self.memory.skipped(conversation, &step.model) {
+        for step in Self::steps(&settings, &input, small_model) {
+            if let Some(reason) =
+                self.memory.skipped(conversation, &remembered(&*provider, &step.model))
+            {
                 skipped.push(format!("{}: {reason} earlier in this conversation", step.model));
                 continue;
             }
             match self
-                .run_step(&step, &settings, &models, &record, input.egress, &mut reasked)
+                .run_step(&*provider, &step, &settings, &record, input.egress, &mut reasked)
                 .await
             {
                 Ok(judgement) => {
@@ -360,7 +372,8 @@ impl ExitJudge for ClassifierJudge {
                 }
                 Err(failure) => {
                     if failure.skips_model() {
-                        self.memory.skip(conversation, &step.model, failure.reason());
+                        let remembered = remembered(&*provider, &step.model);
+                        self.memory.skip(conversation, &remembered, failure.reason());
                     }
                     tracing::debug!(
                         conversation_id = %input.conversation_id,
@@ -383,10 +396,16 @@ impl ExitJudge for ClassifierJudge {
 impl fmt::Debug for ClassifierJudge {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClassifierJudge")
-            .field("provider", &self.provider.id())
-            .field("small_model", &self.small_model)
+            .field("default_provider", &self.providers.default_provider().id())
             .finish_non_exhaustive()
     }
+}
+
+/// The key under which the judge remembers what `model` of `provider` did, such as
+/// `anthropic-api/claude-haiku-4-5`: one model id can be missing at one provider and
+/// served by another.
+fn remembered(provider: &dyn Provider, model: &str) -> String {
+    format!("{}/{model}", provider.id())
 }
 
 /// One step of the chain.

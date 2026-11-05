@@ -734,7 +734,8 @@ mod daemon {
             let dirs = TestDirs::new().unwrap();
             let clock = TestClock::new();
             let deps = deps(&dirs, &clock).with_runs_as_root(root);
-            let daemon = crate::testing::serve_with(settings, deps).await;
+            // NOTE: on the heap, so this closure's future stays small.
+            let daemon = Box::pin(crate::testing::serve_with(settings, deps)).await;
             let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
             let status: AdminStatusResult =
                 client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();

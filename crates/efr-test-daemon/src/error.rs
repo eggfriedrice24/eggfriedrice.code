@@ -60,6 +60,14 @@ pub enum TestDaemonError {
         source: io::Error,
     },
 
+    /// The test daemon's `config.toml` could not be read or written.
+    #[error("the config file of the test daemon failed")]
+    Config {
+        /// The error from the config writer.
+        #[source]
+        source: efr_daemon::ConfigError,
+    },
+
     /// A value could not be turned into JSON or back.
     #[error("{what} failed")]
     Json {

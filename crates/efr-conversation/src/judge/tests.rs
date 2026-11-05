@@ -71,6 +71,7 @@ async fn judge_input_and_outcome_are_send() {
         turn_id: TurnId::from_uuid(id(2)),
         call_id: CallId::from_uuid(id(3)),
         turn_model: "gpt-5.5",
+        turn_provider: None,
         turn_effort: Some("low"),
         record: &record,
         egress: efr_permissions::Egress::None,
