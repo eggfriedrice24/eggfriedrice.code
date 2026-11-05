@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-11-05
+
 ### Added
 
 - efr now runs every provider that you are logged in to at the same time. A turn on a
@@ -1806,7 +1808,8 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.7...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.8...HEAD
+[0.0.8]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.4...v0.0.5
