@@ -93,6 +93,11 @@ fn both_models() -> Vec<ModelInfo> {
     vec![ModelInfo::new(CLAUDE).with_edit_tool(EditTool::Replace), ModelInfo::new(MODEL)]
 }
 
+/// The provider of the harness and `model`, the side of a switch that a turn names.
+fn ran_on(model: &str) -> efr_protocol::SwitchedModel {
+    efr_protocol::SwitchedModel { provider: Some("replay".to_owned()), model: model.to_owned() }
+}
+
 /// Sends `text` with the model `model` and waits for the end of its turn.
 async fn turn_on(h: &mut Harness, model: &str, text: &str) {
     let cwd = h.cwd.clone();
@@ -133,7 +138,8 @@ async fn an_edit_call_of_a_claude_turn_goes_to_an_openai_model_as_text() {
     ));
     let result_text =
         Message::user(format!("Result of the earlier tool call `edit` (id call_1):\n{output}"));
-    let (next, then) = (setup.prompt(&state, "next"), setup.prompt(&state, "then"));
+    let moved = LiveState { switched_from: Some(ran_on(CLAUDE)), ..state.clone() };
+    let (next, then) = (setup.prompt(&moved, "next"), setup.prompt(&state, "then"));
     let on_openai = vec![
         request_for(
             EditTool::ApplyPatch,
@@ -195,8 +201,10 @@ async fn an_apply_patch_call_of_an_openai_turn_goes_to_a_claude_model_as_text_an
     ));
     let result_text =
         Message::user("Result of the earlier tool call `apply_patch` (id call_1):\npatched");
-    let (next, then) = (setup.prompt(&claude, "next"), setup.prompt(&claude, "then"));
-    let back = setup.prompt(&state, "back");
+    let to_claude = LiveState { switched_from: Some(ran_on(MODEL)), ..claude.clone() };
+    let (next, then) = (setup.prompt(&to_claude, "next"), setup.prompt(&claude, "then"));
+    let back =
+        setup.prompt(&LiveState { switched_from: Some(ran_on(CLAUDE)), ..state.clone() }, "back");
     let on_claude = vec![
         on_claude_model(vec![
             add.clone(),

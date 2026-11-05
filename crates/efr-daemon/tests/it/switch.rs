@@ -148,8 +148,16 @@ async fn a_conversation_moves_from_claude_to_gpt_and_back_with_no_restart() {
     let (first, events) = turn(&daemon, 1, "prompt one", Some(CLAUDE)).await;
     assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
 
+    // NOTE: the conversation keeps Claude, its pick, so the GPT turn names its model.
+    let gpt_model = models(&daemon)
+        .await
+        .models
+        .into_iter()
+        .find(|model| model.default)
+        .map(|model| model.id)
+        .unwrap();
     responses.push(ResponsesAnswer::text("gpt answer two"));
-    let (second, events) = turn(&daemon, 2, "prompt two", None).await;
+    let (second, events) = turn(&daemon, 2, "prompt two", Some(&gpt_model)).await;
     assert_eq!(second, first, "one conversation");
     let (provider, gpt) = ran_on(&events);
     assert_eq!(provider, "openai-api");
@@ -157,6 +165,20 @@ async fn a_conversation_moves_from_claude_to_gpt_and_back_with_no_restart() {
 
     messages.push(MessagesAnswer::text("claude answer three"));
     let (third, events) = turn(&daemon, 3, "prompt three", Some(CLAUDE)).await;
+    let switched: Vec<_> = events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::ModelSwitched { from, to, .. } => {
+                Some((from.provider.clone(), to.provider.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        switched,
+        [(Some("openai-api".to_owned()), Some("anthropic-api".to_owned()))],
+        "the turn back to Claude records the switch"
+    );
     assert_eq!(third, first, "one conversation");
     assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
 

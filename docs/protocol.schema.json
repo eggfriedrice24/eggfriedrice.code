@@ -4055,6 +4055,34 @@
           "type": "object"
         },
         {
+          "description": "The turn runs on another model, or on another provider, than the turn before it:\nthe conversation switched. Recorded right after `turn_started`. The new model\nreads the text, the tool calls and the results of the earlier turns, but not the\nreasoning of the old one. A client shows one row for it; a compaction before the\nturn's first call, as after a switch to a smaller window, is its own\n`conversation_compacted` event.",
+          "properties": {
+            "from": {
+              "$ref": "#/$defs/SwitchedModel",
+              "description": "The provider and the model of the turn before."
+            },
+            "kind": {
+              "const": "model_switched",
+              "type": "string"
+            },
+            "to": {
+              "$ref": "#/$defs/SwitchedModel",
+              "description": "The provider and the model of this turn."
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn that runs on the new model."
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The scope of the conversation changed between turns, because the user moved.",
           "properties": {
             "from": {
@@ -11815,6 +11843,26 @@
           "type": "object"
         }
       ]
+    },
+    "SwitchedModel": {
+      "description": "One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):\nthe provider and the model of a turn.",
+      "properties": {
+        "model": {
+          "description": "The model id, such as `claude-opus-5-5`.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider, such as `anthropic-api`. Absent for a turn of a daemon before it\nrecorded the provider.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
     },
     "TargetFact": {
       "description": "A path that an exit writes or reads.",

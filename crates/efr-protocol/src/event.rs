@@ -16,8 +16,8 @@ use crate::{
     FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind,
     Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId,
     RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext,
-    SnapshotPhase, SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId, UserAuthorization,
-    Verdict,
+    SnapshotPhase, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnUndoInfo, UndoId,
+    UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -136,6 +136,21 @@ pub enum Event {
         /// before turn settings, whose model and effort no event names.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         settings: Option<EffectiveSettings>,
+    },
+
+    /// The turn runs on another model, or on another provider, than the turn before it:
+    /// the conversation switched. Recorded right after `turn_started`. The new model
+    /// reads the text, the tool calls and the results of the earlier turns, but not the
+    /// reasoning of the old one. A client shows one row for it; a compaction before the
+    /// turn's first call, as after a switch to a smaller window, is its own
+    /// `conversation_compacted` event.
+    ModelSwitched {
+        /// The turn that runs on the new model.
+        turn_id: TurnId,
+        /// The provider and the model of the turn before.
+        from: SwitchedModel,
+        /// The provider and the model of this turn.
+        to: SwitchedModel,
     },
 
     /// The scope of the conversation changed between turns, because the user moved.
@@ -1049,6 +1064,7 @@ impl Event {
             | Event::PromptWithdrawn { turn_id, .. }
             | Event::PromptHeld { turn_id }
             | Event::TurnStarted { turn_id, .. }
+            | Event::ModelSwitched { turn_id, .. }
             | Event::ScopeChanged { turn_id, .. }
             | Event::AssistantMessageUpdated { turn_id, .. }
             | Event::AssistantMessageCompleted { turn_id, .. }

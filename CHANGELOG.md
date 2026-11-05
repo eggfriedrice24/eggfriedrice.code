@@ -14,6 +14,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - `[openai] effort` and `[anthropic] effort` set the reasoning effort for the models
   of one company, in place of `[model] effort`.
+- A conversation keeps the model that a prompt picked. A later prompt that names no
+  model, from any terminal or the phone, runs on it, and so does a turn that a
+  background job starts. Before, such a prompt ran on the default of `config.toml`,
+  and a job's turn on the model of the turn that started the job. If the model is no
+  longer in the list, for example after a logout, the default applies again.
+- On the first turn after a switch of model, the model reads one line that names the
+  model before it, so it does not take the earlier answers for its own. The log
+  records the switch as a `model_switched` event, for a row in the transcript.
 
 ### Changed
 

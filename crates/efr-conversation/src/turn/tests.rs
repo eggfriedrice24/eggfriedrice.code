@@ -331,7 +331,16 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
     ]);
     let mut first_answer = text_answer("One.");
     first_answer[1] = done(StopReason::EndTurn, Some(raw.clone()));
-    let switched = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
+    let on = |model: &str| efr_protocol::SwitchedModel {
+        provider: Some("replay".to_owned()),
+        model: model.to_owned(),
+    };
+    let switched = LiveState {
+        model: "test-model-2".to_owned(),
+        switched_from: Some(on(MODEL)),
+        ..state.clone()
+    };
+    let back = LiveState { switched_from: Some(on("test-model-2")), ..state.clone() };
     let mut second = request(vec![
         setup.prompt(&state, "first"),
         Message::assistant("One."),
@@ -343,7 +352,7 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
         Message::assistant("One.").with_provider_raw(raw),
         setup.prompt(&switched, "second"),
         Message::assistant("Two."),
-        setup.prompt(&state, "third"),
+        setup.prompt(&back, "third"),
     ]);
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "first")])),
@@ -362,11 +371,30 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
     params.settings.model = Some("test-model-2".to_owned());
     let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
     h.wait_end(sent.turn_id).await;
-    let sent = h.prompt("third").await;
+    // NOTE: the conversation keeps its pick, so the way back names the model too.
+    let mut params = h.prompt_params(&cwd, "third");
+    params.settings.model = Some(MODEL.to_owned());
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
     h.wait_end(sent.turn_id).await;
 
     // The replay compares each request with the expected one in full: the second
     // carries no item of the first model, the third, on the first model again, does.
+    // Each turn on another model says once which model ran before.
+    let events = h.events().await;
+    let switches: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::ModelSwitched { from, to, .. } => Some((from.model.clone(), to.model.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        switches,
+        [
+            (MODEL.to_owned(), "test-model-2".to_owned()),
+            ("test-model-2".to_owned(), MODEL.to_owned()),
+        ]
+    );
     h.finish();
 }
 
@@ -1410,7 +1438,15 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
     h.finish();
 
     // After a restart the cache is gone and another provider answers: the history comes
-    // from the saved messages, as it would from the cache, without provider items.
+    // from the saved messages, as it would from the cache, without provider items, and
+    // the new turn says once which provider ran before.
+    let moved = LiveState {
+        switched_from: Some(efr_protocol::SwitchedModel {
+            provider: Some("replay".to_owned()),
+            model: MODEL.to_owned(),
+        }),
+        ..state.clone()
+    };
     let third = vec![
         user_prompt(&state, "first"),
         tool_message("call_1", "read_file", &input),
@@ -1418,7 +1454,7 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
         Message::assistant("One."),
         user_prompt(&state, "second"),
         Message::assistant("Two."),
-        user_prompt(&state, "third"),
+        user_prompt(&moved, "third"),
     ];
     let cwd = h.cwd.clone();
     let records = vec![expect_request(request(third)), answer(&text_answer("Three."))];
@@ -1555,7 +1591,14 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
     let setup = Setup::new();
     let state = setup.live_state(&setup.cwd, "tidy up");
     let first = setup.prompt(&state, "tidy up");
-    let changed_state = LiveState { model: "test-model-2".to_owned(), ..state.clone() };
+    let changed_state = LiveState {
+        model: "test-model-2".to_owned(),
+        switched_from: Some(efr_protocol::SwitchedModel {
+            provider: Some("replay".to_owned()),
+            model: MODEL.to_owned(),
+        }),
+        ..state.clone()
+    };
     let mut next = request(vec![
         setup.prompt(&state, "tidy up"),
         Message::assistant("Working."),

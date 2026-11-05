@@ -523,6 +523,21 @@ export type Event =
     }
   | {
       /**
+       * The provider and the model of the turn before.
+       */
+      from: SwitchedModel;
+      kind: "model_switched";
+      /**
+       * The provider and the model of this turn.
+       */
+      to: SwitchedModel;
+      /**
+       * The turn that runs on the new model.
+       */
+      turn_id: TurnId;
+    }
+  | {
+      /**
        * The scope before.
        */
       from: Scope;
@@ -4063,6 +4078,21 @@ export interface OverriddenSettings {
   model?: boolean;
 }
 /**
+ * One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):
+ * the provider and the model of a turn.
+ */
+export interface SwitchedModel {
+  /**
+   * The model id, such as `claude-opus-5-5`.
+   */
+  model: string;
+  /**
+   * The provider, such as `anthropic-api`. Absent for a turn of a daemon before it
+   * recorded the provider.
+   */
+  provider?: string | null;
+}
+/**
  * The files that changed in the roots of a call or a turn while it ran. efr compares
  * its own snapshots, so a file that another conversation or the user changed at the
  * same time is listed too.
@@ -7292,6 +7322,7 @@ export const EVENT_KINDS = [
   "prompt_withdrawn",
   "prompt_held",
   "turn_started",
+  "model_switched",
   "scope_changed",
   "assistant_message_updated",
   "assistant_message_completed",

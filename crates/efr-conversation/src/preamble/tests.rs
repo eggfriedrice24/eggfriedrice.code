@@ -32,6 +32,7 @@ fn minimal() -> LiveState {
         egress: Egress::None,
         full_allowed: false,
         wake: false,
+        switched_from: None,
     }
 }
 
@@ -494,4 +495,22 @@ fn a_command_left_running_is_in_the_preamble() {
 fn no_busy_line_by_default() {
     assert!(busy_lines(&minimal()).is_empty());
     assert!(busy_lines(&full()).is_empty());
+}
+
+#[test]
+fn the_first_turn_on_another_model_names_the_model_before_once() {
+    let mut state = minimal();
+    state.switched_from = Some(efr_protocol::SwitchedModel {
+        provider: Some("anthropic-api".to_owned()),
+        model: "claude-opus-5-5".to_owned(),
+    });
+    let text = state.render();
+    assert!(
+        text.contains(
+            "\nThe earlier turns of this conversation ran on claude-opus-5-5 (anthropic-api). \
+             You read their text, tool calls and results, but not their reasoning.\n"
+        ),
+        "{text}"
+    );
+    assert!(!minimal().render().contains("The earlier turns"), "only after a switch");
 }

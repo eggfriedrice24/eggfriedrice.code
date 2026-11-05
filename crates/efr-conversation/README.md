@@ -31,7 +31,12 @@ turns.
   the choices when they no longer fit, and records them on `turn_started`. An effort
   from the config (`ConversationConfig::provider_efforts` for the model's provider,
   else `ConversationConfig::effort`) that the model does not take gives way to the
-  model's own default effort and never fails a turn. A turn that
+  model's own default effort and never fails a turn. A prompt that names no model,
+  and a wake turn, take the model and the effort of the turn before when a prompt
+  picked them and the model list still has the model (`sticky.rs`); the turn records
+  them as its own, so the pick goes from turn to turn. A turn on another model, or on
+  another provider, than the turn before records `model_switched` after
+  `turn_started`, and its preamble says once which model ran before. A turn that
   names no model of its own fails with `ForeignModel` (`invalid`, with the cause and
   the fix of efrd's refusal of a new prompt) while the config's default model is a
   model of another company than its provider that no provider with a login lists

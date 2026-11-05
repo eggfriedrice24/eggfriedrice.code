@@ -200,6 +200,18 @@ pub struct EffectiveSettings {
     pub fallback: Option<ModeFallback>,
 }
 
+/// One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):
+/// the provider and the model of a turn.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct SwitchedModel {
+    /// The provider, such as `anthropic-api`. Absent for a turn of a daemon before it
+    /// recorded the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// The model id, such as `claude-opus-5-5`.
+    pub model: String,
+}
+
 /// Which of a turn's [`EffectiveSettings`] the prompt set; the others are the config's.
 /// Each flag is left out when it is false.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

@@ -34,7 +34,7 @@ use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
 use efr_permissions::Egress;
-use efr_protocol::{BusyShell, InputWait, Mode, ModeFallback, RecentCommand};
+use efr_protocol::{BusyShell, InputWait, Mode, ModeFallback, RecentCommand, SwitchedModel};
 use efr_scope::Repo;
 use jiff::Timestamp;
 
@@ -97,6 +97,9 @@ pub(crate) struct LiveState {
     /// True for a turn that job notices started (a wake turn): the user sent no prompt,
     /// and the turn works where the job's turn worked, not in the user's shell.
     pub(crate) wake: bool,
+    /// The provider and the model of the turn before, when this turn is the first on
+    /// another one: the block says so once.
+    pub(crate) switched_from: Option<SwitchedModel>,
 }
 
 impl fmt::Debug for LiveState {
@@ -248,6 +251,20 @@ impl LiveState {
                 let _ = writeln!(text, "Reasoning effort: {effort}");
             }
             None => text.push_str("Reasoning effort: the backend's default for the model\n"),
+        }
+        if let Some(from) = &self.switched_from {
+            // NOTE: once, in the block of the first turn on the new model; the model must
+            // not take the earlier answers as its own, nor look for reasoning it cannot
+            // read.
+            let by = match &from.provider {
+                Some(provider) => format!("{} ({})", from.model, provider),
+                None => from.model.clone(),
+            };
+            let _ = writeln!(
+                text,
+                "The earlier turns of this conversation ran on {by}. You read their text, tool \
+                 calls and results, but not their reasoning."
+            );
         }
         let full_on = self.full_allowed || self.mode == Mode::Full;
         if full_on {

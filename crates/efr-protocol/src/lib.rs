@@ -159,7 +159,9 @@ pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_prompt::looks_secret;
 pub use secret_text::SecretText;
-pub use settings::{EffectiveSettings, FullRefusal, Mode, OverriddenSettings, TurnSettings};
+pub use settings::{
+    EffectiveSettings, FullRefusal, Mode, OverriddenSettings, SwitchedModel, TurnSettings,
+};
 pub use shell_context::{DesktopEnv, ShellContext};
 pub use undo::{
     MAX_NOT_COVERED, MAX_UNDO_ENTRIES, RefChange, RootFiles, SnapshotPhase, TurnUndoInfo,

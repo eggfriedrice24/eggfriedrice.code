@@ -56,8 +56,8 @@ use crate::{
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
     SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
     ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact,
-    TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, SwitchedModel,
+    TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
     TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
     UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
     WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
@@ -2208,6 +2208,17 @@ pub(crate) fn event_samples() -> Vec<Event> {
             cwd: "/var/log".into(),
             scope: Scope::Path("/var/log".into()),
             settings: Some(fallen_back_settings()),
+        },
+        Event::ModelSwitched {
+            turn_id: turn_id(),
+            from: SwitchedModel {
+                provider: Some("openai-subscription".into()),
+                model: "gpt-5.5".into(),
+            },
+            to: SwitchedModel {
+                provider: Some("anthropic-api".into()),
+                model: "claude-opus-5-5".into(),
+            },
         },
         Event::ScopeChanged {
             turn_id: turn_id(),

@@ -269,6 +269,7 @@ import type {
   StreamMethodName,
   SurfaceChange,
   Switch,
+  SwitchedModel,
   TargetFact,
   TextRange,
   TurnId,
@@ -1636,6 +1637,11 @@ export const shellCommandEndSchema = z.enum([
 
 export const snapshotPhaseSchema = z.enum(["pre", "post"]) satisfies z.ZodType<SnapshotPhase>;
 
+export const switchedModelSchema = z.object({
+  model: z.string(),
+  provider: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<SwitchedModel>;
+
 export const stopReasonSchema = z.enum([
   "end_turn",
   "max_tokens",
@@ -1696,6 +1702,12 @@ export const eventSchema = z.discriminatedUnion("kind", [
     kind: z.literal("turn_started"),
     scope: scopeSchema,
     settings: effectiveSettingsSchema.nullable().exactOptional(),
+    turn_id: turnIdSchema,
+  }),
+  z.object({
+    from: switchedModelSchema,
+    kind: z.literal("model_switched"),
+    to: switchedModelSchema,
     turn_id: turnIdSchema,
   }),
   z.object({

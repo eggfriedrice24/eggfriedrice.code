@@ -62,8 +62,8 @@ use efr_permissions::{
 use efr_protocol::{
     ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode,
     Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId,
-    RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, TurnId,
-    TurnSettings, TurnStop, Verdict,
+    RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, SwitchedModel,
+    TurnId, TurnSettings, TurnStop, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
@@ -97,7 +97,6 @@ use crate::notice;
 use crate::preamble::{self, LiveState};
 use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
-use crate::router;
 use crate::scratch::Scratch;
 use crate::settings::{self, Place};
 use crate::steer::Steering;
@@ -106,6 +105,7 @@ use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, FileBackup,
     JobNoticeInput, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
 };
+use crate::{router, sticky};
 
 /// The longest output tail in a `tool_call_output_updated` event, in bytes.
 const TAIL_MAX: usize = 4096;
@@ -391,6 +391,9 @@ struct Turn {
     /// The provider of the turn's model, picked when the turn starts (`router.rs`);
     /// `None` until then. Every model call of the turn and its compactions go to it.
     provider: Option<Arc<dyn Provider>>,
+    /// The provider and the model of the turn before, when this turn runs on another
+    /// one (`model_switched`), for the one line of the preamble that says so.
+    switched_from: Option<SwitchedModel>,
     /// The tool with which the turn's model changes files, from the provider's model
     /// list when the turn starts: the request offers only this one of the two edit
     /// tools, and each call carries it so the toolbox refuses the other one.
@@ -524,6 +527,7 @@ impl Turn {
             config,
             settings: None,
             provider: None,
+            switched_from: None,
             edit_tool: EditTool::default(),
             spec,
             control,
@@ -599,11 +603,14 @@ impl Turn {
             home: engine.locations().home(),
             wake: self.spec.is_wake(),
         };
-        let mut settings =
-            match settings::resolve(&self.spec.settings, &config, self.spec.origin, place) {
-                Ok(settings) => settings,
-                Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
-            };
+        // NOTE: the settings of the turn before, as the log has them: a prompt that names
+        // no model takes the conversation's pick from there (`sticky.rs`).
+        let previous = snapshot.newest_settings().cloned();
+        let asked = sticky::asked(&self.spec.settings, previous.as_ref(), &config);
+        let mut settings = match settings::resolve(&asked, &config, self.spec.origin, place) {
+            Ok(settings) => settings,
+            Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
+        };
         let provider = match router::provider_of(&settings.model, &config, &*shared.deps.providers)
         {
             Ok(provider) => provider,
@@ -613,6 +620,8 @@ impl Turn {
         // switch of provider (its counts and raw items are not this one's).
         settings.provider = Some(provider.id().as_str().to_owned());
         self.provider = Some(Arc::clone(&provider));
+        self.switched_from =
+            previous.as_ref().and_then(|previous| sticky::switched(previous, &settings));
         self.settings = Some(settings.clone());
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
@@ -651,6 +660,16 @@ impl Turn {
             scope: self.scope.clone(),
             settings: Some(settings.clone()),
         });
+        if let Some(from) = &self.switched_from {
+            started.push(Event::ModelSwitched {
+                turn_id,
+                from: from.clone(),
+                to: SwitchedModel {
+                    provider: settings.provider.clone(),
+                    model: settings.model.clone(),
+                },
+            });
+        }
         if let Some(previous) = summary.and_then(|summary| summary.scope.clone())
             && previous != self.scope
         {
@@ -1057,6 +1076,7 @@ impl Turn {
             egress: self.shared.deps.engine.borrow().support().egress,
             full_allowed: self.config.full_mode.allowed,
             wake: self.spec.is_wake(),
+            switched_from: self.switched_from.clone(),
         }
     }
 

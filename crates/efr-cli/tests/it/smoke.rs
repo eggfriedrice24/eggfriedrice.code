@@ -270,13 +270,19 @@ async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() 
     })
     .await;
     assert!(reload.status.success(), "{}", text(&reload.stderr));
-    let second = run(send(&["--", "two"])).await;
+    // NOTE: a new conversation, since one keeps the model that its prompt picked.
+    let second = run({
+        let mut command = efr(&daemon);
+        command.args(["new", "--context-json", &context, "--", "two"]);
+        command
+    })
+    .await;
     assert!(second.status.success(), "{}", text(&second.stderr));
 
     let [one, two] = server.received().try_into().unwrap();
     assert_eq!(one.body["model"], other.id.as_str());
     assert_eq!(one.body["reasoning"]["effort"], asked.as_str());
-    assert_eq!(two.body["model"], default.id.as_str(), "the config's model");
+    assert_eq!(two.body["model"], default.id.as_str(), "the config's model in a new conversation");
     assert_eq!(two.body["reasoning"]["effort"], reloaded.as_str(), "the reloaded effort");
     daemon.stop().await.unwrap();
 }

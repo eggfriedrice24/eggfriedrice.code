@@ -158,10 +158,11 @@ fn event_index(event: &Event) -> usize {
         Event::ShellCommandInputChanged { .. } => 53,
         Event::ShellCommandEnded { .. } => 54,
         Event::ConversationDeleted { .. } => 55,
+        Event::ModelSwitched { .. } => 56,
     }
 }
 
-const EVENT_COUNT: usize = 56;
+const EVENT_COUNT: usize = 57;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

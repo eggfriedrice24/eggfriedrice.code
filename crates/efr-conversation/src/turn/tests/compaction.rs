@@ -551,7 +551,14 @@ async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
     let (one, two) = (format!("one\n{}", big_text(700_000)), big_prompt("two"));
     let first = setup.prompt(&wide_state, &one);
     let second = setup.prompt(&wide_state, &two);
-    let third = setup.prompt(&state, "three");
+    let back = LiveState {
+        switched_from: Some(efr_protocol::SwitchedModel {
+            provider: Some("replay".to_owned()),
+            model: wide.to_owned(),
+        }),
+        ..state.clone()
+    };
+    let third = setup.prompt(&back, "three");
     let visible = vec![
         Message::user(omitted_note(1)),
         second.clone(),
@@ -585,7 +592,10 @@ async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
         h.wait_end(sent.turn_id).await;
     }
 
-    let three = h.prompt("three").await.turn_id;
+    // NOTE: the conversation keeps its pick, so the way back names the model.
+    let mut params = h.prompt_params(&cwd, "three");
+    params.settings.model = Some(MODEL.to_owned());
+    let three = h.handle.send_prompt(params, Origin::Shell).await.expect("accepted").turn_id;
     let end = h.wait_end(three).await;
 
     assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");

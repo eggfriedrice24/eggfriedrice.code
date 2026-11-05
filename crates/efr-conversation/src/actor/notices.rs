@@ -35,7 +35,6 @@ use crate::wake::{self, WakeWindow};
 #[derive(Debug, Clone)]
 struct JobStart {
     origin: Origin,
-    settings: TurnSettings,
     mode: Mode,
     cwd: PathBuf,
     /// True when job notices started that turn.
@@ -92,13 +91,7 @@ impl Notices {
             for job in &end.jobs {
                 self.starts.insert(
                     job.id.clone(),
-                    JobStart {
-                        origin: spec.origin,
-                        settings: spec.settings.clone(),
-                        mode,
-                        cwd: end.cwd.clone(),
-                        wake,
-                    },
+                    JobStart { origin: spec.origin, mode, cwd: end.cwd.clone(), wake },
                 );
             }
             if !wake {
@@ -202,8 +195,10 @@ impl ConversationActor {
         let start = wakeable.iter().map(|start| start.mode).min().unwrap_or(first.mode);
         let mode = wake::wake_mode(start, self.notices.newest_prompt);
         // NOTE: the turn resolves these settings when it starts, as a prompt's turn
-        // does; a value that cannot work then fails the turn, which the user sees.
-        let settings = TurnSettings { mode: Some(mode), ..first.settings.clone() };
+        // does; a value that cannot work then fails the turn, which the user sees. The
+        // model and the effort are the conversation's newest pick (`sticky.rs`), not
+        // the ones of the job's turn: the user may have switched since.
+        let settings = TurnSettings { mode: Some(mode), model: None, effort: None };
         let now = self.shared.deps.clock.now();
         let conversation_id = self.conversation_id();
         if !self.notices.window.allows(now, config.max_wakes_per_hour)

@@ -803,3 +803,20 @@ async fn a_paused_wake_turn_stops_when_nobody_follows() {
     assert!(!events.iter().any(|e| matches!(e.event, Event::ApprovalRequested { .. })));
     assert_eq!(judge.calls(), 3);
 }
+
+#[tokio::test]
+async fn wake_turn_runs_on_the_newest_pick_not_on_the_model_of_the_jobs_turn() {
+    let (mut h, _, _) = with_job(auto(), vec![(DONE, Value::Null), (DONE, Value::Null)]).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "use the other model");
+    params.settings =
+        TurnSettings { model: Some("test-model-2".to_owned()), ..TurnSettings::default() };
+    let sent = h.handle.send_prompt(params, efr_protocol::Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+    h.presence.set_followed(true);
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let woke = wake(&mut h).await;
+
+    assert_eq!(started_settings(&h, woke).await.model, "test-model-2");
+}

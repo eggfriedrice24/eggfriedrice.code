@@ -930,3 +930,9 @@ No protocol version has shipped yet.
   prompt that names no model while `[model] name` is a model of another company runs
   on that company's provider when one has a login; else it fails as before, and the
   fix in the message names the login. No wire type changed.
+- Version 1, additive: a new event, `model_switched` `{turn_id, from, to}`, right after
+  the `turn_started` of a turn on another model, or on another provider, than the turn
+  before; `from` and `to` are `{provider?, model}`. A client that does not know it
+  skips it. A prompt that names no model now runs on the model of the turn before when
+  a prompt picked it, while the model list has it; a turn that job notices start does
+  too. New fixture `events/model_switched.json`.

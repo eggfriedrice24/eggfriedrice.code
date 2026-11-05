@@ -82,6 +82,7 @@ mod router;
 mod scratch;
 mod settings;
 mod steer;
+mod sticky;
 #[cfg(test)]
 mod testing;
 mod toolbox;
