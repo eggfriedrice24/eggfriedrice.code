@@ -152,8 +152,8 @@ pub(crate) fn resolve(
     // `[openai] models`); the daemon then takes any model id, and so does efr.
     let any_model = models.is_empty();
     let (model, info, model_source) = match &asked.model {
-        Some(given) => match models.iter().find(|model| model.id == given.value) {
-            Some(model) => (Some(model.id.clone()), Some(model), given.source.clone()),
+        Some(given) => match find_model(&given.value, models) {
+            Some(model) => (Some(given.value.clone()), Some(model), given.source.clone()),
             None if any_model && !given.value.trim().is_empty() => {
                 (Some(given.value.clone()), None, given.source.clone())
             }
@@ -233,6 +233,19 @@ pub(crate) fn resolve(
         Line { key: "model", value: model, source: model_source, choices: ids() },
         Line { key: "effort", value: effort, source: effort_source, choices: efforts.to_vec() },
     ])
+}
+
+/// The entry of `value` in `models`: a plain model id, or `provider/model`, the model
+/// in the list of the provider that the prompt names (`efr_protocol::provider_named`).
+fn find_model<'a>(value: &str, models: &'a [ModelInfo]) -> Option<&'a ModelInfo> {
+    let (provider, model) = crate::turn_settings::split_model(value);
+    match provider {
+        None => models.iter().find(|info| info.id == model),
+        Some(name) => {
+            let id = efr_protocol::provider_named(name, models)?;
+            models.iter().find(|info| info.id == model && info.provider.as_deref() == Some(id))
+        }
+    }
 }
 
 /// One `key = value  # source; choices: a, b` line per setting. The plugin picks a

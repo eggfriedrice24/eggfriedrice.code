@@ -419,6 +419,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
             TurnSettings {
                 mode: Some(Mode::Auto),
                 model: Some("gpt-5.4".to_owned()),
+                provider: None,
                 effort: Some("high".to_owned()),
             }
         );

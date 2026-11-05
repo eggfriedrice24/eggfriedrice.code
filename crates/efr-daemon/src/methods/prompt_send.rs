@@ -143,7 +143,8 @@ async fn send(
     // turn resolves again against the settings of its start.
     let settings = Arc::clone(&state.settings.borrow());
     let asked = params.settings.model.as_deref();
-    let provider = state.providers.provider_of_prompt(&settings, asked).await;
+    let named = params.settings.provider.as_deref();
+    let provider = state.providers.provider_of_prompt(&settings, asked, named).await;
     // NOTE: after the wait, so a default of the other company finds the first list of
     // its provider.
     refuse_foreign_model(state, &settings, &params.settings)?;

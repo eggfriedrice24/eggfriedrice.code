@@ -217,6 +217,7 @@ async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
         TurnSettings {
             mode: Some(Mode::Auto),
             model: Some("gpt-5.4".to_owned()),
+            provider: None,
             effort: Some("high".to_owned()),
         }
     );

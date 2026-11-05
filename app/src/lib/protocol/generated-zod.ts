@@ -1018,6 +1018,7 @@ export const turnSettingsSchema = z.object({
   effort: z.string().nullable().exactOptional(),
   mode: modeSchema.nullable().exactOptional(),
   model: z.string().nullable().exactOptional(),
+  provider: z.string().nullable().exactOptional(),
 }) satisfies z.ZodType<TurnSettings>;
 
 export const promptSendSchema = z.object({

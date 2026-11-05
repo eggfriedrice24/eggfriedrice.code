@@ -611,8 +611,7 @@ impl Turn {
             Ok(settings) => settings,
             Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
         };
-        let provider = match router::provider_of(&settings.model, &config, &*shared.deps.providers)
-        {
+        let provider = match router::provider_for(&settings, &config, &*shared.deps.providers) {
             Ok(provider) => provider,
             Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
         };

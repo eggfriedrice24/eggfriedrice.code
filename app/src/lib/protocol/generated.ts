@@ -3048,6 +3048,12 @@ export interface TurnSettings {
    * The model id, such as `gpt-5.5`.
    */
   model?: string | null;
+  /**
+   * The provider of `model`, such as `anthropic-api.work`, when the prompt picks one
+   * of more than one provider or account that list the model. Absent: the first one
+   * with a login that lists it. Only with `model`.
+   */
+  provider?: string | null;
 }
 /**
  * The params of `turn.interrupt`.

@@ -556,3 +556,26 @@ fn the_client_config_keeps_the_turn_defaults_it_sets() {
     let settings = Settings::parse(path, "");
     assert_eq!(settings.turn, defaults(None, None, None), "a mode left out is no file value");
 }
+
+#[test]
+fn a_model_of_one_account_is_checked_in_the_list_of_that_account() {
+    let mut list = models().models;
+    for model in &mut list {
+        model.provider = Some("openai-subscription".to_owned());
+    }
+    let mut other = list[0].clone();
+    other.provider = Some("openai-subscription.b".to_owned());
+    list.push(other);
+    let ask = |value: &str| Asked {
+        model: given(value, SettingSource::Flag("--model")),
+        ..Asked::default()
+    };
+
+    let lines = resolve(&ask("b/gpt-5.5"), &TurnDefaults::default(), &list).unwrap();
+    assert_eq!(lines[1].value.as_deref(), Some("b/gpt-5.5"));
+    assert!(
+        resolve(&ask("b/gpt-5.4"), &TurnDefaults::default(), &list).is_err(),
+        "b lists no gpt-5.4"
+    );
+    assert!(resolve(&ask("home/gpt-5.5"), &TurnDefaults::default(), &list).is_err());
+}

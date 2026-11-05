@@ -91,6 +91,7 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
     let asked = TurnSettings {
         mode: Some(Mode::Auto),
         model: Some("gpt-5.4".to_owned()),
+        provider: None,
         effort: Some("high".to_owned()),
     };
     params.settings = asked.clone();

@@ -33,3 +33,36 @@ fn a_model_with_unknown_efforts_takes_any_effort_word() {
         assert!(!is_effort_word(effort), "{effort:?}");
     }
 }
+
+fn of(provider: &str) -> ModelInfo {
+    let mut info: ModelInfo =
+        serde_json::from_value(serde_json::json!({ "id": "m", "source": "builtin" })).unwrap();
+    info.provider = Some(provider.to_owned());
+    info
+}
+
+#[test]
+fn a_prompt_names_a_provider_by_its_id_its_account_or_its_kind() {
+    let models = [
+        of("openai-subscription"),
+        of("openai-subscription.b"),
+        of("anthropic-api"),
+        of("anthropic-api.work"),
+    ];
+    let named = |name: &str| super::provider_named(name, &models);
+
+    assert_eq!(named("anthropic-api.work"), Some("anthropic-api.work"));
+    assert_eq!(named("work"), Some("anthropic-api.work"));
+    assert_eq!(named("b"), Some("openai-subscription.b"));
+    assert_eq!(named("anthropic"), Some("anthropic-api"));
+    assert_eq!(named("openai"), Some("openai-subscription"));
+    assert_eq!(named("openai-api"), None, "no model of it is listed");
+    assert_eq!(named("home"), None);
+}
+
+#[test]
+fn an_account_name_of_two_providers_names_none() {
+    let models = [of("anthropic-api.work"), of("openai-api.work")];
+    assert_eq!(super::provider_named("work", &models), None);
+    assert_eq!(super::provider_named("openai-api.work", &models), Some("openai-api.work"));
+}

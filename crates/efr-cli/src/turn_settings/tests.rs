@@ -42,6 +42,7 @@ fn the_variables_ask_for_the_settings() {
         TurnSettings {
             mode: Some(Mode::Auto),
             model: Some("gpt-5.4".to_owned()),
+            provider: None,
             effort: Some("high".to_owned()),
         }
     );
@@ -115,4 +116,12 @@ fn each_source_says_where_the_value_comes_from() {
             "none is sent; the backend chooses for gpt-5.4",
         ]
     );
+}
+
+#[test]
+fn a_model_with_a_provider_names_both_on_the_wire() {
+    let (provider, model) = super::split_model("work/claude-opus-5-5");
+    assert_eq!((provider, model), (Some("work"), "claude-opus-5-5"));
+    assert_eq!(super::split_model("gpt-5.5"), (None, "gpt-5.5"));
+    assert_eq!(super::split_model("/gpt-5.5"), (None, "/gpt-5.5"), "no provider before the /");
 }

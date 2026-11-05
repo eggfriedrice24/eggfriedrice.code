@@ -67,7 +67,12 @@ fn config() -> ConversationConfig {
 }
 
 fn asked(mode: Option<Mode>, model: Option<&str>, effort: Option<&str>) -> TurnSettings {
-    TurnSettings { mode, model: model.map(str::to_owned), effort: effort.map(str::to_owned) }
+    TurnSettings {
+        mode,
+        model: model.map(str::to_owned),
+        provider: None,
+        effort: effort.map(str::to_owned),
+    }
 }
 
 #[test]
@@ -561,4 +566,38 @@ fn a_phone_wake_turn_of_full_runs_as_cautious_with_no_fallback() {
     let full = asked(Some(Mode::Full), None, None);
     let settings = resolve(&full, &allowing_full(None), Origin::Phone, woke(&ready())).unwrap();
     assert_eq!((settings.mode, settings.fallback), (Mode::Cautious, None));
+}
+
+#[test]
+fn a_prompt_names_one_of_two_accounts_that_list_its_model() {
+    let mut config = config();
+    let mut work = config.models[1].clone();
+    work.provider = Some("anthropic-api.work".to_owned());
+    config.models[1].provider = Some("anthropic-api".to_owned());
+    config.models[0].provider = Some("anthropic-api".to_owned());
+    config.models.push(work);
+    let named = |provider: &str| TurnSettings {
+        model: Some("gpt-5.5".to_owned()),
+        provider: Some(provider.to_owned()),
+        ..TurnSettings::default()
+    };
+
+    let work = resolve(&named("work"), &config, Origin::Shell, place(&ready())).unwrap();
+    assert_eq!(work.provider.as_deref(), Some("anthropic-api.work"));
+    let plain =
+        resolve(&asked(None, Some("gpt-5.5"), None), &config, Origin::Shell, place(&ready()));
+    assert_eq!(plain.unwrap().provider, None, "the router picks the first one");
+
+    let unknown = resolve(&named("home"), &config, Origin::Shell, place(&ready())).unwrap_err();
+    assert_eq!(
+        unknown.to_string(),
+        "the provider home is no provider with a login; choose one of: anthropic-api, anthropic-api.work"
+    );
+    let mut only = named("work");
+    only.model = Some("gpt-6-sol".to_owned());
+    let missing = resolve(&only, &config, Origin::Shell, place(&ready())).unwrap_err();
+    assert_eq!(
+        missing.to_string(),
+        "the provider work does not list gpt-6-sol; choose one of: anthropic-api"
+    );
 }

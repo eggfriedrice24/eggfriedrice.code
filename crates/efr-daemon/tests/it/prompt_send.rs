@@ -249,8 +249,12 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
         .unwrap();
     let client = daemon.client().await.unwrap();
     let Method::PromptSend(mut params) = daemon.prompt(1, "hello", TTY) else { unreachable!() };
-    params.settings =
-        TurnSettings { mode: Some(Mode::Auto), model: Some("gpt-6-sol".to_owned()), effort: None };
+    params.settings = TurnSettings {
+        mode: Some(Mode::Auto),
+        provider: None,
+        model: Some("gpt-6-sol".to_owned()),
+        effort: None,
+    };
 
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();

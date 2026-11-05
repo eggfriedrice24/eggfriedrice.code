@@ -346,7 +346,8 @@ enum Request {
         reply: Reply<PromptSendResult>,
     },
     Steer {
-        params: TurnSteer,
+        // NOTE: boxed too: a late steer carries the settings of a prompt.
+        params: Box<TurnSteer>,
         origin: Origin,
         reply: Reply<TurnSteerResult>,
     },
@@ -511,7 +512,7 @@ impl ConversationActor {
                 let _ = reply.send(self.prompt(*params, origin, *routing).await);
             }
             Request::Steer { params, origin, reply } => {
-                let _ = reply.send(self.steer(params, origin).await);
+                let _ = reply.send(self.steer(*params, origin).await);
             }
             Request::Interrupt { params, origin, reply } => {
                 let _ = reply.send(self.interrupt(params, origin).await);
@@ -624,7 +625,7 @@ impl ConversationActor {
         };
         let mut effective = settings::resolve(settings, &config, origin, place)?;
         let provider =
-            crate::router::provider_of(&effective.model, &config, &*self.shared.deps.providers)?;
+            crate::router::provider_for(&effective, &config, &*self.shared.deps.providers)?;
         effective.provider = Some(provider.id().as_str().to_owned());
         Ok(effective)
     }
@@ -1650,7 +1651,7 @@ impl ConversationHandle {
         params: TurnSteer,
         origin: Origin,
     ) -> Result<TurnSteerResult, ConversationError> {
-        self.request(|reply| Request::Steer { params, origin, reply }).await
+        self.request(|reply| Request::Steer { params: Box::new(params), origin, reply }).await
     }
 
     /// Takes a queued prompt back before it starts and records `prompt_withdrawn`. A

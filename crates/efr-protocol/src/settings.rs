@@ -159,6 +159,11 @@ pub struct TurnSettings {
     /// The model id, such as `gpt-5.5`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The provider of `model`, such as `anthropic-api.work`, when the prompt picks one
+    /// of more than one provider or account that list the model. Absent: the first one
+    /// with a login that lists it. Only with `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// The reasoning effort, such as `high`. A plain string, because the efforts belong to
     /// the model and the backend, so a new effort needs no protocol change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,7 +173,10 @@ pub struct TurnSettings {
 impl TurnSettings {
     /// True when the prompt asks for no setting, so every one comes from the config.
     pub fn is_empty(&self) -> bool {
-        self.mode.is_none() && self.model.is_none() && self.effort.is_none()
+        self.mode.is_none()
+            && self.model.is_none()
+            && self.provider.is_none()
+            && self.effort.is_none()
     }
 }
 

@@ -198,7 +198,7 @@ impl ConversationActor {
         // does; a value that cannot work then fails the turn, which the user sees. The
         // model and the effort are the conversation's newest pick (`sticky.rs`), not
         // the ones of the job's turn: the user may have switched since.
-        let settings = TurnSettings { mode: Some(mode), model: None, effort: None };
+        let settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
         let now = self.shared.deps.clock.now();
         let conversation_id = self.conversation_id();
         if !self.notices.window.allows(now, config.max_wakes_per_hour)

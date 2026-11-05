@@ -61,7 +61,12 @@ fn compose() -> Compose {
         context,
         last_command: Some(LastCommand::from("cargo test".to_owned())),
         recent_commands: vec![RecentCommand::new("git pull")],
-        settings: TurnSettings { mode: Some(Mode::Auto), model: None, effort: None },
+        settings: TurnSettings {
+            mode: Some(Mode::Auto),
+            provider: None,
+            model: None,
+            effort: None,
+        },
     }
 }
 

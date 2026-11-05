@@ -15,7 +15,12 @@ fn ran(model: &str, provider: &str, picked: bool, effort: Option<&str>) -> Effec
 }
 
 fn prompt(model: Option<&str>, effort: Option<&str>) -> TurnSettings {
-    TurnSettings { mode: None, model: model.map(str::to_owned), effort: effort.map(str::to_owned) }
+    TurnSettings {
+        mode: None,
+        model: model.map(str::to_owned),
+        provider: None,
+        effort: effort.map(str::to_owned),
+    }
 }
 
 #[test]
@@ -78,4 +83,27 @@ fn a_switch_is_another_model_or_another_provider() {
     assert!(switched(&gpt, &api).is_some(), "the same id at another provider");
     assert!(switched(&gpt, &gpt).is_none());
     assert!(switched(&unknown, &api).is_none(), "an old turn without a provider");
+}
+
+#[test]
+fn a_pick_of_an_account_keeps_its_account_while_its_list_has_the_model() {
+    let mut config = ConversationConfig::new("gpt-5.5", "/scratch");
+    let info = |provider: &str| {
+        let mut info: efr_protocol::ModelInfo = serde_json::from_value(
+            serde_json::json!({ "id": "claude-opus-5-5", "source": "builtin" }),
+        )
+        .unwrap();
+        info.provider = Some(provider.to_owned());
+        info
+    };
+    config.models = vec![info("anthropic-api"), info("anthropic-api.work")];
+    let before = ran("claude-opus-5-5", "anthropic-api.work", true, None);
+
+    let next = asked(&prompt(None, None), Some(&before), &config);
+    assert_eq!(next.provider.as_deref(), Some("anthropic-api.work"));
+
+    config.models.pop();
+    let logged_out = asked(&prompt(None, None), Some(&before), &config);
+    assert_eq!(logged_out.model.as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(logged_out.provider, None, "the router picks again");
 }

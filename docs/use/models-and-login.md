@@ -160,7 +160,19 @@ effort for the prompts of this terminal only:
 ```
 
 efr keeps a value only when the daemon accepts it. Otherwise efr lists the choices.
-Tab completes the models and the efforts of the model. `efr send` and `efr new` take
+Tab completes the models and the efforts of the model.
+
+When two accounts list the same model, name the account before the model:
+
+```text
+,model work/claude-opus-5-5     # the work key of Anthropic
+,model b/gpt-5.5                # the second ChatGPT plan
+```
+
+The part before `/` is the account's name, or a provider id such as
+`anthropic-api.work`, or a kind such as `anthropic` or `openai`. A conversation keeps
+the account of its pick: its next prompts without a model stay on it. A model without
+`/` goes to the first provider with a login that lists it. `efr send` and `efr new` take
 `--model` and `--effort` for one prompt. `EFR_MODEL` and `EFR_EFFORT` give a new shell
 its first values.
 

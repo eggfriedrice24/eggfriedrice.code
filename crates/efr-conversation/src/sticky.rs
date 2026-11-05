@@ -6,8 +6,9 @@
 //! a pick before) and the model list still has it; else on the config's default. The
 //! turn records the model as its own, so the pick goes from turn to turn and never
 //! depends on how far back the picking prompt is. The effort of a pick goes along with
-//! its model. A model that the list no longer has, as after a logout, gives way to the
-//! config's default.
+//! its model, and so does its provider while the provider's list still has the model:
+//! a pick of one of two accounts stays on that account. A model that the list no
+//! longer has, as after a logout, gives way to the config's default.
 //!
 //! A turn on another model, or on another provider, than the turn before records
 //! `model_switched` and tells the new model once, in its preamble ([`switched`]).
@@ -32,12 +33,24 @@ pub(crate) fn asked(
     if asked.model.is_some() || !listed {
         return asked.clone();
     }
+    // NOTE: the provider of the pick goes along while its list still has the model, so
+    // a pick of one of two accounts stays on that account.
+    let by_provider = previous.provider.as_ref().filter(|provider| {
+        config.models.iter().any(|info| {
+            info.id == previous.model && info.provider.as_deref() == Some(provider.as_str())
+        })
+    });
     let effort = match &asked.effort {
         Some(effort) => Some(effort.clone()),
         None if previous.overridden.effort => previous.effort.clone(),
         None => None,
     };
-    TurnSettings { model: Some(previous.model.clone()), effort, ..asked.clone() }
+    TurnSettings {
+        model: Some(previous.model.clone()),
+        provider: by_provider.cloned(),
+        effort,
+        ..asked.clone()
+    }
 }
 
 /// The provider and the model of `previous` when `now` runs on another model, or on

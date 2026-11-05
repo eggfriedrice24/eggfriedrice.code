@@ -106,7 +106,13 @@ pub(crate) fn resolve(
         });
     }
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
-    let info = check_model(&model, asked.model.is_none(), &config.models)?;
+    let (info, provider) = match &asked.provider {
+        Some(name) => {
+            let (info, id) = check_provider(name, &model, &config.models)?;
+            (info, Some(id))
+        }
+        None => (check_model(&model, asked.model.is_none(), &config.models)?, None),
+    };
     let effort = match &asked.effort {
         Some(effort) => {
             check_effort(effort, false, &model, info)?;
@@ -118,7 +124,7 @@ pub(crate) fn resolve(
         mode,
         model,
         effort,
-        provider: None,
+        provider,
         overridden: OverriddenSettings {
             mode: asked.mode.is_some(),
             model: asked.model.is_some(),
@@ -201,6 +207,51 @@ fn check_model<'a>(
         choices: models.iter().map(|info| info.id.clone()).collect(),
         from_config,
     })
+}
+
+/// The provider id that the prompt names with `name` for `model`, and the entry of
+/// `model` in its list: the provider must be one of `models`
+/// ([`efr_protocol::provider_named`]) and list the model. Without a model list any name
+/// passes as it is, and the backend's answer decides.
+fn check_provider<'a>(
+    name: &str,
+    model: &str,
+    models: &'a [ModelInfo],
+) -> Result<(Option<&'a ModelInfo>, String), ConversationError> {
+    if models.is_empty() {
+        return Ok((None, name.to_owned()));
+    }
+    let listing = |id: &str| {
+        models.iter().find(|info| info.id == model && info.provider.as_deref() == Some(id))
+    };
+    let providers = |only_model: bool| {
+        let mut ids: Vec<String> = models
+            .iter()
+            .filter(|info| !only_model || info.id == model)
+            .filter_map(|info| info.provider.clone())
+            .collect();
+        ids.dedup();
+        ids
+    };
+    let Some(id) = efr_protocol::provider_named(name, models) else {
+        return Err(ConversationError::InvalidSetting {
+            setting: "provider",
+            value: name.to_owned(),
+            model: None,
+            choices: providers(false),
+            from_config: false,
+        });
+    };
+    match listing(id) {
+        Some(info) => Ok((Some(info), id.to_owned())),
+        None => Err(ConversationError::InvalidSetting {
+            setting: "provider",
+            value: name.to_owned(),
+            model: Some(model.to_owned()),
+            choices: providers(true),
+            from_config: false,
+        }),
+    }
 }
 
 /// The default effort of the config for the model `info`: the one of the model's

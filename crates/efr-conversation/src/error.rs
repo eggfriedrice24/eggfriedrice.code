@@ -384,6 +384,8 @@ fn invalid_setting(
             format!("{what} is not a word of lowercase letters, digits, - and _ (for {model})")
         }
         ("effort", Some(model)) => format!("{what} is not an effort of {model}"),
+        ("provider", Some(model)) => format!("{what} does not list {model}"),
+        ("provider", None) => format!("{what} is no provider with a login"),
         _ => format!("{what} is not in the model list"),
     };
     if choices.is_empty() {

@@ -116,6 +116,30 @@ pub enum ModelSource {
 /// takes.
 pub const EFFORT_MAX_LEN: usize = 32;
 
+/// The provider that a prompt names with `name`, among the providers of `models`: the
+/// provider id itself (`anthropic-api.work`), the account's name when one provider
+/// has it (`work`), or a kind and its short name (`anthropic-api`, `anthropic`,
+/// `openai` for the ChatGPT plan, `openai-api`). `None` when no provider of the list
+/// answers to `name`, or more than one has the account's name.
+pub fn provider_named<'a>(name: &str, models: &'a [ModelInfo]) -> Option<&'a str> {
+    let mut ids: Vec<&str> = models.iter().filter_map(|info| info.provider.as_deref()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let kind = match name {
+        "openai" => "openai-subscription",
+        "anthropic" => "anthropic-api",
+        other => other,
+    };
+    if let Some(id) = ids.iter().find(|id| **id == kind) {
+        return Some(id);
+    }
+    let mut by_account = ids.iter().filter(|id| id.split_once('.').is_some_and(|(_, a)| a == name));
+    match (by_account.next(), by_account.next()) {
+        (Some(id), None) => Some(id),
+        _ => None,
+    }
+}
+
 impl ModelInfo {
     /// True when the model takes `effort`: one of its [`efforts`](Self::efforts), or,
     /// when they are not known, any [effort word](is_effort_word). The daemon, the CLI

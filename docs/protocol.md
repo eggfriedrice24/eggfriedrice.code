@@ -947,3 +947,9 @@ No protocol version has shipped yet.
   `openai-subscription` as before. The login of an account asks for a new sign-in, and
   a login that comes back with the ChatGPT account of another login fails before
   anything is stored. The fixture `admin_login_openai_params.json` names `provider`.
+- Version 1, additive: `TurnSettings` gains an optional `provider`, the provider or
+  account of `model` (an id such as `anthropic-api.work`, an account's name such as
+  `work`, or a kind). The turn then runs on exactly that one, or the prompt is
+  `invalid` with the providers that list the model as choices; `settings.provider`
+  of the result names the id. A prompt that names no model takes the provider of the
+  conversation's pick with its model. The fixtures with turn settings name `provider`.

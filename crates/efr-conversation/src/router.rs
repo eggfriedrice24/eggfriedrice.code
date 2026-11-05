@@ -13,6 +13,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use efr_protocol::EffectiveSettings;
 use efr_provider::Provider;
 
 use crate::{ConversationConfig, ConversationError};
@@ -73,6 +74,22 @@ pub(crate) fn provider_of(
 ) -> Result<Arc<dyn Provider>, ConversationError> {
     let id = provider_id(model, config, router);
     router.get(&id).ok_or(ConversationError::NoProvider { provider: id })
+}
+
+/// The provider of a turn with `settings`: the one that its prompt named
+/// ([`EffectiveSettings::provider`] after [`resolve`](crate::settings::resolve)), else
+/// the provider of its model as [`provider_of`] picks it.
+pub(crate) fn provider_for(
+    settings: &EffectiveSettings,
+    config: &ConversationConfig,
+    router: &dyn ProviderRouter,
+) -> Result<Arc<dyn Provider>, ConversationError> {
+    match &settings.provider {
+        Some(id) => {
+            router.get(id).ok_or_else(|| ConversationError::NoProvider { provider: id.clone() })
+        }
+        None => provider_of(&settings.model, config, router),
+    }
 }
 
 /// The provider of a manual compaction or of the context view on `model`. `newest` is

@@ -405,13 +405,25 @@ impl Providers {
     /// first list of the provider of new conversations ([`Models::ready`]), and, for a
     /// model that no list names yet, for a first list of each provider of the model's
     /// company with a login, such as a Claude list that efrd still fetches.
+    /// A prompt that names its provider (`named`), such as an account, goes to that
+    /// one after its first list.
     pub(crate) async fn provider_of_prompt(
         &self,
         settings: &Settings,
         asked: Option<&str>,
+        named: Option<&str>,
     ) -> String {
         let configured = self.catalogs.configured(settings);
         configured.ready().await;
+        // NOTE: the turn checks the name again, against the list of its start.
+        if let Some(name) = named {
+            let routed = self.catalogs.routed(settings);
+            let id = efr_protocol::provider_named(name, &routed).unwrap_or(name).to_owned();
+            if let Some(models) = self.models_of(&id) {
+                models.ready().await;
+            }
+            return id;
+        }
         let default;
         let model = match asked {
             Some(model) => model,

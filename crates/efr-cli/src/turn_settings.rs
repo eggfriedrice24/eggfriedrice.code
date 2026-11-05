@@ -64,13 +64,34 @@ impl Asked {
         })
     }
 
-    /// The settings as `prompt.send` carries them.
+    /// The settings as `prompt.send` carries them: a model of the form
+    /// `provider/model`, such as `work/claude-opus-5-5`, names its provider too.
     pub(crate) fn to_wire(&self) -> TurnSettings {
+        let (provider, model) = match &self.model {
+            Some(given) => {
+                let (provider, model) = split_model(&given.value);
+                (provider.map(str::to_owned), Some(model.to_owned()))
+            }
+            None => (None, None),
+        };
         TurnSettings {
             mode: self.mode.as_ref().map(|given| given.value),
-            model: self.model.as_ref().map(|given| given.value.clone()),
+            model,
+            provider,
             effort: self.effort.as_ref().map(|given| given.value.clone()),
         }
+    }
+}
+
+/// The provider and the model of `value`: `work/claude-opus-5-5` names the provider
+/// `work`, one of two accounts that list the model; a value without `/` names only the
+/// model.
+pub(crate) fn split_model(value: &str) -> (Option<&str>, &str) {
+    match value.split_once('/') {
+        Some((provider, model)) if !provider.is_empty() && !model.is_empty() => {
+            (Some(provider), model)
+        }
+        _ => (None, value),
     }
 }
 

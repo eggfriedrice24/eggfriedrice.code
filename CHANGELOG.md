@@ -32,6 +32,10 @@ into the GitHub release notes, and it stops when the section is missing.
   sign-in, and efr refuses a login that comes back with the ChatGPT account of
   another login. The account runs at once as `openai-subscription.b`, with its own
   token refresh and model list.
+- `,model work/claude-opus-5-5`, `efr send --model work/claude-opus-5-5` and the
+  phone's prompts can name the account of a model that more than one account lists.
+  The conversation then keeps that account for its next prompts, and a wake turn
+  stays on it too.
 
 ### Changed
 

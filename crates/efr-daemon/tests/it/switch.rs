@@ -331,3 +331,64 @@ async fn a_login_of_a_second_account_runs_it_at_once_and_a_turn_uses_its_key() {
     let sent = messages.received();
     assert_eq!(sent.last().unwrap().authorization, Some(format!("Bearer {WORK_KEY}")));
 }
+
+#[tokio::test]
+async fn a_prompt_names_the_work_account_and_the_conversation_stays_on_it() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let login = Method::AdminLoginApiKey(AdminLoginApiKey {
+        provider: "anthropic-api.work".to_owned(),
+        key: SecretText::new(WORK_KEY),
+        check: false,
+    });
+    let _: AdminLoginApiKeyResult = client.call(login).await.unwrap();
+    Wait::new("the list of the work account")
+        .until_some_async(async || {
+            models(&daemon)
+                .await
+                .models
+                .iter()
+                .any(|model| model.provider.as_deref() == Some("anthropic-api.work"))
+                .then_some(())
+        })
+        .await
+        .unwrap();
+
+    messages.push(MessagesAnswer::text("work one"));
+    let mut context = ShellContext::new(daemon.cwd());
+    context.tty = Some(TTY.to_owned());
+    let prompt = Method::PromptSend(PromptSend {
+        command_id: command_id(1),
+        conversation_id: None,
+        new_conversation: false,
+        text: "prompt one".to_owned(),
+        context: Some(context),
+        last_command: None,
+        recent_commands: Vec::new(),
+        settings: TurnSettings {
+            model: Some(CLAUDE.to_owned()),
+            provider: Some("work".to_owned()),
+            ..TurnSettings::default()
+        },
+    });
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let sent: PromptSendResult = client.call(prompt).await.unwrap();
+    assert_eq!(sent.settings.unwrap().provider.as_deref(), Some("anthropic-api.work"));
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let turn_id = sent.turn_id;
+    events_until(
+        &mut follow,
+        |event| matches!(event, Event::TurnCompleted { turn_id: t, .. } if *t == turn_id),
+    )
+    .await
+    .unwrap();
+
+    messages.push(MessagesAnswer::text("work two"));
+    let (_, events) = turn(&daemon, 2, "prompt two", None).await;
+    assert_eq!(ran_on(&events), ("anthropic-api.work".to_owned(), CLAUDE.to_owned()));
+    let keys: Vec<Option<String>> =
+        messages.received().into_iter().map(|request| request.authorization).collect();
+    assert_eq!(keys, [Some(format!("Bearer {WORK_KEY}")), Some(format!("Bearer {WORK_KEY}"))]);
+}

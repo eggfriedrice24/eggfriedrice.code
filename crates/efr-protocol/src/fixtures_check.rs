@@ -545,6 +545,7 @@ fn turn_settings() -> TurnSettings {
     TurnSettings {
         mode: Some(Mode::Auto),
         model: Some("gpt-5.4".into()),
+        provider: Some("openai-api".into()),
         effort: Some("high".into()),
     }
 }

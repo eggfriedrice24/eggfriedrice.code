@@ -12088,6 +12088,13 @@
             "string",
             "null"
           ]
+        },
+        "provider": {
+          "description": "The provider of `model`, such as `anthropic-api.work`, when the prompt picks one\nof more than one provider or account that list the model. Absent: the first one\nwith a login that lists it. Only with `model`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
