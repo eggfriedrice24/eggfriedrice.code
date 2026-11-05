@@ -80,9 +80,9 @@ conversations:
 efr config set model.provider anthropic-api
 ```
 
-efrd applies the change from the next turn, with no restart. Also change `[model]
-name` when it names a model of the other company, or remove it. If not, every prompt
-that names no model fails.
+efrd applies the change from the next turn, with no restart. A `[model] name` of the
+other company runs on a provider of that company when you are logged in to one. If
+not, every prompt that names no model fails: change `[model] name`, or remove it.
 `efr config check` warns about such a name.
 
 A terminal that chose a model with `,model` keeps that choice. Choose a model of the
@@ -136,7 +136,11 @@ To set the default for every terminal, set `[model] name` and `[model] effort`:
 efr config set model.name gpt-5.4
 ```
 
-The next turn uses the new value, with no restart.
+The next turn uses the new value, with no restart. `[openai] effort` and `[anthropic]
+effort` set the effort for the models of one company, in place of `[model] effort`.
+A model that does not take the effort of the config uses its own default effort, so a
+switch to a model of the other company never fails for it. An effort that you choose
+with `,effort` must be one that the model takes.
 
 ### List the models
 

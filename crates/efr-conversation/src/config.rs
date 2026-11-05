@@ -1,6 +1,7 @@
 //! What the daemon hands a conversation: settings through a [`ConfigSource`],
 //! collaborators by handle.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -34,6 +35,10 @@ pub struct ConversationConfig {
     /// The default reasoning effort of a turn; `None` leaves it to the backend. A
     /// prompt may name another one that its model takes.
     pub effort: Option<String>,
+    /// The default reasoning effort of a turn on a model of each provider, by provider
+    /// id, in place of [`effort`](Self::effort), such as `[anthropic] effort` for
+    /// `anthropic-api`. A model that takes neither default effort uses its own.
+    pub provider_efforts: BTreeMap<String, String>,
     /// The default permission mode of a turn. A prompt may name another one; a turn
     /// from a remote origin runs with at most `cautious`. The mode picks the built-in
     /// policy that the user's rules follow.
@@ -94,7 +99,8 @@ pub struct ConversationConfig {
     /// (`context.recent_commands`); the newest ones stay. 0 shows none.
     pub recent_commands: usize,
     /// The config's default model when it is a model of another company than the
-    /// config's provider (`efr_config::ForeignModel`); `None` when it fits. A turn that
+    /// config's provider (`efr_config::ForeignModel`) and no provider of the model list
+    /// serves it; `None` when it fits, or when a provider of its company has a login. A turn that
     /// names no model of its own then fails with the cause and the fix, also a prompt
     /// that queued before a reload made the default foreign. Read when the turn starts.
     pub foreign_model: Option<ForeignDefault>,
@@ -111,17 +117,26 @@ pub struct ForeignDefault {
     pub company: String,
     /// The value of `[model] provider`.
     pub provider: String,
+    /// The command that logs in to a provider of `company`, such as
+    /// `efr login anthropic`.
+    pub login: String,
 }
 
 impl ForeignDefault {
     /// The model `name` of `company`, the default of a config whose provider is
-    /// `provider`.
+    /// `provider`; `login` logs in to a provider of `company`.
     pub fn new(
         name: impl Into<String>,
         company: impl Into<String>,
         provider: impl Into<String>,
+        login: impl Into<String>,
     ) -> Self {
-        ForeignDefault { name: name.into(), company: company.into(), provider: provider.into() }
+        ForeignDefault {
+            name: name.into(),
+            company: company.into(),
+            provider: provider.into(),
+            login: login.into(),
+        }
     }
 }
 
@@ -139,6 +154,7 @@ impl ConversationConfig {
         ConversationConfig {
             model: model.into(),
             effort: None,
+            provider_efforts: BTreeMap::new(),
             mode: Mode::default(),
             models: Vec::new(),
             system_prompt: None,

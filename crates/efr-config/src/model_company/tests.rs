@@ -44,7 +44,11 @@ fn a_model_of_the_other_company_is_foreign_with_the_cause_and_the_fix() {
         foreign.to_string(),
         "[model] name gpt-5.5 is a model of OpenAI, but [model] provider is anthropic-api"
     );
-    assert_eq!(foreign.fix(), "set [model] name to a model of anthropic-api, or remove it");
+    assert_eq!(
+        foreign.fix(),
+        "log in to OpenAI with efr login openai or efr login openai-api, set [model] name to a \
+         model of anthropic-api, or remove it"
+    );
 
     let openai = settings("openai-subscription", Some("claude-opus-5-5"));
     let foreign = openai.foreign_model().unwrap();

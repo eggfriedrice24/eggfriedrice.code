@@ -629,7 +629,8 @@ async fn a_model_name_of_another_company_fails_the_prompt_with_the_cause_and_the
     assert_eq!(
         error.message,
         "[model] name gpt-5.5 is a model of OpenAI, but [model] provider is anthropic-api; \
-         set [model] name to a model of anthropic-api, or remove it"
+         log in to OpenAI with efr login openai or efr login openai-api, set [model] name to a \
+         model of anthropic-api, or remove it"
     );
     assert_eq!(
         error.data,

@@ -28,6 +28,7 @@ fn defaults(mode: Option<Mode>, model: Option<&str>, effort: Option<&str>) -> Tu
         model: model.map(str::to_owned),
         effort: effort.map(str::to_owned),
         allow_full: false,
+        ..TurnDefaults::default()
     }
 }
 
@@ -132,13 +133,34 @@ fn an_effort_the_model_does_not_take_is_an_error_with_its_efforts() {
 }
 
 #[test]
-fn the_configs_effort_is_checked_against_the_asked_model_too() {
+fn the_configs_effort_gives_way_to_the_default_of_a_model_that_does_not_take_it() {
     // A running terminal may switch to a model that the config's effort does not fit.
     let asked =
         Asked { model: given("gpt-5.4", SettingSource::Flag("--model")), ..Asked::default() };
-    let error =
-        resolve(&asked, &defaults(None, None, Some("xhigh")), &models().models).unwrap_err();
-    assert!(matches!(&error, CliError::UnknownEffort { from, .. } if *from == file()), "{error:?}");
+    let lines = resolve(&asked, &defaults(None, None, Some("xhigh")), &models().models).unwrap();
+    // NOTE: gpt-5.4 names no default effort of its own, so the backend decides.
+    assert_eq!(lines[2].value, None);
+    assert!(
+        matches!(&lines[2].source, SettingSource::Backend { model } if model == "gpt-5.4"),
+        "{:?}",
+        lines[2].source
+    );
+}
+
+#[test]
+fn the_effort_of_the_models_company_wins_over_the_default_effort() {
+    let mut list = models().models;
+    for model in &mut list {
+        model.provider = Some("anthropic-api".to_owned());
+    }
+    let defaults = TurnDefaults {
+        anthropic_effort: Some("high".to_owned()),
+        openai_effort: Some("low".to_owned()),
+        ..defaults(None, None, Some("medium"))
+    };
+    let lines = resolve(&Asked::default(), &defaults, &list).unwrap();
+    assert_eq!(lines[2].value.as_deref(), Some("high"));
+    assert_eq!(lines[2].source, file());
 }
 
 #[test]

@@ -346,7 +346,8 @@ fn a_model_name_of_another_company_is_invalid_with_the_cause_the_fix_and_the_set
     assert_eq!(
         body.message,
         "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
-         openai-subscription; set [model] name to a model of openai-subscription, or remove it"
+         openai-subscription; log in to Anthropic with efr login anthropic, set [model] name to \
+         a model of openai-subscription, or remove it"
     );
     assert_eq!(
         body.data,

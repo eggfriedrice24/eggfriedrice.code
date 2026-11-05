@@ -10,6 +10,22 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- `[openai] effort` and `[anthropic] effort` set the reasoning effort for the models
+  of one company, in place of `[model] effort`.
+
+### Changed
+
+- An effort from `config.toml` that a model does not take no longer fails the turn.
+  The turn uses the model's own default effort, so a switch to a model of the other
+  company works. An effort that you choose with `,effort` must still be one that the
+  model takes.
+- A `[model] name` of the other company, such as a Claude model while `[model]
+  provider` is `openai-api`, now runs on a provider of that company when you are
+  logged in to one. Without such a login, the prompt fails as before, and the message
+  now names the login command too.
+
 ## [0.0.8] - 2026-11-05
 
 ### Added

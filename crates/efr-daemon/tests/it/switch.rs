@@ -6,7 +6,8 @@
 //! every earlier turn. The signed thinking of Claude never reaches OpenAI, and the
 //! second Claude request sends it back, because it is the same model on the same
 //! provider. Each turn records the provider that ran it. A reload that changes
-//! `[model] provider` moves the next turn that names no model, with no restart.
+//! `[model] provider` moves the next turn that names no model, with no restart. A
+//! `[model] name` of the other company runs on its provider when that one has a key.
 
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, ConversationId, Event, EventEnvelope, Method,
@@ -226,4 +227,25 @@ async fn a_reload_that_changes_the_provider_moves_the_next_turn_with_no_restart(
     assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
     assert_eq!(messages.received().len(), 1);
     assert_eq!(responses.received().len(), 1);
+}
+
+#[tokio::test]
+async fn a_default_model_of_the_other_company_runs_on_its_provider_when_it_has_a_login() {
+    let responses = ResponsesServer::start().await;
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let daemon = TestDaemon::builder()
+        .responses(&responses)
+        .also_messages(&messages)
+        .config(|config| config.model.name = Some(CLAUDE.to_owned()))
+        .start()
+        .await
+        .unwrap();
+
+    messages.push(MessagesAnswer::text("claude answer"));
+    let (_, events) = turn(&daemon, 1, "prompt one", None).await;
+
+    assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
+    assert_eq!(messages.received().len(), 1);
+    assert!(responses.received().is_empty());
 }

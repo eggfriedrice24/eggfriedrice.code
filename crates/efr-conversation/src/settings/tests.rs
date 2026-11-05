@@ -181,20 +181,37 @@ fn an_effort_the_model_does_not_take_fails_with_its_efforts() {
 }
 
 #[test]
-fn a_config_default_that_does_not_fit_the_prompts_model_says_so() {
+fn a_config_effort_that_the_model_does_not_take_gives_way_to_the_models_default() {
     let mut config = config();
     config.effort = Some("ultra".to_owned());
     let fits =
         resolve(&asked(None, Some("gpt-6-sol"), None), &config, Origin::Shell, place(&ready()));
-    let error =
-        resolve(&TurnSettings::default(), &config, Origin::Shell, place(&ready())).unwrap_err();
+    let other = resolve(&TurnSettings::default(), &config, Origin::Shell, place(&ready()));
 
     assert_eq!(fits.unwrap().effort.as_deref(), Some("ultra"));
-    assert!(
-        error.to_string().starts_with("the config's default effort ultra is not an effort of"),
-        "{error}"
-    );
-    assert!(matches!(error, ConversationError::InvalidSetting { from_config: true, .. }));
+    let other = other.unwrap();
+    assert_eq!(other.effort.as_deref(), Some("medium"), "the default effort of gpt-5.5");
+    assert!(!other.overridden.effort);
+    // The prompt's own effort still fails with the choices.
+    let error = resolve(&asked(None, None, Some("ultra")), &config, Origin::Shell, place(&ready()))
+        .unwrap_err();
+    assert!(matches!(error, ConversationError::InvalidSetting { from_config: false, .. }));
+}
+
+#[test]
+fn the_effort_of_a_models_provider_wins_over_the_default_effort() {
+    let mut config = config();
+    config.models[0].provider = Some("anthropic-api".to_owned());
+    config.models[1].provider = Some("openai-api".to_owned());
+    config.effort = Some("low".to_owned());
+    config.provider_efforts.insert("anthropic-api".to_owned(), "max".to_owned());
+
+    let claude =
+        resolve(&asked(None, Some("gpt-6-sol"), None), &config, Origin::Shell, place(&ready()));
+    let gpt = resolve(&TurnSettings::default(), &config, Origin::Shell, place(&ready()));
+
+    assert_eq!(claude.unwrap().effort.as_deref(), Some("max"));
+    assert_eq!(gpt.unwrap().effort.as_deref(), Some("low"));
 }
 
 #[test]

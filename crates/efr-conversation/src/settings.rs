@@ -5,10 +5,11 @@
 //! cannot work fails before anything is recorded, and again when its turn starts,
 //! against the settings of that moment, because the config may have changed while the
 //! prompt waited. Each value is checked against the effective model list
-//! ([`ConversationConfig::models`]): the model must be in it, and the effort must be
-//! one that the model takes. A value from the config is checked the same way as one
-//! from the prompt, so a default that no longer fits fails the turn with the choices
-//! instead of reaching the backend.
+//! ([`ConversationConfig::models`]): the model must be in it, and the effort of the
+//! prompt must be one that the model takes. A model from the config is checked the same
+//! way, so a default that no longer fits fails the turn with the choices instead of
+//! reaching the backend. An effort from the config is one value for models of more than
+//! one company, so a model that does not take it uses its own default effort.
 //!
 //! `auto` needs the sandbox. Without an available sandbox, or in a registered project at
 //! the home directory, which is never a write root, the turn runs as `cautious` and
@@ -101,14 +102,18 @@ pub(crate) fn resolve(
             name: foreign.name.clone(),
             company: foreign.company.clone(),
             provider: foreign.provider.clone(),
+            login: foreign.login.clone(),
         });
     }
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
     let info = check_model(&model, asked.model.is_none(), &config.models)?;
-    let effort = asked.effort.clone().or_else(|| config.effort.clone());
-    if let Some(effort) = &effort {
-        check_effort(effort, asked.effort.is_none(), &model, info)?;
-    }
+    let effort = match &asked.effort {
+        Some(effort) => {
+            check_effort(effort, false, &model, info)?;
+            Some(effort.clone())
+        }
+        None => config_effort(config, info),
+    };
     Ok(EffectiveSettings {
         mode,
         model,
@@ -196,6 +201,24 @@ fn check_model<'a>(
         choices: models.iter().map(|info| info.id.clone()).collect(),
         from_config,
     })
+}
+
+/// The default effort of the config for the model `info`: the one of the model's
+/// provider ([`ConversationConfig::provider_efforts`]), else
+/// [`ConversationConfig::effort`], while the model takes it; else the model's own
+/// default effort, or none. A default is one value for every model, so it never fails
+/// a turn on a model that does not take it, as Codex keeps an effort across a switch of
+/// model only when the new model takes it.
+fn config_effort(config: &ConversationConfig, info: Option<&ModelInfo>) -> Option<String> {
+    let provider = info.and_then(|info| info.provider.as_deref());
+    let effort = provider
+        .and_then(|provider| config.provider_efforts.get(provider))
+        .or(config.effort.as_ref());
+    match (effort, info) {
+        (Some(effort), Some(info)) if !info.takes_effort(effort) => info.default_effort.clone(),
+        (Some(effort), _) => Some(effort.clone()),
+        (None, _) => None,
+    }
 }
 
 /// Checks `effort` against the efforts of `info`, the turn's model

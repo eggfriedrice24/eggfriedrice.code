@@ -87,9 +87,9 @@ efrd applies the change from the next turn, with no restart. A terminal that cho
 model with `,model` keeps that choice: choose a model of the new provider, or clear
 the choice with `,model default`.
 
-Also change `[model] name` when it names a model of the other company, such as
-`gpt-5.5` with `anthropic-api`, or remove it. Else every prompt that names no model of
-its own fails with this cause and fix. `efr config check` warns about such a name, and
+A `[model] name` of the other company, such as `gpt-5.5` with `anthropic-api`, runs on
+a provider of that company when you are logged in to one. Else every prompt that names
+no model of its own fails with this cause and fix. `efr config check` warns about such a name, and
 efrd logs a warning at start and after a reload. A model id in the list of models of
 the new provider (`[anthropic] models` or `[openai] models`) is not of the other
 company.

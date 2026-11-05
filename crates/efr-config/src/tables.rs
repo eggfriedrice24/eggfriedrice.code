@@ -140,8 +140,10 @@ pub struct ModelSettings {
     /// priority, for Anthropic `claude-opus-5-5` when the API lists it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The default reasoning effort, such as `low`, `medium` or `high`. Unset: the
-    /// provider's default for the model (`medium` for Claude models).
+    /// The default reasoning effort, such as `low`, `medium` or `high`, for a model whose
+    /// company has no effort of its own (`[openai] effort`, `[anthropic] effort`). A
+    /// model that does not take it uses its own default effort. Unset: the provider's
+    /// default for the model (`medium` for Claude models).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
     /// The system prompt of every request.
@@ -179,6 +181,10 @@ pub struct OpenAiSettings {
     /// for the model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ModelEntry>>,
+    /// The reasoning effort of a turn on an OpenAI model, such as `high`, in place of
+    /// `[model] effort`. A model that does not take it uses its own default effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     /// Replaces the subscription backend's base URL. Needs a restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription_base_url: Option<String>,
@@ -207,6 +213,7 @@ impl Default for OpenAiSettings {
         OpenAiSettings {
             originator: DEFAULT_ORIGINATOR.to_owned(),
             models: None,
+            effort: None,
             subscription_base_url: None,
             api_base_url: None,
             organization: None,

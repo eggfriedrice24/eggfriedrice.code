@@ -200,8 +200,8 @@ pub enum ConversationError {
     /// The text is the one of efrd's refusal of such a prompt: the cause and the fix. A
     /// turn that starts with it fails.
     #[error(
-        "[model] name {name} is a model of {company}, but [model] provider is {provider}; set \
-         [model] name to a model of {provider}, or remove it"
+        "[model] name {name} is a model of {company}, but [model] provider is {provider}; log \
+         in to {company} with {login}, set [model] name to a model of {provider}, or remove it"
     )]
     ForeignModel {
         /// The value of `[model] name`.
@@ -210,6 +210,8 @@ pub enum ConversationError {
         company: String,
         /// The value of `[model] provider`.
         provider: String,
+        /// The command that logs in to a provider of `company`.
+        login: String,
     },
 
     /// The model of a turn belongs to a provider that the daemon does not run. Nothing

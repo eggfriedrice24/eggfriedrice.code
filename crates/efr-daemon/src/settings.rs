@@ -83,6 +83,15 @@ pub(crate) fn conversation_config(
         .with_time_zone(time_zone)
         .with_host(host);
     config.effort.clone_from(&settings.model.effort);
+    for (provider, effort) in [
+        (crate::providers::SUBSCRIPTION, &settings.openai.effort),
+        (crate::providers::API, &settings.openai.effort),
+        (crate::providers::ANTHROPIC, &settings.anthropic.effort),
+    ] {
+        if let Some(effort) = effort {
+            config.provider_efforts.insert(provider.to_owned(), effort.clone());
+        }
+    }
     config.mode = settings.permissions.mode;
     config.models = catalogs.routed(settings);
     config.max_output_tokens = settings.model.max_output_tokens;
@@ -96,10 +105,28 @@ pub(crate) fn conversation_config(
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
     config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
     config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
+    // NOTE: a default of another company goes to its provider when one with a login
+    // lists it; it fails only without one.
     config.foreign_model = settings
         .foreign_model()
-        .map(|foreign| ForeignDefault::new(foreign.name, foreign.company.name(), foreign.provider));
+        .filter(|foreign| !served(catalogs, &config.models, foreign.name))
+        .map(|foreign| {
+            ForeignDefault::new(
+                foreign.name,
+                foreign.company.name(),
+                foreign.provider,
+                foreign.company.login(),
+            )
+        });
     config
+}
+
+/// True when a provider with a login lists `name` in `models`.
+pub(crate) fn served(catalogs: &Catalogs, models: &[efr_protocol::ModelInfo], name: &str) -> bool {
+    models.iter().any(|info| {
+        info.id == name
+            && info.provider.as_deref().is_some_and(|provider| catalogs.logged_in(provider))
+    })
 }
 
 #[cfg(test)]

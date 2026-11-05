@@ -28,10 +28,14 @@ turns.
   and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a queued
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
-  the choices when they no longer fit, and records them on `turn_started`. A turn that
+  the choices when they no longer fit, and records them on `turn_started`. An effort
+  from the config (`ConversationConfig::provider_efforts` for the model's provider,
+  else `ConversationConfig::effort`) that the model does not take gives way to the
+  model's own default effort and never fails a turn. A turn that
   names no model of its own fails with `ForeignModel` (`invalid`, with the cause and
   the fix of efrd's refusal of a new prompt) while the config's default model is a
-  model of another company than its provider (`ConversationConfig::foreign_model`), so
+  model of another company than its provider that no provider with a login lists
+  (`ConversationConfig::foreign_model`), so
   a prompt that queued before a reload made the default foreign gets the same text
   (v0.0.4). The model list names the provider of each model, in the order of routing
   that the daemon gives it (the providers with a login first); the turn goes to the

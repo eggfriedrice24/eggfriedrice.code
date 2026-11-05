@@ -207,6 +207,7 @@ fn a_foreign_default_model_reaches_the_conversations_with_efrd_s_text() {
         name: foreign.name,
         company: foreign.company,
         provider: foreign.provider,
+        login: foreign.login,
     };
     let refusal = crate::error::DaemonError::ForeignModel {
         name: "claude-opus-5-5".to_owned(),
@@ -224,4 +225,31 @@ fn a_foreign_default_model_reaches_the_conversations_with_efrd_s_text() {
         TimeZone::UTC,
     );
     assert_eq!(fits.foreign_model, None);
+}
+
+#[test]
+fn the_effort_of_each_company_reaches_the_conversations_for_its_providers() {
+    let mut config = Settings::default();
+    config.model.effort = Some("low".to_owned());
+    config.openai.effort = Some("high".to_owned());
+    config.anthropic.effort = Some("max".to_owned());
+
+    let settings = conversation_config(
+        &config,
+        &builtin_catalogs(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
+
+    assert_eq!(settings.effort.as_deref(), Some("low"));
+    let efforts: Vec<(&str, &str)> = settings
+        .provider_efforts
+        .iter()
+        .map(|(provider, effort)| (provider.as_str(), effort.as_str()))
+        .collect();
+    assert_eq!(
+        efforts,
+        [("anthropic-api", "max"), ("openai-api", "high"), ("openai-subscription", "high")]
+    );
 }

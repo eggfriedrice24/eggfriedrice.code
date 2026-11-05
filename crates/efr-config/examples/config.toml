@@ -52,6 +52,10 @@
 # of the model ("up to" in efr models). Above that, efrd uses the largest one.
 # models = ["gpt-5.4", { id = "gpt-6.1-sol", context_window = 400000 }]
 
+# The reasoning effort of a turn on an OpenAI model, in place of [model] effort. A model
+# that does not take it uses its own default effort.
+# effort = "high"
+
 # Replaces the subscription backend's base URL. Unset: the ChatGPT backend. (restart)
 # subscription_base_url = "https://chatgpt.com/backend-api/codex"
 
@@ -84,6 +88,10 @@
 # tokens) and its output limit (1 to 1000000 tokens, below the window). A table may
 # name a model of the API's list to lower its window or its output limit.
 # models = ["claude-opus-5-5", { id = "claude-haiku-5-5", context_window = 100000 }]
+
+# The reasoning effort of a turn on a Claude model, in place of [model] effort. A model
+# that does not take it uses its own default effort.
+# effort = "high"
 
 # How long the prompt cache keeps what a request writes: auto keeps the system prompt,
 # the tools and the conversation up to the start of the turn (and then about every

@@ -923,3 +923,10 @@ No protocol version has shipped yet.
   of each other provider with a login, which are never the default. With one provider,
   `catalogs` is absent and `catalog` says it all. Absent from a daemon before. No
   fixture changes.
+- Version 1, behaviour: each turn goes to the provider of its model, the first one with
+  a login that lists it, and `settings.provider` names it. An effort from the config
+  that the model does not take no longer fails a prompt or a turn: the turn runs with
+  the model's own default effort. A prompt's own effort still fails as before. A
+  prompt that names no model while `[model] name` is a model of another company runs
+  on that company's provider when one has a login; else it fails as before, and the
+  fix in the message names the login. No wire type changed.

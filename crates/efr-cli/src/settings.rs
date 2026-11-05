@@ -80,6 +80,10 @@ pub(crate) struct TurnDefaults {
     pub(crate) model: Option<String>,
     /// `model.effort`.
     pub(crate) effort: Option<String>,
+    /// `openai.effort`, for a model of an OpenAI provider in place of `model.effort`.
+    pub(crate) openai_effort: Option<String>,
+    /// `anthropic.effort`, for a Claude model in place of `model.effort`.
+    pub(crate) anthropic_effort: Option<String>,
     /// `permissions.allow_full`: the file allows full mode. `efr settings --mode full`
     /// reads it only when the daemon does not say.
     pub(crate) allow_full: bool,
@@ -300,6 +304,8 @@ impl Settings {
             mode: from_file("permissions.mode").then_some(file.permissions.mode),
             model: file.model.name.clone(),
             effort: file.model.effort.clone(),
+            openai_effort: file.openai.effort.clone(),
+            anthropic_effort: file.anthropic.effort.clone(),
             allow_full: file.permissions.allow_full,
         };
         settings.provider = Some(file.model.provider.clone());

@@ -137,7 +137,6 @@ async fn send(
             reason: "a remote device has no terminal, so its prompt names no tty",
         });
     }
-    refuse_foreign_model(state, &params.settings)?;
     reprobe_for_auto(state, &params.settings).await;
     // NOTE: one value of the settings for the pick and the check, so a reload while the
     // prompt waits for a list cannot check one provider's list for another's turn. The
@@ -145,6 +144,9 @@ async fn send(
     let settings = Arc::clone(&state.settings.borrow());
     let asked = params.settings.model.as_deref();
     let provider = state.providers.provider_of_prompt(&settings, asked).await;
+    // NOTE: after the wait, so a default of the other company finds the first list of
+    // its provider.
+    refuse_foreign_model(state, &settings, &params.settings)?;
     state.providers.check_list(&settings, &provider, asked)?;
     validate(&params)?;
     // NOTE: counted before the prompt is recorded, because its turn may end before this
@@ -580,13 +582,19 @@ fn keep_desktop(state: &State, conversation_id: ConversationId, params: &PromptS
 }
 
 /// Refuses a prompt that names no model of its own while `[model] name` is a model of
-/// another company than `[model] provider`.
-fn refuse_foreign_model(state: &State, asked: &TurnSettings) -> Result<(), DaemonError> {
+/// another company than `[model] provider` that no provider with a login lists.
+fn refuse_foreign_model(
+    state: &State,
+    settings: &efr_config::Settings,
+    asked: &TurnSettings,
+) -> Result<(), DaemonError> {
     if asked.model.is_some() {
         return Ok(());
     }
-    let settings = Arc::clone(&state.settings.borrow());
-    match settings.foreign_model() {
+    let catalogs = state.providers.catalogs();
+    let routed = catalogs.routed(settings);
+    let served = |name: &str| crate::settings::served(&catalogs, &routed, name);
+    match settings.foreign_model().filter(|foreign| !served(foreign.name)) {
         Some(foreign) => Err(DaemonError::ForeignModel {
             name: foreign.name.to_owned(),
             company: foreign.company,

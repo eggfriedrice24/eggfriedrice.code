@@ -184,7 +184,17 @@ pub(crate) fn resolve(
     let model_name = || model.clone().unwrap_or_else(|| "the daemon's default model".to_owned());
     let efforts = info.map_or(&[][..], |info| info.efforts.as_slice());
 
-    let (effort, effort_source) = match (&asked.effort, &defaults.effort) {
+    // NOTE: the daemon's rule: the effort of the model's company, else `model.effort`,
+    // while the model takes it; else the model's own default.
+    let company = match info.and_then(|info| info.provider.as_deref()) {
+        Some("anthropic-api") => defaults.anthropic_effort.as_ref(),
+        Some(_) => defaults.openai_effort.as_ref(),
+        None => None,
+    };
+    let from_file = company
+        .or(defaults.effort.as_ref())
+        .filter(|effort| info.is_none_or(|info| info.takes_effort(effort)));
+    let (effort, effort_source) = match (&asked.effort, from_file) {
         (Some(given), _) => (Some(given.value.clone()), given.source.clone()),
         (None, Some(effort)) => (Some(effort.clone()), file()),
         (None, None) => match info.and_then(|info| info.default_effort.as_ref()) {

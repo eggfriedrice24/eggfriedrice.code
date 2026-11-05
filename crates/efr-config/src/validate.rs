@@ -101,14 +101,8 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     if let Some(name) = &model.name {
         non_empty("model.name", name, "a model id such as gpt-5.5")?;
     }
-    if let Some(effort) = &model.effort
-        && !efr_protocol::is_effort_word(effort)
-    {
-        return Err(invalid(
-            "model.effort",
-            text(effort),
-            "a reasoning effort such as low, medium or high",
-        ));
+    if let Some(effort) = &model.effort {
+        effort_word("model.effort", effort)?;
     }
     if let Some(tokens) = model.max_output_tokens {
         within(
@@ -122,6 +116,9 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     non_empty("openai.originator", &openai.originator, "a name such as efr")?;
     for entry in openai.models.iter().flatten() {
         check_model_entry("openai.models", entry)?;
+    }
+    if let Some(effort) = &openai.effort {
+        effort_word("openai.effort", effort)?;
     }
     if let Some(url) = &openai.subscription_base_url {
         http_url("openai.subscription_base_url", url)?;
@@ -145,6 +142,9 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     }
     for entry in anthropic.models.iter().flatten() {
         check_model_entry("anthropic.models", entry)?;
+    }
+    if let Some(effort) = &anthropic.effort {
+        effort_word("anthropic.effort", effort)?;
     }
     if let Some(workspace) = &anthropic.workspace_id {
         header_word(
@@ -640,6 +640,14 @@ fn text(value: &str) -> String {
 
 fn path_text(path: &Path) -> String {
     text(&path.to_string_lossy())
+}
+
+/// Refuses `effort` for `key` unless it is a reasoning effort word.
+fn effort_word(key: &'static str, effort: &str) -> Result<(), Invalid> {
+    if efr_protocol::is_effort_word(effort) {
+        return Ok(());
+    }
+    Err(invalid(key, text(effort), "a reasoning effort such as low, medium or high"))
 }
 
 #[cfg(test)]

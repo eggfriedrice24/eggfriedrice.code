@@ -38,6 +38,10 @@ pub struct AnthropicSettings {
     /// list to lower its window or its output limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ModelEntry>>,
+    /// The reasoning effort of a turn on a Claude model, such as `high`, in place of
+    /// `[model] effort`. A model that does not take it uses its own default effort.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     /// How long the prompt cache keeps what a request writes: `auto` is efr's choice,
     /// today everything for an hour, `5m` keeps everything for five minutes, `1h` keeps
     /// everything for an hour. An hour costs more per write and survives a longer

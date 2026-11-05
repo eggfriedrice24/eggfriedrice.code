@@ -556,9 +556,11 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   neither until its first answer, and `efr status` says `not checked since efrd
   started` (DV32).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
-  is a model of another company than `[model] provider` (`efr_config::ForeignModel`):
-  `invalid`, with the cause and the fix (set `[model] name` to a model of the provider,
-  or remove it) and the setting, the value and the provider as data. efrd also warns
+  is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
+  and no provider with a login lists it (checked after the wait for a first list):
+  `invalid`, with the cause and the fix (log in to that company, set `[model] name` to
+  a model of the provider, or remove it) and the setting, the value and the provider
+  as data. With such a login, the prompt runs on that provider. efrd also warns
   about such a name at start, and after a reload that changed what `foreign_model()`
   gives against the running settings: a reload of the same name warns no more (C3.1).
 - `models.list` answers the effective model list of the latest settings over the

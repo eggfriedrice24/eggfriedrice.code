@@ -221,8 +221,12 @@ async fn queued_prompt_with_a_foreign_default_names_the_fix() {
     assert!(second.queued);
     // A reload makes the default a model of another company while the prompt waits.
     let mut changed = (**h.settings.borrow()).clone();
-    changed.foreign_model =
-        Some(crate::ForeignDefault::new("claude-opus-5-5", "Anthropic", "openai-subscription"));
+    changed.foreign_model = Some(crate::ForeignDefault::new(
+        "claude-opus-5-5",
+        "Anthropic",
+        "openai-subscription",
+        "efr login anthropic",
+    ));
     h.settings.send_replace(std::sync::Arc::new(changed));
     h.provider.handled_through(3);
     h.wait_end(first.turn_id).await;
@@ -235,7 +239,8 @@ async fn queued_prompt_with_a_foreign_default_names_the_fix() {
     assert_eq!(
         error.message,
         "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
-         openai-subscription; set [model] name to a model of openai-subscription, or remove it"
+         openai-subscription; log in to Anthropic with efr login anthropic, set [model] name to \
+         a model of openai-subscription, or remove it"
     );
     assert_eq!(
         error.data,
@@ -259,8 +264,12 @@ async fn queued_prompt_with_a_foreign_default_names_the_fix() {
 #[tokio::test]
 async fn a_prompt_with_its_own_model_runs_while_the_default_is_foreign() {
     let mut setup = Setup::new();
-    setup.config.foreign_model =
-        Some(crate::ForeignDefault::new("claude-opus-5-5", "Anthropic", "openai-subscription"));
+    setup.config.foreign_model = Some(crate::ForeignDefault::new(
+        "claude-opus-5-5",
+        "Anthropic",
+        "openai-subscription",
+        "efr login anthropic",
+    ));
     let cwd = setup.cwd.clone();
     let state = setup.live_state(&cwd, "hello");
     let records = vec![

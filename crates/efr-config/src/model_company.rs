@@ -58,6 +58,15 @@ impl ModelCompany {
             ModelCompany::Anthropic => "Anthropic",
         }
     }
+
+    /// The command that logs in to a provider of the company, such as
+    /// `efr login anthropic`.
+    pub fn login(self) -> &'static str {
+        match self {
+            ModelCompany::OpenAi => "efr login openai or efr login openai-api",
+            ModelCompany::Anthropic => "efr login anthropic",
+        }
+    }
 }
 
 /// True for `o` and one digit, alone or before `-`, such as `o3` and `o4-mini`.
@@ -66,10 +75,11 @@ fn is_o_series(id: &str) -> bool {
     matches!(bytes, [b'o', digit, rest @ ..] if digit.is_ascii_digit() && matches!(rest, [] | [b'-', ..]))
 }
 
-/// A `[model] name` that is a model of another company than `[model] provider`. Every
-/// turn that does not name its own model then fails, so efrd warns at start and at
-/// a reload, `efr config check` says so, and a prompt that uses it fails with
-/// [`fix`](Self::fix).
+/// A `[model] name` that is a model of another company than `[model] provider`. A turn
+/// that does not name its own model then goes to a provider of the model's company,
+/// and fails while efr has no login to one, so efrd warns at start and at a reload,
+/// `efr config check` says so, and a prompt that uses it without such a login fails
+/// with [`fix`](Self::fix).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ForeignModel<'a> {
     /// The value of `[model] name`.
@@ -83,7 +93,12 @@ pub struct ForeignModel<'a> {
 impl ForeignModel<'_> {
     /// What the user changes, in one sentence.
     pub fn fix(&self) -> String {
-        format!("set [model] name to a model of {}, or remove it", self.provider)
+        format!(
+            "log in to {} with {}, set [model] name to a model of {}, or remove it",
+            self.company.name(),
+            self.company.login(),
+            self.provider
+        )
     }
 }
 

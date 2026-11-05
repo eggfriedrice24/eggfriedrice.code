@@ -354,8 +354,9 @@ fn a_model_name_of_another_company_is_warned_about_and_one_of_its_own_is_not() {
         warn_foreign_model(&config).as_deref(),
         Some(
             "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
-             openai-subscription, so every turn that does not name its own model fails; set \
-             [model] name to a model of openai-subscription, or remove it"
+             openai-subscription, so a turn that does not name its own model fails without a \
+             login to Anthropic; log in to Anthropic with efr login anthropic, set [model] name \
+             to a model of openai-subscription, or remove it"
         )
     );
 

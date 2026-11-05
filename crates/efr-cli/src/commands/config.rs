@@ -317,7 +317,8 @@ async fn check(ctx: &Context, out: &mut Output, path: Option<&Path>) -> Result<(
 pub(crate) fn foreign_model_warning(settings: &efr_config::Settings) -> Option<String> {
     let foreign = settings.foreign_model()?;
     Some(format::one_line(&format!(
-        "{foreign}, so every turn that does not name its own model fails; {}",
+        "{foreign}, so a turn that does not name its own model fails without a login to {}; {}",
+        foreign.company.name(),
         foreign.fix()
     )))
 }

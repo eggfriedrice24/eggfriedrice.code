@@ -123,6 +123,13 @@
           "default": "auto",
           "description": "How long the prompt cache keeps what a request writes: `auto` is efr's choice,\ntoday everything for an hour, `5m` keeps everything for five minutes, `1h` keeps\neverything for an hour. An hour costs more per write and survives a longer\npause. Needs a restart."
         },
+        "effort": {
+          "description": "The reasoning effort of a turn on a Claude model, such as `high`, in place of\n`[model] effort`. A model that does not take it uses its own default effort.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "models": {
           "description": "Models added to the provider's model list, such as a model that the API does\nnot list yet. A prompt may then name them; their efforts are not checked. An\nentry is a model id, or a table `{ id, context_window, max_output_tokens }` that\nalso gives the model's limits in tokens. A table may name a model of the API's\nlist to lower its window or its output limit.",
           "items": {
@@ -718,7 +725,7 @@
       "description": "`[model]`: the provider, the default model of a turn and what each request carries.",
       "properties": {
         "effort": {
-          "description": "The default reasoning effort, such as `low`, `medium` or `high`. Unset: the\nprovider's default for the model (`medium` for Claude models).",
+          "description": "The default reasoning effort, such as `low`, `medium` or `high`, for a model whose\ncompany has no effort of its own (`[openai] effort`, `[anthropic] effort`). A\nmodel that does not take it uses its own default effort. Unset: the provider's\ndefault for the model (`medium` for Claude models).",
           "type": [
             "string",
             "null"
@@ -863,6 +870,13 @@
       "properties": {
         "api_base_url": {
           "description": "Replaces the public API's base URL. Needs a restart.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effort": {
+          "description": "The reasoning effort of a turn on an OpenAI model, such as `high`, in place of\n`[model] effort`. A model that does not take it uses its own default effort.",
           "type": [
             "string",
             "null"

@@ -38,7 +38,7 @@ The provider, the default model of a turn and what each request carries.
 |---|---|---|---|
 | `provider` | `"openai-subscription"` | live | The provider of new conversations: `openai-subscription` (the ChatGPT plan), `openai-api` (an OpenAI API key) or `anthropic-api` (an Anthropic API key). A turn on a model of another provider with a login goes to that provider. |
 | `name` | unset | live | The default model of a turn, such as `gpt-6.1-sol` or `claude-sonnet-5-5`. Unset: the default of the provider's model catalog: for OpenAI the model with the best priority, for Anthropic `claude-opus-5-5` when the API lists it. |
-| `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`. Unset: the provider's default for the model (`medium` for Claude models). |
+| `effort` | unset | live | The default reasoning effort, such as `low`, `medium` or `high`, for a model whose company has no effort of its own (`[openai] effort`, `[anthropic] effort`). A model that does not take it uses its own default effort. Unset: the provider's default for the model (`medium` for Claude models). |
 | `system_prompt` | built in | live | The system prompt of every request. |
 | `max_output_tokens` | unset | live | The most tokens one model call may produce. Unset: the provider's default. |
 
@@ -50,6 +50,7 @@ The OpenAI providers.
 |---|---|---|---|
 | `originator` | `"efr"` | restart | The `originator` of the subscription login and of every subscription request. Needs a restart. |
 | `models` | unset | live | Models added to the provider's model list, such as a new model before the backend lists it. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens. A table may name a model of the catalog to change its limits: its window up to the largest window that the catalog gives for the model. |
+| `effort` | unset | live | The reasoning effort of a turn on an OpenAI model, such as `high`, in place of `[model] effort`. A model that does not take it uses its own default effort. |
 | `subscription_base_url` | unset | restart | Replaces the subscription backend's base URL. Needs a restart. |
 | `api_base_url` | unset | restart | Replaces the public API's base URL. Needs a restart. |
 | `organization` | unset | restart | The organization that requests with an API key bill, sent as the `OpenAI-Organization` header, such as for a key that belongs to several organizations. Unset: the key's default. Needs a restart. |
@@ -64,6 +65,7 @@ The Anthropic provider.
 |---|---|---|---|
 | `base_url` | unset | restart | Replaces the Messages API's base URL. Needs a restart. |
 | `models` | unset | live | Models added to the provider's model list, such as a model that the API does not list yet. A prompt may then name them; their efforts are not checked. An entry is a model id, or a table `{ id, context_window, max_output_tokens }` that also gives the model's limits in tokens. A table may name a model of the API's list to lower its window or its output limit. |
+| `effort` | unset | live | The reasoning effort of a turn on a Claude model, such as `high`, in place of `[model] effort`. A model that does not take it uses its own default effort. |
 | `cache_ttl` | `"auto"` | restart | How long the prompt cache keeps what a request writes: `auto` is efr's choice, today everything for an hour, `5m` keeps everything for five minutes, `1h` keeps everything for an hour. An hour costs more per write and survives a longer pause. Needs a restart. |
 | `workspace_id` | unset | restart | The workspace of your API key, sent as the `anthropic-workspace-id` header of every request. A key that is not scoped to one workspace needs it. Needs a restart. |
 

@@ -622,7 +622,7 @@ pub(crate) fn login_command(provider: &str) -> &'static str {
 
 /// Warns when `[model] name` is a model of another company than `[model] provider`
 /// (`efr_config::ForeignModel`): every turn that does not name its own model then
-/// fails until the file is fixed. efrd calls it at start, and after a reload that
+/// fails while efr has no login to a provider of the model's company. efrd calls it at start, and after a reload that
 /// changed what it warns about (C3.1). Returns the warning for the user, as
 /// `efr config check` words it, when it warned.
 pub(crate) fn warn_foreign_model(config: &Settings) -> Option<String> {
@@ -632,10 +632,11 @@ pub(crate) fn warn_foreign_model(config: &Settings) -> Option<String> {
         company = foreign.company.name(),
         provider = %foreign.provider,
         fix = %foreign.fix(),
-        "model.name is a model of another company than model.provider, so a turn that does not name its own model fails"
+        "model.name is a model of another company than model.provider, so a turn that does not name its own model fails without a login to that company"
     );
     Some(format!(
-        "{foreign}, so every turn that does not name its own model fails; {}",
+        "{foreign}, so a turn that does not name its own model fails without a login to {}; {}",
+        foreign.company.name(),
         foreign.fix()
     ))
 }
@@ -660,7 +661,7 @@ fn warn_unfit_defaults(config: &Settings, models: &Models) {
         && !efforts.is_empty()
         && !efforts.contains(effort)
     {
-        tracing::warn!(effort = %effort, model = %default, efforts = ?efforts, "model.effort is not an effort of the default model, so a turn on it that does not name its own effort fails");
+        tracing::warn!(effort = %effort, model = %default, efforts = ?efforts, "model.effort is not an effort of the default model, so a turn on it that does not name its own effort uses the model's default effort");
     }
 }
 

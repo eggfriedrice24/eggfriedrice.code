@@ -108,8 +108,9 @@ async fn a_reloaded_model_name_of_another_company_is_warned_about() {
 
 /// The warning of `[model] name = "claude-opus-5-5"` under the default provider.
 const FOREIGN: &str = "[model] name claude-opus-5-5 is a model of Anthropic, but [model] \
-                       provider is openai-subscription, so every turn that does not name its \
-                       own model fails; set [model] name to a model of openai-subscription, or \
+                       provider is openai-subscription, so a turn that does not name its own \
+                       model fails without a login to Anthropic; log in to Anthropic with efr \
+                       login anthropic, set [model] name to a model of openai-subscription, or \
                        remove it";
 
 #[tokio::test]
