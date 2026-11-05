@@ -392,3 +392,52 @@ async fn a_prompt_names_the_work_account_and_the_conversation_stays_on_it() {
         messages.received().into_iter().map(|request| request.authorization).collect();
     assert_eq!(keys, [Some(format!("Bearer {WORK_KEY}")), Some(format!("Bearer {WORK_KEY}"))]);
 }
+
+#[tokio::test]
+async fn a_prompt_names_an_account_whose_list_is_still_missing() {
+    let messages = MessagesServer::start().await;
+    // NOTE: a 400 fails the fetch at once; a 503 would wait for its retry.
+    messages.refuse_models(MessagesAnswer::error(400, "invalid_request_error", "no list"));
+    let daemon = TestDaemon::builder()
+        .messages(&messages)
+        .config(|config| config.model.max_output_tokens = Some(1000))
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let login = Method::AdminLoginApiKey(AdminLoginApiKey {
+        provider: "anthropic-api.work".to_owned(),
+        key: SecretText::new(WORK_KEY),
+        check: false,
+    });
+    let _: AdminLoginApiKeyResult = client.call(login).await.unwrap();
+    let prompt = |n: u128, provider: &str| {
+        let mut context = ShellContext::new(daemon.cwd());
+        context.tty = Some(TTY.to_owned());
+        Method::PromptSend(PromptSend {
+            command_id: command_id(n),
+            conversation_id: None,
+            new_conversation: false,
+            text: "hi".to_owned(),
+            context: Some(context),
+            last_command: None,
+            recent_commands: Vec::new(),
+            settings: TurnSettings {
+                model: Some(CLAUDE.to_owned()),
+                provider: Some(provider.to_owned()),
+                ..TurnSettings::default()
+            },
+        })
+    };
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    let unknown = client.call::<PromptSendResult>(prompt(1, "home")).await.unwrap_err();
+    let ClientError::Server { body } = unknown else { panic!("{unknown:?}") };
+    assert_eq!(
+        body.message,
+        "the provider home is no provider with a login; choose one of: anthropic-api, anthropic-api.work"
+    );
+    messages.push(MessagesAnswer::text("work answer"));
+    let sent: PromptSendResult = client.call(prompt(2, "work")).await.unwrap();
+    assert_eq!(sent.settings.unwrap().provider.as_deref(), Some("anthropic-api.work"));
+}

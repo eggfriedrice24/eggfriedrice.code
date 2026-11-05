@@ -122,7 +122,14 @@ pub const EFFORT_MAX_LEN: usize = 32;
 /// `openai` for the ChatGPT plan, `openai-api`). `None` when no provider of the list
 /// answers to `name`, or more than one has the account's name.
 pub fn provider_named<'a>(name: &str, models: &'a [ModelInfo]) -> Option<&'a str> {
-    let mut ids: Vec<&str> = models.iter().filter_map(|info| info.provider.as_deref()).collect();
+    let ids: Vec<&str> = models.iter().filter_map(|info| info.provider.as_deref()).collect();
+    provider_id_named(name, &ids)
+}
+
+/// The provider among `ids` that a prompt names with `name`, by the rules of
+/// [`provider_named`], such as among the providers that a daemon runs.
+pub fn provider_id_named<'a>(name: &str, ids: &[&'a str]) -> Option<&'a str> {
+    let mut ids = ids.to_vec();
     ids.sort_unstable();
     ids.dedup();
     let kind = match name {

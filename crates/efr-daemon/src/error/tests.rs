@@ -401,3 +401,12 @@ fn a_failed_change_of_the_registry_says_what_failed_in_the_words_of_efr_scope() 
 fn the_frame_names_no_request_until_the_transport_does() {
     assert_eq!(frame(DaemonError::HelloRepeated).id, None);
 }
+
+#[test]
+fn a_provider_that_efrd_does_not_run_is_invalid_and_not_internal() {
+    let body = frame(DaemonError::Conversation {
+        source: ConversationError::NoProvider { provider: "home".to_owned() },
+    });
+    assert_eq!(body.error.code, ErrorCode::Invalid);
+    assert_eq!(body.error.message, "the provider home of this model does not run in efrd");
+}

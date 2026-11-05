@@ -412,17 +412,26 @@ impl Providers {
         settings: &Settings,
         asked: Option<&str>,
         named: Option<&str>,
-    ) -> String {
+    ) -> Result<String, DaemonError> {
         let configured = self.catalogs.configured(settings);
         configured.ready().await;
-        // NOTE: the turn checks the name again, against the list of its start.
+        // NOTE: by the providers that run, also one whose list efrd still fetches; the
+        // turn checks the model against the list of its start.
         if let Some(name) = named {
-            let routed = self.catalogs.routed(settings);
-            let id = efr_protocol::provider_named(name, &routed).unwrap_or(name).to_owned();
+            let ids = self.ids();
+            let logged_in: Vec<&str> =
+                ids.iter().map(String::as_str).filter(|id| self.catalogs.logged_in(id)).collect();
+            let Some(id) = efr_protocol::provider_id_named(name, &logged_in) else {
+                return Err(DaemonError::UnknownProviderName {
+                    name: name.to_owned(),
+                    choices: logged_in.iter().map(|id| (*id).to_owned()).collect(),
+                });
+            };
+            let id = id.to_owned();
             if let Some(models) = self.models_of(&id) {
                 models.ready().await;
             }
-            return id;
+            return Ok(id);
         }
         let default;
         let model = match asked {
@@ -433,10 +442,10 @@ impl Providers {
             }
         };
         if let Some(provider) = self.listed_provider(settings, model) {
-            return provider;
+            return Ok(provider);
         }
         let Some(company) = ModelCompany::of_model(model) else {
-            return configured.provider().to_owned();
+            return Ok(configured.provider().to_owned());
         };
         let all = self.catalogs.all();
         let waiting = all.iter().filter(|models| {
@@ -445,7 +454,9 @@ impl Providers {
                 && models.missing().is_some()
         });
         futures::future::join_all(waiting.map(|models| models.ready())).await;
-        self.listed_provider(settings, model).unwrap_or_else(|| configured.provider().to_owned())
+        Ok(self
+            .listed_provider(settings, model)
+            .unwrap_or_else(|| configured.provider().to_owned()))
     }
 
     /// The first provider whose list names `model`, in the order of routing.

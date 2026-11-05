@@ -125,7 +125,7 @@ pub(crate) async fn handle(
 async fn send(
     state: &State,
     context: &ConnectionContext,
-    params: PromptSend,
+    mut params: PromptSend,
 ) -> Result<Value, DaemonError> {
     let origin = context.surface();
     // NOTE: a remote device has no terminal, so a tty in its context would only move
@@ -142,9 +142,17 @@ async fn send(
     // prompt waits for a list cannot check one provider's list for another's turn. The
     // turn resolves again against the settings of its start.
     let settings = Arc::clone(&state.settings.borrow());
-    let asked = params.settings.model.as_deref();
     let named = params.settings.provider.as_deref();
-    let provider = state.providers.provider_of_prompt(&settings, asked, named).await;
+    let provider = state
+        .providers
+        .provider_of_prompt(&settings, params.settings.model.as_deref(), named)
+        .await?;
+    // NOTE: the prompt carries the id of the provider that it named, so its turn finds
+    // it also while that provider's list is still missing.
+    if params.settings.provider.is_some() {
+        params.settings.provider = Some(provider.clone());
+    }
+    let asked = params.settings.model.as_deref();
     // NOTE: after the wait, so a default of the other company finds the first list of
     // its provider.
     refuse_foreign_model(state, &settings, &params.settings)?;

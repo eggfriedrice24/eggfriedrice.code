@@ -256,6 +256,14 @@ pub enum DaemonError {
         /// The provider of the request.
         provider: String,
     },
+    /// A prompt names a provider or an account that efrd does not run.
+    #[error("the provider {name} is no provider with a login; choose one of: {}", .choices.join(", "))]
+    UnknownProviderName {
+        /// The name of the prompt.
+        name: String,
+        /// The providers with a login.
+        choices: Vec<String>,
+    },
     /// A login with an API key gives the key of another account of the same provider.
     /// One key under two names has no use, so efrd keeps the other one.
     #[error("this key is the key of {other} already; log out of {other} first, or use another key")]
@@ -858,6 +866,7 @@ impl DaemonError {
             | DaemonError::NoSuchProvider { .. }
             | DaemonError::NoApiKeyLogin { .. }
             | DaemonError::KeyOfAnotherAccount { .. }
+            | DaemonError::UnknownProviderName { .. }
             | DaemonError::InvalidApiKey { .. }
             | DaemonError::InvalidCursor { .. }
             | DaemonError::InvalidAnswer { .. }
@@ -1143,6 +1152,7 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. }
         | ConversationError::ForeignModel { .. }
+        | ConversationError::NoProvider { .. }
         | ConversationError::FullModeOff
         | ConversationError::FullModeRefused { .. } => ErrorCode::Invalid,
         ConversationError::CompactionBusy { .. } | ConversationError::NothingToCompact { .. } => {
