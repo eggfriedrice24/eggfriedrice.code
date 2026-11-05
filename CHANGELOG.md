@@ -22,6 +22,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - On the first turn after a switch of model, the model reads one line that names the
   model before it, so it does not take the earlier answers for its own. The log
   records the switch as a `model_switched` event, for a row in the transcript.
+- More than one API key of a provider: `efr login anthropic --account work` and
+  `efr login openai-api --account NAME` keep one more key next to the default one. The
+  account runs at once as a provider of its own, such as `anthropic-api.work`, with its
+  own model list and its own line in `efr status`, and `[model] provider` can name it.
+  efr refuses a key that another account has already. `efr logout` takes `--account`
+  too.
 
 ### Changed
 

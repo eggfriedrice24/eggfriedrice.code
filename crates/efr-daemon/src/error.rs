@@ -256,6 +256,15 @@ pub enum DaemonError {
         /// The provider of the request.
         provider: String,
     },
+    /// A login with an API key gives the key of another account of the same provider.
+    /// One key under two names has no use, so efrd keeps the other one.
+    #[error("this key is the key of {other} already; log out of {other} first, or use another key")]
+    KeyOfAnotherAccount {
+        /// The provider of the request, such as `anthropic-api.work`.
+        provider: String,
+        /// The account that has the key.
+        other: String,
+    },
     /// A login with an API key names a provider that takes none.
     #[error("{provider} takes no API key; log in to it with: efr login openai")]
     NoApiKeyLogin {
@@ -848,6 +857,7 @@ impl DaemonError {
             | DaemonError::ForeignModel { .. }
             | DaemonError::NoSuchProvider { .. }
             | DaemonError::NoApiKeyLogin { .. }
+            | DaemonError::KeyOfAnotherAccount { .. }
             | DaemonError::InvalidApiKey { .. }
             | DaemonError::InvalidCursor { .. }
             | DaemonError::InvalidAnswer { .. }

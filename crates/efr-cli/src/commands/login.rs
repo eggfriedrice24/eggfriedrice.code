@@ -58,11 +58,8 @@ async fn api_key(
     if check {
         out.err("checking the key...\n");
     }
-    let method = Method::AdminLoginApiKey(AdminLoginApiKey {
-        provider: provider.id().to_owned(),
-        key,
-        check,
-    });
+    let id = crate::cli::account_id(provider.id(), args.account.as_deref());
+    let method = Method::AdminLoginApiKey(AdminLoginApiKey { provider: id.clone(), key, check });
     let result: AdminLoginApiKeyResult =
         client.call(method).await.map_err(|error| match error {
             // NOTE: a refused or invalid key must not be stored without a check; a check
@@ -84,19 +81,26 @@ async fn api_key(
         out.out(billing)?;
     }
     if !result.active {
-        out.out(&switch(provider, ctx.settings.provider()))?;
+        out.out(&switch(&id, args.account.is_some(), ctx.settings.provider()))?;
     }
     Ok(())
 }
 
-/// How to make `provider` the one of new conversations, when the config names
-/// `configured`.
-fn switch(provider: KeyProvider, configured: &str) -> String {
-    let id = provider.id();
+/// How to make the provider `id` the one of new conversations, when the config names
+/// `configured`; `account` when `id` is one more account of its kind.
+fn switch(id: &str, account: bool, configured: &str) -> String {
     if configured == id {
         return format!(
             "config.toml names {id} under [model], and efrd uses it after it reads the file \
              again: efr config reload\n"
+        );
+    }
+    if account {
+        // NOTE: the default account lists the same models, and comes first.
+        return format!(
+            "{id} runs now. A model that the default account lists too goes to the provider \
+             of new conversations first. To make {id} that provider: efr config set \
+             model.provider {id}\n"
         );
     }
     format!(

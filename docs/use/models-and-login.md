@@ -69,6 +69,29 @@ the hidden shells. In the `manual`, `cautious` and `full` modes, a command of th
 agent can then read the key with `env`. Only the `auto` sandbox removes names such as
 `*API_KEY*`. Use `efr login`.
 
+### More than one key of a provider
+
+You can keep more than one API key of a provider, for example a work key and a
+personal key of Anthropic. The first key is the default account. Give each other key
+an account name:
+
+```sh
+efr login anthropic --account work
+```
+
+The account runs at once as a provider of its own, `anthropic-api.work`, with its own
+model list. `efr status` shows each account on a line of its own. efr refuses a key
+that another account of the provider has already. To make the account the provider of
+new conversations:
+
+```sh
+efr config set model.provider anthropic-api.work
+```
+
+A model that two accounts list goes to the provider of new conversations first. efr
+never moves a turn to another account by itself, also when a key has no credits
+left. To log out of an account, name it: `efr logout anthropic --account work`.
+
 ## Change the provider
 
 A login does not change the provider of new conversations. But after a login,

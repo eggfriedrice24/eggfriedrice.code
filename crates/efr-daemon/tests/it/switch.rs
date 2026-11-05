@@ -7,15 +7,17 @@
 //! second Claude request sends it back, because it is the same model on the same
 //! provider. Each turn records the provider that ran it. A reload that changes
 //! `[model] provider` moves the next turn that names no model, with no restart. A
-//! `[model] name` of the other company runs on its provider when that one has a key.
+//! `[model] name` of the other company runs on its provider when that one has a key. A
+//! login of a second account of a provider runs it at once, with its own key.
 
 use efr_protocol::{
-    AdminConfigReload, AdminConfigReloadResult, ConversationId, Event, EventEnvelope, Method,
-    ModelsList, ModelsListResult, PromptSend, PromptSendResult, ShellContext, TurnSettings,
+    AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey, AdminLoginApiKeyResult,
+    AdminStatus, AdminStatusResult, ConversationId, Event, EventEnvelope, Method, ModelsList,
+    ModelsListResult, PromptSend, PromptSendResult, SecretText, ShellContext, TurnSettings,
 };
 use efr_test_daemon::{
-    MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon, command_id,
-    events_until,
+    ANTHROPIC_API_KEY, ClientError, MessagesAnswer, MessagesServer, ResponsesAnswer,
+    ResponsesServer, TTY, TestDaemon, command_id, events_until,
 };
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -270,4 +272,62 @@ async fn a_default_model_of_the_other_company_runs_on_its_provider_when_it_has_a
     assert_eq!(ran_on(&events), ("anthropic-api".to_owned(), CLAUDE.to_owned()));
     assert_eq!(messages.received().len(), 1);
     assert!(responses.received().is_empty());
+}
+
+/// The second Anthropic key of the account tests.
+const WORK_KEY: &str = "sk-ant-api03-efr-work-c3d4";
+
+#[tokio::test]
+async fn a_login_of_a_second_account_runs_it_at_once_and_a_turn_uses_its_key() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+
+    let login = |provider: &str, key: &str| {
+        Method::AdminLoginApiKey(AdminLoginApiKey {
+            provider: provider.to_owned(),
+            key: SecretText::new(key),
+            check: false,
+        })
+    };
+    let stored: AdminLoginApiKeyResult =
+        client.call(login("anthropic-api.work", WORK_KEY)).await.unwrap();
+    assert_eq!(stored.provider, "anthropic-api.work");
+    assert!(!stored.active);
+    // The key of the default account under a second name has no use.
+    let twice = client
+        .call::<AdminLoginApiKeyResult>(login("anthropic-api.again", ANTHROPIC_API_KEY))
+        .await
+        .unwrap_err();
+    let ClientError::Server { body } = twice else { panic!("{twice:?}") };
+    assert!(body.message.contains("the key of anthropic-api already"), "{}", body.message);
+
+    let status: AdminStatusResult =
+        client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+    let work = status.providers.iter().find(|p| p.provider == "anthropic-api.work").unwrap();
+    assert!(work.logged_in);
+    assert_eq!(work.key_hint.as_deref(), Some("sk-ant-...c3d4"));
+    Wait::new("the list of the work account")
+        .until_some_async(async || {
+            models(&daemon)
+                .await
+                .models
+                .iter()
+                .any(|model| model.provider.as_deref() == Some("anthropic-api.work"))
+                .then_some(())
+        })
+        .await
+        .unwrap();
+
+    let config = daemon.dirs().dirs().config().join("config.toml");
+    std::fs::write(&config, "[model]\nprovider = \"anthropic-api.work\"\n").unwrap();
+    let _: AdminConfigReloadResult =
+        client.call(Method::AdminConfigReload(AdminConfigReload::default())).await.unwrap();
+    messages.push(MessagesAnswer::text("work answer"));
+    let (_, events) = turn(&daemon, 1, "prompt one", None).await;
+
+    assert_eq!(ran_on(&events), ("anthropic-api.work".to_owned(), CLAUDE.to_owned()));
+    let sent = messages.received();
+    assert_eq!(sent.last().unwrap().authorization, Some(format!("Bearer {WORK_KEY}")));
 }

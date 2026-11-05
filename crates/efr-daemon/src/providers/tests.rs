@@ -57,6 +57,7 @@ fn parts(
                 cache: crate::catalog::cache_path_of(provider, &dir.join("state")),
             })
             .into(),
+        state: dir.join("state"),
     }
 }
 

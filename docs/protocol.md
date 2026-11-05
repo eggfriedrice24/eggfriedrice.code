@@ -936,3 +936,9 @@ No protocol version has shipped yet.
   skips it. A prompt that names no model now runs on the model of the turn before when
   a prompt picked it, while the model list has it; a turn that job notices start does
   too. New fixture `events/model_switched.json`.
+- Version 1, behaviour: a provider id can name an account, the kind, a `.` and a name,
+  such as `anthropic-api.work`. `admin.login_api_key` and `admin.logout` take one in
+  `provider`; a login of a new account runs it at once. A key that another account of
+  the kind has already is `invalid`. `admin.status` lists each account after the three
+  providers, and `models.list`, `settings.provider` and `model_switched` name the
+  account. No wire type changed.

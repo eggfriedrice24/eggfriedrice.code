@@ -649,6 +649,11 @@ pub(crate) struct KeyArgs {
     /// offline.
     #[arg(long)]
     pub(crate) no_check: bool,
+
+    /// Store the key as one more account of the provider, such as work, next to the
+    /// default one: lowercase letters, digits and -, starting with a letter.
+    #[arg(long, value_name = "NAME", value_parser = account_parser)]
+    pub(crate) account: Option<String>,
 }
 
 /// The arguments of `efr logout`.
@@ -657,6 +662,34 @@ pub(crate) struct LogoutArgs {
     /// The provider: openai (the subscription), openai-api or anthropic.
     #[arg(value_name = "PROVIDER", value_parser = provider_parser())]
     pub(crate) provider: ProviderName,
+
+    /// Log out of this account of the provider, such as work, not the default one.
+    #[arg(long, value_name = "NAME", value_parser = account_parser)]
+    pub(crate) account: Option<String>,
+}
+
+/// The provider id of `provider` with `account`, such as `anthropic-api.work`; the
+/// provider's own id without an account.
+pub(crate) fn account_id(provider: &str, account: Option<&str>) -> String {
+    match account {
+        Some(account) => format!("{provider}.{account}"),
+        None => provider.to_owned(),
+    }
+}
+
+/// Reads an account name: 1 to 32 bytes of lowercase letters, digits and `-`,
+/// starting with a letter.
+fn account_parser(name: &str) -> Result<String, String> {
+    let fits = name.len() <= 32
+        && name.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    if fits {
+        Ok(name.to_owned())
+    } else {
+        Err("an account is 1 to 32 lowercase letters, digits and -, starting with a letter, \
+             such as work"
+            .to_owned())
+    }
 }
 
 /// A model provider by the name that a user types.

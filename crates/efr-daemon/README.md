@@ -515,9 +515,13 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   `login_completed`, makes the running provider forget its cached token and asks for a
   fetch of the model catalog of the new account.
 - `admin.login_api_key` (`methods/admin_login_api_key.rs`, `providers/api_key.rs`)
-  takes a key for `openai-api` or `anthropic-api`. It refuses another provider and a
-  key that is empty or holds whitespace or a character outside ASCII (`invalid`), and
-  an OpenAI admin key (`sk-admin-`). Unless `check` is false, it checks the key with
+  takes a key for `openai-api` or `anthropic-api`, or for one more account of either,
+  such as `anthropic-api.work`. It refuses another provider, a key that another
+  account of the kind has already, and a key that is empty or holds whitespace or a
+  character outside ASCII (`invalid`), and an OpenAI admin key (`sk-admin-`). A new
+  account runs at once (`Providers::add_account`): its provider, its catalog with a
+  cache file of its own and its fetch; at start, efrd runs each account whose key the
+  store holds (`stored_accounts`). Unless `check` is false, it checks the key with
   one request that runs no model, sent once: `efr_providers::openai::check_key` (the
   API's `/models` with the organization and project headers) or
   `efr_providers::anthropic::check_key` (with the base URL and the workspace of

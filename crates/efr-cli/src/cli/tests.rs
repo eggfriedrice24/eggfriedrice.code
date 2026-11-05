@@ -248,15 +248,48 @@ fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
     assert!(matches!(
         command(&["login", "openai-api"]),
-        Command::Login(LoginCommand::OpenaiApi(KeyArgs { from_env: false, no_check: false }))
+        Command::Login(LoginCommand::OpenaiApi(KeyArgs {
+            from_env: false,
+            no_check: false,
+            account: None
+        }))
     ));
     for name in ["anthropic", "anthropic-api"] {
         assert!(matches!(
             command(&["login", name, "--from-env", "--no-check"]),
-            Command::Login(LoginCommand::Anthropic(KeyArgs { from_env: true, no_check: true }))
+            Command::Login(LoginCommand::Anthropic(KeyArgs {
+                from_env: true,
+                no_check: true,
+                account: None
+            }))
         ));
     }
     assert_eq!(parse_error(&["login", "gemini"]), ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn login_and_logout_take_an_account() {
+    let Command::Login(LoginCommand::Anthropic(args)) =
+        command(&["login", "anthropic", "--account", "work"])
+    else {
+        panic!("not a login to anthropic");
+    };
+    assert_eq!(args.account.as_deref(), Some("work"));
+    assert_eq!(
+        crate::cli::account_id("anthropic-api", args.account.as_deref()),
+        "anthropic-api.work"
+    );
+    let Command::Logout(args) = command(&["logout", "anthropic", "--account", "work"]) else {
+        panic!("not a logout");
+    };
+    assert_eq!(args.account.as_deref(), Some("work"));
+    for bad in ["Work", "2nd", "a.b", ""] {
+        assert_eq!(
+            parse_error(&["login", "anthropic", "--account", bad]),
+            ErrorKind::ValueValidation,
+            "{bad:?}"
+        );
+    }
 }
 
 #[test]

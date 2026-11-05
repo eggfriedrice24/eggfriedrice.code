@@ -569,6 +569,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             factory: providers,
             issuer: oauth_issuer,
             catalogs: crate::providers::catalog_starts(&settings, dirs.state(), &accounts).await,
+            state: dirs.state().to_path_buf(),
         },
     )?;
     providers.load_logins().await;
@@ -908,14 +909,12 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_recordings(Arc::clone(&state), stop.clone())),
-        // NOTE: each provider's catalog has a fetch task of its own.
+        // NOTE: each provider's catalog has a fetch task of its own, also the one of an
+        // account that a login adds later.
         tokio::spawn({
-            let catalogs = state.providers.all_models();
+            let state = Arc::clone(&state);
             let stop = stop.clone();
-            async move {
-                let serving = catalogs.into_iter().map(|models| models.serve(stop.clone()));
-                futures::future::join_all(serving).await;
-            }
+            async move { state.providers.serve(stop).await }
         }),
         tokio::spawn(search_index::follow(
             state.writer.clone(),

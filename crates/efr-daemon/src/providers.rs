@@ -31,7 +31,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use async_trait::async_trait;
 use efr_config::{
@@ -50,6 +50,7 @@ use efr_providers::openai::{OpenAiConfig, OpenAiProvider, WebSocketMode};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
 use crate::catalog::{self, Fetcher, Models, NoList, ProviderCatalog, backend};
@@ -59,10 +60,10 @@ mod api_key;
 mod refusals;
 mod routes;
 
-use self::api_key::{KEY_PROVIDERS, KeyChecks, takes_key};
+use self::api_key::{KeyChecks, takes_key};
 use self::refusals::Watched;
 pub(crate) use self::refusals::{KeyRefusals, KeySource};
-pub(crate) use self::routes::Routes;
+pub(crate) use self::routes::{Routes, SharedRoutes};
 
 /// The subscription provider and its credential.
 pub const SUBSCRIPTION: &str = "openai-subscription";
@@ -96,9 +97,18 @@ pub(crate) struct Providers {
     settings: Option<watch::Receiver<Arc<Settings>>>,
     /// The provider of `configured`, under its id.
     active: (String, Arc<dyn Provider>),
-    /// The other providers that efrd runs, each under its id. A daemon whose provider
-    /// a test injects runs no other.
-    others: Vec<(String, Arc<dyn Provider>)>,
+    /// The other providers that efrd runs, each under its id, shared with the router
+    /// ([`Routes`]), so an account that a login adds runs at once. A daemon whose
+    /// provider a test injects runs no other.
+    others: SharedRoutes,
+    /// Builds the provider and the catalog fetch of an account that a login adds;
+    /// `None` in a daemon whose provider a test injects.
+    credential: Option<Arc<CredentialProviders>>,
+    /// The state root, where each account keeps the cache file of its catalog.
+    state: PathBuf,
+    /// Ends the catalog fetch of an account that a login adds, with efrd; empty until
+    /// efrd starts the fetches ([`serve`](Self::serve)).
+    stop: OnceLock<CancellationToken>,
     /// The catalog of each provider, the one of `configured` first, and the logins.
     catalogs: Arc<Catalogs>,
     refusals: Arc<KeyRefusals>,
@@ -137,6 +147,8 @@ pub(crate) struct ProviderParts {
     /// The catalog of each provider to start with ([`catalog_starts`]); the one of
     /// `[model] provider` must be among them.
     pub(crate) catalogs: Vec<CatalogStart>,
+    /// The state root, for the cache file of an account that a login adds.
+    pub(crate) state: PathBuf,
 }
 
 impl Providers {
@@ -146,7 +158,7 @@ impl Providers {
         store: Arc<dyn SecretStore>,
         parts: ProviderParts,
     ) -> Result<Self, DaemonError> {
-        let ProviderParts { http, clock, rng, factory, issuer, catalogs } = parts;
+        let ProviderParts { http, clock, rng, factory, issuer, catalogs, state } = parts;
         let mut oauth = OAuthConfig::default();
         oauth.originator.clone_from(&config.openai.originator);
         if let Some(issuer) = issuer {
@@ -174,7 +186,16 @@ impl Providers {
         let refusals = Arc::new(KeyRefusals::new(Arc::clone(&clock)));
         let provider = config.model.provider.as_str();
         let injected = factory.is_some();
-        let mut provider_catalogs = Vec::new();
+        let credential = Arc::new(CredentialProviders {
+            openai: config.openai.clone(),
+            anthropic: anthropic.clone(),
+            http: http.clone(),
+            subscription: Arc::clone(&subscription),
+            store: Arc::clone(&store),
+            clock: Arc::clone(&clock),
+            rng: Arc::clone(&rng),
+            catalogs: RwLock::new(Vec::new()),
+        });
         let mut configured_models = None;
         let mut other_models = Vec::new();
         for CatalogStart { provider: id, catalog, cache } in catalogs {
@@ -182,7 +203,7 @@ impl Providers {
                 // NOTE: a test's provider serves only the list of `[model] provider`.
                 continue;
             }
-            provider_catalogs.push((id.clone(), catalog.clone()));
+            credential.add_catalog(&id, catalog.clone());
             let id = id.as_str();
             let fetcher = match (efr_config::provider_kind(id), &catalog) {
                 _ if injected => None,
@@ -199,25 +220,7 @@ impl Providers {
                     );
                     Some(Fetcher::OpenAi(shared.clone(), client))
                 }
-                (API, ProviderCatalog::OpenAi(shared)) => {
-                    let client = efr_providers::openai::CatalogClient::new(
-                        api.clone(),
-                        http.clone(),
-                        stored_key(&store, id)?,
-                        Arc::clone(&clock),
-                    );
-                    Some(Fetcher::OpenAi(shared.clone(), client))
-                }
-                (ANTHROPIC, ProviderCatalog::Anthropic(shared)) => {
-                    let client = efr_providers::anthropic::CatalogClient::new(
-                        anthropic.clone(),
-                        http.clone(),
-                        stored_key(&store, id)?,
-                        Arc::clone(&clock),
-                        Arc::clone(&rng),
-                    );
-                    Some(Fetcher::Anthropic(shared.clone(), client))
-                }
+                (API | ANTHROPIC, _) => credential.key_fetcher(id, &catalog)?,
                 _ => None,
             };
             let models = match fetcher {
@@ -239,16 +242,7 @@ impl Providers {
         let catalogs = Arc::new(Catalogs::new(Arc::clone(&models), other_models));
         let factory: Arc<dyn ProviderFactory> = match factory {
             Some(factory) => factory,
-            None => Arc::new(CredentialProviders {
-                openai: config.openai.clone(),
-                anthropic,
-                http,
-                subscription: Arc::clone(&subscription),
-                store: Arc::clone(&store),
-                clock,
-                rng,
-                catalogs: provider_catalogs,
-            }),
+            None => Arc::clone(&credential) as Arc<dyn ProviderFactory>,
         };
         // NOTE: every provider with a catalog runs, also one without a login: its
         // credential is read at each request, so a later login serves it at once.
@@ -287,10 +281,56 @@ impl Providers {
             configured,
             settings: None,
             active,
-            others,
+            others: Arc::new(RwLock::new(others)),
+            credential: (!injected).then_some(credential),
+            state,
+            stop: OnceLock::new(),
             catalogs,
             refusals,
         })
+    }
+
+    /// Runs the catalog fetch of each provider, and of each account that a login adds
+    /// later, until `stop`.
+    pub(crate) async fn serve(&self, stop: CancellationToken) {
+        let _ = self.stop.set(stop.clone());
+        let serving = self.catalogs.all().into_iter().map(|models| models.serve(stop.clone()));
+        futures::future::join_all(serving).await;
+    }
+
+    /// Runs the account `id`, such as `anthropic-api.work`, after a login stored its
+    /// key: its provider, its catalog from its cache file and its fetch. Nothing
+    /// changes when it runs already, or in a daemon whose provider a test injects.
+    async fn add_account(&self, id: &str) -> Result<(), DaemonError> {
+        let Some(credential) = &self.credential else {
+            return Ok(());
+        };
+        if self.catalogs.of(id).is_some() {
+            return Ok(());
+        }
+        let settings = match &self.settings {
+            Some(settings) => Arc::clone(&settings.borrow()),
+            None => Arc::new(Settings::default()),
+        };
+        let cache = catalog::cache_path_of(id, &self.state);
+        let catalog = catalog::load_of(&settings, id, &cache).await;
+        credential.add_catalog(id, catalog.clone());
+        let provider = credential.provider(id)?;
+        let provider: Arc<dyn Provider> =
+            Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
+        let models = match credential.key_fetcher(id, &catalog)? {
+            Some(fetcher) => Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock))
+                .with_refusals(Arc::clone(&self.refusals)),
+            None => Models::fixed(id, catalog),
+        };
+        let models = Arc::new(models);
+        self.catalogs.add(Arc::clone(&models));
+        self.others.write().unwrap_or_else(PoisonError::into_inner).push((id.to_owned(), provider));
+        if let Some(stop) = self.stop.get() {
+            tokio::spawn(models.serve(stop.clone()));
+        }
+        tracing::info!(provider = %id, "account ready");
+        Ok(())
     }
 
     /// Follows `settings`: a reload that changes `[model] provider` changes the
@@ -326,8 +366,12 @@ impl Providers {
 
     /// The running provider `id`, else the provider of new conversations at start.
     fn route(&self, id: &str) -> Arc<dyn Provider> {
-        std::iter::once(&self.active)
-            .chain(&self.others)
+        if self.active.0 == id {
+            return self.active();
+        }
+        let others = self.others.read().unwrap_or_else(PoisonError::into_inner);
+        others
+            .iter()
             .find(|(route, _)| route == id)
             .map_or_else(|| self.active(), |(_, provider)| Arc::clone(provider))
     }
@@ -335,12 +379,12 @@ impl Providers {
     /// The router of the conversations: every provider that efrd runs, with the
     /// default from the latest `settings`.
     pub(crate) fn routes(&self, settings: watch::Receiver<Arc<Settings>>) -> Routes {
-        Routes::new(self.active.clone(), self.others.clone(), settings)
+        Routes::new(self.active.clone(), Arc::clone(&self.others), settings)
     }
 
     /// The model catalog of the provider of new conversations, and its fetch.
     pub(crate) fn models(&self) -> Arc<Models> {
-        Arc::clone(self.catalogs.of(&self.configured()).unwrap_or_else(|| self.catalogs.first()))
+        self.catalogs.of(&self.configured()).unwrap_or_else(|| self.catalogs.first())
     }
 
     /// Every catalog and the logins: the model list of `models.list` and of the turns.
@@ -348,14 +392,8 @@ impl Providers {
         Arc::clone(&self.catalogs)
     }
 
-    /// Every catalog: the one of the provider of new conversations first, then the one
-    /// of each other provider, each with its own fetch.
-    pub(crate) fn all_models(&self) -> Vec<Arc<Models>> {
-        self.catalogs.all().to_vec()
-    }
-
     /// The catalog of `provider`, if efrd keeps one.
-    fn models_of(&self, provider: &str) -> Option<&Arc<Models>> {
+    fn models_of(&self, provider: &str) -> Option<Arc<Models>> {
         self.catalogs.of(provider)
     }
 
@@ -392,7 +430,8 @@ impl Providers {
         let Some(company) = ModelCompany::of_model(model) else {
             return configured.provider().to_owned();
         };
-        let waiting = self.catalogs.all().iter().filter(|models| {
+        let all = self.catalogs.all();
+        let waiting = all.iter().filter(|models| {
             ModelCompany::of_provider(models.provider()) == Some(company)
                 && self.catalogs.logged_in(models.provider())
                 && models.missing().is_some()
@@ -421,7 +460,7 @@ impl Providers {
         provider: &str,
         asked: Option<&str>,
     ) -> Result<(), DaemonError> {
-        let models = Arc::clone(self.models_of(provider).unwrap_or_else(|| self.catalogs.first()));
+        let models = self.models_of(provider).unwrap_or_else(|| self.catalogs.first());
         let Some(missing) = models.missing() else {
             return Ok(());
         };
@@ -477,14 +516,17 @@ impl Providers {
         key: &SecretText,
         check: bool,
     ) -> Result<KeyLogin, DaemonError> {
-        if !PROVIDERS.contains(&provider) {
+        if !efr_config::is_provider(provider) {
             return Err(DaemonError::NoSuchProvider { provider: provider.to_owned() });
         }
-        if !KEY_PROVIDERS.contains(&provider) {
+        if !takes_key(provider) {
             return Err(DaemonError::NoApiKeyLogin { provider: provider.to_owned() });
         }
         api_key::validate(provider, key.expose_secret())?;
         let key = SecretString::from(key.expose_secret());
+        if let Some(other) = self.account_with_key(provider, &key).await {
+            return Err(DaemonError::KeyOfAnotherAccount { provider: provider.to_owned(), other });
+        }
         if check {
             self.checks.check(provider, &key).await.map_err(|source| DaemonError::KeyCheck {
                 provider: provider.to_owned(),
@@ -503,6 +545,8 @@ impl Providers {
             self.refusals.checked(provider);
         }
         let active = provider == self.configured();
+        // NOTE: a new account runs from now on, with its own catalog and fetch.
+        self.add_account(provider).await?;
         self.catalogs.set_logged_in(provider, true);
         if let Some(models) = self.models_of(provider) {
             models.refresh_now();
@@ -510,9 +554,34 @@ impl Providers {
         Ok(KeyLogin { hint, active })
     }
 
+    /// The other account of the kind of `provider` whose stored key is `key`.
+    async fn account_with_key(&self, provider: &str, key: &SecretString) -> Option<String> {
+        let kind = efr_config::provider_kind(provider).to_owned();
+        let others: Vec<String> = self
+            .ids()
+            .into_iter()
+            .filter(|id| id != provider && efr_config::provider_kind(id) == kind)
+            .collect();
+        let store = Arc::clone(&self.store);
+        // NOTE: the key stays a secret: compared inside the task, never copied out.
+        let key = key.clone();
+        let found = tokio::task::spawn_blocking(move || {
+            others.into_iter().find(|id| {
+                let record =
+                    CredentialId::new(id).ok().and_then(|id| store.load(&id).ok().flatten());
+                matches!(
+                    record,
+                    Some(CredentialRecord::ApiKey { key: stored })
+                        if stored.expose_secret() == key.expose_secret()
+                )
+            })
+        });
+        found.await.ok().flatten()
+    }
+
     /// Deletes the credential of `provider`. False when none was stored.
     pub(crate) async fn logout(&self, provider: &str) -> Result<bool, DaemonError> {
-        if !PROVIDERS.contains(&provider) {
+        if !efr_config::is_provider(provider) {
             return Err(DaemonError::NoSuchProvider { provider: provider.to_owned() });
         }
         let id = credential(provider)?;
@@ -574,7 +643,8 @@ impl Providers {
     /// Every provider id that efrd knows: [`PROVIDERS`], then each account that runs.
     fn ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = PROVIDERS.iter().map(|id| (*id).to_owned()).collect();
-        for (id, _) in std::iter::once(&self.active).chain(&self.others) {
+        let others = self.others.read().unwrap_or_else(PoisonError::into_inner);
+        for (id, _) in std::iter::once(&self.active).chain(others.iter()) {
             if !ids.contains(id) {
                 ids.push(id.clone());
             }
@@ -721,14 +791,65 @@ struct CredentialProviders {
     store: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
-    /// The catalog of each provider, which its provider and its fetch share.
-    catalogs: Vec<(String, ProviderCatalog)>,
+    /// The catalog of each provider, which its provider and its fetch share; a login
+    /// adds the one of a new account.
+    catalogs: RwLock<Vec<(String, ProviderCatalog)>>,
+}
+
+impl CredentialProviders {
+    /// Keeps `catalog` as the one of the provider `id`.
+    fn add_catalog(&self, id: &str, catalog: ProviderCatalog) {
+        self.catalogs
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((id.to_owned(), catalog));
+    }
+
+    /// The fetch of the catalog `catalog` of the API-key provider `id`, with its
+    /// stored key; `None` for a provider of another form.
+    fn key_fetcher(
+        &self,
+        id: &str,
+        catalog: &ProviderCatalog,
+    ) -> Result<Option<Fetcher>, DaemonError> {
+        Ok(match (efr_config::provider_kind(id), catalog) {
+            (API, ProviderCatalog::OpenAi(shared)) => {
+                let base_url = self.openai.api_base_url.as_deref();
+                let api = openai_config(OpenAiConfig::api(), &self.openai, base_url)?;
+                let client = efr_providers::openai::CatalogClient::new(
+                    api,
+                    self.http.clone(),
+                    stored_key(&self.store, id)?,
+                    Arc::clone(&self.clock),
+                );
+                Some(Fetcher::OpenAi(shared.clone(), client))
+            }
+            (ANTHROPIC, ProviderCatalog::Anthropic(shared)) => {
+                let client = efr_providers::anthropic::CatalogClient::new(
+                    self.anthropic.clone(),
+                    self.http.clone(),
+                    stored_key(&self.store, id)?,
+                    Arc::clone(&self.clock),
+                    Arc::clone(&self.rng),
+                );
+                Some(Fetcher::Anthropic(shared.clone(), client))
+            }
+            _ => None,
+        })
+    }
 }
 
 impl ProviderFactory for CredentialProviders {
     fn provider(&self, id: &str) -> Result<Arc<dyn Provider>, DaemonError> {
         let provider_id = ProviderId::new(id).map_err(|source| DaemonError::Provider { source })?;
-        let Some((_, catalog)) = self.catalogs.iter().find(|(provider, _)| *provider == id) else {
+        let catalog = self
+            .catalogs
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(provider, _)| provider == id)
+            .map(|(_, catalog)| catalog.clone());
+        let Some(catalog) = catalog else {
             return Err(DaemonError::UnknownProvider { id: id.to_owned() });
         };
         let (config, tokens) = match efr_config::provider_kind(id) {

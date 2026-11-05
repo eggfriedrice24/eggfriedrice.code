@@ -19,7 +19,8 @@ pub(crate) async fn run(
     args: &LogoutArgs,
 ) -> Result<(), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
-    let method = Method::AdminLogout(AdminLogout { provider: args.provider.id().to_owned() });
+    let id = crate::cli::account_id(args.provider.id(), args.account.as_deref());
+    let method = Method::AdminLogout(AdminLogout { provider: id });
     let result: AdminLogoutResult = client.call(method).await?;
     let provider = format::one_line(&result.provider);
     if !result.logged_out {

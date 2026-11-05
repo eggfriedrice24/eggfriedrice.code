@@ -16,7 +16,7 @@
 //! login and logout of efrd, so the list comes from memory and never waits.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use efr_config::Settings;
 use efr_protocol::{CatalogStatus, ModelInfo};
@@ -26,8 +26,9 @@ use crate::catalog::Models;
 /// The catalogs, each with its fetch, and the providers that have a login.
 #[derive(Debug)]
 pub(crate) struct Catalogs {
-    /// The catalog of the provider of new conversations at start first.
-    all: Vec<Arc<Models>>,
+    /// The catalog of the provider of new conversations at start first; an account
+    /// that a login adds while efrd runs comes last.
+    all: RwLock<Vec<Arc<Models>>>,
     /// The first of `all`.
     first: Arc<Models>,
     logins: Mutex<BTreeSet<String>>,
@@ -46,29 +47,39 @@ impl Catalogs {
     /// `others`, none of them with a login yet.
     pub(crate) fn new(first: Arc<Models>, others: Vec<Arc<Models>>) -> Self {
         let all = std::iter::once(Arc::clone(&first)).chain(others).collect();
-        Catalogs { all, first, logins: Mutex::new(BTreeSet::new()) }
+        Catalogs { all: RwLock::new(all), first, logins: Mutex::new(BTreeSet::new()) }
     }
 
     /// Every catalog, each with its own fetch.
-    pub(crate) fn all(&self) -> &[Arc<Models>] {
-        &self.all
+    pub(crate) fn all(&self) -> Vec<Arc<Models>> {
+        self.all.read().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Adds the catalog of an account that a login added while efrd runs.
+    pub(crate) fn add(&self, models: Arc<Models>) {
+        self.all.write().unwrap_or_else(PoisonError::into_inner).push(models);
     }
 
     /// The catalog of the provider of new conversations at start.
-    pub(crate) fn first(&self) -> &Arc<Models> {
-        &self.first
+    pub(crate) fn first(&self) -> Arc<Models> {
+        Arc::clone(&self.first)
     }
 
     /// The catalog of `provider`, if efrd keeps one.
-    pub(crate) fn of(&self, provider: &str) -> Option<&Arc<Models>> {
-        self.all.iter().find(|models| models.provider() == provider)
+    pub(crate) fn of(&self, provider: &str) -> Option<Arc<Models>> {
+        self.all
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|models| models.provider() == provider)
+            .cloned()
     }
 
     /// The catalog of the provider of new conversations, `[model] provider` of
     /// `settings`. efrd does not start without it, so only a test that gives one
     /// catalog of another provider gets the first one.
-    pub(crate) fn configured(&self, settings: &Settings) -> &Arc<Models> {
-        self.of(&settings.model.provider).unwrap_or(&self.first)
+    pub(crate) fn configured(&self, settings: &Settings) -> Arc<Models> {
+        self.of(&settings.model.provider).unwrap_or_else(|| self.first())
     }
 
     /// Records whether `provider` has a login now.
@@ -92,8 +103,8 @@ impl Catalogs {
         let configured = self.configured(settings);
         let mut models = configured.effective(settings);
         let mut catalogs = vec![configured.status()];
-        for other in &self.all {
-            if Arc::ptr_eq(other, configured) || !self.logged_in(other.provider()) {
+        for other in &self.all() {
+            if Arc::ptr_eq(other, &configured) || !self.logged_in(other.provider()) {
                 continue;
             }
             let mut listed = other.effective(settings);
