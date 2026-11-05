@@ -44,3 +44,11 @@ patchedDependencies:
 peerDependencyRules:
   allowedVersions:
     "@expo/require-utils@55>typescript": "7"
+# eas-cli pins old versions of these build tools exactly, with security fixes in newer
+# versions of the same major. None of them is in the app bundle. Drop a line when
+# eas-cli names the fixed version itself.
+overrides:
+  "node-forge@<1.4.1": "1.4.1"
+  "joi@>=16 <17.13.8": "17.13.8"
+  "nanoid@>=3 <3.3.12": "^3.3.12"
+  "minimatch@>=5 <5.1.8": "^5.1.8"
