@@ -42,7 +42,7 @@ fn parts(
         issuer: None,
         catalogs: PROVIDERS
             .map(|provider| CatalogStart {
-                provider,
+                provider: provider.to_owned(),
                 catalog: match provider {
                     ANTHROPIC => {
                         ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new())
@@ -425,4 +425,59 @@ fn only_a_provider_with_a_stored_key_watches_its_answers() {
         Providers::build(&config, store(dir.path()), parts(&clock, dir.path(), None)).unwrap();
     assert!(format!("{:?}", api.active()).starts_with("Watched"), "{:?}", api.active());
     assert_eq!(api.active().id().as_str(), "openai-api");
+}
+
+#[tokio::test]
+async fn a_stored_key_of_an_account_runs_as_a_provider_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let store = store(dir.path());
+    let key = |text: &str| CredentialRecord::ApiKey { key: SecretString::from(text) };
+    store.save(&CredentialId::new(ANTHROPIC).unwrap(), &key("sk-ant-api03-efr-own-a1b2")).unwrap();
+    store
+        .save(&CredentialId::new("anthropic-api.work").unwrap(), &key("sk-ant-api03-efr-work-c3d4"))
+        .unwrap();
+    // NOTE: a key of an unknown kind or a name that is no account is not an account.
+    store.save(&CredentialId::new("nothing.work").unwrap(), &key("sk-x-1234567890")).unwrap();
+    let shared: Arc<dyn efr_credentials::SecretStore> = store.clone();
+
+    let accounts = crate::providers::stored_accounts(Arc::clone(&shared)).await;
+    assert_eq!(accounts, ["anthropic-api.work"]);
+    let mut parts = parts(&clock, dir.path(), None);
+    parts.catalogs = crate::providers::catalog_starts(
+        &Settings::default(),
+        &dir.path().join("state"),
+        &accounts,
+    )
+    .await;
+    let providers = Providers::build(&Settings::default(), shared, parts).unwrap();
+    providers.load_logins().await;
+
+    let status = providers.status().await;
+    let ids: Vec<&str> = status.iter().map(|status| status.provider.as_str()).collect();
+    assert_eq!(ids, [SUBSCRIPTION, API, ANTHROPIC, "anthropic-api.work"]);
+    let work = status.iter().find(|status| status.provider == "anthropic-api.work").unwrap();
+    assert!(work.logged_in && !work.active);
+    assert_eq!(work.key_hint.as_deref(), Some("sk-ant-...c3d4"));
+    let catalogs = providers.catalogs();
+    let models = catalogs.of("anthropic-api.work").expect("the account has a catalog");
+    assert_eq!(models.provider(), "anthropic-api.work");
+    assert!(catalogs.logged_in("anthropic-api.work"));
+    let router = providers.routes(tokio::sync::watch::channel(Arc::new(Settings::default())).1);
+    let work = efr_conversation::ProviderRouter::get(&router, "anthropic-api.work").unwrap();
+    assert_eq!(work.id().as_str(), "anthropic-api.work");
+}
+
+#[test]
+fn an_account_has_a_cache_file_of_its_own() {
+    let state = std::path::Path::new("/state");
+    assert_eq!(
+        crate::catalog::cache_path_of("anthropic-api.work", state),
+        state.join("anthropic_model_catalog.work.json")
+    );
+    assert_eq!(
+        crate::catalog::cache_path_of(ANTHROPIC, state),
+        state.join("anthropic_model_catalog.json")
+    );
+    assert_eq!(login_command("anthropic-api.work"), "efr login anthropic");
 }

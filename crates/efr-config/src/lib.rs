@@ -102,7 +102,7 @@ pub use tables::undo::UndoSettings;
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings,
-    ScreenChoice, ShellSettings, SudoCache, WebSocketChoice,
+    ScreenChoice, ShellSettings, SudoCache, WebSocketChoice, is_provider, provider_kind,
 };
 pub use theme_file::ThemeFile;
 pub use writer::{ConfigFile, Edit};

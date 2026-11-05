@@ -14,7 +14,9 @@ Modules:
 - `record`: `CredentialRecord` and `OAuthTokens`, and their versioned JSON form. Every
   store writes the same JSON, so a record can move between stores unchanged.
 - `store`: the `SecretStore` trait. Its methods block; async callers wrap them in
-  `spawn_blocking`.
+  `spawn_blocking`. `list` gives the ids that have a record, so efrd finds the
+  accounts of a provider, such as `anthropic-api.work`; a keyring cannot list and
+  gives none.
 - `file_store`: `FileStore`, the default. One file per record at
   `$XDG_DATA_HOME/efr/secrets/<id>.json` (or under `EFR_DATA_DIR`), directory 0700,
   files 0600, written atomically through `efr_stdx::fs::write_atomic`.

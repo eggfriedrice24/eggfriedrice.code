@@ -132,4 +132,16 @@ impl SecretStore for MemoryStore {
     fn delete(&self, id: &CredentialId) -> Result<bool, CredentialsError> {
         Ok(self.records.lock().unwrap().remove(id.as_str()).is_some())
     }
+
+    fn list(&self) -> Result<Vec<CredentialId>, CredentialsError> {
+        let mut ids: Vec<CredentialId> = self
+            .records
+            .lock()
+            .unwrap()
+            .keys()
+            .filter_map(|id| CredentialId::new(id).ok())
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
 }

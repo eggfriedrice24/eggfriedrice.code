@@ -24,4 +24,11 @@ pub trait SecretStore: Send + Sync + fmt::Debug {
     /// Deletes the record under `id`. Returns `false` when there was none, so a logout
     /// that runs twice is not an error.
     fn delete(&self, id: &CredentialId) -> Result<bool, CredentialsError>;
+
+    /// The ids that have a record, in order, such as every account of a provider. A
+    /// store that cannot list, such as a keyring, gives none: only the ids that the
+    /// caller already knows are found there.
+    fn list(&self) -> Result<Vec<CredentialId>, CredentialsError> {
+        Ok(Vec::new())
+    }
 }

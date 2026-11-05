@@ -12,7 +12,7 @@ use crate::tables::diff::{check_glob, check_name};
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
     ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
-    NetworkSettings, PROVIDERS, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
+    NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
     SandboxSettings, Settings, SnapshotSettings,
 };
 
@@ -91,11 +91,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     } = settings;
     non_empty("log", log, "a tracing filter such as info")?;
 
-    if !PROVIDERS.contains(&model.provider.as_str()) {
+    if !crate::tables::is_provider(&model.provider) {
         return Err(invalid(
             "model.provider",
             text(&model.provider),
-            "openai-subscription, openai-api or anthropic-api",
+            "openai-subscription, openai-api or anthropic-api, alone or with an account such \
+             as anthropic-api.work",
         ));
     }
     if let Some(name) = &model.name {

@@ -44,7 +44,7 @@ impl ModelCompany {
     /// The company of the provider `provider`; `None` for a provider that efr does not
     /// know.
     pub fn of_provider(provider: &str) -> Option<ModelCompany> {
-        match provider {
+        match crate::tables::provider_kind(provider) {
             "openai-subscription" | "openai-api" => Some(ModelCompany::OpenAi),
             "anthropic-api" => Some(ModelCompany::Anthropic),
             _ => None,

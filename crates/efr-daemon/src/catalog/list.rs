@@ -25,12 +25,21 @@ pub(crate) const API_CATALOG_FILE: &str = "openai_api_model_catalog.json";
 /// own, so a change of `[model] provider` never reads the list of the other company.
 pub(crate) const ANTHROPIC_CATALOG_FILE: &str = "anthropic_model_catalog.json";
 
-/// The cache file of the catalog of `provider`, in the state root.
-pub(crate) fn cache_file(provider: &str) -> &'static str {
-    match provider {
+/// The cache file of the catalog of `provider`, in the state root. An account has a
+/// file of its own, the one of its kind with the account before `.json`, such as
+/// `anthropic_model_catalog.work.json`: two keys may list other models.
+pub(crate) fn cache_file(provider: &str) -> String {
+    let file = match efr_config::provider_kind(provider) {
         API => API_CATALOG_FILE,
         ANTHROPIC => ANTHROPIC_CATALOG_FILE,
         _ => CATALOG_FILE,
+    };
+    match provider.split_once('.') {
+        Some((_, account)) => {
+            let stem = file.strip_suffix(".json").unwrap_or(file);
+            format!("{stem}.{account}.json")
+        }
+        None => file.to_owned(),
     }
 }
 
@@ -47,7 +56,7 @@ pub(crate) enum Vendor {
 impl Vendor {
     /// The company of the provider `id`.
     pub(crate) fn of(id: &str) -> Vendor {
-        if id == ANTHROPIC { Vendor::Anthropic } else { Vendor::OpenAi }
+        if efr_config::provider_kind(id) == ANTHROPIC { Vendor::Anthropic } else { Vendor::OpenAi }
     }
 
     /// The key of the config's list of models for this company.
@@ -240,7 +249,7 @@ impl ModelList {
 
 /// The OpenAI backend of the provider `id`.
 pub(crate) fn backend(id: &str) -> efr_providers::openai::Backend {
-    if id == API {
+    if efr_config::provider_kind(id) == API {
         efr_providers::openai::Backend::Api
     } else {
         efr_providers::openai::Backend::Subscription

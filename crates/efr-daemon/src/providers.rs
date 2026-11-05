@@ -59,7 +59,7 @@ mod api_key;
 mod refusals;
 mod routes;
 
-use self::api_key::{KEY_PROVIDERS, KeyChecks};
+use self::api_key::{KEY_PROVIDERS, KeyChecks, takes_key};
 use self::refusals::Watched;
 pub(crate) use self::refusals::{KeyRefusals, KeySource};
 pub(crate) use self::routes::Routes;
@@ -107,7 +107,8 @@ pub(crate) struct Providers {
 /// The start of the catalog of one provider: its list and its cache file.
 #[derive(Debug)]
 pub(crate) struct CatalogStart {
-    pub(crate) provider: &'static str,
+    /// The provider id, such as `anthropic-api` or the account `anthropic-api.work`.
+    pub(crate) provider: String,
     /// From the cache, built in, or without a list.
     pub(crate) catalog: ProviderCatalog,
     pub(crate) cache: PathBuf,
@@ -181,8 +182,9 @@ impl Providers {
                 // NOTE: a test's provider serves only the list of `[model] provider`.
                 continue;
             }
-            provider_catalogs.push((id, catalog.clone()));
-            let fetcher = match (id, &catalog) {
+            provider_catalogs.push((id.clone(), catalog.clone()));
+            let id = id.as_str();
+            let fetcher = match (efr_config::provider_kind(id), &catalog) {
                 _ if injected => None,
                 (SUBSCRIPTION, ProviderCatalog::OpenAi(shared)) => {
                     let base_url = config.openai.subscription_base_url.as_deref();
@@ -201,7 +203,7 @@ impl Providers {
                     let client = efr_providers::openai::CatalogClient::new(
                         api.clone(),
                         http.clone(),
-                        stored_key(&store, API)?,
+                        stored_key(&store, id)?,
                         Arc::clone(&clock),
                     );
                     Some(Fetcher::OpenAi(shared.clone(), client))
@@ -210,7 +212,7 @@ impl Providers {
                     let client = efr_providers::anthropic::CatalogClient::new(
                         anthropic.clone(),
                         http.clone(),
-                        stored_key(&store, ANTHROPIC)?,
+                        stored_key(&store, id)?,
                         Arc::clone(&clock),
                         Arc::clone(&rng),
                     );
@@ -221,11 +223,7 @@ impl Providers {
             let models = match fetcher {
                 Some(fetcher) => {
                     let models = Models::fetched(id, fetcher, cache, Arc::clone(&clock));
-                    if KEY_PROVIDERS.contains(&id) {
-                        models.with_refusals(Arc::clone(&refusals))
-                    } else {
-                        models
-                    }
+                    if takes_key(id) { models.with_refusals(Arc::clone(&refusals)) } else { models }
                 }
                 None => Models::fixed(id, catalog),
             };
@@ -256,7 +254,7 @@ impl Providers {
         // credential is read at each request, so a later login serves it at once.
         let route = |id: &str| -> Result<(String, Arc<dyn Provider>), DaemonError> {
             let mut provider = factory.provider(id)?;
-            if KEY_PROVIDERS.contains(&id) {
+            if takes_key(id) {
                 provider = Arc::new(Watched::new(provider, id, Arc::clone(&refusals)));
             }
             Ok((id.to_owned(), provider))
@@ -537,12 +535,14 @@ impl Providers {
         Ok(deleted)
     }
 
-    /// Whether each provider has credentials, for `admin.status`.
+    /// Whether each provider, each account included, has credentials, for
+    /// `admin.status`: the providers in the order of [`PROVIDERS`], then the accounts.
     pub(crate) async fn status(&self) -> Vec<ProviderStatus> {
         let store = Arc::clone(&self.store);
+        let ids = self.ids();
         let loaded = tokio::task::spawn_blocking(move || {
-            PROVIDERS.map(|id| {
-                let record = CredentialId::new(id).ok().and_then(|id| match store.load(&id) {
+            ids.into_iter().map(|id| {
+                let record = CredentialId::new(&id).ok().and_then(|id| match store.load(&id) {
                     Ok(record) => record,
                     Err(error) => {
                         tracing::warn!(error = %error, credential = %id, "a credential could not be read");
@@ -551,6 +551,7 @@ impl Providers {
                 });
                 (id, record)
             })
+            .collect::<Vec<_>>()
         })
         .await;
         let Ok(loaded) = loaded else {
@@ -560,24 +561,59 @@ impl Providers {
         loaded
             .into_iter()
             .map(|(id, record)| {
-                let mut status = provider_status(id, record.as_ref(), id == configured);
+                let mut status = provider_status(&id, record.as_ref(), id == configured);
                 if status.login == Some(LoginKind::ApiKey) {
-                    status.key_refused_at = self.refusals.refused_at(id);
-                    status.key_checked_at = self.refusals.checked_at(id);
+                    status.key_refused_at = self.refusals.refused_at(&id);
+                    status.key_checked_at = self.refusals.checked_at(&id);
                 }
                 status
             })
             .collect()
     }
+
+    /// Every provider id that efrd knows: [`PROVIDERS`], then each account that runs.
+    fn ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = PROVIDERS.iter().map(|id| (*id).to_owned()).collect();
+        for (id, _) in std::iter::once(&self.active).chain(&self.others) {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
 }
 
-/// The catalog of every provider to start with: the cache file of each in the state
-/// root `state`, else the list built into efr, else no list.
-pub(crate) async fn catalog_starts(config: &Settings, state: &Path) -> Vec<CatalogStart> {
-    let mut starts = Vec::with_capacity(PROVIDERS.len());
-    for provider in PROVIDERS {
-        let cache = catalog::cache_path_of(provider, state);
-        let catalog = catalog::load_of(config, provider, &cache).await;
+/// The accounts of `store` that efrd runs next to the providers of [`PROVIDERS`]: the
+/// stored credentials of an API-key provider with an account, such as
+/// `anthropic-api.work`, in order. A store that cannot list has none.
+pub(crate) async fn stored_accounts(store: Arc<dyn SecretStore>) -> Vec<String> {
+    let listed = tokio::task::spawn_blocking(move || store.list()).await;
+    let ids = match listed {
+        Ok(Ok(ids)) => ids,
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "the credentials could not be listed; efrd runs no account");
+            return Vec::new();
+        }
+        Err(_) => return Vec::new(),
+    };
+    ids.into_iter()
+        .map(|id| id.as_str().to_owned())
+        .filter(|id| id.contains('.') && efr_config::is_provider(id) && takes_key(id))
+        .collect()
+}
+
+/// The catalog of every provider and of each of `accounts` to start with: the cache
+/// file of each in the state root `state`, else the list built into efr, else no list.
+pub(crate) async fn catalog_starts(
+    config: &Settings,
+    state: &Path,
+    accounts: &[String],
+) -> Vec<CatalogStart> {
+    let ids = PROVIDERS.iter().map(|id| (*id).to_owned()).chain(accounts.iter().cloned());
+    let mut starts = Vec::with_capacity(PROVIDERS.len() + accounts.len());
+    for provider in ids {
+        let cache = catalog::cache_path_of(&provider, state);
+        let catalog = catalog::load_of(config, &provider, &cache).await;
         starts.push(CatalogStart { provider, catalog, cache });
     }
     starts
@@ -613,7 +649,7 @@ pub(crate) fn provider_status(
 
 /// The command that logs in to `provider`.
 pub(crate) fn login_command(provider: &str) -> &'static str {
-    match provider {
+    match efr_config::provider_kind(provider) {
         ANTHROPIC => "efr login anthropic",
         API => "efr login openai-api",
         _ => "efr login openai",
@@ -686,7 +722,7 @@ struct CredentialProviders {
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
     /// The catalog of each provider, which its provider and its fetch share.
-    catalogs: Vec<(&'static str, ProviderCatalog)>,
+    catalogs: Vec<(String, ProviderCatalog)>,
 }
 
 impl ProviderFactory for CredentialProviders {
@@ -695,9 +731,9 @@ impl ProviderFactory for CredentialProviders {
         let Some((_, catalog)) = self.catalogs.iter().find(|(provider, _)| *provider == id) else {
             return Err(DaemonError::UnknownProvider { id: id.to_owned() });
         };
-        let (config, tokens) = match id {
+        let (config, tokens) = match efr_config::provider_kind(id) {
             API => {
-                let tokens = stored_key(&self.store, API)?;
+                let tokens = stored_key(&self.store, id)?;
                 let base_url = self.openai.api_base_url.as_deref();
                 (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
             }
@@ -711,7 +747,7 @@ impl ProviderFactory for CredentialProviders {
                     provider_id,
                     self.anthropic.clone(),
                     self.http.clone(),
-                    stored_key(&self.store, ANTHROPIC)?,
+                    stored_key(&self.store, id)?,
                     Arc::clone(&self.clock),
                     Arc::clone(&self.rng),
                 )

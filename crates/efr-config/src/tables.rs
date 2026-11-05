@@ -38,6 +38,28 @@ pub const DEFAULT_PROVIDER: &str = "openai-subscription";
 /// The providers the daemon knows how to build.
 pub const PROVIDERS: &[&str] = &["openai-subscription", "openai-api", "anthropic-api"];
 
+/// The kind of the provider `id`: `id` itself, or the part before the `.` of an
+/// account, such as `anthropic-api` of `anthropic-api.work`.
+pub fn provider_kind(id: &str) -> &str {
+    id.split_once('.').map_or(id, |(kind, _)| kind)
+}
+
+/// True when `id` is a provider of the config: one of [`PROVIDERS`], alone for its
+/// default account or with a `.` and an account name of lowercase letters, digits and
+/// `-` that starts with a letter, at most 32 bytes.
+pub fn is_provider(id: &str) -> bool {
+    let (kind, account) = match id.split_once('.') {
+        Some((kind, account)) => (kind, Some(account)),
+        None => (id, None),
+    };
+    PROVIDERS.contains(&kind)
+        && account.is_none_or(|name| {
+            name.len() <= 32
+                && name.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+                && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+}
+
 /// The `originator` of the subscription login and its requests when nothing names one.
 pub const DEFAULT_ORIGINATOR: &str = "efr";
 

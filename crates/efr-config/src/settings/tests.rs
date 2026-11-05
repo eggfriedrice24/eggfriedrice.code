@@ -211,6 +211,8 @@ fn values_outside_their_set_or_range_are_refused_with_the_key_and_place() {
     let cases = [
         ("log = \" \"\n", "log"),
         ("[model]\nprovider = \"anthropic\"\n", "model.provider"),
+        ("[model]\nprovider = \"anthropic-api.Work\"\n", "model.provider"),
+        ("[model]\nprovider = \"anthropic.work\"\n", "model.provider"),
         ("[model]\nname = \"\"\n", "model.name"),
         ("[model]\neffort = \"Very High\"\n", "model.effort"),
         ("[model]\nmax_output_tokens = 0\n", "model.max_output_tokens"),
@@ -1204,4 +1206,15 @@ fn diff_groups_with_a_bad_name_or_glob_are_refused_with_the_key_and_place() {
     }
     let error = parse("[diff.groups]\nevals = \"evals/\"\n").unwrap_err();
     assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+}
+
+#[test]
+fn an_account_of_a_provider_is_a_provider_of_the_config() {
+    let settings = parse("[model]\nprovider = \"anthropic-api.work\"\n").unwrap();
+    assert_eq!(settings.model.provider, "anthropic-api.work");
+    assert_eq!(crate::provider_kind(&settings.model.provider), "anthropic-api");
+    assert_eq!(
+        crate::ModelCompany::of_provider("anthropic-api.work"),
+        Some(crate::ModelCompany::Anthropic)
+    );
 }

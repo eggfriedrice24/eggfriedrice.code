@@ -12,6 +12,8 @@ use crate::ProviderError;
 #[case::digit_first("1provider")]
 #[case::single("a")]
 #[case::trailing_hyphen("replay-")]
+#[case::account("anthropic-api.work")]
+#[case::account_with_digits("openai-subscription.b2")]
 fn accepts(#[case] id: &str) {
     assert_eq!(ProviderId::new(id).unwrap().as_str(), id);
 }
@@ -21,7 +23,12 @@ fn accepts(#[case] id: &str) {
 #[case::uppercase("OpenAI")]
 #[case::space("open ai")]
 #[case::underscore("openai_api")]
-#[case::dot("openai.api")]
+#[case::two_dots("anthropic-api.work.b")]
+#[case::empty_account("anthropic-api.")]
+#[case::empty_kind(".work")]
+#[case::account_digit_first("anthropic-api.2")]
+#[case::account_uppercase("anthropic-api.Work")]
+#[case::account_too_long("anthropic-api.abcdefghijklmnopqrstuvwxyz0123456")]
 #[case::slash("openai/api")]
 #[case::leading_hyphen("-openai")]
 #[case::non_ascii("open\u{e9}")]
@@ -30,6 +37,14 @@ fn rejects(#[case] id: &str) {
         Err(ProviderError::InvalidProviderId { id: rejected }) => assert_eq!(rejected, id),
         other => panic!("{id:?} gave {other:?}"),
     }
+}
+
+#[test]
+fn an_account_names_its_kind_and_its_name() {
+    let work = ProviderId::new("anthropic-api.work").unwrap();
+    assert_eq!((work.kind(), work.account()), ("anthropic-api", Some("work")));
+    let default = ProviderId::new("anthropic-api").unwrap();
+    assert_eq!((default.kind(), default.account()), ("anthropic-api", None));
 }
 
 #[test]

@@ -557,6 +557,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
+    // NOTE: an account runs when its credential is stored, such as anthropic-api.work.
+    let accounts = crate::providers::stored_accounts(Arc::clone(&secrets)).await;
     let providers = Providers::build(
         &settings,
         secrets,
@@ -566,7 +568,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             rng: Arc::clone(&rng),
             factory: providers,
             issuer: oauth_issuer,
-            catalogs: crate::providers::catalog_starts(&settings, dirs.state()).await,
+            catalogs: crate::providers::catalog_starts(&settings, dirs.state(), &accounts).await,
         },
     )?;
     providers.load_logins().await;

@@ -32,6 +32,11 @@ const HINT_HIDDEN: usize = 8;
 /// The providers that take an API key.
 pub(crate) const KEY_PROVIDERS: &[&str] = &[API, ANTHROPIC];
 
+/// True when the provider `id`, or the kind of its account, takes an API key.
+pub(crate) fn takes_key(id: &str) -> bool {
+    KEY_PROVIDERS.contains(&efr_config::provider_kind(id))
+}
+
 /// The problem of `key` for `provider` before any check: empty, whitespace inside, a
 /// character outside ASCII, or an OpenAI admin key.
 pub(crate) fn validate(provider: &str, key: &str) -> Result<(), DaemonError> {
@@ -41,7 +46,7 @@ pub(crate) fn validate(provider: &str, key: &str) -> Result<(), DaemonError> {
         Some(KeyProblem::Whitespace)
     } else if !key.chars().all(|c| c.is_ascii_graphic()) {
         Some(KeyProblem::NotAscii)
-    } else if provider == API && key.starts_with(ADMIN_KEY_PREFIX) {
+    } else if efr_config::provider_kind(provider) == API && key.starts_with(ADMIN_KEY_PREFIX) {
         Some(KeyProblem::AdminKey)
     } else {
         None
@@ -89,7 +94,7 @@ impl KeyChecks {
         provider: &str,
         key: &SecretString,
     ) -> Result<(), ProviderError> {
-        match provider {
+        match efr_config::provider_kind(provider) {
             ANTHROPIC => {
                 efr_providers::anthropic::check_key(&self.http, &self.anthropic, key).await
             }

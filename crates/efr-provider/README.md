@@ -64,7 +64,9 @@ Modules:
   keeps `provider_raw`; a provider that sends raw items back sends such a raw call as
   the same text, or sends the canonical content in place of the raw items.
 - `provider_id`: `ProviderId`, 1 to 64 bytes of `[a-z0-9-]`, because it appears in
-  logs, the config and the event log.
+  logs, the config and the event log. An account adds a `.` and a name of
+  `[a-z0-9-]` that starts with a letter, such as `anthropic-api.work`; `kind()` and
+  `account()` read the two parts.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
   assistant message by the order rules of `ProviderEvent` and reject a stream that
   breaks them. The conversation pushes each event into a builder as it forwards it,

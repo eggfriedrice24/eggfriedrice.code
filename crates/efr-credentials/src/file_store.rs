@@ -155,6 +155,10 @@ impl SecretStore for FileStore {
             Err(source) => Err(CredentialsError::Delete { path, source }),
         }
     }
+
+    fn list(&self) -> Result<Vec<CredentialId>, CredentialsError> {
+        FileStore::list(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
