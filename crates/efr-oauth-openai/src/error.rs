@@ -39,6 +39,15 @@ pub enum OAuthError {
     #[error("another login is already in progress")]
     LoginInProgress,
 
+    /// The login acts for the ChatGPT account of another login. Nothing was saved.
+    #[error(
+        "this login is the ChatGPT account of another login already; sign in to another account in the browser"
+    )]
+    AccountOfAnotherLogin {
+        /// The ChatGPT account id.
+        account: String,
+    },
+
     /// The callback listener could not be bound, usually because another program holds
     /// the port.
     #[error("could not listen for the login callback on {addr}")]

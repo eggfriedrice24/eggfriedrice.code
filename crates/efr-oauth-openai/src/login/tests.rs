@@ -220,3 +220,35 @@ async fn debug_shows_neither_the_state_nor_the_challenge() {
         assert!(!debug.contains(&query(&url, "code_challenge")), "{debug}");
     }
 }
+
+#[tokio::test]
+async fn a_login_of_one_more_account_saves_under_its_credential_and_refuses_a_taken_account() {
+    let server = MockServer::start().await;
+    token_endpoint(&server, issued_tokens()).await;
+    let clock = TestClock::new();
+    let store = Arc::new(MemoryStore::default());
+    let login = login(config(&server), store.clone(), &clock);
+    let second = efr_credentials::CredentialId::new("openai-subscription.b").unwrap();
+
+    // The browser comes back with the account of the first login: nothing is saved.
+    let pending =
+        login.start_for(second.clone(), true).await.unwrap().refusing(vec![ACCOUNT.to_owned()]);
+    let url = pending.authorize_url().clone();
+    assert_eq!(query(&url, "prompt"), "login");
+    let completing = tokio::spawn(pending.complete());
+    browser_returns(&http(&clock), &url, "code=the-code").await;
+    let refused = completing.await.unwrap().unwrap_err();
+    assert!(
+        matches!(&refused, OAuthError::AccountOfAnotherLogin { account } if account == ACCOUNT)
+    );
+    assert!(store.load(&second).unwrap().is_none());
+
+    // Another account: the tokens go under the credential of the login.
+    let pending =
+        login.start_for(second.clone(), true).await.unwrap().refusing(vec!["other".to_owned()]);
+    let url = pending.authorize_url().clone();
+    let completing = tokio::spawn(pending.complete());
+    browser_returns(&http(&clock), &url, "code=the-code").await;
+    completing.await.unwrap().unwrap();
+    assert!(matches!(store.load(&second).unwrap(), Some(CredentialRecord::OAuth(_))));
+}

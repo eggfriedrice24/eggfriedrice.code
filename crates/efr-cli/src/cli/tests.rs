@@ -245,7 +245,16 @@ fn away_takes_a_conversation_and_nothing_else() {
 
 #[test]
 fn login_takes_a_known_provider() {
-    assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
+    assert!(matches!(
+        command(&["login", "openai"]),
+        Command::Login(LoginCommand::Openai(crate::cli::OpenaiArgs { account: None }))
+    ));
+    let Command::Login(LoginCommand::Openai(args)) =
+        command(&["login", "openai", "--account", "b"])
+    else {
+        panic!("not a login to openai");
+    };
+    assert_eq!(args.account.as_deref(), Some("b"));
     assert!(matches!(
         command(&["login", "openai-api"]),
         Command::Login(LoginCommand::OpenaiApi(KeyArgs {

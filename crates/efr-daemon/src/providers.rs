@@ -171,6 +171,7 @@ impl Providers {
             credential(SUBSCRIPTION)?,
             Arc::clone(&clock),
         ));
+        let oauth_config = oauth.clone();
         let login = OpenAiLogin::new(
             oauth,
             http.clone(),
@@ -191,6 +192,8 @@ impl Providers {
             anthropic: anthropic.clone(),
             http: http.clone(),
             subscription: Arc::clone(&subscription),
+            oauth: oauth_config.clone(),
+            subscriptions: RwLock::new(Vec::new()),
             store: Arc::clone(&store),
             clock: Arc::clone(&clock),
             rng: Arc::clone(&rng),
@@ -207,21 +210,7 @@ impl Providers {
             let id = id.as_str();
             let fetcher = match (efr_config::provider_kind(id), &catalog) {
                 _ if injected => None,
-                (SUBSCRIPTION, ProviderCatalog::OpenAi(shared)) => {
-                    let base_url = config.openai.subscription_base_url.as_deref();
-                    let openai =
-                        openai_config(OpenAiConfig::subscription(), &config.openai, base_url)?;
-                    let tokens = Arc::clone(&subscription) as Arc<dyn TokenSource>;
-                    let client = efr_providers::openai::CatalogClient::new(
-                        openai,
-                        http.clone(),
-                        tokens,
-                        Arc::clone(&clock),
-                    );
-                    Some(Fetcher::OpenAi(shared.clone(), client))
-                }
-                (API | ANTHROPIC, _) => credential.key_fetcher(id, &catalog)?,
-                _ => None,
+                _ => credential.fetcher(id, &catalog)?,
             };
             let models = match fetcher {
                 Some(fetcher) => {
@@ -315,12 +304,19 @@ impl Providers {
         let cache = catalog::cache_path_of(id, &self.state);
         let catalog = catalog::load_of(&settings, id, &cache).await;
         credential.add_catalog(id, catalog.clone());
-        let provider = credential.provider(id)?;
-        let provider: Arc<dyn Provider> =
-            Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
-        let models = match credential.key_fetcher(id, &catalog)? {
-            Some(fetcher) => Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock))
-                .with_refusals(Arc::clone(&self.refusals)),
+        let mut provider = credential.provider(id)?;
+        if takes_key(id) {
+            provider = Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
+        }
+        let models = match credential.fetcher(id, &catalog)? {
+            Some(fetcher) => {
+                let models = Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock));
+                if takes_key(id) {
+                    models.with_refusals(Arc::clone(&self.refusals))
+                } else {
+                    models
+                }
+            }
             None => Models::fixed(id, catalog),
         };
         let models = Arc::new(models);
@@ -493,18 +489,62 @@ impl Providers {
     }
 
     /// Binds the login callback and returns the login to complete.
-    pub(crate) async fn start_login(&self) -> Result<PendingLogin, DaemonError> {
-        self.login.start().await.map_err(|source| DaemonError::Login { source })
+    ///
+    /// `provider` is `openai-subscription` or one more ChatGPT account of it, such as
+    /// `openai-subscription.b`. The login of an account asks the browser for a new
+    /// sign-in, and every login refuses the ChatGPT account of another login, before
+    /// anything is saved.
+    pub(crate) async fn start_login(&self, provider: &str) -> Result<PendingLogin, DaemonError> {
+        if !efr_config::is_provider(provider) || efr_config::provider_kind(provider) != SUBSCRIPTION
+        {
+            return Err(DaemonError::NoSuchProvider { provider: provider.to_owned() });
+        }
+        let taken = self.chatgpt_accounts_besides(provider).await;
+        let pending = self
+            .login
+            .start_for(credential(provider)?, provider != SUBSCRIPTION)
+            .await
+            .map_err(|source| DaemonError::Login { source })?;
+        Ok(pending.refusing(taken))
     }
 
-    /// Makes the subscription provider read the new login at its next request, and
-    /// fetches the model catalog of the new account.
-    pub(crate) fn login_completed(&self) {
-        self.subscription.clear_cache();
-        self.catalogs.set_logged_in(SUBSCRIPTION, true);
-        if let Some(models) = self.models_of(SUBSCRIPTION) {
+    /// The ChatGPT account ids of the logins of the subscription besides `provider`.
+    pub(crate) async fn chatgpt_accounts_besides(&self, provider: &str) -> Vec<String> {
+        let others: Vec<String> = self
+            .ids()
+            .into_iter()
+            .filter(|id| id != provider && efr_config::provider_kind(id) == SUBSCRIPTION)
+            .collect();
+        let store = Arc::clone(&self.store);
+        let loaded = tokio::task::spawn_blocking(move || {
+            others
+                .into_iter()
+                .filter_map(|id| {
+                    let id = CredentialId::new(&id).ok()?;
+                    match store.load(&id).ok().flatten() {
+                        Some(CredentialRecord::OAuth(tokens)) => tokens.account_id,
+                        _ => None,
+                    }
+                })
+                .collect()
+        });
+        loaded.await.unwrap_or_default()
+    }
+
+    /// Makes the provider of the ChatGPT login `provider` read the new login at its next
+    /// request, runs it when it is a new account, and fetches its model catalog.
+    pub(crate) async fn login_completed(&self, provider: &str) -> Result<(), DaemonError> {
+        if let Some(credential) = &self.credential {
+            credential.token_source(provider)?.clear_cache();
+        } else if provider == SUBSCRIPTION {
+            self.subscription.clear_cache();
+        }
+        self.add_account(provider).await?;
+        self.catalogs.set_logged_in(provider, true);
+        if let Some(models) = self.models_of(provider) {
             models.refresh_now();
         }
+        Ok(())
     }
 
     /// Checks `key` with `provider` unless `check` is false, and stores it as the
@@ -590,9 +630,12 @@ impl Providers {
             .await
             .map_err(|_| DaemonError::TaskPanicked { task: "delete a credential" })?
             .map_err(|source| DaemonError::Credentials { source })?;
-        if provider == SUBSCRIPTION {
+        if efr_config::provider_kind(provider) == SUBSCRIPTION {
             // The running provider must not keep the token of the deleted login.
-            self.subscription.clear_cache();
+            match &self.credential {
+                Some(credential) => credential.token_source(provider)?.clear_cache(),
+                None => self.subscription.clear_cache(),
+            }
         }
         if deleted {
             self.catalogs.set_logged_in(provider, false);
@@ -654,8 +697,8 @@ impl Providers {
 }
 
 /// The accounts of `store` that efrd runs next to the providers of [`PROVIDERS`]: the
-/// stored credentials of an API-key provider with an account, such as
-/// `anthropic-api.work`, in order. A store that cannot list has none.
+/// stored credentials of a provider with an account, such as `anthropic-api.work` or
+/// `openai-subscription.b`, in order. A store that cannot list has none.
 pub(crate) async fn stored_accounts(store: Arc<dyn SecretStore>) -> Vec<String> {
     let listed = tokio::task::spawn_blocking(move || store.list()).await;
     let ids = match listed {
@@ -668,7 +711,7 @@ pub(crate) async fn stored_accounts(store: Arc<dyn SecretStore>) -> Vec<String> 
     };
     ids.into_iter()
         .map(|id| id.as_str().to_owned())
-        .filter(|id| id.contains('.') && efr_config::is_provider(id) && takes_key(id))
+        .filter(|id| id.contains('.') && efr_config::is_provider(id))
         .collect()
 }
 
@@ -787,7 +830,12 @@ struct CredentialProviders {
     openai: OpenAiSettings,
     anthropic: AnthropicConfig,
     http: HttpClient,
+    /// The token source of the default ChatGPT login, `openai-subscription`.
     subscription: Arc<OpenAiTokenSource>,
+    /// The OAuth settings of each other ChatGPT login.
+    oauth: OAuthConfig,
+    /// The token source of each other ChatGPT login, such as `openai-subscription.b`.
+    subscriptions: RwLock<Vec<(String, Arc<OpenAiTokenSource>)>>,
     store: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -797,6 +845,27 @@ struct CredentialProviders {
 }
 
 impl CredentialProviders {
+    /// The token source of the ChatGPT login `id`: the default one, or the one of an
+    /// account, made at its first use.
+    fn token_source(&self, id: &str) -> Result<Arc<OpenAiTokenSource>, DaemonError> {
+        if id == SUBSCRIPTION {
+            return Ok(Arc::clone(&self.subscription));
+        }
+        let mut sources = self.subscriptions.write().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, source)) = sources.iter().find(|(known, _)| known == id) {
+            return Ok(Arc::clone(source));
+        }
+        let source = Arc::new(OpenAiTokenSource::new(
+            self.oauth.clone(),
+            self.http.clone(),
+            Arc::clone(&self.store),
+            credential(id)?,
+            Arc::clone(&self.clock),
+        ));
+        sources.push((id.to_owned(), Arc::clone(&source)));
+        Ok(source)
+    }
+
     /// Keeps `catalog` as the one of the provider `id`.
     fn add_catalog(&self, id: &str, catalog: ProviderCatalog) {
         self.catalogs
@@ -805,14 +874,22 @@ impl CredentialProviders {
             .push((id.to_owned(), catalog));
     }
 
-    /// The fetch of the catalog `catalog` of the API-key provider `id`, with its
-    /// stored key; `None` for a provider of another form.
-    fn key_fetcher(
-        &self,
-        id: &str,
-        catalog: &ProviderCatalog,
-    ) -> Result<Option<Fetcher>, DaemonError> {
+    /// The fetch of the catalog `catalog` of the provider `id`, with its stored key or
+    /// its ChatGPT login; `None` for a catalog of another form.
+    fn fetcher(&self, id: &str, catalog: &ProviderCatalog) -> Result<Option<Fetcher>, DaemonError> {
         Ok(match (efr_config::provider_kind(id), catalog) {
+            (SUBSCRIPTION, ProviderCatalog::OpenAi(shared)) => {
+                let base_url = self.openai.subscription_base_url.as_deref();
+                let openai = openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?;
+                let tokens = self.token_source(id)? as Arc<dyn TokenSource>;
+                let client = efr_providers::openai::CatalogClient::new(
+                    openai,
+                    self.http.clone(),
+                    tokens,
+                    Arc::clone(&self.clock),
+                );
+                Some(Fetcher::OpenAi(shared.clone(), client))
+            }
             (API, ProviderCatalog::OpenAi(shared)) => {
                 let base_url = self.openai.api_base_url.as_deref();
                 let api = openai_config(OpenAiConfig::api(), &self.openai, base_url)?;
@@ -859,7 +936,7 @@ impl ProviderFactory for CredentialProviders {
                 (openai_config(OpenAiConfig::api(), &self.openai, base_url)?, tokens)
             }
             SUBSCRIPTION => {
-                let tokens: Arc<dyn TokenSource> = self.subscription.clone();
+                let tokens: Arc<dyn TokenSource> = self.token_source(id)?;
                 let base_url = self.openai.subscription_base_url.as_deref();
                 (openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?, tokens)
             }

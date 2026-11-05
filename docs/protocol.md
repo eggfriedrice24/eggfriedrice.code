@@ -942,3 +942,8 @@ No protocol version has shipped yet.
   the kind has already is `invalid`. `admin.status` lists each account after the three
   providers, and `models.list`, `settings.provider` and `model_switched` name the
   account. No wire type changed.
+- Version 1, additive: `admin.login_openai` takes an optional `provider`, one more
+  ChatGPT account such as `openai-subscription.b`; absent, the login is
+  `openai-subscription` as before. The login of an account asks for a new sign-in, and
+  a login that comes back with the ChatGPT account of another login fails before
+  anything is stored. The fixture `admin_login_openai_params.json` names `provider`.

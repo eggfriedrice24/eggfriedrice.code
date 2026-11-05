@@ -39,7 +39,7 @@ pub(crate) async fn run(
     command: &LoginCommand,
 ) -> Result<(), CliError> {
     match command {
-        LoginCommand::Openai => openai(ctx, out).await,
+        LoginCommand::Openai(args) => openai(ctx, out, args.account.as_deref()).await,
         LoginCommand::OpenaiApi(args) => api_key(ctx, out, KeyProvider::OpenAi, args).await,
         LoginCommand::Anthropic(args) => api_key(ctx, out, KeyProvider::Anthropic, args).await,
     }
@@ -110,11 +110,13 @@ fn switch(id: &str, account: bool, configured: &str) -> String {
     )
 }
 
-async fn openai(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
+async fn openai(ctx: &Context, out: &mut Output, account: Option<&str>) -> Result<(), CliError> {
     let open_browser = ctx.open_browser()?;
     let client = ctx.connect(Origin::Cli, None).await?;
-    let mut stream =
-        client.stream::<Value>(Method::AdminLoginOpenAi(AdminLoginOpenAi::default())).await?;
+    let provider =
+        account.map(|account| crate::cli::account_id("openai-subscription", Some(account)));
+    let method = Method::AdminLoginOpenAi(AdminLoginOpenAi { provider });
+    let mut stream = client.stream::<Value>(method).await?;
     let mut interrupt = ctx.interrupt.wait();
     let mut completed = false;
     loop {

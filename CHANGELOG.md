@@ -28,6 +28,10 @@ into the GitHub release notes, and it stops when the section is missing.
   own model list and its own line in `efr status`, and `[model] provider` can name it.
   efr refuses a key that another account has already. `efr logout` takes `--account`
   too.
+- A second ChatGPT plan: `efr login openai --account b`. The browser asks for a new
+  sign-in, and efr refuses a login that comes back with the ChatGPT account of
+  another login. The account runs at once as `openai-subscription.b`, with its own
+  token refresh and model list.
 
 ### Changed
 

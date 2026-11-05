@@ -401,7 +401,9 @@ export const adminLoginApiKeyResultSchema = z.object({
   provider: z.string(),
 }) satisfies z.ZodType<AdminLoginApiKeyResult>;
 
-export const adminLoginOpenAiSchema = z.object({}) satisfies z.ZodType<AdminLoginOpenAi>;
+export const adminLoginOpenAiSchema = z.object({
+  provider: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<AdminLoginOpenAi>;
 
 export const adminLoginOpenAiItemSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("authorize_url"), url: z.string() }),

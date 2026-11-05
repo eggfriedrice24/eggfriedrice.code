@@ -482,3 +482,47 @@ fn an_account_has_a_cache_file_of_its_own() {
     );
     assert_eq!(login_command("anthropic-api.work"), "efr login anthropic");
 }
+
+#[tokio::test]
+async fn a_second_chatgpt_login_runs_on_its_own_and_its_login_refuses_the_first_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let store = store(dir.path());
+    let oauth = |account: &str| {
+        let mut tokens = OAuthTokens::new(SecretString::from(format!("access-{account}")));
+        tokens.account_id = Some(account.to_owned());
+        CredentialRecord::OAuth(tokens)
+    };
+    store.save(&CredentialId::new(SUBSCRIPTION).unwrap(), &oauth("acct-first")).unwrap();
+    store
+        .save(&CredentialId::new("openai-subscription.b").unwrap(), &oauth("acct-second"))
+        .unwrap();
+    let shared: Arc<dyn efr_credentials::SecretStore> = store.clone();
+
+    let accounts = crate::providers::stored_accounts(Arc::clone(&shared)).await;
+    assert_eq!(accounts, ["openai-subscription.b"]);
+    let mut parts = parts(&clock, dir.path(), None);
+    parts.catalogs = crate::providers::catalog_starts(
+        &Settings::default(),
+        &dir.path().join("state"),
+        &accounts,
+    )
+    .await;
+    let providers = Providers::build(&Settings::default(), shared, parts).unwrap();
+    providers.load_logins().await;
+
+    let status = providers.status().await;
+    let second = status.iter().find(|status| status.provider == "openai-subscription.b").unwrap();
+    assert_eq!(second.login, Some(LoginKind::Subscription));
+    let router = providers.routes(tokio::sync::watch::channel(Arc::new(Settings::default())).1);
+    let provider = efr_conversation::ProviderRouter::get(&router, "openai-subscription.b").unwrap();
+    assert_eq!(provider.id().as_str(), "openai-subscription.b");
+    // The login of the second account refuses the ChatGPT account of the first.
+    assert_eq!(providers.chatgpt_accounts_besides("openai-subscription.b").await, ["acct-first"]);
+    assert_eq!(providers.chatgpt_accounts_besides(SUBSCRIPTION).await, ["acct-second"]);
+    // A provider of another kind is no ChatGPT login.
+    assert!(matches!(
+        providers.start_login("openai-api.b").await,
+        Err(DaemonError::NoSuchProvider { .. })
+    ));
+}

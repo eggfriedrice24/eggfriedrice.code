@@ -16,22 +16,23 @@ use crate::state::State;
 
 pub(crate) async fn handle(
     state: &State,
-    _params: AdminLoginOpenAi,
+    params: AdminLoginOpenAi,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let pending = state.providers.start_login().await?;
+    let provider = params.provider.unwrap_or_else(|| SUBSCRIPTION.to_owned());
+    let pending = state.providers.start_login(&provider).await?;
     let url = pending.authorize_url().to_string();
     responder.item(&AdminLoginOpenAiItem::AuthorizeUrl { url }).await?;
     let completed = pending.complete().await.map_err(|source| DaemonError::Login { source })?;
     // The running provider must not keep the previous account's cached token.
-    state.providers.login_completed();
+    state.providers.login_completed(&provider).await?;
     tracing::info!(
-        provider = SUBSCRIPTION,
+        provider = %provider,
         has_account = completed.account_id.is_some(),
         "login completed"
     );
-    let event = Event::LoginCompleted { provider: SUBSCRIPTION.to_owned() };
+    let event = Event::LoginCompleted { provider: provider.clone() };
     state.writer.append(Batch::new().global_event(event)).await?;
-    responder.item(&AdminLoginOpenAiItem::Completed { provider: SUBSCRIPTION.to_owned() }).await?;
+    responder.item(&AdminLoginOpenAiItem::Completed { provider }).await?;
     Ok(())
 }

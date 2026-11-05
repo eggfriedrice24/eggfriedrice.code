@@ -56,6 +56,17 @@ impl OpenAiLogin {
     /// Fails with [`OAuthError::LoginInProgress`] while another login of this value is
     /// pending, and with [`OAuthError::Bind`] when another program holds the port.
     pub async fn start(&self) -> Result<PendingLogin, OAuthError> {
+        self.start_for(self.credential.clone(), false).await
+    }
+
+    /// As [`start`](Self::start), for the login that the tokens of `credential` keep,
+    /// such as one more account; `fresh` asks the browser for a new sign-in
+    /// (`prompt=login`), so it does not reuse the account it is signed in to.
+    pub async fn start_for(
+        &self,
+        credential: CredentialId,
+        fresh: bool,
+    ) -> Result<PendingLogin, OAuthError> {
         let guard = self.slot.claim()?;
         let listener = CallbackListener::bind(self.config.callback_port).await?;
         let pkce = Pkce::generate(&*self.rng);
@@ -66,6 +77,7 @@ impl OpenAiLogin {
             &redirect_uri,
             pkce.challenge(),
             state.expose_secret(),
+            fresh,
         )?;
         tracing::info!(port = listener.port(), "subscription login started");
         Ok(PendingLogin {
@@ -77,7 +89,8 @@ impl OpenAiLogin {
             config: self.config.clone(),
             http: self.http.clone(),
             store: Arc::clone(&self.store),
-            credential: self.credential.clone(),
+            credential,
+            taken: Vec::new(),
             clock: Arc::clone(&self.clock),
             _guard: guard,
         })
@@ -108,11 +121,22 @@ pub struct PendingLogin {
     http: HttpClient,
     store: Arc<dyn SecretStore>,
     credential: CredentialId,
+    /// The ChatGPT accounts that other logins act for; a login of one of them is
+    /// refused before anything is saved.
+    taken: Vec<String>,
     clock: Arc<dyn Clock>,
     _guard: SlotGuard,
 }
 
 impl PendingLogin {
+    /// Refuses the login when the tokens act for one of `accounts`, the ChatGPT
+    /// account ids of the other logins: two names for one account have no use, and the
+    /// login of one more account must not keep the account of the browser by mistake.
+    #[must_use]
+    pub fn refusing(mut self, accounts: Vec<String>) -> Self {
+        self.taken = accounts;
+        self
+    }
     /// The URL the user opens in a browser. It holds the `state` and the PKCE
     /// challenge, so it is shown to the user and not logged.
     pub fn authorize_url(&self) -> &Url {
@@ -134,6 +158,7 @@ impl PendingLogin {
             http,
             store,
             credential,
+            taken,
             clock,
             _guard,
             ..
@@ -150,6 +175,11 @@ impl PendingLogin {
         };
         let response = token::request(&http, &config, grant, token::ENCODING).await?;
         let tokens = response.into_tokens(clock.now(), None);
+        if let Some(account) = tokens.account_id.as_ref().filter(|account| taken.contains(account))
+        {
+            tracing::info!(credential = %credential, "the login acts for the account of another login; nothing is saved");
+            return Err(OAuthError::AccountOfAnotherLogin { account: account.clone() });
+        }
         let claims = claims::of_tokens(tokens.id_token.as_ref(), &tokens.access_token);
         let completed = LoginCompleted {
             account_id: tokens.account_id.clone(),

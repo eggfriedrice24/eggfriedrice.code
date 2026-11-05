@@ -209,7 +209,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             false,
         ),
         (
-            Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
+            Method::AdminLoginOpenAi(AdminLoginOpenAi::default()),
             "admin.login_openai",
             ScopeName::Admin,
             false,

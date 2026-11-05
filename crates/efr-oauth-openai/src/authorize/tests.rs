@@ -16,6 +16,7 @@ fn the_authorize_url_carries_every_parameter_in_order() {
         &redirect_uri(1455),
         "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
         "state-123",
+        false,
     )
     .unwrap();
     assert_eq!(url.scheme(), "https");
@@ -41,7 +42,7 @@ fn the_authorize_url_carries_every_parameter_in_order() {
 
 #[test]
 fn the_authorize_url_encodes_the_redirect_and_the_scopes() {
-    let url = authorize_url(&OAuthConfig::default(), &redirect_uri(1455), "c", "s").unwrap();
+    let url = authorize_url(&OAuthConfig::default(), &redirect_uri(1455), "c", "s", false).unwrap();
     let query = url.query().unwrap();
     assert!(
         query.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback"),
@@ -58,7 +59,7 @@ fn the_config_sets_the_issuer_client_and_originator() {
         originator: "efr-test".to_owned(),
         ..OAuthConfig::default()
     };
-    let url = authorize_url(&config, &redirect_uri(0), "c", "s").unwrap();
+    let url = authorize_url(&config, &redirect_uri(0), "c", "s", false).unwrap();
     assert!(url.as_str().starts_with("http://127.0.0.1:4000/oauth/authorize?"), "{url}");
     let pairs: Vec<(String, String)> = url.query_pairs().into_owned().collect();
     assert!(pairs.contains(&("client_id".to_owned(), "app_test".to_owned())), "{pairs:?}");
@@ -68,6 +69,19 @@ fn the_config_sets_the_issuer_client_and_originator() {
 #[test]
 fn an_issuer_that_is_not_a_url_is_an_error() {
     let config = OAuthConfig { issuer: "not a url".to_owned(), ..OAuthConfig::default() };
-    let error = authorize_url(&config, &redirect_uri(1455), "c", "s").unwrap_err();
+    let error = authorize_url(&config, &redirect_uri(1455), "c", "s", false).unwrap_err();
     assert!(matches!(error, OAuthError::InvalidIssuer { ref issuer, .. } if issuer == "not a url"));
+}
+
+#[test]
+fn the_login_of_one_more_account_asks_for_a_new_sign_in() {
+    let fresh =
+        authorize_url(&OAuthConfig::default(), &redirect_uri(1455), "c", "s", true).unwrap();
+    let same =
+        authorize_url(&OAuthConfig::default(), &redirect_uri(1455), "c", "s", false).unwrap();
+    let prompt = |url: &url::Url| {
+        url.query_pairs().find(|(name, _)| name == "prompt").map(|(_, value)| value.into_owned())
+    };
+    assert_eq!(prompt(&fresh).as_deref(), Some("login"));
+    assert_eq!(prompt(&same), None);
 }

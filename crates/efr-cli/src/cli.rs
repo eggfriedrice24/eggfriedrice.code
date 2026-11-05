@@ -621,7 +621,7 @@ pub(crate) struct ShellArgs {
 pub(crate) enum LoginCommand {
     /// Log in to the OpenAI subscription in a browser. The daemon runs the login; this
     /// prints the URL to open and waits for the browser to finish.
-    Openai,
+    Openai(OpenaiArgs),
     /// Store an OpenAI API key for the openai-api provider.
     ///
     /// On a terminal, efr asks for the key and does not show it; otherwise it reads the
@@ -635,6 +635,15 @@ pub(crate) enum LoginCommand {
     /// the process list, and it stays in the shell's history.
     #[command(alias = "anthropic-api")]
     Anthropic(KeyArgs),
+}
+
+/// The arguments of `efr login openai`.
+#[derive(Debug, Args)]
+pub(crate) struct OpenaiArgs {
+    /// Log in to one more ChatGPT account, such as b, next to the default one. The
+    /// browser asks for a new sign-in; sign in to the other account there.
+    #[arg(long, value_name = "NAME", value_parser = account_parser)]
+    pub(crate) account: Option<String>,
 }
 
 /// The arguments of `efr login openai-api` and `efr login anthropic`.

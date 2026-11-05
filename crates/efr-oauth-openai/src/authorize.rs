@@ -64,12 +64,15 @@ pub(crate) fn redirect_uri(port: u16) -> String {
 /// Beyond the standard parameters (RFC 6749 and RFC 7636 with S256), it carries the two
 /// that all three reference clients send: `id_token_add_organizations=true`, which puts
 /// the account claims into the ID token, and `codex_cli_simplified_flow=true`, which
-/// selects the consent screen made for command-line clients.
+/// selects the consent screen made for command-line clients. With `fresh` it also
+/// carries `prompt=login` (OpenID Connect), so the browser asks for a sign-in again
+/// and does not reuse the account it is signed in to: the login of one more account.
 pub(crate) fn authorize_url(
     config: &OAuthConfig,
     redirect_uri: &str,
     code_challenge: &str,
     state: &str,
+    fresh: bool,
 ) -> Result<Url, OAuthError> {
     let endpoint = config.endpoint(AUTHORIZE_PATH);
     let mut url = Url::parse(&endpoint)
@@ -85,6 +88,9 @@ pub(crate) fn authorize_url(
         .append_pair("codex_cli_simplified_flow", "true")
         .append_pair("state", state)
         .append_pair("originator", &config.originator);
+    if fresh {
+        url.query_pairs_mut().append_pair("prompt", "login");
+    }
     Ok(url)
 }
 

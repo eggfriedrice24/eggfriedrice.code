@@ -33,6 +33,17 @@ Open the URL in a browser on the same machine. The daemon waits for the browser 
 efr opens the URL itself. Ctrl+C stops the login. efrd keeps the login and refreshes
 its token before the token expires.
 
+To use a second ChatGPT plan, log in to it as one more account:
+
+```sh
+efr login openai --account b
+```
+
+The browser asks for a new sign-in. Sign in to the other ChatGPT account there. efr
+refuses a login that comes back with the account of another login, and stores
+nothing then. The account runs at once as `openai-subscription.b`, as an account of
+an API key does (see "More than one key of a provider" below).
+
 ## Log in with an API key
 
 Make a key in the Claude Console (Anthropic) or in the dashboard of the OpenAI

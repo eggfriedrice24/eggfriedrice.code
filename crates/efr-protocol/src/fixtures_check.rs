@@ -993,7 +993,9 @@ pub(crate) fn method_samples() -> Vec<Method> {
         Method::AdminProjectRemove(AdminProjectRemove { path: "/home/me/p/app".into() }),
         Method::AdminStatus(AdminStatus {}),
         Method::AdminConfigReload(AdminConfigReload {}),
-        Method::AdminLoginOpenAi(AdminLoginOpenAi {}),
+        Method::AdminLoginOpenAi(AdminLoginOpenAi {
+            provider: Some("openai-subscription.b".to_owned()),
+        }),
         Method::AdminLoginApiKey(AdminLoginApiKey {
             provider: "anthropic-api".into(),
             key: SecretText::new("sk-ant-api03-efr-fixture-a1b2"),

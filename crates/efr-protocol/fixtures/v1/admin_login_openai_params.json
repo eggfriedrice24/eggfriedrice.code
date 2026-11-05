@@ -1,4 +1,6 @@
 {
   "method": "admin.login_openai",
-  "params": {}
+  "params": {
+    "provider": "openai-subscription.b"
+  }
 }

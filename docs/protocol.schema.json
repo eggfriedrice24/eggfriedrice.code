@@ -170,7 +170,16 @@
       "type": "object"
     },
     "AdminLoginOpenAi": {
-      "description": "The params of `admin.login_openai`, a streaming admin method (Unix socket only). It\ntakes none.\n\nThe daemon starts the login, sends the authorize URL as the first item, waits for\nthe browser to come back to its loopback listener, stores the credentials and ends\nthe stream. A second login while one is running gets `busy`.",
+      "description": "The params of `admin.login_openai`, a streaming admin method (Unix socket only).\n\nThe daemon starts the login, sends the authorize URL as the first item, waits for\nthe browser to come back to its loopback listener, stores the credentials and ends\nthe stream. A second login while one is running gets `busy`. The login of one more\naccount asks the browser for a new sign-in, and a login that comes back with the\nChatGPT account of another login is refused before anything is stored.",
+      "properties": {
+        "provider": {
+          "description": "The login: `openai-subscription`, or one more account of it such as\n`openai-subscription.b`. Absent: `openai-subscription`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "AdminLoginOpenAiItem": {
