@@ -46,8 +46,9 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    cancelled. A prompt never runs by surprise after a restart.
 5. The PTY table, the recording sink, the shells, the model catalog of
    `model.provider` (`catalog.rs`: its cache file in the state root, else the built-in
-   table of OpenAI, or no list for Anthropic), the providers (`providers.rs`:
-   `openai-subscription`, `openai-api` or `anthropic-api`), the tool registry and the
+   table of OpenAI, or no list for Anthropic), the providers (`providers.rs`: one each
+   of `openai-subscription`, `openai-api` and `anthropic-api`, also without a login,
+   since each reads its credential at each request), the tool registry and the
    settings tool (`tools.rs`), the permission engine and the conversation registry.
    The engine is built in one place, `engine.rs`, from the settings, the project
    registry and the config directory. It holds one machine policy for each permission
@@ -206,11 +207,15 @@ reload also reads the pacman files again, and an engine whose list differs is se
 
 `catalog.rs` keeps the model catalog of each provider (`Models`, one per provider in
 `Providers`), and every reader takes it from memory: a turn when it starts, a prompt
-when it arrives, `models.list`, `admin.status` and the settings tool. Turns and
-`admin.status` use the catalog of the configured provider. `models.list` lists its
-models first, then the models of each other provider with a login, each with its
-`provider` and never as the default, and gives the status of each listed catalog in
-`catalogs`. Each catalog fetches on its own task, with its own cache file. A new list applies from the next
+when it arrives, `models.list`, `admin.status` and the settings tool. `catalogs.rs`
+makes the one model list of the latest settings: the models of the configured
+provider first, then the models of each other provider with a login, each with its
+`provider` and never as the default. `models.list` answers it, with the status of
+each listed catalog in `catalogs`, and the turns check their model against it and go
+to the first provider that lists the model (`providers/routes.rs`, the
+`ProviderRouter` of the conversations). The logins come from the credential store at
+start and then follow each login and logout. `admin.status` and the wait of a prompt
+for a first list use the catalog of the configured provider. Each catalog fetches on its own task, with its own cache file. A new list applies from the next
 turn on. The catalog has the form of the provider's company (`ProviderCatalog`, an
 OpenAI or an Anthropic catalog), and the provider reads the same shared catalog for
 each request. Each reader sees it as one `ModelList`: the models, the default, where
@@ -556,7 +561,7 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   about such a name at start, and after a reload that changed what `foreign_model()`
   gives against the running settings: a reload of the same name warns no more (C3.1).
 - `models.list` answers the effective model list of the latest settings over the
-  current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
+  current catalogs (`catalogs.rs`, `effective_models`), and where the catalog came from
   (`catalog`: the provider, and `backend`, `cache`, `builtin` or `missing`, with the
   time of the fetch). See "The model catalog" above. `admin.status` says where the
   catalog came from too.

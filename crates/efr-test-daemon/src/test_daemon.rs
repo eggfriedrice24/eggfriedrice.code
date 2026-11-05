@@ -151,6 +151,9 @@ struct Launch {
     seed: u64,
     holder: HolderChoice,
     provider: ProviderChoice,
+    /// The real providers that run next to `provider`, each with its credential, which
+    /// a turn on one of their models reaches.
+    also: Vec<ProviderChoice>,
     persistent: bool,
     shell_env: Option<BTreeMap<String, String>>,
     /// The `efr-sbx` the daemon copies as the sandbox's launcher.
@@ -229,6 +232,7 @@ impl Default for TestDaemonBuilder {
                 seed: DEFAULT_SEED,
                 holder: HolderChoice::Fake(FakePtyHolder::new()),
                 provider: ProviderChoice::Replay(Arc::new(empty_replay())),
+                also: Vec::new(),
                 persistent: false,
                 shell_env: None,
                 sandbox_launcher: None,
@@ -334,6 +338,23 @@ impl TestDaemonBuilder {
     #[must_use]
     pub fn messages(mut self, server: &MessagesServer) -> Self {
         self.settings.provider = ProviderChoice::Messages(server.base_url());
+        self
+    }
+
+    /// Also runs the real `anthropic-api` provider against `server`, with
+    /// [`ANTHROPIC_API_KEY`] stored as its credential, next to the provider of new
+    /// conversations: a turn on a model of its list goes to it.
+    #[must_use]
+    pub fn also_messages(mut self, server: &MessagesServer) -> Self {
+        self.settings.also.push(ProviderChoice::Messages(server.base_url()));
+        self
+    }
+
+    /// Also runs the real `openai-api` provider against `server`, with [`API_KEY`]
+    /// stored as its credential, next to the provider of new conversations.
+    #[must_use]
+    pub fn also_responses(mut self, server: &ResponsesServer) -> Self {
+        self.settings.also.push(ProviderChoice::Responses(server.base_url()));
         self
     }
 
@@ -679,6 +700,20 @@ impl TestDaemon {
                 config.openai.subscription_base_url = Some(base_url.clone());
                 deps = deps.with_oauth_issuer(issuer.clone());
                 store_login(dirs.dirs().data())?;
+            }
+        }
+        for also in &settings.also {
+            match also {
+                ProviderChoice::Responses(base_url) => {
+                    config.openai.api_base_url = Some(base_url.clone());
+                    store_api_key(dirs.dirs().data())?;
+                }
+                ProviderChoice::Messages(base_url) => {
+                    config.anthropic.base_url = Some(base_url.clone());
+                    store_anthropic_key(dirs.dirs().data())?;
+                }
+                // NOTE: the builder adds only the real API providers here.
+                _ => {}
             }
         }
         // NOTE: on the heap, so the future of every test that starts a daemon stays

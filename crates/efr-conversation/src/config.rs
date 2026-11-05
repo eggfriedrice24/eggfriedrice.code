@@ -11,7 +11,6 @@ use efr_permissions::{AllowRule, Engine, Policy};
 use efr_protocol::{
     AlwaysSaved, FullModeStatus, Mode, ModelInfo, Origin, RouteScope, SandboxStatus,
 };
-use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -21,8 +20,8 @@ use serde_json::{Map, Value};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
-    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader, ScopeResolver,
-    Toolbox,
+    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader, ProviderRouter,
+    ScopeResolver, Toolbox,
 };
 
 /// The settings of one conversation.
@@ -245,8 +244,8 @@ impl HostInfo {
 /// The collaborators of one conversation.
 #[derive(Debug, Clone)]
 pub struct ConversationDeps {
-    /// The model.
-    pub provider: Arc<dyn Provider>,
+    /// The providers of the models, by id; each turn takes the one of its model.
+    pub providers: Arc<dyn ProviderRouter>,
     /// The tools.
     pub toolbox: Arc<dyn Toolbox>,
     /// The permission engine. The daemon sends a new one when the policy or the project

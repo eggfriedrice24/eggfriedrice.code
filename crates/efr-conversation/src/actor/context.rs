@@ -59,7 +59,12 @@ pub(super) async fn run(
         .and_then(|info| info.context_window)
         .filter(|window| *window > 0);
     let limits = ContextLimits::new(known, config.compaction);
-    let key = ModelKey::new(shared.deps.provider.id().clone(), model.clone());
+    let newest_provider = newest
+        .filter(|settings| settings.model == model)
+        .and_then(|settings| settings.provider.as_deref());
+    let provider =
+        crate::router::provider_after(&model, newest_provider, &config, &*shared.deps.providers)?;
+    let key = ModelKey::new(provider.id().clone(), model.clone());
     let head = snapshot.summary().and_then(|compaction| fresh::stored(compaction, fresh.as_ref()));
 
     // NOTE: the running turn counts as ended here, so the window rebuilds its messages
@@ -79,10 +84,7 @@ pub(super) async fn run(
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
-        tools: shared
-            .deps
-            .toolbox
-            .definitions(crate::turn::edit_tool(&*shared.deps.provider, &model)),
+        tools: shared.deps.toolbox.definitions(crate::turn::edit_tool(&*provider, &model)),
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,

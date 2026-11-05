@@ -89,17 +89,16 @@ async fn compact(
     let context_window =
         config.models.iter().find(|info| info.id == model).and_then(|info| info.context_window);
     let limits = ContextLimits::new(context_window, config.compaction);
-    let key = ModelKey::new(shared.deps.provider.id().clone(), model.clone());
+    let newest = settings.and_then(|settings| settings.provider.as_deref());
+    let provider = crate::router::provider_after(&model, newest, &config, &*shared.deps.providers)?;
+    let key = ModelKey::new(provider.id().clone(), model.clone());
     let history = config.history.for_window(limits.window);
     let window = snapshot.window(None, cache, &key, history, head.as_deref());
     let base = Request {
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
-        tools: shared
-            .deps
-            .toolbox
-            .definitions(crate::turn::edit_tool(&*shared.deps.provider, &model)),
+        tools: shared.deps.toolbox.definitions(crate::turn::edit_tool(&*provider, &model)),
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,
@@ -109,7 +108,7 @@ async fn compact(
     };
     let tokens_before = window_tokens(&base, &window);
     let job = Job {
-        provider: &*shared.deps.provider,
+        provider: &*provider,
         base: &base,
         window: &window,
         limits,

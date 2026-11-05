@@ -10,7 +10,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 
 use crate::settings::{LiveSettings, conversation_config};
-use crate::testing::builtin_models;
+use crate::testing::{builtin_catalogs, builtin_models};
 
 #[test]
 fn the_conversation_settings_follow_the_config() {
@@ -28,7 +28,7 @@ fn the_conversation_settings_follow_the_config() {
 
     let settings = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/scratch"),
         host.clone(),
         TimeZone::UTC,
@@ -53,7 +53,7 @@ fn the_classifier_switch_and_the_away_wait_reach_the_conversations() {
     let convert = |config: &Settings| {
         conversation_config(
             config,
-            &builtin_models(),
+            &builtin_catalogs(),
             PathBuf::from("/d/s"),
             HostInfo::default(),
             TimeZone::UTC,
@@ -83,7 +83,7 @@ fn the_turn_defaults_and_the_model_list_follow_the_config() {
 
     let settings = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/s"),
         HostInfo::default(),
         TimeZone::UTC,
@@ -101,7 +101,7 @@ fn the_compaction_settings_reach_the_conversations_with_one_default() {
     let mut config = Settings::default();
     let defaults = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/s"),
         HostInfo::default(),
         TimeZone::UTC,
@@ -112,7 +112,7 @@ fn the_compaction_settings_reach_the_conversations_with_one_default() {
     config.compaction.auto_at = 60;
     let settings = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/s"),
         HostInfo::default(),
         TimeZone::UTC,
@@ -130,7 +130,7 @@ fn the_conversations_read_the_latest_settings() {
         PathBuf::from("/d/scratch"),
         host,
         TimeZone::UTC,
-        builtin_models(),
+        builtin_catalogs(),
     );
 
     let before = live.current();
@@ -163,14 +163,14 @@ fn full_status_changes_when_undo_goes_off_at_reload() {
         PathBuf::from("/d/scratch"),
         HostInfo::default(),
         TimeZone::UTC,
-        builtin_models(),
+        builtin_catalogs(),
     );
     let root = LiveSettings::new(
         sender.subscribe(),
         PathBuf::from("/d/scratch"),
         HostInfo::default(),
         TimeZone::UTC,
-        builtin_models(),
+        builtin_catalogs(),
     )
     .with_root(true);
 
@@ -196,7 +196,7 @@ fn a_foreign_default_model_reaches_the_conversations_with_efrd_s_text() {
     config.model.name = Some("claude-opus-5-5".to_owned());
     let settings = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/s"),
         HostInfo::default(),
         TimeZone::UTC,
@@ -218,7 +218,7 @@ fn a_foreign_default_model_reaches_the_conversations_with_efrd_s_text() {
     config.model.name = Some("gpt-5.5".to_owned());
     let fits = conversation_config(
         &config,
-        &builtin_models(),
+        &builtin_catalogs(),
         PathBuf::from("/d/s"),
         HostInfo::default(),
         TimeZone::UTC,

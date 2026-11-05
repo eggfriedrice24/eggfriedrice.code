@@ -827,7 +827,7 @@ impl Setup {
         let engine = watch::channel(Arc::new(engine)).1;
         let (sandbox, sandbox_receiver) = watch::channel(self.sandbox);
         let deps = ConversationDeps {
-            provider: model,
+            providers: Arc::new(crate::OneProvider::new(model)),
             toolbox: toolbox.clone(),
             engine,
             scope: Arc::new(self.scope),

@@ -291,6 +291,11 @@ pub(crate) fn builtin_models() -> Arc<crate::catalog::Models> {
     ))
 }
 
+/// The catalogs of a daemon with only [`builtin_models`].
+pub(crate) fn builtin_catalogs() -> Arc<crate::catalogs::Catalogs> {
+    Arc::new(crate::catalogs::Catalogs::new(builtin_models(), Vec::new()))
+}
+
 /// The dependencies of a daemon on `dirs`, with nothing taken from the machine.
 pub(crate) fn deps(dirs: &TestDirs, clock: &TestClock) -> Deps {
     Deps::new(dirs.dirs().clone(), dirs.home(), clock.shared(), Arc::new(TestRng::new(7)))

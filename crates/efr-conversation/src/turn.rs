@@ -97,6 +97,7 @@ use crate::notice;
 use crate::preamble::{self, LiveState};
 use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
+use crate::router;
 use crate::scratch::Scratch;
 use crate::settings::{self, Place};
 use crate::steer::Steering;
@@ -387,6 +388,9 @@ struct Turn {
     /// The mode, the model and the effort of the turn, resolved when it starts; `None`
     /// until then.
     settings: Option<EffectiveSettings>,
+    /// The provider of the turn's model, picked when the turn starts (`router.rs`);
+    /// `None` until then. Every model call of the turn and its compactions go to it.
+    provider: Option<Arc<dyn Provider>>,
     /// The tool with which the turn's model changes files, from the provider's model
     /// list when the turn starts: the request offers only this one of the two edit
     /// tools, and each call carries it so the toolbox refuses the other one.
@@ -519,6 +523,7 @@ impl Turn {
             shared,
             config,
             settings: None,
+            provider: None,
             edit_tool: EditTool::default(),
             spec,
             control,
@@ -599,9 +604,15 @@ impl Turn {
                 Ok(settings) => settings,
                 Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
             };
+        let provider = match router::provider_of(&settings.model, &config, &*shared.deps.providers)
+        {
+            Ok(provider) => provider,
+            Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
+        };
         // NOTE: the log records which provider ran the turn, so a later turn can tell a
         // switch of provider (its counts and raw items are not this one's).
-        settings.provider = Some(self.shared.deps.provider.id().as_str().to_owned());
+        settings.provider = Some(provider.id().as_str().to_owned());
+        self.provider = Some(Arc::clone(&provider));
         self.settings = Some(settings.clone());
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
@@ -708,7 +719,7 @@ impl Turn {
             first.clone_from(&prompt);
         }
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
-        self.edit_tool = edit_tool(&*shared.deps.provider, &settings.model);
+        self.edit_tool = edit_tool(&*provider, &settings.model);
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
@@ -940,7 +951,13 @@ impl Turn {
     /// The provider and the model that answer this turn.
     fn model_key(&self) -> ModelKey {
         let model = self.settings.as_ref().map_or(&self.config.model, |settings| &settings.model);
-        ModelKey::new(self.shared.deps.provider.id().clone(), model.clone())
+        ModelKey::new(self.provider().id().clone(), model.clone())
+    }
+
+    /// The provider of the turn's model. Before the turn picked it, the default
+    /// provider, which only a turn that failed before its first model call reads.
+    fn provider(&self) -> Arc<dyn Provider> {
+        self.provider.clone().unwrap_or_else(|| self.shared.deps.providers.default_provider())
     }
 
     /// True when nobody can answer a question of the turn now: the user is away, or,

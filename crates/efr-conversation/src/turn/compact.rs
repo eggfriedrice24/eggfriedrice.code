@@ -8,8 +8,6 @@
 //! the turn goes on with the new window. The README, section "Context", is the
 //! contract.
 
-use std::sync::Arc;
-
 use efr_protocol::{Compaction, CompactionId, CompactionTrigger, ErrorBody, Event};
 use efr_provider::{Message, Request, TokenUsage};
 use efr_stdx::id::uuid_v7;
@@ -230,7 +228,7 @@ impl Turn {
     ) -> Result<Compacted, ConversationError> {
         let limits = self.limits();
         self.drafter.compacting(trigger);
-        let provider = Arc::clone(&self.shared.deps.provider);
+        let provider = self.provider();
         let interrupt = self.control.interrupt.clone();
         let job = Job {
             provider: &*provider,

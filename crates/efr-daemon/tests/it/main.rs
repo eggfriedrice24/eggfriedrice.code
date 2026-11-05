@@ -52,6 +52,7 @@ mod shell_tool;
 mod snapshots;
 mod subscribe;
 mod support;
+mod switch;
 mod turn_input;
 mod undo;
 mod undo_method;

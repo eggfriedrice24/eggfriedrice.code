@@ -58,7 +58,7 @@ impl Turn {
         &mut self,
         request: Request,
     ) -> Result<Response, ConversationError> {
-        let provider = Arc::clone(&self.shared.deps.provider);
+        let provider = self.provider();
         let clock = Arc::clone(&self.shared.deps.clock);
         let interrupt = self.control.interrupt.clone();
         let gap_ms = self.shared.gap.start(clock.now()).map(gap::millis);

@@ -623,7 +623,9 @@ impl ConversationActor {
             wake: false,
         };
         let mut effective = settings::resolve(settings, &config, origin, place)?;
-        effective.provider = Some(self.shared.deps.provider.id().as_str().to_owned());
+        let provider =
+            crate::router::provider_of(&effective.model, &config, &*self.shared.deps.providers)?;
+        effective.provider = Some(provider.id().as_str().to_owned());
         Ok(effective)
     }
 

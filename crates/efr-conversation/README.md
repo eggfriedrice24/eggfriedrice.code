@@ -33,7 +33,15 @@ turns.
   the fix of efrd's refusal of a new prompt) while the config's default model is a
   model of another company than its provider (`ConversationConfig::foreign_model`), so
   a prompt that queued before a reload made the default foreign gets the same text
-  (v0.0.4). A turn
+  (v0.0.4). The model list names the provider of each model, the provider of new
+  conversations first; the turn goes to the first provider that lists its model, and
+  a model that no list names to the default provider
+  (`ConversationDeps::providers`, a `ProviderRouter`; `router.rs`). The turn keeps
+  that provider to its end, for each model call, a compaction, the key of its raw
+  items and its edit tool, and records it in `settings.provider`. A model of a
+  provider that the daemon does not run fails with `NoProvider` (`invalid`). A manual
+  compaction and the context view keep the provider of the newest turn while it
+  still lists the model. A turn
   from a remote origin runs with at most `cautious`, and a wake turn with at most
   `auto`: a wake turn of `full` runs as `auto` with a `ModeFallback` whose `asked` is
   `full` and whose reason is `ModeFallback::WAKE_REASON` (plus the reason of `auto`

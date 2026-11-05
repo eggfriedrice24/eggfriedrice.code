@@ -569,7 +569,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             catalogs: crate::providers::catalog_starts(&settings, dirs.state()).await,
         },
     )?;
-    let models = providers.models();
+    providers.load_logins().await;
 
     let home = Home::new(home).map_err(|source| DaemonError::Home { source })?;
     let registry_path = Registry::path_in(dirs.config());
@@ -602,7 +602,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         settings_receiver.clone(),
         engine_receiver.clone(),
         reloads.clone(),
-        Arc::clone(&models),
+        providers.models(),
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
@@ -732,11 +732,11 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Arc::clone(&clock),
     ));
     let live_settings = LiveSettings::new(
-        settings_receiver,
+        settings_receiver.clone(),
         dirs.data().join(SCRATCH_DIR),
         host,
         time_zone.unwrap_or_else(TimeZone::system),
-        models,
+        providers.catalogs(),
     )
     .with_root(runs_as_root);
     let drafts = draft_channel();
@@ -753,7 +753,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let (idle_trims, idle_trims_watch) = watch::channel(0);
     let heap_committed = writer.subscribe();
     let conversation_deps = ConversationDeps {
-        provider: providers.active(),
+        providers: Arc::new(providers.routes(settings_receiver.clone())),
         toolbox: Arc::new(toolbox),
         engine: engine_receiver,
         scope: Arc::new(resolver),

@@ -78,6 +78,7 @@ mod preamble;
 mod presence;
 mod questions;
 mod resolver;
+mod router;
 mod scratch;
 mod settings;
 mod steer;
@@ -112,6 +113,7 @@ pub use notice::{
 };
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
+pub use router::{OneProvider, ProviderRouter};
 pub use scratch::scratch_dirs;
 pub use toolbox::{
     CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,

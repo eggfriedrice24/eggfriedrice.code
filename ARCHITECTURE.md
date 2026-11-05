@@ -521,8 +521,11 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-daemon/src/catalog/list.rs`; when efrd fetches, the wait of a prompt for
   a first Claude list (`Models::ready`), the effective model list, the default model
   and the windows of `[openai] models` and `[anthropic] models` in
-  `crates/efr-daemon/src/catalog.rs`; which provider efrd builds for `[model] provider`
-  in `crates/efr-daemon/src/providers.rs`.
+  `crates/efr-daemon/src/catalog.rs`; the providers that efrd builds, one per
+  provider id, in `crates/efr-daemon/src/providers.rs`; the one model list of every
+  provider with a login, which `models.list` shows and the turns check against, in
+  `crates/efr-daemon/src/catalogs.rs`; which provider a turn goes to in
+  `crates/efr-conversation/src/router.rs` and `crates/efr-daemon/src/providers/routes.rs`.
 - Logins with an API key: where `efr` reads a key (a hidden prompt, stdin or
   `--from-env`) in `crates/efr-cli/src/commands/login/key.rs`; the method in
   `crates/efr-daemon/src/methods/admin_login_api_key.rs`; the checks of the key's text,

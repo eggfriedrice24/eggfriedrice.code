@@ -212,6 +212,14 @@ pub enum ConversationError {
         provider: String,
     },
 
+    /// The model of a turn belongs to a provider that the daemon does not run. Nothing
+    /// was recorded for a prompt; a turn that starts with it fails.
+    #[error("the provider {provider} of this model does not run in efrd")]
+    NoProvider {
+        /// The provider id, such as `anthropic-api`.
+        provider: String,
+    },
+
     /// A turn asked for full mode, but `permissions.allow_full` is false. Nothing was
     /// recorded for a prompt; a turn that starts with it fails.
     #[error(

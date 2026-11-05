@@ -21,6 +21,7 @@
 mod always;
 mod backups;
 mod catalog;
+mod catalogs;
 mod config;
 mod connections;
 mod conversations;
