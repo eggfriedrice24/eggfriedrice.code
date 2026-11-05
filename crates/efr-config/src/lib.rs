@@ -59,6 +59,7 @@ mod model_company;
 mod reference;
 mod reload;
 mod settings;
+mod suggest;
 mod tables;
 mod theme_file;
 mod validate;

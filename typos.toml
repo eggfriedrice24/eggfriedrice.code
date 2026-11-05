@@ -11,7 +11,9 @@ extend-exclude = [
 
 [default]
 # Commit hashes (ghostty 7bb45ba, helix ba40e547, ...) are not words.
-extend-ignore-re = ["\\b[0-9a-f]{7,40}\\b"]
+# A line that ends in `spellchecker:disable-line` holds a typo on purpose, such as a
+# test of the "did you mean" hint.
+extend-ignore-re = ["\\b[0-9a-f]{7,40}\\b", "(?Rm)^.*spellchecker:disable-line$"]
 
 [default.extend-words]
 # OpenSSL's option `-passin`, which the redaction of the last command knows.

@@ -540,8 +540,7 @@ fn set(edit: &mut Edit, key: &str, value: &Value) -> Result<(), ConfigError> {
         value: value.to_string(),
         expected,
     };
-    let kind =
-        efr_config::kind(key).ok_or_else(|| ConfigError::UnknownKey { key: key.to_owned() })?;
+    let kind = efr_config::kind(key).ok_or_else(|| ConfigError::unknown_key(key))?;
     match value {
         Value::String(text) => edit.set_text(key, text),
         Value::Bool(flag) => edit.set(key, toml_edit::Value::from(*flag)),
@@ -620,7 +619,7 @@ fn refuse_full(key: &str, value: Option<&Value>) -> Result<(), String> {
                     choose full mode, where commands run as the user with no sandbox and no \
                     questions. Only the user changes it: tell the user to edit config.toml \
                     by hand (efr config edit) or to run efr config set \
-                    permissions.allow_full in their own terminal if they want it."
+                    permissions.allow_full true in their own terminal if they want it."
             .to_owned());
     }
     if key == "permissions.mode" && value.and_then(Value::as_str) == Some(full) {

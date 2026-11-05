@@ -437,7 +437,7 @@ async fn reload_prints_the_daemons_outcome_and_a_refused_file_exits_1() {
     assert_eq!(first, Exit::Success);
     assert_eq!(
         applied,
-        "config.toml reloaded; new turns use it\nrestart efrd to apply: screen (systemctl --user restart efrd)\n"
+        "config.toml reloaded; new turns use it, except a change of screen, which needs a restart: systemctl --user restart efrd\n"
     );
     assert_eq!(second, Exit::Invalid);
     assert_eq!(

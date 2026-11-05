@@ -288,6 +288,29 @@ fn efr_config_set_allow_full() {
 }
 
 #[test]
+fn a_typo_of_a_key_names_the_key_it_most_likely_meant() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = ConfigFile::open(&config_path(&dir)).unwrap();
+    let mut edit = file.edit().unwrap();
+
+    let typo = "permissons.allow_full"; // spellchecker:disable-line
+    let error = edit.set_text(typo, "true").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!("{typo} is no key of config.toml; did you mean permissions.allow_full?")
+    );
+    let typo = "model.provder"; // spellchecker:disable-line
+    let error = edit.unset(typo).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!("{typo} is no key of config.toml; did you mean model.provider?")
+    );
+    let error = edit.set_text("nothing", "x").unwrap_err();
+    assert_eq!(error.to_string(), "nothing is no key of config.toml");
+    assert_eq!(edit.text(), EXAMPLE);
+}
+
+#[test]
 fn values_of_the_wrong_kind_rules_and_unknown_keys_cannot_be_set() {
     let dir = tempfile::tempdir().unwrap();
     let file = ConfigFile::open(&config_path(&dir)).unwrap();
@@ -300,11 +323,17 @@ fn values_of_the_wrong_kind_rules_and_unknown_keys_cannot_be_set() {
         error.to_string(),
         "permissions.mode = \"yolo\" is not manual, cautious, auto or full"
     );
-    for key in ["permissions.rules", "shell.colour", "model", "nothing"] {
+    for key in ["shell.colour", "model", "nothing"] {
         let error = edit.set_text(key, "x").unwrap_err();
         assert!(matches!(error, ConfigError::UnknownKey { .. }), "{key}: {error:?}");
         assert!(matches!(edit.unset(key), Err(ConfigError::UnknownKey { .. })), "{key}");
     }
+    let error = edit.set_text("permissions.rules", "x").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "permissions.rules holds tables, so one value cannot set it; change it with efr config edit"
+    );
+    assert!(matches!(edit.unset("permissions.rules"), Err(ConfigError::NotWritable { .. })));
     assert_eq!(edit.text(), EXAMPLE);
 }
 
@@ -769,8 +798,8 @@ fn add_table_entry_refuses_invalid_before_write() {
     // An array of tables is never a value that `set` writes.
     for key in ["sandbox.allow", "dbus.allow"] {
         let error = edit.set_text(key, "[]").unwrap_err();
-        assert!(matches!(error, ConfigError::UnknownKey { .. }), "{key}: {error:?}");
-        assert!(matches!(edit.unset(key), Err(ConfigError::UnknownKey { .. })), "{key}");
+        assert!(matches!(error, ConfigError::NotWritable { .. }), "{key}: {error:?}");
+        assert!(matches!(edit.unset(key), Err(ConfigError::NotWritable { .. })), "{key}");
     }
 }
 

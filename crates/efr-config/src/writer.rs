@@ -41,7 +41,7 @@ pub(crate) const TABLE_KEYS: &[&str] =
 
 /// `key` as one of [`TABLE_KEYS`], with its table and its name in that table.
 fn table_key(key: &str) -> Result<(&'static str, &'static str, &'static str), ConfigError> {
-    let unknown = || ConfigError::UnknownKey { key: key.to_owned() };
+    let unknown = || ConfigError::unknown_key(key);
     let known = TABLE_KEYS.iter().copied().find(|known| *known == key).ok_or_else(unknown)?;
     let (parent, name) = known.split_once('.').ok_or_else(unknown)?;
     Ok((known, parent, name))
@@ -144,7 +144,7 @@ impl Edit {
         }
         let (table, name) = self.table_of(key, true)?;
         let Some(table) = table else {
-            return Err(ConfigError::UnknownKey { key: key.to_owned() });
+            return Err(ConfigError::unknown_key(key));
         };
         match table.get_mut(name) {
             Some(Item::Value(old)) => {
@@ -336,7 +336,7 @@ impl Edit {
         key: &'k str,
         create: bool,
     ) -> Result<(Option<&'a mut dyn TableLike>, &'k str), ConfigError> {
-        let unknown = || ConfigError::UnknownKey { key: key.to_owned() };
+        let unknown = || ConfigError::unknown_key(key);
         let Some((path, name)) = key.rsplit_once('.') else {
             return Ok((Some(self.document.as_table_mut() as &mut dyn TableLike), key));
         };
@@ -358,13 +358,13 @@ impl Edit {
 
 /// The kind of `key` when the writer may change it.
 fn writable(key: &str) -> Result<Kind, ConfigError> {
-    let unknown = || ConfigError::UnknownKey { key: key.to_owned() };
     if !keys::keys().iter().any(|known| known == key) {
-        return Err(unknown());
+        return Err(ConfigError::unknown_key(key));
     }
     match keys::kind(key) {
-        Some(Kind::Rules | Kind::Groups) | None => Err(unknown()),
+        Some(Kind::Rules | Kind::Groups) => Err(ConfigError::NotWritable { key: key.to_owned() }),
         Some(kind) => Ok(kind),
+        None => Err(ConfigError::unknown_key(key)),
     }
 }
 

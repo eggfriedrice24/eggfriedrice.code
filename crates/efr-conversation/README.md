@@ -418,9 +418,10 @@ request:
    stops it with `,shell`), the turn's permission mode, model and
    effort, the three modes (`manual`, `cautious`, `auto`) with one line each, which
    is the one place that says what a mode allows, as `docs/permissions.md` does (four
-   modes with `full` when `permissions.allow_full` is on or the turn runs in full mode;
-   with full mode off the list is word for word the one of before full mode, so no
-   prompt cache breaks), and
+   modes with the rule of `full` when `permissions.allow_full` is on or the turn runs in
+   full mode; with full mode off, `full` has one line that says it is off and that only
+   the user turns it on with `efr config set permissions.allow_full true`, so the model
+   does not tell the user that the mode does not exist), and
    that only the user changes a terminal's mode, model and effort (`,mode`, `,model`,
    `,effort`, or a bare `mode auto` line in sticky mode) while the settings tool
    changes only the defaults in `config.toml` after an approval, so the model never

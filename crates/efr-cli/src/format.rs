@@ -1233,7 +1233,14 @@ pub(crate) fn reloaded(
     held: bool,
     options: &RenderOptions,
 ) -> String {
+    let restart = one_line(&result.restart_needed.join(", "));
     let mut out = match (&result.error, result.applied) {
+        // NOTE: the exception goes in the same line: a first line that says new turns
+        // use the file reads as done, and the change of provider looked lost.
+        (_, true) if !result.restart_needed.is_empty() => format!(
+            "config.toml reloaded; new turns use it, except a change of {restart}, which \
+             needs a restart: systemctl --user restart efrd\n"
+        ),
         (_, true) => "config.toml reloaded; new turns use it\n".to_owned(),
         (Some(error), false) if held => {
             format!("config.toml is held; the old settings stay: {}\n", one_line(&error.message))
@@ -1243,12 +1250,8 @@ pub(crate) fn reloaded(
         }
         (None, false) => "config.toml was not applied; the old settings stay\n".to_owned(),
     };
-    if !result.restart_needed.is_empty() {
-        let _ = writeln!(
-            out,
-            "restart efrd to apply: {} (systemctl --user restart efrd)",
-            one_line(&result.restart_needed.join(", "))
-        );
+    if !result.restart_needed.is_empty() && !result.applied {
+        let _ = writeln!(out, "restart efrd to apply: {restart} (systemctl --user restart efrd)");
     }
     for warning in &result.warnings {
         let line = format!("warning: {}", one_line(warning));

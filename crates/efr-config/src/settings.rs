@@ -233,8 +233,7 @@ impl Settings {
             from: from.clone(),
             expected,
         };
-        let kind =
-            keys::kind(key).ok_or_else(|| ConfigError::UnknownKey { key: key.to_owned() })?;
+        let kind = keys::kind(key).ok_or_else(|| ConfigError::unknown_key(key))?;
         let value = value_from_text(&kind, text).ok_or_else(|| refuse(kind.to_string()))?;
         let mut document =
             toml_edit::ser::to_document(self).map_err(|source| ConfigError::Encode { source })?;

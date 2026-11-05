@@ -111,8 +111,8 @@ pub(crate) enum CliError {
     /// `--mode full` while the daemon's config does not allow full mode
     /// (`permissions.allow_full` is false). The text is the daemon's own for a prompt.
     #[error(
-        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn \
-         it on (docs/permissions.md, \"Full mode\")"
+        "full mode is off; to turn it on, run efr config set permissions.allow_full true \
+         (docs/permissions.md, \"Full mode\")"
     )]
     FullModeOff,
 

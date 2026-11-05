@@ -17,6 +17,23 @@ into the GitHub release notes, and it stops when the section is missing.
   names its provider. efrd keeps the list of each provider up to date on its own, and
   the OpenAI API key list now has a cache file of its own,
   `openai_api_model_catalog.json`.
+- With full mode off, the model now knows that full mode exists, that it is off, and
+  that only you turn it on. Before, it told you that efr has only three modes. The
+  text that efr sends to the model changed, so the prompt cache of each conversation
+  starts again once.
+
+### Fixed
+
+- `efr config set` and `efr config unset` with a typo in the key now say that the key
+  does not exist and name the key that you most likely meant, such as `did you mean
+  permissions.allow_full?`. A key that holds tables, such as `permissions.rules`, gets
+  its own message that tells you to use `efr config edit`.
+- The error for full mode while it is off now names the command that turns it on:
+  `efr config set permissions.allow_full true`.
+- After a change of a key that needs a restart, such as `model.provider`, `efr config
+  set` and `efr config reload` no longer start with a line that says that new turns
+  use the change. The first line now names the keys that need a restart and the
+  command for it.
 
 ## [0.0.7] - 2026-10-31
 

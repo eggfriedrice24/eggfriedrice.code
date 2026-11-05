@@ -250,7 +250,8 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
     for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
         let text = LiveState { mode, ..minimal() }.render();
         for says in [
-            "efr has three permission modes and no others:",
+            "efr has four permission modes and no others. Full mode is off, so a turn runs \
+             only in the first three:",
             "\n- manual: every read, write, command and network access asks the user",
             "\n- cautious: reads outside secrets, the read-only commands, and writes in \
              $SCRATCH and in the turn's registered project run at once",
@@ -264,7 +265,8 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
         ] {
             assert!(text.contains(says), "{mode}: {says:?} in {text}");
         }
-        assert_eq!(text.matches("\n- ").count(), 3, "{text}");
+        // The three modes that can run, and the line that says full mode is off.
+        assert_eq!(text.matches("\n- ").count(), 4, "{text}");
         // The mode line names the mode, and the list alone says what it means.
         assert!(text.contains(&format!("\nPermission mode: {mode}\n")), "{text}");
         assert_eq!(text.matches("ask the user, except what").count(), 0, "{text}");
@@ -388,13 +390,21 @@ fn prompt_auto_names_scratch_and_background() {
 }
 
 #[test]
-fn gate_off_preamble_is_unchanged() {
-    // With full mode off, the preamble of every mode is the one of before full mode:
-    // three modes, word for word, so no prompt cache and no scenario fixture changes.
+fn gate_off_preamble_says_that_full_mode_is_off_and_who_turns_it_on() {
+    // A model that does not know of full mode tells the user that it does not exist.
     for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
         let text = LiveState { mode, ..minimal() }.render();
-        assert!(text.contains("efr has three permission modes and no others:\n"), "{text}");
-        assert!(!text.contains("full"), "{text}");
+        assert!(text.contains("Full mode is off, so a turn runs only in the first three:\n"));
+        assert!(
+            text.contains(
+                "\n- full: off. In full mode, commands run as the user, with no sandbox and \
+                 no question. Only the user can turn it on, with efr config set \
+                 permissions.allow_full true; never set it yourself.\n"
+            ),
+            "{text}"
+        );
+        // The rule of full mode is for a turn that can run in it.
+        assert!(!text.contains("efr still denies secrets"), "{text}");
     }
 }
 

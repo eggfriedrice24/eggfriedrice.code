@@ -138,10 +138,19 @@ pub enum ConfigError {
         /// What the value must be.
         expected: String,
     },
-    /// A key that the file does not have, or that the writer cannot change.
-    #[error("{key} is not a key the writer can change")]
+    /// A key that the file does not have.
+    #[error("{key} is no key of config.toml{}", did_you_mean(.closest.as_deref()))]
     UnknownKey {
         /// The dotted key as given.
+        key: String,
+        /// The key of the file that `key` most likely meant, after a typo.
+        closest: Option<String>,
+    },
+    /// A key of the file that holds tables, such as `permissions.rules`, which one value
+    /// cannot set.
+    #[error("{key} holds tables, so one value cannot set it; change it with efr config edit")]
+    NotWritable {
+        /// The dotted key.
         key: String,
     },
     /// A rule the writer was asked to remove is not in the file.
@@ -253,6 +262,12 @@ pub enum ConfigError {
 }
 
 impl ConfigError {
+    /// The error for `key`, which the file does not have, with the key that it most
+    /// likely meant after a typo.
+    pub fn unknown_key(key: &str) -> ConfigError {
+        ConfigError::UnknownKey { key: key.to_owned(), closest: crate::suggest::closest_key(key) }
+    }
+
     /// Where in the file the error is, when it has a place.
     pub fn location(&self) -> Option<Location> {
         match self {
@@ -283,7 +298,8 @@ impl ConfigError {
             | ConfigError::NoEntry { key, index, .. } => Some(format!("{key}[{index}]")),
             ConfigError::InvalidOverride { key, .. }
             | ConfigError::InvalidValue { key, .. }
-            | ConfigError::UnknownKey { key } => Some(key.clone()),
+            | ConfigError::UnknownKey { key, .. }
+            | ConfigError::NotWritable { key } => Some(key.clone()),
             _ => None,
         }
     }
@@ -309,4 +325,9 @@ impl ConfigError {
             key: self.key(),
         }
     }
+}
+
+/// The end of the message of [`ConfigError::UnknownKey`]: the hint, when there is one.
+fn did_you_mean(closest: Option<&str>) -> String {
+    closest.map_or_else(String::new, |closest| format!("; did you mean {closest}?"))
 }

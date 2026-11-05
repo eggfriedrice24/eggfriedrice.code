@@ -215,8 +215,8 @@ pub enum ConversationError {
     /// A turn asked for full mode, but `permissions.allow_full` is false. Nothing was
     /// recorded for a prompt; a turn that starts with it fails.
     #[error(
-        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn \
-         it on (docs/permissions.md, \"Full mode\")"
+        "full mode is off; to turn it on, run efr config set permissions.allow_full true \
+         (docs/permissions.md, \"Full mode\")"
     )]
     FullModeOff,
 

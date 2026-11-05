@@ -411,8 +411,8 @@ async fn mode_full_without_the_gate_is_an_error_with_the_hint() {
     assert_eq!(stdout, "");
     assert_eq!(
         stderr,
-        "efr: full mode is off; set permissions.allow_full = true in config.toml by hand to \
-         turn it on (docs/permissions.md, \"Full mode\")\n"
+        "efr: full mode is off; to turn it on, run efr config set permissions.allow_full true \
+         (docs/permissions.md, \"Full mode\")\n"
     );
 }
 

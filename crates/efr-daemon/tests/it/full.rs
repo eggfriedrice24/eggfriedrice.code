@@ -216,7 +216,11 @@ async fn mode_full_refused_without_allow_full() {
     let body = send(&daemon, &client, 1, "write my notes", Some(Mode::Full)).await.unwrap_err();
 
     assert_eq!(body.code, ErrorCode::Invalid, "{body:?}");
-    assert!(body.message.contains("set permissions.allow_full = true"), "{}", body.message);
+    assert!(
+        body.message.contains("run efr config set permissions.allow_full true"),
+        "{}",
+        body.message
+    );
     assert_eq!(body.data, refusal_data());
     assert!(model.firsts().is_empty(), "no turn reached the model");
     assert!(!notes.exists());

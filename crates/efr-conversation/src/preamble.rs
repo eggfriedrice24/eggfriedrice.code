@@ -249,16 +249,24 @@ impl LiveState {
             }
             None => text.push_str("Reasoning effort: the backend's default for the model\n"),
         }
-        // NOTE: with full mode off the list stays as it was, word for word (DF18).
-        let modes: &[Mode] = if self.full_allowed || self.mode == Mode::Full {
+        let full_on = self.full_allowed || self.mode == Mode::Full;
+        if full_on {
             text.push_str("efr has four permission modes and no others:\n");
-            &[Mode::Manual, Mode::Cautious, Mode::Auto, Mode::Full]
         } else {
-            text.push_str("efr has three permission modes and no others:\n");
-            &[Mode::Manual, Mode::Cautious, Mode::Auto]
-        };
-        for mode in modes {
-            let _ = writeln!(text, "- {mode}: {}", mode_rule(*mode, self.egress));
+            text.push_str(
+                "efr has four permission modes and no others. Full mode is off, so a turn \
+                 runs only in the first three:\n",
+            );
+        }
+        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+            let _ = writeln!(text, "- {mode}: {}", mode_rule(mode, self.egress));
+        }
+        // NOTE: a model that does not know of full mode tells the user that it does not
+        // exist; it must know that the mode is off and who turns it on.
+        if full_on {
+            let _ = writeln!(text, "- {}: {}", Mode::Full, mode_rule(Mode::Full, self.egress));
+        } else {
+            text.push_str(FULL_OFF_RULE);
         }
         text.push_str(SETTINGS_RULES);
         text.push_str("</live_state>");
@@ -280,6 +288,14 @@ block is current; an older one shows the state at its own prompt.
 const WAKE_RULE: &str = "\
 A job notice started this turn; the user sent no prompt. The newest live_state block is \
 current.
+";
+
+/// The line of full mode in the list while the daemon does not allow it. Only the user
+/// turns it on; the settings tool refuses `permissions.allow_full`.
+const FULL_OFF_RULE: &str = "\
+- full: off. In full mode, commands run as the user, with no sandbox and no question. \
+Only the user can turn it on, with efr config set permissions.allow_full true; never set \
+it yourself.
 ";
 
 /// Who changes the turn's settings, after the list of the real permission modes. A

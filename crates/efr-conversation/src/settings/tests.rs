@@ -343,8 +343,8 @@ fn resolve_refuses_full_while_the_daemon_does_not_allow_it() {
     assert!(matches!(error, ConversationError::FullModeOff), "{error:?}");
     assert_eq!(
         error.to_string(),
-        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn it \
-         on (docs/permissions.md, \"Full mode\")"
+        "full mode is off; to turn it on, run efr config set permissions.allow_full true \
+         (docs/permissions.md, \"Full mode\")"
     );
     let body = failure(&error);
     assert_eq!(body.code, ErrorCode::Invalid);
