@@ -122,12 +122,13 @@ fn a_reasoning_without_a_title_leaves_its_first_words_in_italic() {
     let words = "The user wants the size of the journal. I should run `journalctl \
                  --disk-usage` first, then look at **the vacuum** options.";
     let parts = [reasoning(0, words, None)];
-    let lines = think(&mut view, &mut grid, size, &parts, 100, 0);
+    think(&mut view, &mut grid, size, &parts, 100, 0);
+    let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
     assert_eq!(
         lines,
         [
-            "\u{2026}e size of the journal. I should run journalctl --disk-usage first, then look at the vacuum options.",
-            "\u{2022} thinking",
+            "\u{2026} I should run journalctl --disk-usage first, then look at the vacuum options.",
+            "\u{2022} thinking  1s",
         ]
     );
     frame(&mut view, &mut grid, size, 4_600);
@@ -161,12 +162,71 @@ fn a_phase_under_two_seconds_leaves_no_row() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     let parts = [reasoning(0, "**Checking**\n\nA quick look", Some("Checking"))];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 0);
-    assert_eq!(lines, ["A quick look", "\u{2022} thinking: Checking"]);
-    frame(&mut view, &mut grid, size, 2_000);
+    // The live line waits for the phase to run for 1 s.
+    assert_eq!(lines, ["\u{2022} thinking: Checking"]);
+    let (lines, _) = frame(&mut view, &mut grid, size, 2_000);
+    assert_eq!(lines, ["A quick look", "\u{2022} thinking: Checking  1s"]);
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_050);
     assert_eq!(lines, ["Done.", "\u{2022} writing  1s"]);
     assert!(!bare(&view.frame(size, at(2_100))).contains("thought"));
+}
+
+#[test]
+fn a_phase_under_one_second_shows_no_live_line() {
+    // The summary of a short phase comes in one piece just before the tool call or the
+    // text that follows it. Its line would show for a moment and go.
+    let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
+    view.draft(&draft(11, reasoning(0, "I check the client file first.", None)), size);
+    for millis in [100, 400, 900] {
+        let (lines, _) = frame(&mut view, &mut grid, size, millis);
+        assert_eq!(lines.len(), 1, "at {millis} ms: {lines:?}");
+        assert!(lines[0].starts_with("\u{2022} thinking"), "{lines:?}");
+    }
+    view.draft(&draft(11, text(0, "Done.\n\n")), size);
+    let (lines, _) = frame(&mut view, &mut grid, size, 950);
+    assert_eq!(lines, ["Done.", "\u{2022} writing"]);
+}
+
+#[test]
+fn a_long_reasoning_shows_whole_words_and_its_start_moves_in_steps() {
+    let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
+    let words: Vec<String> = (0..40).map(|n| format!("word{n:02}")).collect();
+    let mut sent = 0;
+    let mut starts = Vec::new();
+    for (n, word) in words.iter().enumerate() {
+        let delta = if n == 0 { word.clone() } else { format!(" {word}") };
+        view.draft(&draft(11, reasoning(sent, &delta, None)), size);
+        sent += delta.len();
+        let (lines, _) = frame(&mut view, &mut grid, size, 100 + 100 * n as i64);
+        if n < 10 {
+            continue;
+        }
+        let line = &lines[0];
+        // One column stays free, and the line holds whole words.
+        assert!(line.chars().count() <= 59, "{line}");
+        assert!(line.ends_with(word.as_str()), "{line}");
+        if let Some(rest) = line.strip_prefix("\u{2026} ") {
+            assert!(rest.starts_with("word"), "{line}");
+            starts.push(rest[..6].to_owned());
+        }
+    }
+    // The line is full from the ninth word on. Its start then stands for some words
+    // and jumps on by 8 words; it never moves with each word.
+    starts.dedup();
+    assert_eq!(starts, ["word08", "word16", "word24", "word32"]);
+}
+
+#[test]
+fn a_wide_screen_keeps_the_live_line_to_100_columns() {
+    let (mut view, mut grid, size) = view_of(232, ColourMode::Ansi16);
+    let long: String = (0..80).map(|n| format!("word{n:02} ")).collect();
+    view.draft(&draft(11, reasoning(0, long.trim_end(), None)), size);
+    frame(&mut view, &mut grid, size, 100);
+    let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
+    assert!(lines[0].chars().count() <= 100, "{}", lines[0]);
+    assert!(lines[0].starts_with("\u{2026} word"), "{}", lines[0]);
+    assert!(lines[0].ends_with("word79"), "{}", lines[0]);
 }
 
 #[test]
@@ -177,10 +237,7 @@ fn a_narrow_screen_cuts_the_live_line_and_the_row_to_one_row() {
         reasoning(30, "one two three four five six seven", Some("Planning the long answer")),
     ];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 2_900);
-    assert_eq!(
-        lines,
-        ["\u{2026}ree four five six seven", "\u{2022} thinking: Plannin\u{2026}  2s"]
-    );
+    assert_eq!(lines, ["\u{2026} four five six seven", "\u{2022} thinking: Plannin\u{2026}  2s"]);
     view.draft(&draft(11, text(0, "Yes.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
     assert_eq!(lines, ["\u{25b8} Planning\u{2026}  thought 2s", "Yes.", "\u{2022} writing  3s"]);
@@ -201,9 +258,10 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
     view.envelope(&sent(12, 10, completed(0, "First.")), size, false);
     frame(&mut view, &mut grid, size, 10);
     let parts = [reasoning(0, "**Next step**\n\nThen the docs", Some("Next step"))];
-    let lines = think_after(12, &mut view, &mut grid, size, &parts, 100, 0);
+    think_after(12, &mut view, &mut grid, size, &parts, 100, 0);
+    let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
     // The live line takes the place of the row, with the blank line above it.
-    assert_eq!(lines, ["First.", "", "Then the docs", "\u{2022} thinking: Next step"]);
+    assert_eq!(lines, ["First.", "", "Then the docs", "\u{2022} thinking: Next step  1s"]);
     frame(&mut view, &mut grid, size, 2_600);
     view.draft(&draft(12, text(1, "Second.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_700);
@@ -291,7 +349,8 @@ fn the_live_line_counts_as_a_row_when_a_tall_line_of_text_is_clipped() {
         frame(&mut view, &mut grid, size, millis);
     }
     view.draft(&draft(11, reasoning(0, "Checking the size", None)), size);
-    let (lines, _) = frame(&mut view, &mut grid, size, 2_100);
+    frame(&mut view, &mut grid, size, 2_100);
+    let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
     // The newest rows of the text, the blank line, the live line and the status row
     // fill the five rows.
     assert_eq!(lines.len(), 5, "{lines:?}");

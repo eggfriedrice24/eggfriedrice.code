@@ -37,7 +37,8 @@ into the GitHub release notes, and it stops when the section is missing.
   The conversation then keeps that account for its next prompts, and a wake turn
   stays on it too.
 - While the model thinks, the terminal shows the newest words of its reasoning on one
-  dim line in italic, above the status row. Before, only the status row said
+  dim line in italic, above the status row. The line shows after 1 s of thought, in
+  whole words and at most 100 columns wide. Before, only the status row said
   `thinking`. When the model thought for 2 s or more, one line such as
   `▸ Reading the logs  thought 6s` stays in the scrollback.
 

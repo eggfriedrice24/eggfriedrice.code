@@ -1,6 +1,10 @@
 //! The reasoning of the model on a terminal. While the model thinks, one live line
 //! under the reply and above the status row shows the newest words of its reasoning,
-//! muted and in italic, cut to one row: it never wraps. When a phase of reasoning ends
+//! muted and in italic, cut to one row: it never wraps. The line shows only when the
+//! phase has run for [`LINE_AFTER`]: the summary of a short phase comes in one piece
+//! just before the tool call that follows it, so its line would show for a moment and
+//! go. The line holds whole words, in at most [`LINE_COLUMNS`] columns, and its start
+//! moves [`LINE_STEP`] words at a time, so the text stands still while it grows. When a phase of reasoning ends
 //! and it took [`ROW_AFTER`] or more, one row stays in the scrollback, at column 0:
 //! `▸ <title>  thought 6s`, the bold title of the reasoning in the `text` role and the
 //! rest muted. Without a title, the first words of the reasoning stand in its place,
@@ -27,6 +31,15 @@ use crate::format;
 
 /// The shortest phase of reasoning that leaves a row in the scrollback.
 pub(crate) const ROW_AFTER: Duration = Duration::from_secs(2);
+
+/// How long a phase runs before its live line shows.
+pub(crate) const LINE_AFTER: Duration = Duration::from_secs(1);
+
+/// The most columns of the live line. A line as wide as a wide terminal is hard to read.
+const LINE_COLUMNS: usize = 100;
+
+/// The words by which the start of the live line moves when the line is full.
+const LINE_STEP: usize = 8;
 
 /// The columns of the first words of a reasoning without a title, with the `…`.
 const FIRST_WORDS: usize = 58;
@@ -106,14 +119,21 @@ impl Reasoning {
     }
 
     /// The live line of the phase that runs, at the width of `options`, with its
-    /// newline; `None` before its first words.
+    /// newline; `None` before its first words and before the phase has run for
+    /// [`LINE_AFTER`].
     pub(crate) fn live(&self, options: &RenderOptions) -> Option<String> {
         let phase = self.phase.as_ref()?;
+        if since_then(phase.since?, phase.seen?) < LINE_AFTER {
+            return None;
+        }
         let words = plain(&phase.tail, true);
         if words.is_empty() {
             return None;
         }
-        let line = newest(&words, usize::from(options.width()), options.width_method());
+        // NOTE: one column less than the screen, so the line never fills its row and
+        // the terminal never has a wrap to hold back.
+        let columns = usize::from(options.width()).saturating_sub(1).min(LINE_COLUMNS);
+        let line = newest(&words, columns, options.width_method());
         let mut out = styled(Role::Muted, ITALIC, &line, options);
         out.push('\n');
         Some(out)
@@ -239,11 +259,42 @@ fn unmarked(line: &str) -> &str {
     }
 }
 
-/// The end of `text` that fits in `columns`, after a `…` when the start is cut off.
+/// The newest words of `text`, whose words one space parts, that fit in `columns`,
+/// after a `…` when the start is cut off. The cut is at a word, and the start moves
+/// [`LINE_STEP`] words at a time: while words come, the line grows at its end and
+/// stands still, and when it is full its start jumps on. A word wider than the line is
+/// cut at its start.
 fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
     if text_width(text, method) <= columns {
         return text.to_owned();
     }
+    // The `…` and the space after it.
+    let room = columns.saturating_sub(2);
+    let words: Vec<&str> = text.split(' ').collect();
+    // The first word from which the rest fits.
+    let mut fits = words.len();
+    let mut used = 0;
+    for (at, word) in words.iter().enumerate().rev() {
+        let width = text_width(word, method) + usize::from(at + 1 < words.len());
+        if used + width > room {
+            break;
+        }
+        used += width;
+        fits = at;
+    }
+    let start = fits.div_ceil(LINE_STEP) * LINE_STEP;
+    if start < words.len() {
+        return format!("\u{2026} {}", words[start..].join(" "));
+    }
+    if fits < words.len() {
+        return format!("\u{2026} {}", words[fits..].join(" "));
+    }
+    newest_cells(text, columns, method)
+}
+
+/// The end of `text` that fits in `columns` cells, after a `…`: for a last word that
+/// is wider than the line.
+fn newest_cells(text: &str, columns: usize, method: WidthMethod) -> String {
     let room = columns.saturating_sub(1);
     let pieces: Vec<(usize, &str)> = match method {
         WidthMethod::Grapheme => text.grapheme_indices(true).collect(),
