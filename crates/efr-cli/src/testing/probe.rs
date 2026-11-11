@@ -25,8 +25,6 @@ pub(crate) struct Zone {
     pub(crate) live_rows: usize,
     /// The rows of the live zone that the clip to the screen keeps off the screen.
     pub(crate) hidden_rows: usize,
-    /// The bytes of the live zone that the clip keeps off the screen.
-    pub(crate) hidden_bytes: usize,
 }
 
 /// One frame of the follow loop.

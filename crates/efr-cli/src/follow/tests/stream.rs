@@ -652,7 +652,7 @@ fn analyse(doc: &Doc, size: Size, probe: &Probe, log: &WriteLog) -> Shown {
     for frame in probe.frames.iter().filter(|frame| streaming(frame.at)) {
         let Some(zone) = frame.zone else { continue };
         shown.total_bytes += frame.text.len() as u64;
-        if zone.hidden_bytes > 0 {
+        if zone.hidden_rows > 0 {
             shown.frames_with_hidden_live += 1;
             shown.hidden_rows_max = shown.hidden_rows_max.max(zone.hidden_rows as u64);
         }
@@ -817,6 +817,7 @@ fn bench_perf_stream_matrix() {
             })
             .collect()
     };
+    let mut budget = Vec::new();
     for group in groups {
         let shown: Vec<(String, Shown)> = std::thread::scope(|scope| {
             let runs: Vec<_> = group
@@ -835,7 +836,16 @@ fn bench_perf_stream_matrix() {
         });
         for (case, shown) in &shown {
             shown.report(&mut report, case);
+            if case.starts_with("para_") || case.starts_with("table_wide_40|") {
+                budget.push((case.clone(), shown.chars_never_on_screen, shown.chars_late_100ms));
+            }
         }
     }
     report.finish();
+    // The budget: each character of a long paragraph or a wide table reaches a visible
+    // row, and none of them comes more than 100 ms late.
+    for (case, never, late) in budget {
+        assert_eq!(never, 0, "{case}: chars never on a visible row");
+        assert_eq!(late, 0, "{case}: chars more than 100 ms late");
+    }
 }

@@ -157,7 +157,6 @@ impl LiveZone {
                 empty: true,
                 live_rows: rows,
                 hidden_rows: rows_of(&live).saturating_sub(rows),
-                hidden_bytes: live.len().saturating_sub(shown.len()),
                 ..Default::default()
             });
             return String::new();
@@ -236,7 +235,6 @@ impl LiveZone {
             },
             live_rows: rows,
             hidden_rows: rows_of(&live).saturating_sub(rows),
-            hidden_bytes: live.len().saturating_sub(shown.len()),
         });
         shown.clone_into(&mut self.shown);
         status.clone_into(&mut self.status);

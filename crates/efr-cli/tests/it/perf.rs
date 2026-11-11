@@ -1001,6 +1001,7 @@ fn bench_perf_cli_send_start() {
     const RUNS: usize = 12;
     const WARM: usize = 2;
     let mut report = Report::new("bench_perf_cli_send_start");
+    let mut ends = Vec::new();
     let context = r#"{"pwd":"/srv","tty":"/dev/pts/9"}"#;
     let cases = [
         ("no config", 0_usize, 0_u8, 0_u64, 0_u64),
@@ -1143,7 +1144,10 @@ fn bench_perf_cli_send_start() {
         }
         server.join().unwrap();
         for (name, samples) in &times {
-            report.time(&format!("{label}|{name}"), samples);
+            let stats = report.time(&format!("{label}|{name}"), samples);
+            if *name == "end of turn sent -> exit" {
+                ends.push((label, stats.p50));
+            }
         }
         report.count(
             &format!("{label}|runs with a terminal byte before prompt.send"),
@@ -1151,4 +1155,9 @@ fn bench_perf_cli_send_start() {
         );
     }
     report.finish();
+    // The budget: the end of the turn does not wait for the key reader, which took up
+    // to 104 ms (52 ms on average) before efr exited.
+    for (label, p50) in ends {
+        assert!(p50 < Duration::from_millis(20), "{label}: end of turn sent -> exit, p50 {p50:?}");
+    }
 }

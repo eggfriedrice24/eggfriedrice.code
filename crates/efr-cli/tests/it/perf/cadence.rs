@@ -857,6 +857,23 @@ async fn bench_perf_stream_cadence() {
         pooled.report(&mut report, name);
     }
     report.finish();
+    // The budget, in counts that do not depend on the load of the machine: every run
+    // shows its answer, the last token of a turn never waits for the key reader, and
+    // the reasoning shows on the terminal (the title and at least 17 of its 120 words).
+    for (name, pooled) in &pooled {
+        assert_eq!(pooled.failed, 0, "{name}: runs that failed");
+        if name == "end" {
+            assert_eq!(pooled.end_stalls, 0, "end: runs whose last token waited over 50 ms");
+        }
+        if name == "reason" {
+            assert!(
+                pooled.reasoning_shown >= 17 * pooled.runs,
+                "reason: {} reasoning deltas on the terminal in {} runs",
+                pooled.reasoning_shown,
+                pooled.runs
+            );
+        }
+    }
 }
 
 /// `bench_perf_draft_passes`: the CPU time of the passes that each text draft takes on

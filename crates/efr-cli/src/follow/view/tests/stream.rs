@@ -146,6 +146,7 @@ fn bench_perf_stream_ladder() {
         .into_iter()
         .filter(|kind| only.as_ref().is_none_or(|only| only.split(',').any(|name| name == *kind)));
     let screens = [Size { cols: 80, rows: 24 }, Size { cols: 200, rows: 60 }];
+    let mut slowest: Option<(Duration, String)> = None;
     for kind in kinds {
         for size in screens {
             let case = format!("{kind}|{}x{}", size.cols, size.rows);
@@ -187,6 +188,11 @@ fn bench_perf_stream_ladder() {
                     }
                 }
                 let rung = format!("{case}|{bytes} bytes pending");
+                if let Some(max) = cpu.iter().max()
+                    && slowest.as_ref().is_none_or(|(slowest, _)| max > slowest)
+                {
+                    slowest = Some((*max, rung.clone()));
+                }
                 let stats = report.time(&format!("{rung}|cpu of a frame"), &cpu);
                 points.push((bytes as u64, stats.p50));
                 report.time(&format!("{rung}|cpu of the first frame"), &first_cpu);
@@ -204,4 +210,9 @@ fn bench_perf_stream_ladder() {
         }
     }
     report.finish();
+    // The budget: a streamed frame of an open block of up to 64 KiB takes less than one
+    // frame time of CPU. The first frame, which renders the whole head, is not streamed.
+    if let Some((max, rung)) = slowest {
+        assert!(max < Duration::from_millis(16), "{rung}: a streamed frame took {max:?} of CPU");
+    }
 }
