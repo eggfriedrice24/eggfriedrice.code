@@ -122,7 +122,13 @@ Replies:
   before them (`efr_render::last_rows`, which opens the colours and the link of the
   line again). So a paragraph line that is taller than the screen shows its newest
   rows. The rows are counted as the terminal wraps: a wide character that does not
-  fit at the end of a row starts the next row.
+  fit at the end of a row starts the next row. A known limit: a live zone that fills
+  the screen cannot be erased whole after a resize. When the screen gets narrower,
+  the terminal can wrap its rows into more rows than the screen has. When it gets
+  lower, the old rows are more than the new screen has. The cursor-up stops at the
+  top row, the rows above it stay in the scrollback, and the text is written again
+  below them when it commits. Since the clip by rows, each long paragraph line can
+  fill the screen, not only a tall list or table.
 - Events change the view; they write nothing themselves. The follow loop writes frames:
   a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
   so the screen gets at most 60 frames a second. A question, an answer, a key, the end
