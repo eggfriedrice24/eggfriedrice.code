@@ -195,7 +195,8 @@ const SPANS: &[(&str, &str, &str)] = &[
     ("E5a ws: token", "ws.connect.begin", "ws.connect.token"),
     ("E5b ws: handshake", "ws.connect.token", "ws.connected"),
     ("E6 ws: plan + encode", "ws.taken", "ws.encoded"),
-    ("E7 ws: ping -> pong", "ws.probe.begin", "ws.probe.end"),
+    ("E7 ws: ping -> pong or first message", "ws.probe.begin", "ws.probe.end"),
+    ("E7a ws: ping -> pong at the provider", "s.ping", "s.pong"),
     ("E8 ws: encoded -> frame at the provider", "ws.encoded", "s.create"),
     ("F0 provider: request -> first event out", "s.request", "s.first_event"),
     ("G0 first event out -> first text", "s.first_event", "c.first_text"),
@@ -404,6 +405,7 @@ async fn bench_perf_start_phases() {
     let server = ProviderServer::start().await.unwrap();
     claude(&server);
     let mut report = Report::new("bench_perf_start_phases");
+    let mut quiet_budget = None;
     let mut turns = 0;
     let mut spent = Duration::ZERO;
     for (rung, target) in [("h20", 20), ("h200", 200), ("h2000", 2_000)] {
@@ -449,6 +451,15 @@ async fn bench_perf_start_phases() {
                 }
                 server.set(|knobs| knobs.pong = Duration::ZERO);
                 quiet_slow.report(&mut report, "h20 quiet31s+pong100ms", path.name());
+                if path == Path::Ws {
+                    let mut sends: Vec<Duration> = quiet_slow
+                        .0
+                        .iter()
+                        .filter_map(|timeline| timeline.span("c.send", "c.first_text"))
+                        .collect();
+                    sends.sort_unstable();
+                    quiet_budget = sends.get(sends.len() / 2).copied();
+                }
 
                 // NOTE: the WebSocket died without a close, as after a sleep of the
                 // laptop: the call must still reach HTTP within the ping time of 5 s.
@@ -524,7 +535,19 @@ async fn bench_perf_start_phases() {
     }
     report.time("history build", &[spent]);
     report.finish();
+    // The budget: a call on a quiet connection does not wait for the pong of its ping,
+    // which takes 100 ms here (the level of a quiet connection with a fast pong is 4 to
+    // 5 ms).
+    let quiet = quiet_budget.expect("the ws path ran the quiet state");
+    assert!(
+        quiet < QUIET_PROMPT_BUDGET,
+        "h20 quiet31s+pong100ms|ws: send -> first text, p50 {quiet:?}"
+    );
 }
+
+/// The budget of T1 (send -> first text) of a call on a WebSocket after 31 quiet
+/// seconds, when the pong takes 100 ms: the request goes out with the ping.
+const QUIET_PROMPT_BUDGET: Duration = Duration::from_millis(50);
 
 /// A prompt on the `http` path in a plain directory, in a git work tree, in a
 /// registered project, in `auto`, and with a live hidden shell (zsh) that stays or
