@@ -1467,7 +1467,8 @@ that takes more than 10 s stops its ladder.
   inside the stream and the stage where each one waited longest, the end of the turn
   (the last token to its frame and to the exit, in 12 answers whose length and start
   move), the `record_text` awaits and the store's writer jobs, and the time between
-  each two points of the way. `EFR_CADENCE_*` variables pick other scenarios and loads
+  each two points of the way. The scenario `reason` sends 2 s of reasoning first and
+  counts the deltas of the reasoning whose text stands on the terminal. `EFR_CADENCE_*` variables pick other scenarios and loads
   by hand (the module doc lists them).
 - `bench_perf_draft_passes` (`tests/it/perf/cadence.rs`): the CPU time of the passes of
   one text draft of 8, 64 and 512 bytes from efrd's item to `efr`'s item.

@@ -26,13 +26,15 @@
 //! `record_text` awaits of the stream loop and the jobs of the store's writer, the time
 //! between two points of the way, and the start of the turn. The scenario `end` runs
 //! 12 short answers whose length and start move by a few ms each, because the wait at
-//! the end of a turn depends on its phase against the clock of `efr`.
+//! the end of a turn depends on its phase against the clock of `efr`. The scenario
+//! `reason` sends 2 s of reasoning first, and counts the deltas of the reasoning whose
+//! text stands on the terminal, with the time to its title and to its first word.
 //!
 //! The variables of a run, all optional (the bench reads them for research by hand):
 //!
 //! - `EFR_CADENCE_SCENARIOS`: a list with commas of `steady30`, `steady60`,
 //!   `steady120`, `burst`, `reason`, `long`, `flat`, `mixed`, `code` and `end`;
-//!   `steady60,steady120,burst,end` by default.
+//!   `steady60,steady120,burst,reason,end` by default.
 //! - `EFR_CADENCE_RUNS`: the measured runs of each scenario but `end` (3).
 //! - `EFR_CADENCE_UPDATE_MS`, `EFR_CADENCE_DRAFT_MS`: `conversation.update_interval_ms`
 //!   and `conversation.draft_interval_ms` of the daemon.
@@ -72,6 +74,12 @@ const MODEL_FIRST: Duration = Duration::from_millis(300);
 
 /// The rows and columns of the pseudo-terminal.
 const SIZE: (u16, u16) = (50, 120);
+
+/// The title of the reasoning of the scenario `reason`, as the model sends it.
+const TITLE: &str = "**Planning the answer**\n\n";
+
+/// The deltas of the reasoning of the scenario `reason`, with its title.
+const REASONING: usize = 120;
 
 /// The runs of the scenario `end`.
 const END_RUNS: usize = 12;
@@ -207,19 +215,19 @@ fn scenario(name: &str, run: usize) -> Option<Vec<PacedDelta>> {
                 text: token(prefix, n, 60),
             })
             .collect(),
-        // Reasoning for 4 s at 60 deltas a second, then text.
+        // A title and 119 deltas of reasoning, 60 a second for 2 s, then 60 tokens of
+        // text. Each delta of the reasoning holds a word `zr` and five digits, which
+        // the bench looks for on the terminal.
         "reason" => {
-            let mut script = vec![PacedDelta {
-                at: MODEL_FIRST,
+            let mut script =
+                vec![PacedDelta { at: MODEL_FIRST, reasoning: true, text: TITLE.to_owned() }];
+            script.extend((1..REASONING).map(|n| PacedDelta {
+                at: MODEL_FIRST + Duration::from_secs_f64(n as f64 / 60.0),
                 reasoning: true,
-                text: "**Planning the answer**\n\n".to_owned(),
-            }];
-            script.extend((1..240).map(|n| PacedDelta {
-                at: MODEL_FIRST + Duration::from_secs_f64(f64::from(n) / 60.0),
-                reasoning: true,
-                text: format!(" step{n}"),
+                text: format!(" zr{n:05}"),
             }));
-            script.extend(steady(prefix, 0, 300, 60.0, MODEL_FIRST + Duration::from_secs(4), 60));
+            let text = MODEL_FIRST + Duration::from_secs(2);
+            script.extend(steady(prefix, 0, 60, 60.0, text, 60));
             script
         }
         // A short answer whose length and start move with the run: 30 tokens and 7
@@ -471,6 +479,13 @@ struct Pooled {
     first_frame: Vec<Duration>,
     cpu_self: Vec<u64>,
     cpu_efr: Vec<u64>,
+    /// The deltas of reasoning, and the ones whose text stood on the terminal.
+    reasoning: u64,
+    reasoning_shown: u64,
+    /// From the first delta of reasoning to its title on the terminal, and to the
+    /// first other text of the reasoning there.
+    title: Vec<Duration>,
+    reasoning_first: Vec<Duration>,
 }
 
 impl Pooled {
@@ -597,6 +612,48 @@ impl Pooled {
         }
         self.cpu_self.push(run.cpu_self);
         self.cpu_efr.push(run.cpu_efr);
+        self.add_reasoning(run);
+    }
+
+    /// The reasoning of `run` on the terminal: which of its words showed, and when the
+    /// title and the first word showed.
+    fn add_reasoning(&mut self, run: &Run) {
+        let Some(first) =
+            run.call.sent.iter().find(|(_, reasoning, _)| *reasoning).map(|(_, _, ns)| *ns)
+        else {
+            return;
+        };
+        let deltas = run.call.sent.iter().filter(|(_, reasoning, _)| *reasoning).count();
+        self.reasoning += deltas as u64;
+        let bytes = &run.shown.bytes;
+        // NOTE: the time of byte `offset` is the time of the read that held it.
+        let time_of = |offset: usize| {
+            let mut end = 0;
+            run.shown.chunks.iter().find_map(|(ns, _, len)| {
+                end += len;
+                (offset < end).then_some(*ns)
+            })
+        };
+        let title = TITLE.trim_matches(|c: char| c == '*' || c.is_whitespace());
+        let found = bytes.windows(title.len()).position(|window| window == title.as_bytes());
+        if let Some(time) = span(Some(first), found.and_then(time_of)) {
+            self.title.push(time);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut first_word = None;
+        for at in 0..bytes.len().saturating_sub(6) {
+            if bytes[at] == b'z'
+                && bytes[at + 1] == b'r'
+                && bytes[at + 2..at + 7].iter().all(u8::is_ascii_digit)
+            {
+                seen.insert(&bytes[at + 2..at + 7]);
+                first_word.get_or_insert(at);
+            }
+        }
+        self.reasoning_shown += u64::from(found.is_some()) + seen.len() as u64;
+        if let Some(time) = span(Some(first), first_word.and_then(time_of)) {
+            self.reasoning_first.push(time);
+        }
     }
 
     fn report(&self, report: &mut Report, scenario: &str) {
@@ -646,14 +703,26 @@ impl Pooled {
         report
             .count(&label("cpu of efrd and the model, clock ticks a run"), median(&self.cpu_self));
         report.count(&label("cpu of efr, clock ticks a run"), median(&self.cpu_efr));
+        if self.reasoning > 0 {
+            report.count(&label("reasoning: deltas"), self.reasoning);
+            report.count(
+                &label("reasoning: deltas on the terminal (title counts)"),
+                self.reasoning_shown,
+            );
+            report.time(&label("reasoning: first delta -> title on the terminal"), &self.title);
+            report.time(
+                &label("reasoning: first delta -> first word on the terminal"),
+                &self.reasoning_first,
+            );
+        }
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_stream_cadence() {
-    let names =
-        var("EFR_CADENCE_SCENARIOS").unwrap_or_else(|| "steady60,steady120,burst,end".to_owned());
+    let names = var("EFR_CADENCE_SCENARIOS")
+        .unwrap_or_else(|| "steady60,steady120,burst,reason,end".to_owned());
     let runs = usize::try_from(number("EFR_CADENCE_RUNS").unwrap_or(3)).unwrap();
     let load = var("EFR_CADENCE_LOAD").unwrap_or_else(|| "none".to_owned());
     let update_ms = number("EFR_CADENCE_UPDATE_MS");
