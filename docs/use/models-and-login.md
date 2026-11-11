@@ -212,7 +212,9 @@ The last line names the provider and where the list came from, such as
 - **Claude.** efr has no built-in list of Claude models. The models, their windows and
   their efforts come from the model list of the API. The default model is
   `claude-opus-5-5` when the API lists it, with the effort `medium`. Before the first
-  list, a prompt waits for one fetch, for at most 60 seconds. `[anthropic] models` adds
+  list, only the first prompt after a start or a login waits for a fetch, for at most
+  10 seconds. When that fetch fails, a prompt fails at once with the reason, and efrd
+  tries again in the background. `[anthropic] models` adds
   a model, or lowers the window of a listed model.
 
 efrd fetches the list at start, after each login and then every hour. A failed fetch

@@ -104,9 +104,11 @@ output limits and their efforts come from the model list of the API (`GET
   tries again after 15 s, 30 s, 1 min and 2 min, then every 5 min.
 - efrd keeps the list in `anthropic_model_catalog.json` in its state root
   (`~/.local/state/efr/` by default). A start without network uses that file.
-- Before the first list (the first start, or a start before the network is up), a
-  prompt waits for one request of the list, for at most 60 s. `efr models` then says
-  `no list yet; efrd fetches it before the next prompt`.
+- Before the first list (the first start, or a start before the network is up), only
+  the first prompt after a start or a login waits for the list, for at most 10 s.
+  When that fetch fails, a prompt fails at once with the reason, and efrd tries again
+  in the background. `efr models` then says
+  `no list yet; efrd fetches it in the background`.
 - The default model is `claude-opus-5-5` when the API lists it. `[model] name` sets
   another model, such as `claude-sonnet-5-5`. `,model` sets one for a terminal.
 - The default effort is `medium`, as in Claude Code. `[model] effort` and `,effort`

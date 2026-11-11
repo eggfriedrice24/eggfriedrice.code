@@ -80,9 +80,7 @@ fn a_claude_list_names_its_provider_and_the_anthropic_table_of_the_config() {
         "{text}"
     );
     assert!(
-        text.ends_with(
-            "models: anthropic-api, no list yet; efrd fetches it before the next prompt\n"
-        ),
+        text.ends_with("models: anthropic-api, no list yet; efrd fetches it in the background\n"),
         "{text}"
     );
 }

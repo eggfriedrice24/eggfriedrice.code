@@ -5,7 +5,8 @@
 //! measures it part by part, also while a turn runs; it records nothing. A conversation
 //! without a live actor gets one, which reads the history from the log; a conversation
 //! that does not exist is `not_found`. While the model catalog has no list yet, it
-//! first waits for one fetch, as a prompt does, so the window is the model's own. The
+//! first waits for the first fetch after a start or a login, as a prompt does, so the
+//! window is the model's own. The
 //! rules of the context are in the README of efr-conversation, section "Context".
 
 use efr_protocol::ConversationContext;

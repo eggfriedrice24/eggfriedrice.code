@@ -77,7 +77,8 @@ into the GitHub release notes, and it stops when the section is missing.
   an empty screen, also a prompt for another provider. Now only the first fetch after
   a start or a login holds a prompt, for at most 10 s. A prompt that needs the list
   then fails at once with the reason, and efrd fetches the list again in the
-  background after 15 s to 5 min.
+  background after 15 s to 5 min. `efr models` then says
+  `no list yet; efrd fetches it in the background`.
 
 ### Security
 

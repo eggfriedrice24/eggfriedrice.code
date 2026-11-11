@@ -7,7 +7,8 @@
 //! compaction runs, and when nothing lies before the tail, it is refused with
 //! `conflict`; a conversation that does not exist is `not_found`. A prompt that arrives
 //! meanwhile queues behind it. A retried command id answers from its receipt. While the
-//! model catalog has no list yet, it first waits for one fetch, as a prompt does. The
+//! model catalog has no list yet, it first waits for the first fetch after a start or a
+//! login, as a prompt does. The
 //! contract is in the README of efr-conversation, section "Context".
 
 use efr_conversation::ConversationError;

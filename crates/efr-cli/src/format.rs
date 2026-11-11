@@ -1171,7 +1171,7 @@ fn key_unchecked(provider: &ProviderStatus) -> bool {
 /// Which provider's model catalog the daemon has and where it came from, at `now`:
 /// `anthropic-api, from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m
 /// ago` (the backend did not answer yet), `built into efr`, or `no list yet; efrd
-/// fetches it before the next prompt`. An older daemon names no provider.
+/// fetches it in the background`. An older daemon names no provider.
 pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
     let fetched = |place: &str| match catalog.fetched_at {
         Some(at) => format!("from {place}, fetched {}", ago(at, now)),
@@ -1181,7 +1181,7 @@ pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
         CatalogOrigin::Backend => fetched("the backend"),
         CatalogOrigin::Cache => fetched("the cache"),
         CatalogOrigin::Builtin => "built into efr".to_owned(),
-        CatalogOrigin::Missing => "no list yet; efrd fetches it before the next prompt".to_owned(),
+        CatalogOrigin::Missing => "no list yet; efrd fetches it in the background".to_owned(),
         _ => "from elsewhere".to_owned(),
     };
     match &catalog.provider {

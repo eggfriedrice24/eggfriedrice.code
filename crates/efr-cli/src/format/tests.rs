@@ -414,7 +414,7 @@ fn the_catalog_says_where_it_came_from_and_when() {
     let builtin = status(efr_protocol::CatalogOrigin::Builtin, None);
     assert_eq!(catalog(&builtin, now()), "built into efr");
     let missing = status(efr_protocol::CatalogOrigin::Missing, None);
-    assert_eq!(catalog(&missing, now()), "no list yet; efrd fetches it before the next prompt");
+    assert_eq!(catalog(&missing, now()), "no list yet; efrd fetches it in the background");
 }
 
 #[test]
@@ -432,7 +432,7 @@ fn the_catalog_names_its_provider() {
     };
     assert_eq!(
         catalog(&missing, now()),
-        "anthropic-api, no list yet; efrd fetches it before the next prompt"
+        "anthropic-api, no list yet; efrd fetches it in the background"
     );
 }
 

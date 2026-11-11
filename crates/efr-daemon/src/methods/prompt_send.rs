@@ -28,10 +28,11 @@
 //! retry cannot change is kept as a rejected receipt.
 //!
 //! While the model catalog has no list yet (the Anthropic catalog before its first
-//! fetch), the prompt first waits for one fetch (`catalog.rs`, `Models::ready`), so its
-//! turn knows the limits of its model. When the fetch gives no list either, the prompt
-//! fails with the cause (`Providers::check_list`): no key is stored, so it says how to
-//! log in, or the fetch failed, so it says why.
+//! fetch), the prompt first waits for the first fetch after a start or a login, never
+//! for a later one (`catalog.rs`, `Models::ready`), so its turn knows the limits of its
+//! model. When there is still no list, the prompt fails with the cause
+//! (`Providers::check_list`): no key is stored, so it says how to log in, or the fetch
+//! failed, so it says why.
 //!
 //! A prompt that names no model of its own fails before anything waits when
 //! `[model] name` is a model of another company than `[model] provider`
