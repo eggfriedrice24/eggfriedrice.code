@@ -625,7 +625,7 @@ async fn a_long_quiet_connection_sends_its_request_only_after_the_pong() {
         if socket.closed || socket.messages.len() > 1 {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        efr_stdx::time::SystemClock.sleep(Duration::from_millis(5)).await;
     }
     let socket = &setup.server.sockets()[0];
     assert!(socket.closed, "the connection closed");
