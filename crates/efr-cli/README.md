@@ -154,21 +154,22 @@ Replies:
 - All text that arrived goes into the renderer at the next frame, so it shows within
   one frame of its arrival; nothing holds it back to pace it. What streams is what
   `efr_render::render` makes of the whole text.
-- While the model reasons on a terminal (`reasoning` drafts), one live line under the
-  reply and above the status row shows the newest words of the reasoning, in the
-  `muted` role and italic, cut from the start to one row with `…`, without the bold
-  title lines and the Markdown marks (`follow/view/reasoning.rs`). The line shows only
-  when the phase has run for 1 s (`LINE_AFTER`): the summary of a short phase comes in
-  one piece just before its tool call, and its line would show for a moment and go.
-  The line holds whole words in at most 100 columns and one column less than the
-  screen, and its start moves 8 words at a time (`LINE_STEP`). It goes when the
-  phase of reasoning ends: at text, a tool input or compaction draft, a text update,
-  the end of a message, a call's start or the end of the turn. A phase of 2 s or more
+- While the model reasons on a terminal (`reasoning` drafts), the status row says
+  `thinking: <title>` for a reasoning with a bold title. A reasoning without a title
+  puts its newest words in that place, cut from the start with `…`, without the
+  Markdown marks (`follow/view/reasoning.rs`): whole words in at most 50 columns
+  (`WORDS_COLUMNS`), whose start moves 4 words at a time (`WORDS_STEP`). The words
+  show only when the phase has run for 1 s (`WORDS_AFTER`): the summary of a short
+  phase comes in one piece just before its tool call, and its words would show for a
+  moment and go. No row of the live zone holds the reasoning, because a row that comes
+  and goes moves the status row. A phase of reasoning ends at text, a tool input or
+  compaction draft, a text update, the end of a message, a call's start or the end of
+  the turn. A phase of 2 s or more
   (its time from the frames that drew it) leaves one row at column 0 in the
   scrollback: `▸ <title>  thought 6s`, the newest bold title in the `text` role and
   bold, the rest muted; without a title, the first words in italic, cut with `…` at
   58 columns; with no words, `▸ thought 3s`. The row sticks to what follows it, so
-  the blank line goes above it, where the live line stood. No row inside a message
+  the blank line goes above it. No row inside a message
   that streams. Bold and italic stay with `NO_COLOR`; a pipe gets none of it. The
   reasoning goes nowhere else from the client.
 - While a turn runs on a terminal, the last row of the live zone is the status row:

@@ -1,8 +1,8 @@
-//! The reasoning of the model on a simulated screen: the one live line while the model
-//! thinks, the row that a phase of 2 s or more leaves in the scrollback (with a title,
-//! with the first words, with no words), a phase under 2 s that leaves nothing, a
-//! narrow screen, the spacing around the row, `NO_COLOR`, a pipe, and the row that the
-//! live line takes when a tall line of text is clipped.
+//! The reasoning of the model on a simulated screen: the title or the newest words in
+//! the status row while the model thinks, the row that a phase of 2 s or more leaves in
+//! the scrollback (with a title, with the first words, with no words), a phase under
+//! 2 s that leaves nothing, a phase under 1 s that shows no words, a narrow screen, the
+//! spacing around the row, `NO_COLOR` and a pipe.
 
 use efr_protocol::{DraftPart, Event};
 use efr_render::{ColourMode, RenderOptions};
@@ -77,7 +77,7 @@ fn think_after(
 }
 
 #[test]
-fn a_titled_reasoning_shows_its_newest_words_live_and_leaves_a_bold_row() {
+fn a_titled_reasoning_shows_its_title_in_the_status_row_and_leaves_a_bold_row() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     let title = "**Planning the answer**\n\n";
     let parts = [
@@ -86,20 +86,14 @@ fn a_titled_reasoning_shows_its_newest_words_live_and_leaves_a_bold_row() {
         reasoning(title.len() + 13, " about the log size", Some("Planning the answer")),
     ];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 1_000);
-    assert_eq!(
-        lines,
-        ["The user asks about the log size", "\u{2022} thinking: Planning the answer  2s"]
-    );
+    // The title stands in the status row, and no row of the live zone holds the words.
+    assert_eq!(lines, ["\u{2022} thinking: Planning the answer  2s"]);
     // A draft that repeats text that the view holds adds only the rest.
     let repeated =
         reasoning(title.len() + 13, " about the log size, in GiB", Some("Planning the answer"));
     view.draft(&draft(11, repeated), size);
-    let (lines, written) = frame(&mut view, &mut grid, size, 3_100);
-    assert_eq!(
-        lines,
-        ["The user asks about the log size, in GiB", "\u{2022} thinking: Planning the answer  3s"]
-    );
-    assert!(written.contains("\x1b[2;3mThe user asks"), "{}", readable(&written));
+    let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
+    assert_eq!(lines, ["\u{2022} thinking: Planning the answer  3s"]);
     // The text ends the phase: its row stays at column 0, the text sticks to it.
     view.draft(&draft(11, text(0, "It takes 3.1 GiB.\n\n")), size);
     let (lines, written) = frame(&mut view, &mut grid, size, 3_200);
@@ -126,10 +120,8 @@ fn a_reasoning_without_a_title_leaves_its_first_words_in_italic() {
     let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
     assert_eq!(
         lines,
-        [
-            "\u{2026} I should run journalctl --disk-usage first, then look at the vacuum options.",
-            "\u{2022} thinking  1s",
-        ]
+        // Without a title, the newest words take its place in the status row.
+        ["\u{2022} thinking: \u{2026} at the vacuum options.  1s"]
     );
     frame(&mut view, &mut grid, size, 4_600);
     view.envelope(&sent(12, 4_700, turn_completed()), size, false);
@@ -149,7 +141,7 @@ fn a_reasoning_without_a_title_leaves_its_first_words_in_italic() {
 fn an_empty_reasoning_leaves_only_the_time() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     let lines = think(&mut view, &mut grid, size, &[reasoning(0, "\n\n", None)], 100, 0);
-    // No words, so no live line: the status row alone.
+    // No words: the status row says only `thinking`.
     assert_eq!(lines, ["\u{2022} thinking"]);
     frame(&mut view, &mut grid, size, 3_400);
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
@@ -162,10 +154,9 @@ fn a_phase_under_two_seconds_leaves_no_row() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     let parts = [reasoning(0, "**Checking**\n\nA quick look", Some("Checking"))];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 0);
-    // The live line waits for the phase to run for 1 s.
     assert_eq!(lines, ["\u{2022} thinking: Checking"]);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_000);
-    assert_eq!(lines, ["A quick look", "\u{2022} thinking: Checking  1s"]);
+    assert_eq!(lines, ["\u{2022} thinking: Checking  1s"]);
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_050);
     assert_eq!(lines, ["Done.", "\u{2022} writing  1s"]);
@@ -173,24 +164,30 @@ fn a_phase_under_two_seconds_leaves_no_row() {
 }
 
 #[test]
-fn a_phase_under_one_second_shows_no_live_line() {
+fn a_phase_under_one_second_shows_no_words() {
     // The summary of a short phase comes in one piece just before the tool call or the
-    // text that follows it. Its line would show for a moment and go.
+    // text that follows it. Its words would show for a moment and go.
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     view.draft(&draft(11, reasoning(0, "I check the client file first.", None)), size);
     for millis in [100, 400, 900] {
         let (lines, _) = frame(&mut view, &mut grid, size, millis);
-        assert_eq!(lines.len(), 1, "at {millis} ms: {lines:?}");
-        assert!(lines[0].starts_with("\u{2022} thinking"), "{lines:?}");
+        assert_eq!(lines, ["\u{2022} thinking"], "at {millis} ms");
     }
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 950);
     assert_eq!(lines, ["Done.", "\u{2022} writing"]);
 }
 
+/// The words of the reasoning in the status row `line`, between `thinking: ` and the
+/// time.
+fn words_of(line: &str) -> &str {
+    let rest = line.split_once("thinking: ").map_or("", |(_, rest)| rest);
+    rest.rsplit_once("  ").map_or(rest, |(words, _)| words)
+}
+
 #[test]
-fn a_long_reasoning_shows_whole_words_and_its_start_moves_in_steps() {
-    let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
+fn the_newest_words_are_whole_words_and_their_start_moves_in_steps() {
+    let (mut view, mut grid, size) = view_of(100, ColourMode::Ansi16);
     let words: Vec<String> = (0..40).map(|n| format!("word{n:02}")).collect();
     let mut sent = 0;
     let mut starts = Vec::new();
@@ -202,42 +199,44 @@ fn a_long_reasoning_shows_whole_words_and_its_start_moves_in_steps() {
         if n < 10 {
             continue;
         }
-        let line = &lines[0];
-        // One column stays free, and the line holds whole words.
-        assert!(line.chars().count() <= 59, "{line}");
-        assert!(line.ends_with(word.as_str()), "{line}");
-        if let Some(rest) = line.strip_prefix("\u{2026} ") {
-            assert!(rest.starts_with("word"), "{line}");
-            starts.push(rest[..6].to_owned());
-        }
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let shown = words_of(&lines[0]);
+        // At most 50 columns of whole words, and the newest word is the last one.
+        assert!(shown.chars().count() <= 50, "{shown}");
+        assert!(shown.ends_with(word.as_str()), "{shown}");
+        let rest = shown.strip_prefix("\u{2026} ").unwrap_or_else(|| panic!("{shown}"));
+        starts.push(rest[..6].to_owned());
     }
-    // The line is full from the ninth word on. Its start then stands for some words
-    // and jumps on by 8 words; it never moves with each word.
+    // The start stands for some words and then jumps on by 4 words. It never moves
+    // with each word.
     starts.dedup();
-    assert_eq!(starts, ["word08", "word16", "word24", "word32"]);
+    let steps: Vec<String> = (1..10).map(|n| format!("word{:02}", n * 4)).collect();
+    assert_eq!(starts, steps);
 }
 
 #[test]
-fn a_wide_screen_keeps_the_live_line_to_100_columns() {
+fn a_wide_screen_keeps_the_words_to_50_columns() {
     let (mut view, mut grid, size) = view_of(232, ColourMode::Ansi16);
     let long: String = (0..80).map(|n| format!("word{n:02} ")).collect();
     view.draft(&draft(11, reasoning(0, long.trim_end(), None)), size);
     frame(&mut view, &mut grid, size, 100);
     let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
-    assert!(lines[0].chars().count() <= 100, "{}", lines[0]);
-    assert!(lines[0].starts_with("\u{2026} word"), "{}", lines[0]);
-    assert!(lines[0].ends_with("word79"), "{}", lines[0]);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let shown = words_of(&lines[0]);
+    assert!(shown.chars().count() <= 50, "{shown}");
+    assert!(shown.starts_with("\u{2026} word"), "{shown}");
+    assert!(shown.ends_with("word79"), "{shown}");
 }
 
 #[test]
-fn a_narrow_screen_cuts_the_live_line_and_the_row_to_one_row() {
+fn a_narrow_screen_cuts_the_status_row_and_the_row_to_one_row() {
     let (mut view, mut grid, size) = view_of(24, ColourMode::Ansi16);
     let parts = [
         reasoning(0, "**Planning the long answer**\n\n", Some("Planning the long answer")),
         reasoning(30, "one two three four five six seven", Some("Planning the long answer")),
     ];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 2_900);
-    assert_eq!(lines, ["\u{2026} four five six seven", "\u{2022} thinking: Plannin\u{2026}  2s"]);
+    assert_eq!(lines, ["\u{2022} thinking: Plannin\u{2026}  2s"]);
     view.draft(&draft(11, text(0, "Yes.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
     assert_eq!(lines, ["\u{25b8} Planning\u{2026}  thought 2s", "Yes.", "\u{2022} writing  3s"]);
@@ -260,8 +259,7 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
     let parts = [reasoning(0, "**Next step**\n\nThen the docs", Some("Next step"))];
     think_after(12, &mut view, &mut grid, size, &parts, 100, 0);
     let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
-    // The live line takes the place of the row, with the blank line above it.
-    assert_eq!(lines, ["First.", "", "Then the docs", "\u{2022} thinking: Next step  1s"]);
+    assert_eq!(lines, ["First.", "\u{2022} thinking: Next step  1s"]);
     frame(&mut view, &mut grid, size, 2_600);
     view.draft(&draft(12, text(1, "Second.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_700);
@@ -308,19 +306,21 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
 #[test]
 fn no_color_keeps_the_bold_and_the_italic() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::None);
-    let start = "**Planning**\n\nThe user asks";
-    let parts =
-        [reasoning(0, start, Some("Planning")), reasoning(start.len(), " more", Some("Planning"))];
-    think(&mut view, &mut grid, size, &parts, 100, 2_400);
-    let (_, live) = frame(&mut view, &mut grid, size, 2_550);
-    let _ = live;
-    view.draft(&draft(11, reasoning(start.len() + 5, " again", Some("Planning"))), size);
-    let (_, live) = frame(&mut view, &mut grid, size, 2_560);
-    assert!(live.contains("\x1b[2;3mThe user asks more again\x1b[0m"), "{}", readable(&live));
+    let parts = [reasoning(0, "**Planning**\n\nThe user asks", Some("Planning"))];
+    think(&mut view, &mut grid, size, &parts, 100, 0);
+    frame(&mut view, &mut grid, size, 2_550);
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
     let (lines, written) = frame(&mut view, &mut grid, size, 2_600);
     assert_eq!(lines[0], "\u{25b8} Planning  thought 2s");
     assert!(written.contains("\x1b[1mPlanning\x1b[0m"), "{}", readable(&written));
+    // Without a title, the first words of the row are in italic.
+    let (mut view, mut grid, size) = view_of(60, ColourMode::None);
+    think(&mut view, &mut grid, size, &[reasoning(0, "The user asks more", None)], 100, 0);
+    frame(&mut view, &mut grid, size, 2_550);
+    view.draft(&draft(11, text(0, "Done.\n\n")), size);
+    let (lines, written) = frame(&mut view, &mut grid, size, 2_600);
+    assert_eq!(lines[0], "\u{25b8} The user asks more  thought 2s");
+    assert!(written.contains("\x1b[2;3mThe user asks more\x1b[0m"), "{}", readable(&written));
 }
 
 #[test]
@@ -335,35 +335,6 @@ fn a_pipe_shows_nothing_of_the_reasoning() {
     let step = view.envelope(&sent(12, 3_000, completed(0, "Done.")), size, false);
     assert_eq!(step.out, "Done.\n");
     assert_eq!(step.err, "");
-}
-
-#[test]
-fn the_live_line_counts_as_a_row_when_a_tall_line_of_text_is_clipped() {
-    let (mut view, mut grid, _) = view_of(40, ColourMode::Ansi16);
-    // Six rows: five for the live zone, one for the cursor below it.
-    let size = Size { cols: 40, rows: 6 };
-    // A message that still streams, with one partial line of nine rows.
-    let words: String = (0..60).map(|n| format!("w{n:02} ")).collect();
-    view.draft(&draft(11, text(0, &words)), size);
-    for millis in (100..=2_000).step_by(100) {
-        frame(&mut view, &mut grid, size, millis);
-    }
-    view.draft(&draft(11, reasoning(0, "Checking the size", None)), size);
-    frame(&mut view, &mut grid, size, 2_100);
-    let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
-    // The newest rows of the text, the blank line, the live line and the status row
-    // fill the five rows.
-    assert_eq!(lines.len(), 5, "{lines:?}");
-    assert_eq!(
-        lines[..4],
-        [
-            "w40 w41 w42 w43 w44 w45 w46 w47 w48 w49",
-            "w50 w51 w52 w53 w54 w55 w56 w57 w58 w59",
-            "",
-            "Checking the size"
-        ]
-    );
-    assert!(lines[4].starts_with("\u{2022} thinking"), "{lines:?}");
 }
 
 #[test]

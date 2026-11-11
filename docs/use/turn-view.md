@@ -35,13 +35,17 @@ The field is green below 50%, yellow from 50% and red from 90%.
 
 ### The reasoning
 
-While the model thinks, one dim line in italic shows the newest words of its
-reasoning. The line stands under the reply and above the status row. It shows after
-the model thought for 1 s, so a short thought before a tool call does not make a line
-show and go at once. The line always takes one row of whole words, at most 100
-columns wide, and its start moves some words at a time, so the text stands still
-while it grows. The status row says `thinking`, with the title of the reasoning when
-it has a bold title.
+While the model thinks, the status row says `thinking`. When the reasoning has a bold
+title, the title follows: `thinking: Reading the logs`. A reasoning with no title,
+such as the reasoning of a Claude model, shows its newest words in that place, after
+the model thought for 1 s:
+
+```text
+⠼ thinking: … weighing three ways to keep the provider  17s  ctx 2%  app
+```
+
+The words are whole words in at most 50 columns. Their start moves some words at a
+time, so they stand still while they grow.
 
 When the model thought for 2 seconds or more, one line stays in your scrollback:
 

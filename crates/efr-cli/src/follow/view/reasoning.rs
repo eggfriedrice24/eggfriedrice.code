@@ -1,10 +1,12 @@
-//! The reasoning of the model on a terminal. While the model thinks, one live line
-//! under the reply and above the status row shows the newest words of its reasoning,
-//! muted and in italic, cut to one row: it never wraps. The line shows only when the
-//! phase has run for [`LINE_AFTER`]: the summary of a short phase comes in one piece
-//! just before the tool call that follows it, so its line would show for a moment and
-//! go. The line holds whole words, in at most [`LINE_COLUMNS`] columns, and its start
-//! moves [`LINE_STEP`] words at a time, so the text stands still while it grows. When a phase of reasoning ends
+//! The reasoning of the model on a terminal. While the model thinks, the status row
+//! says `thinking`, with the bold title of the reasoning when it has one. A reasoning
+//! without a title, such as the reasoning of a Claude model, puts its newest words in
+//! that place ([`Reasoning::words`]): whole words in at most [`WORDS_COLUMNS`] columns.
+//! They show only when the phase has run for [`WORDS_AFTER`]: the summary of a short
+//! phase comes in one piece just before the tool call that follows it, so its words
+//! would show for a moment and go. Their start moves [`WORDS_STEP`] words at a time, so
+//! the words stand still while they grow. No row of the live zone holds the reasoning:
+//! a row that comes and goes moves the status row. When a phase of reasoning ends
 //! and it took [`ROW_AFTER`] or more, one row stays in the scrollback, at column 0:
 //! `▸ <title>  thought 6s`, the bold title of the reasoning in the `text` role and the
 //! rest muted. Without a title, the first words of the reasoning stand in its place,
@@ -32,14 +34,14 @@ use crate::format;
 /// The shortest phase of reasoning that leaves a row in the scrollback.
 pub(crate) const ROW_AFTER: Duration = Duration::from_secs(2);
 
-/// How long a phase runs before its live line shows.
-pub(crate) const LINE_AFTER: Duration = Duration::from_secs(1);
+/// How long a phase runs before the status row shows its newest words.
+pub(crate) const WORDS_AFTER: Duration = Duration::from_secs(1);
 
-/// The most columns of the live line. A line as wide as a wide terminal is hard to read.
-const LINE_COLUMNS: usize = 100;
+/// The most columns of the newest words in the status row, with the `…` before them.
+const WORDS_COLUMNS: usize = 50;
 
-/// The words by which the start of the live line moves when the line is full.
-const LINE_STEP: usize = 8;
+/// The words by which the start of the newest words moves when they are full.
+const WORDS_STEP: usize = 4;
 
 /// The columns of the first words of a reasoning without a title, with the `…`.
 const FIRST_WORDS: usize = 58;
@@ -51,7 +53,7 @@ const MIN_LABEL: usize = 8;
 /// The mark at the start of the row.
 const MARK: &str = "\u{25b8}";
 
-/// The newest bytes of a phase that the live line looks at: one row never shows more.
+/// The newest bytes of a phase that the status row looks at for its newest words.
 const TAIL: usize = 2048;
 
 /// The first bytes of a phase that the row looks at for its first words.
@@ -118,25 +120,17 @@ impl Reasoning {
         }
     }
 
-    /// The live line of the phase that runs, at the width of `options`, with its
-    /// newline; `None` before its first words and before the phase has run for
-    /// [`LINE_AFTER`].
-    pub(crate) fn live(&self, options: &RenderOptions) -> Option<String> {
+    /// The newest words of the phase that runs, for the status row: whole words in at
+    /// most [`WORDS_COLUMNS`] columns. `None` for a phase with a title, which the status
+    /// row shows in their place, before the first words, and before the phase has run
+    /// for [`WORDS_AFTER`].
+    pub(crate) fn words(&self, method: WidthMethod) -> Option<String> {
         let phase = self.phase.as_ref()?;
-        if since_then(phase.since?, phase.seen?) < LINE_AFTER {
+        if phase.title.is_some() || since_then(phase.since?, phase.seen?) < WORDS_AFTER {
             return None;
         }
         let words = plain(&phase.tail, true);
-        if words.is_empty() {
-            return None;
-        }
-        // NOTE: one column less than the screen, so the line never fills its row and
-        // the terminal never has a wrap to hold back.
-        let columns = usize::from(options.width()).saturating_sub(1).min(LINE_COLUMNS);
-        let line = newest(&words, columns, options.width_method());
-        let mut out = styled(Role::Muted, ITALIC, &line, options);
-        out.push('\n');
-        Some(out)
+        (!words.is_empty()).then(|| newest(&words, WORDS_COLUMNS, method))
     }
 
     /// Ends the phase that runs. The row it leaves, with its newline, when it took
@@ -261,8 +255,8 @@ fn unmarked(line: &str) -> &str {
 
 /// The newest words of `text`, whose words one space parts, that fit in `columns`,
 /// after a `…` when the start is cut off. The cut is at a word, and the start moves
-/// [`LINE_STEP`] words at a time: while words come, the line grows at its end and
-/// stands still, and when it is full its start jumps on. A word wider than the line is
+/// [`WORDS_STEP`] words at a time: while words come, the text grows at its end and
+/// stands still, and when it is full its start jumps on. A word wider than the room is
 /// cut at its start.
 fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
     if text_width(text, method) <= columns {
@@ -282,7 +276,7 @@ fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
         used += width;
         fits = at;
     }
-    let start = fits.div_ceil(LINE_STEP) * LINE_STEP;
+    let start = fits.div_ceil(WORDS_STEP) * WORDS_STEP;
     if start < words.len() {
         return format!("\u{2026} {}", words[start..].join(" "));
     }
@@ -293,7 +287,7 @@ fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
 }
 
 /// The end of `text` that fits in `columns` cells, after a `…`: for a last word that
-/// is wider than the line.
+/// is wider than the room.
 fn newest_cells(text: &str, columns: usize, method: WidthMethod) -> String {
     let room = columns.saturating_sub(1);
     let pieces: Vec<(usize, &str)> = match method {

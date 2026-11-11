@@ -859,7 +859,8 @@ async fn bench_perf_stream_cadence() {
     report.finish();
     // The budget, in counts that do not depend on the load of the machine: every run
     // shows its answer, the last token of a turn never waits for the key reader, and
-    // the reasoning shows on the terminal (the title and at least 17 of its 120 words).
+    // the reasoning shows on the terminal. Its phase has a title, so the status row
+    // shows the title and not the words: one delta a run.
     for (name, pooled) in &pooled {
         assert_eq!(pooled.failed, 0, "{name}: runs that failed");
         if name == "end" {
@@ -867,7 +868,7 @@ async fn bench_perf_stream_cadence() {
         }
         if name == "reason" {
             assert!(
-                pooled.reasoning_shown >= 17 * pooled.runs,
+                pooled.reasoning_shown >= pooled.runs,
                 "reason: {} reasoning deltas on the terminal in {} runs",
                 pooled.reasoning_shown,
                 pooled.runs

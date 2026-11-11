@@ -578,7 +578,7 @@ pub(crate) struct TurnView {
     message: Option<Message>,
     /// Messages with a smaller index are complete.
     next_index: u32,
-    /// The reasoning of the turn on a terminal: its live line and its row.
+    /// The reasoning of the turn on a terminal: its words for the status row and its row.
     reasoning: Reasoning,
     tools: HashMap<CallId, String>,
     live: LiveZone,
@@ -1066,8 +1066,8 @@ impl TurnView {
 
     /// Takes a draft: the part of this turn that the daemon sends before it records it.
     /// Text merges with the persisted updates of its message; the input of a tool call
-    /// only changes the status row. Reasoning changes the status row and, on a terminal,
-    /// its live line, until text, a tool call or the end of the turn ends its phase. A
+    /// only changes the status row. Reasoning changes the status row, until text, a tool
+    /// call or the end of the turn ends its phase. A
     /// draft of another turn, or one older than an event of this turn that ends what
     /// drafts show, changes nothing.
     pub(crate) fn draft(&mut self, draft: &Draft, size: Size) -> Step {
@@ -1204,8 +1204,17 @@ impl TurnView {
             status.at(now, asking);
         }
         self.reasoning.at(now);
-        let (body, measured) = self.live_body(size, now);
         let options = self.options_at(size);
+        // NOTE: a reasoning without a title puts its newest words in the place of the
+        // title. The state is set at each frame, because the words come with the
+        // frames: a phase shows none in its first second.
+        if let Some(words) = self.reasoning.words(options.width_method())
+            && let Some(status) = &mut self.status
+            && matches!(status.state(), State::Thinking(_))
+        {
+            status.set(State::Thinking(Some(words)));
+        }
+        let (body, measured) = self.live_body(size, now);
         // A running call's line carries the spinner instead of the row.
         let row = match &self.status {
             Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
@@ -3653,8 +3662,8 @@ impl TurnView {
         }
     }
 
-    /// Ends the phase of reasoning that runs: its live line goes, and a phase that took
-    /// long enough leaves its row in the scrollback. The row sticks to the text or the
+    /// Ends the phase of reasoning that runs: a phase that took long enough leaves its
+    /// row in the scrollback. The row sticks to the text or the
     /// tool call that follows it, so the blank line before that goes above the row; any
     /// other block, such as a question or the end line, keeps its blank line. Inside a
     /// message that still streams there is no row, because it would cut the text of the
@@ -3751,7 +3760,7 @@ impl TurnView {
     }
 
     /// The live zone above the status row at `now`: the current message's live text,
-    /// the line of the reasoning, the running call's line, the last lines of its output
+    /// the running call's line, the last lines of its output
     /// and the input it waits for, then the question when one is pending.
     fn live_body(&self, size: Size, now: Timestamp) -> (String, Option<Measured>) {
         let (mut live, mut measured) = match &self.message {
@@ -3763,13 +3772,6 @@ impl TurnView {
         };
         let options = self.options_at(size);
         let before = live.len();
-        // NOTE: with the blank line that its row gets, so the row lands where it stood.
-        if !self.ended
-            && let Some(line) = self.reasoning.live(&options)
-        {
-            live.push_str(self.spacing.peek(Block::Message));
-            live.push_str(&line);
-        }
         if self.call_shown()
             && let Some(call) = &self.call
         {
