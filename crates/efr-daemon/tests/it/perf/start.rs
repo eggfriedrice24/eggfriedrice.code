@@ -389,7 +389,8 @@ fn claude(server: &ProviderServer) {
 
 /// The states of a prompt on each path, with a history of 20, 200 and 2,000 turns: the
 /// first prompt after a start, the second one at once, a warm one; and with 20 turns
-/// also a prompt after 31 s of quiet, after the provider closed the connection, after
+/// also a prompt after 31 s of quiet (on `ws` also on a socket that died without a
+/// close), after the provider closed the connection, after
 /// 10 min of idle time, and against a provider that answers slowly.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
@@ -448,6 +449,24 @@ async fn bench_perf_start_phases() {
                 }
                 server.set(|knobs| knobs.pong = Duration::ZERO);
                 quiet_slow.report(&mut report, "h20 quiet31s+pong100ms", path.name());
+
+                // NOTE: the WebSocket died without a close, as after a sleep of the
+                // laptop: the call must still reach HTTP within the ping time of 5 s.
+                // The fall to HTTP drops the connection, so a prompt before each
+                // sample opens a live one.
+                if path == Path::Ws {
+                    let mut dead = Samples::default();
+                    for _ in 0..3 {
+                        one(&daemon, &server, &cwd, None, plain).await;
+                        clock.advance(Duration::from_secs(31));
+                        settle().await;
+                        server.set(|knobs| knobs.dead = true);
+                        dead.0.push(one(&daemon, &server, &cwd, None, plain).await);
+                        server.set(|knobs| knobs.dead = false);
+                    }
+                    dead.report(&mut report, "h20 quiet31s+dead", path.name());
+                    turns += 6;
+                }
 
                 // NOTE: the answer of each prompt closes its connection, so each
                 // measured prompt needs a new one.

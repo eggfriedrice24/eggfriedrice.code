@@ -211,12 +211,15 @@ The connections:
 - It stays open between the calls of a turn and between turns. It closes after 10
   minutes without a call, when the server closes it, after a failure, and it takes no
   call after 55 minutes, before the server's limit of 60 minutes.
-- A call on a connection that had no call for 30 seconds first sends a ping. A
-  connection can die without a close, such as during a sleep of the computer, a change
-  of network or a NAT that forgets the flow. When the pong does not come in 5 seconds,
-  the connection closes and the call goes over HTTP, because its request did not go
-  out. Without the ping, such a call would wait for the read timeout of 300 seconds.
-  The calls of one turn follow each other within seconds and skip the ping.
+- A call on a connection that had no call for 30 seconds sends a ping and then its
+  request at once. It does not wait for the pong, so a connection that works costs no
+  round trip. A connection can die without a close, such as during a sleep of the
+  computer, a change of network or a NAT that forgets the flow. When neither the pong
+  nor an event comes in 5 seconds, or the connection breaks or ends before them, the
+  connection closes and the call goes over HTTP. A server reads the ping before the
+  request and answers it at once, so a server that has the request sends the pong.
+  Without the ping, such a call would wait for the read timeout of 300 seconds. The
+  calls of one turn follow each other within seconds and skip the ping.
 - The handshake is an HTTP/1.1 `GET <base_url>/responses` through `efr_http`'s client
   (the same rustls stack and `User-Agent: efr/<version>`), with the headers of the
   HTTP path (`Authorization`, and on the subscription `chatgpt-account-id`,
@@ -250,7 +253,8 @@ Fallback to HTTP: a call goes over HTTP when the server certainly did not act on
 request, so the HTTP request is the first and only model call:
 
 - the connection cannot be opened, or the server refuses the upgrade;
-- a connection that had no call for 30 seconds does not answer its ping;
+- a connection that had no call for 30 seconds gives neither the pong of its ping nor
+  an event in 5 seconds, or it breaks or ends before them;
 - the request could not be written whole;
 - the server does not take the call: it closes the connection with a close frame
   before the first event of an answer (`response.*`), or it sends an `error` event
@@ -274,7 +278,8 @@ answers the request do not pause them.
 Once the request has gone out, a failure that does not show that the server refused
 it is the call's failure, also before the first event of an answer: a broken
 connection, a connection that ends without a close frame, no event for 300 seconds, or
-a request that could not be sent in 30 seconds. The server may have taken the request,
+a request that could not be sent in 30 seconds. The one exception is a quiet connection
+before its pong and its first event, as above. The server may have taken the request,
 so the call is not sent again, as on the HTTP path, where `efr_http::RetryPolicy` does
 not send a `POST` again after a broken connection or a timeout. Once the server has
 started an answer, every failure is the call's failure: a close or a lost connection is

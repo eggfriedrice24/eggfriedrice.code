@@ -5,14 +5,15 @@
 //! `response.interrupt` for the answer and reads until the answer ends, so the
 //! connection is clean for the next request. While no request runs, it closes the
 //! connection after [`Limits::idle`] or when the server closes it. A request that comes
-//! after [`Limits::probe_after`] without one first pings the server: a connection that
-//! died without a close, such as after a sleep of the laptop or a change of network,
-//! then fails fast, before the request goes out.
+//! after [`Limits::probe_after`] without one goes out right after a ping, with no wait
+//! for the pong. A connection that died without a close, such as after a sleep of the
+//! laptop or a change of network, gives neither the pong nor a message, so it fails
+//! after [`Limits::probe`] and the call goes over HTTP.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use efr_http::{HttpError, WebSocket, WsMessage};
+use efr_http::{HttpError, Pong, WebSocket, WsMessage};
 use efr_provider::ProviderError;
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
@@ -40,10 +41,11 @@ const ENDS: &[&str] = &["response.completed", "response.incomplete", "response.f
 pub(crate) struct Limits {
     /// How long an unused connection stays open.
     pub(crate) idle: Duration,
-    /// How long a connection may go without a request before the next request pings
-    /// the server first.
+    /// How long a connection may go without a request before the next request sends a
+    /// ping with it.
     pub(crate) probe_after: Duration,
-    /// How long the pong of that ping may take.
+    /// How long that ping may go without its pong and without a message of the
+    /// server.
     pub(crate) probe: Duration,
     /// The longest silence inside an answer, as the read timeout of the HTTP path.
     pub(crate) read: Duration,
@@ -229,24 +231,7 @@ async fn run(
         let quiet = idle_since.is_some_and(|since| {
             clock.now().duration_since(since).unsigned_abs() >= limits.probe_after
         });
-        if quiet {
-            efr_stdx::mark::hit("ws.probe.begin");
-        }
-        let alive = !quiet || probe(&socket, &*clock, limits).await;
-        if quiet {
-            efr_stdx::mark::hit("ws.probe.end");
-        }
-        if !alive {
-            // NOTE: the request has not gone out, so the server has not seen it and
-            // the call may go over HTTP. A dead connection says nothing about the
-            // transport, so WebSockets do not pause.
-            retire(&shared);
-            let reason = "the websocket did not answer a ping".to_owned();
-            let refusal = Refusal { reason, health: Health::Fine };
-            let _ = create.events.send(Delivery::Refused(refusal)).await;
-            break;
-        }
-        match serve(&mut socket, create, &shared, &*clock, limits).await {
+        match serve(&mut socket, create, &shared, &*clock, limits, quiet).await {
             Served::Idle => idle_since = Some(clock.now()),
             Served::Dead => break,
         }
@@ -255,19 +240,69 @@ async fn run(
     let _ = clock.timeout(limits.send, socket.close(1000)).await;
 }
 
-/// True when the server answers a ping within [`Limits::probe`].
-async fn probe(socket: &WebSocket, clock: &dyn Clock, limits: Limits) -> bool {
-    match Clock::timeout(&clock, limits.probe, socket.ping()).await {
-        Ok(Ok(())) => true,
-        Ok(Err(error)) => {
-            tracing::debug!(%error, "the ping of an unused websocket failed; closing it");
-            false
+/// The open check of a quiet connection: its ping went out with the request, and the
+/// pong or the first message shows that the connection still works.
+struct Proof {
+    /// The wait for the pong; `None` once the connection ended before it.
+    pong: Option<Pong>,
+    /// The end of [`Limits::probe`] from the ping.
+    deadline: Sleep,
+}
+
+/// What came first while a [`Proof`] was open.
+enum Heard {
+    /// The pong: the connection works.
+    Pong,
+    /// The connection ended before the pong. The next read tells whether a message of
+    /// the server came before the end.
+    NoPong,
+    /// Neither the pong nor a message came within [`Limits::probe`].
+    Late,
+}
+
+/// Waits for the pong of `proof` or for its deadline; never ends without a proof.
+async fn listen(proof: &mut Option<Proof>) -> Heard {
+    let Some(Proof { pong, deadline }) = proof.as_mut() else {
+        return std::future::pending().await;
+    };
+    let pong = async {
+        match pong.as_mut() {
+            Some(pong) => pong.await,
+            None => std::future::pending().await,
         }
-        Err(_) => {
-            tracing::debug!(probe = ?limits.probe, "an unused websocket did not answer a ping in time; closing it");
-            false
+    };
+    tokio::select! {
+        biased;
+        answered = pong => if answered.is_ok() { Heard::Pong } else { Heard::NoPong },
+        () = deadline => Heard::Late,
+    }
+}
+
+/// Ends the open check: the connection showed that it works.
+fn prove(proof: &mut Option<Proof>) {
+    if proof.take().is_some() {
+        efr_stdx::mark::hit("ws.probe.end");
+    }
+}
+
+/// Takes what a quiet connection showed. `Some` when the request must end: the
+/// connection did not show in time that it works.
+async fn hear(heard: Heard, proof: &mut Option<Proof>, request: &Request<'_>) -> Option<Served> {
+    match heard {
+        Heard::Pong => prove(proof),
+        Heard::NoPong => {
+            if let Some(proof) = proof.as_mut() {
+                proof.pong = None;
+            }
+        }
+        Heard::Late => {
+            efr_stdx::mark::hit("ws.probe.late");
+            let reason =
+                "a quiet websocket answered neither its ping nor its request in time".to_owned();
+            return Some(request.fail(reason, Health::Fine, ProviderError::Incomplete).await);
         }
     }
+    None
 }
 
 /// Marks the connection closed and free: it takes no more requests.
@@ -311,8 +346,9 @@ impl Request<'_> {
 
     /// Ends a request that failed with a refusal before the server took it, or with
     /// `failed` after. Only for a failure that shows that the server did not act on
-    /// the request when no answer has started: the server's own close or a message
-    /// that breaks the protocol.
+    /// the request when no answer has started: the server's own close, a message that
+    /// breaks the protocol, or a quiet connection that gave neither its pong nor a
+    /// message.
     async fn fail(&self, reason: String, health: Health, failed: ProviderError) -> Served {
         self.retire();
         if self.accepted {
@@ -334,12 +370,15 @@ impl Request<'_> {
     }
 }
 
+/// Runs one request. `quiet`: the connection had no request for
+/// [`Limits::probe_after`], so it may have died without a close.
 async fn serve(
     socket: &mut WebSocket,
     create: Create,
     shared: &Mutex<Shared>,
     clock: &dyn Clock,
     limits: Limits,
+    quiet: bool,
 ) -> Served {
     let Create { message, settings, prints, events } = create;
     let mut request = Request {
@@ -351,7 +390,45 @@ async fn serve(
         interrupted: false,
         items: Vec::new(),
     };
-    match Clock::timeout(&clock, limits.send, socket.send_text(message)).await {
+    // NOTE: the ping of a quiet connection goes out first and the request right after
+    // it, with no wait for the pong (Codex sends no ping at all). Until the pong or the
+    // first message comes, a failure or the end of `limits.probe` sends the call over
+    // HTTP: no event came, so the server started no answer. The other way, with no
+    // ping, a connection that died without a close would hold the call for the read
+    // timeout of 300 s.
+    let mut proof = None;
+    if quiet {
+        efr_stdx::mark::hit("ws.probe.begin");
+        let reason = match Clock::timeout(&clock, limits.probe, socket.send_ping()).await {
+            Ok(Ok(pong)) => {
+                proof = Some(Proof { pong: Some(pong), deadline: clock.sleep(limits.probe) });
+                None
+            }
+            Ok(Err(error)) => Some(format!("the ping of a quiet websocket failed: {error}")),
+            Err(_) => Some("the ping of a quiet websocket could not be sent in time".to_owned()),
+        };
+        if let Some(reason) = reason {
+            // NOTE: the request has not gone out, so the call may go over HTTP. A dead
+            // connection says nothing about the transport, so WebSockets do not pause.
+            return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
+        }
+    }
+    let sent = {
+        let mut send =
+            std::pin::pin!(Clock::timeout(&clock, limits.send, socket.send_text(message)));
+        loop {
+            tokio::select! {
+                biased;
+                sent = &mut send => break sent,
+                heard = listen(&mut proof), if proof.is_some() => {
+                    if let Some(served) = hear(heard, &mut proof, &request).await {
+                        return served;
+                    }
+                }
+            }
+        }
+    };
+    match sent {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             // NOTE: the writer reports an error only for a frame that it could not
@@ -382,9 +459,31 @@ async fn serve(
                 return Served::Dead;
             }
             message = Clock::timeout(&clock, limits.read, socket.next()) => message,
+            heard = listen(&mut proof), if proof.is_some() => {
+                if let Some(served) = hear(heard, &mut proof, &request).await {
+                    return served;
+                }
+                continue;
+            }
         };
+        if proof.is_some() {
+            // NOTE: a quiet connection that breaks or ends before its pong and before
+            // any message was dead: the server started no answer.
+            let ended = match &message {
+                Ok(Some(Err(error))) => Some(format!("a quiet websocket broke: {error}")),
+                Ok(None) => Some("a quiet websocket ended without a close".to_owned()),
+                Err(_) => Some("a quiet websocket said nothing in time".to_owned()),
+                Ok(Some(Ok(_))) => None,
+            };
+            if let Some(reason) = ended {
+                return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
+            }
+        }
         let text = match message {
-            Ok(Some(Ok(WsMessage::Text(text)))) => text,
+            Ok(Some(Ok(WsMessage::Text(text)))) => {
+                prove(&mut proof);
+                text
+            }
             Ok(Some(Ok(WsMessage::Close { code, reason }))) => {
                 let reason = format!("the server closed the websocket ({code:?} {reason})");
                 return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;

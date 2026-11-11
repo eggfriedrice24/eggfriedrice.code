@@ -245,6 +245,28 @@ async fn a_ping_ends_with_its_pong() {
 }
 
 #[tokio::test]
+async fn messages_go_and_come_while_a_sent_ping_waits_for_its_pong() {
+    let (url, _head) = serve(Answer::Accept, |mut socket| async move {
+        let ping = socket.read_frame().await.unwrap();
+        assert_eq!(ping.opcode, OpCode::Ping);
+        let payload = ping.payload.to_vec();
+        // The text that the client sent after the ping comes before any pong.
+        let text = next_text(&mut socket).await;
+        socket.write_frame(text_frame(&format!("echo: {text}"))).await.unwrap();
+        socket.write_frame(Frame::pong(payload.into())).await.unwrap();
+        let _ = socket.read_frame().await;
+    })
+    .await;
+
+    let mut socket = client().websocket(&HttpRequest::get(&url).unwrap()).await.unwrap();
+
+    let pong = socket.send_ping().await.unwrap();
+    socket.send_text("hello".to_owned()).await.unwrap();
+    assert_eq!(socket.next().await.unwrap().unwrap(), WsMessage::Text("echo: hello".to_owned()));
+    pong.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_ping_fails_when_the_connection_ends_before_the_pong() {
     let (url, _head) = serve(Answer::Accept, |mut socket| async move {
         let ping = socket.read_frame().await.unwrap();

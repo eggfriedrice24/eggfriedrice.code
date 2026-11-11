@@ -145,8 +145,10 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   It speaks the Responses API over HTTP and over a WebSocket (each `response.create`
   message gets the events of one answer), the Messages API, the model lists and the
   token endpoint of a login. A bench sets waits through `ServerKnobs`: before the
-  headers, before the first event, before the 101 of an upgrade and before a pong. It
-  can also close each connection after its answer, refuse the upgrade, fail one call
+  headers, before the first event, before the 101 of an upgrade and before a pong
+  (the connection reads and answers while a pong waits). It can also play a WebSocket
+  that died without a close (`dead`), close each connection after its answer, refuse
+  the upgrade, fail one call
   with a status, answer one call with a tool call, and answer the model list of a key
   with a rule (`ModelsRule`). `drain()` gives a log of what came and went out, with
   the time of each (`Seen`), so a bench counts connections, requests and pings. The

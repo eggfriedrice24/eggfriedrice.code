@@ -6,7 +6,7 @@
 //! [`ResponsesServer`](crate::ResponsesServer) and [`MessagesServer`] answer at once
 //! and whole, and have no WebSocket. This one can wait before the response headers,
 //! between the headers and the first event, before the answer to a WebSocket upgrade
-//! and before a pong; it can close each connection after its answer, so the next call
+//! and before a pong; it can play a WebSocket that died without a close; it can close each connection after its answer, so the next call
 //! needs a new one; it can fail one call; and it notes each connection, so a bench sees
 //! whether efr reused one. It is the first fake WebSocket of the Responses API in the
 //! repo: it answers each `response.create` message with the events of one answer.
@@ -24,10 +24,11 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use efr_stdx::time::{Clock as _, SystemClock};
-use fastwebsockets::{Frame, OpCode, Payload, Role, WebSocket};
+use fastwebsockets::{Frame, OpCode, Payload, Role, WebSocketError, after_handshake_split};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 
 use crate::{MessagesAnswer, MessagesServer, ResponsesAnswer, TestDaemonError};
 
@@ -52,8 +53,13 @@ pub struct ServerKnobs {
     pub first_event: Duration,
     /// The wait before the answer to a WebSocket upgrade.
     pub upgrade: Duration,
-    /// The wait before a pong.
+    /// The wait before a pong. The connection reads and answers in that time, as a
+    /// real server whose pong is on its way.
     pub pong: Duration,
+    /// The WebSocket died without a close, as after a sleep of the laptop: from now
+    /// on each connection reads every frame, answers none, not even a ping, and stays
+    /// open. HTTP still answers.
+    pub dead: bool,
     /// Close each connection after its answer: an HTTP connection after the response,
     /// a WebSocket after the answer's last event.
     pub close: bool,
@@ -302,7 +308,7 @@ async fn serve(mut stream: TcpStream, shared: Arc<Shared>) {
                 return;
             }
             shared.note(Saw::Upgraded, 0);
-            socket(stream, &shared).await;
+            socket(stream, Arc::clone(&shared)).await;
             return;
         }
         let Some(body) = read_body(&mut stream, &mut head).await else {
@@ -404,44 +410,67 @@ fn events_of(sse: &str) -> Vec<Value> {
 }
 
 /// Serves `response.create` messages on an upgraded connection until the client closes
-/// it, or until one answer when the knobs say to close.
-async fn socket(stream: TcpStream, shared: &Shared) {
-    let mut socket = WebSocket::after_handshake(stream, Role::Server);
-    socket.set_auto_pong(false);
-    socket.set_auto_close(true);
+/// it, or until one answer when the knobs say to close. A writer task sends the frames,
+/// so a pong that waits holds back no read and no answer, as on a real server.
+async fn socket(stream: TcpStream, shared: Arc<Shared>) {
+    let (read, write) = stream.into_split();
+    let (mut read, mut write) = after_handshake_split(read, write, Role::Server);
+    read.set_auto_pong(false);
+    read.set_auto_close(true);
+    let (frames, mut queue) = mpsc::unbounded_channel::<Frame<'static>>();
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = queue.recv().await {
+            if write.write_frame(frame).await.is_err() || write.flush().await.is_err() {
+                return;
+            }
+        }
+    });
+    // NOTE: the parser hands the echo of a close to this closure.
+    let mut obligated = {
+        let frames = frames.clone();
+        move |frame: Frame<'static>| {
+            let sent = frames.send(frame).map_err(|_| WebSocketError::ConnectionClosed);
+            async move { sent }
+        }
+    };
     loop {
-        let Ok(frame) = socket.read_frame().await else {
-            return;
+        let Ok(frame) = read.read_frame(&mut obligated).await else {
+            break;
         };
+        let knobs = shared.knobs();
         match frame.opcode {
+            OpCode::Text | OpCode::Ping if knobs.dead => {}
             OpCode::Text => {
                 shared.note(Saw::Create, frame.payload.len());
-                let knobs = shared.knobs();
                 let events = events_of(&shared.answer(false));
                 sleep(knobs.headers + knobs.first_event).await;
                 shared.note(Saw::FirstEvent, 0);
                 for event in &events {
                     let frame = Frame::text(Payload::Owned(event.to_string().into_bytes()));
-                    if socket.write_frame(frame).await.is_err() {
-                        return;
+                    if frames.send(frame).is_err() {
+                        break;
                     }
                 }
                 if knobs.close {
-                    let _ = socket.write_frame(Frame::close(1000, b"bench")).await;
-                    return;
+                    let _ = frames.send(Frame::close(1000, b"bench"));
+                    break;
                 }
             }
             OpCode::Ping => {
                 shared.note(Saw::Ping, 0);
-                sleep(shared.knobs().pong).await;
                 let pong = Frame::pong(Payload::Owned(frame.payload.to_vec()));
-                if socket.write_frame(pong).await.is_err() {
-                    return;
-                }
-                shared.note(Saw::Pong, 0);
+                let (frames, shared) = (frames.clone(), Arc::clone(&shared));
+                tokio::spawn(async move {
+                    sleep(knobs.pong).await;
+                    if frames.send(pong).is_ok() {
+                        shared.note(Saw::Pong, 0);
+                    }
+                });
             }
-            OpCode::Close => return,
+            OpCode::Close => break,
             _ => {}
         }
     }
+    drop((frames, obligated));
+    let _ = writer.await;
 }

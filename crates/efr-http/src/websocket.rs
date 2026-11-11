@@ -6,7 +6,7 @@
 //! the upgraded connection, and `fastwebsockets` reads and writes the frames on it.
 //!
 //! A [`WebSocket`] runs two small tasks: a reader that collects whole messages, answers
-//! pings and hands each pong to its [`WebSocket::ping`], and a writer that sends the
+//! pings and hands each pong to its [`WebSocket::ping`] or [`Pong`], and a writer that sends the
 //! frames in order. Its methods only talk to
 //! those tasks over channels, so [`WebSocket::next`] can be cancelled at any point
 //! without losing a frame: the frame parser itself is not safe to cancel, and it never
@@ -14,7 +14,10 @@
 //! closes the connection.
 
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::task::{Context, Poll};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -146,6 +149,13 @@ impl WebSocket {
     /// answers. Fails when the connection is closed or ends before the pong. The wait
     /// has no limit of its own: the caller bounds it.
     pub async fn ping(&self) -> Result<(), HttpError> {
+        self.send_ping().await?.await
+    }
+
+    /// Sends a ping and returns once it is written, with its [`Pong`]. The caller can
+    /// send and read other messages while the pong is on its way. Fails when the
+    /// connection is closed or the write fails.
+    pub async fn send_ping(&self) -> Result<Pong, HttpError> {
         let (done, pong) = oneshot::channel();
         let number = {
             let mut pings = Pings::lock(&self.pings);
@@ -163,7 +173,7 @@ impl WebSocket {
         };
         let payload = Payload::Owned(number.to_be_bytes().to_vec());
         self.send(Frame::new(true, OpCode::Ping, None, payload)).await?;
-        pong.await.map_err(|_| HttpError::WebSocketClosed { url: self.url.clone() })
+        Ok(Pong { pong, url: self.url.clone() })
     }
 
     /// The next message, or `None` once the connection has ended and every message was
@@ -188,6 +198,26 @@ impl WebSocket {
     /// The redacted URL of the connection.
     pub fn url(&self) -> &str {
         &self.url
+    }
+}
+
+/// The wait for the pong of a ping from [`WebSocket::send_ping`]. It ends when the pong
+/// comes, or with an error when the connection ends first. It holds no borrow of the
+/// socket, and dropping it stops only the wait.
+#[derive(Debug)]
+pub struct Pong {
+    pong: oneshot::Receiver<()>,
+    url: String,
+}
+
+impl Future for Pong {
+    type Output = Result<(), HttpError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = &mut *self;
+        Pin::new(&mut this.pong).poll(cx).map(|answered| {
+            answered.map_err(|_| HttpError::WebSocketClosed { url: this.url.clone() })
+        })
     }
 }
 

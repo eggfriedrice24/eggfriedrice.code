@@ -42,17 +42,26 @@ pub(crate) struct Socket {
     pub(crate) refuse: Option<u16>,
     /// The steps for each request, in order.
     pub(crate) requests: Vec<Vec<Step>>,
+    /// The connection answers pings.
+    pub(crate) pongs: bool,
 }
 
 impl Socket {
     /// A connection that serves `requests`.
     pub(crate) fn serving(requests: Vec<Vec<Step>>) -> Socket {
-        Socket { refuse: None, requests }
+        Socket { refuse: None, requests, pongs: true }
+    }
+
+    /// The same connection, but it reads each ping and answers none, as a server whose
+    /// pong is still on its way.
+    pub(crate) fn without_pongs(mut self) -> Socket {
+        self.pongs = false;
+        self
     }
 
     /// A handshake refused with `status`.
     pub(crate) fn refused(status: u16) -> Socket {
-        Socket { refuse: Some(status), requests: Vec::new() }
+        Socket { refuse: Some(status), requests: Vec::new(), pongs: true }
     }
 }
 
@@ -187,8 +196,8 @@ async fn serve(
         log.sockets.push(SocketLog { headers: head.headers.clone(), path, ..SocketLog::default() });
         log.sockets.len() - 1
     };
-    let script = match script {
-        Some(Socket { refuse: None, requests }) => requests,
+    let (script, pongs) = match script {
+        Some(Socket { refuse: None, requests, pongs }) => (requests, pongs),
         Some(Socket { refuse: Some(status), .. }) => {
             let reply = format!(
                 "HTTP/1.1 {status} Refused\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
@@ -210,6 +219,7 @@ async fn serve(
         return;
     }
     let mut socket = WebSocket::after_handshake(stream, Role::Server);
+    socket.set_auto_pong(pongs);
     let record = |message: Option<Value>| {
         let mut log = log.lock().unwrap();
         match message {

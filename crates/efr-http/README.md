@@ -31,7 +31,9 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   task sends frames in order, so `WebSocket::next` is safe to cancel.
   `WebSocket::ping` sends a ping whose payload is its number and waits for the pong
   with that number (or a newer one); it fails when the connection ends first, and the
-  caller bounds the wait. The handshake
+  caller bounds the wait. `WebSocket::send_ping` returns once the ping is written,
+  with a `Pong` to wait on, so the caller can send and read while the pong is on its
+  way. The handshake
   key comes from the injected `Rng`. The handshake is never retried and never
   recorded.
 - `unix`: `UnixClient`, HTTP/1.1 over a Unix socket with hyper and hyper-util. Its

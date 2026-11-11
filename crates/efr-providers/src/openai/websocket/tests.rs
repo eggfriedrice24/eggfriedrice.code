@@ -472,7 +472,7 @@ async fn an_idle_connection_closes_and_the_next_call_opens_a_new_one() {
 }
 
 #[tokio::test]
-async fn a_call_after_a_quiet_spell_pings_first_and_reuses_a_connection_that_answers() {
+async fn a_call_after_a_quiet_spell_pings_and_reuses_a_connection_that_answers() {
     let socket = Socket::serving(vec![
         vec![Step::Send(answer("resp_1", "Hello."))],
         vec![Step::Send(answer("resp_2", "Again."))],
@@ -494,6 +494,79 @@ async fn a_call_after_a_quiet_spell_pings_first_and_reuses_a_connection_that_ans
 }
 
 #[tokio::test]
+async fn a_call_after_a_quiet_spell_sends_its_request_before_the_pong() {
+    // The server reads each ping and never answers it, so a call that waits for the
+    // pong never sends its request.
+    let socket = Socket::serving(vec![
+        vec![Step::Send(answer("resp_1", "Hello."))],
+        vec![Step::Send(answer("resp_2", "Again."))],
+    ])
+    .without_pongs();
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = request("gpt-5.5", "hi");
+
+    let first = setup.provider.complete(request.clone()).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    request.messages.push(first.message);
+    request.messages.push(Message::user("and now?"));
+    let (second, ()) = tokio::join!(setup.provider.complete(request), async {
+        eventually(|| setup.server.sockets()[0].messages.len() == 2).await;
+    });
+
+    assert_eq!(second.unwrap().message.text(), "Again.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 1);
+    assert_eq!(sockets[0].messages[1]["previous_response_id"], "resp_1");
+    assert!(setup.server.posts().is_empty());
+    // The answer showed that the connection works, so its ping time no longer runs.
+    assert!(!setup.clock.waits_for(PROBE_TIMEOUT));
+}
+
+#[tokio::test]
+async fn a_quiet_connection_that_answers_its_ping_keeps_a_slow_call_off_http() {
+    // Past its script the server reads the second request, answers the ping and sends
+    // nothing.
+    let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    let silence = async {
+        eventually(|| {
+            setup.server.sockets()[0].messages.len() == 2 && !setup.clock.waits_for(PROBE_TIMEOUT)
+        })
+        .await;
+        setup.clock.advance(PROBE_TIMEOUT);
+        eventually(|| setup.clock.waits_for(super::READ_TIMEOUT - PROBE_TIMEOUT)).await;
+        setup.clock.advance(super::READ_TIMEOUT);
+    };
+    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-5.5", "hi")), silence);
+    let events = collect(stream.unwrap()).await;
+
+    // The pong showed a live server that has the request, so the silence fails the
+    // call at the read timeout and the call does not go out again.
+    assert_eq!(events.len(), 1);
+    assert!(events[0].as_ref().unwrap_err().starts_with("Transport"), "{events:?}");
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_quiet_connection_that_breaks_before_its_pong_and_any_event_sends_the_call_over_http() {
+    let socket =
+        Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))], vec![Step::Drop]])
+            .without_pongs();
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    // No pong and no event came, so the server started no answer: HTTP sends the call.
+    assert_eq!(second.message.text(), "Your shell is zsh 5.9.");
+    assert_eq!(setup.server.posts().len(), 1);
+}
+
+#[tokio::test]
 async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_call_goes_over_http() {
     let sockets = vec![
         Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello.")), Step::Hang]]),
@@ -511,7 +584,8 @@ async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_cal
         tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), pong_never_comes);
     let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
 
-    // The request never went out on the dead connection, so HTTP sent the only call.
+    // The request went out with the ping, but the dead connection gave neither a pong
+    // nor an event, so the server never had it and HTTP sent the only call.
     assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
     let sockets = setup.server.sockets();
     assert_eq!(sockets[0].messages.len(), 1);

@@ -63,4 +63,4 @@ pub use retry::{Decision, Outcome, RetryPolicy, Retryable, is_retryable_status, 
 pub use sse::{SseDecoder, SseEvent, SseStream};
 pub use unix::UnixClient;
 pub use url::Url;
-pub use websocket::{WebSocket, WsMessage, websocket_accept};
+pub use websocket::{Pong, WebSocket, WsMessage, websocket_accept};

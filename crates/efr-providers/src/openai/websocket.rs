@@ -12,13 +12,15 @@
 //! call at a time; it stays open between the calls of a turn and between turns, and
 //! closes after [`IDLE`] without a call, when the server closes it, after any failure,
 //! and before the server's limit of 60 minutes. A call on a connection that had no call
-//! for [`PROBE_AFTER`] first pings the server, so a connection that died without a close
-//! costs at most [`PROBE_TIMEOUT`] before the call goes over HTTP, and never the read
-//! timeout.
+//! for [`PROBE_AFTER`] sends a ping and its request together, with no wait for the
+//! pong, so a connection that works costs no round trip. A connection that died without
+//! a close gives neither the pong nor an event, so it costs at most [`PROBE_TIMEOUT`]
+//! before the call goes over HTTP, and never the read timeout.
 //!
 //! A call goes over HTTP when the server certainly did not act on its request: when the
 //! connection cannot be opened, when the server refuses the upgrade, when a quiet
-//! connection does not answer its ping, or when the server does not take the request
+//! connection breaks, ends or stays silent for [`PROBE_TIMEOUT`] before its pong and
+//! before any event, or when the server does not take the request
 //! (it closes the connection, or sends an `error` event without an error status that
 //! answers the request, before the first event of an answer). The HTTP request is then
 //! the first and only model call. After a failure that says that WebSockets do not work
@@ -28,7 +30,10 @@
 //! has gone out, a failure that does not show that the server refused it (a broken
 //! connection, a connection that ends without a close, or a timeout) is the call's
 //! failure, exactly as on the HTTP path, because the server may have acted on it and
-//! sending the call again could run the model twice.
+//! sending the call again could run the model twice. The one exception is the quiet
+//! connection above before its pong and its first event: a server that read the
+//! request read the ping before it and answered it at once, so no pong and no event
+//! in [`PROBE_TIMEOUT`] means a dead connection.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -64,13 +69,14 @@ pub(crate) const IDLE: Duration = Duration::from_secs(10 * 60);
 /// minutes for one connection (`websocket_connection_limit_reached` in Codex).
 const MAX_AGE: Duration = Duration::from_secs(55 * 60);
 
-/// A call on a connection that had no call for this long pings the server first. A
-/// turn's calls follow each other within seconds, and those skip the ping; the next
-/// prompt may come minutes later, after a sleep of the laptop or a change of network
-/// that dropped the connection without a close.
+/// A call on a connection that had no call for this long sends a ping with its
+/// request. A turn's calls follow each other within seconds, and those skip the ping;
+/// the next prompt may come minutes later, after a sleep of the laptop or a change of
+/// network that dropped the connection without a close.
 pub(crate) const PROBE_AFTER: Duration = Duration::from_secs(30);
 
-/// How long the pong of that ping may take before the connection counts as dead.
+/// How long that ping may go without its pong and without an event before the
+/// connection counts as dead and the call goes over HTTP.
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long every call goes over HTTP after a failure that says that WebSockets do not
