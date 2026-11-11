@@ -1,7 +1,8 @@
 //! The reasoning of the model on a simulated screen: the one live line while the model
 //! thinks, the row that a phase of 2 s or more leaves in the scrollback (with a title,
 //! with the first words, with no words), a phase under 2 s that leaves nothing, a
-//! narrow screen, the spacing around the row, `NO_COLOR` and a pipe.
+//! narrow screen, the spacing around the row, `NO_COLOR`, a pipe, and the row that the
+//! live line takes when a tall line of text is clipped.
 
 use efr_protocol::{DraftPart, Event};
 use efr_render::{ColourMode, RenderOptions};
@@ -276,4 +277,32 @@ fn a_pipe_shows_nothing_of_the_reasoning() {
     let step = view.envelope(&sent(12, 3_000, completed(0, "Done.")), size, false);
     assert_eq!(step.out, "Done.\n");
     assert_eq!(step.err, "");
+}
+
+#[test]
+fn the_live_line_counts_as_a_row_when_a_tall_line_of_text_is_clipped() {
+    let (mut view, mut grid, _) = view_of(40, ColourMode::Ansi16);
+    // Six rows: five for the live zone, one for the cursor below it.
+    let size = Size { cols: 40, rows: 6 };
+    // A message that still streams, with one partial line of nine rows.
+    let words: String = (0..60).map(|n| format!("w{n:02} ")).collect();
+    view.draft(&draft(11, text(0, &words)), size);
+    for millis in (100..=2_000).step_by(100) {
+        frame(&mut view, &mut grid, size, millis);
+    }
+    view.draft(&draft(11, reasoning(0, "Checking the size", None)), size);
+    let (lines, _) = frame(&mut view, &mut grid, size, 2_100);
+    // The newest rows of the text, the blank line, the live line and the status row
+    // fill the five rows.
+    assert_eq!(lines.len(), 5, "{lines:?}");
+    assert_eq!(
+        lines[..4],
+        [
+            "w40 w41 w42 w43 w44 w45 w46 w47 w48 w49",
+            "w50 w51 w52 w53 w54 w55 w56 w57 w58 w59",
+            "",
+            "Checking the size"
+        ]
+    );
+    assert!(lines[4].starts_with("\u{2022} thinking"), "{lines:?}");
 }
