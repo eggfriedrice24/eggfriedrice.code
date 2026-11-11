@@ -96,10 +96,7 @@ fn every_state_has_its_words() {
         (State::Queued, "waiting for the running turn"),
         (State::Model, "waiting for the model"),
         (State::Thinking(None), "thinking"),
-        (
-            State::Thinking(Some("Reading the test output".to_owned())),
-            "thinking: Reading the test output",
-        ),
+        (State::Thinking(Some("Reading the test output".to_owned())), "thinking"),
         (State::Writing, "writing"),
         (
             State::Preparing { call: 0, tool: "write_file".to_owned(), bytes: 0 },
@@ -201,7 +198,8 @@ fn the_full_tag_counts_in_the_width_of_the_row() {
         40,
         "{row:?}"
     );
-    assert!(bare(&row).ends_with("12s  full  away\n"), "{row:?}");
+    // The detail of the state comes last, after the tags.
+    assert!(bare(&row).contains("12s  full  away  xx"), "{row:?}");
 }
 
 /// A row at 4 s into the turn, thinking, with the context 43% full and `scope` at its

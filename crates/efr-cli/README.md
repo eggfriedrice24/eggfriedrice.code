@@ -155,8 +155,9 @@ Replies:
   one frame of its arrival; nothing holds it back to pace it. What streams is what
   `efr_render::render` makes of the whole text.
 - While the model reasons on a terminal (`reasoning` drafts), the status row says
-  `thinking: <title>` for a reasoning with a bold title. A reasoning without a title
-  puts its newest words in that place, cut from the start with `…`, without the
+  `thinking` and ends with the bold title of the reasoning, after the time, the gauge
+  and the scope, so those stand still (`State::detail` in `status.rs`). A reasoning
+  without a title puts its newest words in that place, cut from the start with `…`, without the
   Markdown marks (`follow/view/reasoning.rs`): whole words in at most 50 columns
   (`WORDS_COLUMNS`), whose start moves 4 words at a time (`WORDS_STEP`). The words
   show only when the phase has run for 1 s (`WORDS_AFTER`): the summary of a short
@@ -176,8 +177,8 @@ Replies:
   a braille spinner (one frame each 100 ms) in the `accent` role, the state in the
   `muted` role, and from 1 s on the time since `turn_started` (`12s`, `1m 05s`,
   `1h 02m 05s`). The states: `waiting for the running turn` (a queued prompt),
-  `waiting for the model`, `thinking` or `thinking: <title>` (a reasoning draft, with
-  the newest bold title of the reasoning), `writing`, `preparing <tool>, 3.2 KB` (a
+  `waiting for the model`, `thinking` (a reasoning draft; the newest bold title of the
+  reasoning, or its newest words, ends the row), `writing`, `preparing <tool>, 3.2 KB` (a
   tool input draft, the newest call of the answer), `running <tool>` (a call of the
   running turn that a queued prompt waits behind), `waiting for an answer` (an approval
   that another client must answer), `reviewing: <line>` (from `exit_review_started`

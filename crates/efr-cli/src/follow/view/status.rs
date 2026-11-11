@@ -1,7 +1,11 @@
 //! The status row of a running turn: the last row of the live zone, with a spinner, what
 //! the turn does now, how long it has run and how full the model's context is, such as
-//! `⠼ thinking: Reading the logs  4s  ctx 43%`. The gauge (`format::context`) comes
+//! `⠼ thinking  4s  ctx 43%  Reading the logs`. The gauge (`format::context`) comes
 //! from the newest `context` draft or compaction, and it is in the colour of its level.
+//!
+//! What changes all the time stands last: the title or the newest words of a reasoning
+//! ([`State::detail`]) end the row, after the time, the gauge and the scope. So those
+//! keep their place while the model thinks, and a narrow screen cuts the detail first.
 //!
 //! The row exists only while the turn runs on a terminal, and it goes before the prompt
 //! comes back. It hides while the user is asked something, and the time stops then.
@@ -55,6 +59,9 @@ const SHOW_ELAPSED: Duration = Duration::from_secs(1);
 /// screen too narrow for both, what the turn does comes first.
 const MIN_WORDS: usize = 10;
 
+/// The columns that the detail of the state keeps at least; with fewer the row has none.
+const MIN_DETAIL: usize = 8;
+
 /// What the row says while efr counts the user away.
 const AWAY: &str = "away";
 
@@ -69,7 +76,8 @@ pub(crate) enum State {
     Queued,
     /// The turn waits for the next answer of the model.
     Model,
-    /// The model reasons, under the newest title of its reasoning when there is one.
+    /// The model reasons. With the newest title of its reasoning, or its newest words
+    /// when it has no title: the detail at the end of the row.
     Thinking(Option<String>),
     /// The model writes text.
     Writing,
@@ -95,8 +103,7 @@ impl State {
             }
             State::Queued => "waiting for the running turn".to_owned(),
             State::Model => "waiting for the model".to_owned(),
-            State::Thinking(None) => "thinking".to_owned(),
-            State::Thinking(Some(title)) => format!("thinking: {title}"),
+            State::Thinking(_) => "thinking".to_owned(),
             State::Writing => "writing".to_owned(),
             State::Preparing { tool, bytes: 0, .. } => format!("preparing {tool}"),
             State::Preparing { tool, bytes, .. } => {
@@ -106,6 +113,16 @@ impl State {
             State::Answer => "waiting for an answer".to_owned(),
             State::Reviewing(words) => words.clone(),
             State::Compacting => "compacting context".to_owned(),
+        }
+    }
+
+    /// What the state works on, when it changes while the state lasts: the title or the
+    /// newest words of a reasoning. It ends the row, so the fields before it stand
+    /// still.
+    fn detail(&self) -> Option<&str> {
+        match self {
+            State::Thinking(Some(detail)) => Some(detail),
+            _ => None,
         }
     }
 }
@@ -268,6 +285,12 @@ impl Status {
         } else {
             format::cut(&self.state.words(silence), room, options.width_method())
         };
+        // The detail takes what the row has left, after two spaces.
+        let detail = self.state.detail().and_then(|detail| {
+            let method = options.width_method();
+            let left = room.saturating_sub(text_width(&words, method) + 2);
+            (left >= MIN_DETAIL).then(|| format::cut(detail, left, method))
+        });
         let mut row = options.paint(Role::Accent, &spinner.to_string());
         if !words.is_empty() {
             row.push(' ');
@@ -293,6 +316,10 @@ impl Status {
         if let Some(scope) = scope {
             row.push_str("  ");
             row.push_str(&options.paint(Role::Muted, scope));
+        }
+        if let Some(detail) = detail {
+            row.push_str("  ");
+            row.push_str(&options.paint(Role::Muted, &detail));
         }
         row.push('\n');
         row

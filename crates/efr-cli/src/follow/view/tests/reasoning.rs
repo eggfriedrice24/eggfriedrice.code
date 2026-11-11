@@ -87,13 +87,13 @@ fn a_titled_reasoning_shows_its_title_in_the_status_row_and_leaves_a_bold_row() 
     ];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 1_000);
     // The title stands in the status row, and no row of the live zone holds the words.
-    assert_eq!(lines, ["\u{2022} thinking: Planning the answer  2s"]);
+    assert_eq!(lines, ["\u{2022} thinking  2s  Planning the answer"]);
     // A draft that repeats text that the view holds adds only the rest.
     let repeated =
         reasoning(title.len() + 13, " about the log size, in GiB", Some("Planning the answer"));
     view.draft(&draft(11, repeated), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
-    assert_eq!(lines, ["\u{2022} thinking: Planning the answer  3s"]);
+    assert_eq!(lines, ["\u{2022} thinking  3s  Planning the answer"]);
     // The text ends the phase: its row stays at column 0, the text sticks to it.
     view.draft(&draft(11, text(0, "It takes 3.1 GiB.\n\n")), size);
     let (lines, written) = frame(&mut view, &mut grid, size, 3_200);
@@ -120,8 +120,8 @@ fn a_reasoning_without_a_title_leaves_its_first_words_in_italic() {
     let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
     assert_eq!(
         lines,
-        // Without a title, the newest words take its place in the status row.
-        ["\u{2022} thinking: \u{2026} at the vacuum options.  1s"]
+        // Without a title, the newest words take its place at the end of the status row.
+        ["\u{2022} thinking  1s  \u{2026} at the vacuum options."]
     );
     frame(&mut view, &mut grid, size, 4_600);
     view.envelope(&sent(12, 4_700, turn_completed()), size, false);
@@ -154,9 +154,9 @@ fn a_phase_under_two_seconds_leaves_no_row() {
     let (mut view, mut grid, size) = view_of(60, ColourMode::Ansi16);
     let parts = [reasoning(0, "**Checking**\n\nA quick look", Some("Checking"))];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 0);
-    assert_eq!(lines, ["\u{2022} thinking: Checking"]);
+    assert_eq!(lines, ["\u{2022} thinking  Checking"]);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_000);
-    assert_eq!(lines, ["\u{2022} thinking: Checking  1s"]);
+    assert_eq!(lines, ["\u{2022} thinking  1s  Checking"]);
     view.draft(&draft(11, text(0, "Done.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_050);
     assert_eq!(lines, ["Done.", "\u{2022} writing  1s"]);
@@ -178,11 +178,10 @@ fn a_phase_under_one_second_shows_no_words() {
     assert_eq!(lines, ["Done.", "\u{2022} writing"]);
 }
 
-/// The words of the reasoning in the status row `line`, between `thinking: ` and the
-/// time.
+/// The words of the reasoning in the status row `line`: its end, after the state and
+/// the time.
 fn words_of(line: &str) -> &str {
-    let rest = line.split_once("thinking: ").map_or("", |(_, rest)| rest);
-    rest.rsplit_once("  ").map_or(rest, |(words, _)| words)
+    line.splitn(3, "  ").nth(2).unwrap_or_default()
 }
 
 #[test]
@@ -236,7 +235,7 @@ fn a_narrow_screen_cuts_the_status_row_and_the_row_to_one_row() {
         reasoning(30, "one two three four five six seven", Some("Planning the long answer")),
     ];
     let lines = think(&mut view, &mut grid, size, &parts, 100, 2_900);
-    assert_eq!(lines, ["\u{2022} thinking: Plannin\u{2026}  2s"]);
+    assert_eq!(lines, ["\u{2022} thinking  2s  Plannin\u{2026}"]);
     view.draft(&draft(11, text(0, "Yes.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 3_100);
     assert_eq!(lines, ["\u{25b8} Planning\u{2026}  thought 2s", "Yes.", "\u{2022} writing  3s"]);
@@ -259,7 +258,7 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
     let parts = [reasoning(0, "**Next step**\n\nThen the docs", Some("Next step"))];
     think_after(12, &mut view, &mut grid, size, &parts, 100, 0);
     let (lines, _) = frame(&mut view, &mut grid, size, 1_200);
-    assert_eq!(lines, ["First.", "\u{2022} thinking: Next step  1s"]);
+    assert_eq!(lines, ["First.", "\u{2022} thinking  1s  Next step"]);
     frame(&mut view, &mut grid, size, 2_600);
     view.draft(&draft(12, text(1, "Second.\n\n")), size);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_700);

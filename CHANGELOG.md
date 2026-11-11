@@ -36,9 +36,11 @@ into the GitHub release notes, and it stops when the section is missing.
   phone's prompts can name the account of a model that more than one account lists.
   The conversation then keeps that account for its next prompts, and a wake turn
   stays on it too.
-- While the model thinks, the status row shows the newest words of its reasoning after
-  `thinking:`, when the reasoning has no title, as with a Claude model. The words show
-  after 1 s of thought. Before, the row said only `thinking` then. When the model
+- While the model thinks, the status row ends with the newest words of its reasoning,
+  when the reasoning has no title, as with a Claude model. The words show after 1 s of
+  thought. Before, the row said only `thinking` then. The title of a reasoning now
+  stands at the end of the row too, after the time, the context and the scope, so
+  those keep their place. When the model
   thought for 2 s or more, one line such as
   `▸ Reading the logs  thought 6s` stays in the scrollback.
 

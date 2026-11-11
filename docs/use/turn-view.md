@@ -36,16 +36,17 @@ The field is green below 50%, yellow from 50% and red from 90%.
 ### The reasoning
 
 While the model thinks, the status row says `thinking`. When the reasoning has a bold
-title, the title follows: `thinking: Reading the logs`. A reasoning with no title,
-such as the reasoning of a Claude model, shows its newest words in that place, after
-the model thought for 1 s:
+title, the title ends the row: `⠼ thinking  4s  ctx 43%  app  Reading the logs`. A
+reasoning with no title, such as the reasoning of a Claude model, shows its newest
+words in that place, after the model thought for 1 s:
 
 ```text
-⠼ thinking: … weighing three ways to keep the provider  17s  ctx 2%  app
+⠼ thinking  17s  ctx 2%  app  … weighing three ways to keep the provider
 ```
 
-The words are whole words in at most 50 columns. Their start moves some words at a
-time, so they stand still while they grow.
+The title or the words stand last, so the time, the context and the scope keep their
+place while the words change. The words are whole words in at most 50 columns. Their
+start moves some words at a time, so they stand still while they grow.
 
 When the model thought for 2 seconds or more, one line stays in your scrollback:
 

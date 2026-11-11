@@ -2387,7 +2387,7 @@ fn drafts_after_a_steer_still_show() {
         title: Some("Reading the docs".to_owned()),
     };
     view.draft(&draft(11, thinking), SIZE);
-    assert!(view.frame(SIZE, at(10)).contains("thinking: Reading the docs"));
+    assert!(crate::testing::bare(&view.frame(SIZE, at(10))).contains("thinking  Reading the docs"));
     view.draft(&text_draft(11, 0, "Hello"), SIZE);
     assert!(view.frame(SIZE, at(20)).contains("Hello"));
 }
@@ -2407,7 +2407,7 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     view.draft(&draft(11, reasoning(Some("Reading the \x1b[2Jtest output"))), SIZE);
     let titled = view.frame(SIZE, at(20));
     assert!(
-        titled.contains("thinking: Reading the \u{241b}[2Jtest output"),
+        crate::testing::bare(&titled).contains("thinking  Reading the \u{241b}[2Jtest output"),
         "{}",
         readable(&titled)
     );
