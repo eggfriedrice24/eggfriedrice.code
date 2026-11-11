@@ -73,6 +73,11 @@ directories, a store and provider traffic from one place and never from the mach
   when the provider is built, so a broken fixture fails before the test runs. A
   provider's own wire format, such as the Responses API, is replayed at the HTTP level
   with wiremock instead.
+- `paced_model`: `PacedModel`, an `efr_provider::Provider` for the streaming benches.
+  Each call takes the next script of `PacedDelta`s and hands each delta over at its
+  real time after the call, from a task of its own into a queue with no limit, as a
+  socket takes bytes while its reader is busy. `calls()` gives when each delta went
+  out (`PacedCall`), in the Unix nanoseconds of `efr_stdx::mark::now_ns`.
 - `search_corpus`: `SearchCorpus::new(size, seed)`, a seeded corpus of conversations
   for the search benches, as `efr_protocol::Event`s per turn and no type of
   `efr-store`. `CorpusSize::S` is 100 conversations of 10 turns, `L` 1,000 of 20 and

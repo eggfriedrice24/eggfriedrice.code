@@ -1234,8 +1234,10 @@ version = "0.0.8"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
+ "base64 0.23.1",
  "efr-daemon",
  "efr-protocol",
+ "efr-stdx",
  "efr-test-support",
  "efr-transport",
  "fastwebsockets",
@@ -1244,6 +1246,7 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_json",
+ "sha1",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",

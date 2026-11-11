@@ -111,7 +111,10 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ),
     ("efr-cli", &["efr-transport", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
     // Tier T
-    ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-transport", "efr-protocol"]),
+    (
+        "efr-test-daemon",
+        &["efr-daemon", "efr-test-support", "efr-transport", "efr-protocol", "efr-stdx"],
+    ),
     // Tooling
     // config-docs writes docs/config.md and docs/config.schema.json from efr-config;
     // protocol-schema writes docs/protocol.schema.json from efr-protocol.

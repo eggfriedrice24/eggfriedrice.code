@@ -219,7 +219,7 @@ pub struct Report {
 }
 
 impl Report {
-    /// A report of the bench `bench`, such as `bench_perf_ttft`.
+    /// A report of the bench `bench`, such as `bench_perf_start_phases`.
     pub fn new(bench: &str) -> Report {
         Report { bench: bench.to_owned(), lines: Vec::new() }
     }

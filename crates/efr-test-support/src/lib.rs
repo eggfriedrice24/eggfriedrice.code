@@ -13,6 +13,8 @@
 //!   and timestamps, and back.
 //! - [`ReplayProvider`]: an `efr_provider::Provider` that answers from a transcript and
 //!   checks every request against it.
+//! - [`PacedModel`]: an `efr_provider::Provider` that hands over each delta of its
+//!   answer at a set real time, for the streaming benches.
 //! - [`SearchCorpus`]: a seeded corpus of conversations of a [`CorpusSize`], as events,
 //!   for the search benches.
 //! - [`PerfCorpus`]: a seeded corpus of long conversations of a [`PerfSize`] or a
@@ -50,6 +52,7 @@ mod dirs;
 mod error;
 pub mod fixtures;
 mod ndjson;
+mod paced_model;
 mod perf_corpus;
 mod redact;
 mod replay_provider;
@@ -63,6 +66,7 @@ pub use clock::TestClock;
 pub use dirs::TestDirs;
 pub use error::TestSupportError;
 pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
+pub use paced_model::{PacedCall, PacedDelta, PacedModel};
 pub use perf_corpus::{
     PERF_CORPUS_VERSION, PERF_MODEL, PERF_PROVIDER, PerfCorpus, PerfShape, PerfSize, PerfTurn,
     PerfWritten, open_store_file,

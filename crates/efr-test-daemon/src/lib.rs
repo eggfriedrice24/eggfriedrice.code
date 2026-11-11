@@ -30,8 +30,13 @@
 //! `efr-cli` depend on it, never a `src/` file, because a library's unit tests that
 //! linked it would hold two copies of the daemon's types.
 //!
+//! - [`ProviderServer`]: the Responses API over HTTP and over a WebSocket, the
+//!   Messages API and the model lists on one loopback port, with waits that a latency
+//!   bench sets (headers, first event, upgrade, pong) and a log of what came.
+//!
 //! Allowed dependencies: `efr-daemon` (without its default features),
-//! `efr-test-support`, `efr-transport` (its `client` module) and `efr-protocol`. What
+//! `efr-test-support`, `efr-transport` (its `client` module), `efr-protocol` and
+//! `efr-stdx` (the system clock of a bench on real time). What
 //! does not belong here: assertions about one scenario (they live in the tests that
 //! replay it) and helpers that a leaf crate's tests need (those belong in
 //! `efr-test-support`).
@@ -42,6 +47,7 @@ mod fake_launcher;
 mod fake_phone;
 mod fake_procs;
 mod fake_reach;
+mod provider_server;
 mod pty_script;
 mod replay;
 mod test_daemon;
@@ -58,6 +64,7 @@ pub use fake_launcher::FakeLauncher;
 pub use fake_phone::{FakePhone, PhoneKey};
 pub use fake_procs::FakeProcView;
 pub use fake_reach::{FakeReach, Told};
+pub use provider_server::{ModelsRule, PROVIDER_TEXT, ProviderServer, Saw, Seen, ServerKnobs};
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
 };

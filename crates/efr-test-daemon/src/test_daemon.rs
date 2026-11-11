@@ -155,6 +155,8 @@ struct Launch {
     /// a turn on one of their models reaches.
     also: Vec<ProviderChoice>,
     persistent: bool,
+    /// The daemon runs on the system clock.
+    real_time: bool,
     shell_env: Option<BTreeMap<String, String>>,
     /// The `efr-sbx` the daemon copies as the sandbox's launcher.
     sandbox_launcher: Option<PathBuf>,
@@ -203,6 +205,8 @@ pub enum PeerSide {
 pub struct TestDaemonBuilder {
     dirs: Option<Arc<TestDirs>>,
     clock: Option<TestClock>,
+    /// Run the daemon on the system clock, as efrd does.
+    real_time: bool,
     /// Start a fake tailscaled and the remote listener.
     remote: bool,
     settings: Box<Launch>,
@@ -226,6 +230,7 @@ impl Default for TestDaemonBuilder {
         TestDaemonBuilder {
             dirs: None,
             clock: None,
+            real_time: false,
             remote: false,
             settings: Box::new(Launch {
                 config,
@@ -234,6 +239,7 @@ impl Default for TestDaemonBuilder {
                 provider: ProviderChoice::Replay(Arc::new(empty_replay())),
                 also: Vec::new(),
                 persistent: false,
+                real_time: false,
                 shell_env: None,
                 sandbox_launcher: None,
                 probe_override: None,
@@ -260,6 +266,14 @@ impl TestDaemonBuilder {
     #[must_use]
     pub fn dirs(mut self, dirs: Arc<TestDirs>) -> Self {
         self.dirs = Some(dirs);
+        self
+    }
+
+    /// Runs the daemon on the system clock, as efrd does, for a bench of real time. The
+    /// [`TestClock`] then only times the clients that the test daemon hands out.
+    #[must_use]
+    pub fn real_time(mut self) -> Self {
+        self.real_time = true;
         self
     }
 
@@ -367,6 +381,47 @@ impl TestDaemonBuilder {
     pub fn subscription(mut self, server: &ResponsesServer) -> Self {
         self.settings.provider =
             ProviderChoice::Subscription { base_url: server.base_url(), issuer: server.issuer() };
+        self
+    }
+
+    /// Runs the real `openai-api` provider against the server at `base_url`, as
+    /// [`responses`](Self::responses) does for a [`ResponsesServer`]: for a bench with
+    /// a server of its own.
+    #[must_use]
+    pub fn responses_at(mut self, base_url: &str) -> Self {
+        self.settings.provider = ProviderChoice::Responses(base_url.to_owned());
+        self
+    }
+
+    /// Runs the real `anthropic-api` provider against the server at `base_url`.
+    #[must_use]
+    pub fn messages_at(mut self, base_url: &str) -> Self {
+        self.settings.provider = ProviderChoice::Messages(base_url.to_owned());
+        self
+    }
+
+    /// Also runs the real `anthropic-api` provider against the server at `base_url`.
+    #[must_use]
+    pub fn also_messages_at(mut self, base_url: &str) -> Self {
+        self.settings.also.push(ProviderChoice::Messages(base_url.to_owned()));
+        self
+    }
+
+    /// Also runs the real `openai-api` provider against the server at `base_url`.
+    #[must_use]
+    pub fn also_responses_at(mut self, base_url: &str) -> Self {
+        self.settings.also.push(ProviderChoice::Responses(base_url.to_owned()));
+        self
+    }
+
+    /// Runs the real `openai-subscription` provider against the server at `base_url`,
+    /// with `issuer` as the server of its token refresh.
+    #[must_use]
+    pub fn subscription_at(mut self, base_url: &str, issuer: &str) -> Self {
+        self.settings.provider = ProviderChoice::Subscription {
+            base_url: base_url.to_owned(),
+            issuer: issuer.to_owned(),
+        };
         self
     }
 
@@ -528,6 +583,7 @@ impl TestDaemonBuilder {
         if self.remote {
             self.settings.tailscaled = Some(Arc::new(FakeTailscaled::start()?));
         }
+        self.settings.real_time = self.real_time;
         TestDaemon::launch(dirs, clock, self.settings, 0).await
     }
 }
@@ -600,8 +656,10 @@ impl TestDaemon {
         // NOTE: a later start draws other ids, so a restarted daemon never mints an id
         // that the first one stored.
         let seed = settings.seed.wrapping_add(generation);
+        let daemon_clock: Arc<dyn efr_stdx::time::Clock> =
+            if settings.real_time { Arc::new(efr_stdx::time::SystemClock) } else { clock.shared() };
         let mut deps =
-            Deps::new(dirs.dirs().clone(), &home, clock.shared(), Arc::new(TestRng::new(seed)))
+            Deps::new(dirs.dirs().clone(), &home, daemon_clock, Arc::new(TestRng::new(seed)))
                 .with_shell_env(shell_env)
                 .with_isolated_git()
                 .with_host(HostInfo::new(Some(HOSTNAME.to_owned()), Some(OS.to_owned())))

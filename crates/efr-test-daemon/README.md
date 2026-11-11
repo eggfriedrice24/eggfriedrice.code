@@ -141,6 +141,20 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   makes an active entry), or with the answer of `refuse_models`, else with a 404, and
   keeps each request as a `ModelsPageRequest`. The provider's catalog fetch and its
   key check both reach it.
+- `provider_server`: `ProviderServer`, one loopback server for the latency benches.
+  It speaks the Responses API over HTTP and over a WebSocket (each `response.create`
+  message gets the events of one answer), the Messages API, the model lists and the
+  token endpoint of a login. A bench sets waits through `ServerKnobs`: before the
+  headers, before the first event, before the 101 of an upgrade and before a pong. It
+  can also close each connection after its answer, refuse the upgrade, fail one call
+  with a status, answer one call with a tool call, and answer the model list of a key
+  with a rule (`ModelsRule`). `drain()` gives a log of what came and went out, with
+  the time of each (`Seen`), so a bench counts connections, requests and pings. The
+  builder runs the real providers against it with `responses_at`, `messages_at`,
+  `subscription_at` (with the server as the issuer of the login), `also_responses_at`
+  and `also_messages_at`. `TestDaemonBuilder::real_time()` runs the daemon on the
+  system clock, as efrd does, for a bench that measures real time; the `TestClock`
+  then only times the clients.
 - `pty_script`: `FakePtyHolder`, a `PtyHolder` whose masters are socketpairs. The test
   takes the other end of the n-th spawned PTY as a `FakeTerminal`, reads what the
   session types (`typed_line`, `typed_against`) and prints what a zsh with the efr
@@ -188,12 +202,14 @@ Tier T. Kind `dev`, `publish = false`: only the `tests/` targets of `efr-daemon`
 
 `efr-daemon` (without its default `local-pty` feature, with `test-sandbox-fake` for the
 sandbox's test seams), `efr-test-support`,
-`efr-transport` (its `client` module) and `efr-protocol`. `xtask/src/deps.rs` holds the
+`efr-transport` (its `client` module), `efr-protocol` and `efr-stdx` (the system
+clock of `real_time` and of the waits of `ProviderServer`). `xtask/src/deps.rs` holds the
 allowlist. The holder types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder` edge.
 
 Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `futures`,
 `async-trait` (the holder trait), `serde` and `serde_json`, `fastwebsockets` and
-`aws-lc-rs` (the fake phone's WebSocket and key), `jiff` (the time zone), `wiremock`
+`aws-lc-rs` (the fake phone's WebSocket and key), `sha1` and `base64` (the handshake
+answer of the WebSocket of `ProviderServer`), `jiff` (the time zone), `wiremock`
 (the Responses and Messages servers) and `thiserror`.
 
 ## Invariant
