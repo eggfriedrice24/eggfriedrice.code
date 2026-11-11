@@ -441,8 +441,10 @@ impl ConversationActor {
     }
 
     async fn run(mut self) {
+        efr_stdx::mark::hit("actor.spawned");
         self.notices =
             notices::Notices::seeded(self.wake_starts().await, self.held_notices().await);
+        efr_stdx::mark::hit("actor.seeded");
         let mut open = true;
         let mut stopped_reply = None;
         let clock = Arc::clone(&self.shared.deps.clock);
@@ -457,6 +459,7 @@ impl ConversationActor {
                         if idle.is_over(clock.now()) {
                             idle = IdleTimer::default();
                             self.trim();
+                            efr_stdx::mark::hit("actor.trimmed");
                         }
                         self.handle(*request).await;
                     }
@@ -555,8 +558,10 @@ impl ConversationActor {
         routing: PromptRouting,
     ) -> Result<PromptSendResult, ConversationError> {
         let PromptRouting { before, route } = routing;
+        efr_stdx::mark::hit("actor.prompt.begin");
         self.check_conversation(params.conversation_id)?;
         let effective = self.admit(&params.settings, origin)?;
+        efr_stdx::mark::hit("actor.prompt.admitted");
         let turn_id = self.new_turn_id();
         let queued = self.busy() || !self.queue.is_empty();
         let prompt = NewPrompt {
@@ -581,7 +586,9 @@ impl ConversationActor {
         };
         let receipt = receipt(prompt.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
         let committed = self.append(events, receipt).await?;
+        efr_stdx::mark::hit("actor.prompt.committed");
         self.enqueue(turn_id, prompt, QueueEnd::Back);
+        efr_stdx::mark::hit("actor.prompt.enqueued");
         Ok(PromptSendResult { seq: seq_of(&committed, index), ..result })
     }
 

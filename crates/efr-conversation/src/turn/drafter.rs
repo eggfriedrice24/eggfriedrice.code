@@ -326,6 +326,9 @@ impl Drafter {
         if self.sender.receiver_count() == 0 {
             return;
         }
+        if let DraftPart::Text { delta, .. } = &draft.part {
+            efr_stdx::mark::text("draft.sent", delta.as_bytes());
+        }
         // A receiver that went away in the meantime is no error: drafts are best effort.
         let _ = self.sender.send(draft);
     }

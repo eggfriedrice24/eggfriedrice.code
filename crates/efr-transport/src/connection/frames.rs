@@ -77,11 +77,18 @@ where
     async fn drain(self, mut queue: mpsc::Receiver<EncodedFrame>) -> io::Result<()> {
         let mut writer = BufWriter::new(self.write_half);
         while let Some(frame) = queue.recv().await {
+            let mut seen = efr_stdx::mark::marker(frame.as_bytes());
+            let mut frames = 1;
             writer.write_all(frame.as_bytes()).await?;
             while let Ok(frame) = queue.try_recv() {
+                seen = seen.max(efr_stdx::mark::marker(frame.as_bytes()));
+                frames += 1;
                 writer.write_all(frame.as_bytes()).await?;
             }
             writer.flush().await?;
+            if seen > 0 {
+                efr_stdx::mark::value("conn.flushed", seen, frames);
+            }
         }
         writer.shutdown().await
     }

@@ -43,6 +43,11 @@ Modules, in the order of the milestone 1 file map:
   `quiet`.
 - `id`: `uuid_v7(clock, rng)`, a version 7 UUID whose time and random bits both come
   from the injected `Clock` and `Rng`.
+- `mark`: the timing marks of the latency benches (`hit`, `hit_for`, `value`, `text`).
+  They are off by default, and a mark that is off reads one atomic. A bench keeps them
+  in memory (`enable`, `drain`) or in a file that `efrd` and `efr` share
+  (`enable_file`, `EFR_MARK`). No mark stands on a hot path (`feed`, `vt_write`, the
+  PTY reader).
 
 The error type of every module is `StdxError`.
 
@@ -89,6 +94,7 @@ table names the same set. An empty value counts as unset.
 | `EFR_TEST_SYSTEM_BUS` | An absolute path to a test's own system bus socket. An `efrd` built with the test seams uses it as the system bus, for the bus filter and for an approved whole bus; without it, that `efrd` has no system bus. Only the smoke sets it. |
 | `EFR_TEST_SESSION_BUS` | An absolute path to a test's own session bus socket. An `efrd` built with the test seams uses it as the session bus; without it, that `efrd` has no session bus. Only the smoke sets it. |
 | `EFR_BENCH_PROJECT` | An absolute path to the project in which efrd's bench `shell_call_phases_in_a_project` runs its calls. Without it, the bench makes a small git repository. |
+| `EFR_MARK` | An absolute path to a file. `efrd` and `efr` append their timing marks (`efr_stdx::mark`) to it, one line for each mark. The streaming benches set it for the processes that they start. Without it, the marks are off. |
 | `EFR_MODE` | The permission mode that `efr send`, `efr new` and `efr settings` ask for: `manual`, `cautious` or `auto`. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_MODEL` | The model that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_EFFORT` | The reasoning effort that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |

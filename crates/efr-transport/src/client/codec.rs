@@ -52,6 +52,12 @@ impl Decoder for ClientCodec {
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let payload = self.next_payload(src)?;
+        if let Some(payload) = &payload {
+            let seen = efr_stdx::mark::marker(payload);
+            if seen > 0 {
+                efr_stdx::mark::value("client.read", seen, payload.len() as u64);
+            }
+        }
         Ok(payload.map(|payload| ServerFrame::from_json(&payload)))
     }
 

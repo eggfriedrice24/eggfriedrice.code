@@ -127,7 +127,9 @@ impl AnthropicProvider {
     ) -> Result<HttpResponse, ProviderError> {
         let mut refreshed = false;
         loop {
+            efr_stdx::mark::hit("prov.post.begin");
             let token = self.tokens.access_token().await?;
+            efr_stdx::mark::hit("prov.token");
             let request = sign(unsigned, &self.config, token.secret()).map_err(transport)?;
             let result = self
                 .config
@@ -159,7 +161,9 @@ impl AnthropicProvider {
         model: &str,
         attempt: u32,
     ) -> Result<Answered, Failure> {
+        efr_stdx::mark::hit("prov.attempt");
         let response = self.http.send(request).await.map_err(Failure::transport)?;
+        efr_stdx::mark::hit("prov.headers");
         let request_id = response
             .headers()
             .get(REQUEST_ID_HEADER)
@@ -209,6 +213,7 @@ impl Provider for AnthropicProvider {
             request_id = tracing::field::Empty,
         );
         let timing = Timing::start();
+        efr_stdx::mark::hit("prov.begin");
         let model = self.models().into_iter().find(|model| model.id == request.model);
         if model.is_none() {
             // NOTE: without a login no catalog fetch could run, so the model is not
@@ -216,7 +221,9 @@ impl Provider for AnthropicProvider {
             self.tokens.access_token().await?;
         }
         let body = request_body(&request, &self.config, model.as_ref())?;
+        efr_stdx::mark::hit("prov.body");
         let unsigned = self.unsigned(&body).map_err(transport)?;
+        efr_stdx::mark::hit("prov.encoded");
         let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")

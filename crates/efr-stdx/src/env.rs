@@ -59,6 +59,10 @@ pub enum Var {
     /// `shell_call_phases_in_a_project` runs its calls; without it, the bench makes a
     /// small git repository.
     BenchProject,
+    /// `EFR_MARK`: an absolute path to a file; `efrd` and `efr` append their timing
+    /// marks to it (`efr_stdx::mark`). The streaming benches set it for the processes
+    /// that they start. Without it the marks are off.
+    Mark,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
     /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
     /// over the terminal's choice in it.
@@ -118,6 +122,7 @@ impl Var {
         Var::TestSystemBus,
         Var::TestSessionBus,
         Var::BenchProject,
+        Var::Mark,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -169,6 +174,7 @@ impl Var {
             Var::TestSystemBus => "EFR_TEST_SYSTEM_BUS",
             Var::TestSessionBus => "EFR_TEST_SESSION_BUS",
             Var::BenchProject => "EFR_BENCH_PROJECT",
+            Var::Mark => "EFR_MARK",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
             Var::Effort => "EFR_EFFORT",

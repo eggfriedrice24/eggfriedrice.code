@@ -455,8 +455,13 @@ impl Dispatcher for Methods {
         context: &ConnectionContext,
         hello: &Hello,
     ) -> Result<HelloResult, ErrorBody> {
+        efr_stdx::mark::hit("hello.begin");
         let peer = peer_side(&self.state, context).await;
-        hello::handle(&self.state, context, peer, hello).map_err(|error| answer("hello", error))
+        efr_stdx::mark::hit("hello.peer");
+        let handled = hello::handle(&self.state, context, peer, hello)
+            .map_err(|error| answer("hello", error));
+        efr_stdx::mark::hit("hello.end");
+        handled
     }
 
     async fn closed(&self, context: &ConnectionContext) {
@@ -469,7 +474,9 @@ impl Dispatcher for Methods {
         let span = tracing::debug_span!("request", method = name);
         let state = &self.state;
         let handled = async {
+            efr_stdx::mark::hit_for("dispatch.begin", name);
             authorize_context(state, &context, &method).await?;
+            efr_stdx::mark::hit_for("dispatch.authorized", name);
             let input = Input::of(state, &context, &method);
             // NOTE: marked before the handler, so a turn that the input starts never
             // reads the idle state that the input ends; recorded after it, so a prompt

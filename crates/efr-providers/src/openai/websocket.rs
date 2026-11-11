@@ -210,14 +210,22 @@ impl Sockets {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<WebSocket, ConnectError>>,
     {
+        efr_stdx::mark::hit("ws.begin");
         let mut taken = match self.take(key) {
             Ok(Some(taken)) => taken,
             Ok(None) => match self.open(key, connect).await {
                 Ok(taken) => taken,
-                Err(reason) => return Attempt::Http(reason),
+                Err(reason) => {
+                    efr_stdx::mark::hit("ws.open_failed");
+                    return Attempt::Http(reason);
+                }
             },
-            Err(reason) => return Attempt::Skipped(reason),
+            Err(reason) => {
+                efr_stdx::mark::hit("ws.skipped");
+                return Attempt::Skipped(reason);
+            }
         };
+        efr_stdx::mark::hit_for("ws.taken", if taken.new { "new" } else { "reused" });
         let outgoing = Outgoing::of(body);
         let plan = plan(taken.last.as_ref(), &outgoing);
         let route = Route {
@@ -236,6 +244,7 @@ impl Sockets {
                     return Attempt::Http(format!("the request could not be encoded: {error}"));
                 }
             };
+        efr_stdx::mark::hit_for("ws.encoded", route.input);
         let (events, mut receiver) = mpsc::channel(EVENTS);
         let Outgoing { settings, prints, .. } = outgoing;
         let create = Create { message, settings, prints, events };
@@ -253,12 +262,14 @@ impl Sockets {
                         .is_some_and(|kind| kind.starts_with("response."));
                     early.push(event);
                     if answer {
+                        efr_stdx::mark::hit("ws.accepted");
                         timing.accepted();
                         self.state().unauthorized = false;
                         break;
                     }
                 }
                 Some(Delivery::Refused(Refusal { reason, health })) => {
+                    efr_stdx::mark::hit("ws.refused");
                     self.judge(health);
                     return Attempt::Http(reason);
                 }
@@ -328,6 +339,7 @@ impl Sockets {
             }
         };
         tracing::debug!(phase = "provider_connect", transport = "websocket", elapsed_ms = %watch, "phase=provider_connect transport=websocket elapsed_ms={}", watch);
+        efr_stdx::mark::hit("ws.connected");
         let opened_at = self.clock.now();
         let connection =
             Arc::new(Connection::start(socket, Arc::clone(&self.clock), self.limits, opened_at));

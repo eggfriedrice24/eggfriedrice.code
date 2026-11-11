@@ -1098,6 +1098,7 @@ impl TokenSource for StoredApiKey {
     async fn access_token(&self) -> Result<AccessToken, ProviderError> {
         let store = Arc::clone(&self.store);
         let id = self.id.clone();
+        efr_stdx::mark::hit("key.read");
         let record = tokio::task::spawn_blocking(move || store.load(&id))
             .await
             .map_err(|join| ProviderError::Token { source: Box::new(join) })?

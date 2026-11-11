@@ -168,10 +168,12 @@ impl OpenAiProvider {
     /// Opens a WebSocket to the Responses endpoint for the conversation of `body`, with
     /// the headers of the HTTP path and the WebSocket beta header.
     async fn connect(&self, body: &ResponsesBody) -> Result<WebSocket, ConnectError> {
+        efr_stdx::mark::hit("ws.connect.begin");
         let token = self.tokens.access_token().await.map_err(|error| ConnectError {
             reason: format!("no access token: {error}"),
             health: Health::Fine,
         })?;
+        efr_stdx::mark::hit("ws.connect.token");
         let request = self.websocket_request(body, &token).map_err(|error| ConnectError {
             reason: format!("the handshake could not be built: {error}"),
             health: Health::Broken,
@@ -211,7 +213,9 @@ impl OpenAiProvider {
     ) -> Result<HttpResponse, ProviderError> {
         let mut refreshed = false;
         loop {
+            efr_stdx::mark::hit("prov.post.begin");
             let token = self.tokens.access_token().await?;
+            efr_stdx::mark::hit("prov.token");
             let request = sign(unsigned, &self.config, &token).map_err(transport)?;
             let response = match self.send(&request).await? {
                 Answer::Response(response) => response,
@@ -253,11 +257,13 @@ impl OpenAiProvider {
             .config
             .retry()
             .run(&*self.clock, &*self.rng, |_attempt| async move {
+                efr_stdx::mark::hit("prov.attempt");
                 let response = self
                     .http
                     .send(request)
                     .await
                     .map_err(|error| Unanswered { error, idempotent })?;
+                efr_stdx::mark::hit("prov.headers");
                 if response.status() != StatusCode::TOO_MANY_REQUESTS {
                     return Ok(Sent { answer: Answer::Response(response), idempotent });
                 }
@@ -369,8 +375,10 @@ impl Provider for OpenAiProvider {
             request_id = tracing::field::Empty,
         );
         let timing = Timing::start();
+        efr_stdx::mark::hit("prov.begin");
         let model = self.models().into_iter().find(|model| model.id == request.model);
         let body = request_body(&request, &self.config, model.as_ref());
+        efr_stdx::mark::hit("prov.body");
         if self.config.uses_websocket(model.as_ref())
             && let Some(key) = body.prompt_cache_key()
         {
@@ -397,6 +405,7 @@ impl Provider for OpenAiProvider {
             }
         }
         let unsigned = self.unsigned(&body).map_err(transport)?;
+        efr_stdx::mark::hit("prov.encoded");
         let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")

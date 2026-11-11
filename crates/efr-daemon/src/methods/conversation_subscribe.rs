@@ -110,9 +110,11 @@ pub(crate) async fn handle(
     cancelled: CancellationToken,
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
+    efr_stdx::mark::hit("sub.begin");
     let answering = params.answers_input
         && granted(context.surface(), peer_side(state, context).await)
             .contains(&ScopeName::Terminal);
+    efr_stdx::mark::hit("sub.peer");
     let attached = state.connections.subscribe(context.conn_id(), conversation_id, answering);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();
@@ -159,6 +161,7 @@ pub(crate) async fn handle(
         })
         .await?
         .ok_or(DaemonError::ConversationNotFound { conversation_id })?;
+    efr_stdx::mark::hit("sub.read");
     let hwm = start.hwm;
     if params.drafts {
         // NOTE: subscribed after the read, so every draft that comes is newer than the
@@ -182,6 +185,7 @@ pub(crate) async fn handle(
     for item in start.items {
         responder.item(&item).await?;
     }
+    efr_stdx::mark::hit("sub.started");
     receiver.skip_through(hwm);
     progress.raise(hwm);
     match responder.forward(receiver).await {
@@ -416,6 +420,9 @@ impl Live {
     fn forward_draft(&mut self, draft: ConversationDraft) -> bool {
         if draft.conversation_id != self.conversation_id {
             return true;
+        }
+        if let efr_protocol::DraftPart::Text { delta, .. } = &draft.part {
+            efr_stdx::mark::text("sub.draft", delta.as_bytes());
         }
         // NOTE: the turn sent the draft after the commits it made before it, so those
         // commits wait here already; they go first.

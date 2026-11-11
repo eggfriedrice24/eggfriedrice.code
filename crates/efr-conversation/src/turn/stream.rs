@@ -79,6 +79,7 @@ impl Turn {
             () = interrupt.raised() => return Ok(Response::Interrupted),
             opened = provider.stream(request).instrument(span.clone()) => opened,
         };
+        efr_stdx::mark::hit("stream.opened");
         tracing::debug!(parent: &span, phase = "model_open", elapsed_ms = %watch, "phase=model_open elapsed_ms={}", watch);
         let mut stream = match opened {
             Ok(stream) => stream,
@@ -98,7 +99,9 @@ impl Turn {
                 () = interrupt.raised() => break Streamed::Interrupted,
                 () = sleep_or_pending(&*clock, flush) => {
                     updates.flushed(clock.now());
+                    efr_stdx::mark::value("stream.record.begin", 1, 0);
                     self.record_text(builder.text()).await?;
+                    efr_stdx::mark::value("stream.record.end", 1, 0);
                 }
                 () = sleep_or_pending(&*clock, draft_flush) => {
                     self.drafter.flush(clock.now());
@@ -107,8 +110,14 @@ impl Turn {
                     None => break Streamed::Ended,
                     Some(Err(error)) => break Streamed::Failed(error),
                     Some(Ok(event)) => {
+                        if let ProviderEvent::TextDelta { text } = &event
+                            && !text.is_empty()
+                        {
+                            efr_stdx::mark::text("stream.text", text.as_bytes());
+                        }
                         if first_event {
                             first_event = false;
+                            efr_stdx::mark::hit("stream.first_event");
                             tracing::debug!(parent: &span, phase = "model_first_event", elapsed_ms = %watch, "phase=model_first_event elapsed_ms={}", watch);
                         }
                         if first_tool_call && matches!(event, ProviderEvent::ToolCallStart { .. }) {
@@ -128,7 +137,9 @@ impl Turn {
                         }
                         let text_grew = matches!(&event, ProviderEvent::TextDelta { text } if !text.is_empty());
                         if text_grew && updates.offer(clock.now()) {
+                            efr_stdx::mark::value("stream.record.begin", 0, 0);
                             self.record_text(builder.text()).await?;
+                            efr_stdx::mark::value("stream.record.end", 0, 0);
                         }
                     }
                 },

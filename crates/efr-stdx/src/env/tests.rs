@@ -143,6 +143,7 @@ fn all_lists_every_variant() {
         Var::TestSystemBus,
         Var::TestSessionBus,
         Var::BenchProject,
+        Var::Mark,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -171,6 +172,7 @@ fn all_lists_every_variant() {
             | Var::TestSystemBus
             | Var::TestSessionBus
             | Var::BenchProject
+            | Var::Mark
             | Var::Mode
             | Var::Model
             | Var::Effort

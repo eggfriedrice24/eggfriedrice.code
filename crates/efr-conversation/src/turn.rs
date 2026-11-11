@@ -570,9 +570,11 @@ impl Turn {
         let shared = Arc::clone(&self.shared);
         let config = Arc::clone(&self.config);
         let turn_id = self.turn_id();
+        efr_stdx::mark::hit("turn.begin");
         let snapshot =
             Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history, cache)
                 .await?;
+        efr_stdx::mark::hit("turn.snapshot");
         self.read = snapshot.saved.clone();
         let summary = snapshot.summary.as_ref();
         self.cwd = match (&self.spec.context, summary.and_then(|summary| summary.cwd.as_ref())) {
@@ -586,6 +588,7 @@ impl Turn {
             self.cwd = cwd.clone();
         }
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
+        efr_stdx::mark::hit("turn.scope");
         self.scope = derivation.scope.clone();
         // NOTE: resolved again against the settings of this moment, because the config
         // may have changed while the prompt waited; what no longer fits fails the turn.
@@ -674,7 +677,9 @@ impl Turn {
         {
             started.push(Event::ScopeChanged { turn_id, from: previous, to: self.scope.clone() });
         }
+        efr_stdx::mark::hit("turn.settings");
         self.record(started).await?;
+        efr_stdx::mark::hit("turn.started");
         self.notices_recorded = true;
         self.transcript.push(Message::user(self.spec.text.clone()));
 
@@ -686,6 +691,7 @@ impl Turn {
             }
         };
 
+        efr_stdx::mark::hit("turn.scratch");
         // NOTE: a `cd` of the user between two prompts moves the hidden shell too, so
         // the model works where the user now is. Without such a move the shell stays
         // where the model left it.
@@ -704,6 +710,7 @@ impl Turn {
             None => snapshot.agent_cwd(),
         };
         let busy_shell = shared.deps.toolbox.busy_shell(shared.conversation_id).await;
+        efr_stdx::mark::hit("turn.shell");
         let preamble = self.live_state(derivation.repo, agent_cwd, moved_from, busy_shell).render();
         let fresh = match snapshot.summary() {
             Some(compaction) => Some(self.fresh_for(compaction).await),
@@ -737,6 +744,7 @@ impl Turn {
             first.clone_from(&prompt);
         }
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
+        efr_stdx::mark::hit("turn.window");
         self.edit_tool = edit_tool(&*provider, &settings.model);
         let base = Request {
             model: settings.model.clone(),
@@ -751,6 +759,7 @@ impl Turn {
             provider_options: provider_options(&config, shared.conversation_id),
         };
 
+        efr_stdx::mark::hit("turn.base");
         for _ in 0..config.max_model_calls {
             if self.control.interrupt.is_raised() {
                 return Ok(Ending::Interrupted);
@@ -778,7 +787,10 @@ impl Turn {
                 Guard::Full(error) => return Ok(Ending::Failed(error)),
                 Guard::Interrupted => return Ok(Ending::Interrupted),
             };
-            let message = match self.respond(with_window(&base, &window)).await? {
+            efr_stdx::mark::hit("turn.guard");
+            let request = with_window(&base, &window);
+            efr_stdx::mark::hit("turn.request");
+            let message = match self.respond(request).await? {
                 Response::Done(message) => message,
                 // NOTE: never retried as a transient error: the same request fails
                 // again. One compaction and one more try; a second refusal ends the

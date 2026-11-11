@@ -50,10 +50,15 @@ impl Output {
         if text.is_empty() {
             return Ok(());
         }
-        self.stdout
+        let seen = efr_stdx::mark::marker(text.as_bytes());
+        efr_stdx::mark::value("out.begin", seen, text.len() as u64);
+        let written = self
+            .stdout
             .write_all(text.as_bytes())
             .and_then(|()| self.stdout.flush())
-            .map_err(|source| CliError::Output { source })
+            .map_err(|source| CliError::Output { source });
+        efr_stdx::mark::value("out.end", seen, text.len() as u64);
+        written
     }
 
     /// Writes `text` to stderr. A failure is dropped: stderr is where failures are

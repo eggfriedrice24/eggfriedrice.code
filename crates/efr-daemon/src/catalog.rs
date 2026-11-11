@@ -288,12 +288,14 @@ impl Models {
             self.wake.notify_one();
         }
         tracing::debug!(provider = %self.provider, "no model list yet; the prompt waits for a fetch");
+        efr_stdx::mark::hit("catalog.wait.begin");
         tokio::select! {
             _ = ended.changed() => {}
             () = refresh.clock.sleep(LIST_WAIT) => {
                 tracing::warn!(provider = %self.provider, wait_s = LIST_WAIT.as_secs(), "the fetch of the model list did not end in time; the prompt goes on without a list");
             }
         }
+        efr_stdx::mark::hit("catalog.wait.end");
     }
 
     /// Fetches the catalog now, then again after each wait, until `stop`. Returns at

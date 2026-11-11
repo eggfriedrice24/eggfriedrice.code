@@ -918,6 +918,9 @@ impl Follower<'_> {
                 (events, Some(snapshot.hwm))
             }
             Ok(ConversationSubscribeItem::Draft(draft)) => {
+                if let efr_protocol::DraftPart::Text { delta, .. } = &draft.draft {
+                    efr_stdx::mark::text("follow.draft", delta.as_bytes());
+                }
                 let step = view.draft(&draft, self.ctx.screen.size());
                 self.apply(step, out, view, true).await?;
                 return Ok(None);

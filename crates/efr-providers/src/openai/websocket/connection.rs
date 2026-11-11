@@ -229,7 +229,14 @@ async fn run(
         let quiet = idle_since.is_some_and(|since| {
             clock.now().duration_since(since).unsigned_abs() >= limits.probe_after
         });
-        if quiet && !probe(&socket, &*clock, limits).await {
+        if quiet {
+            efr_stdx::mark::hit("ws.probe.begin");
+        }
+        let alive = !quiet || probe(&socket, &*clock, limits).await;
+        if quiet {
+            efr_stdx::mark::hit("ws.probe.end");
+        }
+        if !alive {
             // NOTE: the request has not gone out, so the server has not seen it and
             // the call may go over HTTP. A dead connection says nothing about the
             // transport, so WebSockets do not pause.

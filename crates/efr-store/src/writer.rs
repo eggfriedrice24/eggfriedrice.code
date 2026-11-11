@@ -133,7 +133,12 @@ fn run(mut state: WriterState, mut jobs: mpsc::Receiver<Job>) {
         // `TaskPanicked`. An open transaction rolls back as the panic unwinds, and the
         // sequence counter only moves after a commit, so the state stays good for the
         // next job.
+        let began = efr_stdx::mark::on().then(efr_stdx::mark::now_ns);
         let _ = panic::catch_unwind(AssertUnwindSafe(|| job(&mut state)));
+        if let Some(began) = began {
+            let took = efr_stdx::mark::now_ns().saturating_sub(began);
+            efr_stdx::mark::value("store.job", took, jobs.len() as u64);
+        }
     }
 }
 

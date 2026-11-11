@@ -110,7 +110,9 @@ pub(crate) async fn handle(
     responder: &Responder,
 ) -> Result<(), DaemonError> {
     let command_id = params.command_id;
-    let answer = match receipts::lookup(state, command_id).await? {
+    let looked_up = receipts::lookup(state, command_id).await?;
+    efr_stdx::mark::hit("ps.receipt");
+    let answer = match looked_up {
         Some(receipt) => receipts::replay(METHOD, receipt)?,
         None => match send(state, context, params).await {
             Ok(answer) => answer,
@@ -119,6 +121,7 @@ pub(crate) async fn handle(
         },
     };
     responder.item(&answer).await?;
+    efr_stdx::mark::hit("ps.replied");
     Ok(())
 }
 
@@ -138,6 +141,7 @@ async fn send(
         });
     }
     reprobe_for_auto(state, &params.settings).await;
+    efr_stdx::mark::hit("ps.reprobe");
     // NOTE: one value of the settings for the pick and the check, so a reload while the
     // prompt waits for a list cannot check one provider's list for another's turn. The
     // turn resolves again against the settings of its start.
@@ -147,6 +151,7 @@ async fn send(
         .providers
         .provider_of_prompt(&settings, params.settings.model.as_deref(), named)
         .await?;
+    efr_stdx::mark::hit("ps.provider");
     // NOTE: the prompt carries the id of the provider that it named, so its turn finds
     // it also while that provider's list is still missing.
     if params.settings.provider.is_some() {
@@ -158,6 +163,7 @@ async fn send(
     refuse_foreign_model(state, &settings, &params.settings)?;
     state.providers.check_list(&settings, &provider, asked)?;
     validate(&params)?;
+    efr_stdx::mark::hit("ps.checked");
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.
     let mut prompting = state.connections.prompting(context.conn_id());
@@ -170,6 +176,7 @@ async fn send(
         (Some(tty), None) => Some(route(state, context, &params, tty, shell_pid).await?),
         _ => None,
     };
+    efr_stdx::mark::hit("ps.routed");
     let sent = match (routing, params.conversation_id) {
         (_, Some(conversation_id)) => {
             ensure_exists(state, conversation_id).await?;
@@ -192,6 +199,7 @@ async fn send(
             sent
         }
     };
+    efr_stdx::mark::hit("ps.sent");
     match sent {
         Ok(result) => {
             prompting.sent_to(result.conversation_id);
