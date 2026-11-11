@@ -2390,6 +2390,15 @@ export type DraftPart =
       call: number;
       kind: "tool_input";
       /**
+       * The newest part of the input as the model writes it: at most 256 bytes that
+       * end at `bytes`, cut at a character border. It is the raw text, JSON for
+       * most tools, with each control character, such as a newline, as spaces of
+       * the same length, so it is safe to print and its first byte is at `bytes`
+       * minus its length. A client can show its newest words while a long input
+       * grows. Absent before the input has a byte, and from an older daemon.
+       */
+      tail?: string | null;
+      /**
        * The name of the tool.
        */
       tool: string;
@@ -2403,6 +2412,33 @@ export type DraftPart =
        * What started the compaction: `auto` or `overflow`.
        */
       trigger: CompactionTrigger;
+    }
+  | {
+      kind: "connecting";
+    }
+  | {
+      kind: "connected";
+    }
+  | {
+      /**
+       * The number of the attempt that failed, from 1.
+       */
+      attempt: number;
+      kind: "retrying";
+      /**
+       * Why, in a few plain words that are safe to print, such as `the provider
+       * answered 503`.
+       */
+      reason: string;
+      /**
+       * The HTTP status of the failed attempt. Absent when no answer came, such as
+       * when no connection could be made.
+       */
+      status?: number | null;
+      /**
+       * How long the daemon waits before the next attempt, in milliseconds.
+       */
+      wait_ms: number;
     };
 /**
  * One item of a `conversations.watch` stream.
@@ -7395,6 +7431,9 @@ export const DRAFT_PART_KINDS = [
   "tool_input",
   "context",
   "compacting",
+  "connecting",
+  "connected",
+  "retrying",
 ] as const satisfies readonly DraftPart["kind"][];
 
 /** Every item kind of `conversation.subscribe`. */

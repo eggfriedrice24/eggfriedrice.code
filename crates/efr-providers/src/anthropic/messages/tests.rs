@@ -598,3 +598,71 @@ async fn the_provider_names_itself_and_has_no_model_without_a_list() {
     let debug = format!("{provider:?}");
     assert!(debug.contains("AnthropicProvider"), "{debug}");
 }
+
+/// The notices of one model call, in order.
+#[derive(Debug, Default)]
+struct Heard(Mutex<Vec<efr_provider::CallNotice>>);
+
+impl efr_provider::CallNotices for Heard {
+    fn notice(&self, notice: efr_provider::CallNotice) {
+        self.0.lock().unwrap().push(notice);
+    }
+}
+
+#[tokio::test]
+async fn a_call_tells_its_connects_and_each_wait_before_another_attempt() {
+    use efr_provider::CallNotice;
+    let server = MockServer::start().await;
+    mount_then(&server, error_answer(529, "overloaded_error", "Overloaded"), 1, answer("Hi."))
+        .await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+    let heard = Heard::default();
+
+    let stream = setup.provider.stream_with_notices(request("Hi"), &heard).await.unwrap();
+    drop(stream);
+
+    let wait = setup.clock.sleeps()[0];
+    assert_eq!(
+        heard.0.into_inner().unwrap(),
+        [
+            CallNotice::Connecting,
+            CallNotice::Retrying { attempt: 1, wait, status: Some(529) },
+            CallNotice::Connecting,
+            CallNotice::Connected,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_call_that_gets_no_connection_tells_a_retry_without_a_status() {
+    use efr_provider::CallNotice;
+    let clock = Arc::new(InstantClock::new());
+    let rng = Arc::new(FixedRng(0));
+    let http = HttpClient::new(&HttpConfig::default(), clock.clone(), rng.clone()).unwrap();
+    let config = AnthropicConfig::new().with_base_url(&closed_base_url()).unwrap();
+    let id = ProviderId::new("anthropic-test").unwrap();
+    let provider =
+        AnthropicProvider::new(id, config, http, Arc::new(FakeTokens::key()), clock, rng)
+            .with_catalog(listed());
+    let heard = Heard::default();
+
+    let error = provider.stream_with_notices(request("Hi"), &heard).await.err().unwrap();
+
+    assert!(matches!(error, ProviderError::Transport { .. }), "{error:?}");
+    let heard = heard.0.into_inner().unwrap();
+    assert!(
+        matches!(
+            heard.as_slice(),
+            [
+                CallNotice::Connecting,
+                CallNotice::Retrying { attempt: 1, status: None, .. },
+                CallNotice::Connecting,
+                CallNotice::Retrying { attempt: 2, status: None, .. },
+                CallNotice::Connecting,
+                CallNotice::Retrying { attempt: 3, status: None, .. },
+                CallNotice::Connecting,
+            ]
+        ),
+        "{heard:?}"
+    );
+}

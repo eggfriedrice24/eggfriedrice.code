@@ -826,3 +826,37 @@ async fn a_second_connection_for_one_conversation_does_not_cut_the_answer_of_the
     assert!(matches!(first.last(), Some(Ok(ProviderEvent::Done { .. }))), "{first:?}");
     assert_eq!(server.sockets().len(), 2);
 }
+
+/// The notices of one model call, in order.
+#[derive(Debug, Default)]
+struct Heard(std::sync::Mutex<Vec<efr_provider::CallNotice>>);
+
+impl efr_provider::CallNotices for Heard {
+    fn notice(&self, notice: efr_provider::CallNotice) {
+        self.0.lock().unwrap().push(notice);
+    }
+}
+
+#[tokio::test]
+async fn a_new_connection_tells_its_connect_and_a_reused_one_tells_nothing() {
+    use efr_provider::CallNotice;
+    let socket = Socket::serving(vec![
+        vec![Step::Send(answer("resp_1", "Hello."))],
+        vec![Step::Send(answer("resp_2", "Again."))],
+    ]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = request("gpt-5.5", "hi");
+
+    let first = Heard::default();
+    let stream = setup.provider.stream_with_notices(request.clone(), &first).await.unwrap();
+    let answered = efr_provider::Completion::collect(stream).await.unwrap();
+    assert_eq!(first.0.into_inner().unwrap(), [CallNotice::Connecting, CallNotice::Connected]);
+    request.messages.push(answered.message);
+    request.messages.push(Message::user("and now?"));
+    let second = Heard::default();
+    let stream = setup.provider.stream_with_notices(request, &second).await.unwrap();
+    collect(stream).await;
+
+    assert_eq!(second.0.into_inner().unwrap(), []);
+    assert_eq!(setup.server.sockets().len(), 1);
+}

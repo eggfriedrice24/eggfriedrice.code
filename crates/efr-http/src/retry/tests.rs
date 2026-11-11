@@ -237,3 +237,33 @@ async fn run_classifies_with_the_clock_time() {
     assert_eq!(result.unwrap().0, 2);
     assert_eq!(clock.now(), start().checked_add(SignedDuration::from_millis(500)).unwrap());
 }
+
+#[tokio::test]
+async fn run_reporting_names_each_failed_attempt_and_its_wait_before_the_wait() {
+    let clock = InstantClock::new();
+    let seen = std::cell::RefCell::new(Vec::new());
+    let result: Result<Attempt, NeverFails> = policy()
+        .run_reporting(
+            &clock,
+            &NO_JITTER,
+            |number| {
+                let outcome = match number {
+                    1 => transient(Some(Duration::from_secs(3))),
+                    2 => transient(None),
+                    _ => Outcome::Final,
+                };
+                async move { Ok(Attempt { number, outcome }) }
+            },
+            |attempt, result, wait| {
+                let number = result.as_ref().map(|failed| failed.number).ok();
+                // The wait is not slept yet when the report comes.
+                seen.borrow_mut().push((attempt, number, wait, clock.sleeps().len()));
+            },
+        )
+        .await;
+    assert_eq!(result.unwrap().number, 3);
+    assert_eq!(
+        seen.into_inner(),
+        [(1, Some(1), Duration::from_secs(3), 0), (2, Some(2), SECOND, 1)]
+    );
+}

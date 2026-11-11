@@ -11,13 +11,19 @@
 //! sends every part that changed. While nobody listens on the channel, the drafter
 //! sends nothing and its positions stay, so the first draft to a new listener carries
 //! everything since the last one sent.
+//!
+//! The drafter also keeps the newest bytes of the input of each tool call, raw and
+//! never parsed, and each tool input draft carries the newest [`INPUT_TAIL`] of them.
+//! While the model call waits for its answer, its [`CallDrafts`] send at once what the
+//! provider says about it: a connect, the API that took it, and each wait before
+//! another attempt.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId};
-use efr_provider::ProviderEvent;
+use efr_provider::{CallNotice, CallNotices, ProviderEvent};
 use jiff::Timestamp;
 use tokio::sync::broadcast;
 
@@ -32,6 +38,9 @@ const REASONING_BREAK: &str = "\n\n";
 /// joins them.
 const TEXT_BREAK: &str = "\n\n";
 
+/// The most bytes of the newest input of a tool call that one draft carries.
+pub(crate) const INPUT_TAIL: usize = 256;
+
 /// The input of one tool call as the model writes it.
 #[derive(Debug)]
 struct ToolInput {
@@ -39,8 +48,39 @@ struct ToolInput {
     call_id: String,
     tool: String,
     bytes: u64,
+    /// The newest bytes of the input as the model wrote them, at most twice
+    /// [`INPUT_TAIL`]; they end at `bytes`.
+    tail: String,
     /// The byte count that the last draft carried; `None` before the first.
     sent: Option<u64>,
+}
+
+impl ToolInput {
+    /// The input grew by `more`.
+    fn grow(&mut self, more: &str) {
+        self.bytes = self.bytes.saturating_add(more.len() as u64);
+        self.tail.push_str(more);
+        if self.tail.len() > 2 * INPUT_TAIL {
+            let cut = ceil_char(&self.tail, self.tail.len() - INPUT_TAIL);
+            self.tail.drain(..cut);
+        }
+    }
+
+    /// The whole input is `input`.
+    fn whole(&mut self, input: &str) {
+        self.bytes = input.len() as u64;
+        let from = ceil_char(input, input.len().saturating_sub(INPUT_TAIL));
+        self.tail.clear();
+        self.tail.push_str(&input[from..]);
+    }
+
+    /// The newest part of the input for a draft: at most [`INPUT_TAIL`] bytes, cut at a
+    /// character border, safe to print; `None` before the first byte.
+    fn draft_tail(&self) -> Option<String> {
+        let from = ceil_char(&self.tail, self.tail.len().saturating_sub(INPUT_TAIL));
+        let tail = &self.tail[from..];
+        (!tail.is_empty()).then(|| printable(tail))
+    }
 }
 
 /// The drafts of one turn.
@@ -190,6 +230,7 @@ impl Drafter {
                     call_id: call_id.clone(),
                     tool: name.clone(),
                     bytes: 0,
+                    tail: String::new(),
                     sent: None,
                 });
                 self.with_parts(|parts| {
@@ -198,10 +239,10 @@ impl Drafter {
                 true
             }
             ProviderEvent::ToolCallDelta { call_id, arguments } => {
-                self.grow_call(call_id, |bytes| bytes.saturating_add(arguments.len() as u64))
+                self.grow_call(call_id, |input| input.grow(arguments))
             }
             ProviderEvent::ToolCallEnd { call_id, arguments } => {
-                self.grow_call(call_id, |_| arguments.len() as u64)
+                self.grow_call(call_id, |input| input.whole(arguments))
             }
             _ => false,
         }
@@ -275,6 +316,7 @@ impl Drafter {
                 call: u32::try_from(position).unwrap_or(u32::MAX),
                 tool: call.tool.clone(),
                 bytes: call.bytes,
+                tail: call.draft_tail(),
             });
         }
         for part in parts {
@@ -302,6 +344,24 @@ impl Drafter {
     /// The compaction ended without a draft after it, as when the turn ends.
     pub(super) fn compacted(&self) {
         self.status.clear(true);
+    }
+
+    /// Where the provider tells how the next model call starts. Its drafts go at once,
+    /// and the status keeps the newest until the call opened.
+    pub(super) fn call_notices(&self) -> CallDrafts {
+        CallDrafts {
+            sender: self.sender.clone(),
+            status: Arc::clone(&self.status),
+            conversation_id: self.conversation_id,
+            turn_id: self.turn_id,
+            after_seq: Seq::new(self.recorded.load(Ordering::Acquire)),
+        }
+    }
+
+    /// The model call opened its answer, or failed before it: what the provider said
+    /// about its start is no news any more.
+    pub(super) fn call_opened(&self) {
+        self.status.clear_call();
     }
 
     fn emit(&self, part: DraftPart) {
@@ -347,16 +407,16 @@ impl Drafter {
         change(parts)
     }
 
-    /// Sets the input bytes of the newest call `call_id` to `grow` of them; false when
-    /// no such call started.
-    fn grow_call(&mut self, call_id: &str, grow: impl FnOnce(u64) -> u64) -> bool {
+    /// Runs `grow` on the input of the newest call `call_id`; false when no such call
+    /// started.
+    fn grow_call(&mut self, call_id: &str, grow: impl FnOnce(&mut ToolInput)) -> bool {
         let Some(position) = self.calls.iter().rposition(|call| call.call_id == call_id) else {
             return false;
         };
         let Some(call) = self.calls.get_mut(position) else {
             return false;
         };
-        call.bytes = grow(call.bytes);
+        grow(call);
         let bytes = call.bytes;
         let call = u32::try_from(position).unwrap_or(u32::MAX);
         self.with_parts(|parts| {
@@ -366,6 +426,81 @@ impl Drafter {
         });
         true
     }
+}
+
+/// The drafts of what the provider says about the start of one model call
+/// ([`CallNotice`]). They go at once, as the provider says them, because a client shows
+/// them in the place of a wait that would look like a slow model.
+#[derive(Debug)]
+pub(super) struct CallDrafts {
+    sender: broadcast::Sender<ConversationDraft>,
+    status: Arc<LiveStatus>,
+    conversation_id: ConversationId,
+    turn_id: TurnId,
+    after_seq: Seq,
+}
+
+impl CallNotices for CallDrafts {
+    fn notice(&self, notice: CallNotice) {
+        let part = match notice {
+            CallNotice::Connecting => DraftPart::Connecting,
+            CallNotice::Connected => DraftPart::Connected,
+            CallNotice::Retrying { attempt, wait, status } => DraftPart::Retrying {
+                attempt,
+                wait_ms: u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+                status,
+                reason: retry_reason(status),
+            },
+            _ => return,
+        };
+        let draft = ConversationDraft {
+            conversation_id: self.conversation_id,
+            turn_id: self.turn_id,
+            after_seq: self.after_seq,
+            part,
+        };
+        if matches!(draft.part, DraftPart::Retrying { .. }) {
+            efr_stdx::mark::hit("draft.retrying");
+        }
+        // NOTE: a client that attaches during the wait sees it from the status.
+        self.status.hold(&draft);
+        if self.sender.receiver_count() > 0 {
+            // A receiver that went away in the meantime is no error: drafts are best
+            // effort.
+            let _ = self.sender.send(draft);
+        }
+    }
+}
+
+/// Why a model call is sent again, in a few plain words.
+fn retry_reason(status: Option<u16>) -> String {
+    match status {
+        Some(status) => format!("the provider answered {status}"),
+        None => "the connection failed".to_owned(),
+    }
+}
+
+/// `text` with each control character, such as a newline or an escape, as spaces of
+/// the same byte length, so it is safe to print and keeps its offsets.
+fn printable(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_control() {
+            out.extend(std::iter::repeat_n(' ', c.len_utf8()));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The smallest index of `text` at or above `at` that starts a character.
+fn ceil_char(text: &str, at: usize) -> usize {
+    let mut at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at += 1;
+    }
+    at
 }
 
 /// Reads the lines of `reasoning` that arrived since the last search for a bold title

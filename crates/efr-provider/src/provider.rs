@@ -6,7 +6,7 @@ use std::pin::Pin;
 use async_trait::async_trait;
 use futures::Stream;
 
-use crate::{Completion, ProviderError, ProviderEvent, ProviderId, Request};
+use crate::{CallNotices, Completion, ProviderError, ProviderEvent, ProviderId, Request};
 
 /// The stream a [`Provider`] answers with. It is boxed and `Send` so that the trait
 /// stays dyn-compatible and the conversation can poll it from any task.
@@ -52,6 +52,19 @@ pub trait Provider: Send + Sync + fmt::Debug {
     /// Sends `request` and returns the answer as it streams. An error here means the
     /// request failed before any event; later failures arrive as error items.
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError>;
+
+    /// As [`stream`](Provider::stream), and tells `notices` how the call starts: when
+    /// it connects or sends, when the API took it, and each wait before another
+    /// attempt. A turn shows them while the user waits for the answer. A provider that
+    /// says nothing keeps this default, which sends no notice.
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
+        let _ = notices;
+        self.stream(request).await
+    }
 
     /// Sends `request` and collects the whole answer with [`Completion::collect`].
     async fn complete(&self, request: Request) -> Result<Completion, ProviderError> {

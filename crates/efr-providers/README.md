@@ -166,7 +166,7 @@ Failures:
 - other retries follow the config's `efr_http::RetryPolicy`, which sends a `POST`
   again only when the server certainly did not act on it (no connection, or 408, 429
   or 503), so a model call never runs twice. The provider runs the policy itself
-  (`RetryPolicy::run`, with the injected clock and generator) and reads the body of a
+  (`RetryPolicy::run_reporting`, with the injected clock and generator) and reads the body of a
   429 before the policy decides: a 429 for a used-up quota or a plan without access
   (`insufficient_quota`, `usage_not_included`, `credit_balance_exhausted` and the
   spend and usage limit codes) is never sent again;
@@ -669,7 +669,7 @@ at `message_stop`.
 | an `error` event after a 200 | the same class by `error.type` | never |
 
 The attempts of a model call and of each page of the model list go through
-`efr_http::RetryPolicy::run` on the injected clock and random source: one attempt
+`efr_http::RetryPolicy` on the injected clock and random source: one attempt
 reads the error body and classifies it before the policy decides, so a spend cap is
 never sent four times. `efr_http::is_retryable_status` does not decide here. A
 `retry-after` header sets the wait; a wait above the policy's longest ends the

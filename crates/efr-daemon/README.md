@@ -480,14 +480,16 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   drops a draft that is older than an event it sent that ends what the draft shows. A
   draft never closes the subscription. A draft that finds the room full waits in the
   subscription, merged with the later drafts of its part (one text per message, the
-  reasoning, one input per tool call, the newest `context` and `compacting`), and
+  reasoning, one input per tool call with its newest `tail`, the newest `context` and
+  `compacting`, and the newest of `connecting`, `connected` and `retrying`), and
   goes at the next free place (`methods/conversation_subscribe/pending.rs`). When the
   draft broadcast left the subscription behind, it builds the lost drafts again from
   the turn's live parts (`ConversationHandle::live_turn`) and cuts the bytes that went
   already from later drafts, so a slow client gets every byte of the text and the
   reasoning once, in fewer drafts. The drafts start with the status of the
-  running turn (`ConversationHandle::live_drafts`: its newest `context` draft, and
-  `compacting` while it compacts), so a client that attaches during a long model call
+  running turn (`ConversationHandle::live_drafts`: its newest `context` draft,
+  `compacting` while it compacts, and `connecting` or `retrying` while a model call
+  waits for its answer), so a client that attaches during a long model call
   shows the gauge at once. A snapshot carries the turn's live parts (`live`: the text
   of the message that streams and the reasoning of the turn so far), read after the
   start and after the draft channel, so the drafts that follow go on past them. A

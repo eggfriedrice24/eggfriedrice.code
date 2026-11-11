@@ -209,7 +209,7 @@ async fn drafts_after_a_snapshot_with_the_live_parts_go_on_past_them() {
 
     assert_eq!(
         next_draft(&mut receiver).await,
-        DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 12 },
+        DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 12, tail: None },
         "the snapshot does not show the input of the tool calls"
     );
     let text = DraftPart::Text { index: 0, offset: 11, delta: "ld".to_owned() };

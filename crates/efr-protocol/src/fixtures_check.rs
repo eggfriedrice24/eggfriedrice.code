@@ -400,9 +400,22 @@ pub(crate) fn draft_part_samples() -> Vec<DraftPart> {
             delta: "**Reading the journal size**\n\nThe user asks".to_owned(),
             title: Some("Reading the journal size".to_owned()),
         },
-        DraftPart::ToolInput { call: 0, tool: "write_file".to_owned(), bytes: 3277 },
+        DraftPart::ToolInput {
+            call: 0,
+            tool: "write_file".to_owned(),
+            bytes: 3277,
+            tail: Some("print(len(s.split()))\\n\"}".to_owned()),
+        },
         DraftPart::Context(context_use()),
         DraftPart::Compacting { trigger: CompactionTrigger::Auto },
+        DraftPart::Connecting,
+        DraftPart::Connected,
+        DraftPart::Retrying {
+            attempt: 1,
+            wait_ms: 2000,
+            status: Some(503),
+            reason: "the provider answered 503".to_owned(),
+        },
     ]
 }
 

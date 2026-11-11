@@ -3659,6 +3659,13 @@
               "const": "tool_input",
               "type": "string"
             },
+            "tail": {
+              "description": "The newest part of the input as the model writes it: at most 256 bytes that\nend at `bytes`, cut at a character border. It is the raw text, JSON for\nmost tools, with each control character, such as a newline, as spaces of\nthe same length, so it is safe to print and its first byte is at `bytes`\nminus its length. A client can show its newest words while a long input\ngrows. Absent before the input has a byte, and from an older daemon.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "tool": {
               "description": "The name of the tool.",
               "type": "string"
@@ -3701,6 +3708,74 @@
           "required": [
             "kind",
             "trigger"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model call of the turn connects to the provider, or sends its request, and\nno answer came yet. A client can say `connecting` while it lasts. The next\n`connected` or `retrying` draft, any other draft of the turn and its next event\nend it.",
+          "properties": {
+            "kind": {
+              "const": "connecting",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The provider took the model call, and its answer follows. It ends `connecting`\nand `retrying`.",
+          "properties": {
+            "kind": {
+              "const": "connected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An attempt of the model call failed in a way that another attempt may fix, such\nas a busy provider: the daemon waits `wait_ms`, then sends the call again. A\nclient shows it in place of `waiting for the model`, such as `trying again in\n2s (the provider answered 503)`, until the next draft or event of the turn.",
+          "properties": {
+            "attempt": {
+              "description": "The number of the attempt that failed, from 1.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "retrying",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Why, in a few plain words that are safe to print, such as `the provider\nanswered 503`.",
+              "type": "string"
+            },
+            "status": {
+              "description": "The HTTP status of the failed attempt. Absent when no answer came, such as\nwhen no connection could be made.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "wait_ms": {
+              "description": "How long the daemon waits before the next attempt, in milliseconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "attempt",
+            "wait_ms",
+            "reason"
           ],
           "type": "object"
         }

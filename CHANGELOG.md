@@ -43,6 +43,14 @@ into the GitHub release notes, and it stops when the section is missing.
   those keep their place. When the model
   thought for 2 s or more, one line such as
   `▸ Reading the logs  thought 6s` stays in the scrollback.
+- When efr sends a model call again after the provider answered 503 or 429, or after
+  a failed connection, the status row says why and counts down, such as `trying again
+  in 2s (the provider answered 503)`. Before, the row said only `waiting for the
+  model`, so a retry looked like a slow model. A connect that takes half a second or
+  more shows `connecting`.
+- While the model writes a long tool input, such as a long shell command, the status
+  row ends with the newest words of the input after 1 s. Before, the row showed only
+  its size, such as `preparing shell, 3.8 KB`, for as long as the model wrote.
 
 ### Changed
 

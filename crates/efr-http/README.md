@@ -19,7 +19,9 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   answered 408, 429 or 503. A timeout, a connection that broke after the request
   went out, and 500, 502 or 504 are retried only for an idempotent request (`GET`,
   `PUT`, `DELETE` and the like, or one marked `idempotent()`), so a `POST` to the
-  Responses API never runs twice.
+  Responses API never runs twice. `RetryPolicy::run_reporting` also tells the caller
+  of each failed attempt, its result and the wait before the next one, so a person
+  can see why a request takes longer.
 - `sse`: `SseDecoder` and `SseStream`, the WHATWG event stream rules over chunks that
   split anywhere (inside a line, a CRLF pair, a UTF-8 sequence or the byte order
   mark).

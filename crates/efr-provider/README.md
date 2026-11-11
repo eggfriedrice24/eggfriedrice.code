@@ -48,6 +48,12 @@ Modules:
 - `usage`: `TokenUsage` with cached, cache write and reasoning parts; usages add with
   saturation and convert to the wire's `efr_protocol::Usage`. See "Token counts"
   below for what each count means.
+- `notice`: `CallNotice` (`Connecting`, `Connected`, `Retrying` with the attempt, the
+  wait and the HTTP status) and the `CallNotices` trait that hears them, with
+  `NoNotices`. `Provider::stream_with_notices` tells them while a model call waits for
+  its answer, so a person sees a retry that would look like a slow model. Its default
+  calls `stream` and says nothing; `stream` of a provider that tells calls it with
+  `NoNotices`.
 - `provider`: the `Provider` trait, dyn-compatible through `async-trait`.
   `stream(Request) -> ProviderStream` is the one model call a provider implements;
   `complete` collects it by default, and `models` defaults to an empty list. `models`

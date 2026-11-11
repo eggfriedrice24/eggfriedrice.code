@@ -74,11 +74,18 @@ impl Turn {
         let watch = Stopwatch::start();
         let mut first_event = true;
         let mut first_tool_call = true;
+        // NOTE: what the provider says about the start of the call, such as a wait
+        // before another attempt, goes to the clients at once.
+        let notices = self.drafter.call_notices();
         let opened = tokio::select! {
             biased;
-            () = interrupt.raised() => return Ok(Response::Interrupted),
-            opened = provider.stream(request).instrument(span.clone()) => opened,
+            () = interrupt.raised() => {
+                self.drafter.call_opened();
+                return Ok(Response::Interrupted);
+            }
+            opened = provider.stream_with_notices(request, &notices).instrument(span.clone()) => opened,
         };
+        self.drafter.call_opened();
         efr_stdx::mark::hit("stream.opened");
         tracing::debug!(parent: &span, phase = "model_open", elapsed_ms = %watch, "phase=model_open elapsed_ms={}", watch);
         let mut stream = match opened {

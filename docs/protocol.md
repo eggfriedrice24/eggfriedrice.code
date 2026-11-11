@@ -957,3 +957,15 @@ No protocol version has shipped yet.
   socket. Only a remote subscriber, such as the phone, gets at most one draft of each
   part per `conversation.draft_interval_ms`, the first one at once. No wire type
   changed.
+- Version 1, additive: the wait of a model call and the newest part of a tool input.
+  Three new draft parts: `connecting` (the model call connects or sends, and no answer
+  came yet), `connected` (the provider took the call) and `retrying` (`attempt`,
+  `wait_ms`, an optional HTTP `status` and a `reason` in plain words, such as `the
+  provider answered 503`): an attempt failed, and the daemon waits, then sends the call
+  again. efrd sends them at once, and a subscription that starts during the wait gets
+  the newest `connecting` or `retrying` first. The `tool_input` draft gains an optional
+  `tail`: at most the newest 256 bytes of the raw input, which end at `bytes`, cut at a
+  character, with each control character as spaces of the same length. A client that
+  does not know the new parts skips them, and one that does not read `tail` shows the
+  size as before. The `draft_parts.json` fixture now sets `tail` and holds the three
+  new parts.

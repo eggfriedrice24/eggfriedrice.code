@@ -137,13 +137,33 @@ impl RetryPolicy {
         &self,
         clock: &dyn Clock,
         rng: &dyn Rng,
-        mut operation: F,
+        operation: F,
     ) -> Result<T, E>
     where
         T: Retryable,
         E: Retryable,
         F: FnMut(u32) -> Fut,
         Fut: Future<Output = Result<T, E>>,
+    {
+        self.run_reporting(clock, rng, operation, |_, _, _| {}).await
+    }
+
+    /// As [`run`](Self::run), and calls `retrying` before each wait with the number of
+    /// the attempt that failed, its result and the wait, so the caller can tell a
+    /// person why the request takes longer. It must not block.
+    pub async fn run_reporting<T, E, F, Fut, R>(
+        &self,
+        clock: &dyn Clock,
+        rng: &dyn Rng,
+        mut operation: F,
+        mut retrying: R,
+    ) -> Result<T, E>
+    where
+        T: Retryable,
+        E: Retryable,
+        F: FnMut(u32) -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        R: FnMut(u32, &Result<T, E>, Duration),
     {
         let mut attempt = 1;
         loop {
@@ -155,6 +175,7 @@ impl RetryPolicy {
             match self.decide(attempt, outcome, rng) {
                 Decision::Stop => return result,
                 Decision::RetryAfter(wait) => {
+                    retrying(attempt, &result, wait);
                     // The response holds a connection; release it before the wait.
                     drop(result);
                     clock.sleep(wait).await;

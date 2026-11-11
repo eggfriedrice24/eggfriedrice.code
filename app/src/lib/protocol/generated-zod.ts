@@ -2196,10 +2196,20 @@ export const draftPartSchema = z.discriminatedUnion("kind", [
     bytes: z.int().nonnegative(),
     call: z.uint32(),
     kind: z.literal("tool_input"),
+    tail: z.string().nullable().exactOptional(),
     tool: z.string(),
   }),
   contextUseSchema.extend({ kind: z.literal("context") }),
   z.object({ kind: z.literal("compacting"), trigger: compactionTriggerSchema }),
+  z.object({ kind: z.literal("connecting") }),
+  z.object({ kind: z.literal("connected") }),
+  z.object({
+    attempt: z.uint32(),
+    kind: z.literal("retrying"),
+    reason: z.string(),
+    status: z.int().min(0).max(65535).nullable().exactOptional(),
+    wait_ms: z.int().nonnegative(),
+  }),
 ]) satisfies z.ZodType<DraftPart>;
 
 export const draftSchema = z.object({

@@ -3,9 +3,15 @@
 //! `⠼ thinking  4s  ctx 43%  Reading the logs`. The gauge (`format::context`) comes
 //! from the newest `context` draft or compaction, and it is in the colour of its level.
 //!
-//! What changes all the time stands last: the title or the newest words of a reasoning
-//! ([`State::detail`]) end the row, after the time, the gauge and the scope. So those
-//! keep their place while the model thinks, and a narrow screen cuts the detail first.
+//! What changes all the time stands last: the title or the newest words of a reasoning,
+//! and the newest words of a long tool input that the model writes ([`State::detail`]),
+//! end the row, after the time, the gauge and the scope. So those keep their place while
+//! the model thinks or writes, and a narrow screen cuts the detail first.
+//!
+//! While a model call waits for its answer, the row says why when the daemon tells: a
+//! wait before another attempt counts down, such as `trying again in 2s (the provider
+//! answered 503)`, and a connect that takes [`CONNECT_AFTER`] or more says
+//! `connecting`. A faster connect shows nothing, so the row does not flash.
 //!
 //! The row exists only while the turn runs on a terminal, and it goes before the prompt
 //! comes back. It hides while the user is asked something, and the time stops then.
@@ -62,6 +68,9 @@ const MIN_WORDS: usize = 10;
 /// The columns that the detail of the state keeps at least; with fewer the row has none.
 const MIN_DETAIL: usize = 8;
 
+/// How long a connect lasts before the row says `connecting`.
+const CONNECT_AFTER: Duration = Duration::from_millis(500);
+
 /// What the row says while efr counts the user away.
 const AWAY: &str = "away";
 
@@ -81,8 +90,9 @@ pub(crate) enum State {
     Thinking(Option<String>),
     /// The model writes text.
     Writing,
-    /// The model writes the input of call `call` of its answer, `bytes` so far.
-    Preparing { call: u32, tool: String, bytes: u64 },
+    /// The model writes the input of call `call` of its answer, `bytes` so far. With
+    /// the newest words of a long input: the detail at the end of the row.
+    Preparing { call: u32, tool: String, bytes: u64, words: Option<String> },
     /// A tool call runs.
     Tool(String),
     /// An approval waits for an answer from another client.
@@ -92,11 +102,17 @@ pub(crate) enum State {
     Reviewing(String),
     /// The turn compacts the model's context before its next model call.
     Compacting,
+    /// The model call connects to the provider, or sends its request.
+    Connecting,
+    /// An attempt of the model call failed: the daemon waits `wait`, then tries again.
+    /// `reason` says why, safe to print.
+    Retrying { attempt: u32, wait: Duration, reason: String },
 }
 
 impl State {
-    /// The state in words; `silence` is how long the model has sent nothing.
-    fn words(&self, silence: Duration) -> String {
+    /// The state in words; `silence` is how long the model has sent nothing, and
+    /// `lasted` how long the state has shown.
+    fn words(&self, silence: Duration, lasted: Duration) -> String {
         match self {
             State::Model | State::Writing if silence >= STALL => {
                 format!("waiting for the model, no data for {}", format::elapsed(silence))
@@ -105,6 +121,24 @@ impl State {
             State::Model => "waiting for the model".to_owned(),
             State::Thinking(_) => "thinking".to_owned(),
             State::Writing => "writing".to_owned(),
+            State::Connecting if lasted < CONNECT_AFTER => "waiting for the model".to_owned(),
+            State::Connecting => "connecting".to_owned(),
+            State::Retrying { attempt, wait, reason } => {
+                let left = wait.saturating_sub(lasted);
+                let when = if left.is_zero() {
+                    String::new()
+                } else {
+                    // Whole seconds, rounded up, so the count never says 0s before the try.
+                    let seconds =
+                        u64::try_from(left.as_millis().div_ceil(1_000)).unwrap_or(u64::MAX);
+                    format!(" in {}", format::elapsed(Duration::from_secs(seconds)))
+                };
+                if *attempt > 1 {
+                    format!("trying again{when} (try {}, {reason})", attempt + 1)
+                } else {
+                    format!("trying again{when} ({reason})")
+                }
+            }
             State::Preparing { tool, bytes: 0, .. } => format!("preparing {tool}"),
             State::Preparing { tool, bytes, .. } => {
                 format!("preparing {tool}, {}", format::size(*bytes))
@@ -117,13 +151,22 @@ impl State {
     }
 
     /// What the state works on, when it changes while the state lasts: the title or the
-    /// newest words of a reasoning. It ends the row, so the fields before it stand
-    /// still.
+    /// newest words of a reasoning, or the newest words of a tool input. It ends the
+    /// row, so the fields before it stand still.
     fn detail(&self) -> Option<&str> {
         match self {
-            State::Thinking(Some(detail)) => Some(detail),
+            State::Thinking(Some(detail)) | State::Preparing { words: Some(detail), .. } => {
+                Some(detail)
+            }
             _ => None,
         }
+    }
+
+    /// True when `next` is a new state, whose time counts again: another kind, or
+    /// another wait before an attempt.
+    fn starts_anew(&self, next: &State) -> bool {
+        std::mem::discriminant(self) != std::mem::discriminant(next)
+            || matches!(next, State::Retrying { .. })
     }
 }
 
@@ -137,6 +180,8 @@ pub(crate) struct Status {
     shown: Option<Timestamp>,
     /// When the turn started; the time it has run counts from here.
     started: Option<Timestamp>,
+    /// The first frame that showed the state; `None` until a frame shows it.
+    since: Option<Timestamp>,
     /// The turn started since the last frame.
     starting: bool,
     /// The time the user was asked something, which does not count.
@@ -165,6 +210,7 @@ impl Status {
             motion,
             shown: None,
             started: None,
+            since: None,
             starting: false,
             paused: Duration::ZERO,
             pause: None,
@@ -183,7 +229,20 @@ impl Status {
 
     /// The turn does `state` now.
     pub(crate) fn set(&mut self, state: State) {
+        if self.state.starts_anew(&state) {
+            self.since = None;
+        }
         self.state = state;
+    }
+
+    /// The newest words of the input of call `call`, which the model writes now, for
+    /// the end of the row.
+    pub(crate) fn set_input_words(&mut self, call: u32, words: Option<String>) {
+        if let State::Preparing { call: shown, words: held, .. } = &mut self.state
+            && *shown == call
+        {
+            *held = words;
+        }
     }
 
     /// The model's context holds `context` now.
@@ -219,7 +278,7 @@ impl Status {
     /// The turn started: its time counts from the next frame.
     pub(crate) fn turn_started(&mut self) {
         self.starting = true;
-        self.state = State::Model;
+        self.set(State::Model);
     }
 
     /// The model showed a sign of life: an event or a draft of the turn.
@@ -231,6 +290,7 @@ impl Status {
     /// the user is asked something.
     pub(crate) fn at(&mut self, now: Timestamp, asking: bool) {
         self.shown.get_or_insert(now);
+        self.since.get_or_insert(now);
         if std::mem::take(&mut self.starting) {
             self.started = Some(now);
             self.paused = Duration::ZERO;
@@ -267,6 +327,7 @@ impl Status {
         let ticks = self.shown.map_or(0, |shown| ticks(since_then(shown, now)));
         let spinner = spinner(self.motion, ticks);
         let silence = self.data.map_or(Duration::ZERO, |data| since_then(data, now));
+        let lasted = self.since.map_or(Duration::ZERO, |since| since_then(since, now));
         let elapsed = self.elapsed(now);
         let suffix = (elapsed >= SHOW_ELAPSED).then(|| format::elapsed(elapsed));
         let columns = usize::from(options.width());
@@ -283,7 +344,7 @@ impl Status {
         let words = if room == 0 {
             String::new()
         } else {
-            format::cut(&self.state.words(silence), room, options.width_method())
+            format::cut(&self.state.words(silence, lasted), room, options.width_method())
         };
         // The detail takes what the row has left, after two spaces.
         let detail = self.state.detail().and_then(|detail| {

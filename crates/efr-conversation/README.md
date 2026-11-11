@@ -464,7 +464,15 @@ the sequence number of the last event the turn recorded before it. A text draft
 carries the same `index` and byte offsets as the updates; a reasoning draft carries
 the new reasoning at its offset in the reasoning of the whole turn, with the title of
 the newest section (the last all-bold line); a tool-input draft carries the tool and the input bytes so far of each
-call of the answer. Drafts never reach the log, and a turn that nobody follows live
+call of the answer, and its `tail`: the newest 256 bytes of the raw input (`INPUT_TAIL`),
+cut at a character, with each control character as spaces of the same length. The
+drafter keeps only the newest 512 bytes of each input and never parses its JSON. While
+a model call waits for its answer, the turn passes the provider a `CallDrafts`
+(`Provider::stream_with_notices`), which sends what the provider says at once, past the
+draft interval: `connecting`, `connected`, and `retrying` with the attempt, the wait
+and a reason in plain words (`the provider answered 503`, `the connection failed`).
+The live status keeps the newest `connecting` or `retrying` draft until the call opens,
+so a client that attaches during the wait sees it. Drafts never reach the log, and a turn that nobody follows live
 does no draft work and sets no timer. The drafter keeps the parts themselves in the
 conversation's live holder, also when nobody listens: `ConversationHandle::live_turn`
 gives a `LiveTurn` with the running turn, its `after_seq`, the index and the text so
@@ -1243,8 +1251,9 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
 - After a `compacting` draft the status row says `compacting context`, until the
   `conversation_compacted` event, the next `context` draft or the end of the turn.
 - A client that subscribes while a turn runs gets the turn's newest `context` draft
-  (and its `compacting` draft while it compacts) first, so the gauge shows at once,
-  not only at the next model call (`ConversationHandle::live_drafts`).
+  (and its `compacting` draft while it compacts, and its `connecting` or `retrying`
+  draft while a model call waits) first, so the gauge shows at once, not only at the
+  next model call (`ConversationHandle::live_drafts`).
 - Each `conversation_compacted` prints one muted line, wrapped at the width so that
   its way out is never cut off:
   - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`
@@ -1323,7 +1332,9 @@ provider items passed back to the same provider, also after a restart, and dropp
 for another provider, steering, coalesced updates, drafts (`turn/tests/drafts.rs`: their parts
 and `after_seq`, coalescing on the clock, the same log with and without a listener, no
 timer without one; `turn/drafter/tests.rs`: the live parts equal the builder's text
-and the joined drafts for any stream of events), a queued second prompt, receipts and
+and the joined drafts for any stream of events, the tail of a tool input, the drafts
+of a retry; `turn/tests/waits.rs`: a retry and a connect go at once, the status keeps
+them during the wait, and the log holds none of them), a queued second prompt, receipts and
 the refusals, a steer after the last model call, and the requests of a client that has
 just seen the end of a turn (`actor/tests.rs` holds the turn's task after its work
 with a tracing layer, so an end recorded too early shows every time). The input row

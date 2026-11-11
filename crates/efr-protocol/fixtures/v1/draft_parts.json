@@ -15,7 +15,8 @@
     "kind": "tool_input",
     "call": 0,
     "tool": "write_file",
-    "bytes": 3277
+    "bytes": 3277,
+    "tail": "print(len(s.split()))\\n\"}"
   },
   {
     "kind": "context",
@@ -26,5 +27,18 @@
   {
     "kind": "compacting",
     "trigger": "auto"
+  },
+  {
+    "kind": "connecting"
+  },
+  {
+    "kind": "connected"
+  },
+  {
+    "kind": "retrying",
+    "attempt": 1,
+    "wait_ms": 2000,
+    "status": 503,
+    "reason": "the provider answered 503"
   }
 ]

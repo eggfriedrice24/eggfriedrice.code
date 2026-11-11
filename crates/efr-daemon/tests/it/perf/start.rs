@@ -206,6 +206,8 @@ const SPANS: &[(&str, &str, &str)] = &[
     ("G3 first event -> first text delta", "stream.first_event", "stream.text"),
     ("G4 text delta -> client", "stream.text", "c.first_text"),
     ("H0 first text commit", "stream.record.begin", "stream.record.end"),
+    ("R0 failed attempt -> retry draft on the client", "prov.headers", "c.retry"),
+    ("R1 failed attempt -> retry draft sent", "prov.headers", "draft.retrying"),
 ];
 
 /// The counts of the report: a label and the name.
@@ -300,6 +302,9 @@ async fn one(
             ConversationSubscribeItem::Draft(draft) => {
                 if matches!(draft.draft, DraftPart::Text { .. }) && draft.turn_id == turn {
                     timeline.set("c.first_text");
+                }
+                if matches!(draft.draft, DraftPart::Retrying { .. }) && draft.turn_id == turn {
+                    timeline.set("c.retry");
                 }
                 Vec::new()
             }
@@ -754,13 +759,19 @@ async fn bench_perf_start_accounts() {
     );
 }
 
+/// The longest time from the failed attempt to the retry draft on the client, at the
+/// median of the samples of a path (slice 6 of the streaming plan): the terminal says
+/// why it waits in the frame after the failure.
+const RETRY_SIGN_BUDGET: Duration = Duration::from_millis(50);
+
 /// A model call whose first attempt gets a 503: how long the retry holds the first
-/// text back, on the two HTTP paths.
+/// text back, on the two HTTP paths, and how soon the client hears of the retry.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_start_retry() {
     efr_stdx::mark::enable();
     let mut report = Report::new("bench_perf_start_retry");
+    let mut over = Vec::new();
     let clock = TestClock::new();
     let _follower = Follower::start(&clock);
     let server = ProviderServer::start().await.unwrap();
@@ -777,9 +788,31 @@ async fn bench_perf_start_retry() {
             samples.0.push(one(&daemon, &server, &cwd, None, plain).await);
         }
         samples.report(&mut report, "warm, one 503 first", path.name());
+        let mut signs: Vec<Duration> = samples
+            .0
+            .iter()
+            .filter_map(|timeline| timeline.span("prov.headers", "c.retry"))
+            .collect();
+        report.count(
+            &format!(
+                "warm, one 503 first|{}|n prompts whose client heard of the retry",
+                path.name()
+            ),
+            signs.len() as u64,
+        );
+        signs.sort_unstable();
+        let median = signs.get(signs.len() / 2).copied();
+        if signs.len() < samples.0.len() || median.is_none_or(|median| median > RETRY_SIGN_BUDGET) {
+            over.push((path.name(), samples.0.len(), signs));
+        }
         daemon.stop().await.unwrap();
     }
     report.finish();
+    assert!(
+        over.is_empty(),
+        "the client must hear of each retry, at the median within {RETRY_SIGN_BUDGET:?} of \
+         the failed attempt (path, prompts, times): {over:?}"
+    );
 }
 
 /// A prompt after 11 min of idle time on the clock, with a history of 200 turns: the

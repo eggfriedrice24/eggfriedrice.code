@@ -143,19 +143,20 @@ fn tool_input_counts_bytes_per_call_and_the_end_sets_the_whole_size() {
     feed(&mut drafter, &mut builder, &delta("a", "{}"));
     let end = ProviderEvent::ToolCallEnd { call_id: "b".to_owned(), arguments: "{}".to_owned() };
     feed(&mut drafter, &mut builder, &end);
-    let input = |call: u32, tool: &str, bytes: u64| DraftPart::ToolInput {
+    let input = |call: u32, tool: &str, bytes: u64, tail: Option<&str>| DraftPart::ToolInput {
         call,
         tool: tool.to_owned(),
         bytes,
+        tail: tail.map(str::to_owned),
     };
     assert_eq!(
         parts(&mut receiver),
         vec![
-            input(0, "shell", 0),
-            input(1, "write_file", 0),
-            input(1, "write_file", 7),
-            input(0, "shell", 2),
-            input(1, "write_file", 2),
+            input(0, "shell", 0, None),
+            input(1, "write_file", 0, None),
+            input(1, "write_file", 7, Some("{\"path\"")),
+            input(0, "shell", 2, Some("{}")),
+            input(1, "write_file", 2, Some("{}")),
         ]
     );
 }
@@ -362,4 +363,87 @@ proptest! {
         prop_assert_eq!(&live.text, &text);
         prop_assert_eq!(&live.reasoning, &reasoning);
     }
+}
+
+/// The tail of each tool input draft that `receiver` holds now.
+fn tails(receiver: &mut broadcast::Receiver<ConversationDraft>) -> Vec<(u64, String)> {
+    parts(receiver)
+        .into_iter()
+        .filter_map(|part| match part {
+            DraftPart::ToolInput { bytes, tail, .. } => Some((bytes, tail.unwrap_or_default())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_tool_input_draft_carries_the_newest_raw_bytes_cut_at_a_character_and_safe_to_print() {
+    let (mut drafter, sender, mut builder) = drafter();
+    let mut receiver = sender.subscribe();
+    feed(&mut drafter, &mut builder, &start("a", "shell"));
+    let more = |arguments: &str| ProviderEvent::ToolCallDelta {
+        call_id: "a".to_owned(),
+        arguments: arguments.to_owned(),
+    };
+    // A command of 3.8 KB, with two-byte characters, an escape and a raw newline.
+    let mut written = String::from("{\"command\":\"");
+    feed(&mut drafter, &mut builder, &more(&written));
+    for n in 0..200 {
+        let piece = format!("é{n:03}\x1b\n\\n");
+        written.push_str(&piece);
+        feed(&mut drafter, &mut builder, &more(&piece));
+    }
+    let drafts = tails(&mut receiver);
+    assert_eq!(drafts.len(), 202, "a draft for each change, as the interval is 0");
+    for (bytes, tail) in &drafts[1..] {
+        assert!(tail.len() <= super::INPUT_TAIL, "{tail:?}");
+        // The tail is the raw input before `bytes`, with each control character as a
+        // space of the same length.
+        let start = *bytes as usize - tail.len();
+        let raw = &written[start..*bytes as usize];
+        assert_eq!(*tail, raw.replace(['\x1b', '\n'], " "));
+        assert!(!tail.chars().any(char::is_control), "{tail:?}");
+    }
+    let (bytes, tail) = drafts.last().unwrap();
+    assert_eq!(*bytes, written.len() as u64);
+    // The cut at 256 bytes falls inside an `é`, so the tail starts after it.
+    assert!(tail.len() == 255 || tail.len() == 256, "{}", tail.len());
+    assert!(tail.ends_with("\u{e9}199  \\n"), "{tail:?}");
+    // The end of the call sets the whole input, and the tail stays its newest bytes.
+    let end = ProviderEvent::ToolCallEnd { call_id: "a".to_owned(), arguments: written.clone() };
+    feed(&mut drafter, &mut builder, &end);
+    assert!(tails(&mut receiver).is_empty(), "nothing changed, so no draft");
+}
+
+#[test]
+fn a_retry_goes_at_once_and_the_status_keeps_it_until_the_call_opens() {
+    use efr_provider::{CallNotice, CallNotices as _};
+    let (drafter, status, sender) = drafter_with_status();
+    let mut receiver = sender.subscribe();
+    let notices = drafter.call_notices();
+    notices.notice(CallNotice::Connecting);
+    let wait = Duration::from_millis(480);
+    notices.notice(CallNotice::Retrying { attempt: 1, wait, status: Some(503) });
+    notices.notice(CallNotice::Retrying { attempt: 2, wait, status: None });
+    let retry = |attempt: u32, status: Option<u16>, reason: &str| DraftPart::Retrying {
+        attempt,
+        wait_ms: 480,
+        status,
+        reason: reason.to_owned(),
+    };
+    assert_eq!(
+        parts(&mut receiver),
+        [
+            DraftPart::Connecting,
+            retry(1, Some(503), "the provider answered 503"),
+            retry(2, None, "the connection failed"),
+        ]
+    );
+    let held: Vec<DraftPart> = status.drafts().into_iter().map(|draft| draft.part).collect();
+    assert_eq!(held, [retry(2, None, "the connection failed")], "only the newest");
+    notices.notice(CallNotice::Connected);
+    assert!(status.drafts().is_empty(), "the provider took the call");
+    notices.notice(CallNotice::Connecting);
+    drafter.call_opened();
+    assert!(status.drafts().is_empty(), "the call opened");
 }

@@ -183,11 +183,11 @@ Replies:
   `thinking` and ends with the bold title of the reasoning, after the time, the gauge
   and the scope, so those stand still (`State::detail` in `status.rs`). A reasoning
   without a title puts its newest words in that place, cut from the start with `…`, without the
-  Markdown marks (`follow/view/reasoning.rs`): whole words in at most 50 columns
-  (`WORDS_COLUMNS`), whose start moves 4 words at a time (`WORDS_STEP`). The words
-  show only when the phase has run for 1 s (`WORDS_AFTER`): the summary of a short
-  phase comes in one piece just before its tool call, and its words would show for a
-  moment and go. No row of the live zone holds the reasoning, because a row that comes
+  Markdown marks (`follow/view/reasoning.rs`), by the rules of `follow/view/newest.rs`:
+  whole words in at most 50 columns (`WORDS_COLUMNS`), whose start moves 4 words at a
+  time (`WORDS_STEP`). The words show only when the phase has run for 1 s
+  (`WORDS_AFTER`): the summary of a short phase comes in one piece just before its tool
+  call, and its words would show for a moment and go. No row of the live zone holds the reasoning, because a row that comes
   and goes moves the status row. A phase of reasoning ends at text, a tool input or
   compaction draft, a text update, the end of a message, a call's start or the end of
   the turn. A phase of 2 s or more
@@ -204,7 +204,16 @@ Replies:
   `1h 02m 05s`). The states: `waiting for the running turn` (a queued prompt),
   `waiting for the model`, `thinking` (a reasoning draft; the newest bold title of the
   reasoning, or its newest words, ends the row), `writing`, `preparing <tool>, 3.2 KB` (a
-  tool input draft, the newest call of the answer), `running <tool>` (a call of the
+  tool input draft, the newest call of the answer; from the `tail` of its drafts, the
+  newest words of an input that the model has written for 1 s end the row by the same
+  rules as the words of a reasoning, with the escapes `\n`, `\r` and `\t` of its JSON
+  and each newline as a space, such as `preparing shell, 3.8 KB  39s  ctx 2%  app  …
+  print(len(s.split()))`; the JSON is not parsed), `connecting` (a `connecting` draft:
+  the model call connects or sends, shown only from 0.5 s on, `CONNECT_AFTER`, so a
+  fast connect does not flash; `connected` ends it), `trying again in 2s (the provider
+  answered 503)` (a `retrying` draft: its wait counts down in whole seconds, then
+  `trying again (...)` until the next draft or event; a later wait adds `try 3`),
+  `running <tool>` (a call of the
   running turn that a queued prompt waits behind), `waiting for an answer` (an approval
   that another client must answer), `reviewing: <line>` (from `exit_review_started`
   until the reviewer's `exit_judged`: the line of the call from its `exit_requested`

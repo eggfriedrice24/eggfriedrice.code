@@ -10,8 +10,8 @@ use efr_http::{
     HttpResponse, Outcome, Retryable, SseStream, StatusCode, WebSocket, header,
 };
 use efr_provider::{
-    AccessToken, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
-    Request, TokenSource,
+    AccessToken, CallNotice, CallNotices, ModelInfo, NoNotices, Provider, ProviderError,
+    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -167,8 +167,13 @@ impl OpenAiProvider {
 
     /// Opens a WebSocket to the Responses endpoint for the conversation of `body`, with
     /// the headers of the HTTP path and the WebSocket beta header.
-    async fn connect(&self, body: &ResponsesBody) -> Result<WebSocket, ConnectError> {
+    async fn connect(
+        &self,
+        body: &ResponsesBody,
+        notices: &dyn CallNotices,
+    ) -> Result<WebSocket, ConnectError> {
         efr_stdx::mark::hit("ws.connect.begin");
+        notices.notice(CallNotice::Connecting);
         let token = self.tokens.access_token().await.map_err(|error| ConnectError {
             reason: format!("no access token: {error}"),
             health: Health::Fine,
@@ -178,14 +183,16 @@ impl OpenAiProvider {
             reason: format!("the handshake could not be built: {error}"),
             health: Health::Broken,
         })?;
-        self.http.websocket(&request).await.map_err(|error| {
+        let socket = self.http.websocket(&request).await.map_err(|error| {
             let unauthorized = matches!(
                 &error,
                 HttpError::UpgradeRefused { status, .. } if *status == StatusCode::UNAUTHORIZED
             );
             let health = if unauthorized { Health::Unauthorized } else { Health::Broken };
             ConnectError { reason: error.to_string(), health }
-        })
+        })?;
+        notices.notice(CallNotice::Connected);
+        Ok(socket)
     }
 
     fn websocket_request(
@@ -210,6 +217,7 @@ impl OpenAiProvider {
         &self,
         unsigned: &HttpRequest,
         model: &str,
+        notices: &dyn CallNotices,
     ) -> Result<HttpResponse, ProviderError> {
         let mut refreshed = false;
         loop {
@@ -217,7 +225,7 @@ impl OpenAiProvider {
             let token = self.tokens.access_token().await?;
             efr_stdx::mark::hit("prov.token");
             let request = sign(unsigned, &self.config, &token).map_err(transport)?;
-            let response = match self.send(&request).await? {
+            let response = match self.send(&request, notices).await? {
                 Answer::Response(response) => response,
                 Answer::TooManyRequests { headers, body, .. } => {
                     let header_wait = efr_http::retry_after(&headers, self.clock.now());
@@ -232,6 +240,7 @@ impl OpenAiProvider {
             }
             let status = response.status();
             if status.is_success() {
+                notices.notice(CallNotice::Connected);
                 return Ok(response);
             }
             if status != StatusCode::UNAUTHORIZED {
@@ -250,33 +259,59 @@ impl OpenAiProvider {
     /// Sends `request` while the config's retry policy says so and returns the last
     /// answer. A 429 is read before the policy decides, so a 429 for money or plan
     /// ends the tries at once; any other status decides as
-    /// `efr_http::HttpClient::send_with_retry` does.
-    async fn send(&self, request: &HttpRequest) -> Result<Answer, ProviderError> {
+    /// `efr_http::HttpClient::send_with_retry` does. `notices` hears of each attempt
+    /// and of each wait before the next one.
+    async fn send(
+        &self,
+        request: &HttpRequest,
+        notices: &dyn CallNotices,
+    ) -> Result<Answer, ProviderError> {
         let idempotent = request.is_idempotent();
+        let retrying = |attempt, result: &Result<Sent, Unanswered>, wait| {
+            let status = match result {
+                Ok(Sent { answer: Answer::Response(response), .. }) => {
+                    Some(response.status().as_u16())
+                }
+                Ok(Sent { answer: Answer::TooManyRequests { .. }, .. }) => {
+                    Some(StatusCode::TOO_MANY_REQUESTS.as_u16())
+                }
+                Err(_) => None,
+            };
+            notices.notice(CallNotice::Retrying { attempt, wait, status });
+        };
         let sent: Result<Sent, Unanswered> = self
             .config
             .retry()
-            .run(&*self.clock, &*self.rng, |_attempt| async move {
-                efr_stdx::mark::hit("prov.attempt");
-                let response = self
-                    .http
-                    .send(request)
-                    .await
-                    .map_err(|error| Unanswered { error, idempotent })?;
-                efr_stdx::mark::hit("prov.headers");
-                if response.status() != StatusCode::TOO_MANY_REQUESTS {
-                    return Ok(Sent { answer: Answer::Response(response), idempotent });
-                }
-                let headers = response.headers().clone();
-                // NOTE: a body that breaks off came after the server took the request,
-                // so it is never a reason to send the request again.
-                let body = response
-                    .text()
-                    .await
-                    .map_err(|error| Unanswered { error, idempotent: false })?;
-                let quota = ErrorDetails::parse(&body).is_quota();
-                Ok(Sent { answer: Answer::TooManyRequests { headers, body, quota }, idempotent })
-            })
+            .run_reporting(
+                &*self.clock,
+                &*self.rng,
+                |_attempt| async move {
+                    efr_stdx::mark::hit("prov.attempt");
+                    notices.notice(CallNotice::Connecting);
+                    let response = self
+                        .http
+                        .send(request)
+                        .await
+                        .map_err(|error| Unanswered { error, idempotent })?;
+                    efr_stdx::mark::hit("prov.headers");
+                    if response.status() != StatusCode::TOO_MANY_REQUESTS {
+                        return Ok(Sent { answer: Answer::Response(response), idempotent });
+                    }
+                    let headers = response.headers().clone();
+                    // NOTE: a body that breaks off came after the server took the request,
+                    // so it is never a reason to send the request again.
+                    let body = response
+                        .text()
+                        .await
+                        .map_err(|error| Unanswered { error, idempotent: false })?;
+                    let quota = ErrorDetails::parse(&body).is_quota();
+                    Ok(Sent {
+                        answer: Answer::TooManyRequests { headers, body, quota },
+                        idempotent,
+                    })
+                },
+                retrying,
+            )
             .await;
         match sent {
             Ok(sent) => Ok(sent.answer),
@@ -368,6 +403,14 @@ impl Provider for OpenAiProvider {
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        self.stream_with_notices(request, &NoNotices).await
+    }
+
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
         let span = tracing::info_span!(
             "provider_request",
             provider = %self.id,
@@ -382,7 +425,7 @@ impl Provider for OpenAiProvider {
         if self.config.uses_websocket(model.as_ref())
             && let Some(key) = body.prompt_cache_key()
         {
-            let connect = || self.connect(&body);
+            let connect = || self.connect(&body, notices);
             let attempt = self
                 .sockets
                 .stream(key, &body, connect, timing.clone(), span.clone())
@@ -406,7 +449,8 @@ impl Provider for OpenAiProvider {
         }
         let unsigned = self.unsigned(&body).map_err(transport)?;
         efr_stdx::mark::hit("prov.encoded");
-        let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
+        let response =
+            self.post(&unsigned, &request.model, notices).instrument(span.clone()).await?;
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });

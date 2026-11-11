@@ -12,7 +12,9 @@
 //! [`ProviderId`]: [`Provider::stream`] is the one model call it must provide, returning
 //! a [`ProviderStream`], and [`Provider::complete`] folds that stream into a
 //! [`Completion`] with a [`CompletionBuilder`], which the conversation also uses while
-//! it forwards events.
+//! it forwards events. [`Provider::stream_with_notices`] also tells a [`CallNotices`]
+//! how the call starts ([`CallNotice`]): a connect, and each wait before another
+//! attempt.
 //!
 //! A provider gets its credentials from a [`TokenSource`] ([`StaticToken`] for an API
 //! key) as an [`AccessToken`], the token with the account it belongs to, and never
@@ -32,6 +34,7 @@ mod completion;
 mod error;
 mod event;
 mod message;
+mod notice;
 mod provider;
 mod provider_id;
 mod request;
@@ -43,6 +46,7 @@ pub use completion::{Completion, CompletionBuilder};
 pub use error::ProviderError;
 pub use event::{ProviderEvent, StopReason};
 pub use message::{ContentBlock, Message, Role};
+pub use notice::{CallNotice, CallNotices, NoNotices};
 pub use provider::{EditTool, ModelInfo, Provider, ProviderStream};
 pub use provider_id::ProviderId;
 pub use request::{

@@ -122,6 +122,14 @@ pub enum DraftPart {
         /// How many bytes of input the model has written so far: of the JSON
         /// arguments, or of the text of a freeform tool such as `apply_patch`.
         bytes: u64,
+        /// The newest part of the input as the model writes it: at most 256 bytes that
+        /// end at `bytes`, cut at a character border. It is the raw text, JSON for
+        /// most tools, with each control character, such as a newline, as spaces of
+        /// the same length, so it is safe to print and its first byte is at `bytes`
+        /// minus its length. A client can show its newest words while a long input
+        /// grows. Absent before the input has a byte, and from an older daemon.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tail: Option<String>,
     },
     /// How full the model's context is. The turn sends it before each model call, with
     /// its estimate of the request, and after each call, with the count that the
@@ -133,6 +141,31 @@ pub enum DraftPart {
     Compacting {
         /// What started the compaction: `auto` or `overflow`.
         trigger: CompactionTrigger,
+    },
+    /// The model call of the turn connects to the provider, or sends its request, and
+    /// no answer came yet. A client can say `connecting` while it lasts. The next
+    /// `connected` or `retrying` draft, any other draft of the turn and its next event
+    /// end it.
+    Connecting,
+    /// The provider took the model call, and its answer follows. It ends `connecting`
+    /// and `retrying`.
+    Connected,
+    /// An attempt of the model call failed in a way that another attempt may fix, such
+    /// as a busy provider: the daemon waits `wait_ms`, then sends the call again. A
+    /// client shows it in place of `waiting for the model`, such as `trying again in
+    /// 2s (the provider answered 503)`, until the next draft or event of the turn.
+    Retrying {
+        /// The number of the attempt that failed, from 1.
+        attempt: u32,
+        /// How long the daemon waits before the next attempt, in milliseconds.
+        wait_ms: u64,
+        /// The HTTP status of the failed attempt. Absent when no answer came, such as
+        /// when no connection could be made.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<u16>,
+        /// Why, in a few plain words that are safe to print, such as `the provider
+        /// answered 503`.
+        reason: String,
     },
 }
 

@@ -99,18 +99,40 @@ fn every_state_has_its_words() {
         (State::Thinking(Some("Reading the test output".to_owned())), "thinking"),
         (State::Writing, "writing"),
         (
-            State::Preparing { call: 0, tool: "write_file".to_owned(), bytes: 0 },
+            State::Preparing { call: 0, tool: "write_file".to_owned(), bytes: 0, words: None },
             "preparing write_file",
         ),
         (
-            State::Preparing { call: 1, tool: "write_file".to_owned(), bytes: 3_250 },
+            State::Preparing {
+                call: 1,
+                tool: "write_file".to_owned(),
+                bytes: 3_250,
+                words: Some("print(len(s.split()))".to_owned()),
+            },
             "preparing write_file, 3.2 KB",
         ),
         (State::Tool("shell".to_owned()), "running shell"),
         (State::Answer, "waiting for an answer"),
+        (State::Connecting, "connecting"),
+        (
+            State::Retrying {
+                attempt: 1,
+                wait: Duration::from_secs(9),
+                reason: "the provider answered 503".to_owned(),
+            },
+            "trying again in 4s (the provider answered 503)",
+        ),
+        (
+            State::Retrying {
+                attempt: 2,
+                wait: Duration::from_secs(1),
+                reason: "the connection failed".to_owned(),
+            },
+            "trying again (try 3, the connection failed)",
+        ),
     ];
     for (state, words) in cases {
-        assert_eq!(state.words(Duration::ZERO), words);
+        assert_eq!(state.words(Duration::ZERO, Duration::from_secs(5)), words);
     }
 }
 

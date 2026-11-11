@@ -1602,8 +1602,9 @@ impl ConversationHandle {
     }
 
     /// The status drafts of the running turn, for a client that attaches while it
-    /// runs: its newest `context` draft, then its `compacting` draft while it compacts.
-    /// Empty when no turn runs or the turn has sent neither yet.
+    /// runs: its newest `context` draft, then its `compacting` draft while it compacts,
+    /// then its `connecting` or `retrying` draft while a model call waits for its
+    /// answer. Empty when no turn runs or the turn has sent none of them yet.
     pub fn live_drafts(&self) -> Vec<ConversationDraft> {
         self.status.drafts()
     }

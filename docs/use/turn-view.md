@@ -29,6 +29,19 @@ The states include `waiting for the model`, `thinking`, `writing`, `preparing <t
 says so, such as `waiting for the model, no data for 25s`. The row also shows `away`
 while efr counts you away, and `full` in red for a turn in full mode.
 
+When the provider is busy or a connection fails, efr sends the model call again after
+a short wait. The row then tells why it waits and counts down:
+`trying again in 2s (the provider answered 503)`. A connect that takes half a second or
+more shows `connecting`.
+
+While the model writes a long tool input, such as a long shell command, the row ends
+with the newest words of the input, after 1 s, by the rules of the reasoning words
+below. A newline of the input shows as a space:
+
+```text
+⠼ preparing shell, 3.8 KB  39s  ctx 2%  app  … print(len(s.split()))
+```
+
 `ctx 43%` tells how full the model's context is. At 100%, efr compacts the context.
 The field is green below 50%, yellow from 50% and red from 90%.
 [Conversations, resume and search](conversations.md#the-models-context) tells more.

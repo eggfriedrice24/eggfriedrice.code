@@ -3,7 +3,8 @@
 //! A subscriber that reads slower than the turn drafts would lose drafts at its full
 //! room. Instead, the live side keeps the drafts that do not fit here, at most one per
 //! part: the text of one message, the reasoning of the turn, the input of one tool
-//! call, the `context` and the `compacting` status. A new draft of a part grows the
+//! call, the `context` and the `compacting` status, and the wait of a model call
+//! (`connecting`, `connected`, `retrying`). A new draft of a part grows the
 //! held one (text and reasoning, at their byte offsets) or replaces it (the others),
 //! and the merge goes at the next free place. The subscriber then gets fewer, larger
 //! drafts, and every byte of the text and the reasoning.
@@ -197,17 +198,17 @@ impl PendingDrafts {
                 }
                 DraftPart::Reasoning { offset, delta, title }
             }
-            DraftPart::ToolInput { call, tool, bytes } => {
+            DraftPart::ToolInput { call, tool, bytes, tail } => {
                 let same = self.held.iter_mut().find(|held| {
                     held.turn_id == turn_id
                         && matches!(&held.part, DraftPart::ToolInput { call: at, .. } if *at == call)
                 });
                 if let Some(held) = same {
-                    held.part = DraftPart::ToolInput { call, tool, bytes };
+                    held.part = DraftPart::ToolInput { call, tool, bytes, tail };
                     held.after_seq = held.after_seq.max(after_seq);
                     return;
                 }
-                DraftPart::ToolInput { call, tool, bytes }
+                DraftPart::ToolInput { call, tool, bytes, tail }
             }
             DraftPart::Context(context) => {
                 // NOTE: a `context` draft ends a compaction, so the held `compacting`
@@ -220,6 +221,11 @@ impl PendingDrafts {
             DraftPart::Compacting { trigger } => {
                 self.held.retain(|held| !matches!(held.part, DraftPart::Compacting { .. }));
                 DraftPart::Compacting { trigger }
+            }
+            // NOTE: only the newest word on the wait of a model call counts.
+            part @ (DraftPart::Connecting | DraftPart::Connected | DraftPart::Retrying { .. }) => {
+                self.held.retain(|held| !is_call_wait(&held.part));
+                part
             }
             other => other,
         };
@@ -254,6 +260,7 @@ impl PendingDrafts {
                 call: tool.call,
                 tool: tool.tool,
                 bytes: tool.bytes,
+                tail: None,
             }));
         }
     }
@@ -271,10 +278,20 @@ impl PendingDrafts {
                 conversation_id,
                 turn_id,
                 after_seq,
-                part: DraftPart::ToolInput { call: tool.call, tool: tool.tool, bytes: tool.bytes },
+                part: DraftPart::ToolInput {
+                    call: tool.call,
+                    tool: tool.tool,
+                    bytes: tool.bytes,
+                    tail: None,
+                },
             });
         }
     }
+}
+
+/// True for a draft about the wait of a model call for its answer.
+fn is_call_wait(part: &DraftPart) -> bool {
+    matches!(part, DraftPart::Connecting | DraftPart::Connected | DraftPart::Retrying { .. })
 }
 
 /// `delta` at `offset` without the bytes before `end`, the end of what went already;

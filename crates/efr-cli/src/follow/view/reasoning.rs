@@ -1,11 +1,11 @@
 //! The reasoning of the model on a terminal. While the model thinks, the status row
 //! says `thinking`, with the bold title of the reasoning when it has one. A reasoning
 //! without a title, such as the reasoning of a Claude model, puts its newest words in
-//! that place ([`Reasoning::words`]): whole words in at most [`WORDS_COLUMNS`] columns.
-//! They show only when the phase has run for [`WORDS_AFTER`]: the summary of a short
-//! phase comes in one piece just before the tool call that follows it, so its words
-//! would show for a moment and go. Their start moves [`WORDS_STEP`] words at a time, so
-//! the words stand still while they grow. No row of the live zone holds the reasoning:
+//! that place ([`Reasoning::words`]), by the rules of `newest`: whole words in at most
+//! 50 columns, only when the phase has run for 1 s (the summary of a short phase comes
+//! in one piece just before the tool call that follows it, so its words would show for
+//! a moment and go), and a start that moves a few words at a time, so the words stand
+//! still while they grow. No row of the live zone holds the reasoning:
 //! a row that comes and goes moves the status row. When a phase of reasoning ends
 //! and it took [`ROW_AFTER`] or more, one row stays in the scrollback, at column 0:
 //! `▸ <title>  thought 6s`, the bold title of the reasoning in the `text` role and the
@@ -26,22 +26,12 @@ use std::time::Duration;
 
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use jiff::Timestamp;
-use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::follow::since_then;
+use super::newest::{Growing, floor};
 use crate::format;
 
 /// The shortest phase of reasoning that leaves a row in the scrollback.
 pub(crate) const ROW_AFTER: Duration = Duration::from_secs(2);
-
-/// How long a phase runs before the status row shows its newest words.
-pub(crate) const WORDS_AFTER: Duration = Duration::from_secs(1);
-
-/// The most columns of the newest words in the status row, with the `…` before them.
-const WORDS_COLUMNS: usize = 50;
-
-/// The words by which the start of the newest words moves when they are full.
-const WORDS_STEP: usize = 4;
 
 /// The columns of the first words of a reasoning without a title, with the `…`.
 const FIRST_WORDS: usize = 58;
@@ -52,9 +42,6 @@ const MIN_LABEL: usize = 8;
 
 /// The mark at the start of the row.
 const MARK: &str = "\u{25b8}";
-
-/// The newest bytes of a phase that the status row looks at for its newest words.
-const TAIL: usize = 2048;
 
 /// The first bytes of a phase that the row looks at for its first words.
 const HEAD: usize = 512;
@@ -71,19 +58,13 @@ pub(crate) struct Reasoning {
 /// that follows it.
 #[derive(Debug, Default)]
 struct Phase {
-    /// The end of the reasoning of the turn that the drafts of the phase brought, in
-    /// bytes: a draft that repeats text before it adds only the rest.
-    end: u64,
+    /// Its text, from the reasoning of the turn that the drafts of the phase brought,
+    /// and the frames that drew it.
+    text: Growing,
     /// The first bytes of its text, at most [`HEAD`].
     head: String,
-    /// The newest bytes of its text, at most twice [`TAIL`].
-    tail: String,
     /// The newest bold title, safe to print.
     title: Option<String>,
-    /// The time of the first frame that drew it.
-    since: Option<Timestamp>,
-    /// The time of the newest frame that drew it.
-    seen: Option<Timestamp>,
 }
 
 impl Reasoning {
@@ -92,17 +73,16 @@ impl Reasoning {
     /// runs. True when what shows changed.
     pub(crate) fn take(&mut self, offset: u64, delta: &str, title: Option<String>) -> bool {
         let started = self.phase.is_none();
-        let phase =
-            self.phase.get_or_insert_with(|| Box::new(Phase { end: offset, ..Phase::default() }));
-        let held = usize::try_from(phase.end.saturating_sub(offset)).unwrap_or(usize::MAX);
-        let fresh = if held == 0 { delta } else { delta.get(held..).unwrap_or_default() };
-        phase.end = phase.end.max(offset.saturating_add(delta.len() as u64));
+        let phase = self.phase.get_or_insert_with(|| {
+            Box::new(Phase { text: Growing::from(offset), ..Phase::default() })
+        });
+        let fresh = phase.text.take(offset, delta);
         let titled = title.is_some() && title != phase.title;
         if title.is_some() {
             phase.title = title;
         }
         if !fresh.is_empty() {
-            phase.push(fresh);
+            phase.keep_head(fresh);
         }
         started || titled || !fresh.is_empty()
     }
@@ -115,44 +95,36 @@ impl Reasoning {
     /// The frame at `now` draws the phase that runs.
     pub(crate) fn at(&mut self, now: Timestamp) {
         if let Some(phase) = &mut self.phase {
-            phase.since.get_or_insert(now);
-            phase.seen = Some(now);
+            phase.text.at(now);
         }
     }
 
-    /// The newest words of the phase that runs, for the status row: whole words in at
-    /// most [`WORDS_COLUMNS`] columns. `None` for a phase with a title, which the status
-    /// row shows in their place, before the first words, and before the phase has run
-    /// for [`WORDS_AFTER`].
+    /// The newest words of the phase that runs, for the status row. `None` for a phase
+    /// with a title, which the status row shows in their place, before the first words,
+    /// and before the phase has run for [`WORDS_AFTER`](super::newest::WORDS_AFTER).
     pub(crate) fn words(&self, method: WidthMethod) -> Option<String> {
         let phase = self.phase.as_ref()?;
-        if phase.title.is_some() || since_then(phase.since?, phase.seen?) < WORDS_AFTER {
+        if phase.title.is_some() {
             return None;
         }
-        let words = plain(&phase.tail, true);
-        (!words.is_empty()).then(|| newest(&words, WORDS_COLUMNS, method))
+        phase.text.words(|tail| plain(tail, true), method)
     }
 
     /// Ends the phase that runs. The row it leaves, with its newline, when it took
     /// [`ROW_AFTER`] or more.
     pub(crate) fn end(&mut self, options: &RenderOptions) -> Option<String> {
         let phase = self.phase.take()?;
-        let took = since_then(phase.since?, phase.seen?);
+        let took = phase.text.ran()?;
         (took >= ROW_AFTER).then(|| phase.row(took, options))
     }
 }
 
 impl Phase {
-    /// Adds `text` to the start and to the end that the phase keeps.
-    fn push(&mut self, text: &str) {
+    /// Adds `text` to the start that the phase keeps, while it is short.
+    fn keep_head(&mut self, text: &str) {
         if self.head.len() < HEAD {
             let room = floor(text, HEAD - self.head.len());
             self.head.push_str(&text[..room]);
-        }
-        self.tail.push_str(text);
-        if self.tail.len() > 2 * TAIL {
-            let cut = ceil(&self.tail, self.tail.len() - TAIL);
-            self.tail.drain(..cut);
         }
     }
 
@@ -253,60 +225,6 @@ fn unmarked(line: &str) -> &str {
     }
 }
 
-/// The newest words of `text`, whose words one space parts, that fit in `columns`,
-/// after a `…` when the start is cut off. The cut is at a word, and the start moves
-/// [`WORDS_STEP`] words at a time: while words come, the text grows at its end and
-/// stands still, and when it is full its start jumps on. A word wider than the room is
-/// cut at its start.
-fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
-    if text_width(text, method) <= columns {
-        return text.to_owned();
-    }
-    // The `…` and the space after it.
-    let room = columns.saturating_sub(2);
-    let words: Vec<&str> = text.split(' ').collect();
-    // The first word from which the rest fits.
-    let mut fits = words.len();
-    let mut used = 0;
-    for (at, word) in words.iter().enumerate().rev() {
-        let width = text_width(word, method) + usize::from(at + 1 < words.len());
-        if used + width > room {
-            break;
-        }
-        used += width;
-        fits = at;
-    }
-    let start = fits.div_ceil(WORDS_STEP) * WORDS_STEP;
-    if start < words.len() {
-        return format!("\u{2026} {}", words[start..].join(" "));
-    }
-    if fits < words.len() {
-        return format!("\u{2026} {}", words[fits..].join(" "));
-    }
-    newest_cells(text, columns, method)
-}
-
-/// The end of `text` that fits in `columns` cells, after a `…`: for a last word that
-/// is wider than the room.
-fn newest_cells(text: &str, columns: usize, method: WidthMethod) -> String {
-    let room = columns.saturating_sub(1);
-    let pieces: Vec<(usize, &str)> = match method {
-        WidthMethod::Grapheme => text.grapheme_indices(true).collect(),
-        _ => text.char_indices().map(|(at, c)| (at, &text[at..at + c.len_utf8()])).collect(),
-    };
-    let mut start = text.len();
-    let mut used = 0;
-    for (at, piece) in pieces.into_iter().rev() {
-        let width = text_width(piece, method);
-        if used + width > room {
-            break;
-        }
-        used += width;
-        start = at;
-    }
-    format!("\u{2026}{}", &text[start..])
-}
-
 /// The first words of `text` in [`FIRST_WORDS`] columns: whole words before a `…`
 /// when they go on, or the text cut at the width when its first word is longer.
 fn first_words(text: &str, method: WidthMethod) -> String {
@@ -341,22 +259,4 @@ fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
         Some(kept) if kept.ends_with(char::is_whitespace) => format!("{}\u{2026}", kept.trim_end()),
         _ => cut,
     }
-}
-
-/// The largest index of `text` at or below `at` that starts a character.
-fn floor(text: &str, at: usize) -> usize {
-    let mut at = at.min(text.len());
-    while !text.is_char_boundary(at) {
-        at -= 1;
-    }
-    at
-}
-
-/// The smallest index of `text` at or above `at` that starts a character.
-fn ceil(text: &str, at: usize) -> usize {
-    let mut at = at.min(text.len());
-    while !text.is_char_boundary(at) {
-        at += 1;
-    }
-    at
 }

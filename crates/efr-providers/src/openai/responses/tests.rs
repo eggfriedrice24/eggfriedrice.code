@@ -473,6 +473,75 @@ async fn an_unavailable_server_is_tried_again_on_the_clock() {
     assert_eq!(seen(&server).await.len(), 2);
 }
 
+/// The notices of one model call, in order.
+#[derive(Debug, Default)]
+struct Heard(Mutex<Vec<efr_provider::CallNotice>>);
+
+impl efr_provider::CallNotices for Heard {
+    fn notice(&self, notice: efr_provider::CallNotice) {
+        self.0.lock().unwrap().push(notice);
+    }
+}
+
+#[tokio::test]
+async fn an_unavailable_server_tells_the_wait_before_it_and_the_connect_after_it() {
+    use efr_provider::CallNotice;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(ResponseTemplate::new(503).insert_header("retry-after", "2"))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(ResponseTemplate::new(429).set_body_raw(
+            r#"{"error":{"message":"Slow down.","type":"requests","code":"rate_limit_exceeded"}}"#,
+            "application/json",
+        ))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    for path_of_call in [SUBSCRIPTION_PATH, API_PATH] {
+        Mock::given(method("POST"))
+            .and(path(path_of_call))
+            .respond_with(sse_response("plain_text.sse"))
+            .mount(&server)
+            .await;
+    }
+    let subscription = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+    let api = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+
+    let heard = Heard::default();
+    drop(subscription.provider.stream_with_notices(request("Hi"), &heard).await.unwrap());
+    let wait = Duration::from_secs(2);
+    assert_eq!(
+        heard.0.into_inner().unwrap(),
+        [
+            CallNotice::Connecting,
+            CallNotice::Retrying { attempt: 1, wait, status: Some(503) },
+            CallNotice::Connecting,
+            CallNotice::Connected,
+        ]
+    );
+    // A 429 that is no quota is tried again too, and the notice names it.
+    let heard = Heard::default();
+    drop(api.provider.stream_with_notices(request("Hi"), &heard).await.unwrap());
+    let heard = heard.0.into_inner().unwrap();
+    assert!(
+        matches!(
+            heard.as_slice(),
+            [
+                CallNotice::Connecting,
+                CallNotice::Retrying { attempt: 1, status: Some(429), .. },
+                CallNotice::Connecting,
+                CallNotice::Connected,
+            ]
+        ),
+        "{heard:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_rate_limit_reports_the_wait_from_the_header() {
     let server = MockServer::start().await;

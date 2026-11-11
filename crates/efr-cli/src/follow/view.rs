@@ -144,6 +144,7 @@ mod call;
 mod input;
 mod left;
 mod message;
+mod newest;
 mod reasoning;
 mod status;
 
@@ -176,6 +177,7 @@ use call::{Call, Outcome};
 use input::{Input, Queued, user_message};
 use left::Left;
 use message::Message;
+use newest::ToolInput;
 use reasoning::Reasoning;
 use status::{State, Status};
 
@@ -580,6 +582,9 @@ pub(crate) struct TurnView {
     next_index: u32,
     /// The reasoning of the turn on a terminal: its words for the status row and its row.
     reasoning: Reasoning,
+    /// The input of the tool call that the status row shows while the model writes it,
+    /// for the newest words at the end of the row. In a box, as the reasoning is.
+    tool_input: Option<Box<ToolInput>>,
     tools: HashMap<CallId, String>,
     live: LiveZone,
     spacing: Spacing,
@@ -723,6 +728,7 @@ impl TurnView {
             message: None,
             next_index: 0,
             reasoning: Reasoning::default(),
+            tool_input: None,
             tools: HashMap::new(),
             spacing: Spacing::default(),
             err_spacing: Spacing::default(),
@@ -1106,17 +1112,30 @@ impl TurnView {
                 self.state(State::Thinking(title));
                 Step::default()
             }
-            DraftPart::ToolInput { call, tool, bytes } => {
+            DraftPart::ToolInput { call, tool, bytes, tail } => {
                 self.end_reasoning();
                 // The calls of one answer come one after another: the newest one shows.
-                let newer = match self.status.as_ref().map(Status::state) {
-                    Some(State::Preparing { call: shown, .. }) => call >= shown,
-                    _ => true,
+                let shown = match self.status.as_ref().map(Status::state) {
+                    Some(State::Preparing { call: shown, .. }) => Some(*shown),
+                    _ => None,
                 };
-                if newer {
-                    let tool = format::one_line(tool);
-                    self.state(State::Preparing { call: *call, tool, bytes: *bytes });
+                if shown.is_some_and(|shown| *call < shown) {
+                    return Step::default();
                 }
+                // NOTE: the input of the call that shows grows; any other starts anew,
+                // as does call 0 of the next answer, which comes after another state.
+                let same = shown == Some(*call)
+                    && self.tool_input.as_ref().is_some_and(|input| input.call() == *call);
+                if !same {
+                    self.tool_input = None;
+                }
+                if let Some(tail) = tail.as_deref().filter(|_| self.terminal()) {
+                    self.tool_input
+                        .get_or_insert_with(|| Box::new(ToolInput::new(*call)))
+                        .take(*bytes, tail);
+                }
+                let tool = format::one_line(tool);
+                self.state(State::Preparing { call: *call, tool, bytes: *bytes, words: None });
                 Step::default()
             }
             DraftPart::Context(context) => {
@@ -1126,6 +1145,37 @@ impl TurnView {
             DraftPart::Compacting { .. } => {
                 self.end_reasoning();
                 self.state(State::Compacting);
+                Step::default()
+            }
+            DraftPart::Connecting => {
+                // NOTE: only a turn that waits for the model connects; the next attempt
+                // after a wait keeps the words of the wait. The row says `connecting`
+                // only after a while, so the tick shows it and this needs no frame.
+                if let Some(status) = &mut self.status
+                    && *status.state() == State::Model
+                {
+                    status.set(State::Connecting);
+                }
+                Step::default()
+            }
+            DraftPart::Connected => {
+                match self.status.as_ref().map(Status::state) {
+                    Some(State::Retrying { .. }) => self.state(State::Model),
+                    // A fast connect showed nothing, and a slow one goes at the next tick.
+                    Some(State::Connecting) => {
+                        if let Some(status) = &mut self.status {
+                            status.set(State::Model);
+                        }
+                    }
+                    _ => {}
+                }
+                Step::default()
+            }
+            DraftPart::Retrying { attempt, wait_ms, reason, .. } => {
+                self.end_reasoning();
+                let wait = Duration::from_millis(*wait_ms);
+                let reason = format::one_line(reason);
+                self.state(State::Retrying { attempt: *attempt, wait, reason });
                 Step::default()
             }
             _ => Step::default(),
@@ -1218,6 +1268,12 @@ impl TurnView {
         }
         self.reasoning.at(now);
         let options = self.options_at(size);
+        if let Some(input) = &mut self.tool_input {
+            input.at(now);
+            if let Some(status) = &mut self.status {
+                status.set_input_words(input.call(), input.words(options.width_method()));
+            }
+        }
         // NOTE: a reasoning without a title puts its newest words in the place of the
         // title. The state is set at each frame, because the words come with the
         // frames: a phase shows none in its first second.

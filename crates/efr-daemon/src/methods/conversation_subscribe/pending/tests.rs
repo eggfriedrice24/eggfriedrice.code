@@ -35,7 +35,7 @@ fn reasoning(offset: u64, delta: &str, title: Option<&str>) -> DraftPart {
 }
 
 fn input(call: u32, bytes: u64) -> DraftPart {
-    DraftPart::ToolInput { call, tool: "shell".to_owned(), bytes }
+    DraftPart::ToolInput { call, tool: "shell".to_owned(), bytes, tail: None }
 }
 
 fn context(used: u64) -> DraftPart {
@@ -128,6 +128,41 @@ fn a_context_draft_ends_a_held_compaction_and_goes_last() {
     pending.push(draft(3, compacting.clone()));
     pending.push(draft(4, compacting.clone()));
     assert_eq!(drain(&mut pending), vec![(3, context(30)), (4, compacting)]);
+}
+
+#[test]
+fn only_the_newest_word_on_the_wait_of_a_model_call_is_held() {
+    let retrying = |attempt: u32| DraftPart::Retrying {
+        attempt,
+        wait_ms: 500,
+        status: Some(503),
+        reason: "the provider answered 503".to_owned(),
+    };
+    let mut pending = PendingDrafts::default();
+    pending.push(draft(1, DraftPart::Connecting));
+    pending.push(draft(1, retrying(1)));
+    pending.push(draft(1, context(10)));
+    pending.push(draft(1, retrying(2)));
+    assert_eq!(drain(&mut pending), vec![(1, context(10)), (1, retrying(2))]);
+
+    pending.push(draft(1, retrying(3)));
+    pending.push(draft(1, DraftPart::Connecting));
+    pending.push(draft(1, DraftPart::Connected));
+    assert_eq!(drain(&mut pending), vec![(1, DraftPart::Connected)]);
+}
+
+#[test]
+fn tool_input_keeps_the_newest_tail_of_each_call() {
+    let tailed = |bytes: u64, tail: &str| DraftPart::ToolInput {
+        call: 0,
+        tool: "shell".to_owned(),
+        bytes,
+        tail: Some(tail.to_owned()),
+    };
+    let mut pending = PendingDrafts::default();
+    pending.push(draft(1, tailed(5, "{\"com")));
+    pending.push(draft(1, tailed(9, "{\"command")));
+    assert_eq!(drain(&mut pending), vec![(1, tailed(9, "{\"command"))]);
 }
 
 fn completed(index: u32) -> Event {

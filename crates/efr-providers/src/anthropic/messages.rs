@@ -21,8 +21,8 @@ use efr_http::{
     SseStream, header,
 };
 use efr_provider::{
-    EditTool, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
-    Request, SecretString, TokenSource,
+    CallNotice, CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError,
+    ProviderEvent, ProviderId, ProviderStream, Request, SecretString, TokenSource,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -124,6 +124,7 @@ impl AnthropicProvider {
         &self,
         unsigned: &HttpRequest,
         model: &str,
+        notices: &dyn CallNotices,
     ) -> Result<HttpResponse, ProviderError> {
         let mut refreshed = false;
         loop {
@@ -131,15 +132,28 @@ impl AnthropicProvider {
             let token = self.tokens.access_token().await?;
             efr_stdx::mark::hit("prov.token");
             let request = sign(unsigned, &self.config, token.secret()).map_err(transport)?;
+            let retrying = |attempt, result: &Result<Answered, Failure>, wait| {
+                let status = result.as_ref().err().and_then(|failure| status_of(&failure.error));
+                notices.notice(CallNotice::Retrying { attempt, wait, status });
+            };
             let result = self
                 .config
                 .retry()
-                .run(&*self.clock, &*self.rng, |attempt| {
-                    self.attempt(&request, token.secret(), model, attempt)
-                })
+                .run_reporting(
+                    &*self.clock,
+                    &*self.rng,
+                    |attempt| {
+                        notices.notice(CallNotice::Connecting);
+                        self.attempt(&request, token.secret(), model, attempt)
+                    },
+                    retrying,
+                )
                 .await;
             match result {
-                Ok(Answered(response)) => return Ok(response),
+                Ok(Answered(response)) => {
+                    notices.notice(CallNotice::Connected);
+                    return Ok(response);
+                }
                 Err(Failure { error: ProviderError::Unauthorized { .. }, .. })
                     if self.tokens.refreshable() && !refreshed =>
                 {
@@ -206,6 +220,14 @@ impl Provider for AnthropicProvider {
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        self.stream_with_notices(request, &NoNotices).await
+    }
+
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
         let span = tracing::info_span!(
             "provider_request",
             provider = %self.id,
@@ -224,11 +246,24 @@ impl Provider for AnthropicProvider {
         efr_stdx::mark::hit("prov.body");
         let unsigned = self.unsigned(&body).map_err(transport)?;
         efr_stdx::mark::hit("prov.encoded");
-        let response = self.post(&unsigned, &request.model).instrument(span.clone()).await?;
+        let response =
+            self.post(&unsigned, &request.model, notices).instrument(span.clone()).await?;
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });
         Ok(events(response, span, timing))
+    }
+}
+
+/// The HTTP status of a failed attempt, for the notice of its retry: `None` when no
+/// answer came.
+fn status_of(error: &ProviderError) -> Option<u16> {
+    match error {
+        ProviderError::RateLimited { .. } => Some(429),
+        ProviderError::Overloaded { status, .. }
+        | ProviderError::Api { status, .. }
+        | ProviderError::ContextOverflow { status, .. } => *status,
+        _ => None,
     }
 }
 

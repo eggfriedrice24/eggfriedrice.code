@@ -2412,8 +2412,12 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
         "{}",
         readable(&titled)
     );
-    let input =
-        |call: u32, bytes: u64| DraftPart::ToolInput { call, tool: "write_file".to_owned(), bytes };
+    let input = |call: u32, bytes: u64| DraftPart::ToolInput {
+        call,
+        tool: "write_file".to_owned(),
+        bytes,
+        tail: None,
+    };
     view.draft(&draft(11, input(1, 3_250)), SIZE);
     view.draft(&draft(11, input(0, 9_000)), SIZE);
     let preparing = view.frame(SIZE, at(30));
@@ -2450,7 +2454,8 @@ fn a_patch_that_the_model_writes_shows_its_size_then_its_files() {
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);
     view.frame(SIZE, at(0));
     // The draft of a freeform input counts the bytes of its text.
-    let input = DraftPart::ToolInput { call: 0, tool: "apply_patch".to_owned(), bytes: 3_277 };
+    let input =
+        DraftPart::ToolInput { call: 0, tool: "apply_patch".to_owned(), bytes: 3_277, tail: None };
     view.draft(&draft(11, input), SIZE);
     let preparing = view.frame(SIZE, at(10));
     assert!(preparing.contains("preparing apply_patch, 3.2 KB"), "{}", readable(&preparing));
@@ -2481,7 +2486,7 @@ fn a_persisted_update_of_text_that_drafts_showed_keeps_the_newer_state() {
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);
     view.draft(&text_draft(11, 0, "I will run the build first."), SIZE);
     assert!(view.frame(SIZE, at(10)).contains("writing"));
-    let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 48 };
+    let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 48, tail: None };
     view.draft(&draft(11, input), SIZE);
     assert!(view.frame(SIZE, at(20)).contains("preparing shell, 48 B"));
     // The persisted update and the completion come after the drafts of the call's input.
@@ -2785,3 +2790,4 @@ mod left;
 mod perf;
 mod reasoning;
 mod stream;
+mod waits;

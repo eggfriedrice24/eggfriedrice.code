@@ -179,12 +179,18 @@ async fn drafts_carry_the_reasoning_the_tool_input_and_the_text_as_they_arrive()
                 delta: "\n\nI open them.".to_owned(),
                 title: title("Reading the notes"),
             },
-            DraftPart::ToolInput { call: 0, tool: "read_file".to_owned(), bytes: 0 },
-            DraftPart::ToolInput { call: 0, tool: "read_file".to_owned(), bytes: 8 },
+            DraftPart::ToolInput { call: 0, tool: "read_file".to_owned(), bytes: 0, tail: None },
+            DraftPart::ToolInput {
+                call: 0,
+                tool: "read_file".to_owned(),
+                bytes: 8,
+                tail: Some(arguments[..8].to_owned()),
+            },
             DraftPart::ToolInput {
                 call: 0,
                 tool: "read_file".to_owned(),
                 bytes: arguments.len() as u64,
+                tail: Some(arguments.clone()),
             },
             estimate(&requests[1]),
             // The reasoning of the second model call continues after a blank line.

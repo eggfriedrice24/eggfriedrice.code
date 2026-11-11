@@ -271,7 +271,7 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
     view.envelope(&sent(12, 10, completed(0, "First.")), size, false);
     think_after(12, &mut view, &mut grid, size, &parts, 100, 0);
     frame(&mut view, &mut grid, size, 2_600);
-    let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 20 };
+    let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 20, tail: None };
     view.draft(&draft(12, input), size);
     let started = Event::ToolCallStarted {
         turn_id: turn(),
