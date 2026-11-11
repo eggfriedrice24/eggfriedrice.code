@@ -36,6 +36,10 @@ into the GitHub release notes, and it stops when the section is missing.
   phone's prompts can name the account of a model that more than one account lists.
   The conversation then keeps that account for its next prompts, and a wake turn
   stays on it too.
+- While the model thinks, the terminal shows the newest words of its reasoning on one
+  dim line in italic, above the status row. Before, only the status row said
+  `thinking`. When the model thought for 2 s or more, one line such as
+  `▸ Reading the logs  thought 6s` stays in the scrollback.
 
 ### Changed
 

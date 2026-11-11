@@ -148,6 +148,19 @@ Replies:
 - All text that arrived goes into the renderer at the next frame, so it shows within
   one frame of its arrival; nothing holds it back to pace it. What streams is what
   `efr_render::render` makes of the whole text.
+- While the model reasons on a terminal (`reasoning` drafts), one live line under the
+  reply and above the status row shows the newest words of the reasoning, in the
+  `muted` role and italic, cut from the start to one row with `…`, without the bold
+  title lines and the Markdown marks (`follow/view/reasoning.rs`). It goes when the
+  phase of reasoning ends: at text, a tool input or compaction draft, a text update,
+  the end of a message, a call's start or the end of the turn. A phase of 2 s or more
+  (its time from the frames that drew it) leaves one row at column 0 in the
+  scrollback: `▸ <title>  thought 6s`, the newest bold title in the `text` role and
+  bold, the rest muted; without a title, the first words in italic, cut with `…` at
+  58 columns; with no words, `▸ thought 3s`. The row sticks to what follows it, so
+  the blank line goes above it, where the live line stood. No row inside a message
+  that streams. Bold and italic stay with `NO_COLOR`; a pipe gets none of it. The
+  reasoning goes nowhere else from the client.
 - While a turn runs on a terminal, the last row of the live zone is the status row:
   a braille spinner (one frame each 100 ms) in the `accent` role, the state in the
   `muted` role, and from 1 s on the time since `turn_started` (`12s`, `1m 05s`,
@@ -1169,6 +1182,10 @@ and with `NO_COLOR`. The context tests: `format/context/tests.rs` checks the per
 (rounded down, over 100, no limit), the level of each percent, the colour of each
 level without bold and under `NO_COLOR`, the short counts and the line of each kind of
 compaction (auto, manual, prune-only, overflow, a miss after auto and after manual);
+`follow/view/tests/reasoning.rs` plays the reasoning on a simulated screen: the live
+line and the bold row of a titled reasoning, the italic first words without a title,
+an empty reasoning, a phase under 2 s, a narrow screen, the row that sticks to the
+text or the call after it, `NO_COLOR` and a pipe;
 `follow/view/tests/context.rs` snapshots the gauge in the status row at each level in
 16 colours and under `NO_COLOR`, `compacting context` until the event and until the
 next count, the gauge in a running call's line and where it goes on a narrow screen,

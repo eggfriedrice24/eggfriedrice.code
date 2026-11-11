@@ -69,7 +69,10 @@
 //! [`TurnView::tick`] draws the status row again ten times a second. A message's text
 //! goes into its renderer at the pace of the frames (`message`), and the status row
 //! (`status`) says what the turn does: waiting for the model, thinking, writing,
-//! preparing a tool call or running one. Drafts ([`TurnView::draft`]), the part of a
+//! preparing a tool call or running one. While the model reasons, one muted line in
+//! italic above the status row shows the newest words of the reasoning, and a phase of
+//! reasoning of 2 s or more leaves one row in the scrollback, such as `▸ Reading the
+//! logs  thought 6s` (`reasoning`). Drafts ([`TurnView::draft`]), the part of a
 //! running turn that the daemon sends before it records it, merge with the persisted
 //! updates: a persisted update that repeats text the drafts showed changes nothing. On
 //! a terminal the cursor hides while the status row shows, and comes back for a
@@ -141,6 +144,7 @@ mod call;
 mod input;
 mod left;
 mod message;
+mod reasoning;
 mod status;
 
 use std::cell::RefCell;
@@ -172,6 +176,7 @@ use call::{Call, Outcome};
 use input::{Input, Queued, user_message};
 use left::Left;
 use message::Message;
+use reasoning::Reasoning;
 use status::{State, Status};
 
 pub(crate) use status::{TICK, spinner};
@@ -573,6 +578,8 @@ pub(crate) struct TurnView {
     message: Option<Message>,
     /// Messages with a smaller index are complete.
     next_index: u32,
+    /// The reasoning of the turn on a terminal: its live line and its row.
+    reasoning: Reasoning,
     tools: HashMap<CallId, String>,
     live: LiveZone,
     spacing: Spacing,
@@ -715,6 +722,7 @@ impl TurnView {
             options,
             message: None,
             next_index: 0,
+            reasoning: Reasoning::default(),
             tools: HashMap::new(),
             spacing: Spacing::default(),
             err_spacing: Spacing::default(),
@@ -1057,9 +1065,11 @@ impl TurnView {
     }
 
     /// Takes a draft: the part of this turn that the daemon sends before it records it.
-    /// Text merges with the persisted updates of its message; reasoning and the input of
-    /// a tool call only change the status row. A draft of another turn, or one older
-    /// than an event of this turn that ends what drafts show, changes nothing.
+    /// Text merges with the persisted updates of its message; the input of a tool call
+    /// only changes the status row. Reasoning changes the status row and, on a terminal,
+    /// its live line, until text, a tool call or the end of the turn ends its phase. A
+    /// draft of another turn, or one older than an event of this turn that ends what
+    /// drafts show, changes nothing.
     pub(crate) fn draft(&mut self, draft: &Draft, size: Size) -> Step {
         self.size = size;
         if draft.turn_id != self.turn
@@ -1076,15 +1086,21 @@ impl TurnView {
                 if *index < self.next_index {
                     return Step::default();
                 }
+                self.end_reasoning();
                 self.state(State::Writing);
                 self.message_delta(*index, *offset, delta, size)
             }
-            DraftPart::Reasoning { title, .. } => {
-                let title = title.as_deref().map(format::one_line);
-                self.state(State::Thinking(title.filter(|title| !title.trim().is_empty())));
+            DraftPart::Reasoning { offset, delta, title } => {
+                let title =
+                    title.as_deref().map(format::one_line).filter(|title| !title.trim().is_empty());
+                if self.terminal() && self.reasoning.take(*offset, delta, title.clone()) {
+                    self.dirty = true;
+                }
+                self.state(State::Thinking(title));
                 Step::default()
             }
             DraftPart::ToolInput { call, tool, bytes } => {
+                self.end_reasoning();
                 // The calls of one answer come one after another: the newest one shows.
                 let newer = match self.status.as_ref().map(Status::state) {
                     Some(State::Preparing { call: shown, .. }) => call >= shown,
@@ -1101,6 +1117,7 @@ impl TurnView {
                 Step::default()
             }
             DraftPart::Compacting { .. } => {
+                self.end_reasoning();
                 self.state(State::Compacting);
                 Step::default()
             }
@@ -1186,6 +1203,7 @@ impl TurnView {
         {
             status.at(now, asking);
         }
+        self.reasoning.at(now);
         let (body, measured) = self.live_body(size, now);
         let options = self.options_at(size);
         // A running call's line carries the spinner instead of the row.
@@ -1404,6 +1422,9 @@ impl TurnView {
         if let Some(status) = &mut self.status {
             status.stir();
         }
+        if ends_drafts(event) {
+            self.end_reasoning();
+        }
         // NOTE: the question of the call and its answer come before its first rows, as
         // on a terminal; anything else of the turn shows the call first.
         let question = match event {
@@ -1449,6 +1470,7 @@ impl TurnView {
             Event::TurnStarted { scope, settings, .. } => {
                 self.queued = false;
                 self.started_at = self.event_at;
+                self.reasoning = Reasoning::default();
                 let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);
                 self.ending.full_exits.clear();
                 if let Some(status) = &mut self.status {
@@ -1499,6 +1521,7 @@ impl TurnView {
                 // NOTE: drafts showed most of this text before it was recorded; an update
                 // that adds nothing must not take the row back from a newer draft state.
                 if *index >= self.next_index && self.adds_text(*index, *offset, delta) {
+                    self.end_reasoning();
                     self.state(State::Writing);
                 }
                 self.message_delta(*index, *offset, delta, size)
@@ -3207,6 +3230,7 @@ impl TurnView {
     fn wrap_up(&mut self) -> Step {
         // The rows of a call that still wait show what ran.
         let header = self.due_header(self.size);
+        self.end_reasoning();
         self.asking = None;
         self.saving = None;
         self.surface = None;
@@ -3583,6 +3607,7 @@ impl TurnView {
         self.queued = true;
         self.message = None;
         self.next_index = 0;
+        self.reasoning = Reasoning::default();
         self.blocking.clear();
         self.interactive.clear();
         self.in_project = false;
@@ -3626,6 +3651,25 @@ impl TurnView {
         } else {
             Step { out: committed, ..Step::default() }
         }
+    }
+
+    /// Ends the phase of reasoning that runs: its live line goes, and a phase that took
+    /// long enough leaves its row in the scrollback. The row sticks to what follows it,
+    /// so the blank line before that goes above the row. Inside a message that still
+    /// streams there is no row, because it would cut the text of the message in two.
+    fn end_reasoning(&mut self) {
+        if !self.reasoning.running() {
+            return;
+        }
+        self.dirty = true;
+        let options = self.options_now();
+        let Some(row) = self.reasoning.end(&options).filter(|_| self.message.is_none()) else {
+            return;
+        };
+        let mut committed = self.spacing.before(Block::Message).to_owned();
+        committed.push_str(&row);
+        self.spacing = Spacing::default();
+        self.stage(&committed);
     }
 
     /// Keeps `committed` for the next frame, after the text that the current message
@@ -3705,8 +3749,8 @@ impl TurnView {
     }
 
     /// The live zone above the status row at `now`: the current message's live text,
-    /// the running call's line, the last lines of its output and the input it waits
-    /// for, then the question when one is pending.
+    /// the line of the reasoning, the running call's line, the last lines of its output
+    /// and the input it waits for, then the question when one is pending.
     fn live_body(&self, size: Size, now: Timestamp) -> (String, Option<Measured>) {
         let (mut live, mut measured) = match &self.message {
             Some(message) => {
@@ -3717,6 +3761,13 @@ impl TurnView {
         };
         let options = self.options_at(size);
         let before = live.len();
+        // NOTE: with the blank line that its row gets, so the row lands where it stood.
+        if !self.ended
+            && let Some(line) = self.reasoning.live(&options)
+        {
+            live.push_str(self.spacing.peek(Block::Message));
+            live.push_str(&line);
+        }
         if self.call_shown()
             && let Some(call) = &self.call
         {

@@ -1798,7 +1798,7 @@ async fn move_question_lists_the_job_exits() {
     let mut exit =
         crate::testing::exit_info(&[efr_protocol::ExitKind::Write], efr_protocol::Launch::Direct);
     exit.facts = vec!["a job asks in cautious".to_owned()];
-    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+    let (result, out, _) = Box::pin(run_row(&setup, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         conn.item(sub, &item(11, shell_call("./gen.sh > out.txt", false))).await;
         shows(&seen, "$ ").await;
@@ -1817,7 +1817,7 @@ async fn move_question_lists_the_job_exits() {
         conn.item(sub, &item(12, shell_completed(0))).await;
         conn.item(sub, &item(13, turn_completed())).await;
         conn.until_closed().await;
-    })
+    }))
     .await;
     result.unwrap();
     assert!(out.contains("for up to 30 minutes"), "{}", readable(&out));

@@ -1,6 +1,6 @@
 # The turn view and its keys
 
-<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs -->
+<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, follow/view/reasoning.rs -->
 
 The turn view is what efr shows while a turn runs. It is not a full-screen program.
 The reply goes into your scrollback like the output of any command, and your prompt
@@ -32,6 +32,25 @@ while efr counts you away, and `full` in red for a turn in full mode.
 `ctx 43%` tells how full the model's context is. At 100%, efr compacts the context.
 The field is green below 50%, yellow from 50% and red from 90%.
 [Conversations, resume and search](conversations.md#the-models-context) tells more.
+
+### The reasoning
+
+While the model thinks, one dim line in italic shows the newest words of its
+reasoning. The line stands under the reply and above the status row. It always takes
+one row: efr cuts it to the width of the terminal. The status row says `thinking`,
+with the title of the reasoning when it has a bold title.
+
+When the model thought for 2 seconds or more, one line stays in your scrollback:
+
+```text
+▸ Reading the journal size  thought 6s
+```
+
+The title is bold. A reasoning with no title, such as the reasoning of a Claude
+model, shows its first words in italic. A reasoning with no text shows only
+`▸ thought 3s`. A shorter reasoning leaves no line. The line stays with the text or
+the tool call that comes after it, with no blank line between them. The reasoning
+shows only on a terminal: when stdout is not a terminal, efr does not write it.
 
 ### Tool calls
 
