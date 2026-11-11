@@ -16,7 +16,8 @@
 //!   uses the terminal's 16 colours. [`RenderOptions::paint`] paints the CLI's own
 //!   lines in a role.
 //! - [`text_width`] and [`display_width`]: columns by code point or by grapheme
-//!   cluster, as the terminal counts them.
+//!   cluster, as the terminal counts them. [`display_rows`] and [`last_rows`]: the
+//!   rows of a painted line as the terminal wraps it, and its last rows.
 //!
 //! Headings, emphasis, inline code, lists, task items, quotes, tables, links (as OSC 8
 //! hyperlinks, `file://` for paths), code blocks with syntax colours and unified diffs
@@ -59,4 +60,4 @@ pub use palette::{Palette, Role};
 pub use renderer::{Renderer, Update, render};
 pub use style::Colour;
 pub use trace::render_trace;
-pub use width::{WidthMethod, display_width, text_width};
+pub use width::{WidthMethod, display_rows, display_width, last_rows, text_width};

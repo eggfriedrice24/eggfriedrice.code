@@ -8,7 +8,7 @@ use crate::block::{Ctx, Flow, render_slice};
 use crate::elements::{ELEMENTS, element};
 use crate::highlight::{ASSETS, Assets};
 use crate::options::{ColourMode, RenderOptions, Theme};
-use crate::width::WidthMethod;
+use crate::width::{WidthMethod, display_rows};
 
 fn options() -> RenderOptions {
     RenderOptions::new(80)
@@ -146,18 +146,50 @@ fn a_long_fence_in_the_last_list_item_streams_as_the_plain_path_does() {
 }
 
 #[test]
-fn after_a_long_fence_a_partial_line_that_is_not_code_shows_when_it_ends() {
+fn after_a_long_fence_the_partial_line_of_the_next_item_shows_at_once() {
     let markdown = nested_fence(120);
     let (head, rest) = markdown.split_at(markdown.find("2. Run").unwrap());
+    assert!(head.len() > 4096);
     let mut renderer = Renderer::new(options());
+    let mut reference = plain(&options());
     let before = renderer.push(head).live().to_owned();
+    reference.push(head);
     assert!(renderer.follows_fence());
     let update = renderer.push(&rest[..4]);
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), before, "the partial line shows late");
+    assert_eq!(update.live(), format!("{before}\n2. R\n"));
+    assert_eq!(update, reference.push(&rest[..4]));
     let update = renderer.push(&rest[4..]);
     assert_eq!(update.committed(), before);
     assert_eq!(update.live(), "\n2. Run the tests.\n");
+}
+
+#[test]
+fn after_a_long_fence_more_text_in_its_item_shows_when_its_line_ends() {
+    let markdown = nested_fence(120);
+    let head = &markdown[..markdown.find("2. Run").unwrap()];
+    let mut renderer = Renderer::new(options());
+    let before = renderer.push(head).live().to_owned();
+    // The text is a paragraph of the first item: the item renders again with its code.
+    let update = renderer.push("   More");
+    assert_eq!(update.live(), before, "the partial line shows late");
+    let update = renderer.push(" text\n");
+    assert!(update.live().contains("More text"));
+    assert_eq!(update.committed(), "");
+}
+
+#[test]
+fn a_long_paragraph_line_shows_its_partial_text_at_once() {
+    let line = "word ".repeat(1_000);
+    let mut renderer = Renderer::new(options());
+    let mut reference = plain(&options());
+    for piece in line.as_bytes().chunks(7) {
+        let piece = std::str::from_utf8(piece).unwrap();
+        assert_eq!(renderer.push(piece), reference.push(piece));
+    }
+    let update = renderer.push("tail");
+    assert!(update.live().ends_with(" word tail\n"), "the partial text shows late");
+    assert_eq!(update.live_rows(), 63);
 }
 
 #[test]
@@ -203,20 +235,33 @@ fn a_fence_in_a_quote_and_a_nested_list_is_followed() {
 }
 
 #[test]
-fn a_long_open_block_keeps_its_live_zone_until_a_line_is_complete() {
+fn a_long_table_shows_its_partial_row_at_once() {
     let mut renderer = Renderer::tuned(options(), 16, true);
     renderer.push("| a | b |\n|---|---|\n| 1 | 2 |\n");
     let update = renderer.push("| 3");
-    assert!(!update.live().contains('3'), "the partial row shows late");
+    assert!(update.live().contains('3'), "the partial row shows late");
     let update = renderer.push(" | 4 |\n");
     assert!(update.live().contains('3') && update.live().contains('4'));
     let update = renderer.push("\n");
     assert!(update.committed().contains('4'));
     assert_eq!(update.live(), "");
+}
+
+#[test]
+fn a_long_block_that_holds_code_keeps_its_live_zone_until_a_line_is_complete() {
+    let mut renderer = Renderer::tuned(options().with_colour(ColourMode::None), 16, true);
+    renderer.push("> Look:\n>\n> ```rust\n> fn a() {}\n> ```\n");
+    assert!(!renderer.follows_fence());
+    let update = renderer.push("> more");
+    assert!(!update.live().contains("more"), "the partial line shows at once");
+    let update = renderer.push(" text\n");
+    assert!(update.live().contains("more text"));
+    let update = renderer.push("\n");
+    assert!(update.committed().contains("more text"));
     // Below the size, the partial line shows at once.
-    let mut renderer = Renderer::new(options());
-    renderer.push("| a | b |\n|---|---|\n");
-    assert!(renderer.push("| 3").live().contains('3'));
+    let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
+    renderer.push("> Look:\n>\n> ```rust\n> fn a() {}\n> ```\n");
+    assert!(renderer.push("> more").live().contains("more"));
 }
 
 #[test]
@@ -329,7 +374,8 @@ fn live_rows_count_wrapped_rows() {
     let update = renderer.push("0123456789abc\nshort");
     assert_eq!(update.live_rows(), 3);
     assert_eq!(update.live_tail(1), "short\n");
-    assert_eq!(update.live_tail(2), "short\n");
+    // The last row of the wrapped line, above the last line.
+    assert_eq!(update.live_tail(2), "abc\nshort\n");
     assert_eq!(update.live_tail(3), update.live());
     assert_eq!(update.live_tail(0), "");
 }
@@ -340,9 +386,17 @@ fn live_rows_of(piece: &str, method: WidthMethod) -> usize {
     let options = RenderOptions::new(20).with_width_method(method);
     let mut renderer = Renderer::new(options);
     let update = renderer.push(&format!("{piece} ").repeat(10));
-    assert_eq!(update.live_tail(update.live_rows()), update.live());
-    assert_eq!(update.live_tail(update.live_rows() - 1), "");
-    update.live_rows()
+    let rows = update.live_rows();
+    assert_eq!(update.live_tail(rows), update.live());
+    // One row less cuts the line where the terminal starts its second row.
+    let tail = update.live_tail(rows - 1);
+    if rows > 1 {
+        assert_eq!(display_rows(tail.trim_end_matches('\n'), 20, method), rows - 1);
+        assert!(update.live().ends_with(&*tail));
+    } else {
+        assert_eq!(tail, "");
+    }
+    rows
 }
 
 #[test]
@@ -561,6 +615,34 @@ proptest! {
         let fast = Renderer::tuned(options.clone(), usize::MAX, true);
         let (out, _) = same_as_plain(&markdown, &cuts, &options, fast);
         assert_eq!(out, render(&markdown, &options));
+    }
+
+    /// Only a pending text that holds a code block keeps its live zone between lines:
+    /// any other shows what the plain path shows at each push.
+    #[test]
+    fn only_a_pending_text_with_code_keeps_its_live_zone(
+        markdown in prop_oneof![fenced_block(), document(), noise()],
+        cuts in prop::collection::vec(proptest::num::usize::ANY, 0..24),
+        options in any_options(),
+    ) {
+        let mut fast = Renderer::tuned(options.clone(), 0, true);
+        let mut reference = plain(&options);
+        let mut from = 0;
+        for to in boundaries(&markdown, &cuts) {
+            let piece = &markdown[from..to];
+            let got = fast.push(piece);
+            let want = reference.push(piece);
+            assert_eq!(got.committed(), want.committed(), "after {to} bytes of {markdown:?}");
+            if !fast.keeps_live() {
+                assert_eq!(got, want, "after {to} bytes of {markdown:?}");
+            }
+            from = to;
+        }
+        if fast.keeps_live() {
+            let text = &markdown[..from];
+            let code = ["```", "~~~", "    ", "\t"].iter().any(|marker| text.contains(marker));
+            assert!(code, "kept without code: {markdown:?}");
+        }
     }
 
     /// A long open block keeps its live zone between lines, and that changes no

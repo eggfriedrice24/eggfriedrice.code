@@ -49,6 +49,8 @@ pub(crate) struct TopBlock {
     /// code block (in a list item or a quote) and nothing comes after its text. The
     /// fence can still be open; the streaming renderer checks that itself.
     pub(crate) fence: Option<usize>,
+    /// Where the last code block inside this block (in a list item or a quote) starts.
+    pub(crate) inner_code: Option<usize>,
 }
 
 /// The top-level blocks of `text`, in order.
@@ -67,6 +69,9 @@ pub(crate) fn outline(text: &str) -> Vec<TopBlock> {
                     }
                     in_fence = matches!(tag, Tag::CodeBlock(CodeBlockKind::Fenced(_)));
                     block.fence = in_fence.then_some(range.start);
+                    if matches!(tag, Tag::CodeBlock(_)) {
+                        block.inner_code = Some(range.start);
+                    }
                 }
                 depth += 1;
             }
@@ -83,6 +88,7 @@ pub(crate) fn outline(text: &str) -> Vec<TopBlock> {
                     items: Vec::new(),
                     code: None,
                     fence: None,
+                    inner_code: None,
                 });
             }
             Event::Text(piece) if depth == 1 => {
@@ -119,7 +125,7 @@ fn top_block(tag: &Tag<'_>, range: Range<usize>) -> TopBlock {
         }
         _ => Kind::Other,
     };
-    TopBlock { kind, range, items: Vec::new(), code, fence: None }
+    TopBlock { kind, range, items: Vec::new(), code, fence: None, inner_code: None }
 }
 
 impl TopBlock {

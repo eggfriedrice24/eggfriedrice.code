@@ -15,11 +15,15 @@
 //!
 //! The live zone is kept smaller than the screen: rows that scrolled off the top can
 //! no longer be reached by moving the cursor up, so they could never be erased. When
-//! it would be taller, only its last lines are shown.
+//! it would be taller, only its last rows are shown: the last lines that fit whole,
+//! and above them the last rows of the line before them. So a paragraph line taller
+//! than the screen shows its newest rows, not nothing.
 //!
 //! The rows are counted as the terminal counts columns: by code point, or by grapheme
 //! cluster in Ghostty ([`WidthMethod`]). A ZWJ emoji, a flag or a variation selector
-//! counted the other way would move the cursor up one row too many or too few.
+//! counted the other way would move the cursor up one row too many or too few. A wide
+//! character that does not fit at the end of a row starts the next row, as the
+//! terminal wraps it ([`display_rows`]).
 //!
 //! The live zone can end with a status row, which changes on every tick of a running
 //! turn, and the input row of the turn below it (the tail). When only the status row
@@ -31,9 +35,10 @@
 //! goes ([`Cursor`]). The next redraw starts there: it moves up only over the rows above
 //! the cursor.
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 
-use efr_render::{WidthMethod, display_width};
+use efr_render::{WidthMethod, display_rows, last_rows};
 
 use crate::terminal::Size;
 
@@ -134,10 +139,11 @@ impl LiveZone {
         let extra = rows_of(status) + rows_of(&tail.text);
         let (shown, rows) = match measured {
             Some(measured) if measured.width == width && fits(measured.rows + extra, size) => {
-                (live.as_str(), measured.rows + extra)
+                (Cow::Borrowed(live.as_str()), measured.rows + extra)
             }
             _ => clip(&live, width, max_rows(size), method),
         };
+        let shown = shown.as_ref();
         // A tail that does not fit whole on the screen gets no cursor.
         let cursor = tail.cursor.filter(|_| shown.ends_with(&*tail.text));
         // An empty live zone looks the same at any width.
@@ -151,7 +157,7 @@ impl LiveZone {
                 empty: true,
                 live_rows: rows,
                 hidden_rows: rows_of(&live).saturating_sub(rows),
-                hidden_bytes: live.len() - shown.len(),
+                hidden_bytes: live.len().saturating_sub(shown.len()),
                 ..Default::default()
             });
             return String::new();
@@ -230,7 +236,7 @@ impl LiveZone {
             },
             live_rows: rows,
             hidden_rows: rows_of(&live).saturating_sub(rows),
-            hidden_bytes: live.len() - shown.len(),
+            hidden_bytes: live.len().saturating_sub(shown.len()),
         });
         shown.clone_into(&mut self.shown);
         status.clone_into(&mut self.status);
@@ -267,23 +273,37 @@ pub(crate) fn fits(rows: usize, size: Size) -> bool {
     max_rows(size).is_none_or(|max| rows <= max)
 }
 
-/// The last whole lines of `live` that fit in `max_rows` rows at `width`, and the rows
-/// they take. Whole lines only: every live line opens and closes its own styles.
-fn clip(live: &str, width: u16, max_rows: Option<usize>, method: WidthMethod) -> (&str, usize) {
+/// The last rows of `live` that fit in `max_rows` rows at `width`, and the rows they
+/// take: the last lines that fit whole, and above them the last rows of the line
+/// before them. Every live line opens and closes its own styles, and the rows cut from
+/// a line open its styles again where they start.
+fn clip(
+    live: &str,
+    width: u16,
+    max_rows: Option<usize>,
+    method: WidthMethod,
+) -> (Cow<'_, str>, usize) {
     let Some(max_rows) = max_rows else {
-        return (live, rows_of(live, width, method));
+        return (Cow::Borrowed(live), rows_of(live, width, method));
     };
     let mut rows = 0;
     let mut start = live.len();
     for line in live.split_inclusive('\n').rev() {
         let line_rows = line_rows(line, width, method);
         if rows + line_rows > max_rows {
-            break;
+            let left = max_rows - rows;
+            if left == 0 {
+                break;
+            }
+            let body = line.strip_suffix('\n').unwrap_or(line);
+            let mut shown = last_rows(body, usize::from(width), left, method).into_owned();
+            shown.push_str(&live[start - line.len() + body.len()..]);
+            return (Cow::Owned(shown), max_rows);
         }
         rows += line_rows;
         start -= line.len();
     }
-    (&live[start..], rows)
+    (Cow::Borrowed(&live[start..]), rows)
 }
 
 /// The rows `text` takes on a terminal `width` columns wide that counts widths by
@@ -293,8 +313,7 @@ pub(crate) fn rows_of(text: &str, width: u16, method: WidthMethod) -> usize {
 }
 
 fn line_rows(line: &str, width: u16, method: WidthMethod) -> usize {
-    let line = line.strip_suffix('\n').unwrap_or(line);
-    display_width(line, method).div_ceil(usize::from(width.max(1))).max(1)
+    display_rows(line.strip_suffix('\n').unwrap_or(line), usize::from(width), method)
 }
 
 #[cfg(test)]

@@ -54,6 +54,16 @@ into the GitHub release notes, and it stops when the section is missing.
   Before, they could wait up to 0.1 s for the reader of the keys that you type into
   the input row.
 
+### Fixed
+
+- A long paragraph of an answer stays on the screen while it streams. Before, a line
+  taller than the terminal left the screen until its paragraph ended, for many
+  seconds in a small pane. Now the screen shows the newest rows of the line.
+- The last line of a long table, quote or list item shows letter by letter again.
+  Before, from 4 KB of open text it showed only when the line was complete. Only
+  open text that holds a code block in a list item or a quote still waits for the
+  end of its line, because its colours cost much time.
+
 ### Security
 
 - efr now uses rusqlite 0.41.1, with SQLite 3.54 in the build. This version fixes the

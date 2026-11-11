@@ -136,11 +136,86 @@ fn clipping_counts_wrapped_rows() {
     assert_eq!(out, format!("{BEGIN}{}\nlast\n{END}", "x".repeat(25)));
 }
 
+/// A line of `rows` rows of ten letters each: `a` ten times, then `b`, and so on.
+fn rows_of_letters(rows: u8) -> String {
+    (0..rows).flat_map(|row| std::iter::repeat_n(char::from(b'a' + row), 10)).collect()
+}
+
 #[test]
-fn a_single_line_taller_than_the_screen_is_not_shown() {
+fn a_single_line_taller_than_the_screen_shows_its_last_rows() {
     let mut zone = LiveZone::default();
-    let out = zone.redraw("ok\n", &format!("{}\n", "x".repeat(100)), None, size(10, 5));
-    assert_eq!(out, format!("{BEGIN}ok\n{END}"));
+    let line = rows_of_letters(10);
+    let out = zone.redraw("ok\n", &format!("{line}\n"), None, size(10, 5));
+    // Four rows fit: the last four of the line's ten.
+    assert_eq!(out, format!("{BEGIN}ok\n{}\n{END}", &line[60..]));
+    let mut grid = Grid::new(10);
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["ok", "gggggggggg", "hhhhhhhhhh", "iiiiiiiiii", "jjjjjjjjjj"]);
+    // The line grows by a row: the redraw erases the four rows and shows the new last
+    // four.
+    let longer = format!("{line}kkk\n");
+    let out = zone.redraw("", &longer, None, size(10, 5));
+    assert_eq!(readable(&out), format!("\\e[?2026h\\r\\e[4A\\e[J{}\n\\e[?2026l", &longer[70..103]));
+    grid.write(&out);
+    assert_eq!(grid.lines(), ["ok", "hhhhhhhhhh", "iiiiiiiiii", "jjjjjjjjjj", "kkk"]);
+    let out = zone.redraw("", "", None, size(10, 5));
+    assert_eq!(readable(&out), "\\e[?2026h\\r\\e[4A\\e[J\\e[?2026l");
+}
+
+#[test]
+fn a_tall_line_shows_its_last_rows_above_the_status_row_and_the_tail() {
+    let mut zone = LiveZone::default();
+    let mut grid = Grid::new(10);
+    let body = format!("{}\n", rows_of_letters(8));
+    grid.write(&zone.draw("", &body, None, "status\n", &input_row(), size(10, 6)));
+    // Five rows: two of the line, the status row and the two rows of the tail.
+    assert_eq!(grid.lines(), ["gggggggggg", "hhhhhhhhhh", "status", "> first", "  typ"]);
+    assert_eq!(grid.cursor(), (4, 5));
+    // A tick rewrites only the status row.
+    let out = zone.draw("", &body, None, "status 2\n", &input_row(), size(10, 6));
+    assert_eq!(readable(&out), "\\e[?2026h\\r\\e[2A\\e[2Kstatus 2\n\\e[1B\\r\\e[5C\\e[?2026l");
+}
+
+#[test]
+fn the_rows_cut_from_a_line_open_its_colours_and_its_hyperlink_again() {
+    let mut zone = LiveZone::default();
+    let line = format!(
+        "\x1b[1m{}\x1b[0m\x1b[33m\x1b]8;;https://e.io\x1b\\{}\x1b]8;;\x1b\\\x1b[0m",
+        "a".repeat(15),
+        "b".repeat(15),
+    );
+    let out = zone.redraw("", &format!("{line}\n"), None, size(10, 2));
+    // One row fits: the last, which starts in the link.
+    assert_eq!(
+        readable(&out),
+        "\\e[?2026h\\e[33m\\e]8;;https://e.io\\e\\bbbbbbbbbb\\e]8;;\\e\\\\e[0m\n\\e[?2026l"
+    );
+    // Two rows fit: the last two, which start in bold.
+    let out = zone.redraw("", &format!("{line}\n"), None, size(10, 3));
+    assert_eq!(
+        readable(&out),
+        "\\e[?2026h\\r\\e[1A\\e[J\\e[1maaaaa\\e[0m\\e[33m\\e]8;;https://e.io\\e\\bbbbbbbbbbbbbbb\\e]8;;\\e\\\\e[0m\n\\e[?2026l"
+    );
+}
+
+#[test]
+fn a_wide_character_that_does_not_fit_at_the_end_of_a_row_starts_the_next() {
+    // Three columns: each wide character takes a row of its own, as on the terminal.
+    assert_eq!(rows_of("\u{65e5}\u{672c}\u{8a9e}\n", 3, CP), 3);
+    let mut zone = LiveZone::default();
+    let out = zone.redraw("", "\u{65e5}\u{672c}\u{8a9e}\n", None, size(3, 3));
+    assert_eq!(out, format!("{BEGIN}\u{672c}\u{8a9e}\n{END}"));
+}
+
+#[test]
+fn a_tall_line_of_clusters_is_cut_where_the_terminal_starts_a_row() {
+    // By grapheme cluster a family takes two columns: five to a row of ten.
+    let line = FAMILY.repeat(12);
+    let mut zone = LiveZone::new(GR);
+    let out = zone.redraw("", &format!("{line}\n"), None, size(10, 2));
+    assert_eq!(out, format!("{BEGIN}{}\n{END}", FAMILY.repeat(2)));
+    let out = zone.redraw("", &format!("{line}\n"), None, size(10, 3));
+    assert_eq!(readable(&out), format!("\\e[?2026h\\r\\e[1A\\e[J{}\n\\e[?2026l", FAMILY.repeat(7)));
 }
 
 #[test]

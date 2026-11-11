@@ -11,7 +11,8 @@
 //!
 //! In a list, the follow goes on after the closing fence through the lines that add
 //! nothing, such as blank lines. When the next item starts, the item commits as the
-//! live zone shows it, so the block is not rendered again.
+//! live zone shows it, so the block is not rendered again. A partial line that ends
+//! the follow gets the kept rendering too ([`OpenFence::to_ended`]).
 
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 
@@ -51,6 +52,7 @@ enum Live {
 /// The rendering of the pending text up to `end`, kept from a follow that ended at
 /// a line which starts there: the output, the tail of its last list and the flow
 /// after it, as [`crate::block::render_slice`] gives them for that text.
+#[derive(Clone)]
 pub(crate) struct Ended {
     pub(crate) end: usize,
     pub(crate) out: String,
@@ -116,17 +118,16 @@ impl OpenFence {
     }
 
     /// The live zone of `pending`, whose complete lines end at `scanned`, and its
-    /// rows: what [`crate::block::render_slice`] gives for all of `pending`. When the
-    /// partial last line is not code of the block, a `long` pending text shows the
-    /// live zone without it. `None` when the caller must render it in full.
+    /// rows: what [`crate::block::render_slice`] gives for all of `pending`.
+    /// [`Look::Before`] when the partial last line ends the follow. `None` when the
+    /// caller must render it in full.
     pub(crate) fn live(
         &mut self,
         ctx: &Ctx,
         flow: &Flow,
         pending: &str,
         scanned: usize,
-        long: bool,
-    ) -> Option<(String, usize)> {
+    ) -> Option<Look> {
         if matches!(self.live, Live::Unbuilt) {
             // NOTE: with no line of code yet, an item marker can still be owed.
             if self.lines == 0 {
@@ -144,25 +145,43 @@ impl OpenFence {
         let Live::Built { open, rows, .. } = &self.live else { return None };
         let head = &pending[..self.head];
         let partial = &pending[scanned..];
-        let mut live = String::with_capacity(open.out.len() + 2 * partial.len() + 64);
-        live.push_str(&open.out);
-        let mut rows = *rows;
-        let shown = match &self.closed {
-            _ if partial.is_empty() => true,
-            Some(after) => self.adds_nothing(head, &format!("{after}{partial}")),
+        let painted = match &self.closed {
+            _ if partial.is_empty() => String::new(),
+            Some(after) if self.adds_nothing(head, &format!("{after}{partial}")) => String::new(),
+            Some(_) => return Some(Look::Before),
             None => match self.code(head, partial, false) {
                 Some(code) if !code.is_empty() => {
                     let mut block = open.block.clone();
-                    let painted = paint_code_line(ctx, &open.prefix, &mut block, &code);
-                    rows += rows_of_text(&painted, ctx);
-                    live.push_str(&painted);
-                    true
+                    paint_code_line(ctx, &open.prefix, &mut block, &code)
                 }
-                Some(_) => true,
-                None => false,
+                Some(_) => String::new(),
+                None => return Some(Look::Before),
             },
         };
-        (shown || long).then_some((live, rows))
+        let mut live = String::with_capacity(open.out.len() + painted.len());
+        live.push_str(&open.out);
+        live.push_str(&painted);
+        Some(Look::Whole(live, rows + rows_of_text(&painted, ctx)))
+    }
+
+    /// The live zone without the partial last line, and its rows: the kept rendering
+    /// of the complete lines. `None` before it is made.
+    pub(crate) fn before(&self) -> Option<(String, usize)> {
+        match &self.live {
+            Live::Built { open, rows, .. } => Some((open.out.clone(), *rows)),
+            Live::Unbuilt | Live::Unavailable => None,
+        }
+    }
+
+    /// The kept rendering as [`OpenFence::into_ended`] gives it, for a line that
+    /// starts at `end` and is not complete yet.
+    pub(crate) fn to_ended(&self, end: usize) -> Option<Ended> {
+        match &self.live {
+            Live::Built { open, flow, .. } => {
+                Some(Ended { end, out: open.out.clone(), tail: open.tail, flow: flow.clone() })
+            }
+            Live::Unbuilt | Live::Unavailable => None,
+        }
     }
 
     /// The kept rendering, when there is one, for the pending text up to `end`.
@@ -221,6 +240,15 @@ impl OpenFence {
         let text = format!("{head}{after}");
         Parser::new_ext(&text, parser_options()).eq(self.events.iter().cloned())
     }
+}
+
+/// What [`OpenFence::live`] found for the live zone.
+pub(crate) enum Look {
+    /// The live zone, its partial last line included, and its rows.
+    Whole(String, usize),
+    /// The partial last line ends the follow: it is not code of the open block, or it
+    /// adds more than nothing after the closed one.
+    Before,
 }
 
 fn events_of(text: &str) -> Vec<Event<'static>> {

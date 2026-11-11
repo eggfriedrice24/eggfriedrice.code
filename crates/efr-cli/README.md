@@ -117,7 +117,12 @@ Replies:
   redrawn in place: carriage return, cursor up over the old live zone's rows (counted
   again at the current width when the terminal was resized), erase to the end of the
   screen, then the new committed output and live zone, all inside synchronized output
-  (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen.
+  (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen,
+  by rows: the last lines that fit whole, and above them the last rows of the line
+  before them (`efr_render::last_rows`, which opens the colours and the link of the
+  line again). So a paragraph line that is taller than the screen shows its newest
+  rows. The rows are counted as the terminal wraps: a wide character that does not
+  fit at the end of a row starts the next row.
 - Events change the view; they write nothing themselves. The follow loop writes frames:
   a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
   so the screen gets at most 60 frames a second. A question, an answer, a key, the end
@@ -1314,7 +1319,10 @@ roles of `efr-render`; the settings tests lay `[render.colors]` over a theme fil
 a code theme by a path relative to the theme file, warn about a theme file or a code
 theme that cannot be used, and pick the theme of `auto` by `EFR_TERMINAL_BG`. The
 width tests count the rows of ZWJ emoji, flags and variation selectors by code point
-and by grapheme cluster, and redraw a live zone of such text both ways. The end-to-end tests run whole commands against a fake
+and by grapheme cluster, and redraw a live zone of such text both ways. The clip tests
+show the last rows of a line taller than the screen on a test grid, with its colours
+and link opened again, and cut a line of wide characters or clusters where the
+terminal starts a row. The end-to-end tests run whole commands against a fake
 daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
 Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
 byte written to the fake terminal holds a hidden answer. The silence tests use a clock

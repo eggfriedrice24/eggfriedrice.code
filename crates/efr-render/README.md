@@ -28,7 +28,11 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   `warning` colour without bold), for the CLI's context gauge, whose colour changes
   with its level.
 - `text_width` and `display_width`: the columns of text (painted text without its
-  escape sequences) by code point or by grapheme cluster.
+  escape sequences) by code point or by grapheme cluster. `display_rows`: the rows of
+  one painted line as the terminal wraps it (a wide character that does not fit at the
+  end of a row starts the next row). `last_rows`: the last rows of one painted line,
+  with the colours and the hyperlink that are open where they start, for a caller that
+  clips the live zone by rows. `Update::live_tail` clips the live zone the same way.
 
 Colour roles and their defaults in 16 colours:
 
@@ -80,9 +84,15 @@ line does not grow with the reply. A fenced code block in a list item or a quote
 followed line by line: each new line is checked against the text up to the block's
 opening line only, and the live zone grows by that one painted line. When the item
 ends, it commits as its live zone showed it, so the block is not rendered again.
-From 4 KB of pending text (`LIVE_CACHE_BYTES`), any other open block (a table, a long
-quote or list item) renders its live zone again only when a line is complete, so its
-partial last line shows when the line ends. A partial line of code shows at once.
+When a partial line ends the follow (the start of the next item, or a line after the
+item), the live zone is the kept rendering of the lines before it and that line
+rendered alone, when the line would commit the item as that rendering. Any other live
+zone is rendered again at each push, its partial last line included: for prose,
+tables, quotes and lists that costs about 40 us for each KB of pending text. Only from
+4 KB of pending text that holds a code block in a list item or a quote
+(`LIVE_CACHE_BYTES`) is the live zone rendered again only when a line is complete,
+because each rendering paints the syntax colours of the whole block again (about
+1.5 ms for each KB).
 
 Because committed output stays on the screen, a few things differ from rendering the
 whole reply at once with a single parse: a reference-style link resolves only against
@@ -143,7 +153,7 @@ oniguruma), `two-face` (`syntect-fancy`), `unicode-width`, `unicode-segmentation
   change it, or (a long paragraph, earlier list items) when the rest is rendered as its
   continuation.
 - Every output line opens and closes its own SGR state and hyperlink, so a caller can
-  clip the live zone to whole lines.
+  clip the live zone to whole lines, and `last_rows` can cut a line at a row.
 - Model output cannot drive the terminal: control characters in the markdown are shown
   as visible stand-ins, hyperlink targets are percent-encoded, and only `http`,
   `https`, `mailto` and `file` targets become hyperlinks.
@@ -164,13 +174,19 @@ with overrides and with a hex palette in truecolor and in 16 colours; and the
 `.tmTheme` fixture `fixtures/sample_theme.tmTheme`; the rows of `diff_rows` at 40 and
 80 columns with and without colour. Escape bytes appear as `\e`. Unit tests check the
 widths of ZWJ emoji, flags and variation selectors both ways, the live-zone row count
-with them, and that the rows of a diff fit the width and read back as its lines. Property tests check that any chunking of a
+with them, the rows of a line with wide characters at the end of a row, the colours
+and the link that `last_rows` opens again, and that the rows of a diff fit the width
+and read back as its lines. Stream tests check that a long paragraph line and a long
+table show their partial line at once, that a long quote with a code block keeps its
+live zone until the line ends, and that the start of the next item after a long fence
+shows at once while more text of the item waits for its line. Property tests check that any chunking of a
 document, byte-by-byte streaming included, commits what `render` does, and that early
 commits render the elements exactly as one parse of the whole document does. More
 property tests stream fences in list items and quotes (code, blank lines, closing
 fences, lines that end the block, tabs, carriage returns) and check that each push
 commits and shows what a renderer without the line-by-line follow and without kept
-live zones does. A unit test checks that the shared highlighter colours each line as
+live zones does. One more property test keeps every live zone it can: a pending text
+without a code block still shows what that renderer shows at each push. A unit test checks that the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.
 
