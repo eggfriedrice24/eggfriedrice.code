@@ -306,3 +306,22 @@ fn the_live_line_counts_as_a_row_when_a_tall_line_of_text_is_clipped() {
     );
     assert!(lines[4].starts_with("\u{2022} thinking"), "{lines:?}");
 }
+
+#[test]
+fn the_end_line_after_the_row_keeps_its_blank_line() {
+    let options = RenderOptions::new(60).with_colour(ColourMode::Ansi16);
+    let mut view = TurnView::new(turn(), options).with_look(Look { summary: true, ..LOOK });
+    view.start();
+    let size = Size { cols: 60, rows: 20 };
+    view.envelope(&sent(11, 0, turn_started()), size, false);
+    let mut grid = Grid::new(60);
+    let parts = [reasoning(0, "**Plan it**\n\nFirst the tests", Some("Plan it"))];
+    think(&mut view, &mut grid, size, &parts, 100, 0);
+    frame(&mut view, &mut grid, size, 2_600);
+    // The turn ends with no text and no call: the row sticks to nothing.
+    let step = view.envelope(&sent(12, 3_500, turn_completed()), size, false);
+    grid.write(&step.out);
+    grid.write(&step.err);
+    let (lines, _) = frame(&mut view, &mut grid, size, 3_500);
+    assert_eq!(lines[..3], ["\u{25b8} Plan it  thought 2s", "", "done in 3.5s"], "{lines:?}");
+}

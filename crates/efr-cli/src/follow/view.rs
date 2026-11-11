@@ -3654,9 +3654,11 @@ impl TurnView {
     }
 
     /// Ends the phase of reasoning that runs: its live line goes, and a phase that took
-    /// long enough leaves its row in the scrollback. The row sticks to what follows it,
-    /// so the blank line before that goes above the row. Inside a message that still
-    /// streams there is no row, because it would cut the text of the message in two.
+    /// long enough leaves its row in the scrollback. The row sticks to the text or the
+    /// tool call that follows it, so the blank line before that goes above the row; any
+    /// other block, such as a question or the end line, keeps its blank line. Inside a
+    /// message that still streams there is no row, because it would cut the text of the
+    /// message in two.
     fn end_reasoning(&mut self) {
         if !self.reasoning.running() {
             return;
@@ -3668,7 +3670,7 @@ impl TurnView {
         };
         let mut committed = self.spacing.before(Block::Message).to_owned();
         committed.push_str(&row);
-        self.spacing = Spacing::default();
+        self.spacing = Spacing::stuck();
         self.stage(&committed);
     }
 

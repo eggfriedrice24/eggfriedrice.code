@@ -107,19 +107,32 @@ pub(crate) enum Block {
 #[derive(Debug, Default)]
 pub(crate) struct Spacing {
     last: Option<Block>,
+    /// The last block was a row that sticks to the message or the call after it.
+    stuck: bool,
 }
 
 impl Spacing {
+    /// After a row that sticks to the message or the tool call that follows it, such as
+    /// the row of a phase of reasoning: that block comes with no blank line, and any
+    /// other block with one, as after a message.
+    pub(crate) fn stuck() -> Self {
+        Spacing { last: Some(Block::Message), stuck: true }
+    }
+
     /// What to write before a block of `kind`.
     pub(crate) fn before(&mut self, kind: Block) -> &'static str {
         let separator = self.peek(kind);
         self.last = Some(kind);
+        self.stuck = false;
         separator
     }
 
     /// What [`before`](Self::before) would write before a block of `kind`, for a block
     /// that shows in the live zone before it is written.
     pub(crate) fn peek(&self, kind: Block) -> &'static str {
+        if self.stuck && matches!(kind, Block::Message | Block::Call) {
+            return "";
+        }
         match (self.last, kind) {
             (None, _)
             | (Some(Block::Note), Block::Note)
