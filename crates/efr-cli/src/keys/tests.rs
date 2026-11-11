@@ -210,6 +210,11 @@ async fn a_stop_for_the_row_keeps_every_key_that_the_thread_read() {
     rustix::io::write(&master, &typed).unwrap();
     // The thread holds one more key than the queue, blocked on its send.
     full_queue(&reader).await;
+    // NOTE: a full queue is not enough: the thread may not have read that key yet, and
+    // a stop that it sees before the read takes no byte more.
+    Wait::new("the key after a full queue taken")
+        .until_blocking(|| reader.flags.taken.load(Ordering::Acquire) == KEY_QUEUE as u64 + 1)
+        .unwrap();
 
     let kept = reader.stop_keeping().await;
     assert!(canonical(&probe) && echoes(&probe), "the terminal is restored");
