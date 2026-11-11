@@ -6,9 +6,11 @@
 //! connection is clean for the next request. While no request runs, it closes the
 //! connection after [`Limits::idle`] or when the server closes it. A request that comes
 //! after [`Limits::probe_after`] without one goes out right after a ping, with no wait
-//! for the pong. A connection that died without a close, such as after a sleep of the
-//! laptop or a change of network, gives neither the pong nor a message, so it fails
-//! after [`Limits::probe`] and the call goes over HTTP.
+//! for the pong. A connection that died without a close, such as after a change of
+//! network, gives neither the pong nor a message, so it fails after [`Limits::probe`]
+//! and the call goes over HTTP. After [`Limits::ping_first`] without a request, such as
+//! after a sleep of the laptop, the request waits for the pong before it goes out, so a
+//! connection that is only late never gets a request that HTTP also sent.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -47,6 +49,9 @@ pub(crate) struct Limits {
     /// How long that ping may go without its pong and without a message of the
     /// server.
     pub(crate) probe: Duration,
+    /// How long a connection may go without a request before the next request waits
+    /// for the pong of its ping before it goes out.
+    pub(crate) ping_first: Duration,
     /// The longest silence inside an answer, as the read timeout of the HTTP path.
     pub(crate) read: Duration,
     /// How long a `response.create` may take to go out.
@@ -228,9 +233,11 @@ async fn run(
         let Some(create) = create else {
             break;
         };
-        let quiet = idle_since.is_some_and(|since| {
-            clock.now().duration_since(since).unsigned_abs() >= limits.probe_after
-        });
+        let quiet = match idle_since.map(|since| clock.now().duration_since(since).unsigned_abs()) {
+            Some(idle) if idle >= limits.ping_first => Quiet::Long,
+            Some(idle) if idle >= limits.probe_after => Quiet::Short,
+            _ => Quiet::No,
+        };
         match serve(&mut socket, create, &shared, &*clock, limits, quiet).await {
             Served::Idle => idle_since = Some(clock.now()),
             Served::Dead => break,
@@ -238,6 +245,17 @@ async fn run(
     }
     retire(&shared);
     let _ = clock.timeout(limits.send, socket.close(1000)).await;
+}
+
+/// How long a connection went without a request, as its next request checks it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quiet {
+    /// Less than [`Limits::probe_after`]: the request goes out with no ping.
+    No,
+    /// At least [`Limits::probe_after`]: a ping goes out with the request.
+    Short,
+    /// At least [`Limits::ping_first`]: the pong must come before the request goes out.
+    Long,
 }
 
 /// The open check of a quiet connection: its ping went out with the request, and the
@@ -370,15 +388,15 @@ impl Request<'_> {
     }
 }
 
-/// Runs one request. `quiet`: the connection had no request for
-/// [`Limits::probe_after`], so it may have died without a close.
+/// Runs one request. `quiet`: how long the connection had no request, so whether it
+/// may have died without a close.
 async fn serve(
     socket: &mut WebSocket,
     create: Create,
     shared: &Mutex<Shared>,
     clock: &dyn Clock,
     limits: Limits,
-    quiet: bool,
+    quiet: Quiet,
 ) -> Served {
     let Create { message, settings, prints, events } = create;
     let mut request = Request {
@@ -395,9 +413,25 @@ async fn serve(
     // first message comes, a failure or the end of `limits.probe` sends the call over
     // HTTP: no event came, so the server started no answer. The other way, with no
     // ping, a connection that died without a close would hold the call for the read
-    // timeout of 300 s.
+    // timeout of 300 s. The rest risk: a connection that is only late, not dead, gets
+    // the request after the call went over HTTP, so the model may run two times. After
+    // a long quiet time, the likely case of a sleep of the laptop, the request waits
+    // for the pong instead, and the request goes out only on a connection that works.
     let mut proof = None;
-    if quiet {
+    if quiet == Quiet::Long {
+        efr_stdx::mark::hit("ws.probe.begin");
+        let reason = match Clock::timeout(&clock, limits.probe, socket.ping()).await {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(format!("the ping of a long quiet websocket failed: {error}")),
+            Err(_) => Some("a long quiet websocket did not answer its ping in time".to_owned()),
+        };
+        efr_stdx::mark::hit("ws.probe.end");
+        if let Some(reason) = reason {
+            // NOTE: the request has not gone out, so the call may go over HTTP.
+            return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
+        }
+    }
+    if quiet == Quiet::Short {
         efr_stdx::mark::hit("ws.probe.begin");
         let reason = match Clock::timeout(&clock, limits.probe, socket.send_ping()).await {
             Ok(Ok(pong)) => {
@@ -466,6 +500,22 @@ async fn serve(
                 continue;
             }
         };
+        // NOTE: the pong and the end of the connection can be ready at once, and the
+        // read above comes first. A pong that came before the end showed a live server
+        // that has the request, so the end is then the call's failure.
+        let answered = proof
+            .as_mut()
+            .and_then(|open| open.pong.as_mut())
+            .and_then(futures::FutureExt::now_or_never);
+        match answered {
+            Some(Ok(())) => prove(&mut proof),
+            Some(Err(_)) => {
+                if let Some(open) = proof.as_mut() {
+                    open.pong = None;
+                }
+            }
+            None => {}
+        }
         if proof.is_some() {
             // NOTE: a quiet connection that breaks or ends before its pong and before
             // any message was dead: the server started no answer.

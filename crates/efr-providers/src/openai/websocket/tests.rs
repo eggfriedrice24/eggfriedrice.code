@@ -9,7 +9,7 @@ use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use super::{IDLE, PROBE_AFTER, PROBE_TIMEOUT};
+use super::{IDLE, PING_FIRST, PROBE_AFTER, PROBE_TIMEOUT};
 use crate::openai::testing::{
     FakeTokens, FixedRng, ManualClock, ResponsesServer, Socket, Step, fixture, sse_events,
 };
@@ -585,7 +585,8 @@ async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_cal
     let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
 
     // The request went out with the ping, but the dead connection gave neither a pong
-    // nor an event, so the server never had it and HTTP sent the only call.
+    // nor an event, so HTTP sent the call. This server never reads again; a server
+    // that is only late can still read the request (see the next tests).
     assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
     let sockets = setup.server.sockets();
     assert_eq!(sockets[0].messages.len(), 1);
@@ -593,6 +594,62 @@ async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_cal
     // A dead connection does not pause WebSockets: the next call opens a new one.
     assert_eq!(third.message.text(), "Fresh.");
     assert_eq!(sockets.len(), 2);
+}
+
+#[tokio::test]
+async fn a_long_quiet_connection_sends_its_request_only_after_the_pong() {
+    // The server stops reading for longer than the ping may take, then reads again.
+    let late = Arc::new(tokio::sync::Notify::new());
+    let socket = Socket::serving(vec![vec![
+        Step::Send(answer("resp_1", "Hello.")),
+        Step::Wait(Arc::clone(&late)),
+    ]]);
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PING_FIRST);
+    let stall = async {
+        eventually(|| setup.clock.waits_for(PROBE_TIMEOUT)).await;
+        setup.clock.advance(PROBE_TIMEOUT);
+    };
+    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), stall);
+    assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
+    assert_eq!(setup.server.posts().len(), 1);
+
+    // The server reads again: it finds the ping and the close, not the request that
+    // HTTP sent, so the model runs one time.
+    late.notify_one();
+    // NOTE: the fake reads on its own task in real time.
+    for _ in 0..400 {
+        let socket = &setup.server.sockets()[0];
+        if socket.closed || socket.messages.len() > 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let socket = &setup.server.sockets()[0];
+    assert!(socket.closed, "the connection closed");
+    assert_eq!(socket.messages.len(), 1);
+}
+
+#[tokio::test]
+async fn a_quiet_connection_that_breaks_right_after_its_pong_fails_the_call_without_http() {
+    for _ in 0..10 {
+        // The server answers the ping, reads the request and drops the connection.
+        let socket =
+            Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))], vec![Step::Drop]]);
+        let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+        setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+        setup.clock.advance(PROBE_AFTER);
+        let second = setup.provider.complete(request("gpt-5.5", "hi")).await;
+
+        // The pong showed a live server that has the request: the break is the call's
+        // failure, and the call does not go out again.
+        assert_eq!(setup.server.sockets()[0].messages.len(), 2);
+        assert!(second.is_err(), "{second:?}");
+        assert!(setup.server.posts().is_empty());
+    }
 }
 
 #[tokio::test]

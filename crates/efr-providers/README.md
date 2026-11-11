@@ -219,7 +219,14 @@ The connections:
   connection closes and the call goes over HTTP. A server reads the ping before the
   request and answers it at once, so a server that has the request sends the pong.
   Without the ping, such a call would wait for the read timeout of 300 seconds. The
-  calls of one turn follow each other within seconds and skip the ping.
+  calls of one turn follow each other within seconds and skip the ping. The rest
+  risk: a connection that is only late, not dead (a path that stalls for more than 5
+  seconds), still holds the request. The server can read it after HTTP sent the call,
+  and then the model runs two times. A request that went out cannot be taken back.
+- A call on a connection that had no call for 5 minutes, such as after a sleep of the
+  computer, waits for the pong before its request goes out. When the pong does not
+  come in 5 seconds, the call goes over HTTP, and the connection never had the
+  request.
 - The handshake is an HTTP/1.1 `GET <base_url>/responses` through `efr_http`'s client
   (the same rustls stack and `User-Agent: efr/<version>`), with the headers of the
   HTTP path (`Authorization`, and on the subscription `chatgpt-account-id`,
@@ -249,12 +256,14 @@ sends `{"type": "response.interrupt", "response_id", "mode": "discard_partial_it
 and reads until the answer ends (`response.incomplete`), at most 10 seconds, so the
 connection is clean for the next call. It closes when the answer does not end in time.
 
-Fallback to HTTP: a call goes over HTTP when the server certainly did not act on its
-request, so the HTTP request is the first and only model call:
+Fallback to HTTP: a call goes over HTTP when the server did not act on its request,
+so the HTTP request is the first and only model call (but see the rest risk of a late
+connection above):
 
 - the connection cannot be opened, or the server refuses the upgrade;
 - a connection that had no call for 30 seconds gives neither the pong of its ping nor
-  an event in 5 seconds, or it breaks or ends before them;
+  an event in 5 seconds, or it breaks or ends before them; after 5 minutes without a
+  call, the pong does not come in 5 seconds, before the request goes out;
 - the request could not be written whole;
 - the server does not take the call: it closes the connection with a close frame
   before the first event of an answer (`response.*`), or it sends an `error` event
@@ -287,8 +296,8 @@ started an answer, every failure is the call's failure: a close or a lost connec
 `response.failed` events map as they do over HTTP. The call is not sent again, because
 the model may have run.
 
-Timeouts: 15 seconds for the handshake, 5 seconds for the pong of the ping before a
-call after 30 quiet seconds, 300 seconds of silence inside an answer (the HTTP
+Timeouts: 15 seconds for the handshake, 5 seconds for the pong of the ping of a call
+after 30 quiet seconds (or for the first event of the call), 300 seconds of silence inside an answer (the HTTP
 client's read timeout), 30 seconds to send a message and 10 seconds for an interrupted
 answer to end. They run on the injected `Clock`.
 
@@ -336,7 +345,8 @@ What efr does not copy:
   the session; efr's lasts 5 minutes.
 - Codex keeps a connection for one turn and caches it between turns; efr keeps one
   for each conversation and closes it after 10 minutes without a call. Codex sends no
-  ping; efr pings a connection that had no call for 30 seconds before it uses it.
+  ping; efr sends a ping with the call on a connection that had no call for 30
+  seconds, and pings first after 5 minutes.
 - The prewarm request (`generate: false`), the `x-codex-turn-state` sticky routing,
   the `client_metadata`, the `codex.*` events, safety buffering and
   `permessage-deflate` compression. Events that the parser does not know become

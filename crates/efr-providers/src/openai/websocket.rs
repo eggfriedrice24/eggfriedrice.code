@@ -15,9 +15,10 @@
 //! for [`PROBE_AFTER`] sends a ping and its request together, with no wait for the
 //! pong, so a connection that works costs no round trip. A connection that died without
 //! a close gives neither the pong nor an event, so it costs at most [`PROBE_TIMEOUT`]
-//! before the call goes over HTTP, and never the read timeout.
+//! before the call goes over HTTP, and never the read timeout. After [`PING_FIRST`]
+//! without a call, as after a sleep of the laptop, the request waits for the pong.
 //!
-//! A call goes over HTTP when the server certainly did not act on its request: when the
+//! A call goes over HTTP when the server did not act on its request: when the
 //! connection cannot be opened, when the server refuses the upgrade, when a quiet
 //! connection breaks, ends or stays silent for [`PROBE_TIMEOUT`] before its pong and
 //! before any event, or when the server does not take the request
@@ -33,7 +34,12 @@
 //! sending the call again could run the model twice. The one exception is the quiet
 //! connection above before its pong and its first event: a server that read the
 //! request read the ping before it and answered it at once, so no pong and no event
-//! in [`PROBE_TIMEOUT`] means a dead connection.
+//! in [`PROBE_TIMEOUT`] most likely means a dead connection. The rest risk: a
+//! connection that is only late, such as on a path that stalls for more than
+//! [`PROBE_TIMEOUT`], still holds the request, and the server can read it after HTTP
+//! sent the call, so the model can run two times. A request that went out cannot be
+//! taken back. A call after [`PING_FIRST`] has no such risk: its request goes out only
+//! after the pong.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -78,6 +84,11 @@ pub(crate) const PROBE_AFTER: Duration = Duration::from_secs(30);
 /// How long that ping may go without its pong and without an event before the
 /// connection counts as dead and the call goes over HTTP.
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A call on a connection that had no call for this long waits for the pong of its
+/// ping before its request goes out, as after a sleep of the laptop. Below this, the
+/// request goes out with the ping and costs no round trip.
+pub(crate) const PING_FIRST: Duration = Duration::from_secs(5 * 60);
 
 /// How long every call goes over HTTP after a failure that says that WebSockets do not
 /// work now, such as a refused upgrade.
@@ -191,6 +202,7 @@ impl Sockets {
             idle: IDLE,
             probe_after: PROBE_AFTER,
             probe: PROBE_TIMEOUT,
+            ping_first: PING_FIRST,
             read: READ_TIMEOUT,
             send: SEND_TIMEOUT,
             drain: DRAIN_TIMEOUT,

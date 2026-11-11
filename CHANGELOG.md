@@ -57,10 +57,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - The last part of an answer and the shell prompt now show as soon as the turn ends.
   Before, they could wait up to 0.1 s for the reader of the keys that you type into
   the input row.
-- A prompt on a ChatGPT plan after 30 seconds or more without a model call no longer
-  waits for one network round trip before the request goes. efr sends the request
-  together with its check of the WebSocket. When the WebSocket died without a close,
-  the call still goes over HTTP after 5 seconds, as before.
+- A prompt on a ChatGPT plan after 30 seconds to 5 minutes without a model call no
+  longer waits for one network round trip before the request goes. efr sends the
+  request together with its check of the WebSocket. When the WebSocket died without a
+  close, the call still goes over HTTP after 5 seconds, as before. After 5 minutes or
+  more, such as after a sleep of the computer, the request still waits for the check.
 
 ### Fixed
 
