@@ -15,6 +15,8 @@
 //! beta, the effort `medium` and no member of another provider; the turn's usage
 //! carries the cache writes.
 
+use std::time::Duration;
+
 use efr_protocol::{
     AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, AdminStatus,
     AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CatalogOrigin,
@@ -518,7 +520,19 @@ async fn a_refused_key_fails_the_prompt_with_the_cause_and_shows_in_the_status_u
     assert_eq!(refused_at, Some(daemon.clock().now()), "the fetch's 401 marks the key");
 
     server.set_models(vec![model()]);
-    let events = run_turn(&daemon, 2, "hello").await;
+    let again = refused(&client, daemon.prompt(2, "hello", TTY)).await;
+
+    assert_eq!(again.message, error.message, "the next prompt reads the kept reason at once");
+    assert_eq!(server.models_requests().len(), 1, "a prompt asks for no fetch of its own");
+    daemon.clock().advance(Duration::from_secs(15));
+    Wait::new("the fetch after the task's wait")
+        .until_some_async(async || {
+            let catalog = models(&daemon).await.catalog?;
+            (catalog.origin == CatalogOrigin::Backend).then_some(())
+        })
+        .await
+        .unwrap();
+    let events = run_turn(&daemon, 3, "hello").await;
 
     assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
     assert_eq!(anthropic_status(&client).await.key_refused_at, None, "the key works again");

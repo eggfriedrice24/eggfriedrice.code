@@ -72,6 +72,15 @@ into the GitHub release notes, and it stops when the section is missing.
   open text that holds a code block in a list item or a quote still waits for the
   end of its line, because its colours cost much time.
 
+### Fixed
+
+- A Claude key or account whose model list efrd could not fetch no longer holds each
+  prompt. Before, each prompt waited for one more fetch of the list, 0.3 to 6 s with
+  an empty screen, also a prompt for another provider. Now only the first fetch after
+  a start or a login holds a prompt, for at most 10 s. A prompt that needs the list
+  then fails at once with the reason, and efrd fetches the list again in the
+  background after 15 s to 5 min.
+
 ### Security
 
 - efr now uses rusqlite 0.41.1, with SQLite 3.54 in the build. This version fixes the

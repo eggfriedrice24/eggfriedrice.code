@@ -401,12 +401,14 @@ impl Providers {
     /// The provider of a prompt that asks for the model `asked` (`None`: the default
     /// model) with `settings`, as its turn picks it: the first provider whose list
     /// names the model in the order of routing ([`Catalogs::routed`]), else the
-    /// provider of new conversations. It waits first for a
-    /// first list of the provider of new conversations ([`Models::ready`]), and, for a
-    /// model that no list names yet, for a first list of each provider of the model's
-    /// company with a login, such as a Claude list that efrd still fetches.
+    /// provider of new conversations. It waits first for the first fetch of the
+    /// provider of new conversations while it has no list ([`Models::ready`]), and, for
+    /// a model that no list names yet, for the first fetch of each provider of the
+    /// model's company with a login, such as a Claude list that efrd still fetches. A
+    /// list whose fetch failed holds no prompt: the prompt goes on at once, and
+    /// [`Providers::check_list`] refuses it with the kept reason when it needs the list.
     /// A prompt that names its provider (`named`), such as an account, goes to that
-    /// one after its first list.
+    /// one after its first fetch.
     pub(crate) async fn provider_of_prompt(
         &self,
         settings: &Settings,
@@ -565,7 +567,7 @@ impl Providers {
         self.add_account(provider).await?;
         self.catalogs.set_logged_in(provider, true);
         if let Some(models) = self.models_of(provider) {
-            models.refresh_now();
+            models.logged_in();
         }
         Ok(())
     }
@@ -612,7 +614,7 @@ impl Providers {
         self.add_account(provider).await?;
         self.catalogs.set_logged_in(provider, true);
         if let Some(models) = self.models_of(provider) {
-            models.refresh_now();
+            models.logged_in();
         }
         Ok(KeyLogin { hint, active })
     }

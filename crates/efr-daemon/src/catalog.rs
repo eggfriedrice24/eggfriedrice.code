@@ -21,11 +21,13 @@
 //! The Anthropic catalog comes from `GET /v1/models` with the stored key
 //! (`efr_providers::anthropic`'s `CatalogClient`), at the same times and with the same
 //! waits. efr has no table of Claude models, so without a cache file there is no list
-//! until a fetch works. Then a prompt waits for one fetch before it goes to its
-//! conversation ([`Models::ready`]): a turn without a list cannot know the output limit
-//! of its model, and efr never guesses it. A fetch that ends without a list keeps why
-//! ([`NoList`]): no key is stored, the fetch failed, or the list has no active model, so
-//! the prompt that needs the list fails with the cause (`prompt_send.rs`).
+//! until a fetch works. Then a prompt waits for the first fetch after a start or a login
+//! before it goes to its conversation ([`Models::ready`]): a turn without a list cannot
+//! know the output limit of its model, and efr never guesses it. A fetch that ends
+//! without a list keeps why ([`NoList`]): no key is stored, the fetch failed, or the
+//! list has no active model, so the prompt that needs the list fails at once with the
+//! cause (`prompt_send.rs`). Such a prompt never asks for a fetch of its own: the task
+//! tries again after its own wait, so a key that works again is found by the task.
 //!
 //! A fetch with a stored key reports a 401 to the key's refusals
 //! (`providers/refusals.rs`), and a fetch that works says that the key works.
@@ -75,9 +77,11 @@ const RETRY_WAITS: [Duration; 4] = [
 /// How soon efrd asks again after five or more fetches in a row that failed.
 const LONGEST_RETRY_WAIT: Duration = Duration::from_secs(300);
 
-/// How long a prompt waits at most for the fetch of a catalog that has no list. The
-/// fetch's own timeouts end it sooner; this only bounds a fetch task that is stuck.
-const LIST_WAIT: Duration = Duration::from_secs(60);
+/// How long a prompt waits at most for the first fetch of a catalog that has no list.
+/// It holds the four attempts of the default retry policy (waits of about 0.5, 1 and
+/// 2 s); a fetch that takes longer holds no prompt after this one. Codex limits a
+/// fetch that a request waits for to 5 s.
+const LIST_WAIT: Duration = Duration::from_secs(10);
 
 /// How soon efrd asks again after `failures` fetches in a row that failed (1 or more):
 /// the waits grow from 15 s to 5 min, and stay at 5 min.
@@ -103,10 +107,11 @@ pub(crate) struct Models {
     catalog: ProviderCatalog,
     refresh: Option<Refresh>,
     wake: Notify,
-    /// True while a fetch runs, so a prompt that waits for a list does not ask for a
-    /// second one.
-    fetching: AtomicBool,
-    /// How many fetches have ended, so a prompt can wait for the next one.
+    /// True until the first fetch after a start or a login ends: only that fetch holds
+    /// a prompt of a catalog without a list. A prompt that waited [`LIST_WAIT`] in vain
+    /// sets it false too.
+    holds: AtomicBool,
+    /// How many fetches have ended, so a prompt can wait for the first one.
     ended: watch::Sender<u64>,
     /// The clamps already warned about, so each costs one warning.
     warned: Mutex<HashSet<Clamp>>,
@@ -115,6 +120,10 @@ pub(crate) struct Models {
     /// How many logouts of the provider efrd has seen. A fetch that started before a
     /// logout ended with the old key, so its answer says nothing about the login now.
     logouts: AtomicU64,
+    /// How many logins of the provider efrd has seen. A fetch that started before a
+    /// login asked with the old key, so why it gave no list is not why the new key has
+    /// none.
+    logins: AtomicU64,
     /// Where a fetch with a stored API key reports whether the key works; `None` for
     /// a provider without a key.
     refusals: Option<Arc<KeyRefusals>>,
@@ -169,11 +178,12 @@ impl Models {
             catalog,
             refresh: None,
             wake: Notify::new(),
-            fetching: AtomicBool::new(false),
+            holds: AtomicBool::new(true),
             ended: watch::Sender::new(0),
             warned: Mutex::default(),
             no_list: Mutex::new(NoList::NotFetched),
             logouts: AtomicU64::new(0),
+            logins: AtomicU64::new(0),
             refusals: None,
         }
     }
@@ -209,6 +219,21 @@ impl Models {
         // the logout and leaves `no_list` alone.
         self.logouts.fetch_add(1, Ordering::AcqRel);
         *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = NoList::NotLoggedIn;
+        self.holds.store(false, Ordering::Release);
+    }
+
+    /// A key or a login of the provider was stored: the task fetches now, and the
+    /// fetch with the new login holds the next prompt as the first fetch after a start
+    /// does. Why an earlier fetch gave no list counts for nothing now.
+    pub(crate) fn logged_in(&self) {
+        // NOTE: counted under the lock of `no_list`, so a fetch that ends after it sees
+        // the login and leaves `no_list` and `holds` alone.
+        let mut kept = self.no_list.lock().unwrap_or_else(PoisonError::into_inner);
+        self.logins.fetch_add(1, Ordering::AcqRel);
+        *kept = NoList::NotFetched;
+        self.holds.store(true, Ordering::Release);
+        drop(kept);
+        self.wake.notify_one();
     }
 
     /// The current list.
@@ -266,36 +291,47 @@ impl Models {
         models
     }
 
-    /// Asks the task to fetch now, such as after a login.
-    pub(crate) fn refresh_now(&self) {
-        self.wake.notify_one();
-    }
-
-    /// Waits for one fetch when the catalog has no list and efrd fetches it, so the
-    /// prompt that comes next has its model's limits. Returns at once when there is a
-    /// list, when efrd does not fetch, and after one fetch whatever it gave: a fetch
-    /// that failed leaves the turn to fail with the provider's error.
+    /// Waits for the first fetch after a start or a login while the catalog has no
+    /// list, so the prompt that comes next has its model's limits. Returns at once when
+    /// there is a list, when efrd does not fetch, and when that fetch has ended: a fetch
+    /// that gave no list leaves the prompt to fail at once with the kept reason
+    /// ([`Models::missing`]). A prompt never asks for a fetch: the task tries again
+    /// after its own wait ([`retry_wait`]). A first fetch that does not end within
+    /// [`LIST_WAIT`] holds no later prompt.
     pub(crate) async fn ready(&self) {
         let Some(refresh) = &self.refresh else {
             return;
         };
         // NOTE: subscribed before the check, so a fetch that ends in between is seen.
         let mut ended = self.ended.subscribe();
-        if self.catalog.has_list() {
+        if !self.holding() {
             return;
         }
-        if !self.fetching.load(Ordering::Acquire) {
-            self.wake.notify_one();
-        }
-        tracing::debug!(provider = %self.provider, "no model list yet; the prompt waits for a fetch");
+        tracing::debug!(provider = %self.provider, "no model list yet; the prompt waits for the first fetch");
         efr_stdx::mark::hit("catalog.wait.begin");
+        let first = async {
+            // NOTE: a fetch that a login or a logout overtook ends without a word on the
+            // new login, so the prompt waits on for the next one.
+            while self.holding() {
+                if ended.changed().await.is_err() {
+                    break;
+                }
+            }
+        };
         tokio::select! {
-            _ = ended.changed() => {}
+            () = first => {}
             () = refresh.clock.sleep(LIST_WAIT) => {
+                self.holds.store(false, Ordering::Release);
                 tracing::warn!(provider = %self.provider, wait_s = LIST_WAIT.as_secs(), "the fetch of the model list did not end in time; the prompt goes on without a list");
             }
         }
         efr_stdx::mark::hit("catalog.wait.end");
+    }
+
+    /// True while a prompt waits for a fetch: the catalog has no list, and the first
+    /// fetch after a start or a login has not ended.
+    fn holding(&self) -> bool {
+        self.holds.load(Ordering::Acquire) && !self.catalog.has_list()
     }
 
     /// Fetches the catalog now, then again after each wait, until `stop`. Returns at
@@ -305,12 +341,10 @@ impl Models {
             return;
         };
         loop {
-            self.fetching.store(true, Ordering::Release);
             let wait = tokio::select! {
                 () = stop.cancelled() => return,
                 wait = self.fetch(refresh) => wait,
             };
-            self.fetching.store(false, Ordering::Release);
             tokio::select! {
                 () = stop.cancelled() => return,
                 () = refresh.clock.sleep(wait) => {}
@@ -322,6 +356,7 @@ impl Models {
     /// One fetch, and the wait until the next one.
     async fn fetch(&self, refresh: &Refresh) -> Duration {
         let logouts = self.logouts.load(Ordering::Acquire);
+        let logins = self.logins.load(Ordering::Acquire);
         let used = self
             .refusals
             .as_ref()
@@ -359,7 +394,16 @@ impl Models {
         if stale {
             tracing::debug!(provider = %self.provider, "a logout came during the fetch; its answer is dropped");
         } else {
-            *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = no_list;
+            // NOTE: under the lock that a login takes, so a login either comes before
+            // this check or after the reason and `holds` are set.
+            let mut kept = self.no_list.lock().unwrap_or_else(PoisonError::into_inner);
+            if self.logins.load(Ordering::Acquire) == logins {
+                *kept = no_list;
+                self.holds.store(false, Ordering::Release);
+            } else {
+                drop(kept);
+                tracing::debug!(provider = %self.provider, "a login came during the fetch; the next fetch asks with the new login");
+            }
         }
         self.ended.send_modify(|ended| *ended = ended.wrapping_add(1));
         wait

@@ -252,9 +252,11 @@ the list came from and when.
   the same waits after a failure. Only `active` models are on offer, with the window,
   the output limit and the efforts that the API gives. efr has no table of Claude
   models, so while there is no list a prompt and `conversation.compact` first wait for
-  one fetch (`Models::ready`, at most 60 s): a turn without a list cannot know the
-  output limit of its model, and efr never guesses it. When the fetch gives no list
-  either, the prompt fails with the cause (`Providers::check_list`): without a stored
+  the first fetch after a start or a login (`Models::ready`, at most 10 s): a turn
+  without a list cannot know the output limit of its model, and efr never guesses it.
+  When that fetch gives no list, each prompt fails at once with the kept cause
+  (`Providers::check_list`) and asks for no fetch of its own: the task tries again after
+  its own wait (15 s to 5 min), and so it finds a key that works again. Without a stored
   key, `unauthorized` with the login command (`anthropic-api has no model list yet,
   because no key is stored; log in with efr login anthropic`); after a failed fetch,
   `efr could not fetch Claude's model list:` and the fetch's error, such as the
@@ -1847,7 +1849,8 @@ conventions that `efr_stdx::env::Var` does not name.
 - Shutdown releases the lock last, after the database is closed.
 - A turn, a prompt and `models.list` never wait for a fetch of the model catalog,
   with one exception: while the Anthropic catalog has no list at all, a prompt and a
-  manual compaction wait for one fetch.
+  manual compaction wait for the first fetch after a start or a login, never for a
+  later one.
 - A refused key is a time in memory; nothing of the key goes to the refusals, the
   status, the `logout_completed` event or a log line.
 - efrd names itself to the backend as efr, with efr's own version.
@@ -1898,7 +1901,8 @@ its tag and a 304, a failed fetch, a list that offers nothing, the task that fet
 start, after a login and hourly, and a fetch that hangs while a reader goes on; for
 Anthropic, the cache file of its own name, no list at a start without one, the default
 before a list, a fetch against `wiremock` that goes to the cache, a failed fetch, and a
-prompt that waits for one fetch while there is no list and never with one), the
+prompt that waits only for the first fetch after a start or a login, and for at most
+`LIST_WAIT`, and never with a list), the
 providers that efrd builds for each id with their settings, the tool adapter and its answer to who can answer hidden input,
 the judge (its request with no output limit and no cache key, each step of the chain
 and why it goes on, the check of the answer, the second request after a placeholder

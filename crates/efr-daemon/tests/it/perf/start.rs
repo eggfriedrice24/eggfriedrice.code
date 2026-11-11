@@ -618,14 +618,22 @@ fn store_key(dirs: &TestDirs, id: &str, key: &str) {
     std::io::Write::write_all(&mut file, format!("{record}\n").as_bytes()).unwrap();
 }
 
+/// The budget of `provider_of_prompt` (B5) for each prompt after the first one of a
+/// start while `[model] provider` is the account: such a prompt asks for no list fetch
+/// and waits for none. The healthy level is 0.02 to 0.04 ms; one fetch was 0.13 to
+/// 2,727 ms before slice 4 of the streaming plan.
+const ACCOUNT_PROMPT_BUDGET: Duration = Duration::from_millis(5);
+
 /// Suspect S2: what a prompt waits when an Anthropic account has a login and no model
 /// list, next to a healthy provider. The account `anthropic-api.work` has a key whose
-/// list fetch fails with a 401, fails with a 500, or takes 2 s.
+/// list fetch fails with a 401, fails with a 500, or takes 2 s. Only the first fetch
+/// after a start holds a prompt ([`ACCOUNT_PROMPT_BUDGET`]).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_start_accounts() {
     efr_stdx::mark::enable();
     let mut report = Report::new("bench_perf_start_accounts");
+    let mut over = Vec::new();
     let rules: [(&str, Option<ModelsRule>); 4] = [
         ("work healthy", None),
         ("work 401", Some(ModelsRule { status: 401, delay: Duration::ZERO })),
@@ -688,6 +696,7 @@ async fn bench_perf_start_accounts() {
                 ("claude model that no list names", Some("claude-future-9"), None),
                 ("work/claude (names the account)", Some(CLAUDE), Some("work")),
             ];
+            let mut nth = 0;
             for (ask, model, provider) in asks {
                 let mut samples = Samples::default();
                 for _ in 0..5 {
@@ -696,6 +705,16 @@ async fn bench_perf_start_accounts() {
                         params.settings.provider = provider.map(str::to_owned);
                     })
                     .await;
+                    nth += 1;
+                    if configured == "anthropic-api.work" && nth > 1 {
+                        let fetches = timeline.count("s.models");
+                        let held = timeline.span("ps.reprobe", "ps.provider");
+                        if fetches > 0 || held.is_none_or(|held| held > ACCOUNT_PROMPT_BUDGET) {
+                            over.push(format!(
+                                "{rule_name}, {ask}, prompt {nth}: {fetches} list fetches, {held:?}"
+                            ));
+                        }
+                    }
                     samples.0.push(timeline);
                 }
                 let state = format!("{rule_name}, configured {configured}, {ask}");
@@ -705,6 +724,11 @@ async fn bench_perf_start_accounts() {
         }
     }
     report.finish();
+    assert!(
+        over.is_empty(),
+        "a prompt after the first one of a start waits for the list of the account \
+         (budget: no list fetch, B5 at or below {ACCOUNT_PROMPT_BUDGET:?}): {over:#?}"
+    );
 }
 
 /// A model call whose first attempt gets a 503: how long the retry holds the first

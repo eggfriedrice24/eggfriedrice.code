@@ -12,6 +12,7 @@ use efr_providers::openai::{
 };
 use efr_stdx::time::Clock as _;
 use efr_test_support::{TestClock, TestRng, Wait};
+use futures::FutureExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -20,8 +21,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::list::{ANTHROPIC_CATALOG_FILE, API_CATALOG_FILE, CATALOG_FILE};
 use super::{
-    Clamp, Fetcher, ModelList, Models, ProviderCatalog, REFRESH_INTERVAL, cache_path,
-    default_model, effective_models, load, retry_wait,
+    Clamp, Fetcher, LIST_WAIT, ModelList, Models, NoList, ProviderCatalog, REFRESH_INTERVAL,
+    cache_path, default_model, effective_models, load, retry_wait,
 };
 use crate::providers::{ANTHROPIC, API, SUBSCRIPTION};
 
@@ -437,7 +438,7 @@ async fn the_task_fetches_at_start_and_again_when_asked() {
         .until_some_async(async || (requests().await == 1).then_some(()))
         .await
         .unwrap();
-    setup.models.refresh_now();
+    setup.models.logged_in();
     Wait::new("the fetch after a login")
         .until_some_async(async || (requests().await == 2).then_some(()))
         .await
@@ -706,48 +707,131 @@ async fn a_fetch_that_a_logout_overtakes_says_nothing_about_the_login() {
     fetch.await;
 
     assert!(
-        matches!(setup.models.missing(), Some(super::NoList::NotLoggedIn)),
+        matches!(setup.models.missing(), Some(NoList::NotLoggedIn)),
         "the refusal of the deleted key is not the reason: {:?}",
         setup.models.missing()
     );
 }
 
-#[tokio::test]
-async fn a_prompt_waits_for_one_fetch_while_there_is_no_list() {
-    let server = MockServer::start().await;
+/// Mounts on `server` a first answer of the Anthropic model list with `status` after
+/// `delay`, then a list of one model after `then`.
+async fn mount_first_then_list(server: &MockServer, status: u16, delay: Duration, then: Duration) {
     Mock::given(method("GET"))
         .and(path(ANTHROPIC_MODELS_PATH))
-        .respond_with(ResponseTemplate::new(503))
+        .respond_with(ResponseTemplate::new(status).set_delay(delay))
         .up_to_n_times(1)
-        .mount(&server)
+        .mount(server)
         .await;
     Mock::given(method("GET"))
         .and(path(ANTHROPIC_MODELS_PATH))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(claude_page(&[claude("claude-opus-5-5")])),
+            ResponseTemplate::new(200)
+                .set_body_json(claude_page(&[claude("claude-opus-5-5")]))
+                .set_delay(then),
         )
-        .mount(&server)
+        .mount(server)
         .await;
+}
+
+async fn requests(server: &MockServer) -> usize {
+    server.received_requests().await.unwrap().len()
+}
+
+#[tokio::test]
+async fn only_the_first_fetch_after_a_start_holds_a_prompt() {
+    let server = MockServer::start().await;
+    mount_first_then_list(&server, 503, Duration::from_millis(200), Duration::ZERO).await;
     let setup = anthropic_fetching(&server);
     let stop = CancellationToken::new();
     let task = tokio::spawn(Arc::clone(&setup.models).serve(stop.clone()));
-    Wait::new("the failed first fetch and its wait")
+
+    setup.models.ready().await;
+
+    assert!(
+        matches!(setup.models.missing(), Some(NoList::Failed(_))),
+        "the first prompt waits for the first fetch: {:?}",
+        setup.models.missing()
+    );
+    assert_eq!(requests(&server).await, 1);
+    Wait::new("the wait after the failed fetch")
         .until(|| setup.clock.pending_sleeps() == 1)
         .await
         .unwrap();
     assert_eq!(setup.clock.requested_sleeps().last(), Some(&Duration::from_secs(15)));
-    assert_eq!(setup.models.list().origin(), WireOrigin::Missing);
 
+    for _ in 0..3 {
+        assert!(setup.models.ready().now_or_never().is_some(), "a later prompt never waits");
+    }
+
+    assert!(
+        matches!(setup.models.missing(), Some(NoList::Failed(_))),
+        "the prompt reads the kept reason: {:?}",
+        setup.models.missing()
+    );
+    assert_eq!(requests(&server).await, 1, "a prompt asks for no fetch");
+    assert_eq!(setup.clock.pending_sleeps(), 1, "the task keeps its own wait");
+    setup.clock.advance(Duration::from_secs(15));
+    Wait::new("the fetch after the wait")
+        .until(|| setup.models.list().origin() == WireOrigin::Backend)
+        .await
+        .unwrap();
+    assert!(setup.models.missing().is_none(), "the task finds the key that works again");
+    stop.cancel();
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_login_holds_the_next_prompt_for_the_fetch_with_the_new_key() {
+    let server = MockServer::start().await;
+    mount_first_then_list(&server, 401, Duration::ZERO, Duration::from_millis(200)).await;
+    let setup = anthropic_fetching(&server);
+    let stop = CancellationToken::new();
+    let task = tokio::spawn(Arc::clone(&setup.models).serve(stop.clone()));
     setup.models.ready().await;
+    assert!(matches!(setup.models.missing(), Some(NoList::Failed(_))));
+    assert!(setup.models.ready().now_or_never().is_some(), "a refused key holds no prompt");
 
-    assert_eq!(setup.models.list().origin(), WireOrigin::Backend, "the prompt waited for it");
-    assert_eq!(
-        server.received_requests().await.unwrap().len(),
-        2,
-        "one fetch more, not the backoff"
+    setup.models.logged_in();
+
+    assert!(
+        matches!(setup.models.missing(), Some(NoList::NotFetched)),
+        "the refusal of the old key is not the reason: {:?}",
+        setup.models.missing()
     );
     setup.models.ready().await;
-    assert_eq!(server.received_requests().await.unwrap().len(), 2, "a list needs no fetch");
+    assert_eq!(setup.models.list().origin(), WireOrigin::Backend, "the prompt waited for it");
+    assert_eq!(requests(&server).await, 2);
+    stop.cancel();
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_first_fetch_that_hangs_holds_one_prompt_for_the_list_wait_at_most() {
+    let server = MockServer::start().await;
+    mount_first_then_list(&server, 200, Duration::from_secs(3600), Duration::ZERO).await;
+    let setup = anthropic_fetching(&server);
+    let stop = CancellationToken::new();
+    let task = tokio::spawn(Arc::clone(&setup.models).serve(stop.clone()));
+    Wait::new("the fetch that hangs")
+        .until_some_async(async || (requests(&server).await == 1).then_some(()))
+        .await
+        .unwrap();
+    let models = Arc::clone(&setup.models);
+    let prompt = tokio::spawn(async move { models.ready().await });
+    Wait::new("the wait of the prompt")
+        .until(|| setup.clock.requested_sleeps().contains(&LIST_WAIT))
+        .await
+        .unwrap();
+
+    setup.clock.advance(LIST_WAIT);
+    prompt.await.unwrap();
+
+    assert!(
+        matches!(setup.models.missing(), Some(NoList::NotFetched)),
+        "the prompt fails as a fetch that did not end in time: {:?}",
+        setup.models.missing()
+    );
+    assert!(setup.models.ready().now_or_never().is_some(), "the next prompt does not wait");
     stop.cancel();
     task.await.unwrap();
 }
