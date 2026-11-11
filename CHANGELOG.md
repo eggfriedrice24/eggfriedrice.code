@@ -71,9 +71,6 @@ into the GitHub release notes, and it stops when the section is missing.
   Before, from 4 KB of open text it showed only when the line was complete. Only
   open text that holds a code block in a list item or a quote still waits for the
   end of its line, because its colours cost much time.
-
-### Fixed
-
 - A Claude key or account whose model list efrd could not fetch no longer holds each
   prompt. Before, each prompt waited for one more fetch of the list, 0.3 to 6 s with
   an empty screen, also a prompt for another provider. Now only the first fetch after
