@@ -7,6 +7,8 @@
 //! not even for tests. Speaking the framing directly keeps the CLI honest about the
 //! bytes on the wire.
 
+pub(crate) mod probe;
+
 use std::collections::VecDeque;
 use std::future::{pending, ready};
 use std::io::{self, Write};

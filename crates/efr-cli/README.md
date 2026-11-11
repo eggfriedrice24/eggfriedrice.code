@@ -1471,6 +1471,21 @@ that takes more than 10 s stops its ladder.
   by hand (the module doc lists them).
 - `bench_perf_draft_passes` (`tests/it/perf/cadence.rs`): the CPU time of the passes of
   one text draft of 8, 64 and 512 bytes from efrd's item to `efr`'s item.
+- `bench_perf_stream_matrix` (`src/follow/tests/stream.rs`): the real follow loop on
+  the real clock against a fake daemon that sends text drafts at a real pace. Each
+  frame goes through a probe that only tests build (`testing/probe.rs`: CPU time,
+  bytes, what the live zone erased and hid) and into a `vt100` screen, so the bench
+  sees when each character first stands on a visible row. The cases: a paragraph of
+  5,000 characters at 80x24, 120x40 and 200x60, two of 1,500 at 80x12, a table whose
+  source passes 4 KiB, a fenced block in a list item, a fenced block of 200 lines, and
+  a mixed answer at 60 tokens a second, in bursts and in drafts 17 ms apart. It
+  reports the reveal latency, the late characters and the ones that never stand on a
+  visible row, the largest jump, the CPU, bytes and write calls of a frame, the rows
+  that a frame erases, and the wait from a draft to the next draw.
+- `bench_perf_stream_ladder` (`src/follow/view/tests/stream.rs`): the CPU time and the
+  bytes of one frame of the view while the open last block holds 256 bytes to 64 KiB,
+  for ten kinds of block (also a closed fenced block in a list item) at 80x24 and
+  200x60, with the slope over the size.
 - `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
   `_efr_precmd` over 200 prompts in zsh, and the `source` of the plugin, with 50 to
   5,000 exported variables, 0 and 1,000 draft files, a deep `PWD`, a projects file and

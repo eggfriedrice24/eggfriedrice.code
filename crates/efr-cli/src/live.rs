@@ -146,6 +146,14 @@ impl LiveZone {
             && cursor == self.cursor
             && (width == self.width || shown.is_empty())
         {
+            #[cfg(test)]
+            crate::testing::probe::zone(crate::testing::probe::Zone {
+                empty: true,
+                live_rows: rows,
+                hidden_rows: rows_of(&live).saturating_sub(rows),
+                hidden_bytes: live.len() - shown.len(),
+                ..Default::default()
+            });
             return String::new();
         }
         // The rows from the cursor down to the row below the live zone.
@@ -208,6 +216,22 @@ impl LiveZone {
             None => {}
         }
         out.push_str(END_SYNC);
+        #[cfg(test)]
+        crate::testing::probe::zone(crate::testing::probe::Zone {
+            empty: false,
+            status_only: at_tail,
+            committed_rows: rows_of(committed),
+            erased_rows: if at_tail {
+                1
+            } else if width == self.width {
+                self.rows
+            } else {
+                rows_of(&self.shown)
+            },
+            live_rows: rows,
+            hidden_rows: rows_of(&live).saturating_sub(rows),
+            hidden_bytes: live.len() - shown.len(),
+        });
         shown.clone_into(&mut self.shown);
         status.clone_into(&mut self.status);
         tail.text.clone_into(&mut self.tail);

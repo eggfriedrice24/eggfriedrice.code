@@ -584,7 +584,11 @@ impl Follower<'_> {
         view.show_row(matches!(self.keys, Some((_, Asking::Row))));
         let now = self.ctx.clock.now();
         let size = self.ctx.screen.size();
+        #[cfg(test)]
+        let probe = crate::testing::probe::frame_begin();
         let frame = if tick { view.tick(size, now) } else { view.frame(size, now) };
+        #[cfg(test)]
+        crate::testing::probe::frame_end(probe, &frame, tick);
         self.last_frame = Some(now);
         // Text that still waits to show asks for the next frame.
         self.frame = view.wants_frame().then(|| self.ctx.clock.sleep(FRAME));
@@ -920,6 +924,11 @@ impl Follower<'_> {
             Ok(ConversationSubscribeItem::Draft(draft)) => {
                 if let efr_protocol::DraftPart::Text { delta, .. } = &draft.draft {
                     efr_stdx::mark::text("follow.draft", delta.as_bytes());
+                }
+                #[cfg(test)]
+                if let efr_protocol::DraftPart::Text { offset, delta, .. } = &draft.draft {
+                    let end = usize::try_from(*offset).unwrap_or(0) + delta.len();
+                    crate::testing::probe::arrival(end);
                 }
                 let step = view.draft(&draft, self.ctx.screen.size());
                 self.apply(step, out, view, true).await?;

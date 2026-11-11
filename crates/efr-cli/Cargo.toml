@@ -44,6 +44,8 @@ efr-test-support.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
+# The CPU clock of a thread, for the streaming bench (src/testing/probe.rs).
+rustix = { workspace = true, features = ["time"] }
 tempfile.workspace = true
 # The screen of the picker tests with the real fzf (tests/it/picker.rs).
 vt100.workspace = true
