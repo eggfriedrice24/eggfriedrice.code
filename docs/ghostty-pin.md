@@ -115,7 +115,13 @@ ghostty commit (full and short) in `Cargo.toml`, this file and the PKGBUILD, put
 b2sum of the new ghostty archive in the PKGBUILD, moves `Cargo.lock` to the new rev,
 and prints the Zig version next to the local `zig version`. The Zig version and the
 dates in this file, and the Zig version in `ci.yml`, `release.yml` and the PKGBUILD,
-are left to the person bumping. Then run `just test-ghostty`. A test build of the
+are left to the person bumping. Then run `just test-ghostty`. Also run the ghostty
+bench of `just bench-perf` on the old and on the new pin, and compare the screens and
+the history rows that it reports, not only the times. A change of meaning can pass
+every test: in libghostty-vt 1.0.0, a byte limit of `None` for the scrollback became
+the library's default of 10,000 bytes, where it removed the limit before, and the
+screen kept some hundred rows in place of 5,000 until `efr-screen-ghostty` set
+`usize::MAX`. A test build of the
 source package in a container (`docs/releasing.md`) checks the PKGBUILD.
 From 1.0.0, libghostty-vt follows semantic versioning and keeps its C ABI in all 1.x
 releases. libghostty-rs has no such promise for its Rust API, so a bump can still need

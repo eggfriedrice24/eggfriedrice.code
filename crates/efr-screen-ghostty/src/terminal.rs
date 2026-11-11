@@ -29,7 +29,7 @@ const CONTINUATION_LIMIT: usize = 1 << 20;
 #[non_exhaustive]
 pub struct GhosttyConfig {
     /// Lines of scrollback kept above the visible grid. libghostty-vt prunes whole
-    /// pages, so it keeps somewhat more. The default is 5000.
+    /// pages, so it keeps up to one page more or less. The default is 5000.
     pub scrollback_lines: usize,
     /// The default foreground colour as red, green and blue: what an OSC 10 query is
     /// answered with. `None` leaves OSC 10 unanswered. The default is ghostty's own,
@@ -126,9 +126,12 @@ impl GhosttyScreen {
         let configure = |source| GhosttyError::Configure { source };
         let cols = terminal.cols().map_err(configure)?;
         let rows = terminal.rows().map_err(configure)?;
+        // NOTE: the byte limit is `usize::MAX`, not `None`: from libghostty-vt 1.0.0 a
+        // `None` means the library's default of 10,000 bytes, which cuts the
+        // scrollback to one page, long before the line limit.
         terminal
             .set_scrollback_max_lines(Some(config.scrollback_lines))
-            .and_then(|terminal| terminal.set_scrollback_max_bytes(None))
+            .and_then(|terminal| terminal.set_scrollback_max_bytes(Some(usize::MAX)))
             .and_then(|terminal| terminal.set_continuation_max_bytes(CONTINUATION_LIMIT))
             .and_then(|terminal| terminal.set_default_fg_color(config.foreground.map(rgb)))
             .and_then(|terminal| terminal.set_default_bg_color(config.background.map(rgb)))

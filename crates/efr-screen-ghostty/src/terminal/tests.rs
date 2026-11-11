@@ -136,6 +136,21 @@ fn the_scrollback_limit_drops_old_rows() {
 }
 
 #[test]
+fn the_default_scrollback_keeps_its_lines_whatever_their_bytes() {
+    // NOTE: a byte limit cuts the scrollback before the line limit does. In
+    // libghostty-vt 1.0.0 a limit of `None` is the library's default of 10,000 bytes,
+    // one page, which holds only some hundred rows of this width.
+    let config = GhosttyConfig::default();
+    let mut screen = GhosttyScreen::new(size(160, 48), &config).unwrap();
+    let lines: Vec<u8> =
+        (0..8000).flat_map(|line| format!("line {line}\r\n").into_bytes()).collect();
+    feed(&mut screen, &lines);
+    let kept = screen.snapshot(usize::MAX).scrollback.len();
+    // libghostty-vt prunes whole pages, so it can keep one page less than the limit.
+    assert!(kept >= config.scrollback_lines * 4 / 5, "{kept} rows of scrollback kept");
+}
+
+#[test]
 fn a_snapshot_round_trip_restores_the_same_screen() {
     let mut screen = screen(10, 3);
     feed(
