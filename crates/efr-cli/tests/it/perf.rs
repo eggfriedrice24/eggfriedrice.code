@@ -21,9 +21,21 @@
 //!   2k, 10k and 20k events in which each tenth event ends a turn that changed a file.
 //!   Budget: at most one page for each 500 events, and the peak grows less than 4 MiB
 //!   from 2k to 20k events.
+//! - `bench_perf_cli_send_start`: from the spawn of `efr send` on a terminal to the
+//!   hello, `prompt.send` and `conversation.subscribe` at a fake daemon, to the first
+//!   byte and the first text on the terminal, and to the exit; with no config, a
+//!   palette, a code theme and 200 rules, and with an answer or an ack that comes
+//!   300 ms late.
+//! - `bench_perf_stream_cadence` (`perf/cadence.rs`): how evenly the text of an answer
+//!   goes from a paced model through the real efrd to the frames of the built `efr
+//!   send`, with the timing marks of both processes.
+//! - `bench_perf_draft_passes` (`perf/cadence.rs`): the CPU time of the passes of one
+//!   text draft from efrd's item to `efr`'s item.
 //!
 //! `efr` gets a cleared environment with every efr root in a temp dir below cargo's
 //! target temp dir and `PATH=/usr/bin:/bin`, so it never reaches the real daemon.
+
+mod cadence;
 
 use std::collections::VecDeque;
 use std::io::{Read as _, Write as _};
@@ -305,6 +317,11 @@ fn bench_perf_cli_first_write() {
 
 /// A pseudo-terminal pair of 40 rows and 120 columns.
 fn pty() -> (OwnedFd, OwnedFd) {
+    pty_of(40, 120)
+}
+
+/// A pseudo-terminal pair of `rows` and `cols`: the master and the slave.
+fn pty_of(rows: u16, cols: u16) -> (OwnedFd, OwnedFd) {
     use rustix::fs::{Mode, OFlags};
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
@@ -313,7 +330,7 @@ fn pty() -> (OwnedFd, OwnedFd) {
     let name = ptsname(&master, Vec::new()).unwrap();
     let slave =
         rustix::fs::open(name.as_c_str(), OFlags::RDWR | OFlags::NOCTTY, Mode::empty()).unwrap();
-    let size = rustix::termios::Winsize { ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0 };
+    let size = rustix::termios::Winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     rustix::termios::tcsetwinsize(&master, size).unwrap();
     (master, slave)
 }
@@ -930,4 +947,208 @@ fn bench_perf_cli_diff_all() {
     assert!(over.is_empty(), "more pages than events / 500: {over:?}");
     let growth = peaks[2].saturating_sub(peaks[0]);
     assert!(growth < ALL_PEAK_GROWTH, "the peak grew {growth} bytes from 2k to 20k events");
+}
+
+/// What the fake daemon saw of one `efr send`: when the first byte came (the hello),
+/// when `prompt.send` came, when `conversation.subscribe` came, and when it sent the
+/// first draft of the answer.
+struct SendSeen {
+    hello: Instant,
+    prompt: Instant,
+    subscribe: Instant,
+    draft: Instant,
+    /// When it sent the end of the turn.
+    end: Instant,
+}
+
+/// The text of the answer of [`bench_perf_cli_send_start`], which no other row shows.
+const START_ANSWER: &str = "zebra crossing";
+
+/// What the terminal of one `efr send` showed, with the time of its first byte and of
+/// the first read that held [`START_ANSWER`].
+fn read_start(master: OwnedFd) -> JoinHandle<(Option<Instant>, Option<Instant>, Vec<u8>)> {
+    std::thread::spawn(move || {
+        let mut screen = Vec::new();
+        let mut buffer = [0_u8; 65536];
+        let (mut first, mut text) = (None, None);
+        while let Ok(read) = rustix::io::read(&master, &mut buffer) {
+            if read == 0 {
+                break;
+            }
+            let now = Instant::now();
+            first.get_or_insert(now);
+            screen.extend_from_slice(&buffer[..read]);
+            if text.is_none() && bare(&String::from_utf8_lossy(&screen)).contains(START_ANSWER) {
+                text = Some(now);
+            }
+        }
+        (first, text, screen)
+    })
+}
+
+/// `bench_perf_cli_send_start`: the built `efr send` alone,
+/// on a terminal, against a fake daemon that answers each request at once. From the
+/// spawn of the process: when the daemon reads the first byte of the hello, when it
+/// reads `prompt.send`, when it reads `conversation.subscribe`, when the terminal gets
+/// its first byte, and when the terminal shows the first text of the answer, which the
+/// daemon sends as one draft right after the subscription or 300 ms after it. The
+/// cases: no `config.toml`, a palette file, a palette file with a `.tmTheme` code
+/// theme, and the same with 200 permission rules.
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_cli_send_start() {
+    use std::os::unix::process::CommandExt as _;
+    const RUNS: usize = 12;
+    const WARM: usize = 2;
+    let mut report = Report::new("bench_perf_cli_send_start");
+    let context = r#"{"pwd":"/srv","tty":"/dev/pts/9"}"#;
+    let cases = [
+        ("no config", 0_usize, 0_u8, 0_u64, 0_u64),
+        ("palette file", 0, 1, 0, 0),
+        ("palette + tmTheme", 0, 2, 0, 0),
+        ("palette + tmTheme + 200 rules", 200, 2, 0, 0),
+        ("no config, answer after 300 ms", 0, 0, 300, 0),
+        ("no config, ack after 300 ms", 0, 0, 0, 300),
+    ];
+    for (label, rules_count, theme, wait_ms, ack_ms) in cases {
+        let roots = Roots::new();
+        match theme {
+            0 if rules_count == 0 => {}
+            1 => {
+                let palette = roots.path("config/theme.toml");
+                std::fs::write(
+                    &palette,
+                    "[colors]\naccent = \"#f2c14e\"\nmuted = 8\ntext = \"#e8e2d4\"\nlink = \"blue\"\n",
+                )
+                .unwrap();
+                let text = format!("[render]\npalette = \"{}\"\n\n", palette.display());
+                std::fs::write(roots.path("config/config.toml"), text).unwrap();
+            }
+            _ => write_config(&roots, rules_count, theme == 2),
+        }
+        let listener = UnixListener::bind(roots.socket()).unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            for _ in 0..RUNS {
+                let (mut conn, hello) = Conn::accept(&listener);
+                conn.hello();
+                let (id, method) = conn.request();
+                let prompt = Instant::now();
+                assert!(matches!(method, Method::PromptSend(_)), "got {}", method.name());
+                let turn_id = TURN.parse().unwrap();
+                std::thread::sleep(Duration::from_millis(ack_ms));
+                conn.reply(
+                    id,
+                    &PromptSendResult {
+                        conversation_id: CONVERSATION.parse().unwrap(),
+                        turn_id,
+                        seq: Seq::new(3),
+                        queued: false,
+                        settings: None,
+                        route: None,
+                    },
+                );
+                let (sub, method) = conn.request();
+                let subscribe = Instant::now();
+                assert!(matches!(method, Method::ConversationSubscribe(_)), "{}", method.name());
+                std::thread::sleep(Duration::from_millis(wait_ms));
+                let draft = Draft {
+                    turn_id,
+                    after_seq: Seq::new(3),
+                    draft: DraftPart::Text {
+                        index: 0,
+                        offset: 0,
+                        delta: format!("{START_ANSWER} is the answer.\n\n"),
+                    },
+                };
+                conn.item(sub, &ConversationSubscribeItem::Draft(draft));
+                let sent = Instant::now();
+                // NOTE: the turn ends 150 ms later, so the first text shows from the
+                // draft and not from the end of the turn.
+                std::thread::sleep(Duration::from_millis(150));
+                let text = format!("{START_ANSWER} is the answer.\n\nDone.\n");
+                let completed = Event::TurnCompleted {
+                    turn_id,
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                    undo: None,
+                };
+                conn.item(
+                    sub,
+                    &envelope(4, Event::AssistantMessageCompleted { turn_id, index: 0, text }),
+                );
+                conn.item(sub, &envelope(5, completed));
+                let end = Instant::now();
+                let _ = seen_tx.send(SendSeen { hello, prompt, subscribe, draft: sent, end });
+                conn.drain();
+            }
+        });
+        let mut times: Vec<(&str, Vec<Duration>)> = vec![
+            ("spawn -> hello at the daemon", Vec::new()),
+            ("spawn -> prompt.send at the daemon", Vec::new()),
+            ("spawn -> subscribe at the daemon", Vec::new()),
+            ("spawn -> first byte on the terminal", Vec::new()),
+            ("prompt.send at the daemon -> first byte on the terminal", Vec::new()),
+            ("subscribe at the daemon -> first byte on the terminal", Vec::new()),
+            ("draft sent -> text on the terminal", Vec::new()),
+            ("spawn -> text on the terminal", Vec::new()),
+            ("spawn -> exit", Vec::new()),
+            ("end of turn sent -> exit", Vec::new()),
+        ];
+        let mut first_before_ack = 0_u64;
+        for run in 0..RUNS {
+            let (master, slave) = pty();
+            let screen = read_start(master.try_clone().unwrap());
+            drop(master);
+            let mut command = roots.command(env!("CARGO_BIN_EXE_efr"));
+            command
+                .args(["send", "--context-json", context, "--", "show the plan"])
+                .stdin(slave.try_clone().unwrap())
+                .stdout(slave.try_clone().unwrap())
+                .stderr(slave.try_clone().unwrap())
+                .process_group(0);
+            let spawned = Instant::now();
+            let mut child = command.spawn().unwrap();
+            drop(command);
+            drop(slave);
+            let status = child.wait().unwrap();
+            let exited = Instant::now();
+            let (first, text, shown) = screen.join().unwrap();
+            let shown = bare(&String::from_utf8_lossy(&shown));
+            assert!(status.success(), "efr send failed: {shown}");
+            let seen = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let first = first.expect("the terminal got a byte");
+            let text = text.unwrap_or_else(|| panic!("the terminal showed no answer: {shown}"));
+            if run < WARM {
+                continue;
+            }
+            first_before_ack += u64::from(first < seen.prompt);
+            let values = [
+                seen.hello.duration_since(spawned),
+                seen.prompt.duration_since(spawned),
+                seen.subscribe.duration_since(spawned),
+                first.duration_since(spawned),
+                first.saturating_duration_since(seen.prompt),
+                first.saturating_duration_since(seen.subscribe),
+                text.saturating_duration_since(seen.draft),
+                text.duration_since(spawned),
+                exited.duration_since(spawned),
+                exited.saturating_duration_since(seen.end),
+            ];
+            for ((_, samples), value) in times.iter_mut().zip(values) {
+                samples.push(value);
+            }
+        }
+        server.join().unwrap();
+        for (name, samples) in &times {
+            report.time(&format!("{label}|{name}"), samples);
+        }
+        report.count(
+            &format!("{label}|runs with a terminal byte before prompt.send"),
+            first_before_ack,
+        );
+    }
+    report.finish();
 }

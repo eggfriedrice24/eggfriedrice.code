@@ -1453,6 +1453,24 @@ that takes more than 10 s stops its ladder.
   time, the wall time and the pages of history of `efr diff --stat --all` on a
   terminal for a history of 2k, 10k and 20k events. Budget: at most one page for each
   500 events, and the peak grows less than 4 MiB from 2k to 20k events.
+- `bench_perf_cli_send_start` (`tests/it/perf.rs`): measures the time from the spawn
+  of `efr send` on a terminal to the hello, `prompt.send` and
+  `conversation.subscribe` at a fake daemon, to the first byte and the first text on
+  the terminal, and to the exit. The cases: no config, a palette, a code theme, 200
+  rules, and an answer or an ack that comes 300 ms late.
+- `bench_perf_stream_cadence` (`tests/it/perf/cadence.rs`): the real efrd on the
+  system clock with a paced model (`efr_test_support::PacedModel`) and the built
+  `efr send` on a terminal of 50x120. Each token holds a marker, and efrd and `efr`
+  write their timing marks (`efr_stdx::mark`) to one file, so the bench follows each
+  token from the model to the terminal. It reports the latency from the arrival to the
+  frame (p50, p95, p99, max), the gaps between text frames, the stalls over 50 ms
+  inside the stream and the stage where each one waited longest, the end of the turn
+  (the last token to its frame and to the exit, in 12 answers whose length and start
+  move), the `record_text` awaits and the store's writer jobs, and the time between
+  each two points of the way. `EFR_CADENCE_*` variables pick other scenarios and loads
+  by hand (the module doc lists them).
+- `bench_perf_draft_passes` (`tests/it/perf/cadence.rs`): the CPU time of the passes of
+  one text draft of 8, 64 and 512 bytes from efrd's item to `efr`'s item.
 - `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
   `_efr_precmd` over 200 prompts in zsh, and the `source` of the plugin, with 50 to
   5,000 exported variables, 0 and 1,000 draft files, a deep `PWD`, a projects file and
