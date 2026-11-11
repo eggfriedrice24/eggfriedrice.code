@@ -121,7 +121,11 @@ Replies:
 - Events change the view; they write nothing themselves. The follow loop writes frames:
   a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
   so the screen gets at most 60 frames a second. A question, an answer, a key, the end
-  of the turn and an error show at once. A resize of the window (SIGWINCH) draws the
+  of the turn and an error show at once. At the end of a turn the last frame goes out
+  first, and then the key thread stops. The thread waits in `poll` on the terminal and
+  on a wake pipe (`keys.rs`), and a read never waits (`VMIN` 0, `VTIME` 0), so a stop
+  reaches it at once and the shell's prompt comes back with no wait. Once the thread
+  sees the stop, it reads no byte more: what is typed after it is the shell's. A resize of the window (SIGWINCH) draws the
   live zone again at the new width. After a stop (Ctrl+Z, then `fg`, SIGCONT), the
   shell's lines stand below the old live zone: the next frame starts a new live zone
   below them, moves nothing above the cursor, and hides the cursor again. The times come from the injected clock.
@@ -627,8 +631,8 @@ last part of the live zone, below the status row. Inline only: no alternate scre
 - The key thread starts before the prompt goes out and keeps the typeahead
   (`Keys::keep`), so the keys typed between Enter in zsh and the first frame land in
   the row. It turns off the terminal's map of carriage return to newline, so Enter and
-  Ctrl+J are two keys, and an escape byte that no other byte follows within one read
-  timeout (0.1 s) is Esc. Bracketed paste is on while the row exists (`CSI ? 2004 h`)
+  Ctrl+J are two keys, and an escape byte that no other byte follows within 0.1 s is
+  Esc. Bracketed paste is on while the row exists (`CSI ? 2004 h`)
   and off on every way out, a panic and SIGQUIT included (`TurnView::restore`).
 - The row is `› ` and the text, or the muted hint `enter steer · tab queue · esc
   interrupt` while it is empty. While a shell call of the followed turn that Ctrl+B can
@@ -750,9 +754,9 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   would send stays text there. When the keys come back, the row drops an escape
   sequence that the question cut. Before the keys go back to the row after an answer line, a call that
   asked for a password or the keys it kept, the reader throws away what is still
-  unread (`KeyReader::flush`), so the rest of a password never lands in the row. A
-  key typed in the tenth of a second after the flush can go too: the read that runs
-  then cannot tell it from a key typed before.
+  unread (`KeyReader::flush`), so the rest of a password never lands in the row. The
+  flush wakes the key thread, which does it at once. A key that the thread read just
+  before it woke can go too: the thread cannot tell it from a key typed before.
 - While the last line of a running call's output looks like a password prompt
   (`efr_protocol::looks_secret`) and the daemon reported no wait yet, the keys do not
   go to the row: they wait in a line that is never shown or sent, and Enter there

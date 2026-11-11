@@ -5,11 +5,15 @@
 //! While keys are read, a named thread puts the terminal on stdin into non-canonical
 //! mode without echo, so a single key arrives without Enter and does not show: a
 //! password typed for a command never appears, and the CLI echoes a visible answer
-//! itself. Signals stay on, so Ctrl+C still interrupts the turn. The read times out
-//! every tenth of a second (`VMIN` 0, `VTIME` 1), so the thread notices a stop request
-//! without a signal, restores the terminal's settings itself, and only then reports
-//! that it is done. Nothing therefore exits while the terminal is still in that mode,
-//! and no read is left behind to swallow a line the user types into the shell later.
+//! itself. Signals stay on, so Ctrl+C still interrupts the turn. The thread waits in
+//! `poll` on the terminal and on a wake pipe, and a read never waits (`VMIN` 0, `VTIME`
+//! 0). A stop, a flush, a mark that the thread confirms and a resume write a byte into
+//! the pipe, so the thread acts on them at once, without a signal and without a read
+//! timeout. It restores the terminal's settings itself, and only then reports that it
+//! is done. Nothing therefore exits while the terminal is still in that mode, and no
+//! read is left behind to swallow a line the user types into the shell later. Once the
+//! thread sees the stop, it reads no byte more: what the user types after it stays for
+//! the shell.
 //!
 //! Keys typed before the question appeared are discarded first: a stray key from
 //! earlier never answers it, and text typed earlier, such as a password typed blind
@@ -21,8 +25,8 @@
 //! keeps the typeahead, because the user typed it for the row before the row showed.
 //! The terminal's map of carriage return to newline (`ICRNL`) is off, so Enter (a
 //! carriage return) and Ctrl+J (a newline) stay two keys. An escape byte that no other
-//! byte follows within one read timeout is a press of Esc ([`Key::Esc`]): a terminal
-//! sends the bytes of an escape sequence in one write, so they come together.
+//! byte follows within [`ESC_WAIT`] is a press of Esc ([`Key::Esc`]): a terminal sends
+//! the bytes of an escape sequence in one write, so they come together.
 //! [`KeyReader::flush`] throws away what was typed so far without leaving the mode, for
 //! the moment a password line gives the keys back to the row. [`KeyReader::mark`] keeps
 //! it instead, and tells the keys typed before a question appeared, which can go to the
@@ -41,6 +45,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use efr_protocol::ApprovalDecision;
+use rustix::event::{PollFd, PollFlags, Timespec};
+use rustix::io::Errno;
+use rustix::pipe::PipeFlags;
 use rustix::termios::{
     InputModes, LocalModes, OptionalActions, QueueSelector, SpecialCodeIndex, Termios, tcflush,
     tcgetattr, tcsetattr,
@@ -57,6 +64,11 @@ const KEY_QUEUE: usize = 16;
 
 /// The escape byte, which starts an escape sequence or is the Esc key alone.
 pub(crate) const ESC: u8 = 0x1b;
+
+/// How long the thread waits for the byte after an escape byte: an escape byte that no
+/// other byte follows in this time is the Esc key. It is the read timeout that the
+/// thread used before it waited in `poll` (`VTIME` 1).
+const ESC_WAIT: Timespec = Timespec { tv_sec: 0, tv_nsec: 100_000_000 };
 
 /// The answer a key gives, if any: `y` allows, `n` denies, anything else is ignored.
 pub(crate) fn decision(key: u8) -> Option<ApprovalDecision> {
@@ -84,8 +96,8 @@ pub(crate) enum Key {
     /// One byte of what was typed: a character, a part of one, or a part of an escape
     /// sequence.
     Byte(u8),
-    /// The Esc key alone: an escape byte that no other byte followed within one read
-    /// timeout.
+    /// The Esc key alone: an escape byte that no other byte followed within
+    /// [`ESC_WAIT`].
     Esc,
 }
 
@@ -171,6 +183,9 @@ pub(crate) struct KeyReader {
     mark_end: u64,
     /// The key that came last was typed before the last mark.
     last_before: bool,
+    /// The write end of the thread's wake pipe: a byte in it makes the thread look at
+    /// its flags at once, and its close makes the thread end. `None` without a thread.
+    wake: Option<OwnedFd>,
     done: oneshot::Receiver<()>,
 }
 
@@ -191,6 +206,7 @@ impl KeyReader {
             received: 0,
             mark_end: 0,
             last_before: false,
+            wake: None,
             done,
         }
     }
@@ -200,6 +216,35 @@ impl KeyReader {
     #[cfg(test)]
     pub(crate) fn from_channel_confirming(keys: mpsc::Receiver<Read>) -> KeyReader {
         KeyReader { confirms: true, ..KeyReader::from_channel(keys) }
+    }
+
+    /// A reader over `keys` that stops as one with a thread does: a stop ends only once
+    /// the test drops the sender of `keys` and the sender of `done`, as the thread does
+    /// when it restored the terminal. The test holds the stop so.
+    #[cfg(test)]
+    pub(crate) fn held(keys: mpsc::Receiver<Read>, done: oneshot::Receiver<()>) -> KeyReader {
+        let mut reader = KeyReader::from_channel_confirming(keys);
+        reader.threaded = true;
+        reader.done = done;
+        reader
+    }
+
+    /// Whether the reader was asked to stop, for tests.
+    #[cfg(test)]
+    pub(crate) fn stop_flag(&self) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        let flags = Arc::clone(&self.flags);
+        Arc::new(move || flags.stop.load(Ordering::Acquire))
+    }
+
+    /// Wakes the thread, so that it looks at its flags at once. A full pipe wakes it
+    /// already, and a thread that is gone needs no wake.
+    fn wake(&self) {
+        if let Some(wake) = &self.wake
+            && let Err(errno) = rustix::io::write(wake, &[1])
+            && errno != Errno::AGAIN
+        {
+            tracing::debug!(%errno, "the key thread could not be woken");
+        }
     }
 
     /// Whether the reader was stopped with its unread input thrown away, for tests.
@@ -276,6 +321,7 @@ impl KeyReader {
             None if self.confirms => {
                 self.flags.mark.store(true, Ordering::Release);
                 self.marking = true;
+                self.wake();
             }
             None => {}
         }
@@ -301,16 +347,16 @@ impl KeyReader {
     /// yet, and goes on reading in the same mode: the rest of a password typed for a
     /// command must not reach the input row.
     ///
-    /// The thread does the flush within one read timeout, and the keys until its
-    /// [`Read::Flushed`] go. A read that runs when the flush comes cannot tell whether
-    /// the key it returns was typed before the flush or just after it, so a key typed in
-    /// that tenth of a second goes too. A lost key is safer than a part of a password in
-    /// the row.
+    /// The wake makes the thread do the flush at once, and the keys until its
+    /// [`Read::Flushed`] go. A key that the thread read just before it woke cannot be
+    /// told from a key typed before the flush, so a key typed in that moment goes too.
+    /// A lost key is safer than a part of a password in the row.
     pub(crate) fn flush(&mut self) {
         self.discard_queued();
         if self.confirms {
             self.flags.flush.store(true, Ordering::Release);
             self.flushing = true;
+            self.wake();
         }
     }
 
@@ -318,6 +364,7 @@ impl KeyReader {
     /// the shell changed the terminal meanwhile.
     pub(crate) fn resumed(&self) {
         self.flags.reapply.store(true, Ordering::Release);
+        self.wake();
     }
 
     /// Stops reading and waits until the terminal's settings are restored; keys that
@@ -340,8 +387,10 @@ impl KeyReader {
             return kept;
         }
         self.flags.stop.store(true, Ordering::Release);
-        // NOTE: the thread sees the stop flag within one read timeout. It drops its end
-        // of the queue once it has restored the terminal, so the queue ends then.
+        // NOTE: the flag goes before the wake, so the thread sees it once it wakes. It
+        // drops its end of the queue once it has restored the terminal, so the queue
+        // ends then.
+        self.wake();
         while let Some(read) = self.keys.recv().await {
             kept.extend(self.take(read));
         }
@@ -358,11 +407,13 @@ impl KeyReader {
     }
 
     async fn finish(self) {
-        let KeyReader { keys, flags, done, .. } = self;
+        let KeyReader { keys, flags, done, wake, .. } = self;
         flags.stop.store(true, Ordering::Release);
         // NOTE: the queue goes first. A thread blocked on a full queue never looks at
         // the stop flag again; a closed queue ends its send, and so its loop.
         drop(keys);
+        // A closed wake pipe wakes a thread that waits in `poll`, after the stop flag.
+        drop(wake);
         // The thread drops its end once it has restored the terminal; an error only
         // means it is gone.
         let _ = done.await;
@@ -437,9 +488,13 @@ pub(crate) fn start_on(fd: OwnedFd, typeahead: Typeahead) -> Result<KeyReader, C
     let flags = Arc::new(Flags::default());
     // NOTE: without it, a mark waits for the thread, as it did before marks counted.
     let tty = rustix::io::dup(&fd).ok();
+    // NOTE: both ends never block: the thread empties its end until nothing is left, and
+    // a full pipe wakes the thread already, so a wake that does not fit can go.
+    let (woken, wake) = rustix::pipe::pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK)
+        .map_err(|errno| CliError::Terminal { source: io::Error::from(errno) })?;
     let thread_flags = Arc::clone(&flags);
     efr_stdx::thread::spawn_named("efr-keys", THREAD_STACK, move || {
-        if let Err(error) = read_keys(&fd, &sender, &thread_flags, typeahead) {
+        if let Err(error) = read_keys(&fd, &woken, &sender, &thread_flags, typeahead) {
             tracing::debug!(%error, "reading keys from the terminal failed");
         }
         drop(finished);
@@ -456,15 +511,18 @@ pub(crate) fn start_on(fd: OwnedFd, typeahead: Typeahead) -> Result<KeyReader, C
         received: 0,
         mark_end: 0,
         last_before: false,
+        wake: Some(wake),
         done,
     })
 }
 
 /// Reads keys from `fd` in non-canonical mode until `stop` is set or the consumer is
 /// gone, then restores the terminal's settings, first throwing away unread input when
-/// `discard` is set.
+/// `discard` is set. The thread waits on `fd` and on `woken`, the read end of the wake
+/// pipe.
 fn read_keys(
     fd: &OwnedFd,
+    woken: &OwnedFd,
     keys: &mpsc::Sender<Read>,
     flags: &Flags,
     typeahead: Typeahead,
@@ -474,8 +532,10 @@ fn read_keys(
     keyed.local_modes.remove(LocalModes::ICANON | LocalModes::ECHO);
     // Enter sends a carriage return and Ctrl+J a newline; the map would make them one.
     keyed.input_modes.remove(InputModes::ICRNL);
+    // NOTE: a read never waits. The thread waits in `poll`, where a wake reaches it at
+    // once; a read that waits would hold a stop until its timeout.
     keyed.special_codes[SpecialCodeIndex::VMIN] = 0;
-    keyed.special_codes[SpecialCodeIndex::VTIME] = 1;
+    keyed.special_codes[SpecialCodeIndex::VTIME] = 0;
     if typeahead == Typeahead::Discard {
         // Typeahead goes first, so once the mode has changed every key read was typed
         // after the question appeared.
@@ -496,14 +556,27 @@ fn read_keys(
         if flags.mark.swap(false, Ordering::AcqRel) && !send_waiting(fd, keys, flags)? {
             break;
         }
+        let hangup = match wait(fd, woken, None)? {
+            Woke::Terminal { hangup } => hangup,
+            Woke::Flags | Woke::Timeout => continue,
+            Woke::Gone => break,
+        };
+        // NOTE: a stop that came while the thread waited takes no byte more, also when
+        // its wake did not arrive yet: what is typed after it is the shell's.
+        if flags.stop.load(Ordering::Acquire) {
+            break;
+        }
         let Some(byte) = read_byte(fd)? else {
+            // NOTE: a terminal that hung up has nothing more to read, and `poll` says so
+            // at once each time.
+            if hangup {
+                break;
+            }
             continue;
         };
         flags.taken.fetch_add(1, Ordering::AcqRel);
         let sent = if byte == ESC {
-            // NOTE: the rest of an escape sequence comes in the same write; an escape
-            // byte that nothing follows within one read timeout is the Esc key.
-            match read_byte(fd)? {
+            match after_escape(fd, woken, flags)? {
                 None => keys.blocking_send(Read::Key(Key::Esc)),
                 Some(next) => {
                     flags.taken.fetch_add(1, Ordering::AcqRel);
@@ -519,6 +592,75 @@ fn read_keys(
         }
     }
     Ok(())
+}
+
+/// The byte after an escape byte, when one comes within [`ESC_WAIT`]: the rest of an
+/// escape sequence comes in the same write. `None` means the Esc key. A wake ends the
+/// wait early: a stop takes no byte more, and a flush, a mark or a resume takes the
+/// byte that already came, if any, and the loop then does what the flags say.
+fn after_escape(fd: &OwnedFd, woken: &OwnedFd, flags: &Flags) -> io::Result<Option<u8>> {
+    loop {
+        match wait(fd, woken, Some(&ESC_WAIT))? {
+            _ if flags.stop.load(Ordering::Acquire) => return Ok(None),
+            Woke::Terminal { hangup } => match read_byte(fd)? {
+                Some(next) => return Ok(Some(next)),
+                None if hangup => return Ok(None),
+                None => {}
+            },
+            Woke::Flags => return read_byte(fd),
+            Woke::Timeout | Woke::Gone => return Ok(None),
+        }
+    }
+}
+
+/// What ended a wait of the key thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Woke {
+    /// The terminal has input, or it hung up (`hangup`).
+    Terminal { hangup: bool },
+    /// The consumer woke the thread, or a signal did: the flags may have changed. The
+    /// wake pipe is empty again.
+    Flags,
+    /// The consumer closed its end of the wake pipe: it is gone.
+    Gone,
+    /// The time of the wait passed without either.
+    Timeout,
+}
+
+/// Waits until the terminal `fd` has input or a wake comes on `woken`, for at most
+/// `timeout` (`None`: no limit). A wake goes first, so the flags can stop the thread
+/// before it reads.
+fn wait(fd: &OwnedFd, woken: &OwnedFd, timeout: Option<&Timespec>) -> io::Result<Woke> {
+    let mut fds = [PollFd::new(fd, PollFlags::IN), PollFd::new(woken, PollFlags::IN)];
+    match rustix::event::poll(&mut fds, timeout) {
+        Ok(0) => return Ok(Woke::Timeout),
+        Ok(_) => {}
+        // NOTE: a signal, such as SIGWINCH, ends the wait; the loop looks at its flags
+        // and waits again.
+        Err(Errno::INTR) => return Ok(Woke::Flags),
+        Err(errno) => return Err(errno.into()),
+    }
+    if !fds[1].revents().is_empty() {
+        return drain(woken);
+    }
+    let revents = fds[0].revents();
+    if revents.contains(PollFlags::NVAL) {
+        return Err(Errno::BADF.into());
+    }
+    Ok(Woke::Terminal { hangup: revents.intersects(PollFlags::HUP | PollFlags::ERR) })
+}
+
+/// Reads every byte of the wake pipe `woken`, so the next wait waits again.
+fn drain(woken: &OwnedFd) -> io::Result<Woke> {
+    let mut bytes = [0_u8; 16];
+    loop {
+        match rustix::io::read(woken, &mut bytes) {
+            Ok(0) => return Ok(Woke::Gone),
+            Ok(_) | Err(Errno::INTR) => {}
+            Err(Errno::AGAIN) => return Ok(Woke::Flags),
+            Err(errno) => return Err(errno.into()),
+        }
+    }
 }
 
 /// Sends every byte that waits in `fd` now, each as a byte (an escape byte too), then
@@ -539,13 +681,14 @@ fn send_waiting(fd: &OwnedFd, keys: &mpsc::Sender<Read>, flags: &Flags) -> io::R
     Ok(keys.blocking_send(Read::Marked).is_ok())
 }
 
-/// One byte from `fd`, or `None` when the read timeout (`VTIME`) passed without one.
+/// One byte from `fd`, or `None` when no byte waits there now: in the key mode a read
+/// never waits (`VMIN` 0, `VTIME` 0).
 fn read_byte(fd: &OwnedFd) -> io::Result<Option<u8>> {
     let mut byte = [0_u8; 1];
     match rustix::io::read(fd, &mut byte) {
         Ok(0) => Ok(None),
         Ok(_) => Ok(Some(byte[0])),
-        Err(rustix::io::Errno::INTR | rustix::io::Errno::AGAIN) => Ok(None),
+        Err(Errno::INTR | Errno::AGAIN) => Ok(None),
         Err(errno) => Err(errno.into()),
     }
 }

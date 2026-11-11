@@ -6,13 +6,16 @@ use efr_protocol::ApprovalDecision;
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use rustix::fs::{Mode, OFlags};
+use rustix::pipe::PipeFlags;
 use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-use rustix::termios::{InputModes, LocalModes, OptionalActions, tcgetattr, tcsetattr};
+use rustix::termios::{
+    InputModes, LocalModes, OptionalActions, SpecialCodeIndex, tcgetattr, tcsetattr,
+};
 use tokio::sync::mpsc;
 
 use super::{
-    COUNT_TRIES, KEY_QUEUE, Key, KeyReader, Read, Typeahead, decision, decision_with_always,
-    start_on, typed_so_far,
+    COUNT_TRIES, ESC_WAIT, Flags, KEY_QUEUE, Key, KeyReader, Read, Typeahead, Woke, after_escape,
+    decision, decision_with_always, start_on, typed_so_far, wait,
 };
 
 /// A pseudo-terminal pair: the master, which plays the person typing, and the slave,
@@ -507,4 +510,105 @@ fn a_count_during_a_paste_stops_and_is_never_too_high() {
 #[test]
 fn a_terminal_that_cannot_count_gives_no_count() {
     assert_eq!(typed_so_far(|| 3, || None), None);
+}
+
+/// The modes of a terminal that reads single keys: what the key thread sets, for the
+/// tests that call its parts on the thread of the test.
+fn key_mode(fd: &OwnedFd) {
+    let mut keyed = tcgetattr(fd).unwrap();
+    keyed.local_modes.remove(LocalModes::ICANON | LocalModes::ECHO);
+    keyed.special_codes[SpecialCodeIndex::VMIN] = 0;
+    keyed.special_codes[SpecialCodeIndex::VTIME] = 0;
+    tcsetattr(fd, OptionalActions::Now, &keyed).unwrap();
+}
+
+/// A wake pipe as the key thread has it: the read end and the write end.
+fn wake_pipe() -> (OwnedFd, OwnedFd) {
+    rustix::pipe::pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK).unwrap()
+}
+
+/// Writes `bytes` as typed and waits until they wait in the terminal `slave`.
+fn typed(master: &OwnedFd, slave: &OwnedFd, bytes: &[u8]) {
+    rustix::io::write(master, bytes).unwrap();
+    Wait::new("the typed bytes in the terminal")
+        .until_blocking(|| rustix::io::ioctl_fionread(slave).unwrap() == bytes.len() as u64)
+        .unwrap();
+}
+
+/// The finding of the streaming plan (slice 1): a read waited up to a tenth of a second
+/// (`VTIME` 1), and the stop at the end of a turn waited for it, so the last frame and
+/// the shell's prompt came 0 to 104 ms late. The thread now waits in `poll`, and a read
+/// never waits.
+#[tokio::test]
+async fn in_the_key_mode_a_read_never_waits_and_the_stop_restores_the_old_times() {
+    let (_master, slave) = pty();
+    let probe = rustix::io::dup(&slave).unwrap();
+    let before = tcgetattr(&probe).unwrap().special_codes;
+    let reader = start_on(slave, Typeahead::Discard).unwrap();
+    wait_for_key_mode(&probe);
+    let keyed = tcgetattr(&probe).unwrap().special_codes;
+    assert_eq!(keyed[SpecialCodeIndex::VMIN], 0);
+    assert_eq!(keyed[SpecialCodeIndex::VTIME], 0, "a read never holds a stop");
+
+    reader.stop_keeping().await;
+    let after = tcgetattr(&probe).unwrap().special_codes;
+    assert_eq!(after[SpecialCodeIndex::VMIN], before[SpecialCodeIndex::VMIN]);
+    assert_eq!(after[SpecialCodeIndex::VTIME], before[SpecialCodeIndex::VTIME]);
+}
+
+/// A wake comes before a key that waits: the flags can stop the thread before it reads.
+#[test]
+fn a_wake_goes_before_a_key_that_waits() {
+    let (master, slave) = pty();
+    key_mode(&slave);
+    let (woken, wake) = wake_pipe();
+    typed(&master, &slave, b"x");
+    rustix::io::write(&wake, &[1, 1]).unwrap();
+    assert_eq!(wait(&slave, &woken, None).unwrap(), Woke::Flags);
+    assert_eq!(wait(&slave, &woken, None).unwrap(), Woke::Terminal { hangup: false });
+    drop(wake);
+    assert_eq!(wait(&slave, &woken, None).unwrap(), Woke::Gone, "the consumer is gone");
+}
+
+/// A stop while the thread waits for the byte after an escape byte ends the wait at once
+/// and reads nothing more: the byte stays for the shell.
+#[test]
+fn a_stop_ends_the_wait_after_an_escape_byte_and_takes_no_byte() {
+    let (master, slave) = pty();
+    key_mode(&slave);
+    let (woken, wake) = wake_pipe();
+    typed(&master, &slave, b"[");
+    let flags = Flags::default();
+    flags.stop.store(true, Ordering::Release);
+    rustix::io::write(&wake, &[1]).unwrap();
+    assert_eq!(after_escape(&slave, &woken, &flags).unwrap(), None, "the Esc key");
+    assert_eq!(rustix::io::ioctl_fionread(&slave).unwrap(), 1, "the byte stays");
+}
+
+/// A flush, a mark or a resume ends the wait after an escape byte with the byte that came
+/// already: the rest of a sequence comes in the same write.
+#[test]
+fn a_wake_ends_the_wait_after_an_escape_byte_with_the_byte_that_came() {
+    let (master, slave) = pty();
+    key_mode(&slave);
+    let (woken, wake) = wake_pipe();
+    let flags = Flags::default();
+    rustix::io::write(&wake, &[1]).unwrap();
+    assert_eq!(after_escape(&slave, &woken, &flags).unwrap(), None, "nothing came");
+    typed(&master, &slave, b"[");
+    rustix::io::write(&wake, &[1]).unwrap();
+    assert_eq!(after_escape(&slave, &woken, &flags).unwrap(), Some(b'['));
+}
+
+/// An escape byte that nothing follows is the Esc key after the escape wait.
+#[test]
+fn an_escape_byte_alone_waits_the_escape_time() {
+    let (_master, slave) = pty();
+    key_mode(&slave);
+    let (woken, _wake) = wake_pipe();
+    let started = std::time::Instant::now();
+    assert_eq!(after_escape(&slave, &woken, &Flags::default()).unwrap(), None);
+    let waited = started.elapsed();
+    let limit = std::time::Duration::from_nanos(ESC_WAIT.tv_nsec.unsigned_abs());
+    assert!(waited >= limit / 2, "{waited:?}");
 }

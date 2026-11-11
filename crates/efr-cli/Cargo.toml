@@ -24,7 +24,8 @@ futures.workspace = true
 jiff.workspace = true
 # The pairing QR code of `efr device add`, drawn with half blocks.
 qrcode.workspace = true
-rustix.workspace = true
+# `poll` and the wake pipe of the key thread (src/keys.rs).
+rustix = { workspace = true, features = ["event", "pipe"] }
 serde.workspace = true
 serde_json.workspace = true
 signal-hook.workspace = true

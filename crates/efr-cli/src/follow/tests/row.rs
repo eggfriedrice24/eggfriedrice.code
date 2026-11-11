@@ -14,7 +14,9 @@ use efr_protocol::{
     WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
+use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
+use tokio::sync::{mpsc, oneshot};
 
 use super::super::{Compose, Row, TurnView, follow};
 use super::{
@@ -25,10 +27,10 @@ use super::{
 use crate::cli::LastCommand;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::keys::Keys as _;
+use crate::keys::{Key, KeyReader, Keys as _, Read};
 use crate::testing::{
     Captured, Conn, FakeDaemon, ScriptedKeys, TestEnv, TestInterrupt, bare, call, capture,
-    conversation, item, job, turn,
+    conversation, item, job, now, turn,
 };
 
 /// The note when Esc sent the unread steers again as a new prompt.
@@ -726,7 +728,7 @@ struct LateClock;
 
 impl efr_stdx::time::Clock for LateClock {
     fn now(&self) -> jiff::Timestamp {
-        crate::testing::now()
+        now()
     }
 
     fn sleep(&self, duration: std::time::Duration) -> efr_stdx::time::Sleep {
@@ -1356,7 +1358,7 @@ struct RetryClock;
 
 impl efr_stdx::time::Clock for RetryClock {
     fn now(&self) -> jiff::Timestamp {
-        crate::testing::now()
+        now()
     }
 
     fn sleep(&self, duration: std::time::Duration) -> efr_stdx::time::Sleep {
@@ -2021,4 +2023,49 @@ async fn ctrl_b_at_the_answer_line_says_the_call_waits_and_sends_nothing() {
     .await;
     result.unwrap();
     assert!(out.contains("the command waits for input; answer it first"), "{}", readable(&out));
+}
+
+/// What the last frame of a turn writes to turn bracketed paste off.
+const PASTE_OFF: &str = "\x1b[?2004l";
+
+/// The finding of the streaming plan (slice 1): the end of a turn stopped the key reader
+/// first, and its thread saw the stop only after a read timeout of a tenth of a second,
+/// so the last frame and the shell's prompt waited 0 to 104 ms. The last frame goes out
+/// first now. The clock never moves and the test holds the stop of the reader: only a
+/// frame that goes out before the reader stops can show.
+#[tokio::test]
+async fn the_last_frame_goes_out_before_the_key_reader_stops() {
+    let setup = Setup::new();
+    let ctx = Context { clock: TestClock::starting_at(now()).shared(), ..setup.context(true) };
+    let (keys, queue) = mpsc::channel(4);
+    let (restored, done) = oneshot::channel::<()>();
+    let reader = KeyReader::held(queue, done);
+    let stopping = reader.stop_flag();
+    let daemon = setup.env.listen();
+    let (mut out, captured) = capture();
+    let seen = captured.clone();
+    let mut view = started_view().with_input();
+    let client = async {
+        let client = ctx.connect(Origin::Shell, None).await.unwrap();
+        let row = Row { compose: compose(), reader, origin: Origin::Shell };
+        follow(&ctx, &client, &mut out, &mut view, target(), Some(row)).await
+    };
+    let script = async move {
+        let mut conn = daemon.accept().await;
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, completed("Done."))).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        shows_on(&seen, Stream::Stdout, |out| out.contains(PASTE_OFF)).await;
+        assert!(bare(&seen.stdout()).contains("Done."), "{}", readable(&seen.stdout()));
+        Wait::new("the stop of the key reader").until(|| stopping()).await.unwrap();
+        // A key that the reader read while it stopped still goes into the row, and so
+        // back to the shell.
+        keys.send(Read::Key(Key::Byte(b'x'))).await.unwrap();
+        drop(keys);
+        drop(restored);
+        conn.until_closed().await;
+    };
+    let (result, ()) = tokio::join!(client, script);
+    result.unwrap();
+    assert_eq!(setup.handed_back().as_deref(), Some("x"));
 }

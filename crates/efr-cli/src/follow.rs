@@ -1011,7 +1011,8 @@ impl Follower<'_> {
 
     /// Writes a step and starts or stops reading keys as it says. The frame goes out at
     /// once unless the step is `paced` and asks, settles and ends nothing: a question
-    /// never waits, and the prompt comes back as soon as the turn ends.
+    /// never waits, and the prompt comes back as soon as the turn ends. At the end the
+    /// last frame goes out before the key reader stops, so the stop never holds it.
     async fn apply(
         &mut self,
         step: Step,
@@ -1021,13 +1022,12 @@ impl Follower<'_> {
     ) -> Result<Option<TurnEnd>, CliError> {
         write(out, &step)?;
         let urgent = !paced || step.ask.is_some() || step.settled || step.end.is_some();
+        let stops = step.ask.is_none() && step.end.is_some();
         match step.ask {
             Some(ask) => self.take_keys(ask, out, view)?,
-            None if step.end.is_some() => {
-                if let Some((keys, asking)) = self.keys.take() {
-                    stop_into(keys, &asking, view).await;
-                }
-            }
+            // NOTE: the reader stops after the last frame, below. Until then it stays
+            // here, so the exit path still stops it when the frame fails.
+            None if stops => {}
             None if step.settled => match self.keys.take() {
                 // The row asked for nothing, so nothing of it is settled.
                 Some((reader, Asking::Row)) => self.keys = Some((reader, Asking::Row)),
@@ -1048,6 +1048,11 @@ impl Follower<'_> {
             self.paint(out, view, false)?;
         } else {
             self.schedule(out, view)?;
+        }
+        // NOTE: the view ended, so the keys that the reader still reads go into the
+        // row's text, which goes back to the shell; the frame does not show them.
+        if stops && let Some((keys, asking)) = self.keys.take() {
+            stop_into(keys, &asking, view).await;
         }
         Ok(step.end)
     }

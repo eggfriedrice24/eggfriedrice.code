@@ -50,6 +50,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - efrd reads the output of your shell with libghostty-vt 1.0.0, the first stable
   release of the terminal core of Ghostty. Before, it used a commit from before the
   Ghostty 1.4.0 release. A build from source needs Zig 0.17.0, as before.
+- The last part of an answer and the shell prompt now show as soon as the turn ends.
+  Before, they could wait up to 0.1 s for the reader of the keys that you type into
+  the input row.
 
 ### Security
 
