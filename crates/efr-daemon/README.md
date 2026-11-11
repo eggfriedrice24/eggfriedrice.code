@@ -2261,9 +2261,30 @@ time, so these benches use real time. The model is a fake model of the test, or 
 real providers against the fake servers. Two benches run again in a child process of
 the test binary, with a git first on its `PATH` that counts its runs.
 
-- `bench_perf_ttft`: the time from `prompt.send` to the first text of the answer, on
-  the HTTP Responses path and the Messages path, at 20, 200 and up to 2,000 turns.
-  It also gives the time to the model request.
+- `bench_perf_start_phases` (`tests/it/perf/start.rs`): where the time goes from the
+  start of `efr send` to the first text of the answer, as spans between named
+  instants: the client's, the marks of efrd (`efr_stdx::mark`) and the log of
+  `efr_test_daemon::ProviderServer`. It runs the real providers on three paths: `ws`
+  (`openai-subscription` over the Responses WebSocket), `http` (`openai-api` with
+  `websocket = "off"`) and `messages` (`anthropic-api`). At 20, 200 and up to 2,000
+  turns it measures the first prompt after a start, the second one and a warm one.
+  At 20 turns it also measures a prompt after 31 s of quiet (with a pong of 0 and
+  100 ms), on a new connection (with an upgrade of 0 and 100 ms), after 10 min of idle
+  time, and against a provider that waits 500 ms. It counts connections, pings,
+  upgrades, list fetches and request bytes. It took the place of `bench_perf_ttft`,
+  whose servers answered at once.
+- `bench_perf_start_places`: the same spans on the `http` and `messages` paths in a
+  plain directory, a git work tree, a registered project in `cautious`, `auto` and
+  `manual`, and with a live hidden zsh that stays or that the user's `cd` moves (the
+  zsh cases need `EFR_TEST_ZSH=1`).
+- `bench_perf_start_accounts`: what a prompt waits when the Anthropic account
+  `anthropic-api.work` has a key whose list fetch fails (401, 401 after 300 ms, 500),
+  with `[model] provider` set to the OpenAI key, the Anthropic key or that account.
+- `bench_perf_start_retry`: how long one 503 before the answer holds the first text,
+  on the `http` and `messages` paths.
+- `bench_perf_start_idle`: a prompt after 11 min of idle time on the clock with a
+  history of 200 turns (the actor dropped its turns, the heap trim ran, the
+  connections closed), against a warm prompt of the same daemon.
 - `bench_perf_prompt_send`: the time from `prompt.send` to its ack, with 1, 5 and 20
   open conversations, in a project and outside, with the repository hint on and off.
   It counts the git runs.

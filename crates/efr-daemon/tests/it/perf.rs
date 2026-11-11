@@ -1,6 +1,7 @@
 //! The `bench_perf_*` benches of efrd end to end (`research/perf-plan.md`, section 2):
-//! the time to the first token, `prompt.send`, the end of a turn, one shell call in
-//! `auto`, the start of a subscription, and the memory of the daemon. `just bench-perf`
+//! the start of a prompt to its first text in phases (`start`), `prompt.send`, the end
+//! of a turn, one shell call in `auto`, the start of a subscription, and the memory of
+//! the daemon. `just bench-perf`
 //! runs them in release; each is an ignored test that prints its lines through
 //! `efr_test_support::bench::Report` and never fails on a time.
 //!
@@ -12,7 +13,7 @@
 //! a bench needs (the fake model, the fake launcher, the isolated git) on a clock that
 //! a bench can also move ahead, for the idle period of the memory bench. The model is
 //! [`PerfModel`], a provider of this test, or the real providers against the fake
-//! servers of `efr-test-daemon`.
+//! servers of `efr-test-daemon` (`ProviderServer` for the `start` benches).
 //!
 //! A bench that counts git processes runs again in a child process of this test binary
 //! with a `PATH` whose first `git` is a counting wrapper ([`GitCount`]): efrd runs git
@@ -21,8 +22,8 @@
 mod memory;
 mod prompt_send;
 mod shell_call;
+mod start;
 mod subscribe;
-mod ttft;
 mod turn_end;
 
 use std::collections::BTreeMap;
