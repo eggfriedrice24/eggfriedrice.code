@@ -48,6 +48,17 @@ into the GitHub release notes, and it stops when the section is missing.
   logged in to one. Without such a login, the prompt fails as before, and the message
   now names the login command too.
 
+### Security
+
+- efr now uses rusqlite 0.41.1, with SQLite 3.54 in the build. This version fixes the
+  advisory RUSTSEC-2026-0459 of libsqlite3-sys 0.38.2 (a database with a `-wal` file of
+  another page size). efr opens only its own database, so efr was open to the fault
+  only if another program wrote the files in its data directory.
+- efr now uses rustix 1.1.6. This version fixes the advisory RUSTSEC-2026-0486 of
+  rustix 1.1.5 (the extended attribute functions with an empty buffer). efr reads an
+  extended attribute only into a buffer that is not empty, so efr was not open to the
+  fault.
+
 ## [0.0.8] - 2026-11-05
 
 ### Added

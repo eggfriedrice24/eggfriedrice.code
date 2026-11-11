@@ -64,7 +64,7 @@ etcetera = "0.11.0"
 
 # Operating system
 # "fs" also holds inotify, which the config watcher of efr-daemon reads.
-rustix = { version = "1.1.5", default-features = false, features = ["std", "pty", "termios", "process", "fs", "param"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "pty", "termios", "process", "fs", "param"] }
 nix = { version = "0.31.3", default-features = false, features = ["process", "signal", "socket", "term", "fs", "user"] }
 libc = { version = "0.2.190", default-features = false, features = ["std"] }
 # Puts back what SIGQUIT does for efr once its own Ctrl+\ handler is installed
@@ -76,8 +76,8 @@ landlock = "0.4.7"
 seccompiler = { version = "0.5.0", default-features = false, features = ["json"] }
 
 # Storage
-rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
-rusqlite_migration = { version = "2.6.0", default-features = false }
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"] }
+rusqlite_migration = { version = "2.7.0", default-features = false }
 
 # HTTP and TLS
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "json", "stream"] }
