@@ -47,6 +47,9 @@ into the GitHub release notes, and it stops when the section is missing.
   provider` is `openai-api`, now runs on a provider of that company when you are
   logged in to one. Without such a login, the prompt fails as before, and the message
   now names the login command too.
+- efrd reads the output of your shell with libghostty-vt 1.0.0, the first stable
+  release of the terminal core of Ghostty. Before, it used a commit from before the
+  Ghostty 1.4.0 release. A build from source needs Zig 0.17.0, as before.
 
 ### Security
 

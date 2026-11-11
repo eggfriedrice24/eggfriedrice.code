@@ -1,7 +1,8 @@
 # 0004: Pin libghostty-vt by git rev, not crates.io 0.2.2
 
 Status: accepted, 2026-10-03. The pin values below are the first ones; `docs/ghostty-pin.md`
-holds the current triple (moved to Zig 0.17.0 on 2026-10-27).
+holds the current triple (moved to Zig 0.17.0 on 2026-10-27 and to libghostty-vt 1.0.0
+on 2026-11-11).
 
 ## Context
 
