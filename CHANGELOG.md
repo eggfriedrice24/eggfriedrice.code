@@ -339,6 +339,11 @@ into the GitHub release notes, and it stops when the section is missing.
   with the name in bold and the root muted, with `~` for your home directory. Before,
   they said `registered the project tool (/home/you/src/tool)`. `efr sandbox explain`
   says `at home` for a path outside the projects, in place of `outside a project`.
+- The `not covered:` line at the end of a turn no longer names what each snapshot
+  leaves out, such as a large ignored directory or a nested repository. Those are the
+  same after every turn, and the preview of `efr undo` names them. The line still
+  shows for what is special to the turn: a command that still runs, a directory over
+  the copy limits, a snapshot that is lost.
 - The system prompt tells the model to search text with `rg` and to find files by
   name with `rg --files`, and to use `grep` and `find` only when `rg` is not
   installed. The AUR packages name `ripgrep` as an optional dependency.

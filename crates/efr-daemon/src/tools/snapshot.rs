@@ -30,8 +30,8 @@ use efr_protocol::{
 use efr_sandbox::WorktreeCheck;
 use efr_scope::Home;
 use efr_snapshot::{
-    CallSnapshot, CoverResult, GitDirs, LeftOutReason, Limits, NOT_COVERED_REFS, Phase, Root,
-    RootCover, Snapshots, TurnEnd, shown_prefix,
+    CallSnapshot, CoverResult, GitDirs, Limits, NOT_COVERED_REFS, Phase, Root, RootCover,
+    Snapshots, TurnEnd, shown_prefix,
 };
 use efr_stdx::time::Stopwatch;
 use efr_tools::{WrittenFile, WrittenKind};
@@ -554,16 +554,6 @@ pub(crate) fn undo_info(
             .find(|(_, _, path)| path == root)
             .map_or_else(|| root.display().to_string(), |(name, _, _)| name.clone())
     };
-    let shown_path = |path: &Path| {
-        for (_, prefix, root) in &ended.roots {
-            if let Ok(below) = path.strip_prefix(root)
-                && !below.as_os_str().is_empty()
-            {
-                return format!("{prefix}{}", below.display());
-            }
-        }
-        path.display().to_string()
-    };
     for (root, reason) in &end.not_covered {
         let text = match reason.strip_prefix(NOT_COVERED_REFS) {
             Some(why) => format!("refs of {} ({why})", shown_root(root)),
@@ -576,13 +566,12 @@ pub(crate) fn undo_info(
             not_covered.push(format!("{name} (a call still runs)"));
         }
     }
-    for (path, reason) in &end.left_out {
-        let mut shown = shown_path(path);
-        if *reason == LeftOutReason::SkippedDir && !shown.ends_with('/') {
-            shown.push('/');
-        }
-        not_covered.push(format!("{shown} ({})", left_out_text(*reason)));
-    }
+    // NOTE: the paths that each snapshot of a root leaves out (large or ignored files,
+    // nested repositories) are not named here. They are the same after every turn, so
+    // a line about them at each end is noise; the preview of `efr undo` names the ones
+    // that matter, from the snapshot's own record. This list holds what is special to
+    // this turn: a root with no usable snapshot, a call that still runs, and the files
+    // outside the roots that no copy covers.
     not_covered.extend(home_not_covered.iter().cloned());
     let more = not_covered.len().saturating_sub(MAX_NOT_COVERED);
     not_covered.truncate(MAX_NOT_COVERED);
@@ -634,21 +623,6 @@ fn changed_in(
     };
     let count = changes.files.iter().filter(mine).count();
     u32::try_from(count).unwrap_or(u32::MAX)
-}
-
-/// Why a snapshot left a path out, in a few words for the end of a turn.
-fn left_out_text(reason: LeftOutReason) -> &'static str {
-    match reason {
-        LeftOutReason::TooLarge => "over snapshot.max_file_mib",
-        LeftOutReason::IgnoredTooLarge | LeftOutReason::SkippedDir => "ignored, large",
-        LeftOutReason::IgnoredCap => "over 2000 ignored files",
-        LeftOutReason::IgnoredOff => "ignored",
-        LeftOutReason::Unreadable => "unreadable",
-        LeftOutReason::NotUtf8 => "name is not UTF-8",
-        LeftOutReason::NestedRepo => "nested repository",
-        LeftOutReason::RootTooLarge => "over snapshot.max_files",
-        _ => "left out",
-    }
 }
 
 /// The turn's snapshots for its `snapshot_taken` events: both phases of each root,
