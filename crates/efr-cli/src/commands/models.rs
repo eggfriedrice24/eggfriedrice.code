@@ -106,6 +106,18 @@ pub(crate) fn listing(
             }),
         }
     }
+    // An account whose list did not come yet has no model. It keeps its head, which says
+    // where its list stands, so the command never prints nothing for a login.
+    for catalog in list.catalogs.iter().chain(&list.catalog) {
+        let provider = catalog.provider.as_deref();
+        if !accounts.iter().any(|account| account.provider == provider) {
+            accounts.push(Account {
+                provider,
+                models: Vec::new(),
+                signed_out: provider.is_some_and(|id| signed_out.iter().any(|out| out == id)),
+            });
+        }
+    }
     for id in signed_out {
         if !accounts.iter().any(|account| account.provider == Some(id.as_str())) {
             accounts.push(Account { provider: Some(id), models: Vec::new(), signed_out: true });
@@ -118,6 +130,9 @@ pub(crate) fn listing(
     }
     if !list.models.is_empty() {
         let _ = writeln!(out, "{}", paint(&legend(&accounts, options), Tone::Dim, options));
+    } else if out.ends_with("\n\n") {
+        // No model, so no legend: the blank line that stands before it goes too.
+        out.pop();
     }
     out
 }

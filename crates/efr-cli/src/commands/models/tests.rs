@@ -159,6 +159,36 @@ fn an_account_that_logged_out_keeps_its_head() {
 }
 
 #[test]
+fn an_account_with_no_list_yet_keeps_its_head() {
+    // The only login is an account whose list did not come yet: no model, one catalog.
+    let missing = CatalogStatus {
+        provider: Some("anthropic-api.work".to_owned()),
+        origin: CatalogOrigin::Missing,
+        fetched_at: None,
+    };
+    let list = ModelsListResult {
+        models: Vec::new(),
+        catalog: Some(missing.clone()),
+        catalogs: vec![missing.clone()],
+    };
+    assert_eq!(
+        plain(&list, &[]),
+        "work · anthropic-api · no list yet; efrd fetches it in the background\n"
+    );
+    // Next to an account that has its list, it stands after it, before the legend.
+    let mut list = accounts();
+    list.catalogs.push(CatalogStatus { provider: Some("openai-api".to_owned()), ..missing });
+    let out = plain(&list, &personal());
+    assert!(
+        out.contains(
+            "\nopenai-api · openai-api · no list yet; efrd fetches it in the background\n\n"
+        ),
+        "{out}"
+    );
+    assert!(out.ends_with("picks one\n"), "{out}");
+}
+
+#[test]
 fn text_from_the_daemon_cannot_drive_the_terminal() {
     let mut list = models();
     list.models[0].id = "evil\x1b]52;c;aGk=\x07".to_owned();
