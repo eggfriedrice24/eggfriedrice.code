@@ -16,7 +16,14 @@
 //!   at all (when it is not, markdown passes through unchanged).
 //! - [`Role`] and [`Palette`]: every colour goes through a role; the default palette
 //!   uses the terminal's 16 colours. [`RenderOptions::paint`] paints the CLI's own
-//!   lines in a role.
+//!   lines in a role, [`RenderOptions::paint_with`] adds [`Attrs`] such as bold or
+//!   reverse, and [`RenderOptions::fill`] gives the background of a background role
+//!   (`code.bg`, `diff.add.bg`, `diff.remove.bg`) for a row filled with `ESC [ K`.
+//! - [`Glyphs`]: the marks of the CLI's own lines, in a Unicode and an ASCII table
+//!   ([`RenderOptions::glyphs`]).
+//! - [`diff_lines`]: a unified diff as one [`DiffLine`] for each line, with its kind,
+//!   its painted sign, its painted rows and the fill of its rows, for a caller that
+//!   lays the diff out itself.
 //! - [`text_width`] and [`display_width`]: columns by code point or by grapheme
 //!   cluster, as the terminal counts them. [`display_rows`] and [`last_rows`]: the
 //!   rows of a painted line as the terminal wraps it, and its last rows.
@@ -38,10 +45,12 @@
 mod block;
 mod code;
 mod code_theme;
+mod diff_lines;
 mod diff_rows;
 #[cfg(test)]
 mod elements;
 mod error;
+mod glyph;
 mod highlight;
 mod link;
 mod options;
@@ -56,11 +65,13 @@ mod wrap;
 
 pub use code::Preload;
 pub use code_theme::CodeTheme;
+pub use diff_lines::{DiffLine, DiffLineKind, diff_lines};
 pub use diff_rows::diff_rows;
 pub use error::RenderError;
+pub use glyph::Glyphs;
 pub use options::{ColourMode, RenderOptions, Theme};
 pub use palette::{Palette, Role};
 pub use renderer::{Renderer, Update, render};
-pub use style::Colour;
+pub use style::{Attrs, Colour};
 pub use trace::render_trace;
 pub use width::{WidthMethod, display_rows, display_width, last_rows, text_width};

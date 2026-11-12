@@ -168,8 +168,14 @@ fn bench_perf_stream_ladder() {
                     let options = RenderOptions::new(size.cols)
                         .with_colour(ColourMode::TrueColor)
                         .with_width_method(WidthMethod::Grapheme);
-                    let look =
-                        Look { motion: true, summary: true, progress: false, diff_lines: 20 };
+                    let look = Look {
+                        motion: true,
+                        summary: true,
+                        progress: false,
+                        diff_lines: 20,
+                        diff_lines_long: 8,
+                        bell: false,
+                    };
                     let mut view = TurnView::new(turn(), options).with_look(look).with_input();
                     view.start();
                     view.show_row(true);

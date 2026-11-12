@@ -37,6 +37,20 @@ directories, a store and provider traffic from one place and never from the mach
   database: the same migrations, writer and read functions as the daemon's, with event
   times from the clock the test passes. PTY recordings, which are files, go to a
   temporary directory removed with the value. `events()` reads the whole log.
+- `design`: the frames of the terminal design as fixtures, and a check of real output
+  against them. `cargo xtask design-frames` writes `fixtures/design/TM-<board>.jsonl`
+  from the export of the design boards (one JSON object for each frame: its board,
+  number, caption, columns, depth, the truecolor frame it draws in another depth, and
+  its rows with their segments, fill and live flag; each colour resolved for the
+  depth: `#rrggbb` in truecolor, an ANSI slot in 16 colours, none without colour). It
+  drops the frames that lose and makes the corrections of the build spec (the module
+  of the xtask lists them). `Frame::load(board, number)` reads a frame;
+  `cells(ansi)` reads real output as a terminal shows it (SGR, `ESC [ K` and its fill,
+  OSC 8); `expect(frame, depth)` gives the board's own frame of a `Depth` or derives
+  it from the truecolor frame through one table; `assert_rows(frame, range, real,
+  depth)` compares text, colour and attributes cell by cell and names the first row
+  that differs. `DESIGN_ROLES` gives the 16 roles of efr's palette with the colours of
+  the design. The module does not depend on `efr-render`.
 - `fixtures`: `fixtures::path(file!(), "case.ndjson")` is the file in the `fixtures/`
   directory of the crate that holds the calling test, found from `file!()` and never
   from the current directory. `crate_dir` and `dir` give the crate and its fixture

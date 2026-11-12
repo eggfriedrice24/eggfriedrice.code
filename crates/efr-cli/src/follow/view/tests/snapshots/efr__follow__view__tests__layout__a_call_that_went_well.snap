@@ -4,13 +4,13 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo met
 ---
 === 40 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.…\e[0m
+\e[33m•\e[0m \e[32m$ cargo metadata --no-deps | jq -r '.…\e[0m
 \e[2m  │ efr-cli\e[0m
 \e[2m  │ efr-render\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cargo metadata --no-deps | jq -r \e[0m\e[2m\\e[0m
-        \e[36m'.packages[].name'\e[0m
+\e[33m·\e[0m \e[32m$ cargo metadata --no-deps | jq -r \e[0m\e[2m\\e[0m
+        \e[32m'.packages[].name'\e[0m
   \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
 
@@ -28,12 +28,12 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo met
 
 === 80 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
+\e[33m•\e[0m \e[32m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
 \e[2m  │ efr-cli\e[0m
 \e[2m  │ efr-render\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
+\e[33m·\e[0m \e[32m$ cargo metadata --no-deps | jq -r '.packages[].name'\e[0m
   \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
 

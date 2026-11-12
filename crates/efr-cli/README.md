@@ -655,24 +655,36 @@ Replies:
   turn_summary = true          # the line at the end of each turn
   progress = "auto"            # the progress bar of the tab: auto, on or off
   diff_lines = 20              # the lines of a file write's diff; 0 shows none
+  diff_lines_long = 8          # the same from the 6th call of a turn on
   turn_input = true            # the input row below a running turn
+  bell = false                 # one BEL when a question appears
 
   [render.colors]
   accent = "#f2c14e"           # "#rrggbb", an ANSI slot 0 to 15, or a name
+  code_bg = "#121722"          # a background role: "#rrggbb" only, truecolor only
   ```
 
   Every colour of a reply and of the CLI's own lines goes through a role of
   `efr-render` (`text`, `muted`, `accent`, `heading`, `link`, `code`, `success`,
-  `warning`, `error`, `quote`, `diff.add`, `diff.remove`, `diff.hunk`; the list of
+  `warning`, `error`, `quote`, `diff.add`, `diff.remove`, `diff.hunk`, and the three
+  backgrounds `code.bg`, `diff.add.bg`, `diff.remove.bg`, whose keys are `code_bg`,
+  `diff.add_bg` and `diff.remove_bg`; the list of
   `efr_config::COLOR_ROLES` is the same, and a test keeps them equal). The CLI's tones
-  map onto roles: notes are `muted`, what needs the user's care is `warning`, a failed
-  exit code is `error`, and bold stays bold (SGR 1). A role takes its colour from
+  (`format::Tone`) map onto roles and the attributes they add, painted through
+  `RenderOptions::paint_with`: notes are `muted`, what needs the user's care is
+  `warning`, a failed exit code is `error`, and bold stays bold (SGR 1). The tones of
+  the design's legend add `Text`, `TextBold`, `TextItalic`, `FailureBold`,
+  `AttentionBold` and `Badge` (the question badge: `warning` in reverse and bold, a
+  bold `?` without colour). A role takes its colour from
   `[render.colors]`, else from the theme file that `render.palette` names (`[colors]`
   with the same keys), else from the terminal's 16 colours (the accent is slot 3,
   yellow). A `#rrggbb` colour takes the nearest of the 16 colours without truecolor,
   and no colour under `NO_COLOR`. The theme file's `code_theme`, the path of a
   `.tmTheme` file (absolute, `~/...` or relative to the theme file), wins over `theme`
-  for code blocks and diffs. `theme = "auto"` takes `theme_dark` or `theme_light` as
+  for code blocks and diffs, and its `code_theme_ansi`, a `.tmTheme` file in bat's ANSI
+  encoding, wins in 16 colours. The glyphs of efr's own lines come from one table,
+  `efr_render::Glyphs`: Unicode when the locale is UTF-8 (`LC_ALL`, else `LC_CTYPE`,
+  else `LANG`, as the zsh plugin reads it), else ASCII (`terminal.rs`). `theme = "auto"` takes `theme_dark` or `theme_light` as
   `EFR_TERMINAL_BG` says `dark` or `light`; the zsh plugin asks the terminal for its
   background once when it loads and sets the variable. Without it, `auto` takes the
   dark theme. `efr` itself sends no query. In Ghostty outside a terminal multiplexer
@@ -1084,6 +1096,23 @@ that efrd could not fetch names the cause or the login.
 Logs go to stderr, filtered by `EFR_LOG` (default `warn`, because stderr shares the
 terminal with the reply).
 
+The code of a turn's look is split so that each part has its own files.
+`follow/view.rs` holds the `TurnView` struct, the routing of each event
+(`turn_event` is a short match), the frame and the live zone (`draw`, `live_body`).
+`impl TurnView` blocks next to it hold the rest: `follow/view/calls.rs` (the start,
+the output and the end of a tool call and the block it leaves), `asking.rs` (the
+questions, their answer lines, the reviewer's verdicts and the always rules),
+`ending.rs` (the start and the end of a turn and a compaction) and `waits.rs` (a
+command that waits for input and the texts of each wait). `follow/view/fold.rs` holds
+the fold of reads (`Fold`), a seam that adds no row yet. `format.rs` keeps the tones,
+the spacing and the small text helpers, and re-exports `format/call.rs` (the text of
+a call), `format/ending.rs` (the lines of the end of a turn) and `format/status.rs`
+(`efr status` and the other listings). `format/route.rs` has `model_line`, the seam of
+the `⇄` line of a switch of model, which gives no piece yet. `format::Spacing` has the
+design's kinds `Row`, `Steer` and `End` next to today's: no blank line between rows,
+one between rows and prose, one above and one below a steer, one before the end lines
+and none between them, none after the prompt line.
+
 ## Tier
 
 Tier 4: a binary.
@@ -1108,7 +1137,8 @@ handler is installed, without unsafe code), `qrcode` (the pairing code of `efr d
 without its default features, so with no dependency of its own).
 
 `NO_COLOR`, `TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `TMUX`, `STY`,
-`ZELLIJ` and `WT_SESSION` are read in `terminal.rs` with `std::env::var_os`,
+`ZELLIJ`, `WT_SESSION`, `LC_ALL`, `LC_CTYPE` and `LANG` are read in `terminal.rs` with
+`std::env::var_os`,
 and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `FZF_QUERY` and
 `FZF_PREVIEW_COLUMNS` are read in `context.rs` too: fzf exports them to the commands of
@@ -1171,6 +1201,14 @@ Run the tests of this crate alone, without the rest of the workspace:
 ```sh
 cargo nextest run -p efr-cli
 ```
+
+The test `glyphs` of the test binary checks that no source file of `efr-cli` or
+`efr-render` writes a glyph of `efr_render::Glyphs` as a literal; the files of today
+are listed there, and each slice of the terminal look takes out the files that it
+moves to the table. `format/context/tests.rs` compares the context gauge with
+TM-Legend frame 31 through `efr_test_support::design`, with the options of
+`testing::design_options` (the design's palette in truecolor, the default one in 16
+colours and without colour): the pattern of the tests of the terminal look.
 
 Unit tests cover argument parsing (with `efr --help` snapshots), output formatting
 (insta snapshots of status, listings, transcripts, config and rendered turns), the

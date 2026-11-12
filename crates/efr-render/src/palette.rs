@@ -6,14 +6,23 @@
 //! [`Colour`] instead, from the user's config or theme file. An RGB colour falls back
 //! to the nearest of the 16 colours in 16-colour mode. Without colour (`NO_COLOR`) a
 //! role keeps its attributes, and some roles get one in place of the colour: `muted`
-//! is dim, `accent`, `heading` and `error` are bold.
+//! and `diff.hunk` are dim, `accent`, `heading`, `warning` and `error` are bold.
+//!
+//! Three roles are backgrounds: `code.bg` behind the rows of a code block, and
+//! `diff.add.bg` and `diff.remove.bg` behind added and removed rows of a diff. A
+//! background role has no default colour and no attribute: it paints only in
+//! [`ColourMode::TrueColor`] and only when the palette sets an RGB colour, and it is
+//! never reduced to one of the 16 colours. [`RenderOptions::fill`] gives its SGR
+//! parameters.
+//!
+//! [`RenderOptions::fill`]: crate::RenderOptions::fill
 
 use std::fmt;
 use std::str::FromStr;
 
 use crate::error::RenderError;
 use crate::options::ColourMode;
-use crate::style::{BLUE, CYAN, Colour, GREEN, RED, Style, YELLOW, reduce_colour};
+use crate::style::{CYAN, Colour, GREEN, MAGENTA, RED, Style, YELLOW, reduce_colour};
 
 /// What a piece of output is, for its colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -28,14 +37,16 @@ pub enum Role {
     /// Headings of level 1 and 2; they are bold, level 1 also underlined. Default: the
     /// accent colour.
     Heading,
-    /// Links: underlined. Default: palette entry 4 (blue).
+    /// Links: underlined. Default: palette entry 5 (magenta).
     Link,
-    /// Inline code. Default: palette entry 6 (cyan).
+    /// Inline code and a command to run. Default: palette entry 2 (green).
     Code,
     /// Done task boxes and other good news. Default: palette entry 2 (green).
     Success,
-    /// Questions, the full-rights line, untrusted marks and refusals: bold. Default:
-    /// palette entry 3 (yellow).
+    /// Questions, the full-rights line, untrusted marks and refusals. Default: palette
+    /// entry 3 (yellow); bold only without colour. A caller that wants it bold, such as
+    /// the title of a question, asks for bold with
+    /// [`RenderOptions::paint_with`](crate::RenderOptions::paint_with).
     Warning,
     /// Failures, such as a failed exit code. Default: palette entry 1 (red).
     Error,
@@ -45,13 +56,22 @@ pub enum Role {
     DiffAdd,
     /// Removed lines of a diff. Default: palette entry 1 (red).
     DiffRemove,
-    /// Hunk headers of a diff. Default: palette entry 6 (cyan).
+    /// Hunk headers of a diff. Default: palette entry 6 (cyan); dim without colour.
     DiffHunk,
+    /// The background of the rows of a code block (`code.bg`). No default: it paints
+    /// only in truecolor and only when the palette sets an RGB colour.
+    CodeBg,
+    /// The background of an added row of a diff (`diff.add.bg`). No default: without
+    /// one, a truecolor code theme gives a tint of its own.
+    DiffAddBg,
+    /// The background of a removed row of a diff (`diff.remove.bg`). No default:
+    /// without one, a truecolor code theme gives a tint of its own.
+    DiffRemoveBg,
 }
 
 impl Role {
     /// Every role, in the order of the config keys.
-    pub const ALL: [Role; 13] = [
+    pub const ALL: [Role; 16] = [
         Role::Text,
         Role::Muted,
         Role::Accent,
@@ -65,6 +85,9 @@ impl Role {
         Role::DiffAdd,
         Role::DiffRemove,
         Role::DiffHunk,
+        Role::CodeBg,
+        Role::DiffAddBg,
+        Role::DiffRemoveBg,
     ];
 
     /// The name of the role in the config and in a theme file, such as `muted` or
@@ -84,12 +107,21 @@ impl Role {
             Role::DiffAdd => "diff.add",
             Role::DiffRemove => "diff.remove",
             Role::DiffHunk => "diff.hunk",
+            Role::CodeBg => "code.bg",
+            Role::DiffAddBg => "diff.add.bg",
+            Role::DiffRemoveBg => "diff.remove.bg",
         }
     }
 
     /// The role named `name`, as [`Role::name`] writes it.
     pub fn from_name(name: &str) -> Option<Role> {
         Role::ALL.into_iter().find(|role| role.name() == name)
+    }
+
+    /// True for the roles that colour the background of a row, not its text:
+    /// `code.bg`, `diff.add.bg` and `diff.remove.bg`.
+    pub const fn is_background(self) -> bool {
+        matches!(self, Role::CodeBg | Role::DiffAddBg | Role::DiffRemoveBg)
     }
 
     const fn index(self) -> usize {
@@ -109,13 +141,14 @@ impl Role {
             Role::Accent => look(Some(YELLOW), plain, plain.bold()),
             // The colour comes from the accent; see `Palette::colour`.
             Role::Heading => look(None, plain.bold(), plain),
-            Role::Link => look(Some(BLUE), plain.underline(), plain),
-            Role::Code | Role::DiffHunk => look(Some(CYAN), plain, plain),
-            Role::Success | Role::DiffAdd => look(Some(GREEN), plain, plain),
-            Role::Warning => look(Some(YELLOW), plain.bold(), plain),
+            Role::Link => look(Some(MAGENTA), plain.underline(), plain),
+            Role::Code | Role::Success | Role::DiffAdd => look(Some(GREEN), plain, plain),
+            Role::DiffHunk => look(Some(CYAN), plain, plain.dim()),
+            Role::Warning => look(Some(YELLOW), plain, plain.bold()),
             Role::Error => look(Some(RED), plain, plain.bold()),
             Role::Quote => look(None, plain.italic(), plain),
             Role::DiffRemove => look(Some(RED), plain, plain),
+            Role::CodeBg | Role::DiffAddBg | Role::DiffRemoveBg => look(None, plain, plain),
         }
     }
 }
@@ -174,8 +207,9 @@ impl Palette {
     }
 
     /// The colour of `role` before the colour mode reduces it: the palette's own, else
-    /// the default. `None` means the terminal's own foreground. A heading without a
-    /// colour of its own has the accent's colour.
+    /// the default. `None` means the terminal's own foreground, or for a background
+    /// role no background. A heading without a colour of its own has the accent's
+    /// colour.
     pub fn colour(&self, role: Role) -> Option<Colour> {
         match (self.get(role), role) {
             (Some(colour), _) => Some(colour),
@@ -187,6 +221,9 @@ impl Palette {
     /// The style of `role` in colour mode `mode`: its colour reduced to the mode, its
     /// attributes, and the attributes it has in place of a colour when there is none.
     pub(crate) fn style(&self, role: Role, mode: ColourMode) -> Style {
+        if role.is_background() {
+            return Style { bg: self.background(role, mode), ..Style::PLAIN };
+        }
         let look = role.default_look();
         let colour = reduce_colour(self.colour(role), mode);
         let style = Style { fg: colour, ..look.always };
@@ -195,10 +232,30 @@ impl Palette {
 
     /// The colour of `role` in colour mode `mode` without the attributes it always has;
     /// without a colour, the attributes it has in place of one.
+    ///
+    /// NOTE: `warning` is bold without colour so that a question stands out, and a
+    /// gauge in the `warning` level must not borrow that bold: the design shows a gauge
+    /// bold only from the `error` level (TM-Legend, the context gauge).
     pub(crate) fn tint(&self, role: Role, mode: ColourMode) -> Style {
+        if role.is_background() {
+            return self.style(role, mode);
+        }
         match reduce_colour(self.colour(role), mode) {
             Some(colour) => Style { fg: Some(colour), ..Style::PLAIN },
+            None if role == Role::Warning => Style::PLAIN,
             None => Style::PLAIN.patch(role.default_look().without_colour),
+        }
+    }
+
+    /// The background of the background role `role` in colour mode `mode`: the
+    /// palette's RGB colour in truecolor, else none. A palette entry is never a
+    /// background: the terminal's 16 colours have no shade made for one.
+    pub(crate) fn background(&self, role: Role, mode: ColourMode) -> Option<Colour> {
+        match (mode, self.get(role)) {
+            (ColourMode::TrueColor, Some(colour @ Colour::Rgb(..))) if role.is_background() => {
+                Some(colour)
+            }
+            _ => None,
         }
     }
 }

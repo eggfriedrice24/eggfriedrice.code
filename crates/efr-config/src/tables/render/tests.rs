@@ -88,9 +88,39 @@ fn entries_follow_the_roles_and_the_keys() {
     let names: Vec<&str> = colors.entries().iter().map(|(role, _)| *role).collect();
     assert_eq!(names, COLOR_ROLES);
     for (index, role) in COLOR_ROLES.iter().enumerate() {
-        assert_eq!(CONFIG_COLOR_KEYS[index], format!("render.colors.{role}"));
-        assert_eq!(THEME_COLOR_KEYS[index], format!("colors.{role}"));
+        // NOTE: a key of TOML cannot be a value and a table, so the key of a
+        // background role ends in `_bg`: `code.bg` is `code_bg`.
+        let key =
+            role.strip_suffix(".bg").map_or_else(|| (*role).to_owned(), |r| format!("{r}_bg"));
+        assert_eq!(CONFIG_COLOR_KEYS[index], format!("render.colors.{key}"));
+        assert_eq!(THEME_COLOR_KEYS[index], format!("colors.{key}"));
     }
+    assert_eq!(&COLOR_ROLES[13..], ["code.bg", "diff.add.bg", "diff.remove.bg"]);
+    assert_eq!(
+        &CONFIG_COLOR_KEYS[13..],
+        ["render.colors.code_bg", "render.colors.diff.add_bg", "render.colors.diff.remove_bg"]
+    );
+}
+
+#[test]
+fn a_background_takes_only_an_rgb_colour() {
+    let colors =
+        parse("code_bg = \"#121722\"\ndiff.add_bg = \"#192c17\"\ndiff.remove_bg = \"#391d1e\"\n");
+    assert_eq!(colors.first_invalid(), None);
+    assert_eq!(
+        colors.colors(),
+        [
+            ("code.bg", RoleColor::Rgb(0x12, 0x17, 0x22)),
+            ("diff.add.bg", RoleColor::Rgb(0x19, 0x2c, 0x17)),
+            ("diff.remove.bg", RoleColor::Rgb(0x39, 0x1d, 0x1e)),
+        ]
+    );
+    assert_eq!(parse("code_bg = 0\n").first_invalid(), Some((13, &ColorValue::Number(0))));
+    let named = parse("diff.remove_bg = \"red\"\n");
+    assert_eq!(named.first_invalid(), Some((15, &ColorValue::Text("red".to_owned()))));
+    let over = parse("code_bg = \"#000000\"\n").over(&colors);
+    assert_eq!(over.colors()[0], ("code.bg", RoleColor::Rgb(0, 0, 0)));
+    assert_eq!(over.colors()[1], ("diff.add.bg", RoleColor::Rgb(0x19, 0x2c, 0x17)));
 }
 
 fn parse(text: &str) -> RenderColors {
@@ -141,4 +171,12 @@ fn the_palette_path_expands_the_home_directory() {
         Some(Path::new("/etc/efr/theme.toml"))
     );
     assert_eq!(RenderSettings::default().palette_path(home), None);
+}
+
+#[test]
+fn a_long_turn_shows_eight_diff_lines_and_no_bell_rings_by_default() {
+    let defaults = RenderSettings::default();
+    assert_eq!(defaults.diff_lines, 20);
+    assert_eq!(defaults.diff_lines_long, 8);
+    assert!(!defaults.bell);
 }

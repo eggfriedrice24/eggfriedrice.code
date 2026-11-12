@@ -248,12 +248,7 @@ async fn send_and_follow(
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
     let render = &ctx.settings.render;
-    let look = Look {
-        motion: render.motion,
-        summary: render.turn_summary,
-        progress: progress::wanted(render.progress, &ctx.term),
-        diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
-    };
+    let look = Look::of(render, progress::wanted(render.progress, &ctx.term));
     let scope = result
         .route
         .as_ref()

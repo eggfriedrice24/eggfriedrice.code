@@ -1,12 +1,14 @@
 [files]
 # The subscribe recordings of the phone app cut words into drafts at any character. The
-# decode bench of the app holds the same lines in app/src/lib/dev/recordings.ts.
+# decode bench of the app holds the same lines in app/src/lib/dev/recordings.ts. The
+# frames of the terminal design cut a word where the band of the status row starts.
 extend-exclude = [
   "target/",
   "*.snap",
   "Cargo.lock",
   "app/test/recordings/*.ndjson",
   "app/src/lib/dev/recordings.ts",
+  "crates/efr-test-support/fixtures/design/*.jsonl",
 ]
 
 [default]

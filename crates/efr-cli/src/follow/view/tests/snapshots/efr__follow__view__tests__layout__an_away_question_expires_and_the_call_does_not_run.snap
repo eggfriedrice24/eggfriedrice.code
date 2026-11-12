@@ -4,8 +4,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, 
 ---
 === 40 columns, colour
 [asked]
-\e[1;33m? allow this command\e[0m
-\e[2m│ \e[0m\e[36mgit push\e[0m
+\e[33m? allow this command\e[0m
+\e[2m│ \e[0m\e[32mgit push\e[0m
 \e[2m│ \e[0m\e[2mefr counts you away: this question\e[0m
 \e[2m│ \e[0m  \e[2mwaits only a short time, then the\e[0m
 \e[2m│ \e[0m  \e[2mcall does not run\e[0m
@@ -15,7 +15,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, 
 \e[31m✗ approval expired: nobody answered\e[0m
   \e[31mwhile you were away; the call did not\e[0m
   \e[31mrun\e[0m
-\e[33m·\e[0m \e[36m$ git push\e[0m
+\e[33m·\e[0m \e[32m$ git push\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -36,15 +36,15 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(5, away(Presence::Away, 
 
 === 80 columns, colour
 [asked]
-\e[1;33m? allow this command\e[0m
-\e[2m│ \e[0m\e[36mgit push\e[0m
+\e[33m? allow this command\e[0m
+\e[2m│ \e[0m\e[32mgit push\e[0m
 \e[2m│ \e[0m\e[2mefr counts you away: this question waits only a short time, then the call does\e[0m
 \e[2m│ \e[0m  \e[2mnot run\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[31m✗ approval expired: nobody answered while you were away; the call did not run\e[0m
-\e[33m·\e[0m \e[36m$ git push\e[0m
+\e[33m·\e[0m \e[32m$ git push\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR

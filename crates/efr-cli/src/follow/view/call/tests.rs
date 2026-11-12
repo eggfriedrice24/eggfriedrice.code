@@ -122,11 +122,11 @@ fn the_running_rows_show_the_time_from_one_second_on_and_a_few_lines() {
     call.show(at(0));
     assert_eq!(
         readable(&call.running('⠹', at(900), false, None, &options)),
-        "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m\n"
+        "\\e[33m\u{2839}\\e[0m \\e[32m$ cargo build\\e[0m\n"
     );
     assert_eq!(
         readable(&call.running('⠹', at(12_300), false, None, &options)),
-        "\\e[33m\u{2839}\\e[0m \\e[36m$ cargo build\\e[0m  \\e[2m12s\\e[0m\n"
+        "\\e[33m\u{2839}\\e[0m \\e[32m$ cargo build\\e[0m  \\e[2m12s\\e[0m\n"
     );
     // An approval answered later starts the time again.
     call.approved(Some(at(20_000)));
@@ -172,7 +172,7 @@ fn the_tail_is_the_last_three_lines_with_text_after_a_bar() {
     insta::assert_snapshot!(readable(&tail(&lines, false, &options)));
     // The prompt of a question stands out.
     let asked = tail(&["Password:".to_owned()], true, &options);
-    assert_eq!(readable(&asked), "\\e[2m  \u{2502} \\e[0m\\e[1;33mPassword:\\e[0m\n");
+    assert_eq!(readable(&asked), "\\e[2m  \u{2502} \\e[0m\\e[33mPassword:\\e[0m\n");
     assert_eq!(tail(&lines, false, &options.with_terminal(false)).lines().count(), 3);
 }
 

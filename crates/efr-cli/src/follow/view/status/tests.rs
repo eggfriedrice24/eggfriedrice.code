@@ -209,7 +209,7 @@ fn status_row_shows_full_before_away() {
     status.at(at(2_000), false);
     let row = status.row(at(2_000), &options);
     let full = "  \x1b[38;2;224;108;117mfull\x1b[0m";
-    let away = "  \x1b[1;35maway\x1b[0m";
+    let away = "  \x1b[35maway\x1b[0m";
     assert!(row.ends_with(&format!("{full}{away}\n")), "{}", readable(&row));
     // Without colour the tag stays, as the other roles do, and a turn that is not full
     // has none.

@@ -6,6 +6,12 @@
 //! ones of `efr-render` (`efr_render::Role`): this crate may not depend on it, so the
 //! names are listed here as well, and `efr`, which depends on both, must keep the two
 //! lists equal.
+//!
+//! Three roles are backgrounds: `code.bg`, `diff.add.bg` and `diff.remove.bg`. TOML
+//! cannot hold `code.bg` next to `code = "..."`, nor `diff.add.bg` next to `diff.add`,
+//! so their keys are `code_bg`, `diff.add_bg` and `diff.remove_bg`. A background takes
+//! only `#rrggbb`: it paints only in truecolor, and no slot of the 16 colours is made
+//! for one.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -15,8 +21,9 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize};
 
 /// The names of the colour roles, in the order of their keys. `diff.add` is the key
-/// `add` of the table `diff`.
-pub const COLOR_ROLES: [&str; 13] = [
+/// `add` of the table `diff`; the role `code.bg` is the key `code_bg`, and
+/// `diff.add.bg` the key `add_bg` of the table `diff`.
+pub const COLOR_ROLES: [&str; 16] = [
     "text",
     "muted",
     "accent",
@@ -30,10 +37,16 @@ pub const COLOR_ROLES: [&str; 13] = [
     "diff.add",
     "diff.remove",
     "diff.hunk",
+    "code.bg",
+    "diff.add.bg",
+    "diff.remove.bg",
 ];
 
+/// The roles of [`COLOR_ROLES`] that colour a background, which take only `#rrggbb`.
+pub(crate) const BACKGROUND_ROLES: [&str; 3] = ["code.bg", "diff.add.bg", "diff.remove.bg"];
+
 /// The dotted key of each role in `config.toml`, in the order of [`COLOR_ROLES`].
-pub(crate) const CONFIG_COLOR_KEYS: [&str; 13] = [
+pub(crate) const CONFIG_COLOR_KEYS: [&str; 16] = [
     "render.colors.text",
     "render.colors.muted",
     "render.colors.accent",
@@ -47,10 +60,13 @@ pub(crate) const CONFIG_COLOR_KEYS: [&str; 13] = [
     "render.colors.diff.add",
     "render.colors.diff.remove",
     "render.colors.diff.hunk",
+    "render.colors.code_bg",
+    "render.colors.diff.add_bg",
+    "render.colors.diff.remove_bg",
 ];
 
 /// The dotted key of each role in a theme file, in the order of [`COLOR_ROLES`].
-pub(crate) const THEME_COLOR_KEYS: [&str; 13] = [
+pub(crate) const THEME_COLOR_KEYS: [&str; 16] = [
     "colors.text",
     "colors.muted",
     "colors.accent",
@@ -64,11 +80,18 @@ pub(crate) const THEME_COLOR_KEYS: [&str; 13] = [
     "colors.diff.add",
     "colors.diff.remove",
     "colors.diff.hunk",
+    "colors.code_bg",
+    "colors.diff.add_bg",
+    "colors.diff.remove_bg",
 ];
 
 /// What a role colour must be, for the error of a value that is not one.
 pub(crate) const COLOR_EXPECTED: &str =
     "a colour: \"#rrggbb\", an ANSI slot from 0 to 15, or a name such as \"yellow\"";
+
+/// What a background colour must be, for the error of a value that is not one.
+pub(crate) const BACKGROUND_EXPECTED: &str =
+    "a colour \"#rrggbb\": a background paints only in truecolor, and takes no ANSI slot";
 
 /// The value of `render.theme` that picks `theme_dark` or `theme_light` by the
 /// terminal's background.
@@ -143,6 +166,10 @@ pub struct RenderSettings {
     /// a muted line then says how many more there are. 0 shows no diff. `efr diff`
     /// shows all of a turn's diff.
     pub diff_lines: u32,
+    /// The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000,
+    /// in place of `diff_lines`: a long turn shows shorter diffs. 0 shows no diff
+    /// there.
+    pub diff_lines_long: u32,
     /// The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
     /// inside tmux, GNU screen or zellij), `on` or `off`.
@@ -152,6 +179,9 @@ pub struct RenderSettings {
     /// interrupts it. `false` shows no input row: keys typed during a turn go to the
     /// shell's next prompt.
     pub turn_input: bool,
+    /// One bell (BEL) when a question appears while a turn runs, so a terminal can
+    /// mark the tab or the window.
+    pub bell: bool,
     /// The colour of each role. A role set here wins over the palette file, and the
     /// palette file over the terminal's 16 colours.
     pub colors: RenderColors,
@@ -167,8 +197,10 @@ impl Default for RenderSettings {
             motion: true,
             turn_summary: true,
             diff_lines: 20,
+            diff_lines_long: 8,
             progress: Progress::Auto,
             turn_input: true,
+            bell: false,
             colors: RenderColors::default(),
         }
     }
@@ -199,16 +231,16 @@ pub struct RenderColors {
     /// Headings of level 1 and 2. Unset: the accent colour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heading: Option<ColorValue>,
-    /// Links. Unset: slot 4 (blue).
+    /// Links. Unset: slot 5 (magenta).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<ColorValue>,
-    /// Inline code. Unset: slot 6 (cyan).
+    /// Inline code and a command to run. Unset: slot 2 (green).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<ColorValue>,
     /// Done task boxes and good news. Unset: slot 2 (green).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success: Option<ColorValue>,
-    /// Questions and refusals, in bold. Unset: slot 3 (yellow).
+    /// Questions and refusals. Unset: slot 3 (yellow). Bold only without colour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<ColorValue>,
     /// Failures. Unset: slot 1 (red).
@@ -217,11 +249,17 @@ pub struct RenderColors {
     /// The text of a quote, in italic. Unset: the terminal's foreground.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quote: Option<ColorValue>,
+    /// The background of the rows of a code block (the role `code.bg`), as `#rrggbb`.
+    /// It shows only in truecolor. Unset: no background.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<BackgroundColor>")]
+    pub code_bg: Option<ColorValue>,
     /// The lines of a diff.
     pub diff: DiffColors,
 }
 
-/// The colours of the lines of a diff: `diff.add`, `diff.remove` and `diff.hunk`.
+/// The colours of the lines of a diff: `diff.add`, `diff.remove` and `diff.hunk`, and
+/// the backgrounds of added and removed rows.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
@@ -232,14 +270,25 @@ pub struct DiffColors {
     /// Removed lines. Unset: slot 1 (red).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remove: Option<ColorValue>,
-    /// Hunk headers. Unset: slot 6 (cyan).
+    /// Hunk headers. Unset: slot 6 (cyan); dim without colour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hunk: Option<ColorValue>,
+    /// The background of added rows (the role `diff.add.bg`), as `#rrggbb`. It shows
+    /// only in truecolor. Unset: a tint from the background of a truecolor code theme.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<BackgroundColor>")]
+    pub add_bg: Option<ColorValue>,
+    /// The background of removed rows (the role `diff.remove.bg`), as `#rrggbb`. It
+    /// shows only in truecolor. Unset: a tint from the background of a truecolor code
+    /// theme.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<BackgroundColor>")]
+    pub remove_bg: Option<ColorValue>,
 }
 
 impl RenderColors {
     /// Every role, in the order of [`COLOR_ROLES`], with its value when it is set.
-    pub fn entries(&self) -> [(&'static str, Option<&ColorValue>); 13] {
+    pub fn entries(&self) -> [(&'static str, Option<&ColorValue>); 16] {
         let [
             text,
             muted,
@@ -254,6 +303,9 @@ impl RenderColors {
             add,
             remove,
             hunk,
+            code_bg,
+            add_bg,
+            remove_bg,
         ] = COLOR_ROLES;
         [
             (text, self.text.as_ref()),
@@ -269,6 +321,9 @@ impl RenderColors {
             (add, self.diff.add.as_ref()),
             (remove, self.diff.remove.as_ref()),
             (hunk, self.diff.hunk.as_ref()),
+            (code_bg, self.code_bg.as_ref()),
+            (add_bg, self.diff.add_bg.as_ref()),
+            (remove_bg, self.diff.remove_bg.as_ref()),
         ]
     }
 
@@ -290,10 +345,13 @@ impl RenderColors {
             warning: pick(&self.warning, &base.warning),
             error: pick(&self.error, &base.error),
             quote: pick(&self.quote, &base.quote),
+            code_bg: pick(&self.code_bg, &base.code_bg),
             diff: DiffColors {
                 add: pick(&self.diff.add, &base.diff.add),
                 remove: pick(&self.diff.remove, &base.diff.remove),
                 hunk: pick(&self.diff.hunk, &base.diff.hunk),
+                add_bg: pick(&self.diff.add_bg, &base.diff.add_bg),
+                remove_bg: pick(&self.diff.remove_bg, &base.diff.remove_bg),
             },
         }
     }
@@ -309,10 +367,18 @@ impl RenderColors {
             .collect()
     }
 
-    /// The first role whose value is not a colour, with that value.
+    /// The first role whose value is not a colour, or for a background role not an
+    /// RGB colour, with that value.
     pub(crate) fn first_invalid(&self) -> Option<(usize, &ColorValue)> {
-        self.entries().into_iter().enumerate().find_map(|(index, (_, value))| {
-            value.filter(|value| value.color().is_none()).map(|value| (index, value))
+        self.entries().into_iter().enumerate().find_map(|(index, (role, value))| {
+            let background = BACKGROUND_ROLES.contains(&role);
+            value
+                .filter(|value| match value.color() {
+                    None => true,
+                    Some(RoleColor::Rgb(..)) => false,
+                    Some(_) => background,
+                })
+                .map(|value| (index, value))
         })
     }
 }
@@ -427,6 +493,27 @@ impl JsonSchema for ColorValue {
             "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
             "minimum": 0,
             "maximum": 15
+        })
+    }
+}
+
+/// The schema of a background colour: `#rrggbb` only. The value is a [`ColorValue`];
+/// this type only names its schema.
+struct BackgroundColor;
+
+impl JsonSchema for BackgroundColor {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "BackgroundColor".into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
         })
     }
 }

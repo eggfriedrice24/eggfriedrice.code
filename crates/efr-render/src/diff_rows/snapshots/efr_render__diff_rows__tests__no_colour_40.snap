@@ -6,7 +6,7 @@ expression: shown(&plain)
 
 \e[1m+++ b/src/main.rs\e[0m
 
-@@ -1,3 +1,3 @@
+\e[2m@@ -1,3 +1,3 @@\e[0m
 
  fn main() {
 

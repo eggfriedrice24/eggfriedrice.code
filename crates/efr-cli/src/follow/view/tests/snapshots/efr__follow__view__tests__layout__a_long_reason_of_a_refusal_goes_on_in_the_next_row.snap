@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cd ~/proj
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[36m$ cd ~/proj && find . -type f | sort\e[0m
+\e[33m·\e[0m \e[32m$ cd ~/proj && find . -type f | sort\e[0m
   \e[31m✗ refused: a command that must run\e[0m
     \e[31moutside the sandbox must run alone\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
@@ -18,7 +18,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cd ~/proj
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[36m$ cd ~/proj && find . -type f | sort\e[0m
+\e[33m·\e[0m \e[32m$ cd ~/proj && find . -type f | sort\e[0m
   \e[31m✗ refused: a command that must run outside the sandbox must run alone\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 

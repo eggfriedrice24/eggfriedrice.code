@@ -26,11 +26,13 @@ use efr_protocol::{
     JobId, JobInfo, JobState, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
     PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
 };
+use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role};
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
 use efr_test_support::Wait;
+use efr_test_support::design::{DESIGN_ROLES, Depth, rgb};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde::Serialize;
@@ -858,6 +860,29 @@ impl Write for Buffer {
     }
 }
 
+/// The render options of `depth` at `cols` columns for a test against a frame of the
+/// terminal design (`efr_test_support::design`): the palette of the design
+/// (`DESIGN_ROLES`) in truecolor, as a user with the palette file of the design system
+/// sees efr, and the default palette in 16 colours and without colour. The glyphs are
+/// the Unicode ones.
+pub(crate) fn design_options(depth: Depth, cols: u16) -> RenderOptions {
+    let options = RenderOptions::new(cols);
+    match depth {
+        Depth::TrueColor => {
+            let mut palette = Palette::new();
+            for (name, hex) in DESIGN_ROLES {
+                let (Some(role), Some((r, g, b))) = (Role::from_name(name), rgb(hex)) else {
+                    panic!("{name} {hex} is no role of efr-render");
+                };
+                palette.set(role, Colour::Rgb(r, g, b));
+            }
+            options.with_colour(ColourMode::TrueColor).with_palette(palette)
+        }
+        Depth::Ansi16 => options.with_colour(ColourMode::Ansi16),
+        Depth::NoColor => options.with_colour(ColourMode::None),
+    }
+}
+
 /// Facts for a terminal on all three streams, with 16 colours.
 pub(crate) fn terminal_facts() -> TermFacts {
     TermFacts {
@@ -867,6 +892,7 @@ pub(crate) fn terminal_facts() -> TermFacts {
         stdout_tty: true,
         stderr_tty: true,
         stdin_tty: true,
+        utf8: true,
         ..TermFacts::default()
     }
 }

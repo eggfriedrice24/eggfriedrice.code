@@ -8,10 +8,10 @@ expression: readable(&captured.stdout())
 Restart
 \e[33m⠋\e[0m \e[2mwriting\e[0m
 \e[?2026l\e[?2026h\r\e[3A\e[J
-Restart nginx, then check \e[36mjournalctl\e[0m.
+Restart nginx, then check \e[32mjournalctl\e[0m.
 \e[33m⠋\e[0m \e[2mwriting\e[0m
 \e[?2026l\e[?2026h\r\e[3A\e[J
-Restart nginx, then check \e[36mjournalctl\e[0m.
+Restart nginx, then check \e[32mjournalctl\e[0m.
 \e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l\e[?2026h\r\e[1A\e[J
 \e[2mdone\e[0m

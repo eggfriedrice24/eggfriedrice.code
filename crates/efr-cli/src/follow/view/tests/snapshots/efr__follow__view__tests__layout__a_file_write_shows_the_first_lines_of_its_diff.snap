@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
 \e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
 \e[2m  │ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
@@ -33,7 +33,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 === 40 columns, NO_COLOR
 [end]
 \e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m@@ -1,4 +1,27 @@
+\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
 \e[2m  │ \e[0m fn main() {
 \e[2m  │ \e[0m\e[1m-\e[0m    println!("old");
 \e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that \e[2m↩\e[0m
@@ -60,7 +60,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
 \e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
 \e[2m  │ \e[0m\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
@@ -88,7 +88,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"src/m
 === 80 columns, NO_COLOR
 [end]
 \e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m@@ -1,4 +1,27 @@
+\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
 \e[2m  │ \e[0m fn main() {
 \e[2m  │ \e[0m\e[1m-\e[0m    println!("old");
 \e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");

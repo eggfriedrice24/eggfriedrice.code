@@ -2,8 +2,8 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
-\e[?2026h\e[1;33m? keep the git settings that the last\e[0m
-  \e[1;33mcommand changed\e[0m
+\e[?2026h\e[33m? keep the git settings that the last\e[0m
+  \e[33mcommand changed\e[0m
 \e[2m│ \e[0m~/project/.git/commondir
 \e[2m│ \e[0m  (core.fsmonitor); moved to
 \e[2m│ \e[0m  quarantine

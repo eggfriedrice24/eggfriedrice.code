@@ -3,7 +3,8 @@
 //! `picker` runs the picker of `efr resume` with a fake fzf, `plugin` drives the zsh
 //! plugin, `smoke` runs `efr` against a real daemon and `search_cost` measures `efr
 //! search --picker`, the command of each key of the picker, and `,resume` up to its
-//! first rows.
+//! first rows. `glyphs` checks that no source file writes a glyph of the table as a
+//! literal.
 //! nextest names a test `efr-cli::it <module>::<test>`; `-E 'test(/^plugin::/)'`
 //! picks one module.
 
@@ -12,6 +13,7 @@
 #![cfg(test)]
 
 mod binary;
+mod glyphs;
 mod perf;
 mod picker;
 mod plugin;

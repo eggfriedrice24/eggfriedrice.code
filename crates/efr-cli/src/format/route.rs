@@ -8,16 +8,19 @@
 //! as `app` or `○ ~/notes`. `efr history` shows a `terminal_attached` event as `picked
 //! up in /dev/pts/7`.
 //!
-//! The glyphs `↪` and `○` come from the user's design. efr-cli has no ASCII path for
-//! its other glyphs (`✓`, `·`, the spinner) either, so these have none.
+//! The glyphs `↪` and `○` come from the user's design and are still literals here; the
+//! turn slice of the terminal look moves them to `efr_render::Glyphs`, which has an
+//! ASCII form of each.
 
 use std::path::Path;
 
-use efr_protocol::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
+use efr_protocol::{
+    AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch, SwitchedModel,
+};
 use jiff::Timestamp;
 
-use super::one_line;
 use super::sandbox::tilde;
+use super::{Tone, one_line};
 
 /// The mark of a switch.
 const SWITCH: &str = "↪";
@@ -187,6 +190,25 @@ pub(crate) fn attached(tty: &str, how: AttachHow) -> String {
         _ => "attached",
     };
     format!("{what} in {}", one_line(tty))
+}
+
+/// The line of a switch of model, provider or account (TM-Legend 5, TM-Endings 5 to 7),
+/// such as `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`, as pieces with their
+/// tones: the mark in `accent`, the new model and its effort in `text`, the rest
+/// `muted`. `from` and `to` are the sides of `model_switched`; `effort` is the effort of
+/// the new side, from the turn's settings.
+///
+/// A seam for the turn slice of the terminal look: it gives no piece yet, so the view
+/// writes no line for a switch, as today. The turn slice builds the line here and calls
+/// it from `follow/view/ending.rs`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the turn slice builds the switch line"))]
+pub(crate) fn model_line(
+    from: &SwitchedModel,
+    to: &SwitchedModel,
+    effort: Option<&str>,
+) -> Vec<(String, Tone)> {
+    let _ = (from, to, effort);
+    Vec::new()
 }
 
 #[cfg(test)]

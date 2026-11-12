@@ -118,3 +118,25 @@ fn each_compaction_has_its_line() {
         ]
     );
 }
+
+/// TM-Legend frame 31: the gauge in the colour of its level, in truecolor with the
+/// palette of the design and in the 16 colours. The Legend draws no `NO_COLOR` frame
+/// of it, and its note ("only from 90 bold") beats the table of `design::expect`,
+/// which makes every yellow bold: `tint` keeps the gauge plain below 90.
+#[test]
+fn the_gauge_is_the_legend() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    use crate::testing::design_options;
+
+    let frame = Frame::load("TM-Legend", 31).unwrap();
+    for depth in [Depth::TrueColor, Depth::Ansi16] {
+        let options = design_options(depth, frame.cols);
+        let gauges: Vec<String> =
+            [43, 67, 93].map(|percent| gauge(percent, 100).paint(&options)).into();
+        assert_rows(&frame, .., &format!("{}\n", gauges.join(" ")), depth);
+    }
+    let none = design_options(Depth::NoColor, frame.cols);
+    assert_eq!(gauge(67, 100).paint(&none), "ctx 67%");
+    assert_eq!(gauge(93, 100).paint(&none), "\x1b[1mctx 93%\x1b[0m");
+}

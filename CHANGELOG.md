@@ -51,9 +51,22 @@ into the GitHub release notes, and it stops when the section is missing.
 - While the model writes a long tool input, such as a long shell command, the status
   row ends with the newest words of the input after 1 s. Before, the row showed only
   its size, such as `preparing shell, 3.8 KB`, for as long as the model wrote.
+- New keys for the terminal look. `render.colors.code_bg`,
+  `render.colors.diff.add_bg` and `render.colors.diff.remove_bg` (`colors.code_bg`,
+  `colors.diff.add_bg` and `colors.diff.remove_bg` in a theme file) set the
+  background of code rows and of added and removed diff rows. They take only
+  `"#rrggbb"` and show only in truecolor. `code_theme_ansi` in a theme file names a
+  `.tmTheme` file in bat's ANSI encoding for code in 16 colours.
+  `render.diff_lines_long` (default 8) sets the lines of a diff from the 6th call of a
+  turn on, and `render.bell` (default `false`) rings the bell once when a question
+  appears.
 
 ### Changed
 
+- New default colours, as the design of the terminal look sets them. Inline code
+  and the command of a call are green (slot 2), not cyan, and links are magenta (slot
+  5), not blue. The `warning` role is no longer bold in colour; with `NO_COLOR` it is
+  bold. With `NO_COLOR` a hunk header of a diff is dim.
 - An effort from `config.toml` that a model does not take no longer fails the turn.
   The turn uses the model's own default effort, so a switch to a model of the other
   company works. An effort that you choose with `,effort` must still be one that the

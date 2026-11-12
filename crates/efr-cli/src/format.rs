@@ -7,17 +7,10 @@
 //! cannot drive the terminal.
 
 use std::borrow::Cow;
-use std::fmt::Write as _;
-use std::path::Path;
 use std::time::Duration;
 
-use efr_protocol::{
-    AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, CatalogOrigin, CatalogStatus,
-    ConfigFileError, ContextUse, ConversationStatus, ConversationsListResult, EffectiveSettings,
-    FullModeStatus, HeldConfig, LoginKind, Mode, Origin, ProviderStatus, StopReason, TurnStop,
-    Usage,
-};
-use efr_render::{RenderOptions, Role, WidthMethod, text_width};
+use efr_protocol::{ApprovalDecision, Origin};
+use efr_render::{Attrs, ColourMode, RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -25,11 +18,13 @@ use serde_json::Value;
 use unicode_segmentation::{Graphemes, UnicodeSegmentation as _};
 
 pub(crate) mod always;
+mod call;
 pub(crate) mod card;
 pub(crate) mod changes;
 pub(crate) mod context;
 pub(crate) mod context_report;
 pub(crate) mod delete;
+mod ending;
 pub(crate) mod groups;
 pub(crate) mod hidden_shell;
 pub(crate) mod jobs;
@@ -38,13 +33,33 @@ pub(crate) mod resume;
 pub(crate) mod route;
 pub(crate) mod sandbox;
 pub(crate) mod search;
+mod status;
 
-/// Keys of a tool's input that best describe a call in one line, in order of
-/// preference.
-const DETAIL_KEYS: &[&str] = &["command", "cmd", "path", "file", "url", "query"];
+pub(crate) use call::{
+    CallText, CommandRow, EDIT_TOOL, RowEnd, WORD_MARK, call_text, columns, command_line,
+    command_lines, numbered_lines, refused, run_heading, tool_call, tool_result, wrap_command,
+    wrap_spans,
+};
+pub(crate) use ending::{
+    CACHE_SHOWN_FROM, turn_done, turn_interrupted, turn_settings, turn_stop, usage_line,
+};
+pub(crate) use status::{
+    catalog, config_error, config_error_place, conversations, reloaded, status,
+};
+// NOTE: only tests name these from outside their files.
+#[cfg(test)]
+pub(crate) use call::WRAP_MARK;
+#[cfg(test)]
+use call::{push_span, runs};
 
 /// How a piece of one of the CLI's own lines looks. Every tone but `Plain` and `Bold`
-/// is a colour role of `efr-render`, so the palette decides its colour.
+/// is a colour role of `efr-render` with the attributes it adds
+/// ([`Tone::look`]), so the palette decides its colour; [`paint`] paints it through
+/// `RenderOptions::paint_with`. The tones after `Accent` are the ones of the design's
+/// legend (`TM-Legend`): a slice paints a mark, a badge or a value with them.
+// NOTE: the slices of the terminal look paint with the tones of the legend; the last
+// one to use them removes this.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tones of the design wait for the slices"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tone {
     /// As it is: plain fact lines.
@@ -63,29 +78,64 @@ pub(crate) enum Tone {
     Code,
     /// The `accent` role: the mark at the start of a call.
     Accent,
+    /// The `text` role: a value next to a muted label, the command of a failed call, the
+    /// path of an edit, the sentence of an event line.
+    Text,
+    /// The `text` role in bold: the title of a conversation, a steer after the model
+    /// read it.
+    TextBold,
+    /// The `text` role in italic: the first words of a thought with no title.
+    TextItalic,
+    /// The `error` role in bold: the mark of a failed call, `✗ failed`, `efr:` before
+    /// an error.
+    FailureBold,
+    /// The `warning` role in bold: the title of a question and its keys, the `?` of a
+    /// command that waits for input.
+    AttentionBold,
+    /// The badge of a question, ` ? `: the `warning` role in reverse video and bold.
+    /// Without colour it is bold alone (TM-Questions frame 10: "the badge becomes bold
+    /// ?").
+    Badge,
 }
 
 impl Tone {
-    /// The colour role of the tone, when it has one.
-    fn role(self) -> Option<Role> {
+    /// The colour role of the tone and the attributes it adds to it, when it has a
+    /// role.
+    fn look(self) -> Option<(Role, Attrs)> {
         match self {
             Tone::Plain | Tone::Bold => None,
-            Tone::Dim => Some(Role::Muted),
-            Tone::Attention => Some(Role::Warning),
-            Tone::Failure => Some(Role::Error),
-            Tone::Success => Some(Role::Success),
-            Tone::Code => Some(Role::Code),
-            Tone::Accent => Some(Role::Accent),
+            Tone::Dim => Some((Role::Muted, Attrs::NONE)),
+            Tone::Attention => Some((Role::Warning, Attrs::NONE)),
+            Tone::Failure => Some((Role::Error, Attrs::NONE)),
+            Tone::Success => Some((Role::Success, Attrs::NONE)),
+            Tone::Code => Some((Role::Code, Attrs::NONE)),
+            Tone::Accent => Some((Role::Accent, Attrs::NONE)),
+            Tone::Text => Some((Role::Text, Attrs::NONE)),
+            Tone::TextBold => Some((Role::Text, Attrs::BOLD)),
+            Tone::TextItalic => Some((Role::Text, Attrs::ITALIC)),
+            Tone::FailureBold => Some((Role::Error, Attrs::BOLD)),
+            Tone::AttentionBold => Some((Role::Warning, Attrs::BOLD)),
+            Tone::Badge => Some((Role::Warning, Attrs::BADGE)),
         }
     }
 }
 
 /// The kinds of blocks a reply or a transcript is made of.
+///
+/// The kinds up to `Answer` are today's; the last three are the design's
+/// (`DECISIONS.md` and the Calls, LongTurn and Endings boards). A slice moves its blocks
+/// to the design's kinds when it builds their new look: a call row, an answer line, a
+/// notice, a thought row and an event line become `Row`, a steer in scrollback becomes
+/// `Steer`, the stop reason, the changes line and the outcome line become `End`, and an
+/// assistant message is `Message` in both rules.
+// NOTE: the slices of the terminal look move their blocks to the design's kinds; the
+// last one to do so removes this.
+#[cfg_attr(not(test), expect(dead_code, reason = "the kinds of the design wait for the slices"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Block {
     /// The user's prompt.
     Prompt,
-    /// An assistant message.
+    /// An assistant message: prose.
     Message,
     /// A dim note: an answer line, a steer, the end of a turn.
     Note,
@@ -98,12 +148,35 @@ pub(crate) enum Block {
     Settled,
     /// Any other answer that takes a question's place.
     Answer,
+    /// One row of the design: a call row with what stands under it, an answer line, a
+    /// notice, a thought row or an event line. No blank line stands between two rows,
+    /// and one between rows and prose.
+    Row,
+    /// The user's steer after the model read it, `› text`: one blank line above it and
+    /// one below.
+    Steer,
+    /// A line of the end of a turn: the stop reason, the changes line and the outcome
+    /// line. One blank line stands before the first, none between them.
+    End,
+}
+
+impl Block {
+    /// True for the kinds of the design's rules.
+    fn designed(self) -> bool {
+        matches!(self, Block::Row | Block::Steer | Block::End)
+    }
 }
 
 /// Separates blocks by a blank line, except consecutive notes, which read as one
 /// group, the answer right after the question it answers, the call right after the
 /// answer that settled it, and the line of what an `a` answer saved right after that
 /// answer.
+///
+/// When either block is of a kind of the design (`Row`, `Steer`, `End`), the design's
+/// rules decide instead ([`Spacing::designed`]): no blank line between two rows (today's
+/// `Note`, `Call`, `Settled` and `Answer` count as rows there), one between rows and
+/// prose, one above and one below a steer, one before the end lines and none between
+/// them, none after the prompt line, and one above a question card.
 #[derive(Debug, Default)]
 pub(crate) struct Spacing {
     last: Option<Block>,
@@ -130,14 +203,51 @@ impl Spacing {
     /// What [`before`](Self::before) would write before a block of `kind`, for a block
     /// that shows in the live zone before it is written.
     pub(crate) fn peek(&self, kind: Block) -> &'static str {
-        if self.stuck && matches!(kind, Block::Message | Block::Call) {
+        if self.stuck && matches!(kind, Block::Message | Block::Call | Block::Row) {
             return "";
+        }
+        if kind.designed() || self.last.is_some_and(Block::designed) {
+            return Spacing::designed(self.last, kind);
         }
         match (self.last, kind) {
             (None, _)
             | (Some(Block::Note), Block::Note)
             | (Some(Block::Question), Block::Settled | Block::Answer)
             | (Some(Block::Settled), Block::Call | Block::Settled) => "",
+            _ => "\n",
+        }
+    }
+
+    /// The design's rule for a block of `kind` after one of `last`.
+    fn designed(last: Option<Block>, kind: Block) -> &'static str {
+        /// What a block is for the design's rules.
+        #[derive(PartialEq)]
+        enum Class {
+            Prompt,
+            Prose,
+            Row,
+            Steer,
+            End,
+            Question,
+        }
+        let class = |block: Block| match block {
+            Block::Prompt => Class::Prompt,
+            Block::Message => Class::Prose,
+            Block::Note | Block::Call | Block::Settled | Block::Answer | Block::Row => Class::Row,
+            Block::Steer => Class::Steer,
+            Block::End => Class::End,
+            Block::Question => Class::Question,
+        };
+        let Some(last) = last else { return "" };
+        match (class(last), class(kind)) {
+            (Class::Prompt, _) => "",
+            (_, Class::Steer) | (Class::Steer, _) => "\n",
+            (Class::End, Class::End) => "",
+            (_, Class::End) => "\n",
+            (Class::Row, Class::Row) => "",
+            // NOTE: the answer takes the place of the card, so it stands where the card
+            // stood, after the empty row above it.
+            (Class::Question, Class::Row) => "",
             _ => "\n",
         }
     }
@@ -149,8 +259,15 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
     if !options.is_terminal() || text.is_empty() {
         return text.to_owned();
     }
-    match tone.role() {
-        Some(role) => options.paint(role, text),
+    match tone.look() {
+        // NOTE: reverse video of nothing but the terminal's own colours is a block;
+        // without colour the badge is a bold `?`, as the design draws it.
+        Some((role, _)) if tone == Tone::Badge && options.colour() == ColourMode::None => {
+            options.paint_with(role, Attrs::BOLD, text)
+        }
+        Some((role, attrs)) => options.paint_with(role, attrs, text),
+        // NOTE: bold with no role, so a palette that sets `text` does not colour the
+        // user's own prompt.
         None if tone == Tone::Bold => format!("\x1b[1m{text}\x1b[0m"),
         None => text.to_owned(),
     }
@@ -328,405 +445,6 @@ pub(crate) fn code_block(info: &str, body: &str) -> String {
     format!("{fence}{info}\n{body}{newline}{fence}\n")
 }
 
-/// A tool call in one line, such as `$ ls -la`, `read /etc/hosts` or `apply_patch
-/// src/a.rs +3 -1, src/b.rs +1`.
-///
-/// A command of several lines shows its first line and how many lines follow, such as
-/// `$ cd src (and 2 more lines)`: lines joined by spaces would look like one command
-/// with more arguments. With `columns` (and the terminal's way to count widths), the
-/// line is cut to fit that width, but never the count of the lines that follow.
-pub(crate) fn tool_call(
-    tool: &str,
-    input: &Value,
-    columns: Option<(usize, WidthMethod)>,
-) -> String {
-    call_line(tool, input).fit(columns, 0)
-}
-
-/// The width a line is cut to on a terminal, with the terminal's way to count widths;
-/// none when the output is not a terminal.
-pub(crate) fn columns(options: &RenderOptions) -> Option<(usize, WidthMethod)> {
-    options.is_terminal().then(|| (usize::from(options.width()), options.width_method()))
-}
-
-/// The name of the tool with which a Claude model changes a file: the exact text
-/// `old_string` of the file at `path` becomes `new_string`. A call of it names its file
-/// as a `write_file` call does, and its diff and its question show as those of a patch
-/// of one file.
-pub(crate) const EDIT_TOOL: &str = "edit";
-
-/// The words that name a call of `tool`: `$` for a shell call, `read` and `write` for
-/// the file tools, `settings`, `apply_patch` and `edit` for those tools, else the
-/// tool's name and a colon.
-fn call_name(tool: &str) -> String {
-    match tool {
-        "shell" => "$".to_owned(),
-        "read_file" => "read".to_owned(),
-        "write_file" => "write".to_owned(),
-        "settings" => "settings".to_owned(),
-        patch::TOOL => patch::TOOL.to_owned(),
-        EDIT_TOOL => EDIT_TOOL.to_owned(),
-        other => format!("{}:", one_line(other)),
-    }
-}
-
-/// What a call of `tool` with `input` does, before it is split into lines: the files of
-/// an `apply_patch` call with their counts, else the first of [`DETAIL_KEYS`] that the
-/// input has, else the input as JSON.
-fn call_detail(tool: &str, input: &Value) -> String {
-    if tool == patch::TOOL
-        && let Some(text) = patch::text(input)
-    {
-        return patch::summary(&patch::files(text));
-    }
-    match input {
-        Value::Object(members) => DETAIL_KEYS
-            .iter()
-            .find_map(|key| members.get(*key).and_then(Value::as_str))
-            .map_or_else(|| input.to_string(), str::to_owned),
-        Value::String(text) => text.clone(),
-        Value::Null => String::new(),
-        other => other.to_string(),
-    }
-}
-
-/// A tool call's line before it is cut to a width: the name and the first line of
-/// what it does, and how many lines of a command follow.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CallLine {
-    head: String,
-    more: String,
-}
-
-/// The line of a call of `tool` with `input`, such as `$ cargo test -p app`.
-pub(crate) fn call_line(tool: &str, input: &Value) -> CallLine {
-    let detail = call_detail(tool, input);
-    let name = call_name(tool);
-    let lines = command_lines(&detail);
-    let (first, more) = match lines.split_first() {
-        Some((first, rest)) => (command_line(first), rest.len()),
-        None => (String::new(), 0),
-    };
-    let head = if first.is_empty() {
-        name.trim_end_matches(':').to_owned()
-    } else {
-        format!("{name} {first}")
-    };
-    let more = match more {
-        0 => String::new(),
-        1 => " (and 1 more line)".to_owned(),
-        more => format!(" (and {more} more lines)"),
-    };
-    CallLine { head, more }
-}
-
-impl CallLine {
-    /// The line, cut to `columns` less `reserve` columns that follow it on the same row;
-    /// whole without `columns`. The count of the lines that follow is never cut.
-    pub(crate) fn fit(&self, columns: Option<(usize, WidthMethod)>, reserve: usize) -> String {
-        match columns {
-            Some((columns, method)) => {
-                let room = columns.saturating_sub(reserve + text_width(&self.more, method));
-                format!("{}{}", cut(&self.head, room, method), self.more)
-            }
-            None => format!("{}{}", self.head, self.more),
-        }
-    }
-}
-
-/// What a call does, for the block of a call: the words that name it (`$`, `read`,
-/// `write`, `settings`, `apply_patch`, `edit`, else the tool and a colon) and each line of what
-/// it does, safe to print. Nothing of it is ever left out.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CallText {
-    pub(crate) name: String,
-    pub(crate) lines: Vec<String>,
-    /// The entries of a list that `lines` joins with `, `, such as the files of an
-    /// `apply_patch` call: a row of the call's block is cut only between two of them,
-    /// and with no mark, because the list is no command. Empty for other calls.
-    pub(crate) entries: Vec<String>,
-}
-
-/// The text of a call of `tool` with `input`, such as `$` and `cargo test -p app`.
-pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
-    let detail = call_detail(tool, input);
-    let lines = command_lines(&detail).into_iter().map(command_line).collect();
-    let entries = match patch::text(input).filter(|_| tool == patch::TOOL) {
-        Some(text) => patch::entries(&patch::files(text)),
-        None => Vec::new(),
-    };
-    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines, entries }
-}
-
-/// What ends a row of a command that is cut after a space. The rows after it are
-/// indented: the cut falls between two words, so the indent reads as the space that is
-/// there. The mark is muted and is not part of the command.
-pub(crate) const WRAP_MARK: &str = "\\";
-
-/// What ends a row of a command that is cut inside a word, because no space fits in
-/// the row. The next row goes on at the same column as this one, so no space shows
-/// where the command has none. The mark is muted, is not part of the command, and is
-/// no shell syntax.
-pub(crate) const WORD_MARK: &str = "\u{21a9}";
-
-/// How a row of a command ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RowEnd {
-    /// The line ends in this row.
-    Last,
-    /// The row is cut after a space, and [`WRAP_MARK`] follows.
-    Space,
-    /// The row is cut inside a word, and [`WORD_MARK`] follows.
-    Word,
-}
-
-/// One row of a line of a command, as [`wrap_command`] cuts it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CommandRow {
-    pub(crate) text: String,
-    /// The row comes after a cut at a space, so it is indented.
-    pub(crate) indented: bool,
-    pub(crate) end: RowEnd,
-}
-
-impl CommandRow {
-    /// The mark after the row, if any.
-    pub(crate) fn mark(&self) -> Option<&'static str> {
-        match self.end {
-            RowEnd::Last => None,
-            RowEnd::Space => Some(WRAP_MARK),
-            RowEnd::Word => Some(WORD_MARK),
-        }
-    }
-}
-
-/// The rows of `line`, one line of a command that is safe to print, as a terminal that
-/// counts widths by `method` shows them. A row has `room` columns, less `indent` from
-/// the first cut at a space on, because the rows from there are indented. A row is cut
-/// after the last space that fits when that fills at least half of the row; else it is
-/// cut inside a word, and the next row goes on at the same column. Its text and its
-/// mark fit the row. Nothing of the line is left out.
-pub(crate) fn wrap_command(
-    line: &str,
-    room: usize,
-    indent: usize,
-    method: WidthMethod,
-) -> Vec<CommandRow> {
-    let mark = text_width(WRAP_MARK, method).max(text_width(WORD_MARK, method));
-    let mut rows = Vec::new();
-    let mut left = line;
-    let mut indented = false;
-    loop {
-        let here = if indented { room.saturating_sub(indent) } else { room }.max(1);
-        if fits(left, here, method) {
-            rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
-            return rows;
-        }
-        let budget = here.saturating_sub(mark);
-        // `after_space` holds the end of the last space after a word, and the width up
-        // to it.
-        let (mut end, mut used, mut after_space, mut word) = (0, 0, None, false);
-        for piece in pieces(left, method) {
-            let width = text_width(piece, method);
-            // One piece at least, so every row takes something.
-            if end > 0 && used + width > budget {
-                break;
-            }
-            end += piece.len();
-            used += width;
-            if piece == " " {
-                // NOTE: only a space after a word cuts: a row of spaces alone says
-                // nothing.
-                if word {
-                    after_space = Some((end, used));
-                }
-            } else {
-                word = true;
-            }
-        }
-        // NOTE: a cut at a space early in the row would leave a short first word alone,
-        // such as `cp \`, with the rest of the row empty: a space cuts only a row that
-        // is at least half full, or one that the word after it cannot reach.
-        let (cut, kind) = match after_space {
-            Some((at, width)) if at == end || width * 2 >= here => (at, RowEnd::Space),
-            _ => (end, RowEnd::Word),
-        };
-        if cut >= left.len() {
-            rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
-            return rows;
-        }
-        let (row, after) = left.split_at(cut);
-        rows.push(CommandRow { text: row.to_owned(), indented, end: kind });
-        left = after;
-        indented |= kind == RowEnd::Space;
-    }
-}
-
-/// The rows of `spans`, pieces of text with their tone, at `first` columns for the
-/// first row and `rest` for each row after it: cut at spaces, and inside a word only
-/// when the word alone is wider than a row. The spaces at a cut go. Nothing else of
-/// the text is left out.
-pub(crate) fn wrap_spans(
-    spans: &[(String, Tone)],
-    first: usize,
-    rest: usize,
-    method: WidthMethod,
-) -> Vec<Vec<(String, Tone)>> {
-    let mut rows: Vec<Vec<(String, Tone)>> = vec![Vec::new()];
-    let mut used = 0;
-    let mut room = first;
-    for (text, tone) in spans {
-        for token in runs(text) {
-            let width = text_width(token, method);
-            let space = token.starts_with(' ');
-            if space && used == 0 && rows.len() > 1 {
-                continue;
-            }
-            if used + width <= room {
-                push_span(&mut rows, token, *tone);
-                used += width;
-                continue;
-            }
-            // NOTE: a row with nothing in it yet takes the word that does not fit, cut
-            // to its room, so no row stays empty.
-            if used > 0 {
-                rows.push(Vec::new());
-                used = 0;
-                room = rest;
-            }
-            if space {
-                continue;
-            }
-            let mut left = token;
-            while !fits(left, room, method) {
-                let mut end = 0;
-                let mut taken = 0;
-                for piece in pieces(left, method) {
-                    let width = text_width(piece, method);
-                    if end > 0 && taken + width > room {
-                        break;
-                    }
-                    end += piece.len();
-                    taken += width;
-                }
-                // NOTE: one piece that is wider than a row has the row to itself and shows
-                // once.
-                if end == left.len() {
-                    break;
-                }
-                let (row, after) = left.split_at(end);
-                push_span(&mut rows, row, *tone);
-                rows.push(Vec::new());
-                room = rest;
-                left = after;
-            }
-            push_span(&mut rows, left, *tone);
-            used = text_width(left, method);
-        }
-    }
-    for row in &mut rows {
-        if let Some((text, _)) = row.last_mut() {
-            let kept = text.trim_end_matches(' ').len();
-            text.truncate(kept);
-        }
-        row.retain(|(text, _)| !text.is_empty());
-    }
-    while rows.len() > 1 && rows.last().is_some_and(Vec::is_empty) {
-        rows.pop();
-    }
-    rows
-}
-
-/// `text` as runs of spaces and runs of other characters.
-fn runs(text: &str) -> Vec<&str> {
-    let mut tokens = Vec::new();
-    let mut start = 0;
-    let mut space = None;
-    for (at, c) in text.char_indices() {
-        let is_space = c == ' ';
-        if space.is_some_and(|was| was != is_space) {
-            tokens.push(&text[start..at]);
-            start = at;
-        }
-        space = Some(is_space);
-    }
-    if start < text.len() {
-        tokens.push(&text[start..]);
-    }
-    tokens
-}
-
-/// Adds `text` in `tone` to the last row, joined with a piece of the same tone.
-fn push_span(rows: &mut [Vec<(String, Tone)>], text: &str, tone: Tone) {
-    if text.is_empty() {
-        return;
-    }
-    let Some(row) = rows.last_mut() else { return };
-    match row.last_mut() {
-        Some((last, last_tone)) if *last_tone == tone => last.push_str(text),
-        _ => row.push((text.to_owned(), tone)),
-    }
-}
-
-/// The lines of a command, split at each newline, without the blank lines at its start
-/// and its end, which run nothing. A command of only blanks has none.
-pub(crate) fn command_lines(command: &str) -> Vec<&str> {
-    let lines: Vec<&str> = command.split('\n').collect();
-    let blank = |line: &&str| line.trim().is_empty();
-    match (lines.iter().position(|line| !blank(line)), lines.iter().rposition(|line| !blank(line)))
-    {
-        (Some(start), Some(end)) => lines[start..=end].to_vec(),
-        _ => Vec::new(),
-    }
-}
-
-/// One line of a command, safe to print: a tab becomes a space, and every other control
-/// character, a carriage return too, a visible stand-in, because the shell does not
-/// read a carriage return as a space.
-pub(crate) fn command_line(line: &str) -> String {
-    line.chars().map(|c| if c == '\t' { ' ' } else { visible(c) }).collect()
-}
-
-/// Each line of a command of several lines, numbered and after `indent`, so the start
-/// of each line shows also where a terminal wraps a long one; `None` for a command of
-/// one line.
-pub(crate) fn numbered_lines(command: &str, indent: &str) -> Option<Vec<String>> {
-    let lines = command_lines(command);
-    if lines.len() < 2 {
-        return None;
-    }
-    let digits = lines.len().to_string().len();
-    let numbered = lines
-        .iter()
-        .enumerate()
-        .map(|(at, line)| {
-            let number = at + 1;
-            format!("{indent}{number:>digits$}  {}", command_line(line)).trim_end().to_owned()
-        })
-        .collect();
-    Some(numbered)
-}
-
-/// The heading of a question about `tool` running `command`: `shell: run "ls -la"`, or
-/// for a command of several lines `shell: run 2 lines:` and then each line on its own,
-/// numbered. The whole command shows: the user approves exactly what runs.
-pub(crate) fn run_heading(tool: &str, command: &str) -> Vec<String> {
-    let tool = one_line(tool);
-    match numbered_lines(command, "  ") {
-        Some(numbered) => {
-            let mut lines = vec![format!("{tool}: run {} lines:", numbered.len())];
-            lines.extend(numbered);
-            lines
-        }
-        None => {
-            let line = command_lines(command)
-                .first()
-                .map_or_else(String::new, |line| command_line(line.trim_end_matches('\r')));
-            vec![format!("{tool}: run \"{line}\"")]
-        }
-    }
-}
-
 /// `text` cut to `columns` with `…` at the cut, as a terminal that counts widths by
 /// `method` shows it; whole when it fits. A grapheme cluster is never cut in two.
 pub(crate) fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
@@ -794,40 +512,6 @@ fn fits(text: &str, columns: usize, method: WidthMethod) -> bool {
     true
 }
 
-/// The end of a tool call worth a line: a failure or a non-zero exit. `None` for a
-/// call that went well.
-pub(crate) fn tool_result(tool: &str, is_error: bool, exit_code: Option<i32>) -> Option<String> {
-    match exit_code {
-        Some(code) if code != 0 => Some(format!("{tool} exited with {code}")),
-        _ if is_error => Some(format!("{tool} failed")),
-        _ => None,
-    }
-}
-
-/// The line of a call that efr refused before it ran, such as `shell refused: efr's
-/// config (floor)`, with the daemon's reason.
-pub(crate) fn refused(tool: &str, reason: &str) -> String {
-    format!("{} refused: {}", one_line(tool), one_line(reason))
-}
-
-/// A turn's settings on one line, such as `mode auto, model gpt-5.4, effort high`: every
-/// value with `all`, else only the ones that the prompt set. `None` when that leaves
-/// none. An effort that is not sent shows as `default`, the backend's.
-pub(crate) fn turn_settings(settings: &EffectiveSettings, all: bool) -> Option<String> {
-    let EffectiveSettings { mode, model, effort, overridden, .. } = settings;
-    let mut parts = Vec::new();
-    if all || overridden.mode {
-        parts.push(format!("mode {mode}"));
-    }
-    if all || overridden.model {
-        parts.push(format!("model {}", one_line(model)));
-    }
-    if all || overridden.effort {
-        parts.push(format!("effort {}", one_line(effort.as_deref().unwrap_or("default"))));
-    }
-    (!parts.is_empty()).then(|| parts.join(", "))
-}
-
 /// The answer to an approval in a word.
 pub(crate) fn decision(decision: ApprovalDecision) -> &'static str {
     match decision {
@@ -851,16 +535,6 @@ pub(crate) fn origin(origin: Origin) -> &'static str {
         Origin::Proxy => "a terminal proxy",
         Origin::Phone => "the phone",
         _ => "another client",
-    }
-}
-
-/// A conversation's status in the words of the listing.
-fn status_word(status: ConversationStatus) -> &'static str {
-    match status {
-        ConversationStatus::Idle => "idle",
-        ConversationStatus::Running => "running",
-        ConversationStatus::AwaitingApproval => "awaiting approval",
-        _ => "unknown",
     }
 }
 
@@ -934,367 +608,12 @@ pub(crate) fn size(bytes: u64) -> String {
     }
 }
 
-/// The smallest input of a turn, in tokens, for which the end-of-turn line shows the
-/// share that the prompt cache served. Below the providers' minimums (512 tokens on
-/// Claude, 1024 on OpenAI) no cache entry forms, so `cache 0%` there is only noise.
-pub(crate) const CACHE_SHOWN_FROM: u64 = 2_048;
-
-/// The end-of-turn line of a completed turn, such as `done in 42s, ctx 43% (89k/207k),
-/// 1.1k out, cache 91%` when the turn says how full the context is, else `done in 42s,
-/// 18.2k tokens in, 1.1k out, cache 91%`. The time and the tokens are left out when
-/// they are not known, and the cache share when the input is below
-/// [`CACHE_SHOWN_FROM`].
-pub(crate) fn turn_done(
-    took: Option<Duration>,
-    usage: Option<&Usage>,
-    context: Option<&ContextUse>,
-) -> context::GaugedLine {
-    let mut line = match took {
-        Some(time) => format!("done in {}", self::took(time)),
-        None => "done".to_owned(),
-    };
-    if let Some((gauge, rest)) = context.and_then(context::end_part) {
-        line.push_str(", ");
-        let mut after = rest;
-        if let Some(usage) = usage {
-            let _ = write!(after, ", {} out", tokens(usage.output_tokens));
-            after.push_str(&cache_part(usage));
-        }
-        return context::GaugedLine::new(line, Some(gauge), after);
-    }
-    if let Some(usage) = usage {
-        let _ = write!(
-            line,
-            ", {} tokens in, {} out",
-            tokens(usage.input_tokens),
-            tokens(usage.output_tokens)
-        );
-        line.push_str(&cache_part(usage));
-    }
-    line.into()
-}
-
-/// `, cache 91%`: the turn's cached input as a percent of its whole input, rounded
-/// down, as Claude Code's hit ratio counts it, so cache writes count as misses. Empty
-/// when the input is below [`CACHE_SHOWN_FROM`].
-fn cache_part(usage: &Usage) -> String {
-    if usage.input_tokens < CACHE_SHOWN_FROM {
-        return String::new();
-    }
-    let cached = usage.cached_input_tokens.min(usage.input_tokens);
-    let percent = u128::from(cached) * 100 / u128::from(usage.input_tokens);
-    format!(", cache {percent}%")
-}
-
-/// The tokens of one turn for `efr history --verbose` (DV10), such as `18.2k in, 1.1k
-/// out, cache 91%, wrote 1.2k (1h)`: the input with its cached part, the output, and
-/// what the turn wrote to the prompt cache, with the part of one hour when the provider
-/// says it (`wrote 1.2k (800 1h)` when only a part has the hour). The cache share
-/// follows the turn line's rule ([`CACHE_SHOWN_FROM`]). It holds numbers only, never
-/// text of the turn.
-pub(crate) fn usage_line(usage: &Usage) -> String {
-    let mut line =
-        format!("{} in, {} out", tokens(usage.input_tokens), tokens(usage.output_tokens));
-    line.push_str(&cache_part(usage));
-    if usage.cache_write_tokens > 0 {
-        let _ = write!(line, ", wrote {}", tokens(usage.cache_write_tokens));
-        match usage.cache_write_1h_tokens {
-            0 => {}
-            hour if hour >= usage.cache_write_tokens => line.push_str(" (1h)"),
-            hour => {
-                let _ = write!(line, " ({} 1h)", tokens(hour));
-            }
-        }
-    }
-    line
-}
-
-/// Why the model of a completed turn stopped, when the turn records it: the model gave
-/// no answer, or its answer stopped before its end, such as `the answer reached the
-/// output limit (stop: max_tokens)`. Without this line, a turn that ends with no text
-/// shows only `done`.
-pub(crate) fn turn_stop(stop: &TurnStop) -> String {
-    let reason = stop.reason.as_str();
-    let what = match stop.reason {
-        _ if stop.empty => "the model stopped with no answer",
-        StopReason::MaxTokens => "the answer reached the output limit",
-        StopReason::Refusal => "the model refused",
-        StopReason::ContentFilter => "the provider stopped the answer for its content",
-        StopReason::PauseTurn => "the provider paused the turn",
-        _ => "the model stopped",
-    };
-    format!("{what} (stop: {reason})")
-}
-
-/// The end of an interrupted turn, such as `interrupted after 12s, ctx 43% (89k/207k)`;
-/// `interrupted` alone when neither is known.
-pub(crate) fn turn_interrupted(
-    took: Option<Duration>,
-    context: Option<&ContextUse>,
-) -> context::GaugedLine {
-    let line = match took {
-        Some(time) => format!("interrupted after {}", self::took(time)),
-        None => "interrupted".to_owned(),
-    };
-    match context.and_then(context::end_part) {
-        Some((gauge, rest)) => context::GaugedLine::new(format!("{line}, "), Some(gauge), rest),
-        None => line.into(),
-    }
-}
-
 /// `at` in `zone`, to the second, as a person reads it: `2026-10-20 12:00:00 CEST`.
 /// A zone that jiff cannot name gives the time in UTC: `2026-10-20T10:00:00Z`.
 pub(crate) fn local_time(at: Timestamp, zone: &TimeZone) -> String {
     let zoned = at.to_zoned(zone.clone());
     jiff::fmt::strtime::format("%Y-%m-%d %H:%M:%S %Z", &zoned)
         .unwrap_or_else(|_| format!("{at:.0}"))
-}
-
-/// `efr status`: the daemon's identity and health, one fact per line, with its times in
-/// `zone`. `file_mode` is the default mode that `config.toml` sets, as `efr` reads the
-/// file; the daemon does not report it, and a row shows it only when it is `full`.
-pub(crate) fn status(
-    status: &AdminStatusResult,
-    socket: &Path,
-    now: Timestamp,
-    zone: &TimeZone,
-    file_mode: Option<Mode>,
-) -> String {
-    let mut out = String::new();
-    let mut row = |key: &str, value: &str| {
-        let _ = writeln!(out, "{key:<14} {value}");
-    };
-    row(
-        "daemon",
-        &format!(
-            "efrd {}, protocol {}, pid {}",
-            one_line(&status.version),
-            status.protocol,
-            status.pid
-        ),
-    );
-    row("daemon id", &status.daemon_id.to_string());
-    // Whole seconds: the nanoseconds of a start time say nothing to a person.
-    let started = local_time(status.started_at, zone);
-    row("started", &format!("{started} ({})", ago(status.started_at, now)));
-    row("socket", &one_line(&socket.display().to_string()));
-    row("screen", &one_line(&status.screen_backend));
-    row("conversations", &status.conversations.to_string());
-    row("shells", &status.shells.to_string());
-    if status.providers.is_empty() {
-        row("providers", "none configured");
-    }
-    for provider in &status.providers {
-        let mut state = match (provider.logged_in, provider.expires_at) {
-            (false, _) => "not logged in".to_owned(),
-            (true, None) => "logged in".to_owned(),
-            (true, Some(expires)) => {
-                let at = local_time(expires, zone);
-                format!("logged in, token expires {at} ({})", until(expires, now))
-            }
-        };
-        if let Some(hint) = &provider.key_hint {
-            let _ = write!(state, ", key {}", one_line(hint));
-        }
-        let what = if provider.key_hint.is_some() { "" } else { ", key" };
-        if let Some(refused) = provider.key_refused_at {
-            let at = local_time(refused, zone);
-            let _ = write!(state, "{what} refused at {at} ({})", ago(refused, now));
-        } else if key_unchecked(provider) {
-            let _ = write!(state, "{what} {KEY_UNCHECKED}");
-        }
-        if provider.active {
-            state.push_str(" (active)");
-        }
-        row("provider", &format!("{}: {state}", one_line(&provider.provider)));
-    }
-    if let Some(models) = &status.catalog {
-        row("models", &catalog(models, now));
-    }
-    if let Some(config) = &status.config {
-        let file = match (&config.symlink_target, config.exists) {
-            (Some(target), _) => format!("{} -> {}", config.path.display(), target.display()),
-            (None, true) => config.path.display().to_string(),
-            (None, false) => format!("{} (absent)", config.path.display()),
-        };
-        row("config", &one_line(&file));
-        if let Some(error) = &config.reload_error {
-            row("config error", &config_error(error));
-        }
-        if !config.restart_needed.is_empty() {
-            row("restart needed", &one_line(&config.restart_needed.join(", ")));
-        }
-        if let Some(held) = &config.held {
-            row("config held", &held_text(held));
-        }
-    }
-    // NOTE: a daemon from before full mode reports none, so there is nothing to show.
-    if let Some(full) = &status.full_mode {
-        row("full mode", &full_mode_words(full));
-    }
-    if file_mode == Some(Mode::Full) {
-        let refused = status.full_mode.as_ref().is_some_and(|full| full.refused.is_some());
-        let words = if refused {
-            "full; efrd cannot run it, so a turn that names no mode runs as auto"
-        } else {
-            "full"
-        };
-        row("default mode", words);
-    }
-    // NOTE: a daemon from before the sandbox reports none, so there is nothing to show.
-    if let Some(sandbox) = &status.sandbox {
-        row("sandbox", &sandbox::status_line(sandbox));
-        if let Some(fix) = sandbox.fix.as_deref().filter(|_| !sandbox.available) {
-            row("sandbox fix", &one_line(fix));
-        }
-        if sandbox.available {
-            row("netview", &sandbox::netview_words(sandbox));
-            row("bus filter", &sandbox::bus_filter_words(sandbox));
-        }
-    }
-    out
-}
-
-/// What `efr status` says of a stored API key that efrd has not checked since it
-/// started (DV32): the refusals of a key live in efrd's memory only.
-pub(crate) const KEY_UNCHECKED: &str = "not checked since efrd started";
-
-/// True when `provider` is logged in with an API key and efrd knows nothing of it yet:
-/// no request with the key got an answer since efrd started, and no checked login.
-fn key_unchecked(provider: &ProviderStatus) -> bool {
-    provider.logged_in
-        && provider.login == Some(LoginKind::ApiKey)
-        && provider.key_refused_at.is_none()
-        && provider.key_checked_at.is_none()
-}
-
-/// Which provider's model catalog the daemon has and where it came from, at `now`:
-/// `anthropic-api, from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m
-/// ago` (the backend did not answer yet), `built into efr`, or `no list yet; efrd
-/// fetches it in the background`. An older daemon names no provider.
-pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
-    let fetched = |place: &str| match catalog.fetched_at {
-        Some(at) => format!("from {place}, fetched {}", ago(at, now)),
-        None => format!("from {place}"),
-    };
-    let origin = match catalog.origin {
-        CatalogOrigin::Backend => fetched("the backend"),
-        CatalogOrigin::Cache => fetched("the cache"),
-        CatalogOrigin::Builtin => "built into efr".to_owned(),
-        CatalogOrigin::Missing => "no list yet; efrd fetches it in the background".to_owned(),
-        _ => "from elsewhere".to_owned(),
-    };
-    match &catalog.provider {
-        Some(provider) => format!("{}, {origin}", one_line(provider)),
-        None => origin,
-    }
-}
-
-/// The `full mode` row of `efr status`: `allowed`, `off (permissions.allow_full is
-/// false)`, or `refused (<why>)` when the config allows it but efrd cannot run it.
-pub(crate) fn full_mode_words(full: &FullModeStatus) -> String {
-    match (full.allowed, full.refused) {
-        (false, _) => "off (permissions.allow_full is false)".to_owned(),
-        (true, Some(refusal)) => format!("refused ({})", refusal.describe()),
-        (true, None) => "allowed".to_owned(),
-    }
-}
-
-/// A change of `config.toml` that efrd holds because it loosens permissions and came
-/// while full mode ran, with the keys that loosen and what to do.
-pub(crate) fn held_text(held: &HeldConfig) -> String {
-    let keys: Vec<String> = held.loosens.iter().map(|key| one_line(key)).collect();
-    format!(
-        "config.toml changed while a full turn ran, and the change loosens {}. If you did not \
-         make this change, take it out of the file. Then run efr config reload.",
-        keys.join(", ")
-    )
-}
-
-/// A config file's error as one line: the message, then its key and place.
-pub(crate) fn config_error(error: &ConfigFileError) -> String {
-    let place = config_error_place(error);
-    if place.is_empty() {
-        one_line(&error.message)
-    } else {
-        one_line(&format!("{} ({place})", error.message))
-    }
-}
-
-/// The key and the place of a config file's error, such as `shell.login, line 3,
-/// column 1`, or nothing when it has neither.
-pub(crate) fn config_error_place(error: &ConfigFileError) -> String {
-    let mut parts = Vec::new();
-    if let Some(key) = &error.key {
-        parts.push(key.clone());
-    }
-    match (error.line, error.column) {
-        (Some(line), Some(column)) => parts.push(format!("line {line}, column {column}")),
-        (Some(line), None) => parts.push(format!("line {line}")),
-        _ => {}
-    }
-    parts.join(", ")
-}
-
-/// The outcome of a reload, for `efr config reload` and the commands that change the
-/// file. `held` is true when efrd did not apply a valid file because it loosens
-/// permissions while or after full mode ran: the error then says why, and the file has
-/// no error. Each warning of the reload follows as a dim line, such as `warning:
-/// sandbox.allow[0] is disabled: ...` (DV44).
-pub(crate) fn reloaded(
-    result: &AdminConfigReloadResult,
-    held: bool,
-    options: &RenderOptions,
-) -> String {
-    let restart = one_line(&result.restart_needed.join(", "));
-    let mut out = match (&result.error, result.applied) {
-        // NOTE: the exception goes in the same line: a first line that says new turns
-        // use the file reads as done, and the change of provider looked lost.
-        (_, true) if !result.restart_needed.is_empty() => format!(
-            "config.toml reloaded; new turns use it, except a change of {restart}, which \
-             needs a restart: systemctl --user restart efrd\n"
-        ),
-        (_, true) => "config.toml reloaded; new turns use it\n".to_owned(),
-        (Some(error), false) if held => {
-            format!("config.toml is held; the old settings stay: {}\n", one_line(&error.message))
-        }
-        (Some(error), false) => {
-            format!("config.toml has an error; the old settings stay: {}\n", config_error(error))
-        }
-        (None, false) => "config.toml was not applied; the old settings stay\n".to_owned(),
-    };
-    if !result.restart_needed.is_empty() && !result.applied {
-        let _ = writeln!(out, "restart efrd to apply: {restart} (systemctl --user restart efrd)");
-    }
-    for warning in &result.warnings {
-        let line = format!("warning: {}", one_line(warning));
-        let _ = writeln!(out, "{}", paint(&line, Tone::Dim, options));
-    }
-    out
-}
-
-/// `efr history` without a conversation: one line per conversation, newest first.
-pub(crate) fn conversations(list: &ConversationsListResult, now: Timestamp) -> String {
-    if list.conversations.is_empty() {
-        return "no conversations yet\n".to_owned();
-    }
-    let mut out = String::new();
-    for summary in &list.conversations {
-        let title = summary.title.as_deref().map_or_else(|| "(untitled)".to_owned(), one_line);
-        // The age is at most 11 characters wide (`59m 59s ago`, `23h 59m ago`), so the
-        // titles start in one column.
-        let _ = writeln!(
-            out,
-            "{}  {:<17}  {:>11}  {title}",
-            summary.id,
-            status_word(summary.status),
-            ago(summary.updated_at, now)
-        );
-    }
-    if let Some(cursor) = &list.next_cursor {
-        let _ = writeln!(out, "more: efr history --cursor {}", one_line(cursor.as_str()));
-    }
-    out
 }
 
 #[cfg(test)]

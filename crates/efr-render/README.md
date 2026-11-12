@@ -25,15 +25,29 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   line cut at the width into rows that read back as the line (never at a space,
   because a diff shows code), the spaces before a cut kept. Without a terminal, each
   line is one plain row.
+- `diff_lines`: a unified diff as one `DiffLine` for each line: its kind (added,
+  removed, context, hunk, other), its painted sign apart from the content, the content
+  cut into rows of the width, and the fill of its rows (the SGR parameters of
+  `diff.add.bg` or `diff.remove.bg`). The seam of the terminal look: this crate paints
+  the lines, the CLI lays them out. `diff_rows` stays for the callers of today.
 - `RenderOptions`: the width, the `ColourMode` (none, 16 colours, truecolor), the
-  `Palette`, the `Theme` for code or a `CodeTheme` from a `.tmTheme` file, OSC 8
-  hyperlinks on or off, the `WidthMethod`, and whether the output is a terminal.
+  `Palette`, the `Theme` for code or a `CodeTheme` from a `.tmTheme` file (and one in
+  bat's ANSI encoding for 16 colours, `with_code_theme_ansi`), OSC 8 hyperlinks on or
+  off, the `WidthMethod`, the `Glyphs`, and whether the output is a terminal.
   `with_width` makes the same options for a new width after a resize.
 - `Role` and `Palette`: every colour goes through a role. `RenderOptions::paint` and
   `RenderOptions::sgr` give the CLI the same roles for its own lines.
-  `RenderOptions::tint` gives the colour of a role without its attributes (the
-  `warning` colour without bold), for the CLI's context gauge, whose colour changes
-  with its level.
+  `RenderOptions::paint_with` adds `Attrs` (bold, italic, underline, reverse, dim) to
+  a role, such as the reverse and bold badge of a question; the attributes stay
+  without colour. `RenderOptions::tint` gives the colour of a role without its
+  attributes, for the CLI's context gauge, whose colour changes with its level.
+  `RenderOptions::fill` gives the SGR parameters of a background role, for a row that
+  the caller fills to the edge with `ESC [ K` and resets before its newline.
+- `Glyphs`: every glyph of the CLI's own lines (the marks of the design's legend and
+  the mark of the thought row), with `Glyphs::UNICODE` and `Glyphs::ASCII`. The CLI
+  picks the table from the locale; `RenderOptions::glyphs` gives it. No other file of
+  this crate or of the CLI writes one of these glyphs as a literal (a test of the CLI
+  checks it; the files of today are listed there until the slices move them).
 - `text_width` and `display_width`: the columns of text (painted text without its
   escape sequences) by code point or by grapheme cluster. `display_rows`: the rows of
   one painted line as the terminal wraps it (a wide character that does not fit at the
@@ -49,13 +63,22 @@ Colour roles and their defaults in 16 colours:
 | `muted` | labels, rules, quote bars, notes, traces | dim | dim |
 | `accent` | the colour of headings, the spinner | palette entry 3 (yellow) | bold |
 | `heading` | headings of level 1 and 2 | bold, in the accent's colour | bold |
-| `link` | links | entry 4 (blue), underlined | underlined |
-| `code` | inline code | entry 6 (cyan) | plain, with backticks |
+| `link` | links | entry 5 (magenta), underlined | underlined |
+| `code` | inline code, a command to run | entry 2 (green) | plain, with backticks |
 | `success` | done task boxes | entry 2 (green) | plain |
-| `warning` | questions, refusals | entry 3 (yellow), bold | bold |
+| `warning` | questions, refusals | entry 3 (yellow) | bold |
 | `error` | failures | entry 1 (red) | bold |
 | `quote` | quote text | italic | italic |
-| `diff.add`, `diff.remove`, `diff.hunk` | diff lines | entries 2, 1, 6 | plain (the sign stays bold) |
+| `diff.add`, `diff.remove` | diff lines | entries 2, 1 | plain (the sign stays bold) |
+| `diff.hunk` | hunk headers | entry 6 (cyan) | dim |
+| `code.bg` | the background of code rows | none | none |
+| `diff.add.bg`, `diff.remove.bg` | the background of added and removed rows | none (a truecolor code theme gives a tint) | none |
+
+The last three roles are backgrounds. A background role has no default colour and no
+attribute: it paints only in truecolor and only when the palette sets an RGB colour,
+and it is never reduced to one of the 16 colours. When the palette sets `diff.add.bg`
+and `diff.remove.bg`, the rows of a diff take them; else a truecolor code theme tints
+them with a blend of its background, as before.
 
 A `Palette` sets any role to a `Colour`: a palette entry or RGB. A role keeps its
 attributes (bold, underline, italic) with a new colour. `muted` is dim only when it has
@@ -205,7 +228,13 @@ without the line-by-line follow and without kept live zones shows. One more prop
 test keeps every live zone it can: a pending text without a code block still shows
 what the renderer without kept live zones shows at each push. Unit tests check that
 `Preload` loads the grammars and the theme only for colour on a terminal, and that
-it finds the fences that open in pieces of text, also in list items and quotes. A unit test checks that the shared highlighter colours each line as
+it finds the fences that open in pieces of text, also in list items and quotes. Unit
+tests check the background roles (an RGB colour in truecolor only), `paint_with` in
+each mode, the code points and the ASCII forms of `Glyphs`, and that `diff_lines`
+gives each line its kind, its sign apart and the rows that `diff_rows` paints. The
+test `design` of the test binary compares the output with a frame of the terminal
+design (`efr_test_support::design`, TM-Legend frame 6) in truecolor and in 16
+colours: the pattern of each test of the terminal look. A unit test checks that the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.
 

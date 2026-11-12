@@ -141,8 +141,14 @@ terminal's theme. The `[render]` table changes this:
   `muted = 8`.
 - `render.palette` names a theme file, such as `palette = "~/path/theme.toml"`. The
   path must be absolute or start with `~/`. The file has a `[colors]` table with the
-  same roles, and an optional `code_theme`: the path of a `.tmTheme` file for code. A
+  same roles, and an optional `code_theme`: the path of a `.tmTheme` file for code. An
+  optional `code_theme_ansi` names a `.tmTheme` file in bat's ANSI encoding. efr uses
+  it in 16 colours, so each kind of token takes the slot that the theme names. A
   design system can make this file. `[render.colors]` wins over the theme file.
+- Three roles are backgrounds: `code_bg` behind the rows of a code block, and
+  `diff.add_bg` and `diff.remove_bg` behind added and removed rows of a diff. They take
+  only `"#rrggbb"` and show only in truecolor. Without `diff.add_bg` and
+  `diff.remove_bg`, a truecolor code theme tints the rows of a diff.
 - `render.theme` names a theme for code blocks and diffs, such as `catppuccin-mocha`.
   `theme = "auto"` takes `theme_dark` or `theme_light` from the background of the
   terminal. The zsh plugin asks the terminal for its background once, when it loads.

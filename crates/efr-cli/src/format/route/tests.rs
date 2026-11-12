@@ -2,11 +2,12 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{
     AttachHow, NewReason, ProjectId, RepoHint, RouteLabel, RouteScope, Routed, Switch,
+    SwitchedModel,
 };
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use super::{age, attached, hint_line, line, scope_mark};
+use super::{age, attached, hint_line, line, model_line, scope_mark};
 
 const HOME: &str = "/home/u";
 
@@ -179,4 +180,17 @@ fn the_scope_mark_of_the_status_row() {
     assert_eq!(scope_mark(&outside("/etc"), home), "○ /etc");
     let removed = RouteLabel { name: None, ..app() };
     assert_eq!(scope_mark(&removed, home), "removed project");
+}
+
+/// The seam of the switch line keeps today's look until the turn slice builds it: no
+/// line for a switch.
+#[test]
+fn a_switch_of_model_has_no_line_yet() {
+    let side = |provider: &str, model: &str| SwitchedModel {
+        provider: Some(provider.to_owned()),
+        model: model.to_owned(),
+    };
+    let from = side("anthropic-api.work", "claude-opus-5-5");
+    let to = side("openai-api.b", "gpt-5.5");
+    assert_eq!(model_line(&from, &to, Some("medium")), []);
 }

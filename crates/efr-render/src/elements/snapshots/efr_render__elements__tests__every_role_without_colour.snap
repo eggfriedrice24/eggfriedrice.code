@@ -19,7 +19,7 @@ Prose with `code`, a \e]8;;https://example.com\e\\e[4mlink\e]8;;\e\\e[0m and \e[
 
 \e[2m────────────────────────────────────────\e[0m
 
-@@ -1 +1 @@
+\e[2m@@ -1 +1 @@\e[0m
 \e[1m-\e[0mold
 \e[1m+\e[0mnew
 
@@ -38,5 +38,8 @@ success
 \e[3mquote\e[0m
 diff.add
 diff.remove
-diff.hunk
+\e[2mdiff.hunk\e[0m
+code.bg
+diff.add.bg
+diff.remove.bg
 \e[2mshell: cargo test\e[0m

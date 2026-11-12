@@ -47,7 +47,7 @@ fn paint_styles_only_on_a_terminal() {
     let terminal = RenderOptions::new(80);
     assert_eq!(paint("note", Tone::Dim, &terminal), "\x1b[2mnote\x1b[0m");
     assert_eq!(paint("you", Tone::Bold, &terminal), "\x1b[1myou\x1b[0m");
-    assert_eq!(paint("wait", Tone::Attention, &terminal), "\x1b[1;33mwait\x1b[0m");
+    assert_eq!(paint("wait", Tone::Attention, &terminal), "\x1b[33mwait\x1b[0m");
     let no_colour = RenderOptions::new(80).with_colour(ColourMode::None);
     assert_eq!(paint("wait", Tone::Attention, &no_colour), "\x1b[1mwait\x1b[0m");
     let pipe = RenderOptions::new(80).with_terminal(false);
@@ -58,18 +58,40 @@ fn paint_styles_only_on_a_terminal() {
 }
 
 #[test]
+fn the_tones_of_the_legend_add_their_attributes_to_the_role() {
+    let terminal = RenderOptions::new(80);
+    assert_eq!(paint("app", Tone::Text, &terminal), "app");
+    assert_eq!(paint("title", Tone::TextBold, &terminal), "\x1b[1mtitle\x1b[0m");
+    assert_eq!(paint("words", Tone::TextItalic, &terminal), "\x1b[3mwords\x1b[0m");
+    assert_eq!(paint("\u{2717}", Tone::FailureBold, &terminal), "\x1b[1;31m\u{2717}\x1b[0m");
+    assert_eq!(paint("allow", Tone::AttentionBold, &terminal), "\x1b[1;33mallow\x1b[0m");
+    assert_eq!(paint(" ? ", Tone::Badge, &terminal), "\x1b[1;7;33m ? \x1b[0m");
+    // Without colour the attributes stay, and the badge is a bold `?`.
+    let none = RenderOptions::new(80).with_colour(ColourMode::None);
+    assert_eq!(paint(" ? ", Tone::Badge, &none), "\x1b[1m ? \x1b[0m");
+    assert_eq!(paint("words", Tone::TextItalic, &none), "\x1b[3mwords\x1b[0m");
+    assert_eq!(paint("app", Tone::Text, &none), "app");
+    // The text role takes the palette's colour; plain and bold do not.
+    let text = Palette::new().with(Role::Text, Colour::Rgb(0xd8, 0xd3, 0xc3));
+    let truecolor = RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(text);
+    assert_eq!(paint("note", Tone::Text, &truecolor), "\x1b[38;2;216;211;195mnote\x1b[0m");
+    assert_eq!(paint("you", Tone::Bold, &truecolor), "\x1b[1myou\x1b[0m");
+    assert_eq!(paint("fact", Tone::Plain, &truecolor), "fact");
+}
+
+#[test]
 fn tones_take_the_colours_of_their_roles_from_the_palette() {
     let palette = Palette::new()
         .with(Role::Warning, Colour::Rgb(0xf2, 0xc1, 0x4e))
         .with(Role::Muted, Colour::Palette(8));
     let truecolor =
         RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(palette.clone());
-    assert_eq!(paint("wait", Tone::Attention, &truecolor), "\x1b[1;38;2;242;193;78mwait\x1b[0m");
+    assert_eq!(paint("wait", Tone::Attention, &truecolor), "\x1b[38;2;242;193;78mwait\x1b[0m");
     // A muted role with its own colour is not dim.
     assert_eq!(paint("note", Tone::Dim, &truecolor), "\x1b[90mnote\x1b[0m");
     // In 16 colours a hex colour takes the nearest slot; without colour, plain bold.
     let sixteen = RenderOptions::new(80).with_palette(palette.clone());
-    assert_eq!(paint("wait", Tone::Attention, &sixteen), "\x1b[1;33mwait\x1b[0m");
+    assert_eq!(paint("wait", Tone::Attention, &sixteen), "\x1b[33mwait\x1b[0m");
     let none = RenderOptions::new(80).with_colour(ColourMode::None).with_palette(palette);
     assert_eq!(paint("wait", Tone::Attention, &none), "\x1b[1mwait\x1b[0m");
     assert_eq!(paint("note", Tone::Dim, &none), "\x1b[2mnote\x1b[0m");
@@ -119,6 +141,45 @@ fn blocks_are_separated_by_blank_lines_and_notes_stay_together() {
     ];
     // An answer follows its question, and the call it settled follows the answer.
     assert_eq!(separators, ["", "\n", "\n", "", "\n", "", "", "\n", "\n", "", "\n", "\n"]);
+}
+
+/// The spacing of the design, as BeforeAfter 4 and the notes of the Calls and Endings
+/// boards give it: rows stick together, prose stands apart, a steer has a blank line
+/// above and below, the end lines stick together after one blank line, and nothing
+/// stands between the prompt line and what follows it.
+#[test]
+fn the_rows_of_the_design_stick_together_and_prose_stands_apart() {
+    let mut spacing = Spacing::default();
+    let kinds = [
+        Block::Prompt,
+        Block::Row,
+        Block::Row,
+        Block::Message,
+        Block::Row,
+        Block::Row,
+        Block::Steer,
+        Block::Row,
+        Block::Message,
+        Block::End,
+        Block::End,
+    ];
+    let separators: Vec<&str> = kinds.into_iter().map(|kind| spacing.before(kind)).collect();
+    assert_eq!(separators, ["", "", "", "\n", "\n", "", "\n", "\n", "\n", "\n", ""]);
+    // The end lines stand one blank line after a row too, and nothing after a prompt.
+    let mut spacing = Spacing::default();
+    assert_eq!(
+        [Block::Row, Block::End, Block::End].map(|kind| spacing.before(kind)),
+        ["", "\n", ""]
+    );
+    let mut spacing = Spacing::default();
+    assert_eq!([Block::Prompt, Block::Row].map(|kind| spacing.before(kind)), ["", ""]);
+    // Today's notes and calls are rows next to a row of the design.
+    let mut spacing = Spacing::default();
+    let mixed = [Block::Row, Block::Call, Block::Row, Block::Note, Block::Question, Block::Row];
+    assert_eq!(mixed.map(|kind| spacing.before(kind)), ["", "", "", "", "\n", ""]);
+    // A thought row sticks to the row after it.
+    let mut stuck = Spacing::stuck();
+    assert_eq!(stuck.before(Block::Row), "");
 }
 
 #[test]

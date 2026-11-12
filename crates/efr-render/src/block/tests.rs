@@ -97,7 +97,7 @@ fn emphasis_strong_and_strikethrough_are_sgr() {
 
 #[test]
 fn inline_code_is_coloured_or_keeps_backticks_without_colour() {
-    assert_eq!(paint("run `ls`\n", RenderOptions::new(80)), "run \x1b[36mls\x1b[0m\n");
+    assert_eq!(paint("run `ls`\n", RenderOptions::new(80)), "run \x1b[32mls\x1b[0m\n");
     let no_colour = RenderOptions::new(80).with_colour(ColourMode::None);
     assert_eq!(paint("run `ls`\n", no_colour), "run `ls`\n");
 }
@@ -219,7 +219,7 @@ fn links_are_hyperlinks_or_show_their_target() {
     let markdown = "see [docs](https://example.com/docs)\n";
     assert_eq!(
         paint(markdown, RenderOptions::new(80)),
-        "see \x1b]8;;https://example.com/docs\x1b\\\x1b[4;34mdocs\x1b[0m\x1b]8;;\x1b\\\n"
+        "see \x1b]8;;https://example.com/docs\x1b\\\x1b[4;35mdocs\x1b[0m\x1b]8;;\x1b\\\n"
     );
     let off = RenderOptions::new(80).with_hyperlinks(false);
     assert_eq!(strip(&paint(markdown, off.clone())), "see docs (https://example.com/docs)\n");
@@ -244,7 +244,7 @@ fn bare_urls_become_hyperlinks() {
     let painted = paint("go to https://example.com/a_b now\n", RenderOptions::new(80));
     assert_eq!(
         painted,
-        "go to \x1b]8;;https://example.com/a_b\x1b\\\x1b[4;34mhttps://example.com/a_b\x1b]8;;\x1b\\\x1b[0m now\n"
+        "go to \x1b]8;;https://example.com/a_b\x1b\\\x1b[4;35mhttps://example.com/a_b\x1b]8;;\x1b\\\x1b[0m now\n"
     );
 }
 

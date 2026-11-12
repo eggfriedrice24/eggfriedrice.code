@@ -33,10 +33,13 @@ expression: every_role(&options)
 \e[4;38;2;127;180;202mlink\e[0m
 \e[38;2;159;194;122mcode\e[0m
 \e[38;2;143;191;106msuccess\e[0m
-\e[1;38;2;232;163;61mwarning\e[0m
+\e[38;2;232;163;61mwarning\e[0m
 \e[38;2;224;93;79merror\e[0m
 \e[3;38;2;184;176;160mquote\e[0m
 \e[38;2;143;191;106mdiff.add\e[0m
 \e[38;2;224;93;79mdiff.remove\e[0m
 \e[38;2;127;180;202mdiff.hunk\e[0m
+code.bg
+diff.add.bg
+diff.remove.bg
 \e[38;2;122;114;102mshell: cargo test\e[0m

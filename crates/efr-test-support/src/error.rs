@@ -202,6 +202,60 @@ pub enum TestSupportError {
         limit: Duration,
     },
 
+    /// A board of the design has no frame of that number in the fixtures.
+    #[error("the design has no frame {frame} of the board {board}")]
+    NoDesignFrame {
+        /// The board, such as `TM-Calls`.
+        board: String,
+        /// The number of the frame.
+        frame: u32,
+    },
+
+    /// A frame of the design is drawn in one depth only, and no truecolor frame is
+    /// there to derive another depth from.
+    #[error("the frame {frame} of the board {board} has no truecolor frame to derive a depth from")]
+    NoDesignDepth {
+        /// The board.
+        board: String,
+        /// The number of the frame.
+        frame: u32,
+    },
+
+    /// A truecolor frame of the design has a colour that the table of the depths does
+    /// not know.
+    #[error(
+        "the frame {frame} of the board {board} has the colour {colour}, which no depth table names"
+    )]
+    NoDesignColour {
+        /// The board.
+        board: String,
+        /// The number of the frame.
+        frame: u32,
+        /// The colour.
+        colour: String,
+    },
+
+    /// A fixture of the design could not be read.
+    #[error("could not read the design frames {}", .path.display())]
+    ReadDesign {
+        /// The file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
+    },
+
+    /// A fixture of the design is not in the form that `cargo xtask design-frames`
+    /// writes.
+    #[error("the design frames {} are not valid", .path.display())]
+    DesignSyntax {
+        /// The file.
+        path: PathBuf,
+        /// The JSON error.
+        #[source]
+        source: serde_json::Error,
+    },
+
     /// A fixture was looked up from a source file that is not inside a crate on disk.
     #[error("could not find the crate that holds {}", .source_file.display())]
     NoCrateForSource {

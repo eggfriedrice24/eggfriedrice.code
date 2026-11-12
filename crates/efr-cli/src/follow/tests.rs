@@ -416,7 +416,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
     let parked: CallId = "0192f0c1-7a00-7000-8000-000000000078".parse().unwrap();
     let answered: CallId = "0192f0c1-7a00-7000-8000-000000000079".parse().unwrap();
     let presser = Arc::clone(&keys);
-    let (result, _, err) = run_view(&env, &ctx, view, |mut conn, _| async move {
+    let (result, _, err) = Box::pin(run_view(&env, &ctx, view, |mut conn, _| async move {
         // The running turn asked before the prompt queued, so the subscription would
         // never replay the question; the newest page of the log has it.
         let (id, method) = conn.request().await;
@@ -494,7 +494,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
         conn.item(sub, &item(14, asked(answered, "not shown"))).await;
         conn.item(sub, &item(15, turn_completed())).await;
         conn.until_closed().await;
-    })
+    }))
     .await;
     result.unwrap();
     assert_eq!(keys.starts(), 1);
@@ -1595,7 +1595,14 @@ fn the_time_since_a_moment_is_never_negative() {
 
 /// A terminal view with every switch on, whose status row runs, as `efr send` makes it.
 fn started_view() -> TurnView {
-    let look = Look { motion: true, summary: true, progress: true, diff_lines: 20 };
+    let look = Look {
+        motion: true,
+        summary: true,
+        progress: true,
+        diff_lines: 20,
+        diff_lines_long: 8,
+        bell: false,
+    };
     let mut view = TurnView::new(turn(), RenderOptions::new(80)).with_look(look);
     view.start();
     view

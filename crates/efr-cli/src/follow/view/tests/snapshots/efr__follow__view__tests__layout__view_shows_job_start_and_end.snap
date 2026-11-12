@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 ---
 === 40 columns, colour
 [started]
-\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m
+\e[33m·\e[0m \e[32m$ npm run dev -- --port 3000\e[0m
     \e[2m(background)\e[0m
   \e[32m✓\e[0m
   \e[2mjob j3 started; output\e[0m
@@ -13,7 +13,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m
+\e[33m·\e[0m \e[32m$ npm run dev -- --port 3000\e[0m
     \e[2m(background)\e[0m
   \e[32m✓\e[0m
   \e[2mjob j3 started; output\e[0m
@@ -66,13 +66,13 @@ The dev server runs as job j3.
 
 === 80 columns, colour
 [started]
-\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
+\e[33m·\e[0m \e[32m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
   \e[32m✓\e[0m
   \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
+\e[33m·\e[0m \e[32m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
   \e[32m✓\e[0m
   \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
 

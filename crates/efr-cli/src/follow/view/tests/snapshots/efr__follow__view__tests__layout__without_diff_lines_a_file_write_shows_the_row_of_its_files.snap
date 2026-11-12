@@ -4,7 +4,7 @@ expression: "every_way_with(look,\n&[Sent(0, turn_started()), Sent(10, write_fil
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
   \e[32m✓\e[0m
   \e[2mchanged src/main.rs \e[0m\e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
@@ -18,7 +18,7 @@ expression: "every_way_with(look,\n&[Sent(0, turn_started()), Sent(10, write_fil
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[36mwrite src/main.rs\e[0m
+\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
   \e[32m✓\e[0m
   \e[2mchanged src/main.rs \e[0m\e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m

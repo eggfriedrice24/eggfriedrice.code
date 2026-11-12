@@ -140,13 +140,18 @@
 //! call has run for [`BACKGROUND_AFTER`]. A moved call's block ends with `(moved to
 //! job j3)` and the line of the job, from its `job_started`.
 
+mod asking;
 mod call;
+mod calls;
+mod ending;
+mod fold;
 mod input;
 mod left;
 mod message;
 mod newest;
 mod reasoning;
 mod status;
+mod waits;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -155,31 +160,36 @@ use std::time::Duration;
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    ApprovalDecision, ApprovedBy, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event,
-    EventEnvelope, ExitInfo, ExitKind, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind,
-    Launch, Mode, Origin, Presence, QuestionId, Risk, Scope, Seq, ShellCommandEnd, SurfaceChange,
-    TurnId, TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
+    ApprovedBy, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
+    FileChanges, Grant, InputWait, JobId, JudgeKind, Launch, Presence, QuestionId, Seq,
+    ShellCommandEnd, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict,
 };
-use efr_render::{RenderOptions, WidthMethod, render_trace};
+use efr_render::{RenderOptions, WidthMethod};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
 use crate::format::changes::HomeChange;
-use crate::format::context::{self as gauge, GaugedLine};
+use crate::format::context::GaugedLine;
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
-use crate::live::{LiveZone, effective_width, fits, rows_of};
+use crate::live::{LiveZone, effective_width};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
-use call::{Call, Outcome};
+use call::Call;
+use ending::Ending;
+use fold::Fold;
 use input::{Input, Queued, user_message};
 use left::Left;
 use message::Message;
 use newest::ToolInput;
 use reasoning::Reasoning;
 use status::{State, Status};
+use waits::{
+    ECHO_PREFIX, HIDDEN_INPUT, HIDDEN_INPUT_SANDBOXED, MANUAL_INPUT, SECRET_INPUT, SILENCE_HINT,
+    VISIBLE_INPUT,
+};
 
 pub(crate) use status::{TICK, spinner};
 
@@ -215,56 +225,6 @@ const YES: &str = "\u{2713} ";
 
 /// The mark of a refusal or of a failure.
 const NO: &str = "\u{2717} ";
-
-/// The line under the prompt of a command that waits for hidden input. It promises no
-/// more than echo being off: the prompt text comes from the command, and the program
-/// that reads the answer can print it, so a fake password prompt would get it.
-const HIDDEN_INPUT: &str = "type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it";
-
-/// The line under the prompt of a command that waits for visible input. It promises no
-/// more than this: on a plain terminal the echo puts the answer in the output that the
-/// model reads, but behind a relay such as `sudo`'s own pty the program on the inner
-/// terminal decides whether the answer is shown.
-const VISIBLE_INPUT: &str =
-    "type the answer and press Enter; the agent sees it if the program shows it";
-
-/// The line under a visible prompt that looks like a password prompt behind a relay,
-/// such as `sudo`'s own pty: what is typed is not shown, and it goes as a visible
-/// answer, because the program on the inner terminal decides whether it is shown.
-const SECRET_INPUT: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
-
-/// The line under a call that has printed nothing for a while and reports no wait;
-/// the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
-const SILENCE_HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
-
-/// The line under a manual answer, which is not shown: no prompt was reported, so it
-/// may be a password. The program's own echo, if any, shows in the output.
-const MANUAL_INPUT: &str = "type the input and press Enter, or Ctrl+\\ to cancel; your typing is not shown here, and the agent sees it only if the program shows it";
-
-/// The note when the user closed a manual answer line unsent.
-const MANUAL_CANCELLED: &str = "the input was not sent";
-
-/// The note when a command waits for hidden input and no key can be read here.
-const HIDDEN_INPUT_ELSEWHERE: &str =
-    "the command waits for hidden input, such as a password; efr cannot ask for it here";
-
-/// The note when a contained call waits for hidden input, or for a visible answer whose
-/// prompt looks like a password prompt: efr stops it and never asks (efr's auto spec,
-/// sections 3.12 and 14.7).
-const HIDDEN_INPUT_SANDBOXED: &str =
-    "sandbox: the command asked for a secret; efr does not type secrets into the sandbox";
-
-/// The note when a command waits for visible input and no key can be read here.
-const VISIBLE_INPUT_ELSEWHERE: &str = "the command waits for input; efr cannot ask for it here";
-
-/// The note after an answer reached the command.
-const ANSWER_SENT: &str = "answer sent";
-
-/// The note when the daemon refused an answer because the wait was over.
-const ANSWER_REFUSED: &str = "the command no longer waits for that input; nothing was sent";
-
-/// What the echo of a visible answer starts with.
-const ECHO_PREFIX: &str = "> ";
 
 /// How much further a row of a line of efr's own goes on than its first row, as a row
 /// of a question's card does.
@@ -522,6 +482,28 @@ pub(crate) struct Look {
     /// The lines of a file write's diff that show under its call; 0 shows the row of
     /// the files instead (`render.diff_lines`).
     pub(crate) diff_lines: usize,
+    /// The lines of a file write's diff from the 6th call of a turn on, in place of
+    /// `diff_lines` (`render.diff_lines_long`). The calls slice reads it.
+    pub(crate) diff_lines_long: usize,
+    /// One BEL with the frame that first shows a question card (`render.bell`). The
+    /// live slice reads it.
+    pub(crate) bell: bool,
+}
+
+impl Look {
+    /// The look that `render` sets, with the progress bar when `progress` (already
+    /// checked against the terminal).
+    pub(crate) fn of(render: &efr_config::RenderSettings, progress: bool) -> Look {
+        let lines = |count: u32| usize::try_from(count).unwrap_or(usize::MAX);
+        Look {
+            motion: render.motion,
+            summary: render.turn_summary,
+            progress,
+            diff_lines: lines(render.diff_lines),
+            diff_lines_long: lines(render.diff_lines_long),
+            bell: render.bell,
+        }
+    }
 }
 
 /// What a call changed in the files of the turn's roots, from its
@@ -663,6 +645,8 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
+    /// The reads that fold into one row (`fold`): a seam that the calls slice fills.
+    fold: Fold,
     /// What the lines at the end of the turn name, gathered while it runs.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
     ending: Box<Ending>,
@@ -760,6 +744,7 @@ impl TurnView {
             reviewed: HashMap::new(),
             commands: HashMap::new(),
             away: false,
+            fold: Fold::default(),
             ending: Box::default(),
             ended_undo: None,
             surface: None,
@@ -1423,37 +1408,6 @@ impl TurnView {
         self.options_at(self.size)
     }
 
-    /// Writes the card of the question to the scrollback when the live zone with it
-    /// would not fit on the screen: rows that scroll off the top can never be erased,
-    /// and the live zone would show only the card's last rows. Its keys stay live.
-    fn fit_question(&mut self, size: Size, now: Timestamp) {
-        if !self.question.as_ref().is_some_and(|shown| !shown.committed) {
-            return;
-        }
-        let body = self.live_body(size, now);
-        // One row more for a status row under it.
-        let rows = rows_of(&body, effective_width(size), self.options.width_method()) + 1;
-        if !fits(rows, size) {
-            self.commit_question();
-        }
-    }
-
-    /// Writes the card of the question on the screen to the scrollback once, without
-    /// its keys, which stay in the live zone while the question waits.
-    fn commit_question(&mut self) {
-        let options = self.options_now();
-        let text = match &self.question {
-            Some(shown) if !shown.committed => shown.card.render(None, &options),
-            _ => return,
-        };
-        let mut committed = self.spacing.before(Block::Question).to_owned();
-        committed.push_str(&text);
-        if let Some(shown) = &mut self.question {
-            shown.committed = true;
-        }
-        self.stage(&committed);
-    }
-
     /// True when the live zone shows the line of the running call of this turn: it
     /// runs, no question about it or another waits, and the view did not end.
     fn call_shown(&self) -> bool {
@@ -1545,56 +1499,7 @@ impl TurnView {
     /// One event of this turn.
     fn turn_event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         match event {
-            Event::TurnStarted { scope, settings, .. } => {
-                self.queued = false;
-                self.started_at = self.event_at;
-                self.reasoning = Reasoning::default();
-                let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);
-                self.ending.full_exits.clear();
-                if let Some(status) = &mut self.status {
-                    status.turn_started();
-                    status.set_full(full);
-                }
-                // A prompt that this view queued is the user's message of its turn.
-                if let Some(prompt) = self.input.as_mut().and_then(|input| input.prompt.take()) {
-                    let mut committed = self.spacing.before(Block::Prompt).to_owned();
-                    committed.push_str(&user_message(&prompt, &self.options_at(size)));
-                    self.stage(&committed);
-                }
-                self.in_project = matches!(scope, Scope::Project(_));
-                // A call or a question of the turn ahead that is still shown or kept is
-                // over now.
-                self.call = None;
-                self.commit_question();
-                self.question = None;
-                let retained = self.retained.take().is_some();
-                let surface = self.surface.take().is_some();
-                let mut step = match self.running.take() {
-                    Some(running) => Step {
-                        settled: running.reads_keys() || retained || surface,
-                        ..self.commit(String::new())
-                    },
-                    None => Step { settled: retained || surface, ..Step::default() },
-                };
-                let fallback = settings.as_ref().and_then(|settings| {
-                    let fallback = settings.fallback.as_ref()?;
-                    Some(sandbox::fallback_note(fallback, settings.mode))
-                });
-                if let Some(note) = fallback {
-                    let noted = self.note(&note, size);
-                    step.out.push_str(&noted.out);
-                    step.err.push_str(&noted.err);
-                }
-                // NOTE: in the error role: commands of this turn run as the user, with
-                // no sandbox and no question.
-                if full {
-                    let rows = |options: &RenderOptions| rows(FULL_STARTED, Tone::Failure, options);
-                    let noted = self.rendered_after(String::new(), rows, size);
-                    step.out.push_str(&noted.out);
-                    step.err.push_str(&noted.err);
-                }
-                step
-            }
+            Event::TurnStarted { .. } => self.turn_started(event, size),
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 // NOTE: drafts showed most of this text before it was recorded; an update
                 // that adds nothing must not take the row back from a newer draft state.
@@ -1615,162 +1520,12 @@ impl TurnView {
                 }
                 self.message_text(*index, text, true, size)
             }
-            Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } => {
-                self.state(State::Tool(format::one_line(tool)));
-                self.tools.insert(*call_id, tool.clone());
-                if let Some(command) = format::command_of(input) {
-                    self.commands.insert(*call_id, command.to_owned());
-                }
-                if let Some(Launch::Contained { grants }) = launch {
-                    let open = grants.contains(&Grant::OpenNetwork);
-                    self.contained.insert(*call_id, (grants.contains(&Grant::NetView), open));
-                }
-                // A call that takes a manual input is followed from its start, so a
-                // command that never prints can still offer `Ctrl+\`. A call in the
-                // sandbox never does: a manual line may hold a password, and efr types
-                // no secret into the sandbox.
-                let mut settled = false;
-                if *manual_input && !self.contained.contains_key(call_id) {
-                    let (running, replaced) = self.running(*call_id);
-                    running.takes_manual = true;
-                    settled = replaced;
-                }
-                // The model writes a tool call after the text it belongs to, so the
-                // message before it is complete.
-                let before = self.finish_message();
-                let mut call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
-                if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
-                    call = call.in_background();
-                }
-                // On a terminal the call's block shows in the live zone while it runs
-                // and is written once when it ends; elsewhere its first rows go to
-                // stderr after its question and its answer, if it has one
-                // (`due_header`), and its result when it ends.
-                call.header_due = !self.terminal();
-                self.call = Some(call);
-                Step { settled, ..self.commit(before) }
-            }
+            Event::ToolCallStarted { .. } => self.tool_call_started(event),
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
-            Event::ToolCallCompleted {
-                call_id,
-                output,
-                is_error,
-                exit_code,
-                sandbox: summary,
-                refusal,
-                changes,
-                diff,
-                left_running,
-                ..
-            } => {
-                self.state(State::Model);
-                let lines = match &self.running {
-                    Some(running) if running.call_id == *call_id && !running.lines.is_empty() => {
-                        running.lines.clone()
-                    }
-                    _ => call::output_lines(output),
-                };
-                let mut settled = self.call_ended(*call_id);
-                // NOTE: the move question about the call asks nothing any more; its keys
-                // go back.
-                let ended_question = match self.jobs.moving.take_if(|moving| moving == call_id) {
-                    Some(_) => {
-                        settled = true;
-                        self.answer_line(About::Move, false, MOVE_ENDED, size)
-                    }
-                    None => Step::default(),
-                };
-                let moved = self.jobs.moved.remove(call_id);
-                let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
-                let launched = self.contained.remove(call_id);
-                let contained =
-                    launched.is_some() || summary.as_ref().is_some_and(|summary| summary.confined);
-                let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
-                let denied = self.refused.contains(call_id);
-                // The end of the turn says once where the sandbox can write, when a call
-                // ran in it.
-                let ran = contained && !denied && refusal.is_none() && setup.is_none();
-                self.traced |= ran;
-                let (net_view, open) = launched.unwrap_or_default();
-                self.traced_net_view |= net_view && ran;
-                // NOTE: the whole network wins over the proxy, which wins over none: the
-                // trace names the most that a call of the turn had.
-                let network = if open {
-                    sandbox::TraceNetwork::Full
-                } else if summary.as_ref().is_some_and(|summary| summary.proxied) {
-                    sandbox::TraceNetwork::Proxy
-                } else {
-                    sandbox::TraceNetwork::None
-                };
-                if ran {
-                    self.traced_network = self.traced_network.max(network);
-                }
-                // NOTE: the call answered, but its command goes on in the hidden shell,
-                // and its `shell_command_detached` may come later. Until it does, the
-                // keys of a call outside the sandbox that asked for input here, or that
-                // may ask for a password, are held: they may be a password.
-                if *left_running && !self.left.as_ref().is_some_and(|left| left.call_id == *call_id)
-                {
-                    let command = self.commands.get(call_id).map_or("", String::as_str);
-                    let mut left = Left::new(*call_id, command, contained, None);
-                    left.can_ask = can_ask;
-                    left.holding = !contained && (settled || self.flagged.contains(call_id));
-                    self.left = Some(Box::new(left));
-                }
-                // The job that the call started, first: it runs on after the call.
-                let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
-                if let Some(summary) = summary {
-                    notes.extend(sandbox::blocked_lines(&summary.blocked, summary.blocked_more));
-                    notes.extend(sandbox::bus_refused_lines(
-                        &summary.bus_refused,
-                        summary.bus_refused_more,
-                    ));
-                    notes.extend(sandbox::background_stopped(&summary.background_stopped));
-                    notes.extend(sandbox::survivors(&summary.survivors));
-                }
-                let step = match self.call.take().filter(|call| call.call_id == *call_id) {
-                    Some(call) if denied && refusal.is_none() => {
-                        self.denied_block(&call, &notes, size)
-                    }
-                    Some(call) => {
-                        let outcome = match (refusal, setup, *exit_code, &moved) {
-                            (Some(reason), ..) => Outcome::Refused(reason),
-                            (None, Some(reason), ..) => Outcome::NotStarted(reason),
-                            (None, None, ..) if *left_running => Outcome::LeftRunning,
-                            (None, None, _, Some(job)) => Outcome::Moved(job),
-                            (None, None, Some(code), None) if code != 0 => Outcome::Exited(code),
-                            (None, None, None, None) if *is_error => Outcome::Failed,
-                            _ => Outcome::Ran,
-                        };
-                        let changed = Changed { changes: changes.as_ref(), diff: diff.as_deref() };
-                        self.call_block(&call, outcome, &lines, &notes, changed, size)
-                    }
-                    None => {
-                        // The start of the call was not seen: its end is a note. A
-                        // refused call never ran, in the sandbox or out of it.
-                        let line = match refusal {
-                            Some(reason) => Some(format::refused(tool, reason)),
-                            None => format::tool_result(tool, *is_error, *exit_code)
-                                .filter(|_| !denied && setup.is_none() && !*left_running),
-                        };
-                        let mut all: Vec<String> =
-                            line.into_iter().map(|line| format!("{NO}{line}")).collect();
-                        if *left_running && refusal.is_none() {
-                            all.push(format!("{}: {}", format::one_line(tool), call::LEFT_RUNNING));
-                        }
-                        all.extend(sandbox::setup_failed(setup));
-                        all.extend(changes.as_ref().and_then(changes_note));
-                        all.extend(notes);
-                        self.notes(&all, size)
-                    }
-                };
-                // The live tail goes either way.
-                let err = format!("{}{}", ended_question.err, step.err);
-                Step { settled, err, ..step }
-            }
+            Event::ToolCallCompleted { .. } => self.tool_call_completed(event, size, can_ask),
             Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
                 let exit = sandbox::Requested::new(kinds, grants, *source, record);
                 self.exits.insert(*call_id, exit);
@@ -1943,45 +1698,11 @@ impl TurnView {
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
             }
-            Event::ConversationCompacted(compaction) => {
-                self.context(gauge::after(compaction));
-                let before = self.finish_message();
-                let rows = |options: &RenderOptions| gauge::compacted_rows(compaction, options);
-                self.rendered_after(before, rows, size)
-            }
-            Event::TurnCompleted { usage, changes, context, stop, undo, .. } => {
-                // NOTE: why the model stopped shows also without the end's line: a turn
-                // with no answer must not end in silence.
-                let stopped = stop.as_ref().map(format::turn_stop).map(GaugedLine::from);
-                // NOTE: the files that the turn changed stand right before its end, also
-                // without the end's line: they say what the turn left behind. A turn
-                // that undo can take back says so in the lines before the end.
-                let undoable = self.ended_with(changes.as_ref(), undo.as_ref());
-                let changed = changes
-                    .as_ref()
-                    .filter(|_| !undoable)
-                    .and_then(|changes| format::changes::turn_line(changes, &self.groups));
-                let line = self
-                    .summary()
-                    .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
-                let lines: Vec<GaugedLine> =
-                    stopped.into_iter().chain(changed.map(GaugedLine::from)).chain(line).collect();
-                self.end(TurnEnd::Completed, &lines, size)
-            }
-            Event::TurnFailed { error, changes, undo, .. } => {
-                self.ended_with(changes.as_ref(), undo.as_ref());
-                self.end(TurnEnd::Failed(error.clone()), &[], size)
-            }
-            Event::TurnInterrupted { context, changes, undo, .. } => {
-                self.ended_with(changes.as_ref(), undo.as_ref());
-                let line = if self.summary() {
-                    format::turn_interrupted(self.took(), context.as_ref())
-                } else {
-                    GaugedLine::from("interrupted".to_owned())
-                };
-                self.end(TurnEnd::Interrupted, &[line], size)
-            }
-            Event::TurnCancelled { .. } => self.end(TurnEnd::Cancelled, &[], size),
+            Event::ConversationCompacted { .. } => self.compacted(event, size),
+            Event::TurnCompleted { .. } => self.turn_completed(event, size),
+            Event::TurnFailed { .. } => self.turn_failed(event, size),
+            Event::TurnInterrupted { .. } => self.turn_interrupted(event, size),
+            Event::TurnCancelled { .. } => self.turn_cancelled(size),
             _ => Step::default(),
         }
     }
@@ -2098,158 +1819,6 @@ impl TurnView {
         Some(Step::default())
     }
 
-    fn resolved(
-        &mut self,
-        call_id: CallId,
-        decision: ApprovalDecision,
-        origin: Origin,
-        size: Size,
-    ) -> Step {
-        if decision == ApprovalDecision::Deny {
-            self.refused.insert(call_id);
-        }
-        if self.answered == Some(call_id) {
-            return Step::default();
-        }
-        let settled = self.settle(call_id);
-        let line = format!("{} from {}", format::decision(decision), format::origin(origin));
-        let good = format::allows(decision);
-        if decision == ApprovalDecision::AllowAlways {
-            self.saving = Some(call_id);
-        }
-        Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
-    }
-
-    /// The reviewer judged the exit of call `call_id`. An allow or a refusal is one muted
-    /// line, which the call's rows follow at once, as they follow an answer; an unsure
-    /// verdict shows on the card of the question that comes next. A verdict without a
-    /// risk is one that no reviewer model gave: every step of the chain failed, which
-    /// the card says with the steps in `skipped`.
-    fn judged(
-        &mut self,
-        call_id: CallId,
-        verdict: Verdict,
-        risk: Option<Risk>,
-        rationale: Option<&str>,
-        skipped: &[String],
-        size: Size,
-    ) -> Step {
-        let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
-        let exit = self.exits.get(&call_id);
-        let Some(line) = sandbox::reviewed(verdict, risk, rationale, exit, self.home.as_deref())
-        else {
-            let row = if risk.is_none() {
-                sandbox::no_answer_row(skipped)
-            } else {
-                sandbox::reviewer_row(verdict, rationale.unwrap_or_default())
-            };
-            self.reviewed.insert(call_id, row);
-            return Step::default();
-        };
-        match verdict {
-            Verdict::Allow if ours => {
-                if let Some(call) = self.call.as_mut() {
-                    call.approved(self.event_at);
-                }
-                let tool = self
-                    .tools
-                    .get(&call_id)
-                    .map_or_else(String::new, |tool| format::one_line(tool));
-                self.state(State::Tool(tool));
-            }
-            Verdict::Deny => {
-                // NOTE: the rows of a call that did not run still show what it was.
-                if let Some(call) = self.call.as_mut().filter(|_| ours) {
-                    call.awaiting = false;
-                }
-                self.refused.insert(call_id);
-                self.state(State::Model);
-            }
-            _ => self.state(State::Model),
-        }
-        self.verdict_line(ours.then_some(call_id), &line, size)
-    }
-
-    /// An always rule covered every exit of call `call_id`, which runs with no question
-    /// and no review (phase E): one muted `line` before its rows, as a reviewer's allow.
-    fn covered(&mut self, call_id: CallId, line: &str, size: Size) -> Step {
-        let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
-        if ours {
-            if let Some(call) = self.call.as_mut() {
-                call.approved(self.event_at);
-            }
-            let tool =
-                self.tools.get(&call_id).map_or_else(String::new, |tool| format::one_line(tool));
-            self.state(State::Tool(tool));
-        }
-        self.verdict_line(ours.then_some(call_id), line, size)
-    }
-
-    /// The muted line of a verdict: right before the rows of call `call`, which follow
-    /// it at once, or a note when it is about no running call, such as the deletes of
-    /// a tool cache after the call.
-    fn verdict_line(&mut self, call: Option<CallId>, line: &str, size: Size) -> Step {
-        let options = self.options_at(size);
-        let text = rows(line, Tone::Dim, &options);
-        let block = if call.is_some() { Block::Settled } else { Block::Note };
-        if !self.terminal() {
-            let mut err = self.err_spacing.before(block).to_owned();
-            err.push_str(&text);
-            let mut err = self.raw_err(err);
-            if call.is_some() {
-                err.push_str(&self.due_header(size));
-            }
-            return Step { err, ..Step::default() };
-        }
-        let mut committed = self.spacing.before(block).to_owned();
-        committed.push_str(&text);
-        self.stage(&committed);
-        Step::default()
-    }
-
-    /// The approval of call `call_id` expired; `away` when nobody answered while the
-    /// user was away.
-    fn expired(&mut self, call_id: CallId, away: bool, size: Size) -> Step {
-        self.refused.insert(call_id);
-        let settled = self.settle(call_id);
-        let line = if away { sandbox::AWAY_EXPIRED } else { "the approval expired" };
-        let step = self.answer_line(About::Approval(call_id), false, line, size);
-        Step { settled, ..step }
-    }
-
-    /// The question about `about` is settled: on a terminal its card gives its place to
-    /// one line, such as `✓ allowed` (`good`) or `✗ denied`. A call of this turn follows
-    /// the line at once; anything else comes after a blank line.
-    fn answer_line(&mut self, about: About, good: bool, line: &str, size: Size) -> Step {
-        if self.question.as_ref().is_some_and(|shown| shown.about == about) {
-            self.question = None;
-            self.dirty = true;
-        }
-        let options = self.options_at(size);
-        let (mark, tone) = if good { (YES, Tone::Success) } else { (NO, Tone::Failure) };
-        let text = rows(&format!("{mark}{}", format::one_line(line)), tone, &options);
-        let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
-        let block = if ours { Block::Settled } else { Block::Answer };
-        if !self.terminal() {
-            // NOTE: the call's first rows wait for its answer and follow it at once.
-            let mut err = self.err_spacing.before(block).to_owned();
-            err.push_str(&text);
-            let mut err = self.raw_err(err);
-            // NOTE: after an `a` answer, the line of what it saved comes first.
-            if let About::Approval(call) = about
-                && self.call.as_ref().is_some_and(|shown| shown.call_id == call)
-                && self.saving != Some(call)
-            {
-                err.push_str(&self.due_header(size));
-            }
-            return Step { err, ..Step::default() };
-        }
-        let mut committed = self.spacing.before(block).to_owned();
-        committed.push_str(&text);
-        self.stage(&committed);
-        Step::default()
-    }
-
     /// Dim note lines, one after the other; with none, only the live zone is redrawn.
     fn notes(&mut self, lines: &[String], size: Size) -> Step {
         let mut step = Step::default();
@@ -2283,73 +1852,6 @@ impl TurnView {
         Step::default()
     }
 
-    /// The quarantine question `question_id` about `changes`: a git setting that runs
-    /// programs, which the last call changed and the launcher moved to quarantine. Like
-    /// an approval it waits below the live zone for one key, but no call waits for it.
-    fn surface_question(
-        &mut self,
-        question_id: QuestionId,
-        changes: &[SurfaceChange],
-        size: Size,
-        can_ask: bool,
-    ) -> Step {
-        self.surfaces.insert(question_id);
-        let before = self.finish_message();
-        let card = sandbox::surface_card(changes, self.home.as_deref());
-        let mut step = Step { out: before, ..Step::default() };
-        let footer = if can_ask {
-            self.surface = Some(question_id);
-            step.ask = Some(Ask::Surface(question_id));
-            // One question at a time: the question's key reader replaces any other.
-            self.retained = None;
-            if let Some(running) = &mut self.running {
-                running.asking = None;
-                running.guarding = false;
-                running.typed.clear();
-                running.hinted = false;
-            }
-            Footer::Keys(card::KEEP_KEYS)
-        } else {
-            Footer::Waiting
-        };
-        self.show_question(step, card, About::Surface(question_id), footer, size)
-    }
-
-    /// The user answered the quarantine question `question_id` with a key here.
-    pub(crate) fn surface_answered(
-        &mut self,
-        question_id: QuestionId,
-        keep: bool,
-        size: Size,
-    ) -> Step {
-        if self.surface == Some(question_id) {
-            self.surface = None;
-        }
-        self.surface_answered = Some(question_id);
-        let line = if keep { "kept" } else { "left in quarantine" };
-        self.answer_line(About::Surface(question_id), keep, line, size)
-    }
-
-    /// The quarantine question `question_id` was answered, expired or ended with an
-    /// interrupt.
-    fn surface_resolved(
-        &mut self,
-        question_id: QuestionId,
-        keep: bool,
-        origin: Option<Origin>,
-        size: Size,
-    ) -> Step {
-        if self.surface_answered == Some(question_id) {
-            return Step::default();
-        }
-        let settled = self.surface == Some(question_id);
-        if settled {
-            self.surface = None;
-        }
-        let line = sandbox::surface_answered(keep, origin.map(format::origin));
-        Step { settled, ..self.answer_line(About::Surface(question_id), keep, &line, size) }
-    }
-
     /// The mark of turn `turn`, which a job notice started: once, however many notices
     /// it takes.
     fn wake_mark(&mut self, turn: TurnId, size: Size) -> Step {
@@ -2357,42 +1859,6 @@ impl TurnView {
             return Step::default();
         }
         self.whole_note(jobs::WAKE_MARK, size)
-    }
-
-    /// The question of the stop key about `job`, the newest running job of the
-    /// conversation: `stop job j3 (npm run dev)`, answered with one key. The view holds
-    /// the job until [`stop_answered`](Self::stop_answered).
-    pub(crate) fn stop_question(&mut self, job: &JobInfo, size: Size) -> Step {
-        let before = self.finish_message();
-        let card = Card { title: jobs::stop_title(job), rows: Vec::new() };
-        let step = Step { out: before, ask: Some(Ask::StopJob), ..Step::default() };
-        self.jobs.stopping = Some(job.id.clone());
-        // One question at a time: the question's key reader replaces any other.
-        self.retained = None;
-        if let Some(running) = &mut self.running {
-            running.asking = None;
-            running.guarding = false;
-            running.typed.clear();
-            running.hinted = false;
-        }
-        self.show_question(step, card, About::StopJob, Footer::Keys(jobs::STOP_KEYS), size)
-    }
-
-    /// The user answered the question of the stop key: `stop` with `y`. The job to stop
-    /// comes back with a `y`; its end shows when its `job_ended` comes.
-    pub(crate) fn stop_answered(&mut self, stop: bool, size: Size) -> (Step, Option<JobId>) {
-        let Some(job) = self.jobs.stopping.take() else {
-            return (Step::default(), None);
-        };
-        let line = if stop { format!("stopping job {job}") } else { format!("job {job} runs on") };
-        let step = self.answer_line(About::StopJob, stop, &line, size);
-        (step, stop.then_some(job))
-    }
-
-    /// The daemon did not stop `job`: a note says why.
-    pub(crate) fn stop_failed(&mut self, job: &JobId, message: &str, size: Size) -> Step {
-        let line = format!("job {job} was not stopped: {}", format::one_line(message));
-        self.whole_note(&line, size)
     }
 
     /// The call that the background key (Ctrl+B) can move: the running `shell` call of
@@ -2422,61 +1888,6 @@ impl TurnView {
         movable.then_some(call.call_id)
     }
 
-    /// The question of the background key about `call_id`, which runs outside the
-    /// sandbox: efrd's preview names its `command`, the time limit of the job in
-    /// minutes and the exits of the job decision. `y` moves the call with `token`.
-    pub(crate) fn move_question(
-        &mut self,
-        call_id: CallId,
-        preview: &Preview<'_>,
-        size: Size,
-    ) -> Step {
-        let before = self.finish_message();
-        let mut rows = card::command_rows(preview.command);
-        rows.push(card::Row::text(jobs::move_risk(preview.max_minutes), Tone::Attention));
-        for exit in preview.exits {
-            rows.push(card::Row::text(jobs::move_exit(exit, self.home.as_deref()), Tone::Dim));
-        }
-        let card = Card { title: jobs::MOVE_TITLE.to_owned(), rows };
-        let ask = Ask::Move { call_id, token: preview.token };
-        let step = Step { out: before, ask: Some(ask), ..Step::default() };
-        self.jobs.moving = Some(call_id);
-        // NOTE: the call keeps what it holds the keys for (a call allowed here that may
-        // ask, or one that asked for a password): they go back to it after the answer
-        // ([`keys_back`](Self::keys_back)).
-        self.show_question(step, card, About::Move, Footer::Keys(jobs::MOVE_KEYS), size)
-    }
-
-    /// The user answered the question of the background key: `yes` with `y`. The call
-    /// to move comes back with a `y`, while the question still asks about it. The keys
-    /// go back to the call when it held them before the question.
-    pub(crate) fn move_answered(&mut self, yes: bool, size: Size) -> (Step, Option<CallId>) {
-        let Some(call_id) = self.jobs.moving.take() else {
-            return (Step::default(), None);
-        };
-        let line =
-            if yes { "moving the command to the background" } else { "the command runs on here" };
-        let step = self.answer_line(About::Move, yes, line, size);
-        (self.keys_back(call_id, step), yes.then_some(call_id))
-    }
-
-    /// `step`, after which the keys go back to call `call_id` when it holds them: kept
-    /// for a call that the user allowed here as one that may wait for input, or for an
-    /// output line that looks like a password prompt ([`Ask::Retain`]), or thrown away
-    /// after it asked for a password ([`Ask::Discard`]). Otherwise they go to the input
-    /// row.
-    fn keys_back(&self, call_id: CallId, step: Step) -> Step {
-        let running = self.running.as_ref().filter(|running| running.call_id == call_id);
-        let ask = if running.is_some_and(|running| running.guarding) {
-            Some(Ask::Discard(call_id))
-        } else if self.retained == Some(call_id) || running.is_some_and(|running| running.held) {
-            Some(Ask::Retain(call_id))
-        } else {
-            None
-        };
-        Step { ask: ask.or(step.ask), ..step }
-    }
-
     /// efrd moved call `call_id` to job `job_id`. The call's block says so when it ends;
     /// its `job_started` names the job too.
     pub(crate) fn moved(&mut self, call_id: CallId, job_id: JobId) {
@@ -2489,39 +1900,6 @@ impl TurnView {
     pub(crate) fn not_moved(&mut self, call_id: CallId, reason: &str, size: Size) -> Step {
         let step = self.whole_note(&jobs::not_moved(reason), size);
         self.keys_back(call_id, step)
-    }
-
-    /// Shows `card`, the question about `about`, with `footer`, after `step`'s output:
-    /// in the live zone on a terminal until it is answered, on stderr otherwise.
-    fn show_question(
-        &mut self,
-        mut step: Step,
-        card: Card,
-        about: About,
-        footer: Footer,
-        size: Size,
-    ) -> Step {
-        // NOTE: a question of the turn takes the keys from the question of the stop key
-        // or of the background key, which then waits for no key.
-        if about != About::StopJob {
-            self.jobs.stopping = None;
-        }
-        if about != About::Move {
-            self.jobs.moving = None;
-        }
-        if self.terminal() {
-            let before = std::mem::take(&mut step.out);
-            self.stage(&before);
-            // One card at a time: one that still waits goes to the scrollback whole.
-            self.commit_question();
-            self.question = Some(Shown::new(card, about, footer));
-            self.dirty = true;
-        } else {
-            let mut text = self.err_spacing.before(Block::Question).to_owned();
-            text.push_str(&card.render(Some(&footer), &self.options_at(size)));
-            step.err = self.raw_err(text);
-        }
-        step
     }
 
     /// A dim note line, such as `queued behind the running turn`.
@@ -2565,217 +1943,6 @@ impl TurnView {
         committed.push_str(&render(&options));
         self.stage(&committed);
         Step::default()
-    }
-
-    /// The output of call `call_id` grew and now ends in `tail`. With the input row,
-    /// an open last line that looks like a password prompt holds the keys until the
-    /// daemon reports the wait ([`Running::held`]), and a new last line lets them go.
-    /// A line that ends with a line break is not a prompt: the daemon too tests only
-    /// the line that the cursor is on.
-    fn output(&mut self, call_id: CallId, tail: &str) -> Step {
-        let free = self.input.is_some() && !self.question_pending();
-        let retained = self.retained == Some(call_id);
-        let (running, settled) = self.running(call_id);
-        running.tail = last_line(tail);
-        running.lines = call::last_lines(tail);
-        running.stirred();
-        let quiet = running.asking.is_none() && !running.guarding && !retained;
-        let hold = free && quiet && looks_secret(open_line(tail));
-        // NOTE: the question of the background key reads the keys; whether the call
-        // holds them is settled when it is answered ([`keys_back`](Self::keys_back)).
-        if self.jobs.moving.is_some() {
-            return self.commit(String::new());
-        }
-        let mut step = Step { settled, ..self.commit(String::new()) };
-        let Some(running) = self.running.as_mut() else {
-            return step;
-        };
-        if hold && !running.held {
-            running.held = true;
-            step.ask = Some(Ask::Retain(call_id));
-        } else if !hold && running.held {
-            running.held = false;
-            step.settled = true;
-        }
-        step
-    }
-
-    /// The call that may offer `Ctrl+\` once it has been silent long enough, with its
-    /// activity count, which changes at every sign of life: a call of this turn that
-    /// takes a manual input, runs and reports no wait, while no key is read for it and
-    /// no approval waits, and whose line that offers `Ctrl+\` is not shown yet.
-    pub(crate) fn silence(&self) -> Option<(CallId, u64)> {
-        let running = self.running.as_ref()?;
-        let quiet = running.quiet()
-            && !running.hinted
-            && !self.question_pending()
-            && !self.left_reads_keys();
-        quiet.then_some((running.call_id, running.activity))
-    }
-
-    /// The call whose line that offers `Ctrl+\` is shown now; the follow loop waits for
-    /// the key exactly while there is one.
-    pub(crate) fn manual_offer(&self) -> Option<CallId> {
-        let running = self.running.as_ref()?;
-        let offered = running.quiet()
-            && running.hinted
-            && !self.question_pending()
-            && !self.left_reads_keys();
-        offered.then_some(running.call_id)
-    }
-
-    /// Call `call_id` has been silent since its activity count was last read: shows the
-    /// line that offers `Ctrl+\`. Nothing when it is no longer the silent call.
-    pub(crate) fn silent(&mut self, call_id: CallId, size: Size) -> Step {
-        if self.silence().map(|(silent, _)| silent) != Some(call_id) {
-            return Step::default();
-        }
-        if let Some(running) = &mut self.running {
-            running.hinted = true;
-        }
-        if self.terminal() {
-            return self.commit(String::new());
-        }
-        let header = self.due_header(size);
-        let step = self.note(SILENCE_HINT, size);
-        Step { err: format!("{header}{}", step.err), ..step }
-    }
-
-    /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
-    /// line that is not shown as it is typed and goes as a manual answer.
-    pub(crate) fn manual(&mut self, call_id: CallId, size: Size) -> Step {
-        // NOTE: a manual line may hold a password, which never goes into the sandbox.
-        if self.manual_offer() != Some(call_id) || self.contained.contains_key(&call_id) {
-            return Step::default();
-        }
-        if let Some(running) = &mut self.running {
-            running.hinted = false;
-        }
-        self.ask_for(call_id, AnswerKind::Manual, size)
-    }
-
-    /// True while a manual answer line is open, which `Ctrl+\` closes.
-    pub(crate) fn manual_open(&self) -> bool {
-        self.running.as_ref().is_some_and(|running| running.asking == Some(AnswerKind::Manual))
-    }
-
-    /// The user pressed `Ctrl+\` again while a manual answer line was open: the line
-    /// closes unsent, its keys stop, and the line that offers `Ctrl+\` comes back.
-    pub(crate) fn manual_cancelled(&mut self, size: Size) -> Step {
-        if !self.manual_open() {
-            return Step::default();
-        }
-        let mut call = None;
-        if let Some(running) = &mut self.running {
-            running.asking = None;
-            running.typed.clear();
-            running.hinted = true;
-            call = Some(running.call_id);
-        }
-        let step = self.note(MANUAL_CANCELLED, size);
-        self.manual_closed(call, step)
-    }
-
-    /// `step` for the moment a manual answer line of call `call` closes. The keys of a
-    /// call that kept them are read and thrown away from now on instead of kept: the
-    /// line may have held a password, and a second copy typed ahead for a prompt that
-    /// efr cannot see must never start a later answer line that is shown. The call's
-    /// silence still offers `Ctrl+\` for the next manual line. Otherwise the keys stop.
-    fn manual_closed(&self, call: Option<CallId>, step: Step) -> Step {
-        match call.filter(|call| self.retained == Some(*call)) {
-            Some(call) => Step { ask: Some(Ask::Discard(call)), ..step },
-            None => Step { settled: true, ..step },
-        }
-    }
-
-    /// `step` for the moment nothing reads keys for call `call` any more: the keys are
-    /// kept for it when it is the retained call, and stop otherwise.
-    fn keys_free(&self, call: Option<CallId>, step: Step) -> Step {
-        match call.filter(|call| self.retained == Some(*call)) {
-            Some(call) => Step { ask: Some(Ask::Retain(call)), ..step },
-            None => Step { settled: true, ..step },
-        }
-    }
-
-    /// Call `call_id` began or stopped waiting for input; `looks_secret` when a visible
-    /// wait's prompt looks like a password prompt behind another program.
-    fn input_changed(
-        &mut self,
-        call_id: CallId,
-        input: InputWait,
-        looks_secret: bool,
-        size: Size,
-        can_ask: bool,
-    ) -> Step {
-        // NOTE: a call that waits for input cannot move, so its wait ends the question
-        // of the background key and asks for the answer in its place.
-        let waits = matches!(input, InputWait::Hidden | InputWait::Visible);
-        let closed = match self.jobs.moving.take_if(|moving| *moving == call_id && waits) {
-            Some(_) => self.answer_line(About::Move, false, MOVE_WAITS, size),
-            None => Step::default(),
-        };
-        let step = self.input_changed_now(call_id, input, looks_secret, size, can_ask);
-        Step { err: format!("{}{}", closed.err, step.err), ..step }
-    }
-
-    /// [`input_changed`](Self::input_changed) once a question of the background key
-    /// about the call is closed.
-    fn input_changed_now(
-        &mut self,
-        call_id: CallId,
-        input: InputWait,
-        looks_secret: bool,
-        size: Size,
-        can_ask: bool,
-    ) -> Step {
-        let approval_pending = self.question_pending();
-        let moving = self.jobs.moving.is_some();
-        let (running, replaced) = self.running(call_id);
-        if running.asking.is_some_and(AnswerKind::guards) {
-            running.guarding = true;
-        }
-        let settled = replaced || running.reads_keys();
-        running.wait = input;
-        running.asking = None;
-        running.typed.clear();
-        running.stirred();
-        let kind = match input {
-            InputWait::Hidden => AnswerKind::Hidden,
-            InputWait::Visible if looks_secret => AnswerKind::Masked,
-            InputWait::Visible => AnswerKind::Visible,
-            // NOTE: the question of the background key reads the keys meanwhile; they go
-            // back to the call after its answer ([`keys_back`](Self::keys_back)).
-            _ if moving => return self.commit(String::new()),
-            // No wait, or one this build does not know: nothing to ask, but a call that
-            // asked for a password keeps the keys quiet until it completes.
-            _ if running.guarding => {
-                let mut step = self.commit(String::new());
-                step.ask = Some(Ask::Discard(call_id));
-                return step;
-            }
-            _ if settled && !replaced => {
-                let step = self.commit(String::new());
-                return self.keys_free(Some(call_id), step);
-            }
-            _ => return Step { settled, ..self.commit(String::new()) },
-        };
-        // NOTE: a prompt in the sandbox can be a fake, so efr asks for no answer that may
-        // be a secret there: not a hidden one, and not one whose prompt looks like a
-        // password prompt. efr-shell stops such a command at once.
-        if kind != AnswerKind::Visible && self.contained.contains_key(&call_id) {
-            return Step { settled, ..self.note(HIDDEN_INPUT_SANDBOXED, size) };
-        }
-        if !can_ask {
-            let note = if kind.hidden() { HIDDEN_INPUT_ELSEWHERE } else { VISIBLE_INPUT_ELSEWHERE };
-            return Step { settled, ..self.note(note, size) };
-        }
-        // One question at a time, so an approval and an input never overlap. Tool calls
-        // run one after another, so an approval does not come while a command runs.
-        // The line of a command left running in the hidden shell keeps the keys too.
-        if approval_pending || self.left_reads_keys() {
-            return Step { settled, ..Step::default() };
-        }
-        self.ask_for(call_id, kind, size)
     }
 
     /// An event of a command that a shell call left running in the hidden shell;
@@ -3068,232 +2235,6 @@ impl TurnView {
         self.note(&line, size)
     }
 
-    /// Asks for an answer line of `kind` for the running call `call_id`, below its last
-    /// output line.
-    fn ask_for(&mut self, call_id: CallId, kind: AnswerKind, size: Size) -> Step {
-        let Some(running) = self.running.as_mut().filter(|running| running.call_id == call_id)
-        else {
-            return Step::default();
-        };
-        running.asking = Some(kind);
-        running.held = false;
-        let prompt = format::one_line(&running.tail);
-        let mut step = if self.terminal() {
-            self.commit(String::new())
-        } else {
-            let options = self.options_at(size);
-            let mut err = String::new();
-            if !prompt.is_empty() {
-                err.push_str(&render_trace(&prompt, &options));
-            }
-            err.push_str(kind.line());
-            err.push('\n');
-            let mut err = self.raw_err(err);
-            // A shown answer is echoed on the next line as it is typed.
-            if kind.shown() {
-                err.push_str(ECHO_PREFIX);
-                self.echo_line = true;
-            }
-            Step { err, ..Step::default() }
-        };
-        step.ask = Some(Ask::Input { call_id, kind });
-        step
-    }
-
-    /// The running call, made `call_id` when it was another one or none; true when
-    /// another one was asking for input, which therefore stops.
-    fn running(&mut self, call_id: CallId) -> (&mut Running, bool) {
-        let mut replaced = false;
-        if let Some(running) = &self.running
-            && running.call_id != call_id
-        {
-            replaced = running.reads_keys();
-            self.running = None;
-        }
-        (self.running.get_or_insert_with(|| Running::new(call_id)), replaced)
-    }
-
-    /// Call `call_id` completed: its tail, any question for it and the keys kept for it
-    /// go. True when keys were read for it.
-    fn call_ended(&mut self, call_id: CallId) -> bool {
-        let retained = self.retained == Some(call_id);
-        if retained {
-            self.retained = None;
-        }
-        self.interactive.remove(&call_id);
-        let asked = match self.running.take() {
-            Some(running) if running.call_id == call_id => running.reads_keys(),
-            other => {
-                self.running = other;
-                false
-            }
-        };
-        asked || retained
-    }
-
-    /// What the user typed so far for a shown answer, echoed below the prompt: in the
-    /// live zone on a terminal, otherwise on stderr after `> `, where a removed
-    /// character is erased with Backspace. An answer that is not shown is never passed
-    /// here, and text passed while no shown answer is asked for is dropped.
-    pub(crate) fn typed(&mut self, text: &str) -> Step {
-        let terminal = self.terminal();
-        let echo_line = self.echo_line;
-        // NOTE: the line of a command left running in the hidden shell and the line of
-        // the running call never ask at the same time.
-        let (asking, typed) = match (self.left.as_deref_mut(), self.running.as_mut()) {
-            (Some(left), _) if left.asking.is_some() => (left.asking, &mut left.typed),
-            (_, Some(running)) => (running.asking, &mut running.typed),
-            _ => return Step::default(),
-        };
-        if !asking.is_some_and(AnswerKind::shown) {
-            return Step::default();
-        }
-        if terminal {
-            text.clone_into(typed);
-            return self.commit(String::new());
-        }
-        // A note since the last key ended the echo line; a new one starts empty.
-        let (mut err, shown) =
-            if echo_line { (String::new(), typed.as_str()) } else { (ECHO_PREFIX.to_owned(), "") };
-        err.push_str(&echo_edit(shown, text));
-        text.clone_into(typed);
-        self.echo_line = true;
-        Step { err, ..Step::default() }
-    }
-
-    /// An answer line that is not shown starts with `count` characters typed ahead while
-    /// the call asked nothing: a note says so, because nothing else on the screen does,
-    /// and a stray key in front of a password fails it.
-    pub(crate) fn typed_ahead(&mut self, count: usize, size: Size) -> Step {
-        let unit = if count == 1 { "character" } else { "characters" };
-        let line = format!("the answer starts with {count} {unit} typed ahead; Ctrl+U clears them");
-        self.note(&line, size)
-    }
-
-    /// The answer of `kind` reached the command. A password, hidden or behind a relay,
-    /// gets no note: the line under its prompt said how it goes, and the command's own
-    /// output shows what came of it. Any other answer gets one, because its echo goes.
-    pub(crate) fn answer_sent(&mut self, kind: AnswerKind, size: Size) -> Step {
-        let note = (!kind.guards()).then_some(ANSWER_SENT);
-        self.answer_note(note, size)
-    }
-
-    /// The daemon refused the answer because the command no longer waits for it.
-    pub(crate) fn answer_refused(&mut self, size: Size) -> Step {
-        self.answer_note(Some(ANSWER_REFUSED), size)
-    }
-
-    /// The daemon refused the answer for another reason, which `message` gives.
-    pub(crate) fn answer_failed(&mut self, message: &str, size: Size) -> Step {
-        let line = format!("the answer was not sent: {}", format::one_line(message));
-        self.answer_note(Some(&line), size)
-    }
-
-    /// A note about an answer, if any; the echo of what was typed goes with it.
-    /// A manual answer asks once: after it, the keys stop and the call's silence starts
-    /// again.
-    fn answer_note(&mut self, text: Option<&str>, size: Size) -> Step {
-        if let Some(left) = &mut self.left {
-            left.typed.clear();
-        }
-        let mut freed = None;
-        if let Some(running) = &mut self.running {
-            running.typed.clear();
-            if running.asking.is_some_and(AnswerKind::manual) {
-                running.asking = None;
-                running.stirred();
-                freed = Some(running.call_id);
-            }
-        }
-        let step = match text {
-            Some(text) => self.note(text, size),
-            None => self.commit(String::new()),
-        };
-        match freed {
-            Some(call) => self.manual_closed(Some(call), step),
-            None => step,
-        }
-    }
-
-    /// The user answered the approval `call_id` with a key. Allowing a call that may
-    /// wait for input at the terminal keeps the keys for it ([`Ask::Retain`]).
-    pub(crate) fn answered(
-        &mut self,
-        call_id: CallId,
-        decision: ApprovalDecision,
-        size: Size,
-    ) -> Step {
-        self.asking = None;
-        self.answered = Some(call_id);
-        if decision == ApprovalDecision::Deny {
-            self.refused.insert(call_id);
-        }
-        if let Some(call) = self.call.as_mut().filter(|call| call.call_id == call_id) {
-            call.approved(None);
-        }
-        let good = format::allows(decision);
-        if decision == ApprovalDecision::AllowAlways {
-            self.saving = Some(call_id);
-        }
-        let step =
-            self.answer_line(About::Approval(call_id), good, format::decision(decision), size);
-        if good && self.interactive.contains(&call_id) {
-            self.retained = Some(call_id);
-            return Step { ask: Some(Ask::Retain(call_id)), ..step };
-        }
-        step
-    }
-
-    /// True when the approval `call_id` waits for a key here and its question offers a
-    /// rule for an `a` answer (phase E).
-    pub(crate) fn offers_always(&self, call_id: CallId) -> bool {
-        self.asking == Some(call_id) && self.offered.is_some()
-    }
-
-    /// The user pressed `a` at the approval `call_id`: the last row of its card asks to
-    /// confirm the rule, `save rule "write under ~/notes"? y/n`. Only `y` then saves it.
-    pub(crate) fn confirm_always(&mut self, call_id: CallId, size: Size) -> Step {
-        match self.offered.clone().filter(|_| self.asking == Some(call_id)) {
-            Some(rule) => self.set_footer(call_id, Footer::Confirm(rule), size),
-            None => Step::default(),
-        }
-    }
-
-    /// A key other than `y` at the confirm of an `a` answer: the question of the approval
-    /// `call_id` asks again with its keys, and nothing is answered.
-    pub(crate) fn always_cancelled(&mut self, call_id: CallId, size: Size) -> Step {
-        match self.offered.clone().filter(|_| self.asking == Some(call_id)) {
-            Some(rule) => self.set_footer(call_id, Footer::Always(rule), size),
-            None => Step::default(),
-        }
-    }
-
-    /// The daemon did not take the `a` answer to the approval `call_id`, which stays
-    /// open: a note says why, and the question asks again without the `a`.
-    pub(crate) fn always_refused(&mut self, call_id: CallId, message: &str, size: Size) -> Step {
-        self.offered = None;
-        let line = format!("the answer was not taken: {}", format::one_line(message));
-        let mut step = self.note(&line, size);
-        let keys = self.set_footer(call_id, Footer::Keys(card::ALLOW_KEYS), size);
-        step.err.push_str(&keys.err);
-        step
-    }
-
-    /// The last row of the card of the approval `call_id` becomes `footer`: in the live
-    /// zone on a terminal, else the row again on stderr.
-    fn set_footer(&mut self, call_id: CallId, footer: Footer, size: Size) -> Step {
-        if self.terminal() {
-            let about = About::Approval(call_id);
-            if let Some(shown) = self.question.as_mut().filter(|shown| shown.about == about) {
-                shown.footer = footer;
-                self.dirty = true;
-            }
-            return Step::default();
-        }
-        let text = card::footer_row(&footer, &self.options_at(size));
-        Step { err: self.raw_err(text), ..Step::default() }
-    }
-
     /// Ends the view early: commits what the current message has so far and clears the
     /// live zone, before an error or an interrupt is reported.
     pub(crate) fn close(&mut self) -> Step {
@@ -3444,103 +2385,6 @@ impl TurnView {
         rest
     }
 
-    fn approval(
-        &mut self,
-        call_id: CallId,
-        request: &Request<'_>,
-        size: Size,
-        can_ask: bool,
-    ) -> Step {
-        let before = self.finish_message();
-        let tool = self.tools.get(&call_id).map(String::as_str);
-        let command = self.commands.get(&call_id).map(String::as_str);
-        let mut card = card::approval(request.summary, tool, command);
-        // NOTE: an exit shows the whole line from its record, never a shortened summary.
-        if let Some(exit) = request.exit {
-            let record = self.exits.get(&call_id).map(|exit| &exit.record);
-            let reviewed = self.reviewed.get(&call_id).map(String::as_str);
-            // A question that full mode still asks keeps the line that says why first.
-            let wake = card::strip_wake(request.summary);
-            let guard = format::full_guard(wake.unwrap_or(request.summary)).map(|(guard, _)| guard);
-            let skip = usize::from(guard.is_some());
-            // NOTE: the exit's card says why on its own row, so the subject is only what
-            // runs: the lines of the command, else the summary's first row.
-            let commands: Vec<card::Row> = card
-                .rows
-                .iter()
-                .filter(|row| matches!(row, card::Row::Command(_)))
-                .cloned()
-                .collect();
-            let subject = if commands.is_empty() {
-                card.rows.into_iter().skip(skip).take(1).collect()
-            } else {
-                commands
-            };
-            card = sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed);
-            if let Some(guard) = guard {
-                card.rows.insert(0, card::guard_row(guard));
-            }
-            if wake.is_some() {
-                card::mark_wake(&mut card);
-            }
-        }
-        // NOTE: a call that may ask for a password says so, but never one in the sandbox,
-        // where efr types no secret, and a privilege exit says it in its why row.
-        let privilege = request.exit.is_some_and(|exit| exit.kinds.contains(&ExitKind::Privilege));
-        let contained =
-            request.exit.is_some_and(|exit| matches!(exit.launch, Launch::Contained { .. }));
-        if self.interactive.contains(&call_id) && !privilege && !contained {
-            card.rows.push(card::Row::text(sandbox::PASSWORD_ROW, Tone::Dim));
-        }
-        // NOTE: a patch shows the diff of each of its files after a row that names it,
-        // so a delete or a move stands out before the user answers. An edit is a patch
-        // of one file.
-        match (request.diff, tool) {
-            (Some(diff), Some(format::patch::TOOL | format::EDIT_TOOL)) => {
-                card.rows.extend(card::patch_rows(diff));
-            }
-            (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
-            (None, _) => {}
-        }
-        if let Some(secs) = request.expires_in_secs {
-            card.rows.push(card::expires_row(secs));
-        }
-        if self.away {
-            card.rows.push(card::Row::text(sandbox::AWAY_ROW, Tone::Dim));
-        }
-        if request.blocking {
-            card.title = format!("{BLOCKING}{}", card.title);
-        }
-        let mut step = Step { out: before, ..Step::default() };
-        // Calls run one after another, so a call that kept keys is over by now.
-        self.retained = None;
-        let footer = if can_ask {
-            self.asking = Some(call_id);
-            step.ask = Some(Ask::Approval(call_id));
-            // One question at a time: the approval's key reader replaces the input's.
-            if let Some(running) = &mut self.running {
-                running.asking = None;
-                running.guarding = false;
-                running.typed.clear();
-                running.hinted = false;
-            }
-            // NOTE: only a daemon that knows the `a` answer fills `always` (phase E), so
-            // an older one never gets it.
-            self.offered = request
-                .exit
-                .and_then(|exit| exit.always.as_deref())
-                .map(format::one_line)
-                .filter(|rule| !rule.trim().is_empty());
-            match &self.offered {
-                Some(rule) => Footer::Always(rule.clone()),
-                None => Footer::Keys(card::ALLOW_KEYS),
-            }
-        } else {
-            Footer::Waiting
-        };
-        self.show_question(step, card, About::Approval(call_id), footer, size)
-    }
-
     /// Clears the question when it was about `call_id`; true when it was.
     fn settle(&mut self, call_id: CallId) -> bool {
         let settled = self.asking == Some(call_id);
@@ -3548,134 +2392,6 @@ impl TurnView {
             self.asking = None;
         }
         settled
-    }
-
-    /// Keeps what the turn's end event says it changed and what `efr undo` can take
-    /// back, for the lines before the end; true when undo can take the turn back now.
-    fn ended_with(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) -> bool {
-        self.ended_undo = undo.map(|undo| Box::new((changes.cloned(), undo.clone())));
-        undo.is_some_and(|undo| undo.undoable)
-    }
-
-    /// The whole lines before the end of the turn: one per file outside the roots that
-    /// the turn changed and that has a line of its own, then, for a turn that `efr
-    /// undo` can take back, its line and what no snapshot covers. A file that efr could
-    /// not copy takes its reason from the names of what no snapshot covers, so the
-    /// reason shows once.
-    fn end_lines(&mut self) -> Vec<String> {
-        let home = self.home.as_deref();
-        let ended = self.ended_undo.take();
-        let mut not_covered =
-            ended.as_ref().map(|ended| ended.1.not_covered.clone()).unwrap_or_default();
-        let mut lines: Vec<String> =
-            sandbox::full_let_through(&std::mem::take(&mut self.ending.full_exits))
-                .into_iter()
-                .collect();
-        // NOTE: a covered file that has a line of its own (`changed ~/.zshrc; efr undo
-        // reverts it`) does not count again in the line of the turn, which then shows
-        // only when something else changed.
-        let own: u32 = self
-            .ending
-            .home_changes
-            .iter()
-            .filter(|change| change.backup.is_none() && change.covered && change.floor)
-            .count()
-            .try_into()
-            .unwrap_or(u32::MAX);
-        for change in std::mem::take(&mut self.ending.home_changes) {
-            let real = change.real.as_deref();
-            if let Some(backup) = change.backup.as_deref() {
-                lines.push(sandbox::home_changed(&change.path, real, Some(backup), home));
-                continue;
-            }
-            let why = if change.covered {
-                None
-            } else {
-                take_reason(&mut not_covered, &sandbox::tilde(&change.path, home))
-            };
-            lines.extend(sandbox::home_undo_line(
-                &change.path,
-                real,
-                change.floor,
-                change.covered,
-                why.as_deref(),
-                home,
-            ));
-        }
-        if let Some((changes, mut undo)) =
-            ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable)
-        {
-            undo.home_files = undo.home_files.saturating_sub(own);
-            lines.extend(format::changes::undo_line(changes.as_ref(), &undo, &self.groups));
-            lines.extend(format::changes::not_covered_line(&not_covered, undo.not_covered_more));
-        }
-        lines
-    }
-
-    fn end(&mut self, end: TurnEnd, notes: &[GaugedLine], size: Size) -> Step {
-        let input = self.running.as_ref().is_some_and(Running::reads_keys);
-        let settled = self.asking.take().is_some()
-            || self.surface.take().is_some()
-            || input
-            || self.retained.is_some()
-            || self.left_reads_keys();
-        // A prompt that this view queued runs next: the view follows it.
-        let next = self.input.as_mut().and_then(Input::next);
-        let mut step = if next.is_some() {
-            self.wrap_up()
-        } else {
-            let failed = matches!(end, TurnEnd::Failed(_));
-            self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
-            self.close()
-        };
-        // NOTE: the files outside the project that the turn changed stand before its end
-        // however it ended, also after a failure, and so does what undo can take back.
-        for line in self.end_lines() {
-            let noted = self.whole_note(&line, size);
-            step.out.push_str(&noted.out);
-            step.err.push_str(&noted.err);
-        }
-        let mut notes = notes.to_vec();
-        // The last turn's failure is the command's error; an earlier one is a note.
-        if next.is_some() {
-            notes.extend(ended_note(&end).map(GaugedLine::from));
-        }
-        // The steers that this view's interrupt sent again run next: the note says so
-        // after all that the interrupted turn showed, in the order that it happened.
-        if std::mem::take(&mut self.resent_note) {
-            notes.push(RESENT.to_owned().into());
-        }
-        for note in &notes {
-            let noted = self.line_after(String::new(), note, size);
-            step.out.push_str(&noted.out);
-            step.err.push_str(&noted.err);
-        }
-        if let Some(input) = &mut self.input {
-            // A prompt that never ran because the daemon restarted comes back to the
-            // row; one that was taken back is already where it went.
-            let prompt = input.prompt.take();
-            if end == TurnEnd::Cancelled
-                && let Some(prompt) = prompt
-            {
-                input.line.append(&prompt);
-            }
-            // Steers that no model call read come back too, so nothing typed is lost.
-            for text in input.take_unread() {
-                input.line.append(&text);
-            }
-        }
-        match next {
-            Some(next) => {
-                self.advance(next);
-                Step { settled, ..step }
-            }
-            None => {
-                let still = self.left_at_end(size);
-                step.out.push_str(&still.out);
-                step.err.push_str(&still.err);
-                Step { settled, end: Some(end), ask: still.ask, ..step }
-            }
-        }
     }
 
     /// Follows `next`, a prompt that this view queued, after the turn before it ended:
@@ -3765,69 +2481,6 @@ impl TurnView {
         self.dirty = true;
     }
 
-    /// The block of call `call`, which ended as `outcome` at the time of the event being
-    /// taken, written once, with `notes` under its result; a failed call keeps `lines`,
-    /// the last of its output. A file write's diff stands above the result; the files
-    /// that a call without a diff shown changed stand under it. When stdout is not a
-    /// terminal, its first rows went to stderr before this event (`due_header`), and
-    /// the rest follows now.
-    fn call_block(
-        &mut self,
-        call: &Call,
-        outcome: Outcome<'_>,
-        lines: &[String],
-        notes: &[String],
-        changed: Changed<'_>,
-        size: Size,
-    ) -> Step {
-        let options = self.options_at(size);
-        let mut block = String::new();
-        if outcome.keeps_tail() {
-            block.push_str(&call::tail(lines, false, &options));
-        }
-        let limit = self.look.diff_lines;
-        let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
-        if let Some(diff) = diff {
-            // NOTE: the line of a patch's call is its files with their counts, no path:
-            // each file's diff names its own. The line of an `edit` call names its one
-            // file, as a write's does.
-            let patch =
-                self.tools.get(&call.call_id).is_some_and(|tool| tool == format::patch::TOOL);
-            let path = if patch { None } else { call.subject() };
-            block.push_str(&call::diff(diff, path, limit, &options));
-        }
-        block.push_str(&call.result(self.event_at, outcome, &options));
-        if let Some(changes) = changed.changes.filter(|_| diff.is_none()) {
-            block.push_str(&call::changes(changes, &options));
-        }
-        block.push_str(&call::notes(notes, &options));
-        if !self.terminal() {
-            return Step { err: self.raw_err(block), ..Step::default() };
-        }
-        let mut committed = self.spacing.before(Block::Call).to_owned();
-        committed.push_str(&call.header(&options));
-        committed.push_str(&block);
-        self.stage(&committed);
-        Step::default()
-    }
-
-    /// The rows of call `call`, whose approval was denied or expired, with `notes`
-    /// under them. It never ran, so it has no result. On a terminal its card gave its
-    /// place to the answer line, so these rows follow that line and the scrollback
-    /// keeps what did not run. When stdout is not a terminal, the rows went to stderr
-    /// after the answer line, as on a terminal.
-    fn denied_block(&mut self, call: &Call, notes: &[String], size: Size) -> Step {
-        if !self.terminal() {
-            return self.notes(notes, size);
-        }
-        let options = self.options_at(size);
-        let mut committed = self.spacing.before(Block::Call).to_owned();
-        committed.push_str(&call.header(&options));
-        committed.push_str(&call::notes(notes, &options));
-        self.stage(&committed);
-        Step::default()
-    }
-
     /// The live zone above the status row at `now`: the current message's live text,
     /// the running call's line, the last lines of its output
     /// and the input it waits for, then the question when one is pending.
@@ -3835,6 +2488,7 @@ impl TurnView {
         let mut live =
             self.message.as_ref().map(|message| message.live().to_owned()).unwrap_or_default();
         let options = self.options_at(size);
+        live.push_str(&self.fold.live(&options));
         if self.call_shown()
             && let Some(call) = &self.call
         {
@@ -3969,51 +2623,6 @@ struct Request<'a> {
     /// How long the question waits before the call does not run, when it has a fixed
     /// limit, such as a delete that full mode guards.
     expires_in_secs: Option<u32>,
-}
-
-/// What the lines at the end of a turn name, gathered while it runs.
-#[derive(Debug, Default)]
-struct Ending {
-    /// The files outside the project that the turn changed (`home_file_changed`), one
-    /// entry for each path.
-    home_changes: Vec<HomeChange>,
-    /// What full mode let through in this turn (`exit_judged` with the judge `full`),
-    /// each action once.
-    full_exits: Vec<String>,
-}
-
-/// The note for a turn that ended as `end` while a prompt of this view waits after it:
-/// the command goes on, so a failure is not its error.
-/// The reason that `names` (what no snapshot of the turn covers, such as
-/// `~/.aws/config (masked)`) gives for `shown`, taken out of `names`; `None` when it
-/// names `shown` with no reason, or not at all.
-fn take_reason(names: &mut Vec<String>, shown: &str) -> Option<String> {
-    let at = names.iter().position(|name| {
-        name.strip_prefix(shown).is_some_and(|rest| rest.starts_with(" (") && rest.ends_with(')'))
-    })?;
-    let name = names.remove(at);
-    let rest = &name[shown.len() + 2..name.len() - 1];
-    Some(rest.to_owned())
-}
-
-fn ended_note(end: &TurnEnd) -> Option<String> {
-    match end {
-        TurnEnd::Failed(body) => {
-            Some(format!("the turn failed with {}: {}", body.code, format::one_line(&body.message)))
-        }
-        TurnEnd::Cancelled => {
-            Some("the turn was cancelled because the daemon restarted".to_owned())
-        }
-        TurnEnd::Completed | TurnEnd::Interrupted | TurnEnd::Withdrawn => None,
-    }
-}
-
-/// The row of the files that a call changed as one plain note, for a call whose block
-/// is not shown; `None` when it changed none.
-fn changes_note(changes: &FileChanges) -> Option<String> {
-    let row: String =
-        format::changes::call_row(changes).into_iter().map(|(text, _)| text).collect();
-    (!row.is_empty()).then_some(row)
 }
 
 /// True for an event after which the drafts made before it show nothing new: the end

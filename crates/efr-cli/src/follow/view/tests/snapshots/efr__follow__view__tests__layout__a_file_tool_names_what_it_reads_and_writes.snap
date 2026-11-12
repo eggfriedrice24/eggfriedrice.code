@@ -4,10 +4,10 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"read_f
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[36mread crates/efr-cli/README.md\e[0m
+\e[33m·\e[0m \e[32mread crates/efr-cli/README.md\e[0m
   \e[32m✓\e[0m
 
-\e[33m·\e[0m \e[36mwrite notes/plan.md\e[0m
+\e[33m·\e[0m \e[32mwrite notes/plan.md\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -22,10 +22,10 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"read_f
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[36mread crates/efr-cli/README.md\e[0m
+\e[33m·\e[0m \e[32mread crates/efr-cli/README.md\e[0m
   \e[32m✓\e[0m
 
-\e[33m·\e[0m \e[36mwrite notes/plan.md\e[0m
+\e[33m·\e[0m \e[32mwrite notes/plan.md\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 

@@ -549,6 +549,10 @@
 # of a turn's diff.
 # diff_lines = 20
 
+# The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000, in
+# place of diff_lines: a long turn shows shorter diffs. 0 shows no diff there.
+# diff_lines_long = 8
+
 # The progress bar of the terminal's tab (OSC 9;4) while a turn runs: auto (only in
 # Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux,
 # GNU screen or zellij), on or off.
@@ -558,6 +562,10 @@
 # interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts
 # it. false shows no input row: keys typed during a turn go to the shell's next prompt.
 # turn_input = true
+
+# One bell (BEL) when a question appears while a turn runs, so the terminal can mark
+# the tab or the window.
+# bell = false
 
 [render.colors]
 # The colour of each role: "#rrggbb", an ANSI slot from 0 to 15, or one of the 16
@@ -577,16 +585,16 @@
 # Headings of level 1 and 2. Unset: the accent colour.
 # heading = "bright-yellow"
 
-# Links, which are also underlined. Unset: 4, the terminal's blue.
-# link = "blue"
+# Links, which are also underlined. Unset: 5, the terminal's magenta.
+# link = "magenta"
 
-# Inline code. Unset: 6, the terminal's cyan.
-# code = "cyan"
+# Inline code and a command to run. Unset: 2, the terminal's green.
+# code = "green"
 
 # Done task boxes and good news. Unset: 2, the terminal's green.
 # success = "green"
 
-# Questions and refusals, which are also bold. Unset: 3, the terminal's yellow.
+# Questions and refusals. Unset: 3, the terminal's yellow. With NO_COLOR, bold.
 # warning = "#e8a33d"
 
 # Failures, such as a failed exit code. Unset: 1, the terminal's red.
@@ -595,6 +603,10 @@
 # The text of a quote, which is also italic. Unset: the terminal's own foreground.
 # quote = 7
 
+# The background of the rows of a code block (the role code.bg). Only "#rrggbb": it
+# shows only in truecolor. Unset: no background.
+# code_bg = "#121722"
+
 [render.colors.diff]
 # Added lines of a diff. Unset: 2, the terminal's green.
 # add = "green"
@@ -602,5 +614,13 @@
 # Removed lines of a diff. Unset: 1, the terminal's red.
 # remove = "red"
 
-# Hunk headers of a diff. Unset: 6, the terminal's cyan.
+# Hunk headers of a diff. Unset: 6, the terminal's cyan. With NO_COLOR, dim.
 # hunk = "cyan"
+
+# The background of added rows (the role diff.add.bg). Only "#rrggbb": it shows only in
+# truecolor. Unset: a tint from the background of a truecolor code theme.
+# add_bg = "#192c17"
+
+# The background of removed rows (the role diff.remove.bg). Only "#rrggbb", in truecolor
+# only. Unset: a tint from the background of a truecolor code theme.
+# remove_bg = "#391d1e"

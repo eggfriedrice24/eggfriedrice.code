@@ -116,6 +116,12 @@ fn tone_name(tone: Tone) -> &'static str {
         Tone::Success => "success",
         Tone::Code => "code",
         Tone::Accent => "accent",
+        Tone::Text => "text",
+        Tone::TextBold => "bold text",
+        Tone::TextItalic => "italic text",
+        Tone::FailureBold => "bold error",
+        Tone::AttentionBold => "bold warning",
+        Tone::Badge => "badge",
     }
 }
 

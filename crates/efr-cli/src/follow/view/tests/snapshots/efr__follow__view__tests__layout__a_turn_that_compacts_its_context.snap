@@ -7,15 +7,15 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
 
 [running]
-\e[33m•\e[0m \e[36m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
 
 [compacting]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
 
 [full]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 
 \e[2mcontext compacted (auto): 231k -> 24k\e[0m
@@ -28,7 +28,7 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 
 \e[2mcontext compacted (auto): 231k -> 24k\e[0m
@@ -89,15 +89,15 @@ The tests pass.
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
 
 [running]
-\e[33m•\e[0m \e[36m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
 
 [compacting]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
 
 [full]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 
 \e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m
@@ -107,7 +107,7 @@ The tests pass.
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cargo test --workspace\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
 
 \e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m

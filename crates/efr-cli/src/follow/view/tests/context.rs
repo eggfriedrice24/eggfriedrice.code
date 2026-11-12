@@ -20,7 +20,14 @@ use crate::testing::{Grid, bare, call, compaction, readable, turn};
 const SIZE: Size = Size { cols: 80, rows: 20 };
 
 /// No motion and no progress bar, so a frame shows the same at every tick.
-const LOOK: Look = Look { motion: false, summary: true, progress: false, diff_lines: 20 };
+const LOOK: Look = Look {
+    motion: false,
+    summary: true,
+    progress: false,
+    diff_lines: 20,
+    diff_lines_long: 8,
+    bell: false,
+};
 
 /// The limit of the tests: 76% of a window of 272k.
 const LIMIT: u64 = 206_720;

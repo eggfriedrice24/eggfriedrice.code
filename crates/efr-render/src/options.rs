@@ -9,8 +9,9 @@ use two_face::theme::EmbeddedThemeName;
 
 use crate::code_theme::CodeTheme;
 use crate::error::RenderError;
+use crate::glyph::Glyphs;
 use crate::palette::{Palette, Role};
-use crate::style::{Style, sgr_parameters, wrap_sgr};
+use crate::style::{Attrs, Style, sgr_parameters, wrap_sgr};
 use crate::width::WidthMethod;
 
 /// The width used when the caller passes 0, which is what a terminal size query
@@ -168,9 +169,11 @@ pub struct RenderOptions {
     palette: Palette,
     theme: Theme,
     code_theme: Option<CodeTheme>,
+    code_theme_ansi: Option<CodeTheme>,
     hyperlinks: bool,
     width_method: WidthMethod,
     terminal: bool,
+    glyphs: &'static Glyphs,
 }
 
 impl RenderOptions {
@@ -184,9 +187,11 @@ impl RenderOptions {
             palette: Palette::default(),
             theme: Theme::default(),
             code_theme: None,
+            code_theme_ansi: None,
             hyperlinks: true,
             width_method: WidthMethod::default(),
             terminal: true,
+            glyphs: &Glyphs::UNICODE,
         }
     }
 
@@ -224,6 +229,25 @@ impl RenderOptions {
     #[must_use]
     pub fn with_code_theme(mut self, code_theme: Option<CodeTheme>) -> Self {
         self.code_theme = code_theme;
+        self
+    }
+
+    /// Sets the code theme for 16 colours from a `.tmTheme` file in bat's ANSI encoding
+    /// (an alpha of 0 names a palette entry, an alpha of 1 the terminal's own colour),
+    /// or with `None` removes it. In [`ColourMode::Ansi16`] it wins over the
+    /// [`code theme`](Self::with_code_theme), so each token kind takes the slot that the
+    /// theme names and not the nearest slot of an RGB colour.
+    #[must_use]
+    pub fn with_code_theme_ansi(mut self, code_theme: Option<CodeTheme>) -> Self {
+        self.code_theme_ansi = code_theme;
+        self
+    }
+
+    /// Sets the glyphs of the CLI's own lines: [`Glyphs::UNICODE`] (the default) or
+    /// [`Glyphs::ASCII`] for a locale that is not UTF-8 ([`Glyphs::for_locale`]).
+    #[must_use]
+    pub fn with_glyphs(mut self, glyphs: &'static Glyphs) -> Self {
+        self.glyphs = glyphs;
         self
     }
 
@@ -278,6 +302,16 @@ impl RenderOptions {
         self.code_theme.as_ref()
     }
 
+    /// The code theme for 16 colours, in bat's ANSI encoding, when there is one.
+    pub fn code_theme_ansi(&self) -> Option<&CodeTheme> {
+        self.code_theme_ansi.as_ref()
+    }
+
+    /// The glyphs of the CLI's own lines.
+    pub fn glyphs(&self) -> &'static Glyphs {
+        self.glyphs
+    }
+
     /// Whether links are written as OSC 8 hyperlinks.
     pub fn hyperlinks(&self) -> bool {
         self.hyperlinks
@@ -304,10 +338,37 @@ impl RenderOptions {
         wrap_sgr(self.role_style(role), text)
     }
 
+    /// `text` in the colour and attributes of `role` with `attrs` added, followed by a
+    /// reset: the bold of a mark, the italic of a thought, the reverse and bold of the
+    /// badge of a question. Without colour (`NO_COLOR`) the attributes stay. For a
+    /// background role, `text` on that background. `text` stays as it is when the
+    /// output is not a terminal or nothing is to paint; the caller makes it safe first.
+    pub fn paint_with(&self, role: Role, attrs: Attrs, text: &str) -> String {
+        if !self.terminal {
+            return text.to_owned();
+        }
+        wrap_sgr(self.role_style(role).patch(attrs.style()), text)
+    }
+
+    /// The SGR parameters of the background role `role`, such as `48;2;18;23;34`, to
+    /// write as `ESC [ <parameters> m` before a row and an erase to the end of the line
+    /// (`ESC [ K`), so the row is filled to the edge with no padding written. `None`
+    /// when `role` is not a background role, the output is not a terminal, the colour
+    /// mode is not [`ColourMode::TrueColor`] or the palette sets no RGB colour for it. A
+    /// caller resets the background before the line's newline, or a terminal fills the
+    /// next line too.
+    pub fn fill(&self, role: Role) -> Option<String> {
+        if !self.terminal || !role.is_background() {
+            return None;
+        }
+        sgr_parameters(self.role_style(role))
+    }
+
     /// `text` in the colour of `role` alone, followed by a reset: without the attributes
-    /// that the role always has, such as the bold of `warning`. Without a colour, the
-    /// attributes that the role has in place of one, such as the bold of `error`. For a
-    /// gauge whose colour changes with its level and must not shout. `text` stays as it
+    /// that the role always has, such as the underline of `link`. Without a colour, the
+    /// attributes that the role has in place of one, such as the bold of `error`, but
+    /// not the bold of `warning`. For a gauge whose colour changes with its level and
+    /// must not shout. `text` stays as it
     /// is when the output is not a terminal; the caller makes it safe first.
     pub fn tint(&self, role: Role, text: &str) -> String {
         if !self.terminal {

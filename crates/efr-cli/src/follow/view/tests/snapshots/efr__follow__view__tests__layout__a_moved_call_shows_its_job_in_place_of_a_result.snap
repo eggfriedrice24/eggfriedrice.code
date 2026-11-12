@@ -4,8 +4,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 ---
 === 40 columns, colour
 [moved]
-\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
-        \e[36mtick $i; sleep 1; done\e[0m
+\e[33m·\e[0m \e[32m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
+        \e[32mtick $i; sleep 1; done\e[0m
   \e[2m(moved to job j1)\e[0m
   \e[2mmoved to job j1 by you after 42\e[0m
     \e[2mseconds; output\e[0m
@@ -14,8 +14,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
-        \e[36mtick $i; sleep 1; done\e[0m
+\e[33m·\e[0m \e[32m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
+        \e[32mtick $i; sleep 1; done\e[0m
   \e[2m(moved to job j1)\e[0m
   \e[2mmoved to job j1 by you after 42\e[0m
     \e[2mseconds; output\e[0m
@@ -54,14 +54,14 @@ The loop runs on as job j1.
 
 === 80 columns, colour
 [moved]
-\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
+\e[33m·\e[0m \e[32m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
   \e[2m(moved to job j1)\e[0m
   \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
     \e[2m60 minutes\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
+\e[33m·\e[0m \e[32m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
   \e[2m(moved to job j1)\e[0m
   \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
     \e[2m60 minutes\e[0m

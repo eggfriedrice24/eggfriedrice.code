@@ -109,7 +109,35 @@ fn the_code_theme_resolves_from_the_theme_files_directory_or_home() {
     );
     let empty = ThemeFile::parse(Path::new(PATH), "").unwrap();
     assert_eq!(empty.code_theme_path(home), None);
+    assert_eq!(empty.code_theme_ansi_path(home), None);
     assert_eq!(empty.colors.colors(), []);
+}
+
+#[test]
+fn the_design_system_file_sets_the_backgrounds_and_a_code_theme_for_sixteen_colours() {
+    let text = "code_theme = \"../bat/eggfriedrice.tmTheme\"\n\
+                code_theme_ansi = \"../bat/eggfriedrice-ansi.tmTheme\"\n\n\
+                [colors]\ncode_bg = \"#121722\"\ndiff.add = \"#60e654\"\n\
+                diff.add_bg = \"#192c17\"\ndiff.remove_bg = \"#391d1e\"\n";
+    let file = ThemeFile::parse(Path::new(PATH), text).unwrap();
+    assert_eq!(
+        file.code_theme_ansi_path(Path::new("/home/u")),
+        Some(PathBuf::from("/home/u/.config/efr/../bat/eggfriedrice-ansi.tmTheme"))
+    );
+    assert_eq!(
+        file.colors.colors(),
+        [
+            ("diff.add", RoleColor::Rgb(0x60, 0xe6, 0x54)),
+            ("code.bg", RoleColor::Rgb(0x12, 0x17, 0x22)),
+            ("diff.add.bg", RoleColor::Rgb(0x19, 0x2c, 0x17)),
+            ("diff.remove.bg", RoleColor::Rgb(0x39, 0x1d, 0x1e)),
+        ]
+    );
+    let error = ThemeFile::parse(Path::new(PATH), "[colors]\ncode_bg = 0\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("colors.code_bg"));
+    assert!(error.to_string().contains("a background paints only in truecolor"), "{error}");
+    let error = ThemeFile::parse(Path::new(PATH), "code_theme_ansi = \"\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("code_theme_ansi"));
 }
 
 #[test]
@@ -152,6 +180,7 @@ fn load_reads_the_file_and_names_a_missing_one() {
     let file = ThemeFile::load(&path).unwrap();
     assert_eq!(file.path, path);
     assert_eq!(file.colors.colors().len(), 13);
+    assert_eq!(file.code_theme_ansi, None);
     let missing = dir.path().join("none.toml");
     let error = ThemeFile::load(&missing).unwrap_err();
     assert!(matches!(&error, ConfigError::ThemeRead { path, .. } if *path == missing));

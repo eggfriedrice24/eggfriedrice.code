@@ -116,8 +116,10 @@ render.palette = (unset)  # default
 render.motion = true  # default
 render.turn_summary = true  # default
 render.diff_lines = 20  # default
+render.diff_lines_long = 8  # default
 render.progress = "auto"  # default
 render.turn_input = true  # default
+render.bell = false  # default
 render.colors.text = (unset)  # default
 render.colors.muted = (unset)  # default
 render.colors.accent = (unset)  # default
@@ -128,9 +130,12 @@ render.colors.success = (unset)  # default
 render.colors.warning = (unset)  # default
 render.colors.error = (unset)  # default
 render.colors.quote = (unset)  # default
+render.colors.code_bg = (unset)  # default
 render.colors.diff.add = (unset)  # default
 render.colors.diff.remove = (unset)  # default
 render.colors.diff.hunk = (unset)  # default
+render.colors.diff.add_bg = (unset)  # default
+render.colors.diff.remove_bg = (unset)  # default
 
 [efr]
 theme = "gruvbox-dark"  # /c/efr/config.toml

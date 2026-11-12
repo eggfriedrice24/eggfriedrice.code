@@ -183,6 +183,27 @@ async fn render_colors_win_over_the_theme_file_which_wins_over_the_default() {
 }
 
 #[tokio::test]
+async fn the_theme_file_gives_the_backgrounds_and_a_code_theme_for_sixteen_colours() {
+    let theme = b"code_theme = \"code.tmTheme\"\ncode_theme_ansi = \"ansi.tmTheme\"\n\
+                  [colors]\ncode_bg = \"#121722\"\ndiff.add_bg = \"#192c17\"\n";
+    let config =
+        "[render]\npalette = \"~/theme.toml\"\n[render.colors.diff]\nremove_bg = \"#391d1e\"\n";
+    let files: [(&str, &[u8]); 3] =
+        [("theme.toml", theme), ("code.tmTheme", &tmtheme()), ("ansi.tmTheme", &tmtheme())];
+    let dir = root(config, &files);
+    let settings = Settings::load(dir.path(), None, dir.path()).await;
+    assert!(settings.warnings.is_empty(), "{:?}", settings.warnings);
+    let palette = &settings.palette;
+    assert_eq!(palette.get(Role::CodeBg), Some(Colour::Rgb(0x12, 0x17, 0x22)));
+    assert_eq!(palette.get(Role::DiffAddBg), Some(Colour::Rgb(0x19, 0x2c, 0x17)));
+    assert_eq!(palette.get(Role::DiffRemoveBg), Some(Colour::Rgb(0x39, 0x1d, 0x1e)));
+    assert!(settings.code_theme_ansi.is_some());
+    assert_eq!(settings.code_theme_ansi_path, Some(dir.path().join("ansi.tmTheme")));
+    let options = crate::testing::terminal_facts().render_options(80, &settings);
+    assert_eq!(options.code_theme_ansi(), settings.code_theme_ansi.as_ref());
+}
+
+#[tokio::test]
 async fn a_theme_file_that_cannot_be_used_warns_and_the_config_colours_stay() {
     let config = "[render]\npalette = \"~/theme.toml\"\n[render.colors]\nerror = 9\n";
     let dir = root(config, &[("theme.toml", b"[colors]\naccent = \"purple\"\n")]);

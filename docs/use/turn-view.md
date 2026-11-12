@@ -218,6 +218,8 @@ runs.
 | `motion` | `true` | The spinner and the band in the status row. `false` shows a still dot. |
 | `turn_summary` | `true` | The last line of a turn. |
 | `diff_lines` | `20` | The lines of a file tool's diff that a call shows. `0` shows none. |
+| `diff_lines_long` | `8` | The same from the 6th call of a turn on, so a long turn shows shorter diffs. |
+| `bell` | `false` | One bell when a question appears, so the terminal can mark the tab. |
 | `progress` | `"auto"` | The progress bar of the tab: `auto`, `on` or `off`. |
 
 `[render.colors]`, `palette` and `theme` set the colours.

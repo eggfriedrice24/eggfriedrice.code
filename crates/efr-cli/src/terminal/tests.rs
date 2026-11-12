@@ -1,7 +1,7 @@
-use efr_render::{Colour, ColourMode, Palette, Role, Theme, WidthMethod};
+use efr_render::{Colour, ColourMode, Glyphs, Palette, Role, Theme, WidthMethod};
 use pretty_assertions::assert_eq;
 
-use super::{Background, TermFacts, at_width, multiplexed};
+use super::{Background, TermFacts, at_width, multiplexed, utf8_locale};
 use crate::settings::Settings;
 use crate::testing::terminal_facts;
 
@@ -58,6 +58,9 @@ fn render_options_carry_every_fact() {
     assert_eq!(options.width_method(), WidthMethod::CodePoint);
     assert!(options.is_terminal());
     assert!(options.hyperlinks());
+    assert_eq!(*options.glyphs(), Glyphs::UNICODE);
+    let ascii = TermFacts { utf8: false, ..terminal_facts() };
+    assert_eq!(*ascii.render_options(80, &Settings::default()).glyphs(), Glyphs::ASCII);
 
     let dumb = TermFacts { term: Some("dumb".to_owned()), ..terminal_facts() };
     assert!(!dumb.render_options(80, &Settings::default()).is_terminal());
@@ -130,4 +133,18 @@ fn the_background_is_dark_or_light_in_any_letter_case() {
     assert_eq!(Background::from_name(" LIGHT "), Ok(Background::Light));
     assert_eq!(Background::from_name("grey"), Err("grey".to_owned()));
     assert_eq!(Background::Light.name(), "light");
+}
+
+#[test]
+fn the_locale_is_utf8_by_the_rule_of_the_plugin() {
+    let some = |value: &str| Some(value.to_owned());
+    assert!(utf8_locale(None, None, some("en_US.UTF-8")));
+    assert!(utf8_locale(None, None, some("C.utf8")));
+    assert!(utf8_locale(None, None, some("de_DE.utf-8@euro")));
+    // The first that is set decides, as `${LC_ALL:-${LC_CTYPE:-$LANG}}` does.
+    assert!(!utf8_locale(some("C"), None, some("en_US.UTF-8")));
+    assert!(utf8_locale(None, some("en_US.UTF-8"), some("C")));
+    assert!(!utf8_locale(None, None, some("en_US.ISO-8859-1")));
+    assert!(!utf8_locale(None, None, some("POSIX")));
+    assert!(!utf8_locale(None, None, None));
 }

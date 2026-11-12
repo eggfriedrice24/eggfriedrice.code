@@ -126,7 +126,8 @@ async fn resume_with(
     answers: Vec<Result<ConversationResumeResult, ErrorBody>>,
     keys: Option<(Arc<ScriptedKeys>, u8)>,
 ) -> Ran {
-    resume_in(ctx, env, args, Daemon { listed, answers, keys, ..Daemon::default() }).await
+    // NOTE: boxed, so the future of each test stays small (clippy's large_futures).
+    Box::pin(resume_in(ctx, env, args, Daemon { listed, answers, keys, ..Daemon::default() })).await
 }
 
 /// Runs `efr resume <args>` against the fake `daemon`. A search answers

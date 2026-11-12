@@ -4,16 +4,16 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
 ---
 === 40 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cd src\e[0m
-    \e[36mexport RUST_LOG=debug\e[0m
-    \e[36mcargo test -p efr-cli\e[0m
-    \e[36munset RUST_LOG\e[0m
+\e[33m•\e[0m \e[32m$ cd src\e[0m
+    \e[32mexport RUST_LOG=debug\e[0m
+    \e[32mcargo test -p efr-cli\e[0m
+    \e[32munset RUST_LOG\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cd src\e[0m
-    \e[36mexport RUST_LOG=debug\e[0m
-    \e[36mcargo test -p efr-cli\e[0m
-    \e[36munset RUST_LOG\e[0m
+\e[33m·\e[0m \e[32m$ cd src\e[0m
+    \e[32mexport RUST_LOG=debug\e[0m
+    \e[32mcargo test -p efr-cli\e[0m
+    \e[32munset RUST_LOG\e[0m
   \e[32m✓ 2.5s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
 
@@ -34,16 +34,16 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
 
 === 80 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cd src\e[0m
-    \e[36mexport RUST_LOG=debug\e[0m
-    \e[36mcargo test -p efr-cli\e[0m
-    \e[36munset RUST_LOG\e[0m
+\e[33m•\e[0m \e[32m$ cd src\e[0m
+    \e[32mexport RUST_LOG=debug\e[0m
+    \e[32mcargo test -p efr-cli\e[0m
+    \e[32munset RUST_LOG\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cd src\e[0m
-    \e[36mexport RUST_LOG=debug\e[0m
-    \e[36mcargo test -p efr-cli\e[0m
-    \e[36munset RUST_LOG\e[0m
+\e[33m·\e[0m \e[32m$ cd src\e[0m
+    \e[32mexport RUST_LOG=debug\e[0m
+    \e[32mcargo test -p efr-cli\e[0m
+    \e[32munset RUST_LOG\e[0m
   \e[32m✓ 2.5s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m2s\e[0m
 

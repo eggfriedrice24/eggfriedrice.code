@@ -14,9 +14,10 @@ use crate::code_theme::CodeTheme;
 use crate::highlight::{ASSETS, Assets, Highlight, ThemeRef};
 use crate::options::{ColourMode, RenderOptions, Theme};
 use crate::palette::Role;
-use crate::style::{Line, Span, Style, expand_tabs, push_span, sanitize};
+use crate::style::{Colour, Line, Span, Style, expand_tabs, push_span, sanitize};
 
 use diff::Diff;
+pub(crate) use diff::Kind as DiffKind;
 
 /// Fence labels that mark a unified diff.
 const DIFF_LABELS: &[&str] = &["diff", "patch", "udiff"];
@@ -37,19 +38,32 @@ pub(crate) struct CodeStyle {
     pub(crate) added: Style,
     pub(crate) removed: Style,
     pub(crate) hunk: Style,
+    /// The backgrounds of added and removed rows that the palette sets
+    /// (`diff.add.bg`, `diff.remove.bg`), in truecolor only.
+    pub(crate) added_bg: Option<Colour>,
+    pub(crate) removed_bg: Option<Colour>,
 }
 
 impl CodeStyle {
     pub(crate) fn new(options: &RenderOptions, assets: &'static Assets) -> CodeStyle {
+        // NOTE: in 16 colours a theme in bat's ANSI encoding names the slot of each
+        // token kind; the nearest slot of an RGB theme is often another one.
+        let code_theme = match (options.colour(), options.code_theme_ansi()) {
+            (ColourMode::Ansi16, Some(ansi)) => Some(ansi.clone()),
+            _ => options.code_theme().cloned(),
+        };
+        let palette = options.palette();
         CodeStyle {
             colour: options.colour(),
             theme: options.theme(),
-            code_theme: options.code_theme().cloned(),
+            code_theme,
             assets,
             label: options.role_style(Role::Muted),
             added: options.role_style(Role::DiffAdd),
             removed: options.role_style(Role::DiffRemove),
             hunk: options.role_style(Role::DiffHunk),
+            added_bg: palette.background(Role::DiffAddBg, options.colour()),
+            removed_bg: palette.background(Role::DiffRemoveBg, options.colour()),
         }
     }
 
@@ -191,6 +205,15 @@ impl CodeBlock {
         }
         self.started = true;
         self.label.clone()
+    }
+
+    /// The kind of the line that [`line`](Self::line) rendered last, for a diff;
+    /// `None` for a block that is not a diff.
+    pub(crate) fn diff_kind(&self) -> Option<DiffKind> {
+        match &self.body {
+            Body::Diff(diff) => Some(diff.last_kind()),
+            _ => None,
+        }
     }
 
     /// Renders the next source line, given without its newline.

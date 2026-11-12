@@ -29,7 +29,52 @@ pub(crate) const RED: Colour = Colour::Palette(1);
 pub(crate) const GREEN: Colour = Colour::Palette(2);
 pub(crate) const YELLOW: Colour = Colour::Palette(3);
 pub(crate) const BLUE: Colour = Colour::Palette(4);
+pub(crate) const MAGENTA: Colour = Colour::Palette(5);
 pub(crate) const CYAN: Colour = Colour::Palette(6);
+
+/// Attributes that a caller adds to a role with
+/// [`RenderOptions::paint_with`](crate::RenderOptions::paint_with): the bold of a mark,
+/// the italic of a thought, the reverse and bold of the badge of a question. They are
+/// not colour, so they stay without colour (`NO_COLOR`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Attrs {
+    /// Bold (SGR 1).
+    pub bold: bool,
+    /// Italic (SGR 3).
+    pub italic: bool,
+    /// Underlined (SGR 4).
+    pub underline: bool,
+    /// Reverse video (SGR 7): the foreground and the background swap.
+    pub reverse: bool,
+    /// Dim (SGR 2).
+    pub dim: bool,
+}
+
+impl Attrs {
+    /// No attribute.
+    pub const NONE: Attrs =
+        Attrs { bold: false, italic: false, underline: false, reverse: false, dim: false };
+    /// Bold alone.
+    pub const BOLD: Attrs = Attrs { bold: true, ..Attrs::NONE };
+    /// Italic alone.
+    pub const ITALIC: Attrs = Attrs { italic: true, ..Attrs::NONE };
+    /// Dim alone.
+    pub const DIM: Attrs = Attrs { dim: true, ..Attrs::NONE };
+    /// Reverse video and bold: the badge of a question.
+    pub const BADGE: Attrs = Attrs { reverse: true, bold: true, ..Attrs::NONE };
+
+    /// The attributes as a style with no colour.
+    pub(crate) const fn style(self) -> Style {
+        Style {
+            bold: self.bold,
+            italic: self.italic,
+            underline: self.underline,
+            reverse: self.reverse,
+            dim: self.dim,
+            ..Style::PLAIN
+        }
+    }
+}
 
 /// SGR attributes and colours of a piece of text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -40,6 +85,9 @@ pub(crate) struct Style {
     pub(crate) dim: bool,
     pub(crate) italic: bool,
     pub(crate) underline: bool,
+    /// Reverse video (SGR 7): the foreground and the background swap, as in the badge
+    /// of a question.
+    pub(crate) reverse: bool,
     pub(crate) strike: bool,
 }
 
@@ -51,6 +99,7 @@ impl Style {
         dim: false,
         italic: false,
         underline: false,
+        reverse: false,
         strike: false,
     };
 
@@ -92,6 +141,7 @@ impl Style {
             dim: self.dim || over.dim,
             italic: self.italic || over.italic,
             underline: self.underline || over.underline,
+            reverse: self.reverse || over.reverse,
             strike: self.strike || over.strike,
         }
     }
@@ -99,7 +149,7 @@ impl Style {
     /// Trailing spaces in this style can be dropped at the end of a line without a
     /// visible change.
     fn space_is_invisible(self) -> bool {
-        self.bg.is_none() && !self.underline && !self.strike
+        self.bg.is_none() && !self.underline && !self.strike && !self.reverse
     }
 }
 
@@ -285,6 +335,7 @@ fn write_sgr(out: &mut String, style: Style) {
         (style.dim, "2"),
         (style.italic, "3"),
         (style.underline, "4"),
+        (style.reverse, "7"),
         (style.strike, "9"),
     ] {
         if on {

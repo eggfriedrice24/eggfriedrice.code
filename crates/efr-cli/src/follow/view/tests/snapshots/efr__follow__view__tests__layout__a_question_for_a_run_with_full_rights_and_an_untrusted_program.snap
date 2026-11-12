@@ -4,16 +4,16 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 ---
 === 40 columns, colour
 [asked]
-\e[1;33m? allow outside the sandbox\e[0m
-\e[2m│ \e[0m\e[36msudo ./scripts/setup.sh\e[0m
-\e[2m│ \e[0m\e[1;33mruns with your full rights: files,\e[0m
-\e[2m│ \e[0m  \e[1;33msecrets, network\e[0m
+\e[33m? allow outside the sandbox\e[0m
+\e[2m│ \e[0m\e[32msudo ./scripts/setup.sh\e[0m
+\e[2m│ \e[0m\e[33mruns with your full rights: files,\e[0m
+\e[2m│ \e[0m  \e[33msecrets, network\e[0m
 \e[2m│ \e[0m\e[2mwhy: sudo (you may need to type your\e[0m
 \e[2m│ \e[0m  \e[2mpassword)\e[0m
 \e[2m│ \e[0m\e[2mprograms: sudo, ./scripts/setup.sh\e[0m
 \e[2m│ \e[0m  \e[2m~/project/scripts/setup.sh\e[0m
-\e[2m│ \e[0m  \e[1;33m(untrusted: written in the sandbox;\e[0m
-\e[2m│ \e[0m  \e[1;33min a write root, changed this turn)\e[0m
+\e[2m│ \e[0m  \e[33m(untrusted: written in the sandbox;\e[0m
+\e[2m│ \e[0m  \e[33min a write root, changed this turn)\e[0m
 \e[2m│ \e[0m\e[2mefr: only you can allow this\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -23,7 +23,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[36m$ sudo ./scripts/setup.sh\e[0m
+\e[33m·\e[0m \e[32m$ sudo ./scripts/setup.sh\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 40 columns, NO_COLOR
@@ -52,12 +52,12 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 === 80 columns, colour
 [asked]
-\e[1;33m? allow outside the sandbox\e[0m
-\e[2m│ \e[0m\e[36msudo ./scripts/setup.sh\e[0m
-\e[2m│ \e[0m\e[1;33mruns with your full rights: files, secrets, network\e[0m
+\e[33m? allow outside the sandbox\e[0m
+\e[2m│ \e[0m\e[32msudo ./scripts/setup.sh\e[0m
+\e[2m│ \e[0m\e[33mruns with your full rights: files, secrets, network\e[0m
 \e[2m│ \e[0m\e[2mwhy: sudo (you may need to type your password)\e[0m
-\e[2m│ \e[0m\e[2mprograms: sudo, ./scripts/setup.sh ~/project/scripts/setup.sh\e[0m\e[1;33m (untrusted:\e[0m
-\e[2m│ \e[0m  \e[1;33mwritten in the sandbox; in a write root, changed this turn)\e[0m
+\e[2m│ \e[0m\e[2mprograms: sudo, ./scripts/setup.sh ~/project/scripts/setup.sh\e[0m\e[33m (untrusted:\e[0m
+\e[2m│ \e[0m  \e[33mwritten in the sandbox; in a write root, changed this turn)\e[0m
 \e[2m│ \e[0m\e[2mefr: only you can allow this\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -67,7 +67,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[36m$ sudo ./scripts/setup.sh\e[0m
+\e[33m·\e[0m \e[32m$ sudo ./scripts/setup.sh\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 80 columns, NO_COLOR

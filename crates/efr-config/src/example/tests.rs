@@ -179,9 +179,12 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "render.colors.warning",
         "render.colors.error",
         "render.colors.quote",
+        "render.colors.code_bg",
         "render.colors.diff.add",
         "render.colors.diff.remove",
         "render.colors.diff.hunk",
+        "render.colors.diff.add_bg",
+        "render.colors.diff.remove_bg",
     ];
     assert_eq!(samples, expected);
 }

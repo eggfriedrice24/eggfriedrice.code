@@ -4,9 +4,9 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nshell(1,\n\"printf 
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[36m$ printf 'theme = "x"' >> \e[0m\e[2m\\e[0m
-        \e[36m~/.config/efr/config.toml && \e[0m\e[2m\\e[0m
-        \e[36mefr config reload\e[0m
+\e[33m·\e[0m \e[32m$ printf 'theme = "x"' >> \e[0m\e[2m\\e[0m
+        \e[32m~/.config/efr/config.toml && \e[0m\e[2m\\e[0m
+        \e[32mefr config reload\e[0m
   \e[31m✗ refused: efr's config (floor)\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -20,7 +20,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nshell(1,\n\"printf 
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[36m$ printf 'theme = "x"' >> ~/.config/efr/config.toml && efr config reload\e[0m
+\e[33m·\e[0m \e[32m$ printf 'theme = "x"' >> ~/.config/efr/config.toml && efr config reload\e[0m
   \e[31m✗ refused: efr's config (floor)\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 

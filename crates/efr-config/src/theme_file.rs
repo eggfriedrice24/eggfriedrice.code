@@ -2,17 +2,22 @@
 //! give `efr` its colours from one generated file.
 //!
 //! ```toml
-//! code_theme = "../bat/eggfriedrice.tmTheme"   # optional
+//! code_theme = "../bat/eggfriedrice.tmTheme"             # optional
+//! code_theme_ansi = "../bat/eggfriedrice-ansi.tmTheme"   # optional
 //!
 //! [colors]
 //! accent = "#f2c14e"
 //! muted = 8
+//! code_bg = "#121722"
 //! diff.add = "green"
+//! diff.add_bg = "#192c17"
 //! ```
 //!
 //! The `[colors]` table has the keys of `[render.colors]`. `code_theme` is the path of
 //! a `.tmTheme` file: absolute, `~/...`, or relative to the theme file's directory.
-//! Unknown keys are an error, as in `config.toml`.
+//! `code_theme_ansi` is the path of a `.tmTheme` file in bat's ANSI encoding (an alpha
+//! of 0 names a slot of the 16 colours), which `efr` uses in 16 colours in place of
+//! `code_theme`. Unknown keys are an error, as in `config.toml`.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -34,6 +39,10 @@ pub struct ThemeFile {
     /// The path of a `.tmTheme` file for code, as the file writes it. The code theme
     /// wins over `render.theme`; [`code_theme_path`](Self::code_theme_path) resolves it.
     pub code_theme: Option<PathBuf>,
+    /// The path of a `.tmTheme` file in bat's ANSI encoding, as the file writes it, for
+    /// code in 16 colours: it wins over `code_theme` there.
+    /// [`code_theme_ansi_path`](Self::code_theme_ansi_path) resolves it.
+    pub code_theme_ansi: Option<PathBuf>,
     /// The colour of each role. `[render.colors]` wins over these.
     pub colors: RenderColors,
 }
@@ -43,6 +52,7 @@ pub struct ThemeFile {
 #[serde(default, deny_unknown_fields)]
 struct Written {
     code_theme: Option<PathBuf>,
+    code_theme_ansi: Option<PathBuf>,
     colors: RenderColors,
 }
 
@@ -76,19 +86,22 @@ impl ThemeFile {
                 .map(|span| location(text, span.start));
             ConfigError::ThemeInvalid { path: path.to_path_buf(), key, value, expected, location }
         };
-        if let Some(code_theme) = &written.code_theme
-            && code_theme.as_os_str().is_empty()
+        for (key, path) in
+            [("code_theme", &written.code_theme), ("code_theme_ansi", &written.code_theme_ansi)]
         {
-            return Err(invalid(Invalid {
-                key: "code_theme",
-                value: "\"\"".to_owned(),
-                expected: "the path of a .tmTheme file",
-            }));
+            if path.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
+                return Err(invalid(Invalid {
+                    key,
+                    value: "\"\"".to_owned(),
+                    expected: "the path of a .tmTheme file",
+                }));
+            }
         }
         validate::colors(&written.colors, &THEME_COLOR_KEYS).map_err(invalid)?;
         Ok(ThemeFile {
             path: path.to_path_buf(),
             code_theme: written.code_theme,
+            code_theme_ansi: written.code_theme_ansi,
             colors: written.colors,
         })
     }
@@ -96,7 +109,17 @@ impl ThemeFile {
     /// The path of the code theme: `~` replaced by `home`, and a relative path taken
     /// from the theme file's directory.
     pub fn code_theme_path(&self, home: &Path) -> Option<PathBuf> {
-        let path = expand_home(self.code_theme.as_deref()?, home);
+        self.resolve(self.code_theme.as_deref()?, home)
+    }
+
+    /// The path of the code theme for 16 colours, resolved as
+    /// [`code_theme_path`](Self::code_theme_path) resolves its own.
+    pub fn code_theme_ansi_path(&self, home: &Path) -> Option<PathBuf> {
+        self.resolve(self.code_theme_ansi.as_deref()?, home)
+    }
+
+    fn resolve(&self, path: &Path, home: &Path) -> Option<PathBuf> {
+        let path = expand_home(path, home);
         if path.is_absolute() {
             return Some(path);
         }

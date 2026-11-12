@@ -3,6 +3,9 @@
 //! - [`bench`](mod@bench): samples and their percentiles, the report of a `bench_perf_*` bench
 //!   with its JSON lines, the slope of a cost over its input size, and the resident
 //!   memory of a process.
+//! - [`design`](mod@design): the frames of the terminal design as fixtures, a parser of
+//!   real ANSI output into cells, and [`design::assert_rows`], which compares the two
+//!   cell by cell in each depth of colour.
 //! - [`TestClock`]: an `efr_stdx` clock that moves only when a test moves it.
 //! - [`TestRng`]: a seeded `efr_stdx` generator whose sequence never changes.
 //! - [`TestDirs`]: the four efr roots and a home directory in a throwaway tree.
@@ -36,6 +39,9 @@
 //! `bench` is a public module because its names (`run`, `slope`, `Report`) read as
 //! `bench::run` at the call site.
 //!
+//! `design` is a public module because its names (`Frame`, `Depth`, `assert_rows`) read
+//! as `design::Frame` at the call site.
+//!
 //! `tailscaled` is a public module because its answers and ids read as
 //! `tailscaled::whois` and `tailscaled::PHONE_NODE` at the call site.
 //!
@@ -48,6 +54,7 @@
 
 pub mod bench;
 mod clock;
+pub mod design;
 mod dirs;
 mod error;
 pub mod fixtures;

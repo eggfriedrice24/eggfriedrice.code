@@ -135,12 +135,13 @@ fn sandbox_patterns_and_names_are_relative() {
 #[test]
 fn snapshot_limits_and_diff_lines_have_ranges() {
     type Change = fn(&mut Settings);
-    let cases: [(Change, &str); 5] = [
+    let cases: [(Change, &str); 6] = [
         (|s| s.snapshot.max_file_mib = 0, "snapshot.max_file_mib"),
         (|s| s.snapshot.max_files = 99, "snapshot.max_files"),
         (|s| s.snapshot.keep_turns = 0, "snapshot.keep_turns"),
         (|s| s.snapshot.max_age_days = 3_651, "snapshot.max_age_days"),
         (|s| s.render.diff_lines = 1_001, "render.diff_lines"),
+        (|s| s.render.diff_lines_long = 1_001, "render.diff_lines_long"),
     ];
     for (change, key) in cases {
         let mut settings = Settings::default();
@@ -149,7 +150,21 @@ fn snapshot_limits_and_diff_lines_have_ranges() {
     }
     let mut settings = Settings::default();
     settings.render.diff_lines = 0;
+    settings.render.diff_lines_long = 0;
     assert!(check(&settings).is_ok(), "0 shows no inline diff");
+}
+
+#[test]
+fn a_background_colour_in_the_config_must_be_rgb() {
+    let path = std::path::Path::new("/c/config.toml");
+    let good =
+        "[render.colors]\ncode_bg = \"#121722\"\n[render.colors.diff]\nadd_bg = \"#192c17\"\n";
+    assert!(Settings::parse(path, Some(good)).is_ok());
+    let error = Settings::parse(path, Some("[render.colors]\ncode_bg = 8\n")).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("render.colors.code_bg"));
+    let error =
+        Settings::parse(path, Some("[render.colors]\ndiff.remove_bg = \"red\"\n")).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("render.colors.diff.remove_bg"));
 }
 
 #[test]

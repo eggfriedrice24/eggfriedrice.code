@@ -4,9 +4,9 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 ---
 === 40 columns, colour
 [asked]
-\e[1;33m? allow full network for this call\e[0m
-\e[2m│ \e[0m\e[36mcurl -LO https://example.com/tool.tar\e[0m\e[2m↩\e[0m
-\e[2m│ \e[0m\e[36m.gz\e[0m
+\e[33m? allow full network for this call\e[0m
+\e[2m│ \e[0m\e[32mcurl -LO https://example.com/tool.tar\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[32m.gz\e[0m
 \e[2m│ \e[0m\e[2mwhy: network\e[0m
 \e[2m│ \e[0m\e[2mreviewer: no answer (skipped\e[0m
 \e[2m│ \e[0m  \e[2mgpt-6-luna: parse error,\e[0m
@@ -15,8 +15,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36m$ curl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
-    \e[36mar.gz\e[0m
+\e[33m·\e[0m \e[32m$ curl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
+    \e[32mar.gz\e[0m
   \e[32m✓ 3.9s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 
@@ -40,15 +40,15 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 80 columns, colour
 [asked]
-\e[1;33m? allow full network for this call\e[0m
-\e[2m│ \e[0m\e[36mcurl -LO https://example.com/tool.tar.gz\e[0m
+\e[33m? allow full network for this call\e[0m
+\e[2m│ \e[0m\e[32mcurl -LO https://example.com/tool.tar.gz\e[0m
 \e[2m│ \e[0m\e[2mwhy: network\e[0m
 \e[2m│ \e[0m\e[2mreviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36m$ curl -LO https://example.com/tool.tar.gz\e[0m
+\e[33m·\e[0m \e[32m$ curl -LO https://example.com/tool.tar.gz\e[0m
   \e[32m✓ 3.9s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 

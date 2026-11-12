@@ -585,7 +585,7 @@ fn on_a_terminal_the_message_is_committed_above_the_tool_call() {
     // The call's line shows live below a blank line, with the spinner.
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[36m$ df -h\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[32m$ df -h\\e[0m\n\\e[?2026l"
     );
 }
 
@@ -693,7 +693,7 @@ fn a_failed_call_commits_its_block_with_the_last_lines_of_its_output() {
     let out = readable(&framed(view.event(&call_completed(2), SIZE, false), &mut view).out);
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[36m$ make\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n  \\e[31m\u{2717} exit 2\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[32m$ make\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n  \\e[31m\u{2717} exit 2\\e[0m\n\\e[?2026l"
     );
 }
 
@@ -707,7 +707,7 @@ fn a_call_that_went_well_commits_its_block_and_none_of_its_output() {
     );
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[36m$ cargo build\\e[0m\n  \\e[32m\u{2713} 6.2s\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[32m$ cargo build\\e[0m\n  \\e[32m\u{2713} 6.2s\\e[0m\n\\e[?2026l"
     );
     // A call under a second shows no time.
     let mut view = terminal_view();
@@ -715,7 +715,7 @@ fn a_call_that_went_well_commits_its_block_and_none_of_its_output() {
     let out = readable(
         &framed(view.envelope(&sent(12, 900, call_completed(0)), SIZE, false), &mut view).out,
     );
-    assert!(out.ends_with("\\e[36m$ true\\e[0m\n  \\e[32m\u{2713}\\e[0m\n\\e[?2026l"), "{out}");
+    assert!(out.ends_with("\\e[32m$ true\\e[0m\n  \\e[32m\u{2713}\\e[0m\n\\e[?2026l"), "{out}");
 }
 
 #[test]
@@ -2137,7 +2137,14 @@ fn at(millis: i64) -> Timestamp {
 }
 
 /// Every switch of `config.toml` on.
-const ALL: Look = Look { motion: true, summary: true, progress: true, diff_lines: 20 };
+const ALL: Look = Look {
+    motion: true,
+    summary: true,
+    progress: true,
+    diff_lines: 20,
+    diff_lines_long: 8,
+    bell: false,
+};
 
 /// A terminal view with `look` whose status row runs.
 fn started_view(look: Look) -> TurnView {
@@ -2300,7 +2307,7 @@ fn status_row_shows_away() {
         view.envelope(&sent(12, 0, presence(Presence::Away, PresenceSource::Timeout)), SIZE, true);
     assert_eq!(step, Step::default(), "the status row says it; no note");
     let frame = readable(&view.frame(SIZE, at(2_000)));
-    assert!(frame.contains("\\e[2m2s\\e[0m  \\e[1;33maway\\e[0m"), "{frame}");
+    assert!(frame.contains("\\e[2m2s\\e[0m  \\e[33maway\\e[0m"), "{frame}");
     // A question while away says that it does not wait long.
     view.envelope(&sent(13, 2_000, approval(None)), SIZE, true);
     let asked = crate::testing::bare(&view.frame(SIZE, at(2_000)));

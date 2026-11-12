@@ -16,7 +16,14 @@ use crate::terminal::Size;
 use crate::testing::{Grid, turn};
 
 /// No motion and no progress bar, so the screen is the same at every frame.
-const LOOK: Look = Look { motion: false, summary: false, progress: false, diff_lines: 20 };
+const LOOK: Look = Look {
+    motion: false,
+    summary: false,
+    progress: false,
+    diff_lines: 20,
+    diff_lines_long: 8,
+    bell: false,
+};
 
 /// A started view on a screen `cols` wide, and the screen it draws on.
 fn view_of(cols: u16) -> (TurnView, Grid, Size) {

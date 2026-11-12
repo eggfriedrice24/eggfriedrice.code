@@ -510,7 +510,7 @@
     },
     "DiffColors": {
       "additionalProperties": false,
-      "description": "The colours of the lines of a diff: `diff.add`, `diff.remove` and `diff.hunk`.",
+      "description": "The colours of the lines of a diff: `diff.add`, `diff.remove` and `diff.hunk`, and\nthe backgrounds of added and removed rows.",
       "properties": {
         "add": {
           "description": "Added lines. Unset: slot 2 (green).",
@@ -523,8 +523,16 @@
             "null"
           ]
         },
+        "add_bg": {
+          "description": "The background of added rows (the role `diff.add.bg`), as `#rrggbb`. It shows\nonly in truecolor. Unset: a tint from the background of a truecolor code theme.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "hunk": {
-          "description": "Hunk headers. Unset: slot 6 (cyan).",
+          "description": "Hunk headers. Unset: slot 6 (cyan); dim without colour.",
           "maximum": 15,
           "minimum": 0,
           "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
@@ -542,6 +550,14 @@
           "type": [
             "string",
             "integer",
+            "null"
+          ]
+        },
+        "remove_bg": {
+          "description": "The background of removed rows (the role `diff.remove.bg`), as `#rrggbb`. It\nshows only in truecolor. Unset: a tint from the background of a truecolor code\ntheme.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": [
+            "string",
             "null"
           ]
         }
@@ -1101,13 +1117,21 @@
           ]
         },
         "code": {
-          "description": "Inline code. Unset: slot 6 (cyan).",
+          "description": "Inline code and a command to run. Unset: slot 2 (green).",
           "maximum": 15,
           "minimum": 0,
           "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
           "type": [
             "string",
             "integer",
+            "null"
+          ]
+        },
+        "code_bg": {
+          "description": "The background of the rows of a code block (the role `code.bg`), as `#rrggbb`.\nIt shows only in truecolor. Unset: no background.",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -1139,7 +1163,7 @@
           ]
         },
         "link": {
-          "description": "Links. Unset: slot 4 (blue).",
+          "description": "Links. Unset: slot 5 (magenta).",
           "maximum": 15,
           "minimum": 0,
           "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
@@ -1194,7 +1218,7 @@
           ]
         },
         "warning": {
-          "description": "Questions and refusals, in bold. Unset: slot 3 (yellow).",
+          "description": "Questions and refusals. Unset: slot 3 (yellow). Bold only without colour.",
           "maximum": 15,
           "minimum": 0,
           "pattern": "^(#[0-9a-fA-F]{6}|0?[0-9]|1[0-5]|(bright-)?(black|red|green|yellow|blue|magenta|cyan|white))$",
@@ -1211,6 +1235,11 @@
       "additionalProperties": false,
       "description": "`[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it\nso one file serves both.",
       "properties": {
+        "bell": {
+          "default": false,
+          "description": "One bell (BEL) when a question appears while a turn runs, so a terminal can\nmark the tab or the window.",
+          "type": "boolean"
+        },
         "colors": {
           "$ref": "#/$defs/RenderColors",
           "default": {
@@ -1221,6 +1250,13 @@
         "diff_lines": {
           "default": 20,
           "description": "The lines of a file tool's diff that a call shows after it ran, from 0 to 1000;\na muted line then says how many more there are. 0 shows no diff. `efr diff`\nshows all of a turn's diff.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "diff_lines_long": {
+          "default": 8,
+          "description": "The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000,\nin place of `diff_lines`: a long turn shows shorter diffs. 0 shows no diff\nthere.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -1958,10 +1994,12 @@
     "render": {
       "$ref": "#/$defs/RenderSettings",
       "default": {
+        "bell": false,
         "colors": {
           "diff": {}
         },
         "diff_lines": 20,
+        "diff_lines_long": 8,
         "motion": true,
         "progress": "auto",
         "theme_dark": "catppuccin-mocha",

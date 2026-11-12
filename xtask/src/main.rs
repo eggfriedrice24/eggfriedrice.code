@@ -1,13 +1,15 @@
 //! Repository automation that needs Rust: the dependency rule (`deps`), the file rules
 //! (`tidy`), the link check of the docs site (`docs-links`), the protocol schema for code
 //! generators (`protocol-schema`), the size budget of the
-//! release binaries (`bench-size`), the table of two bench runs (`bench-compare`) and,
+//! release binaries (`bench-size`), the table of two bench runs (`bench-compare`), the
+//! frames of the terminal design as test fixtures (`design-frames`) and,
 //! from milestone 1, protocol docs, fixture blessing and projection rebuilds. The justfile composes these;
 //! it never reimplements them.
 
 mod bench;
 mod config_docs;
 mod deps;
+mod design_frames;
 mod docs_links;
 mod fixtures;
 mod output;
@@ -60,6 +62,13 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Write the frames of the terminal design as test fixtures of efr-test-support,
+    /// from the design folder (research/terminal-design, which git ignores).
+    DesignFrames {
+        /// The design folder, with frames/ and boards/tokens.json.
+        #[arg(long)]
+        from: Option<PathBuf>,
+    },
     /// Verify the frozen protocol fixtures, or rewrite them with --bless.
     Fixtures {
         /// Rewrite the fixtures instead of verifying them.
@@ -107,6 +116,7 @@ fn run(command: Command) -> anyhow::Result<bool> {
         Command::ProtocolDocs => Ok(protocol_docs::run()),
         Command::ProtocolSchema { check } => protocol_schema::run(&root, check),
         Command::ConfigDocs { check } => config_docs::run(&root, check),
+        Command::DesignFrames { from } => design_frames::run(&root, from),
         Command::Fixtures { bless } => Ok(fixtures::run(bless)),
         Command::RebuildProjections => Ok(rebuild_projections::run()),
         Command::BenchSize { dir } => bench::size(&root, dir),

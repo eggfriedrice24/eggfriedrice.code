@@ -21,8 +21,9 @@ struct Hunk {
     remaining: Option<(u32, u32)>,
 }
 
+/// What a line of a unified diff is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Meta,
     File,
     HunkHeader,
@@ -39,22 +40,41 @@ pub(crate) struct Diff {
     hunk: Option<Hunk>,
     old: Option<Highlight>,
     new: Option<Highlight>,
-    /// Backgrounds for added and removed lines, only for a truecolor theme in
-    /// truecolor mode; a palette theme has no background colour to blend with.
+    /// Backgrounds for added and removed lines: the palette's `diff.add.bg` and
+    /// `diff.remove.bg` when it sets both, else a blend of a truecolor theme's
+    /// background in truecolor mode; a palette theme has no background colour to blend
+    /// with.
     tint: Option<(Colour, Colour)>,
+    /// The kind of the line rendered last.
+    last: Kind,
 }
 
 impl Diff {
     pub(crate) fn new(style: CodeStyle) -> Diff {
-        let tint = (style.colour == ColourMode::TrueColor && !style.uses_palette())
+        let blended = (style.colour == ColourMode::TrueColor && !style.uses_palette())
             .then(|| theme_background(style.theme_ref().get()))
             .flatten()
             .map(|background| (blend(background, ADDED_TINT), blend(background, REMOVED_TINT)));
-        Diff { style, hunk: None, old: None, new: None, tint }
+        // NOTE: a palette that sets the background roles wins; one that sets only one
+        // of them takes the blend for the other, so the two sides always differ.
+        let tint = match (style.added_bg, style.removed_bg, blended) {
+            (Some(added), Some(removed), _) => Some((added, removed)),
+            (Some(added), None, Some((_, removed))) => Some((added, removed)),
+            (None, Some(removed), Some((added, _))) => Some((added, removed)),
+            (_, _, blended) => blended,
+        };
+        Diff { style, hunk: None, old: None, new: None, tint, last: Kind::Other }
+    }
+
+    /// The kind of the line that [`line`](Self::line) rendered last.
+    pub(crate) fn last_kind(&self) -> Kind {
+        self.last
     }
 
     pub(crate) fn line(&mut self, text: &str) -> Line {
-        match self.classify(text) {
+        let kind = self.classify(text);
+        self.last = kind;
+        match kind {
             Kind::Meta | Kind::File => vec![Span::new(text, Style::PLAIN.bold())],
             Kind::HunkHeader => hunk_header(text, self.style.hunk),
             Kind::Added => self.changed(text, true),

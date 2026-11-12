@@ -9,7 +9,9 @@ use efr_permissions::{HostError, HostList, PermissionsError, check_rules};
 use efr_protocol::Mode;
 
 use crate::tables::diff::{check_glob, check_name};
-use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
+use crate::tables::render::{
+    BACKGROUND_EXPECTED, BACKGROUND_ROLES, COLOR_EXPECTED, COLOR_ROLES, CONFIG_COLOR_KEYS,
+};
 use crate::{
     ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
     NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
@@ -230,6 +232,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_diff(diff)?;
 
     within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
+    within(
+        "render.diff_lines_long",
+        u64::from(render.diff_lines_long),
+        0..=1_000,
+        "between 0 and 1000",
+    )?;
     if let Some(theme) = &render.theme {
         non_empty("render.theme", theme, "a theme name such as catppuccin-mocha")?;
     }
@@ -248,13 +256,16 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     colors(&render.colors, &CONFIG_COLOR_KEYS)
 }
 
-/// Every role of `colors` that is set holds a colour. `keys` names the roles in the
-/// order of `COLOR_ROLES`.
-pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 13]) -> Result<(), Invalid> {
+/// Every role of `colors` that is set holds a colour, and every background role an
+/// RGB colour. `keys` names the roles in the order of `COLOR_ROLES`.
+pub(crate) fn colors(colors: &RenderColors, keys: &[&'static str; 16]) -> Result<(), Invalid> {
     match colors.first_invalid() {
         Some((index, value)) => {
             let key = keys.get(index).copied().unwrap_or("colors");
-            Err(invalid(key, value.as_toml(), COLOR_EXPECTED))
+            let background =
+                COLOR_ROLES.get(index).is_some_and(|role| BACKGROUND_ROLES.contains(role));
+            let expected = if background { BACKGROUND_EXPECTED } else { COLOR_EXPECTED };
+            Err(invalid(key, value.as_toml(), expected))
         }
         None => Ok(()),
     }

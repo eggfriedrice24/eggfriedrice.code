@@ -240,7 +240,14 @@ fn play(options: RenderOptions, size: Size, acts: &[Act]) -> String {
 }
 
 /// The look of the cases: no motion, the end-of-turn line, and 20 lines of a diff.
-const LOOK: Look = Look { motion: false, summary: true, progress: false, diff_lines: 20 };
+const LOOK: Look = Look {
+    motion: false,
+    summary: true,
+    progress: false,
+    diff_lines: 20,
+    diff_lines_long: 8,
+    bell: false,
+};
 
 /// [`play`] with `look`.
 fn play_with(look: Look, options: RenderOptions, size: Size, acts: &[Act]) -> String {
@@ -918,11 +925,8 @@ fn a_question_about_a_patch_shows_every_file_and_marks_a_delete_and_a_move() {
     // Every line of every file shows in the question, the last step of `src/main.rs`
     // too, and a delete and a move are in the `warning` role.
     assert!(shown.contains("step(21);"), "{shown}");
-    assert!(shown.contains("\\e[1;33mdelete old.rs\\e[0m"), "{shown}");
-    assert!(
-        shown.contains("\\e[1;33mmove src/expr.rs \u{2192} src/expression.rs\\e[0m"),
-        "{shown}"
-    );
+    assert!(shown.contains("\\e[33mdelete old.rs\\e[0m"), "{shown}");
+    assert!(shown.contains("\\e[33mmove src/expr.rs \u{2192} src/expression.rs\\e[0m"), "{shown}");
     insta::assert_snapshot!(shown);
 }
 
@@ -947,7 +951,8 @@ fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
         block,
         [
             "\\e[1m·\\e[0m apply_patch src/lib.rs +1",
-            "\\e[2m  │ \\e[0m@@ -1,1 +1,2 @@",
+            // Without colour a hunk header is dim (TM-Legend 20).
+            "\\e[2m  │ \\e[0m\\e[2m@@ -1,1 +1,2 @@\\e[0m",
             "\\e[2m  │ \\e[0m pub mod parse;",
             "\\e[2m  │ \\e[0m\\e[1m+\\e[0mpub mod greet;",
             "  ✓",

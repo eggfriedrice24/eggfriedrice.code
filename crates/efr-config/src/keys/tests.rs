@@ -39,7 +39,7 @@ fn the_keys_start_with_the_top_level_ones_in_the_order_of_the_file() {
     assert_eq!(&keys[..4], ["log", "screen", "model.provider", "model.name"]);
     assert!(keys.contains(&"permissions.rules".to_owned()));
     assert!(keys.contains(&"shell.sudo_cache".to_owned()));
-    assert_eq!(keys.last().map(String::as_str), Some("render.colors.diff.hunk"));
+    assert_eq!(keys.last().map(String::as_str), Some("render.colors.diff.remove_bg"));
 }
 
 #[test]
@@ -53,16 +53,41 @@ fn the_render_keys_hold_one_colour_key_per_role() {
         "motion",
         "turn_summary",
         "diff_lines",
+        "diff_lines_long",
         "progress",
         "turn_input",
+        "bell",
     ]
     .map(|key| format!("render.{key}"))
     .into();
-    expected.extend(COLOR_ROLES.iter().map(|role| format!("render.colors.{role}")));
+    // NOTE: the keys follow the fields: `code_bg` before the table `diff`, and the
+    // backgrounds of the diff after its three colours.
+    let colors = [
+        "text",
+        "muted",
+        "accent",
+        "heading",
+        "link",
+        "code",
+        "success",
+        "warning",
+        "error",
+        "quote",
+        "code_bg",
+        "diff.add",
+        "diff.remove",
+        "diff.hunk",
+        "diff.add_bg",
+        "diff.remove_bg",
+    ];
+    expected.extend(colors.iter().map(|key| format!("render.colors.{key}")));
     assert_eq!(render, expected);
-    for role in COLOR_ROLES {
-        assert_eq!(kind(&format!("render.colors.{role}")), Some(Kind::String), "{role}");
+    assert_eq!(colors.len(), COLOR_ROLES.len());
+    for key in colors {
+        assert_eq!(kind(&format!("render.colors.{key}")), Some(Kind::String), "{key}");
     }
+    assert_eq!(kind("render.diff_lines_long"), Some(Kind::Integer));
+    assert_eq!(kind("render.bell"), Some(Kind::Boolean));
     assert_eq!(kind("render.colors"), None);
     assert_eq!(kind("render.palette"), Some(Kind::String));
     assert_eq!(kind("render.motion"), Some(Kind::Boolean));

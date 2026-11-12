@@ -13,8 +13,9 @@
 //! sets); without it, the dark one. The colour of each role comes from
 //! `[render.colors]`, then the theme file that `render.palette` names, then the
 //! terminal's 16 colours; the theme file's `code_theme`, a `.tmTheme` file, wins over
-//! `render.theme`. A theme file or a code theme that cannot be used is a warning, and
-//! the layers below it apply.
+//! `render.theme`, and its `code_theme_ansi`, a `.tmTheme` file in bat's ANSI encoding,
+//! wins in 16 colours. A theme file or a code theme that cannot be used is a warning,
+//! and the layers below it apply.
 //!
 //! ```toml
 //! [render]
@@ -47,6 +48,11 @@ pub(crate) struct Settings {
     pub(crate) code_theme: Option<CodeTheme>,
     /// The file `code_theme` was read from.
     pub(crate) code_theme_path: Option<PathBuf>,
+    /// The code theme of the theme file for 16 colours (`code_theme_ansi`), which wins
+    /// over `code_theme` there.
+    pub(crate) code_theme_ansi: Option<CodeTheme>,
+    /// The file `code_theme_ansi` was read from.
+    pub(crate) code_theme_ansi_path: Option<PathBuf>,
     /// The whole `[render]` table: motion, the end-of-turn line and the progress bar.
     /// The defaults when the file cannot be used.
     pub(crate) render: efr_config::RenderSettings,
@@ -185,11 +191,13 @@ pub(crate) async fn problem(path: &Path, text: Option<&str>, home: &Path) -> Opt
         Ok(file) => file,
         Err(error) => return Some(format!("render.palette: {}", describe(&error))),
     };
-    let path = theme_file.code_theme_path(home)?;
-    match read_code_theme(&path).await {
-        Ok(_) => None,
-        Err(warning) => Some(format!("render.palette: {warning}")),
+    let paths = [theme_file.code_theme_path(home), theme_file.code_theme_ansi_path(home)];
+    for path in paths.into_iter().flatten() {
+        if let Err(warning) = read_code_theme(&path).await {
+            return Some(format!("render.palette: {warning}"));
+        }
     }
+    None
 }
 
 /// The theme file that `render` names, read and checked; `None` without one.
@@ -353,6 +361,15 @@ impl Settings {
                         Ok(theme) => {
                             self.code_theme = Some(theme);
                             self.code_theme_path = Some(path);
+                        }
+                        Err(warning) => self.warnings.push(warning),
+                    }
+                }
+                if let Some(path) = file.code_theme_ansi_path(home) {
+                    match read_code_theme(&path).await {
+                        Ok(theme) => {
+                            self.code_theme_ansi = Some(theme);
+                            self.code_theme_ansi_path = Some(path);
                         }
                         Err(warning) => self.warnings.push(warning),
                     }

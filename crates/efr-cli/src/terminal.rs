@@ -8,7 +8,7 @@ use std::fmt;
 use std::io::{self, IsTerminal as _};
 use std::os::fd::AsFd as _;
 
-use efr_render::{ColourMode, RenderOptions, WidthMethod};
+use efr_render::{ColourMode, Glyphs, RenderOptions, WidthMethod};
 
 use crate::settings::Settings;
 
@@ -36,6 +36,9 @@ pub(crate) struct TermFacts {
     pub(crate) multiplexer: bool,
     /// `WT_SESSION` is set: the terminal is Windows Terminal.
     pub(crate) wt_session: bool,
+    /// The locale is UTF-8 (`LC_ALL`, else `LC_CTYPE`, else `LANG`), so efr's own lines
+    /// use the Unicode glyphs; else their ASCII forms ([`utf8_locale`]).
+    pub(crate) utf8: bool,
 }
 
 impl TermFacts {
@@ -60,6 +63,7 @@ impl TermFacts {
             term_program_version: text("TERM_PROGRAM_VERSION"),
             multiplexer: multiplexed(|name| std::env::var_os(name).is_some(), text("TERM")),
             wt_session: std::env::var_os("WT_SESSION").is_some(),
+            utf8: utf8_locale(text("LC_ALL"), text("LC_CTYPE"), text("LANG")),
         }
     }
 
@@ -105,9 +109,29 @@ impl TermFacts {
             .with_palette(settings.palette.clone())
             .with_theme(settings.theme)
             .with_code_theme(settings.code_theme.clone())
+            .with_code_theme_ansi(settings.code_theme_ansi.clone())
             .with_width_method(self.width_method())
+            .with_glyphs(Glyphs::for_locale(self.utf8))
             .with_terminal(self.formats_stdout())
     }
+}
+
+/// True when the locale is UTF-8, by the rule of the zsh plugin: the first of
+/// `LC_ALL`, `LC_CTYPE` and `LANG` that is set (and not empty) names a UTF-8 code set,
+/// such as `en_US.UTF-8` or `C.utf8`. With none set the locale is `C`, which is not.
+pub(crate) fn utf8_locale(
+    lc_all: Option<String>,
+    lc_ctype: Option<String>,
+    lang: Option<String>,
+) -> bool {
+    let Some(locale) = lc_all.or(lc_ctype).or(lang) else {
+        return false;
+    };
+    let Some((_, codeset)) = locale.split_once('.') else {
+        return false;
+    };
+    let codeset = codeset.to_ascii_lowercase();
+    codeset.starts_with("utf-8") || codeset.starts_with("utf8")
 }
 
 /// True when the output goes through a terminal multiplexer: tmux (`TMUX`), GNU screen

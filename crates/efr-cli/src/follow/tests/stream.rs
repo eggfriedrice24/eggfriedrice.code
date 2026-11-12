@@ -424,12 +424,7 @@ fn run(doc: &Doc, pattern: &str, size: Size) -> (Probe, WriteLog) {
                 ..env.context()
             };
             let render = &ctx.settings.render;
-            let look = Look {
-                motion: render.motion,
-                summary: render.turn_summary,
-                progress: crate::progress::wanted(render.progress, &ctx.term),
-                diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
-            };
+            let look = Look::of(render, crate::progress::wanted(render.progress, &ctx.term));
             let options = ctx.render_options(effective_width(size));
             let mut view =
                 TurnView::new(turn(), options).with_look(look).with_input().writing_changes();

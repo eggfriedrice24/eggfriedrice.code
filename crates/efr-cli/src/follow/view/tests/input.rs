@@ -16,7 +16,14 @@ use crate::testing::{Grid, call, turn};
 const SIZE: Size = Size { cols: 50, rows: 20 };
 
 /// No motion and no progress bar, so the screen is the same at every frame.
-const LOOK: Look = Look { motion: false, summary: true, progress: false, diff_lines: 20 };
+const LOOK: Look = Look {
+    motion: false,
+    summary: true,
+    progress: false,
+    diff_lines: 20,
+    diff_lines_long: 8,
+    bell: false,
+};
 
 fn turn_2() -> TurnId {
     "019a9b1c-3d00-7a10-8b20-000000000012".parse().unwrap()

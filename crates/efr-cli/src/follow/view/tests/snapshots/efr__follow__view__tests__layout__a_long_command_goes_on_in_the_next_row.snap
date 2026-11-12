@@ -4,13 +4,13 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 ---
 === 40 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find ta…\e[0m
+\e[33m•\e[0m \e[32m$ cd ~/p/eggfriedrice.code && find ta…\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find \e[0m\e[2m\\e[0m
-        \e[36mtarget/debug/build -path \e[0m\e[2m\\e[0m
-        \e[36m'*libghostty*' -type f | awk \e[0m\e[2m\\e[0m
-        \e[36m-F/ '{print $4}' | sort -u\e[0m
+\e[33m·\e[0m \e[32m$ cd ~/p/eggfriedrice.code && find \e[0m\e[2m\\e[0m
+        \e[32mtarget/debug/build -path \e[0m\e[2m\\e[0m
+        \e[32m'*libghostty*' -type f | awk \e[0m\e[2m\\e[0m
+        \e[32m-F/ '{print $4}' | sort -u\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -28,11 +28,11 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 
 === 80 columns, colour
 [running]
-\e[33m•\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -t…\e[0m
+\e[33m•\e[0m \e[32m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' -t…\e[0m
 
 [end]
-\e[33m·\e[0m \e[36m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
-        \e[36m-type f | awk -F/ '{print $4}' | sort -u\e[0m
+\e[33m·\e[0m \e[32m$ cd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
+        \e[32m-type f | awk -F/ '{print $4}' | sort -u\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 

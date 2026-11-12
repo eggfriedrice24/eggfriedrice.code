@@ -27,10 +27,15 @@ Modules:
   (default `catppuccin-mocha`), `theme_light` (default `catppuccin-latte`), `palette`
   (the path of a theme file), `motion` (the spinner and the band over the state of the status row),
   `turn_summary` (the line at the end of each turn), `diff_lines` (the lines of a file
-  tool's diff that a call shows; 0 shows none), `progress` (`Progress`: `auto`,
+  tool's diff that a call shows; 0 shows none), `diff_lines_long` (the same from the
+  6th call of a turn on, default 8), `progress` (`Progress`: `auto`,
   `on` or `off`, for the progress bar of the terminal's tab), `turn_input` (the input
-  row of a running turn: Enter steers, Tab queues, Esc interrupts) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
-  `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). A role colour
+  row of a running turn: Enter steers, Tab queues, Esc interrupts), `bell` (one BEL
+  when a question appears, default `false`) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
+  `diff.*` roles), one key per colour role of `efr` (`COLOR_ROLES`). The three
+  background roles have keys that end in `_bg`, because a TOML key cannot be a value
+  and a table: `code.bg` is `code_bg`, `diff.add.bg` is `diff.add_bg` and
+  `diff.remove.bg` is `diff.remove_bg`; they take only `"#rrggbb"`. A role colour
   (`ColorValue`) is `"#rrggbb"`, an ANSI slot from 0 to 15 (a number or one or two
   digits in a string), or a lowercase name of the 16 colours, also as
   `bright-<name>`; `ColorValue::color` reads it as a `RoleColor`.
@@ -46,8 +51,10 @@ Modules:
   load checks of a name and a glob. The built-in groups (generated, tests, docs,
   code) are in `efr-cli`.
 - `theme_file`: `ThemeFile`, the theme file that `render.palette` names: a `[colors]`
-  table with the keys of `[render.colors]` and an optional `code_theme`, the path of a
-  `.tmTheme` file (absolute, `~/...`, or relative to the theme file). `ThemeFile::load`
+  table with the keys of `[render.colors]`, an optional `code_theme`, the path of a
+  `.tmTheme` file (absolute, `~/...`, or relative to the theme file), and an optional
+  `code_theme_ansi`, a `.tmTheme` file in bat's ANSI encoding that `efr` uses in 16
+  colours in place of `code_theme`. `ThemeFile::load`
   reads and checks it like the config file, with its own errors (`ThemeRead`,
   `ThemeParse`, `ThemeInvalid`) that name the key and the place.
 - `tables/compaction`: `[compaction]` (`CompactionSettings`): `auto` (default
@@ -239,7 +246,9 @@ same reason the role names of `[render.colors]` are listed here and in `efr-rend
 `efr` turns a `RoleColor` into an `efr_render::Colour`. A role colour that is not a
 colour is an error that names its key, such as `render.colors.accent`. The colours
 apply in this order: `[render.colors]` over the theme file over the 16-colour
-defaults of `efr-render`; the theme file's `code_theme` wins over `render.theme`.
+defaults of `efr-render`; the theme file's `code_theme` wins over `render.theme`, and
+its `code_theme_ansi` wins over both in 16 colours. A background role set to a slot or
+a name is an error: a background paints only in truecolor.
 
 ## Tier
 

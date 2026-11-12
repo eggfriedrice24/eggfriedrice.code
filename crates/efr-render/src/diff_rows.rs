@@ -65,7 +65,7 @@ pub fn diff_rows(diff: &str, options: &RenderOptions) -> Vec<Vec<String>> {
 
 /// `line` cut into rows of at most `width` columns as a terminal that counts by
 /// `method` shows them; a row takes one piece at least.
-fn split(line: &Line, width: usize, method: WidthMethod) -> Vec<Line> {
+pub(crate) fn split(line: &Line, width: usize, method: WidthMethod) -> Vec<Line> {
     let mut rows: Vec<Line> = vec![Vec::new()];
     let mut used = 0;
     for span in line {

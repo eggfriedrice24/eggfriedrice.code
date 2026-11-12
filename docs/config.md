@@ -285,18 +285,23 @@ How `efr` shows replies.
 | `motion` | `true` | client | Motion in the status row of a running turn: the spinner turns and a band in the `text` role moves over the state in the `muted` role. `false` shows a still dot and no band; the time still counts. |
 | `turn_summary` | `true` | client | One muted line at the end of each turn: how long it took and the tokens it used, such as `done in 42s, 18.2k tokens in, 1.1k out`. |
 | `diff_lines` | `20` | client | The lines of a file tool's diff that a call shows after it ran, from 0 to 1000; a muted line then says how many more there are. 0 shows no diff. `efr diff` shows all of a turn's diff. |
+| `diff_lines_long` | `8` | client | The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000, in place of `diff_lines`: a long turn shows shorter diffs. 0 shows no diff there. |
 | `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux, GNU screen or zellij), `on` or `off`. |
 | `turn_input` | `true` | client | An input row below the status row while a turn runs, when the terminal is interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts it. `false` shows no input row: keys typed during a turn go to the shell's next prompt. |
+| `bell` | `false` | client | One bell (BEL) when a question appears while a turn runs, so a terminal can mark the tab or the window. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |
 | `colors.muted` | unset | client | Notes, tool call lines, labels, rules and the end-of-turn line. Unset: dim. |
 | `colors.accent` | unset | client | The spinner and the colour of headings. Unset: slot 3 (yellow). |
 | `colors.heading` | unset | client | Headings of level 1 and 2. Unset: the accent colour. |
-| `colors.link` | unset | client | Links. Unset: slot 4 (blue). |
-| `colors.code` | unset | client | Inline code. Unset: slot 6 (cyan). |
+| `colors.link` | unset | client | Links. Unset: slot 5 (magenta). |
+| `colors.code` | unset | client | Inline code and a command to run. Unset: slot 2 (green). |
 | `colors.success` | unset | client | Done task boxes and good news. Unset: slot 2 (green). |
-| `colors.warning` | unset | client | Questions and refusals, in bold. Unset: slot 3 (yellow). |
+| `colors.warning` | unset | client | Questions and refusals. Unset: slot 3 (yellow). Bold only without colour. |
 | `colors.error` | unset | client | Failures. Unset: slot 1 (red). |
 | `colors.quote` | unset | client | The text of a quote, in italic. Unset: the terminal's foreground. |
+| `colors.code_bg` | unset | client | The background of the rows of a code block (the role `code.bg`), as `#rrggbb`. It shows only in truecolor. Unset: no background. |
 | `colors.diff.add` | unset | client | Added lines. Unset: slot 2 (green). |
 | `colors.diff.remove` | unset | client | Removed lines. Unset: slot 1 (red). |
-| `colors.diff.hunk` | unset | client | Hunk headers. Unset: slot 6 (cyan). |
+| `colors.diff.hunk` | unset | client | Hunk headers. Unset: slot 6 (cyan); dim without colour. |
+| `colors.diff.add_bg` | unset | client | The background of added rows (the role `diff.add.bg`), as `#rrggbb`. It shows only in truecolor. Unset: a tint from the background of a truecolor code theme. |
+| `colors.diff.remove_bg` | unset | client | The background of removed rows (the role `diff.remove.bg`), as `#rrggbb`. It shows only in truecolor. Unset: a tint from the background of a truecolor code theme. |
