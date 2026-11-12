@@ -1258,3 +1258,21 @@ fn the_reviewer_and_sandbox_notices_are_the_endings_board() {
         assert_rows(&frame, 1..=2, &written, depth);
     }
 }
+
+#[test]
+fn a_path_below_home_in_a_sentence_shows_with_a_tilde() {
+    let home = Path::new(HOME);
+    let short = |text: &str| super::tilde_in(text, home);
+    assert_eq!(
+        short("write /home/u/look-test.txt (user data)"),
+        "write ~/look-test.txt (user data)"
+    );
+    assert_eq!(short("write /home/u (user data)"), "write ~ (user data)");
+    assert_eq!(short("read '/home/u/a b' and /home/u/c"), "read '~/a b' and ~/c");
+    // Another user's home, a longer name and a path inside another path stay.
+    assert_eq!(short("write /home/user2/x"), "write /home/user2/x");
+    assert_eq!(short("write /mnt/home/u/x"), "write /mnt/home/u/x");
+    assert_eq!(short("network (github.com)"), "network (github.com)");
+    // No home to shorten by.
+    assert_eq!(super::tilde_in("write /x", Path::new("/")), "write /x");
+}

@@ -74,6 +74,18 @@ impl TurnView {
             let reason = reason.trim().trim_end_matches('.').to_owned();
             card.rows.insert(at, card::Row::labelled(card::WHY, reason));
         }
+        // The why row names a path below the home directory with `~`, as the rows of
+        // the calls do. The line of the answer takes its subject from this row.
+        if let Some(home) = self.home.as_deref() {
+            for row in &mut card.rows {
+                if let Some(value) = row.value_of(card::WHY) {
+                    let short = sandbox::tilde_in(&value, home);
+                    if short != value {
+                        *row = card::Row::labelled(card::WHY, short);
+                    }
+                }
+            }
+        }
         // NOTE: a call that may ask for a password says so, but never one in the sandbox,
         // where efr types no secret, and a privilege exit says it in its why row.
         let privilege = request.exit.is_some_and(|exit| exit.kinds.contains(&ExitKind::Privilege));

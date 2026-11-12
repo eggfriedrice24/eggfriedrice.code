@@ -122,6 +122,37 @@ pub(crate) fn tilde(path: &Path, home: Option<&Path>) -> String {
     one_line(&shown)
 }
 
+/// `text` with each path below the home directory `home` written with `~`, such as
+/// `write ~/notes.txt (user data)` for `write /home/u/notes.txt (user data)`. A path
+/// that only starts with the same letters, such as `/home/user2`, stays.
+pub(crate) fn tilde_in(text: &str, home: &Path) -> String {
+    let home = home.display().to_string();
+    if home.is_empty() || home == "/" {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(&home) {
+        let (before, from) = rest.split_at(at);
+        let after = &from[home.len()..];
+        // A path starts the text, or stands after a space, a quote or a bracket.
+        let starts = before
+            .chars()
+            .next_back()
+            .or_else(|| out.chars().next_back())
+            .is_none_or(|c| c.is_whitespace() || matches!(c, '(' | '\'' | '"' | '=' | ':'));
+        // The home directory itself, or a path below it.
+        let ends = after.chars().next().is_none_or(|c| {
+            c == '/' || c.is_whitespace() || matches!(c, ')' | '\'' | '"' | ',' | ';' | ':')
+        });
+        out.push_str(before);
+        out.push_str(if starts && ends { "~" } else { &home });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The start of efrd's warning when `network.mode = "proxy"` but the probe's proxy
 /// self-test failed.
 const PROXY_WARNING: &str = "efr's network proxy is off";
