@@ -3,17 +3,14 @@
 //! background in 16 colours, the fences back and dim without colour, a comment
 //! italic, a diff in a fence with its rows on the tints of the diff roles.
 //!
-//! The colours of the tokens come from the code theme, and the grammars of syntect
-//! give some tokens no scope that a theme rule can colour (spec 3.5: plain variables,
-//! fields, generic types, some brackets): those cells cannot be the board's. The
-//! tests compare every cell of a code row but its text colour with the board, and
-//! the text colour of the tokens that a rule of the theme gives, with a fixture theme
-//! that has the rules of the code table (`fixtures/design.tmTheme` and its ANSI form).
+//! The colours of the tokens come from the code themes of the design system. The
+//! tests compare every cell of a code row with the board, the text colour too, but
+//! for the code inside the diff in a fence (see [`FENCED_DIFF`]).
 
 use efr_render::{Renderer, render};
 use efr_test_support::design::{Depth, Frame, Ink, Look, assert_rows, cells, expect};
 
-use super::{SHEBANG, assert_code_rows, code_options, plain, screen, soft_wrap};
+use super::{assert_code_rows, code_options, plain, screen, soft_wrap};
 
 /// The Markdown of TM-Code 1 to 3: the text of the `NO_COLOR` frame, whose fences are
 /// the Markdown, with the rows that the terminal wraps joined, and the file of the
@@ -118,20 +115,27 @@ const CODE: &[&str] = &[
     "```\n",
 ];
 
+/// The rows of TM-Code 1 and 2 with code inside the diff in a fence, whose text
+/// colour the tests do not compare.
+///
+/// NOTE (open): the board draws the syntax of Rust inside them, but the fence says
+/// only `diff` and the diff names no file, so there is no grammar for the code. A
+/// guess would paint a wrong grammar on another diff.
+const FENCED_DIFF: [usize; 4] = [81, 83, 84, 85];
+
 /// TM-Code 1 and Legend 38: in truecolor the label is muted, each row of code is on
 /// `code.bg` to the end of the row and the label and the blank line after a block are
 /// not, a block with no language has no label, a diff in a fence has no label and its
 /// changed rows are on the tints with a bold sign, the hunk header whole in
-/// `diff.hunk`. The text colour of the labels, the comments, the diff signs, the hunk
-/// header and the block with no language is the board's.
+/// `diff.hunk`. The text colour of each cell is the board's, with the code themes of
+/// the design system, except the code inside the diff in a fence ([`FENCED_DIFF`]).
 #[test]
 fn code_blocks_in_truecolor_are_the_board() {
     let frame = Frame::load("Code", 1).unwrap();
     let out = render(&CODE.concat(), &code_options(Depth::TrueColor, frame.cols));
     let rows = screen(&out, frame.cols);
-    let coloured = [0, 2, 5, 22, 23, 41, 43, 55, 70, 82, 87, 88, 89, 90];
     assert_code_rows(&frame, 0..frame.rows.len(), &rows, Depth::TrueColor, |row| {
-        coloured.contains(&row)
+        !FENCED_DIFF.contains(&row)
     });
     for (row, sign) in [(81, '+'), (84, '-'), (85, '+')] {
         assert_eq!(rows[row].cells[0].text, sign);
@@ -148,11 +152,10 @@ fn code_blocks_in_sixteen_colours_are_the_board() {
     let rows = screen(&out, frame.cols);
     // NOTE: a changed row of a diff is whole in its role's colour, with no syntax
     // (TM-Diffs 2, TM-Legend 21, spec 1.3); TM-Code 2 draws syntax in them.
-    let coloured = [0, 2, 5, 22, 23, 41, 43, 55, 70, 82, 87, 88, 89, 90];
     let ansi = expect(&frame, Depth::Ansi16).unwrap();
     assert_eq!(ansi.number, 2);
     assert_code_rows(&ansi, 0..ansi.rows.len(), &rows, Depth::Ansi16, |row| {
-        coloured.contains(&row)
+        !FENCED_DIFF.contains(&row)
     });
     let added = Look { fg: Ink::Slot(2), ..Look::default() };
     assert_eq!(rows[85].cells[10].look, added, "{}", rows[85].text());
@@ -171,11 +174,8 @@ fn code_blocks_without_colour_are_the_board() {
     let lines: Vec<&str> = real.split_inclusive('\n').collect();
     assert_eq!(lines.len(), frame.rows.len());
     // NOTE: a removed row of a diff is dim without colour (TM-Legend 21, TM-Diffs 3,
-    // spec 1.3); TM-Code 3 draws row 90 plain. The shebang (row 44) is a comment for
-    // the grammar, so it is italic (spec 3.5).
-    assert_rows(&frame, ..44, &lines[..44].concat(), Depth::NoColor);
-    assert_eq!(cells(lines[44])[0].text(), SHEBANG);
-    assert_rows(&frame, 45..90, &lines[45..90].concat(), Depth::NoColor);
+    // spec 1.3); TM-Code 3 draws row 90 plain.
+    assert_rows(&frame, ..90, &lines[..90].concat(), Depth::NoColor);
     assert_rows(&frame, 91.., &lines[91..].concat(), Depth::NoColor);
     let rows = cells(lines[90]);
     assert_eq!(rows[0].text(), frame.rows[90].text);
@@ -252,7 +252,8 @@ fn the_open_line_of_a_streaming_block_is_live_and_filled() {
     let update = renderer.push(&format!("{text}        let Ok(\u{27e6}x.r: "));
     let screen = format!("{}{}", update.committed(), update.live());
     let rows = cells(&screen);
-    assert_code_rows(&frame, 0..10, &rows, Depth::TrueColor, |row| [0, 2, 5].contains(&row));
+    // NOTE: `⟦x.r: ` of row 9 is a template mark of the board, not output.
+    assert_code_rows(&frame, 0..10, &rows, Depth::TrueColor, |row| row != 9);
     assert!(frame.rows[9].live);
     assert_eq!(cells(update.live()).len(), 1);
 }
@@ -266,9 +267,7 @@ fn a_long_line_of_code_wraps_on_the_terminal_with_its_fill() {
         let frame = Frame::load("Code", number).unwrap();
         let out = render(&bash, &code_options(Depth::TrueColor, frame.cols));
         let rows = screen(&out, frame.cols);
-        assert_code_rows(&frame, 0..frame.rows.len(), &rows, Depth::TrueColor, |row| {
-            [0, 2].contains(&row)
-        });
+        assert_code_rows(&frame, 0..frame.rows.len(), &rows, Depth::TrueColor, |_| true);
         let long = out.lines().last().unwrap();
         assert!(!long.contains('\n'), "efr writes the line as one");
     }
@@ -300,7 +299,7 @@ self.pending.push(msg);\n    \
             assert_rows(&frame, .., &out, depth);
         } else {
             let rows = screen(&out, frame.cols);
-            assert_code_rows(&frame, 0..frame.rows.len(), &rows, depth, |row| row == 0);
+            assert_code_rows(&frame, 0..frame.rows.len(), &rows, depth, |_| true);
         }
     }
 }

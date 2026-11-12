@@ -12,7 +12,7 @@ mod markdown;
 
 use efr_render::{CodeTheme, Colour, ColourMode, Palette, RenderOptions, Role, render};
 use efr_test_support::design::{
-    CellRow, DESIGN_ROLES, Depth, Frame, Ink, Look, assert_rows, cells, expect, rgb,
+    CellRow, DESIGN_ROLES, DESIGN_THEME, Depth, Frame, Ink, Look, assert_rows, cells, expect, rgb,
 };
 
 /// The options of `depth` at `cols` columns: the palette of the design in truecolor,
@@ -99,8 +99,9 @@ fn theme(bytes: &[u8]) -> CodeTheme {
 /// The options of `depth` with the fixture code themes: the truecolor theme in
 /// truecolor, its ANSI form in 16 colours.
 fn code_options(depth: Depth, cols: u16) -> RenderOptions {
-    let truecolor = theme(include_bytes!("../../fixtures/design.tmTheme"));
-    let ansi = theme(include_bytes!("../../fixtures/design_ansi.tmTheme"));
+    let bat = std::path::Path::new(DESIGN_THEME).join("bat");
+    let truecolor = theme(&std::fs::read(bat.join("eggfriedrice.tmTheme")).unwrap());
+    let ansi = theme(&std::fs::read(bat.join("eggfriedrice-ansi.tmTheme")).unwrap());
     options(depth, cols).with_code_theme(Some(truecolor)).with_code_theme_ansi(Some(ansi))
 }
 
@@ -127,13 +128,7 @@ enum Check {
     All,
     /// All but the text colour of the cells.
     NoTextColour,
-    /// The text and the fill: a shebang, which the grammar of syntect scopes as a
-    /// comment (italic), as no theme rule can change (spec 3.5).
-    Text,
 }
-
-/// The rows of TM-Code 1 to 3 that are a shebang.
-const SHEBANG: &str = "#!/usr/bin/env bash";
 
 /// Compares the rows `rows` of `frame` in `depth` with `real`: the text and the fill
 /// of each row, and the background and the attributes of each cell; the text colour
@@ -151,15 +146,11 @@ fn assert_code_rows(
     for (at, real) in rows.zip(real) {
         let row = &want.rows[at];
         let check = match () {
-            () if row.text == SHEBANG => Check::Text,
             () if colour(at) => Check::All,
             () => Check::NoTextColour,
         };
         assert_eq!(real.text().trim_end(), row.text.trim_end(), "row {at}");
         assert_eq!(real.fill, row.fill, "the fill of row {at}: {}", row.text);
-        if check == Check::Text {
-            continue;
-        }
         let wanted: Vec<Look> = row
             .segments
             .iter()

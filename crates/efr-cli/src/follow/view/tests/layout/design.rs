@@ -145,7 +145,7 @@ fn all(_: usize, _: usize) -> bool {
 /// are rows of a diff (a sign at `column - 2`, or the indent of a line that stays or
 /// goes on). The sign itself counts, with its colour, in colour; without colour the
 /// render slice gives a removed row its weight, so the sign is text only there too.
-fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
+fn diff_code(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
     let code: Vec<bool> = cells(real)
         .iter()
         .map(|row| {
@@ -163,6 +163,17 @@ fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) 
         code.get(row).copied().unwrap_or(false)
             && (col >= column || (sign_too && col + 2 == column))
     }
+}
+
+/// The cells of [`diff_code`] that a test compares by their text alone: none in
+/// truecolor, where the code theme of the design system colours the code
+/// (`design_options`); all in 16 colours and without colour, where a changed row is
+/// whole in its diff role or its weight (TM-Diffs 2 and 3, the note of TM-Depths),
+/// which beats the syntax that a truecolor board draws.
+fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
+    let code = diff_code(real, column, depth);
+    let truecolor = depth == Depth::TrueColor;
+    move |row, col| !truecolor && code(row, col)
 }
 
 // --- events ----------------------------------------------------------------------
@@ -710,7 +721,14 @@ fn a_file_edit_is_its_row_and_its_diff() {
             let part = rows(&shown, real);
             let inner = board.start >= 33;
             let column = if inner { 6 } else { 4 };
-            let code = code_cells(&part, column, depth);
+            // NOTE: the board draws `pending` of the Markdown file as inline code, but
+            // its text has no backticks (a diff shows the file's text as it is): the
+            // code of that block is compared by its text.
+            let code: Box<dyn Fn(usize, usize) -> bool> = if board.start == 18 {
+                Box::new(diff_code(&part, column, depth))
+            } else {
+                Box::new(code_cells(&part, column, depth))
+            };
             // NOTE: the rows of a patch of several files are at 4 columns: their code
             // starts at column 6, and the rows that name the files are no code.
             check(&frame, board, &part, depth, code);

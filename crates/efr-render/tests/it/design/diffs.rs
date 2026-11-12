@@ -60,7 +60,7 @@ fn turn_rows(depth: Depth) -> String {
 
 /// TM-Diffs 1: in truecolor a changed row is on `diff.add.bg` or `diff.remove.bg` to
 /// the end of the row, with its sign bold in its role and the file's syntax colours
-/// inside (as far as a theme rule gives them; see `code`); a context row has no fill.
+/// inside, each cell as the board draws it; a context row has no fill.
 #[test]
 fn the_rows_of_a_diff_in_truecolor_are_the_board() {
     let frame = Frame::load("Diffs", 1).unwrap();
@@ -72,7 +72,7 @@ fn the_rows_of_a_diff_in_truecolor_are_the_board() {
             *row..row + 1,
             std::slice::from_ref(real),
             Depth::TrueColor,
-            |_| false,
+            |_| true,
         );
         if let Some(sign) = want.segments.get(1).filter(|segment| segment.look.bold) {
             assert_eq!(real.cells[2].look.fg, sign.look.fg, "the sign of row {row}");
@@ -109,7 +109,7 @@ fn the_diff_rows_are_the_legend() {
         let lines = diff_lines("+++ b/src/turn.rs\n@@ -1 +1 @@\n+let x = 1;\n", &options);
         let row = lay_out(&lines[2], "  ");
         if depth == Depth::TrueColor {
-            assert_code_rows(&added, 0..1, &cells(&row), depth, |_| false);
+            assert_code_rows(&added, 0..1, &cells(&row), depth, |_| true);
         } else {
             // NOTE: in 16 colours the whole row is in the role (TM-Diffs 2), which
             // beats the Legend's syntax colours, drawn for truecolor.
@@ -119,4 +119,22 @@ fn the_diff_rows_are_the_legend() {
             assert_eq!(rows[0].fill, None);
         }
     }
+}
+
+/// TM-Diffs 1 rows 44 and 45: the rows of a Markdown list in a diff of
+/// `CHANGELOG.md` have no colour but the sign's; the grammar's scope of a list item is
+/// left out.
+#[test]
+fn a_list_item_of_markdown_in_a_diff_has_no_colour() {
+    let frame = Frame::load("Diffs", 1).unwrap();
+    let diff = "--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n@@ -3,1 +3,1 @@\n\
+-- steers can land after a turn\n\
++- a steer during the last call reaches the model\n";
+    let lines = diff_lines(diff, &code_options(Depth::TrueColor, 100));
+    let rows: String = lines
+        .iter()
+        .filter(|line| matches!(line.kind, DiffLineKind::Added | DiffLineKind::Removed))
+        .map(|line| lay_out(line, "    "))
+        .collect();
+    assert_code_rows(&frame, 44..46, &cells(&rows), Depth::TrueColor, |_| true);
 }

@@ -20,6 +20,10 @@ use two_face::theme::EmbeddedLazyThemeSet;
 use crate::options::Theme;
 use crate::style::{Colour, Style};
 
+mod refine;
+
+use refine::{Language, refine};
+
 /// The embedded grammars and themes, loaded on first use, and one highlighter for each
 /// embedded theme, made the first time a block uses that theme. A highlighter sorts
 /// the selectors of its theme, so it is made once and not for each line.
@@ -178,6 +182,12 @@ pub(crate) struct Highlight {
     /// the grammar's cost, so the label line of a block does not pay it.
     parse: Option<ParseState>,
     state: HighlightState,
+    /// The language whose missing scopes [`refine`] adds, if it knows it.
+    language: Option<Language>,
+    /// No line is highlighted yet.
+    first: bool,
+    /// The scope stack of the grammar, without what [`refine`] changes.
+    grammar: ScopeStack,
 }
 
 impl Highlight {
@@ -187,7 +197,17 @@ impl Highlight {
         theme: ThemeRef,
     ) -> Highlight {
         let state = HighlightState::new(theme.highlighter, ScopeStack::new());
-        Highlight { syntaxes: assets.syntaxes(), theme, syntax, parse: None, state }
+        let language = Language::of(syntax.scope);
+        Highlight {
+            syntaxes: assets.syntaxes(),
+            theme,
+            syntax,
+            parse: None,
+            state,
+            language,
+            first: true,
+            grammar: ScopeStack::new(),
+        }
     }
 
     /// Highlights the next line, given without its newline. `None` when the grammar
@@ -197,7 +217,15 @@ impl Highlight {
         let text = format!("{line}\n");
         let syntax = self.syntax;
         let parse = self.parse.get_or_insert_with(|| ParseState::new(syntax));
-        let ops = parse.parse_line(&text, self.syntaxes).ok()?;
+        let mut ops = parse.parse_line(&text, self.syntaxes).ok()?;
+        if let Some(language) = self.language {
+            let before = self.grammar.clone();
+            for (_, op) in &ops {
+                self.grammar.apply(op).ok()?;
+            }
+            ops = refine(language, &before, self.first, &text, ops);
+        }
+        self.first = false;
         let highlighter = self.theme.highlighter;
         let mut tokens = Vec::new();
         for (style, piece) in HighlightIterator::new(&mut self.state, &ops, &text, highlighter) {

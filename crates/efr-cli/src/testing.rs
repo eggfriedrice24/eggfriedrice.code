@@ -862,9 +862,9 @@ impl Write for Buffer {
 
 /// The render options of `depth` at `cols` columns for a test against a frame of the
 /// terminal design (`efr_test_support::design`): the palette of the design
-/// (`DESIGN_ROLES`) in truecolor, as a user with the palette file of the design system
-/// sees efr, and the default palette in 16 colours and without colour. The glyphs are
-/// the Unicode ones.
+/// (`DESIGN_ROLES`) and its code theme in truecolor, as a user with the theme file of
+/// the design system sees efr, and the default palette in 16 colours and without
+/// colour. The glyphs are the Unicode ones.
 pub(crate) fn design_options(depth: Depth, cols: u16) -> RenderOptions {
     let options = RenderOptions::new(cols);
     match depth {
@@ -876,11 +876,26 @@ pub(crate) fn design_options(depth: Depth, cols: u16) -> RenderOptions {
                 };
                 palette.set(role, Colour::Rgb(r, g, b));
             }
-            options.with_colour(ColourMode::TrueColor).with_palette(palette)
+            options
+                .with_colour(ColourMode::TrueColor)
+                .with_palette(palette)
+                .with_code_theme(Some(design_code_theme().clone()))
         }
         Depth::Ansi16 => options.with_colour(ColourMode::Ansi16),
         Depth::NoColor => options.with_colour(ColourMode::None),
     }
+}
+
+/// The code theme of the design system in truecolor
+/// (`efr_test_support::design::DESIGN_THEME`), parsed once for all tests.
+fn design_code_theme() -> &'static efr_render::CodeTheme {
+    static THEME: std::sync::OnceLock<efr_render::CodeTheme> = std::sync::OnceLock::new();
+    THEME.get_or_init(|| {
+        let path = std::path::Path::new(efr_test_support::design::DESIGN_THEME)
+            .join("bat")
+            .join("eggfriedrice.tmTheme");
+        efr_render::CodeTheme::from_tmtheme(&std::fs::read(path).unwrap()).unwrap()
+    })
 }
 
 /// The frame that output in `depth` must match ([`efr_test_support::design::expect`]),

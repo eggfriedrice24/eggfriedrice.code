@@ -199,6 +199,19 @@ of one theme share one highlighter. An embedded theme makes it at its first bloc
 `.tmTheme` file's theme and highlighter are made when the file is parsed and stay in
 memory until the process ends.
 
+The grammars give some tokens no scope, or the scope of another kind, where the
+syntax table of the design (TM-Code, after the tree-sitter captures of the editor)
+has a kind. For Rust, TypeScript, JavaScript and shell, the highlighter adds the
+scope of that kind on top of such a token, and the code theme colours it by its own
+rule: a plain Rust variable (`variable.other`), a field after `.`, a macro name with
+its `!`, the name of an attribute, a type or a constant by its case, a module after
+`::`, `self` as a parameter, a primitive type such as `usize`; an upper-case
+TypeScript constant; a shell number, a test operator such as `-ne` inside `[[ ]]`,
+and the shebang as a directive (not a comment). It adds no colour: a theme with no
+rule for the scope shows the token as before. In Markdown it leaves out the scope of a
+list item, which the grammar puts on the whole item, so a list in a diff of a
+Markdown file has no colour (TM-Diffs 1). The parse state does not see these changes.
+
 ## Tier
 
 Tier 1.
@@ -271,15 +284,13 @@ test `design` of the test binary compares the output with a frame of the termina
 design (`efr_test_support::design`) in the depths that each board draws: TM-Markdown
 1 to 5, TM-Code 1 to 6, the diff rows of TM-Diffs 1 to 3, TM-Depths 4, 8 and 12, and
 TM-Legend 6, 20, 21, 37 and 38. Each module of it says where a board and the output
-differ and which rule wins: the column gaps of a hand-drawn table, a shebang that the
-grammar scopes as a comment, the syntax inside a diff in 16 colours, and the tokens
-that no theme rule can colour. Its code themes are `fixtures/design.tmTheme` and
-`fixtures/design_ansi.tmTheme`, small themes with the rules of the code table of
-TM-Code. The test `theme` renders the code blocks of TM-Code with the code themes of
-the design system (`efr_test_support::design::DESIGN_THEME`) and compares the colour
-and the attributes of each cell of code with frame 1 (truecolor) and frame 2 (16
-colours, the ANSI code theme). It lists the cells where the grammars give no scope
-that a theme can use, and it fails when one of them closes. A unit test checks that
+differ and which rule wins: the column gaps of a hand-drawn table, the syntax inside
+a diff in 16 colours, and the code inside a diff in a fence, which names no language.
+Its code themes are the code themes of the design system
+(`efr_test_support::design::DESIGN_THEME`). The test `theme` renders the code blocks
+of TM-Code with them and compares the colour and the attributes of each cell of code
+with frame 1 (truecolor) and frame 2 (16 colours, the ANSI code theme); it fails when
+one cell differs. A unit test checks that
 the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.

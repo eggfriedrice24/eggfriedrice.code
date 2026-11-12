@@ -461,7 +461,7 @@ fn rows(text: &str, range: Range<usize>) -> String {
 /// The cells of the code of a diff's rows: from `column` on, in the rows of `real` that
 /// are rows of a diff. Without colour the sign of a removed row takes the weight of the
 /// row (the render slice's), so it is text only there too.
-fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
+fn diff_code(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
     let code: Vec<bool> = cells(real)
         .iter()
         .map(|row| {
@@ -480,6 +480,17 @@ fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) 
         code.get(row).copied().unwrap_or(false)
             && (col >= column || (sign_too && col + 2 == column))
     }
+}
+
+/// The cells of [`diff_code`] that a test compares by their text alone: none in
+/// truecolor, where the code theme of the design system colours the code
+/// (`design_options`); all in 16 colours and without colour, where a changed row is
+/// whole in its diff role or its weight (TM-Diffs 2 and 3, the note of TM-Depths),
+/// which beats the syntax that a truecolor board draws.
+fn code_cells(real: &str, column: usize, depth: Depth) -> impl Fn(usize, usize) -> bool {
+    let code = diff_code(real, column, depth);
+    let truecolor = depth == Depth::TrueColor;
+    move |row, col| !truecolor && code(row, col)
 }
 
 /// The mark of an item of a list in prose: its first column. NOTE: TM-LongTurn draws

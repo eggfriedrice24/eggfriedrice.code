@@ -7,6 +7,7 @@ use syntect::highlighting::{
 };
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference};
 
+use super::refine::{Language, refine};
 use super::{ASSETS, Assets, Highlight, style_of, theme_background, theme_colour};
 use crate::CodeTheme;
 use crate::elements::SAMPLE_TMTHEME;
@@ -111,11 +112,21 @@ fn highlight_with_fresh_highlighters(
     let mut parse = ParseState::new(syntax);
     let mut state = HighlightState::new(&Highlighter::new(theme), ScopeStack::new());
     let syntaxes = ASSETS.syntaxes();
+    let language = Language::of(syntax.scope);
+    let mut grammar = ScopeStack::new();
     lines
         .iter()
-        .map(|line| {
+        .enumerate()
+        .map(|(at, line)| {
             let text = format!("{line}\n");
-            let ops = parse.parse_line(&text, syntaxes).unwrap();
+            let mut ops = parse.parse_line(&text, syntaxes).unwrap();
+            if let Some(language) = language {
+                let before = grammar.clone();
+                for (_, op) in &ops {
+                    grammar.apply(op).unwrap();
+                }
+                ops = refine(language, &before, at == 0, &text, ops);
+            }
             let highlighter = Highlighter::new(theme);
             HighlightIterator::new(&mut state, &ops, &text, &highlighter)
                 .map(|(style, piece)| (style_of(style), piece.strip_suffix('\n').unwrap_or(piece)))
