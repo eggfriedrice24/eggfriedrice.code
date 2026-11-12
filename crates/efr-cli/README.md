@@ -1302,7 +1302,14 @@ design tests (`follow/view/tests/layout/design.rs`) play real events through a v
 and compare the screen, cell by cell, with the frames of the Calls, Diffs, Legend,
 LongTurn, BeforeAfter, Sequence, Depths, Endings and Commands boards in truecolor, 16
 colours and `NO_COLOR` (`efr_test_support::design`); the colours inside the rows of a
-diff are the render slice's, and those cells compare by their text and fill. The layout
+diff are the render slice's, and those cells compare by their text and fill. The
+whole-turn tests (`follow/view/tests/layout/whole.rs`) play the turns of
+TM-BeforeAfter 4, TM-Sequence and TM-LongTurn 3 and 4 from their first line to their
+end lines through one view with an input row, and compare every row between the two
+prompt lines (and, for TM-Sequence, the screen at each moment, the live zone by its
+text) with the frame: they catch what falls between two elements, such as the blank
+lines between calls, prose, a thought row and a steer. With `EFR_WHOLE_PRINT=1` they
+print each row next to the frame's. The layout
 tests (`follow/view/tests/layout.rs`) play each case on a simulated screen 40 and 80
 columns wide, with colour and with `NO_COLOR`, and through a pipe: a call that went
 well, a failed call with its tail, a refused call, a command of several lines, a long
