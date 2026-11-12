@@ -6158,12 +6158,12 @@ export interface ConversationHistoryResult {
  */
 export interface RouteLabel {
   /**
-   * The project's root for a project; the working directory of the prompt
-   * outside projects.
+   * The project's root for a project; the working directory of the prompt at
+   * home.
    */
   dir: string;
   /**
-   * The project's name, for a project. Absent outside projects and for a project
+   * The project's name, for a project. Absent at home and for a project
    * that is no longer registered.
    */
   name?: string | null;
@@ -6443,7 +6443,7 @@ export interface RecentConversation {
    */
   open_in?: string | null;
   /**
-   * The name of its project. Absent outside projects and for a project that is no
+   * The name of its project. Absent at home and for a project that is no
    * longer registered.
    */
   project?: string | null;
@@ -7102,7 +7102,7 @@ export interface SandboxExplainResult {
    */
   path: string;
   /**
-   * The root of the project the answer is for; absent outside a project.
+   * The root of the project the answer is for; absent at home.
    */
   project?: string | null;
   /**

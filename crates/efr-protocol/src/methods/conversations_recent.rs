@@ -52,7 +52,7 @@ pub struct RecentConversation {
     pub summary: ConversationSummary,
     /// Its scope key.
     pub route: RouteScope,
-    /// The name of its project. Absent outside projects and for a project that is no
+    /// The name of its project. Absent at home and for a project that is no
     /// longer registered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,

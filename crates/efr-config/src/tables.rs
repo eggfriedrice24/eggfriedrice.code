@@ -464,10 +464,10 @@ pub struct ConversationSettings {
     /// within these hours.
     pub tty_idle_hours: u64,
     /// A terminal keeps one conversation for each registered project that you worked
-    /// in, and one for everything outside projects; a prompt goes to the conversation
-    /// of the scope where you send it, and a new terminal picks up the project's
-    /// newest conversation that no open terminal holds. false keeps one conversation
-    /// per terminal, whatever the scope.
+    /// in, and one at home (every place in no registered project); a prompt goes to the
+    /// conversation of the scope where you send it, and a new terminal picks up the
+    /// project's newest conversation that no open terminal holds. false keeps one
+    /// conversation per terminal, whatever the scope.
     pub follow_project: bool,
     /// A prompt in a git repository that is not a registered project shows, at most
     /// once a day for each repository, that writes there ask you and how to register

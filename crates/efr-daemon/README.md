@@ -424,7 +424,7 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
 - `conversations.recent` (`methods/conversations_recent.rs`) is the list of `,resume`
   and `efr resume`: the conversations whose scope key is the key of `pwd` first, then
   all others, each part newest first by its last activity, 10 by default. Each row has
-  its key, its project's name (none outside projects or for a removed project), its
+  its key, its project's name (none at home or for a removed project), its
   prompt turns (a job notice turn and a withdrawn prompt do not count), whether the
   asking terminal holds it (`here`) and which other open terminal holds it
   (`open_in`, the rule of a pick-up). The phone sends no `tty`, so it sees every

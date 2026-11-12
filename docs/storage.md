@@ -141,8 +141,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   hour count these rows, also over a restart.
 - `conversations.route`, `shell_pid` and `routed_seq` (migration 8): the slots of the
   terminals. A terminal keeps one conversation per scope key, a registered project or
-  everything outside projects. A row with a `tty` is the conversation of that
-  terminal's slot for its `route` (the JSON of `efr_protocol::RouteScope`);
+  home (every place in no registered project). A row with a `tty` is the conversation
+  of that terminal's slot for its `route` (the JSON of `efr_protocol::RouteScope`);
   `shell_pid` is the shell that holds the slot, and `routed_seq` the slot's newest
   routed event, so the terminal's current conversation is its row with the highest.
   `conversation_created` with a tty and a route takes the slot from the row of the same

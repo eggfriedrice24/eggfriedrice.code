@@ -456,7 +456,7 @@
         },
         "follow_project": {
           "default": true,
-          "description": "A terminal keeps one conversation for each registered project that you worked\nin, and one for everything outside projects; a prompt goes to the conversation\nof the scope where you send it, and a new terminal picks up the project's\nnewest conversation that no open terminal holds. false keeps one conversation\nper terminal, whatever the scope.",
+          "description": "A terminal keeps one conversation for each registered project that you worked\nin, and one at home (every place in no registered project); a prompt goes to the\nconversation of the scope where you send it, and a new terminal picks up the\nproject's newest conversation that no open terminal holds. false keeps one\nconversation per terminal, whatever the scope.",
           "type": "boolean"
         },
         "max_queued": {

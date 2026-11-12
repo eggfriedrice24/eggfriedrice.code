@@ -27,7 +27,7 @@ pub struct SandboxExplain {
 pub struct SandboxExplainResult {
     /// The path, absolute.
     pub path: PathBuf,
-    /// The root of the project the answer is for; absent outside a project.
+    /// The root of the project the answer is for; absent at home.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<PathBuf>,
     /// The mode the answer is for.

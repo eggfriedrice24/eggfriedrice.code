@@ -177,16 +177,16 @@
 
 # Hours without activity after which a terminal's next , line in a scope starts a new
 # conversation, up to a year; 0 continues the old one forever. Each scope of a
-# terminal (a registered project, or everything outside projects) has its own clock.
-# A new terminal picks up a project's newest conversation only when it was active
-# within these hours.
+# terminal (a registered project, or home: every place in no registered project) has
+# its own clock. A new terminal picks up a project's newest conversation only when it
+# was active within these hours.
 # tty_idle_hours = 12
 
 # A terminal keeps one conversation for each registered project that you worked in,
-# and one for everything outside projects. A prompt goes to the conversation of the
-# scope where you send it, and a new terminal picks up the project's newest
-# conversation that no open terminal holds. false keeps one conversation per
-# terminal, whatever the scope.
+# and one at home (every place in no registered project). A prompt goes to the
+# conversation of the scope where you send it, and a new terminal picks up the
+# project's newest conversation that no open terminal holds. false keeps one
+# conversation per terminal, whatever the scope.
 # follow_project = true
 
 # A prompt in a git repository that is not a registered project shows, at most once a

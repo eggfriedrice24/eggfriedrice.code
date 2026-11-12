@@ -76,12 +76,12 @@ impl RouteScope {
 pub struct RouteLabel {
     /// The scope key.
     pub scope: RouteScope,
-    /// The project's name, for a project. Absent outside projects and for a project
+    /// The project's name, for a project. Absent at home and for a project
     /// that is no longer registered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// The project's root for a project; the working directory of the prompt
-    /// outside projects.
+    /// The project's root for a project; the working directory of the prompt at
+    /// home.
     pub dir: PathBuf,
 }
 

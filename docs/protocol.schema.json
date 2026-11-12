@@ -10411,7 +10411,7 @@
           ]
         },
         "project": {
-          "description": "The name of its project. Absent outside projects and for a project that is no\nlonger registered.",
+          "description": "The name of its project. Absent at home and for a project that is no\nlonger registered.",
           "type": [
             "string",
             "null"
@@ -10652,11 +10652,11 @@
       "description": "The scope of a prompt as a client shows it.",
       "properties": {
         "dir": {
-          "description": "The project's root for a project; the working directory of the prompt\noutside projects.",
+          "description": "The project's root for a project; the working directory of the prompt at\nhome.",
           "type": "string"
         },
         "name": {
-          "description": "The project's name, for a project. Absent outside projects and for a project\nthat is no longer registered.",
+          "description": "The project's name, for a project. Absent at home and for a project\nthat is no longer registered.",
           "type": [
             "string",
             "null"
@@ -10840,7 +10840,7 @@
           "type": "string"
         },
         "project": {
-          "description": "The root of the project the answer is for; absent outside a project.",
+          "description": "The root of the project the answer is for; absent at home.",
           "type": [
             "string",
             "null"

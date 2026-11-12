@@ -694,7 +694,7 @@ No protocol version has shipped yet.
   each part newest first. Its result has the `scope` of `pwd` (absent without one),
   the terminal's `current` conversation (absent without a `tty` or when it holds
   none) and `conversations`, each with its `summary`, `route`, `project` (the name;
-  absent outside projects and for a removed project), `turns` (prompt turns only),
+  absent at home and for a removed project), `turns` (prompt turns only),
   `open_in` (another open terminal that holds it; absent when none) and `here` (false
   when absent). New method `conversation.resume` (scope `operate`, with a command id)
   with `conversation_id`, the terminal's `context` and `take` (false when absent): the
