@@ -53,7 +53,8 @@ impl TurnView {
         }
         if let Some(status) = &mut self.status {
             status.turn_started();
-            status.set_full(full);
+            // The corner of the prompt says `full` already.
+            status.set_full(full && !self.corner);
             // NOTE: the model of a turn that waited behind another one shows from its
             // start (the live slice).
             if let Some(settings) = settings {

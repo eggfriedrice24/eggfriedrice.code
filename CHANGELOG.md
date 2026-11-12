@@ -106,7 +106,8 @@ into the GitHub release notes, and it stops when the section is missing.
   time, the context, the model and the scope, three spaces apart, such as
   `⠼ thinking   9s   ctx 12%   work/claude-opus-5-5 high   app`. The model is new in
   the row. A turn
-  in full mode shows `app · full`. `no data for 25s` and `away` stand after the scope
+  in full mode shows `app · full`. With the corner of the prompt (`efr_corner`), the
+  row shows no scope and no `full`, because the prompt line shows them. `no data for 25s` and `away` stand after the scope
   in yellow, and the reasoning title, the size of a tool input or what the reviewer
   reviews stands last, so the time, the context and the scope keep their place. On a narrow
   screen the title goes first, then the account and the effort of the model, then the

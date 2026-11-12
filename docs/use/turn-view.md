@@ -29,6 +29,13 @@ is the project, such as `app`, or `⌂` and the directory at home. A turn in ful
 shows `app · full`, with `full` in red. A turn that waits behind another one shows no
 gauge and no model.
 
+When your prompt has the corner (`efr_corner`), the prompt line shows the scope and the
+mode already. The status row then shows neither of them:
+
+```text
+⠼ thinking   4s   ctx 43%   work/claude-opus-5-5 high
+```
+
 The states include `waiting for the model`, `thinking`, `writing`, `preparing <tool>`,
 `reviewing` and `compacting context`. What comes and goes stands after the scope, so
 the time, the context and the scope keep their place:

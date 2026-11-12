@@ -153,6 +153,7 @@ fn all_lists_every_variant() {
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
+        Var::Corner,
         Var::ResumeWords,
         Var::QueuedPrompts,
     ];
@@ -182,6 +183,7 @@ fn all_lists_every_variant() {
             | Var::Prompt
             | Var::TerminalBg
             | Var::DraftFile
+            | Var::Corner
             | Var::ResumeWords
             | Var::QueuedPrompts => {
                 assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL")

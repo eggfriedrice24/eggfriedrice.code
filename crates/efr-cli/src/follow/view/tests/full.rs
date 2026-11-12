@@ -252,3 +252,23 @@ fn the_status_row_of_a_full_turn_shows_full() {
     let (out, _, _) = wide(&mut view, &[started(Mode::Auto)], true);
     assert!(!bare(&out).contains("full"), "{}", readable(&out));
 }
+
+#[test]
+fn with_the_corner_of_the_prompt_the_status_row_shows_no_scope_and_no_full() {
+    // The prompt line says `app · full` already, so the row does not say it again.
+    let mut view = TurnView::new(turn(), RenderOptions::new(100))
+        .with_scope(Some("app".to_owned()))
+        .with_corner(true);
+    view.start();
+    let (out, _, _) = wide(&mut view, &[started(Mode::Full)], true);
+    let text = bare(&out);
+    assert!(text.contains("waiting for the model"), "{text}");
+    assert!(!text.contains("app") && !text.contains("full"), "{text}");
+    // Without the corner the row is the only place that shows them.
+    let mut view =
+        TurnView::new(turn(), RenderOptions::new(100)).with_scope(Some("app".to_owned()));
+    view.start();
+    let (out, _, _) = wide(&mut view, &[started(Mode::Full)], true);
+    let rows: Vec<String> = bare(&out).lines().map(str::to_owned).collect();
+    assert!(rows.iter().any(|row| row.ends_with("app \u{b7} full")), "{rows:?}");
+}

@@ -34,7 +34,7 @@ cat /proc/$$/cmdline > "$record.cmdline"
 if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
   mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
 fi
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_RESUME_WORDS EFR_QUEUED_PROMPTS; do
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_CORNER EFR_RESUME_WORDS EFR_QUEUED_PROMPTS; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -65,6 +65,8 @@ struct Call {
     effort: Option<String>,
     /// Where efr hands back the text of its input row.
     draft_file: Option<String>,
+    /// `1` when the prompt has efr's corner, else `0`.
+    corner: Option<String>,
     /// The words of `,resume`.
     resume_words: Option<String>,
     /// The prompts to queue behind the prompt, one per line.
@@ -98,6 +100,7 @@ impl Call {
             model: var("EFR_MODEL"),
             effort: var("EFR_EFFORT"),
             draft_file: var("EFR_DRAFT_FILE"),
+            corner: var("EFR_CORNER"),
             resume_words: var("EFR_RESUME_WORDS"),
             queued_prompts: var("EFR_QUEUED_PROMPTS"),
         }
@@ -1352,6 +1355,22 @@ fn run_with(home: &Home, env: &[(&str, &str)], script: &str) -> (String, Option<
 /// The arguments of each call, as plain strings.
 fn args(calls: &[Call]) -> Vec<Vec<&str>> {
     calls.iter().map(|call| call.args.iter().map(String::as_str).collect()).collect()
+}
+
+#[test]
+fn e2e_a_prompt_tells_efr_whether_the_prompt_line_has_the_corner() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // Without `efr_corner` the status row of a turn is the only place for the scope
+    // and the mode; with it, efr leaves them out there.
+    let calls = run(", one\nefr_corner\n, two\n");
+    let corners: Vec<Option<&str>> = calls
+        .iter()
+        .filter(|call| call.args.first().is_some_and(|arg| arg == "send"))
+        .map(|call| call.corner.as_deref())
+        .collect();
+    assert_eq!(corners, [Some("0"), Some("1")]);
 }
 
 #[test]

@@ -259,6 +259,9 @@ async fn send_and_follow(
         .with_look(look)
         .with_groups(ctx.settings.diff.groups.clone())
         .with_scope(scope)
+        // The plugin says when the prompt line has the corner. A value that is no flag
+        // counts as no corner: the row then shows the scope, which is never wrong.
+        .with_corner(ctx.env.flag(Var::Corner).unwrap_or(false))
         .with_settings(result.settings.clone())
         .with_model(result.settings.as_ref());
     if reader.is_some() {

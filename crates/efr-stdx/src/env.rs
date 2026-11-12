@@ -95,6 +95,10 @@ pub enum Var {
     /// that is still in the input row of a turn when they end. The zsh plugin sets it
     /// and puts the text back on the command line.
     DraftFile,
+    /// `EFR_CORNER`: `1` when the user's zsh prompt has efr's corner, which shows the
+    /// scope and the permission mode of the next prompt. The zsh plugin sets it for
+    /// `efr send` and `efr new`, so the status row of the turn does not show them again.
+    Corner,
     /// `EFR_RESUME_WORDS`: the words of `,resume` that are not an option, which the zsh
     /// plugin hands to `efr resume` in the environment, never in its arguments.
     /// Private: see [`Var::PRIVATE`].
@@ -132,6 +136,7 @@ impl Var {
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
+        Var::Corner,
         Var::ResumeWords,
         Var::QueuedPrompts,
     ];
@@ -184,6 +189,7 @@ impl Var {
             Var::Prompt => "EFR_PROMPT",
             Var::TerminalBg => "EFR_TERMINAL_BG",
             Var::DraftFile => "EFR_DRAFT_FILE",
+            Var::Corner => "EFR_CORNER",
             Var::ResumeWords => "EFR_RESUME_WORDS",
             Var::QueuedPrompts => "EFR_QUEUED_PROMPTS",
         }

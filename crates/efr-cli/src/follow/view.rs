@@ -642,6 +642,10 @@ pub(crate) struct TurnView {
     /// The scope of the prompt, such as `app` or `⌂ ~/notes`, at the end of the status
     /// row (DV52).
     scope: Option<String>,
+    /// The user's prompt has efr's corner, which shows the scope and the permission
+    /// mode on the prompt line. The status row and the row of a running call then show
+    /// neither the scope nor `full`: they would only say it again.
+    corner: bool,
     /// The turn runs in a registered project, which its sandbox can write.
     in_project: bool,
     /// A call of this turn runs in the sandbox: the end of the turn says where it can
@@ -754,6 +758,7 @@ impl TurnView {
             left: None,
             home: None,
             scope: None,
+            corner: false,
             in_project: false,
             traced: false,
             traced_net_view: false,
@@ -1029,7 +1034,7 @@ impl TurnView {
                 status.set(State::Queued);
             }
             status.set_away(self.away);
-            status.set_scope(self.scope.clone());
+            status.set_scope(self.shown_scope());
             status.set_model(self.kept.model.clone());
             self.status = Some(status);
             self.dirty = true;
@@ -1041,6 +1046,18 @@ impl TurnView {
     pub(crate) fn with_scope(mut self, scope: Option<String>) -> TurnView {
         self.scope = scope;
         self
+    }
+
+    /// The same view for a prompt whose line has efr's corner when `corner`: the status
+    /// row and the row of a running call show no scope and no `full`.
+    pub(crate) fn with_corner(mut self, corner: bool) -> TurnView {
+        self.corner = corner;
+        self
+    }
+
+    /// The scope that the status row shows: none when the corner of the prompt shows it.
+    fn shown_scope(&self) -> Option<String> {
+        self.scope.clone().filter(|_| !self.corner)
     }
 
     /// The same view, whose status row names the model of the turn's `settings`, such
@@ -2493,7 +2510,7 @@ impl TurnView {
             let mut status = Status::new(self.look.motion);
             status.set(State::Queued);
             status.set_away(self.away);
-            status.set_scope(self.scope.clone());
+            status.set_scope(self.shown_scope());
             if let Some(context) = context {
                 status.set_context(context);
             }

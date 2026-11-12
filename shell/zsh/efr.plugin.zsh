@@ -458,8 +458,10 @@ _efr_rewrite_line() {
 # Runs efr with the arguments after the first three, and hands it the context JSON $1,
 # the last command line $2, the prompt $3, the prompts to queue behind it (see
 # _efr_queue) one per line, the terminal's recent command lines (see
-# _efr_recent) as a JSON array, the terminal's turn settings and the file for the text
-# of the input row (see _efr_draft_file) in its environment. The last command and the
+# _efr_recent) as a JSON array, the terminal's turn settings, the file for the text
+# of the input row (see _efr_draft_file) and whether the prompt has the corner
+# (EFR_CORNER, so the status row does not show the scope and the mode again) in its
+# environment. The last command and the
 # recent ones travel on their own, never inside the context: they can hold a secret,
 # and the daemon keeps the context in its event log. Prefix assignments set the variables for
 # this one command, so they never stay in the shell, and an empty one hides a value
@@ -476,7 +478,7 @@ _efr_call() {
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_RECENT_COMMANDS=$recent \
     EFR_PROMPT=$text EFR_QUEUED_PROMPTS=$queued \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
-    EFR_DRAFT_FILE=$draft efr "$@"
+    EFR_DRAFT_FILE=$draft EFR_CORNER=$_efr_has_corner efr "$@"
 }
 
 # Sets REPLY to the recent commands (see _efr_recent) as one JSON array, or to an empty
