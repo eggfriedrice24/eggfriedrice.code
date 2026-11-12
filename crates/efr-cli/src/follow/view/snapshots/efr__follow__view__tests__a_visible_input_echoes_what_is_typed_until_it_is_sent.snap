@@ -3,7 +3,7 @@ source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&typed.out)
 ---
 \e[?2026h\r\e[4A\e[J\e[33m•\e[0m \e[2m$\e[0m sudo pacman -Syu
-    \e[33m:: Proceed with installation? [Y/n]\e[0m
+    \e[2m:: Proceed with installation? [Y/n]\e[0m
 \e[1;33m?\e[0m \e[33mthe command waits for input\e[0m  \e[2menter an…\e[0m
 \e[33m›\e[0m y
 \e[?2026l

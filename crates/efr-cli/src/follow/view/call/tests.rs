@@ -246,11 +246,8 @@ fn the_tail_is_the_last_three_lines_with_text_four_columns_in() {
     );
     assert_eq!(lines, ["     Running tests", " test a ... ok", "test b ... FAILED"]);
     let options = RenderOptions::new(20);
-    insta::assert_snapshot!(readable(&tail(&lines, false, &options)));
-    // The prompt of a question stands out.
-    let asked = tail(&["Password:".to_owned()], true, &options);
-    assert_eq!(readable(&asked), "    \\e[33mPassword:\\e[0m\n");
-    assert_eq!(tail(&lines, false, &options.clone().with_terminal(false)).lines().count(), 3);
+    insta::assert_snapshot!(readable(&tail(&lines, &options)));
+    assert_eq!(tail(&lines, &options.clone().with_terminal(false)).lines().count(), 3);
     // A failed call keeps the spaces at the start of its lines, in the text role.
     let failed = super::failed_tail(&["   --> src/a.rs:9:9".to_owned()], &options);
     assert_eq!(readable(&failed), "       --> src/a.rs\u{2026}\n");

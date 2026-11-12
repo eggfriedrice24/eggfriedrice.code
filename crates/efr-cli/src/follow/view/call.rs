@@ -939,31 +939,30 @@ fn indented_pieces(pieces: &[Piece], options: &RenderOptions) -> String {
 }
 
 /// The last lines of output of a running call, 4 columns in, muted, without the spaces
-/// at their start and cut to the width on a terminal; `prompt` paints the last one in
-/// the `warning` role, as the prompt of a question.
-pub(crate) fn tail(lines: &[String], prompt: bool, options: &RenderOptions) -> String {
+/// at their start and cut to the width on a terminal. The prompt of a command that
+/// waits for input stays muted too: the answer line under it is the one row in the
+/// warning colour (TM-Live 21 to 23, "one warning colour at a time").
+pub(crate) fn tail(lines: &[String], options: &RenderOptions) -> String {
     let lines: Vec<String> = lines.iter().map(|line| line.trim_start().to_owned()).collect();
-    tail_in(&lines, prompt, Tone::Dim, options)
+    tail_in(&lines, Tone::Dim, options)
 }
 
 /// The last lines of output of a failed call, 4 columns in, in `text`, with the spaces
 /// at their start, as the output wrote them (`   --> src/a.rs:9:9`).
 pub(crate) fn failed_tail(lines: &[String], options: &RenderOptions) -> String {
-    tail_in(lines, false, Tone::Text, options)
+    tail_in(lines, Tone::Text, options)
 }
 
 /// [`tail`] in `tone`, the lines as they are.
-fn tail_in(lines: &[String], prompt: bool, tone: Tone, options: &RenderOptions) -> String {
+fn tail_in(lines: &[String], tone: Tone, options: &RenderOptions) -> String {
     let method = options.width_method();
     let room = usize::from(options.width()).saturating_sub(TAIL_INDENT.len());
     let mut out = String::new();
-    for (at, line) in lines.iter().enumerate() {
+    for line in lines {
         // NOTE: elsewhere than on a terminal no screen sets a width, so nothing is cut.
         let line =
             if options.is_terminal() { format::cut(line, room, method) } else { line.clone() };
-        let last = at + 1 == lines.len();
         out.push_str(TAIL_INDENT);
-        let tone = if prompt && last { Tone::Attention } else { tone };
         out.push_str(&format::paint(&line, tone, options));
         out.push('\n');
     }

@@ -282,6 +282,10 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- While a command waits for input, its last output line stays muted and its row shows
+  no `ctx` gauge, so the answer line under it is the one row in the warning colour.
+  The unread steers and the queued prompts stand above the row of a running call, as
+  they stand above the status row.
 - `efr history` with no id shows the newest conversation of this terminal, as the
   view showed it, else the newest of all. Before, it listed the recent conversations;
   `efr history --list` does that now. A switch of model stands between the turns,

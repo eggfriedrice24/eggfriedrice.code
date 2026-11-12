@@ -2547,6 +2547,18 @@ impl TurnView {
         let mut live = self.switch_live(&options);
         live.push_str(self.message.as_ref().map_or("", |message| message.live()));
         live.push_str(&self.kept.fold.live(&options));
+        // NOTE: the unread steers and the queued prompts stand above the call row or the
+        // status row, whichever the live zone shows (the rules of TM-Live).
+        let pending = self
+            .input
+            .as_ref()
+            .filter(|_| !self.ended)
+            .map(|input| input.pending(&options, effective_width(size)))
+            .unwrap_or_default();
+        let call_row = self.call_shown() && self.call.is_some();
+        if call_row {
+            live.push_str(&pending);
+        }
         if self.call_shown()
             && let Some(call) = &self.call
         {
@@ -2555,12 +2567,19 @@ impl TurnView {
                 Some(status) => status.spinner(now, options.glyphs()),
                 None => spinner(self.look.motion, 0, options.glyphs()),
             };
-            let context = self.status.as_ref().and_then(Status::context);
+            // NOTE: a command that waits for input shows no gauge on its row: the
+            // answer line or the offer under it is what the row is about (TM-Live 21
+            // to 24).
+            let waits = self
+                .running
+                .as_ref()
+                .is_some_and(|running| running.asking.is_some() || running.hinted);
+            let context = self.status.as_ref().and_then(Status::context).filter(|_| !waits);
             let full = self.status.as_ref().is_some_and(Status::full);
             live.push_str(&call.running(spinner, now, full, context, &options));
         }
         if let Some(running) = &self.running {
-            live.push_str(&call::tail(&running.lines, running.asking.is_some(), &options));
+            live.push_str(&call::tail(&running.lines, &options));
             if let Some(kind) = running.asking {
                 let command = self.commands.get(&running.call_id).map(String::as_str);
                 let line = kind.line(command.and_then(program), options.glyphs());
@@ -2588,8 +2607,8 @@ impl TurnView {
                 shown.push_card(&mut live, &options);
             }
         }
-        if let Some(input) = self.input.as_ref().filter(|_| !self.ended) {
-            live.push_str(&input.pending(&options, effective_width(size)));
+        if !call_row {
+            live.push_str(&pending);
         }
         live
     }

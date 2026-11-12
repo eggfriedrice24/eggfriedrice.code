@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use efr_protocol::{
     BlockReason, Blocked, ChangeKind, ContextUse, Draft, DraftPart, Event, EventEnvelope,
-    FileChange, FileChanges, JobId, SandboxSummary, Seq,
+    FileChange, FileChanges, InputWait, JobId, SandboxSummary, Seq,
 };
 use efr_test_support::design::{Depth, Frame, cells, check_rows_where};
 use serde_json::{Value, json};
@@ -486,6 +486,58 @@ fn a_whole_path_shows_from_the_project_or_from_home() {
         check(&Frame::load("Calls", 6).unwrap(), .., &rows(&shown, 0..1), depth, all);
         check(&Frame::load("Calls", 11).unwrap(), .., &rows(&shown, 1..2), depth, all);
     }
+}
+
+/// TM-Live 21 and 22: a command that asks. Its row has no gauge, its tail is muted, and
+/// the answer line under it is the one row in the warning colour, then what is typed.
+#[test]
+fn a_command_that_asks_is_its_row_its_muted_tail_and_the_answer_line_live_21_22() {
+    let cases = [
+        (21, ":: Proceed with installation? [Y/n] ", InputWait::Visible, Some("y"), 14_000),
+        (22, "[sudo] password for sam: ", InputWait::Hidden, None, 3_000),
+    ];
+    for (number, prompt, wait, typed, millis) in cases {
+        for depth in Depth::ALL {
+            let mut play = Play::new(depth, 100);
+            play.context(38).event(10, shell(1, "sudo pacman -Syu"));
+            play.event(500, output(1, prompt));
+            play.event(
+                600,
+                Event::ToolCallInputChanged {
+                    turn_id: turn(),
+                    call_id: id(1),
+                    input: wait,
+                    looks_secret: false,
+                },
+            );
+            if let Some(typed) = typed {
+                play.view.typed(typed);
+            }
+            let live = spun(&play.live(millis + 10), "\u{283c}");
+            check(&Frame::load("Live", number).unwrap(), .., &live, depth, all);
+        }
+    }
+}
+
+/// TM-Live 19 and the rule of the live zone while a call runs: the unread steers and the
+/// queued prompts stand above the call row.
+#[test]
+fn the_waiting_rows_stand_above_a_running_call() {
+    let mut view =
+        TurnView::new(turn(), design_options(Depth::NoColor, 100)).with_look(LOOK).with_input();
+    view.start();
+    let size = Size { cols: 100, rows: 60 };
+    let mut play = Play { view, screen: Screen::new(100), size, seq: 10, now: 0 };
+    play.event(0, turn_started());
+    play.event(10, shell(1, "cargo test"));
+    let next = "019a9b1c-3d00-7a10-8b20-0000000000f1".parse().unwrap();
+    play.view.queued_prompt(next, "then write the changelog entry".to_owned(), false);
+    let live = play.live(5_000);
+    let texts: Vec<String> =
+        cells(&live).iter().map(efr_test_support::design::CellRow::text).collect();
+    let queued = texts.iter().position(|row| row.starts_with("\u{21b3} queued")).unwrap();
+    let call = texts.iter().position(|row| row.contains("$ cargo test")).unwrap();
+    assert!(queued < call, "{texts:?}");
 }
 
 // --- the fold of reads ------------------------------------------------------------

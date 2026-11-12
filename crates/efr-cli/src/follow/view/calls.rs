@@ -219,7 +219,7 @@ impl TurnView {
         if outcome.failed() {
             block.push_str(&call::failed_tail(lines, &options));
         } else if outcome.keeps_tail() {
-            block.push_str(&call::tail(lines, false, &options));
+            block.push_str(&call::tail(lines, &options));
         }
         let deleted = edit.as_ref().is_some_and(|edit| edit.deleted()) && outcome == Outcome::Ran;
         if deleted {
