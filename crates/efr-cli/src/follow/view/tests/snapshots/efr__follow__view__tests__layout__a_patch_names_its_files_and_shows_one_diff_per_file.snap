@@ -10,43 +10,43 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 \e[32m✓\e[0m \e[2mpatch\e[0m 5 files  \e[32m+26\e[0m\e[2m \e[0m\e[31m-3\e[0m
   src/main.rs  \e[32m+22\e[0m\e[2m \e[0m\e[31m-1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mfn\e[0m \e[34mmain\e[0m() {
-    \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
-    \e[1;32m+\e[0m     println!(\e[32m"a new greeting that\e[0m\e[2m↩\e[0m
+      fn main() {
+    \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
+    \e[1;32m+\e[0m \e[32m    println!("a new greeting that\e[0m\e[2m↩\e[0m
         \e[32m is much wider than forty colum\e[0m\e[2m↩\e[0m
-        \e[32mns"\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+        \e[32mns");\e[0m
+    \e[1;32m+\e[0m \e[32m    step(1);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(2);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(3);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(4);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(5);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(6);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(7);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(8);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(9);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(10);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(11);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(12);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(13);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(14);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(15);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(16);\e[0m
     \e[2m… 6 more lines\e[0m
   src/lib.rs  \e[32m+1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
-    \e[1;32m+\e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+      pub mod parse;
+    \e[1;32m+\e[0m \e[32mpub mod greet;\e[0m
   \e[2mnew \e[0mnotes.md  \e[32m+2\e[0m
-    \e[1;32m+\e[0m \e[34m#\e[0m \e[34mNotes\e[0m
+    \e[1;32m+\e[0m \e[32m# Notes\e[0m
     \e[1;32m+\e[0m
   \e[2mdelete \e[0mold.rs  \e[31m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs
     \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
-    \e[1;31m-\e[0m     \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
-    \e[1;32m+\e[0m     \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+      pub fn parse() {
+    \e[1;31m-\e[0m \e[31m    let a = 1;\e[0m
+    \e[1;32m+\e[0m \e[32m    let a = 2;\e[0m
       }
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -59,7 +59,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   src/main.rs  +22\e[2m \e[0m\e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
-    \e[1m-\e[0m     println!("old");
+    \e[1m-\e[0m \e[2m    println!("old");\e[0m
     \e[1m+\e[0m     println!("a new greeting that\e[2m↩\e[0m
          is much wider than forty colum\e[2m↩\e[0m
         ns");
@@ -93,7 +93,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     +1\e[2m \e[0m\e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       pub fn parse() {
-    \e[1m-\e[0m     let a = 1;
+    \e[1m-\e[0m \e[2m    let a = 1;\e[0m
     \e[1m+\e[0m     let a = 2;
       }
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
@@ -106,40 +106,40 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 \e[32m✓\e[0m \e[2mpatch\e[0m 5 files  \e[32m+26\e[0m\e[2m \e[0m\e[31m-3\e[0m
   src/main.rs  \e[32m+22\e[0m\e[2m \e[0m\e[31m-1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mfn\e[0m \e[34mmain\e[0m() {
-    \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
-    \e[1;32m+\e[0m     println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
-    \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+      fn main() {
+    \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
+    \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
+    \e[1;32m+\e[0m \e[32m    step(1);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(2);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(3);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(4);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(5);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(6);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(7);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(8);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(9);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(10);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(11);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(12);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(13);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(14);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(15);\e[0m
+    \e[1;32m+\e[0m \e[32m    step(16);\e[0m
     \e[2m… 6 more lines\e[0m
   src/lib.rs  \e[32m+1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mpub\e[0m \e[35mmod\e[0m \e[33mparse\e[0m;
-    \e[1;32m+\e[0m \e[35mpub\e[0m \e[35mmod\e[0m \e[33mgreet\e[0m;
+      pub mod parse;
+    \e[1;32m+\e[0m \e[32mpub mod greet;\e[0m
   \e[2mnew \e[0mnotes.md  \e[32m+2\e[0m
-    \e[1;32m+\e[0m \e[34m#\e[0m \e[34mNotes\e[0m
+    \e[1;32m+\e[0m \e[32m# Notes\e[0m
     \e[1;32m+\e[0m
   \e[2mdelete \e[0mold.rs  \e[31m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
     \e[36m@@ 1\e[0m
-      \e[35mpub\e[0m \e[35mfn\e[0m \e[34mparse\e[0m() {
-    \e[1;31m-\e[0m     \e[35mlet\e[0m a \e[35m=\e[0m \e[33m1\e[0m;
-    \e[1;32m+\e[0m     \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
+      pub fn parse() {
+    \e[1;31m-\e[0m \e[31m    let a = 1;\e[0m
+    \e[1;32m+\e[0m \e[32m    let a = 2;\e[0m
       }
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
@@ -152,7 +152,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   src/main.rs  +22\e[2m \e[0m\e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
-    \e[1m-\e[0m     println!("old");
+    \e[1m-\e[0m \e[2m    println!("old");\e[0m
     \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
     \e[1m+\e[0m     step(1);
     \e[1m+\e[0m     step(2);
@@ -183,7 +183,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  +1\e[2m \e[0m\e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       pub fn parse() {
-    \e[1m-\e[0m     let a = 1;
+    \e[1m-\e[0m \e[2m    let a = 1;\e[0m
     \e[1m+\e[0m     let a = 2;
       }
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m

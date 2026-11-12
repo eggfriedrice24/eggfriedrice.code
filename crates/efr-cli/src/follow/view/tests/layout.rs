@@ -1541,9 +1541,8 @@ fn turn_line_of_manual_turn_has_no_undo_hint() {
     let undo = TurnUndoInfo { undoable: false, ..undo_info(&[("app", 3)], 0, &["x (big)"], 0) };
     let err =
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
-    // NOTE: the line of the turn is muted text until the turn slice paints its pieces;
-    // a note shows its words with single spaces.
-    assert_eq!(err, "3 files changed +24 -7 src/a.rs, notes.txt, old.rs\n");
+    // The line of the turn as its pieces (TM-Legend 34), two spaces between its parts.
+    assert_eq!(err, "3 files changed  +24 -7  src/a.rs, notes.txt, old.rs\n");
 }
 
 /// Files of every kind of group: code, tests, a group of `[diff.groups]` and a lock file.

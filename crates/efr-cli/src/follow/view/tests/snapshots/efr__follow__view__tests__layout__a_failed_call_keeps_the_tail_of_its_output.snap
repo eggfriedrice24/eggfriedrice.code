@@ -4,58 +4,43 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ make\e[0m
-\e[2m  │ cc -c a.c\e[0m
-\e[2m  │ make: *** No rule to make target 'a…\e[0m
-  \e[31m✗ exit 2\e[0m
-
-\e[33m·\e[0m \e[32m$ find / -name libghostty.so \e[0m\e[2m\\e[0m
-        \e[32m2>/dev/null\e[0m
-  \e[31m✗ exit 1 · 3.7s\e[0m
+\e[1;31m✗\e[0m \e[2m$\e[0m make  \e[31mexit 2\e[0m \e[2m· 0.2s\e[0m
+    cc -c a.c
+    make: *** No rule to make target 'a…
+\e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
+      2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ make
-\e[2m  │ cc -c a.c\e[0m
-\e[2m  │ make: *** No rule to make target 'a…\e[0m
-  \e[1m✗ exit 2\e[0m
-
-\e[1m·\e[0m $ find / -name libghostty.so \e[2m\\e[0m
-        2>/dev/null
-  \e[1m✗ exit 1 · 3.7s\e[0m
+\e[1m✗\e[0m \e[2m$\e[0m make  \e[1mexit 2\e[0m \e[2m· 0.2s\e[0m
+    cc -c a.c
+    make: *** No rule to make target 'a…
+\e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
+      2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ make\e[0m
-\e[2m  │ cc -c a.c\e[0m
-\e[2m  │ make: *** No rule to make target 'all'.  Stop.\e[0m
-  \e[31m✗ exit 2\e[0m
-
-\e[33m·\e[0m \e[32m$ find / -name libghostty.so 2>/dev/null\e[0m
-  \e[31m✗ exit 1 · 3.7s\e[0m
+\e[1;31m✗\e[0m \e[2m$\e[0m make  \e[31mexit 2\e[0m \e[2m· 0.2s\e[0m
+    cc -c a.c
+    make: *** No rule to make target 'all'.  Stop.
+\e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 80 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ make
-\e[2m  │ cc -c a.c\e[0m
-\e[2m  │ make: *** No rule to make target 'all'.  Stop.\e[0m
-  \e[1m✗ exit 2\e[0m
-
-\e[1m·\e[0m $ find / -name libghostty.so 2>/dev/null
-  \e[1m✗ exit 1 · 3.7s\e[0m
+\e[1m✗\e[0m \e[2m$\e[0m make  \e[1mexit 2\e[0m \e[2m· 0.2s\e[0m
+    cc -c a.c
+    make: *** No rule to make target 'all'.  Stop.
+\e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === not a terminal
 [end]
 stdout:
 stderr:
-· $ make
-  │ cc -c a.c
-  │ make: *** No rule to make target 'all'.  Stop.
-  ✗ exit 2
-
-· $ find / -name libghostty.so 2>/dev/null
-  ✗ exit 1 · 3.7s
+✗ $ make  exit 2 · 0.2s
+    cc -c a.c
+    make: *** No rule to make target 'all'.  Stop.
+✗ $ find / -name libghostty.so 2>/dev/null  exit 1 · 3.7s
