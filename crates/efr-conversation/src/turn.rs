@@ -669,6 +669,7 @@ impl Turn {
                 to: SwitchedModel {
                     provider: settings.provider.clone(),
                     model: settings.model.clone(),
+                    effort: settings.effort.clone(),
                 },
             });
         }

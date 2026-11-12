@@ -555,6 +555,7 @@ async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
         switched_from: Some(efr_protocol::SwitchedModel {
             provider: Some("replay".to_owned()),
             model: wide.to_owned(),
+            effort: None,
         }),
         ..state.clone()
     };

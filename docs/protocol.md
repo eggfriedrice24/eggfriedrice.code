@@ -981,3 +981,9 @@ No protocol version has shipped yet.
   open a pooled HTTP connection (at most once a minute for each provider). It records
   nothing and never sends a model request. An older efrd refuses the unknown method.
   New fixtures `provider_warm_params.json` and `provider_warm_result.json`.
+- Version 1, additive: each side of `model_switched` gains an optional `effort`: the
+  effort of the turn before in `from`, the effort of this turn in `to`. It is absent
+  when the turn sent no effort (the backend's own default), and in the events of a
+  daemon before. A client can then name both sides of a switch in full, such as
+  `work/claude-opus-5-5 high`. The fixture `events/model_switched.json` names both
+  efforts.

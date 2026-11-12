@@ -12006,8 +12006,15 @@
       ]
     },
     "SwitchedModel": {
-      "description": "One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):\nthe provider and the model of a turn.",
+      "description": "One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):\nthe provider, the model and the effort of a turn.",
       "properties": {
+        "effort": {
+          "description": "The effort of the turn on this model, such as `high`. Absent when the turn sent\nnone (the backend's own default), and for a turn of a daemon before it recorded\nthe effort of a switch.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "model": {
           "description": "The model id, such as `claude-opus-5-5`.",
           "type": "string"

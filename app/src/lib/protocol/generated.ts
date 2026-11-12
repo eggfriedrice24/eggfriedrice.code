@@ -4169,9 +4169,15 @@ export interface OverriddenSettings {
 }
 /**
  * One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):
- * the provider and the model of a turn.
+ * the provider, the model and the effort of a turn.
  */
 export interface SwitchedModel {
+  /**
+   * The effort of the turn on this model, such as `high`. Absent when the turn sent
+   * none (the backend's own default), and for a turn of a daemon before it recorded
+   * the effort of a switch.
+   */
+  effort?: string | null;
   /**
    * The model id, such as `claude-opus-5-5`.
    */

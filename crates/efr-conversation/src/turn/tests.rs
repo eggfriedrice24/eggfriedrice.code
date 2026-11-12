@@ -336,6 +336,7 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
     let on = |model: &str| efr_protocol::SwitchedModel {
         provider: Some("replay".to_owned()),
         model: model.to_owned(),
+        effort: None,
     };
     let switched = LiveState {
         model: "test-model-2".to_owned(),
@@ -1446,6 +1447,7 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
         switched_from: Some(efr_protocol::SwitchedModel {
             provider: Some("replay".to_owned()),
             model: MODEL.to_owned(),
+            effort: None,
         }),
         ..state.clone()
     };
@@ -1598,6 +1600,7 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
         switched_from: Some(efr_protocol::SwitchedModel {
             provider: Some("replay".to_owned()),
             model: MODEL.to_owned(),
+            effort: None,
         }),
         ..state.clone()
     };

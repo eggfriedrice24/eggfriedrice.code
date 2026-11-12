@@ -2242,10 +2242,12 @@ pub(crate) fn event_samples() -> Vec<Event> {
             from: SwitchedModel {
                 provider: Some("openai-subscription".into()),
                 model: "gpt-5.5".into(),
+                effort: Some("medium".into()),
             },
             to: SwitchedModel {
                 provider: Some("anthropic-api".into()),
                 model: "claude-opus-5-5".into(),
+                effort: Some("high".into()),
             },
         },
         Event::ScopeChanged {

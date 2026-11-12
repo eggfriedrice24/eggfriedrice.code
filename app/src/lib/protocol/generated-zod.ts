@@ -1652,6 +1652,7 @@ export const shellCommandEndSchema = z.enum([
 export const snapshotPhaseSchema = z.enum(["pre", "post"]) satisfies z.ZodType<SnapshotPhase>;
 
 export const switchedModelSchema = z.object({
+  effort: z.string().nullable().exactOptional(),
   model: z.string(),
   provider: z.string().nullable().exactOptional(),
 }) satisfies z.ZodType<SwitchedModel>;

@@ -86,6 +86,16 @@ fn a_switch_is_another_model_or_another_provider() {
 }
 
 #[test]
+fn a_switch_names_the_effort_of_the_turn_before() {
+    let opus = ran("claude-opus-5-5", "anthropic-api.work", true, Some("high"));
+    let gpt = ran("gpt-5.5", "openai-subscription.b", true, Some("medium"));
+    let plain = ran("gpt-5.5", "openai-subscription", false, None);
+
+    assert_eq!(switched(&opus, &gpt).unwrap().effort.as_deref(), Some("high"));
+    assert_eq!(switched(&plain, &opus).unwrap().effort, None, "the backend's own default");
+}
+
+#[test]
 fn a_pick_of_an_account_keeps_its_account_while_its_list_has_the_model() {
     let mut config = ConversationConfig::new("gpt-5.5", "/scratch");
     let info = |provider: &str| {

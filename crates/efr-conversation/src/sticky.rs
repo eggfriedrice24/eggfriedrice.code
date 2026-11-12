@@ -53,8 +53,9 @@ pub(crate) fn asked(
     }
 }
 
-/// The provider and the model of `previous` when `now` runs on another model, or on
-/// another provider that both name; `None` when the turn stays on the model.
+/// The provider, the model and the effort of `previous` when `now` runs on another
+/// model, or on another provider that both name; `None` when the turn stays on the
+/// model.
 pub(crate) fn switched(
     previous: &EffectiveSettings,
     now: &EffectiveSettings,
@@ -66,6 +67,7 @@ pub(crate) fn switched(
     (previous.model != now.model || other_provider).then(|| SwitchedModel {
         provider: previous.provider.clone(),
         model: previous.model.clone(),
+        effort: previous.effort.clone(),
     })
 }
 

@@ -95,7 +95,11 @@ fn both_models() -> Vec<ModelInfo> {
 
 /// The provider of the harness and `model`, the side of a switch that a turn names.
 fn ran_on(model: &str) -> efr_protocol::SwitchedModel {
-    efr_protocol::SwitchedModel { provider: Some("replay".to_owned()), model: model.to_owned() }
+    efr_protocol::SwitchedModel {
+        provider: Some("replay".to_owned()),
+        model: model.to_owned(),
+        effort: None,
+    }
 }
 
 /// Sends `text` with the model `model` and waits for the end of its turn.
