@@ -44,7 +44,10 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   to it (`WrittenKind`: created, changed, deleted, or moved with the path it came
   from) and `written_diff`'s diff of the change (at most `MAX_CALL_DIFF_LINES` lines
   and 256 KiB, then `... N more lines`) with the counts of added and removed lines; a
-  file that held bytes that are not UTF-8 text is `binary` and gets no diff. A hunk
+  file that held bytes that are not UTF-8 text is `binary` and gets no diff. The
+  diff of a preview keeps three lines of context around each change, because the
+  user judges the change before it happens; the diff of a finished call keeps one,
+  so the rows under the call show the change (`Around`). A hunk
   header of both diffs names where the hunk stands, as git's function context does
   (`@@ -88,7 +88,11 @@ impl Turn {`): the nearest line before the hunk, at most 4000
   lines back and cut to 60 characters, that starts with a letter, `_` or `$` in code,

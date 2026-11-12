@@ -183,8 +183,11 @@ into the GitHub release notes, and it stops when the section is missing.
   with `new` for a new file, and `delete`, `move a → b` or `patch 3 files` for a
   patch. Its diff follows 2 columns in, with no bar: a short hunk header such as
   `@@ 88 impl Turn`, the sign and a space before each line, and `… 14 more lines ·
-  efr diff` at the cut. From the 6th call of a turn on, a diff shows 8 lines
-  (`render.diff_lines_long`).
+  efr diff` at the cut. The header names the line that the change stands under: in
+  code the nearest line at the left edge before it, in Markdown the heading, in TOML
+  the table. The diff under a finished call keeps one line around each change, so
+  the rows show the change. The diff of a question keeps three lines, as before.
+  From the 6th call of a turn on, a diff shows 8 lines (`render.diff_lines_long`).
 - The line at the end of a turn names at most three files after its counts, such as
   `3 files changed  +24 -7  src/turn.rs, tests/steer.rs, CHANGELOG.md`, in place of
   the groups of the files. `efr undo` lines read `changed 4 files  +12 -3  in app ·

@@ -136,7 +136,8 @@ it, 2 columns in, with no file headers and no line numbers. A hunk starts with a
 header that names its line and its function, unless it is the first hunk and no line
 before it names one. In code, that line is the nearest line before the hunk that
 starts with a letter at the left edge, such as `impl Turn {`. In Markdown it is the
-heading, and in TOML the table:
+heading, and in TOML the table. The diff keeps one line around each change. The diff
+of a question keeps three lines, because you judge that change before it happens:
 
 ```text
 ✓ edit src/turn.rs  +5 -1

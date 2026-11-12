@@ -8,7 +8,8 @@
 //! anchors gets a longest-common-subsequence diff when its table fits in what is left
 //! of [`MAX_WORK`], and otherwise shows as one replacement, which is still a correct
 //! diff. All gaps share the budget, so the work stays linear in the size of the file:
-//! the diff runs on the async executor. Hunks carry [`CONTEXT`] lines of context, and
+//! the diff runs on the async executor. Hunks carry the lines of context that the use
+//! of the diff asks for ([`Around`]: three before an approval, one after a call), and
 //! a hunk header names where the hunk stands when a line before it says so, as git's
 //! function context does (`@@ -88,7 +88,11 @@ impl Turn {`, see [`Named`]). The
 //! preview stops after [`MAX_LINES`] lines or [`MAX_BYTES`] bytes with a line that
@@ -20,8 +21,26 @@ use std::fmt::{self, Write as _};
 use std::ops::Range;
 use std::path::Path;
 
-/// Lines of context around each change.
-const CONTEXT: usize = 3;
+/// How many lines of context a diff keeps around each change, by what the diff is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Around {
+    /// The diff of an approval: the user judges the change before it happens, so each
+    /// change has three lines of context, as git gives.
+    Preview,
+    /// The diff of a finished call: one line of context, so the rows under the call
+    /// show the change and not the file around it.
+    Written,
+}
+
+impl Around {
+    /// The lines of context around each change.
+    const fn lines(self) -> usize {
+        match self {
+            Around::Preview => 3,
+            Around::Written => 1,
+        }
+    }
+}
 
 /// The most lines a preview shows below its two header lines.
 pub(crate) const MAX_LINES: usize = 200;
@@ -114,7 +133,7 @@ pub fn unified_diff(path: &Path, old: Option<&str>, new: &str) -> String {
     if old == Some(new) {
         return UNCHANGED.to_owned();
     }
-    let lines = Lines::new(old, new).named(Named::of(path));
+    let lines = Lines::new(old, new, Around::Preview).named(Named::of(path));
     let mut out = header(path, old.is_some());
     let mut bytes = 0;
     for (shown, line) in lines.iter().enumerate() {
@@ -159,7 +178,8 @@ impl fmt::Debug for WrittenDiff {
 pub const MAX_WRITTEN_BYTES: usize = 256 * 1024;
 
 /// The diff of a write from `old` (`None` for a new file) to `new` for the file at
-/// `path`, with three lines of context, cut after `max_lines` lines or
+/// `path`, as the rows under a finished call show it: one line of context around each
+/// change ([`Around::Written`]), cut after `max_lines` lines or
 /// [`MAX_WRITTEN_BYTES`] bytes with a last line `... N more lines`, and the counts of
 /// all lines added and removed. `None` when the content does not change.
 pub fn written_diff(
@@ -168,22 +188,46 @@ pub fn written_diff(
     new: &str,
     max_lines: usize,
 ) -> Option<WrittenDiff> {
+    file_diff(path, old, new, max_lines, Around::Written)
+}
+
+/// The same diff before the write, as an approval shows it: three lines of context
+/// around each change ([`Around::Preview`]).
+pub(crate) fn preview_diff(
+    path: &Path,
+    old: Option<&str>,
+    new: &str,
+    max_lines: usize,
+) -> Option<WrittenDiff> {
+    file_diff(path, old, new, max_lines, Around::Preview)
+}
+
+/// The diff of one file that stays at `path`, with the lines of context of `around`.
+fn file_diff(
+    path: &Path,
+    old: Option<&str>,
+    new: &str,
+    max_lines: usize,
+    around: Around,
+) -> Option<WrittenDiff> {
     if old == Some(new) {
         return None;
     }
-    change_diff(old.map(|old| (path, old)), Some((path, new)), max_lines).map(|(diff, _)| diff)
+    change_diff(old.map(|old| (path, old)), Some((path, new)), max_lines, around)
+        .map(|(diff, _)| diff)
 }
 
 /// The diff of one file of a call that may also delete or move it: from `old`, its
 /// path and text before the call (`None` for a new file), to `new`, its path and text
 /// after it (`None` for a deleted file). The header names both paths, `/dev/null` for
-/// the side that is missing. The lines are cut as [`written_diff`] cuts them. The
-/// second value is the number of diff lines shown below the header. `None` when the
+/// the side that is missing. The lines are cut as [`written_diff`] cuts them, with the
+/// lines of context of `around`. The second value is the number of diff lines shown below the header. `None` when the
 /// path and the text stay the same, or when both sides are missing.
 pub(crate) fn change_diff(
     old: Option<(&Path, &str)>,
     new: Option<(&Path, &str)>,
     max_lines: usize,
+    around: Around,
 ) -> Option<(WrittenDiff, usize)> {
     if old.is_none() && new.is_none() || old == new {
         return None;
@@ -193,8 +237,8 @@ pub(crate) fn change_diff(
     let to = new.map_or_else(|| "/dev/null".to_owned(), |(path, _)| format!("b{}", path.display()));
     // The file keeps its kind when a call moves it: the new path names it.
     let named = new.or(old).map_or(Named::Nothing, |(path, _)| Named::of(path));
-    let lines =
-        Lines::new(old.map(|(_, text)| text), new.map_or("", |(_, text)| text)).named(named);
+    let lines = Lines::new(old.map(|(_, text)| text), new.map_or("", |(_, text)| text), around)
+        .named(named);
     let mut text = format!("--- {from}\n+++ {to}\n");
     let mut bytes = 0;
     let total = lines.len();
@@ -232,20 +276,20 @@ struct Lines<'a> {
 }
 
 impl<'a> Lines<'a> {
-    fn new(old: Option<&'a str>, new: &'a str) -> Lines<'a> {
-        Lines::within(old, new, MAX_WORK)
+    fn new(old: Option<&'a str>, new: &'a str, around: Around) -> Lines<'a> {
+        Lines::within(old, new, MAX_WORK, around)
     }
 
     /// The diff from `old` to `new` that does at most `budget` work between the common
-    /// head and tail (see [`MAX_WORK`]).
-    fn within(old: Option<&'a str>, new: &'a str, budget: usize) -> Lines<'a> {
+    /// head and tail (see [`MAX_WORK`]), with the lines of context of `around`.
+    fn within(old: Option<&'a str>, new: &'a str, budget: usize, around: Around) -> Lines<'a> {
         let old_lines: Vec<&str> =
             old.map(|old| old.split_inclusive('\n').collect()).unwrap_or_default();
         let new_lines: Vec<&str> = new.split_inclusive('\n').collect();
         let steps = steps(&old_lines, &new_lines, budget);
         let added = steps.iter().filter(|step| step.op == Op::Insert).count();
         let removed = steps.iter().filter(|step| step.op == Op::Delete).count();
-        let hunks = hunks(&steps);
+        let hunks = hunks(&steps, around.lines());
         Lines { steps, hunks, added, removed, old: old_lines, named: Named::Nothing }
     }
 
@@ -508,16 +552,16 @@ fn table(old: &[&str], new: &[&str], budget: &mut usize, ops: &mut Vec<Op>) {
     ops.extend(std::iter::repeat_n(Op::Insert, m - j));
 }
 
-/// The hunks of `steps` as ranges: each change with [`CONTEXT`] kept lines around it,
+/// The hunks of `steps` as ranges: each change with `context` kept lines around it,
 /// and changes closer than twice that in one hunk.
-fn hunks(steps: &[Step<'_>]) -> Vec<(usize, usize)> {
+fn hunks(steps: &[Step<'_>], context: usize) -> Vec<(usize, usize)> {
     let mut hunks: Vec<(usize, usize)> = Vec::new();
     for (at, step) in steps.iter().enumerate() {
         if step.op == Op::Keep {
             continue;
         }
-        let start = at.saturating_sub(CONTEXT);
-        let end = (at + CONTEXT + 1).min(steps.len());
+        let start = at.saturating_sub(context);
+        let end = (at + context + 1).min(steps.len());
         match hunks.last_mut() {
             Some(last) if start <= last.1 => last.1 = end,
             _ => hunks.push((start, end)),

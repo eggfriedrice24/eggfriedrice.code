@@ -5,8 +5,8 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
 use super::{
-    Lines, MAX_BYTES, MAX_LINES, MAX_WORK, MAX_WRITTEN_BYTES, NO_NEWLINE, UNCHANGED, unified_diff,
-    written_diff,
+    Around, Lines, MAX_BYTES, MAX_LINES, MAX_WORK, MAX_WRITTEN_BYTES, NO_NEWLINE, UNCHANGED,
+    preview_diff, unified_diff, written_diff,
 };
 
 fn diff(old: Option<&str>, new: &str) -> String {
@@ -176,12 +176,42 @@ fn two_far_changes_in_a_large_file_show_as_two_small_hunks() {
         written_diff(Path::new("/p/big.rs"), Some(&old), &new, MAX_CALL_DIFF_LINES).unwrap();
     assert_eq!((written.added, written.removed), (2, 2));
     let lines: Vec<&str> = written.text.lines().collect();
-    assert_eq!(lines.len(), 2 + 2 * 9, "{}", written.text);
+    // Each hunk: its header, one line of context on each side, the old and the new line.
+    assert_eq!(lines.len(), 2 + 2 * 5, "{}", written.text);
     // Each line of this file starts with a letter, so each header names the line
     // before its hunk.
-    assert_eq!(lines[2], format!("@@ -2,7 +2,7 @@ {}", line(0).trim_end()));
-    assert_eq!(lines[11], format!("@@ -2993,7 +2993,7 @@ {}", line(2991).trim_end()));
+    assert_eq!(lines[2], format!("@@ -4,3 +4,3 @@ {}", line(2).trim_end()));
+    assert_eq!(lines[7], format!("@@ -2995,3 +2995,3 @@ {}", line(2993).trim_end()));
     assert!(lines.contains(&"+changed 2995"), "{}", written.text);
+}
+
+#[test]
+fn a_finished_write_shows_one_line_of_context_and_an_approval_three() {
+    let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\n";
+    let new = "a\nb\nc\nd\nE\nf\ng\nh\ni\n";
+    let path = Path::new("/p/notes.txt");
+    let written = written_diff(path, Some(old), new, 2000).unwrap();
+    assert_eq!(
+        written.text,
+        "--- a/p/notes.txt\n+++ b/p/notes.txt\n@@ -4,3 +4,3 @@\n d\n-e\n+E\n f\n"
+    );
+    let preview = preview_diff(path, Some(old), new, 2000).unwrap();
+    assert_eq!(
+        preview.text,
+        "--- a/p/notes.txt\n+++ b/p/notes.txt\n@@ -2,7 +2,7 @@\n b\n c\n d\n-e\n+E\n f\n g\n h\n"
+    );
+    // Two changes with two lines between them are one hunk for an approval and two
+    // after the write.
+    let far = "a\nB\nc\nd\nE\nf\n";
+    let old = "a\nb\nc\nd\ne\nf\n";
+    let hunks = |text: &str| text.lines().filter(|line| line.starts_with("@@")).count();
+    assert_eq!(hunks(&preview_diff(path, Some(old), far, 2000).unwrap().text), 1);
+    assert_eq!(hunks(&written_diff(path, Some(old), far, 2000).unwrap().text), 1);
+    let farther = "a\nB\nc\nd\ne\nF\ng\n";
+    let old = "a\nb\nc\nd\ne\nf\ng\n";
+    assert_eq!(hunks(&preview_diff(path, Some(old), farther, 2000).unwrap().text), 1);
+    assert_eq!(hunks(&written_diff(path, Some(old), farther, 2000).unwrap().text), 2);
+    assert_eq!((written.added, written.removed, preview.added, preview.removed), (1, 1, 1, 1));
 }
 
 #[test]
@@ -327,10 +357,11 @@ proptest! {
         old_end in any::<bool>(),
         new_end in any::<bool>(),
         budget in prop_oneof![Just(0_usize), 0_usize..400, Just(MAX_WORK)],
+        around in prop_oneof![Just(Around::Preview), Just(Around::Written)],
     ) {
         let new_tokens = if independent { other } else { edited(&old, &edits) };
         let (old, new) = (text(&old, old_end), text(&new_tokens, new_end));
-        let lines = Lines::within(Some(&old), &new, budget);
+        let lines = Lines::within(Some(&old), &new, budget, around);
         let shown: Vec<String> = lines.iter().collect();
         prop_assert_eq!(shown.len(), lines.len());
         let diff: String = shown.iter().map(|line| format!("{line}\n")).collect();

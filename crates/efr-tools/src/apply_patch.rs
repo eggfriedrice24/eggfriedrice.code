@@ -24,7 +24,7 @@ use efr_scope::Home;
 use serde::de::Error as _;
 use serde_json::Value;
 
-use crate::diff::{UNCHANGED, change_diff};
+use crate::diff::{Around, UNCHANGED, change_diff};
 use crate::paths::{check_real, resolve};
 use crate::write_file::{blocking, write};
 use crate::{
@@ -506,32 +506,35 @@ fn written(changes: &[FileChange], originals: &Originals) -> Vec<WrittenFile> {
     let mut left = efr_protocol::MAX_CALL_DIFF_LINES;
     let mut files = Vec::with_capacity(changes.len());
     for change in changes {
-        let (file, shown) = written_file(change, originals, left);
+        let (file, shown) = written_file(change, originals, left, Around::Written);
         left = left.saturating_sub(shown);
         files.push(file);
     }
     files
 }
 
-/// One change as a [`WrittenFile`], with at most `max_lines` lines of diff, and the
-/// number of lines it shows.
+/// One change as a [`WrittenFile`], with at most `max_lines` lines of diff and the
+/// lines of context of `around`, and the number of lines it shows.
 fn written_file(
     change: &FileChange,
     originals: &Originals,
     max_lines: usize,
+    around: Around,
 ) -> (WrittenFile, usize) {
     let path = change.path.as_path();
     let old = originals.text(path).map(|text| (path, text));
     let (target, kind, diff) = match &change.kind {
         ChangeKind::Added { content } | ChangeKind::Updated { content } => {
             let kind = if old.is_some() { WrittenKind::Changed } else { WrittenKind::Created };
-            (path, kind, change_diff(old, Some((path, content)), max_lines))
+            (path, kind, change_diff(old, Some((path, content)), max_lines, around))
         }
-        ChangeKind::Deleted => (path, WrittenKind::Deleted, change_diff(old, None, max_lines)),
+        ChangeKind::Deleted => {
+            (path, WrittenKind::Deleted, change_diff(old, None, max_lines, around))
+        }
         ChangeKind::Moved { to, content } => (
             to.as_path(),
             WrittenKind::Moved { from: path.to_path_buf() },
-            change_diff(old, Some((to, content)), max_lines),
+            change_diff(old, Some((to, content)), max_lines, around),
         ),
     };
     let shown = diff.as_ref().map_or(0, |(_, shown)| *shown);
@@ -558,7 +561,7 @@ fn preview(changes: &[FileChange], originals: &Originals) -> String {
             }
             ChangeKind::Added { .. } | ChangeKind::Updated { .. } => {}
         }
-        let (file, _) = written_file(change, originals, max_lines);
+        let (file, _) = written_file(change, originals, max_lines, Around::Preview);
         match file.diff {
             Some(diff) => text.push_str(&diff.text),
             None => text.push_str(&format!("{}: {UNCHANGED}\n", change.path.display())),

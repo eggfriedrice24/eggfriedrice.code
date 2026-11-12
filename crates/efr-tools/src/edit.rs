@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::apply_patch::{near_line, original};
-use crate::diff::written_diff;
+use crate::diff::{preview_diff, written_diff};
 use crate::paths::resolve;
 use crate::tool::parse_input;
 use crate::write_file::{blocking, write};
@@ -109,7 +109,7 @@ impl Tool for EditTool {
         let text = text?;
         let replaced = replaced(&text, &input).ok()?;
         let max_lines = efr_protocol::MAX_CALL_DIFF_LINES;
-        written_diff(&path, Some(&text), &replaced.text, max_lines).map(|diff| diff.text)
+        preview_diff(&path, Some(&text), &replaced.text, max_lines).map(|diff| diff.text)
     }
 
     async fn invoke(
