@@ -62,6 +62,15 @@ into the GitHub release notes, and it stops when the section is missing.
   turn on, and `render.bell` (default `false`) rings the bell once when a question
   appears.
 
+- The prompt corner: one line in `.zshrc`, `efr_corner`, puts the scope and the
+  permission mode of the next prompt at the right edge of your zsh prompt, such as
+  `app · auto`. The mode is muted, and `full` is in the error colour. The right side of
+  your theme stays before it. It stays on each prompt line in the scrollback, so you
+  see where each prompt went and in which mode. `efr_corner export` exports the parts
+  for a theme that shows them on line 1 of a two-line prompt. The corner starts no
+  program: efrd writes the default mode and the colours of the corner to `prompt.tsv`
+  in its runtime directory.
+
 ### Changed
 
 - A reply has no first line of its own any more. The scope line (`app`,
@@ -239,6 +248,35 @@ into the GitHub release notes, and it stops when the section is missing.
   turns of the conversation. Each prompt shows `›` and its time, the line under it the
   model as `,model` takes it, its effort and the mode, and the rows of the turn stand 2
   columns in. A last line says what `--verbose` adds.
+
+- Home is the name of every place that is in no registered project, with the mark
+  `⌂` (`~` in a locale that is not UTF-8). It replaces `○`, "no project" and "outside
+  projects" in the plugin and the docs.
+- Sticky mode shows the marker `›`, bold in the accent colour, before the typed text,
+  in place of the robot. With the prompt corner it stands alone; without the corner
+  the scope stands before it, such as `app › ` or `⌂ › `, and `full` in full mode. On
+  Enter the line keeps `›` as its first word. The dim tag with the terminal's own
+  settings is gone. A line of history that starts with the robot still goes to the
+  agent.
+- `,mode full` says once what it does, in two lines: `full mode for this terminal: no
+  sandbox, no questions` in the error colour, then `efr undo reverts the project and
+  the files efr saw · ,mode default goes back`. Before, it wrote three lines that
+  started with `efr:`.
+- `,mode`, `,model` and `,effort` with a value say in one muted line what the next
+  prompt gets, such as `,model: b/gpt-5.5 medium for this terminal from the next
+  prompt`. Before, they printed the line of `efr settings`.
+- The notices at your next prompt have colours and new words. A job that ended says
+  how long it ran and its command, such as `efr: job j3 ended after 4m 12s (exit 0) ·
+  npm run build`; a failed exit code is in the error colour and `· efr jobs` follows.
+  A question that waits is in the warning colour: `efr: a question waits in "fix steer
+  race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
+- `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+
+### Removed
+
+- The variables `EFR_STICKY_INDICATOR`, `EFR_STICKY_STYLE`, `EFR_TAG_STYLE`,
+  `EFR_SCOPE_STYLE` and `EFR_FULL_MARK` of the zsh plugin. The marker of sticky mode
+  and its colours come from the design and from efr's palette.
 
 ### Fixed
 

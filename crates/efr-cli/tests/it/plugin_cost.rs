@@ -10,7 +10,9 @@
 //! ran it. `TERM=dumb`, so the plugin asks the terminal nothing at load. The ladder:
 //! 50, 500 and 5,000 exported variables; 0 and 1,000 draft files of another shell;
 //! a `PWD` of 3 and 12 dirs below the home; no projects file and one of 20 projects; a command line
-//! of about 60 and of 2,000 characters.
+//! of about 60 and of 2,000 characters; the prompt corner (`efr_corner`, with efrd's
+//! `prompt.tsv` and its colours in truecolor), whose precmd builds the corner's text
+//! and whose `RPROMPT` the bench expands as zsh does for each prompt.
 
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
@@ -31,6 +33,7 @@ const SCRIPT: &str = r#"
 zmodload zsh/datetime || exit 90
 typeset -F loading=$EPOCHREALTIME
 source $EFR_BENCH_PLUGIN
+(( EFR_BENCH_CORNER )) && efr_corner
 typeset -F loaded=$EPOCHREALTIME
 typeset -a out
 out+=("load $(( (loaded - loading) * 1e6 ))")
@@ -43,6 +46,8 @@ for (( i = 1; i <= EFR_BENCH_PROMPTS; i++ )); do
   _efr_preexec "$EFR_BENCH_LINE $i"
   b=$EPOCHREALTIME
   _efr_precmd
+  # NOTE: zsh expands RPROMPT for each prompt; with the corner, it is the plugin's.
+  (( EFR_BENCH_CORNER )) && : ${(%)${(e)RPROMPT}}
   c=$EPOCHREALTIME
   out+=("prompt $(( (b - a) * 1e6 )) $(( (c - b) * 1e6 ))")
 done
@@ -76,13 +81,15 @@ struct Case {
     depth: usize,
     projects: usize,
     line: usize,
+    /// `efr_corner` in `.zshrc`, with efrd's `prompt.tsv`.
+    corner: bool,
 }
 
 impl Case {
     fn label(&self) -> String {
         format!(
-            "vars {} drafts {} pwd depth {} projects {} line {}",
-            self.vars, self.drafts, self.depth, self.projects, self.line
+            "vars {} drafts {} pwd depth {} projects {} line {} corner {}",
+            self.vars, self.drafts, self.depth, self.projects, self.line, self.corner
         )
     }
 }
@@ -156,6 +163,13 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         table.push_str(&format!("{}\tp\n", project.display()));
         std::fs::write(runtime.join("projects.tsv"), table).unwrap();
     }
+    if case.corner {
+        std::fs::write(
+            runtime.join("prompt.tsv"),
+            "mode\tauto\ncolor.text\t#d8d3c3\ncolor.muted\t#8695b7\ncolor.error\t#e06c75\n",
+        )
+        .unwrap();
+    }
     let out_file = dir.path().join("bench.out");
     let calls = dir.path().join("calls");
     let (master, slave) = super::picker::pty();
@@ -173,6 +187,8 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         .env("EFR_BENCH_PROMPTS", prompts.to_string())
         .env("EFR_BENCH_LINE", command_line(case.line))
         .env("EFR_BENCH_OUT_FILE", &out_file)
+        .env("EFR_BENCH_CORNER", u8::from(case.corner).to_string())
+        .env("COLORTERM", "truecolor")
         .envs(
             (0..case.vars)
                 .map(|n| (format!("BENCH_VAR_{n:05}"), format!("value-{n}-of-the-bench"))),
@@ -229,7 +245,7 @@ fn bench_perf_zsh_prompt() {
         report.finish();
         return;
     };
-    let base = Case { vars: 50, drafts: 0, depth: 3, projects: 0, line: 0 };
+    let base = Case { vars: 50, drafts: 0, depth: 3, projects: 0, line: 0, corner: false };
     let cases = [
         base,
         Case { vars: 500, ..base },
@@ -239,6 +255,7 @@ fn bench_perf_zsh_prompt() {
         Case { projects: 20, ..base },
         Case { projects: 20, depth: 12, ..base },
         Case { line: 2_000, ..base },
+        Case { projects: 20, corner: true, ..base },
     ];
     let mut var_points = Vec::new();
     let mut tty_set = 0;
@@ -254,7 +271,12 @@ fn bench_perf_zsh_prompt() {
         report.time(&format!("{label}: source"), &[run.load]);
         let keys = report.time(&format!("{label}: warm-up hook per key"), &run.keys);
         worst_key = worst_key.max(keys.p50);
-        if case.drafts == 0 && case.depth == 3 && case.projects == 0 && case.line == 0 {
+        if case.drafts == 0
+            && case.depth == 3
+            && case.projects == 0
+            && case.line == 0
+            && !case.corner
+        {
             var_points.push((case.vars as u64, stats.p50));
         }
     }

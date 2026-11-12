@@ -581,12 +581,10 @@ protection against a prompt injection or a mistake in a script.
 
 `,mode full` asks efrd first. When `config.toml` does not allow full mode, or efrd
 refuses it, it fails with the reason, and the terminal keeps its old mode. Else it
-prints three lines:
+says it once, in two lines on stderr, the first in the error colour:
 
-- `efr: full mode: commands run with your rights, with no sandbox and no questions.`
-- `efr: efr reads each line: it denies secrets and its own config, and asks for sudo,
-  for a process that outlives the turn and for a delete of ~, / or a project.`
-- `efr: a script or a program that a line starts is not read; it can do what you can.`
+- `full mode for this terminal: no sandbox, no questions`
+- `efr undo reverts the project and the files efr saw · ,mode default goes back`
 
 `efr status` shows `full mode allowed`, `full mode off (permissions.allow_full is
 false)` or `full mode refused (<reason>)`. The zsh plugin does not take `full` from an
@@ -780,10 +778,11 @@ efr config reload.`
 - `efr history --verbose` shows `exit allowed by full mode` for each recorded exit.
 - A turn that asked for full mode and runs with less starts with `this turn runs as
   auto: <reason>`.
-- In sticky mode, the zsh plugin shows the mark 🔓 next to the robot while the
-  terminal's prompts run in full mode, such as `🤖🔓 app › `. It reads `config.toml`
-  for a default of full. `EFR_FULL_MARK` sets another mark, and an empty value shows
-  none. Outside sticky mode the plugin shows no mark. `efr_prompt_info` shows the mark too.
+- The prompt corner of the zsh plugin (`efr_corner`) shows `full` in the error colour
+  while the terminal's prompts run in full mode, such as `app · full`. Without the
+  corner, sticky mode shows `full` before the scope: `full app › `. The plugin takes
+  the default mode from efrd's `prompt.tsv`, and before efrd ever ran from
+  `config.toml`. `efr_prompt_info` prints `full app`.
 
 `crates/efr-permissions/src/full.rs` holds the settle pass of a full call,
 `crates/efr-permissions/src/exits/critical.rs` the delete guard, and

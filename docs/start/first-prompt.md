@@ -1,4 +1,4 @@
-<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_prompt_info, EFR_SCOPE_STYLE); crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
+<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_corner, efr_prompt_info); crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
 
 # Your first prompt
 
@@ -35,8 +35,12 @@ stays one prompt.
 The reply goes into your scrollback, like the output of any command. When the turn
 ends, your shell prompt comes back at once.
 
-The reply has no first line of its own. A line comes only when the conversation
-changed (see [Conversations](#conversations)), or when the turn runs on another model.
+The reply has no line for the scope. The prompt corner records the scope and the mode
+of each prompt at the right edge of your prompt line, such as `app · auto`, or
+`⌂ · cautious` at home (see [The prompt corner](#the-prompt-corner)). When the
+conversation changes, a line tells you, such as `↪ back to "fix the tests" in app
+(2 h ago)` (see [Conversations](#conversations)). When the turn runs on another
+model, a `⇄` line tells you.
 
 While the turn runs, the last row shows a spinner, what the turn does, its time and how
 full the model's context is:
@@ -96,6 +100,9 @@ day for each repository. `conversation.repo_hint = false` turns it off:
 ⌂ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool
 ```
 
+`⌂` is home: every place that is in no registered project. Home has one conversation,
+and writes there ask you.
+
 [Permission modes](../use/modes.md) tells what each mode allows.
 
 ## Work with a running turn
@@ -114,14 +121,16 @@ view and its keys](../use/turn-view.md) lists all the keys.
 
 ## Sticky agent mode
 
-Type `,` alone, or press Ctrl+Space, to switch sticky agent mode on. A robot then
-stands before the text that you type, and every line goes to the agent. In a
-registered project, the project name stands after the robot. Outside projects, `○`
-stands there:
+Type `,` alone, or press Ctrl+Space, to switch sticky agent mode on. The marker `›`
+(bold, in the accent colour) then stands before the text that you type, and every
+line goes to the agent. With the prompt corner, the marker stands alone. Without the
+corner, the scope of the next prompt stands before it, and `full` in full mode:
 
 ```text
-🤖 app › fix the failing test
-🤖 ○ › check the disk space
+› fix the failing test
+app › fix the failing test
+⌂ › check the disk space
+full app › clean the build caches
 ```
 
 In sticky mode:
@@ -130,23 +139,40 @@ In sticky mode:
 - A line that starts with `,` runs that `,` command.
 - `,` alone switches sticky mode off.
 
-When you press Enter, the robot becomes the first word of the line. History keeps
-`🤖 <prompt>`, and the line goes to the agent again when you recall it.
+When you press Enter, the marker becomes the first word of the line. History keeps
+`› <prompt>`, and the line goes to the agent again when you recall it. In a locale
+that is not UTF-8 the marker is `>`, and the line becomes `, <prompt>`.
 
-### The scope in your own prompt
+### The prompt corner
 
-efr never changes your prompt. To show the scope of the next prompt in your own
-prompt, use the function `efr_prompt_info`. It prints `app` or `○`:
+efr never changes your prompt by itself. One line in `.zshrc`, after the setup of your
+prompt theme, puts the scope and the mode of the next prompt at the right edge:
+
+```zsh
+efr_corner
+```
+
+```text
+~/p/app main ❯ , why does parse_empty fail?                     app · auto
+```
+
+The mode is muted, and `full` is in the error colour. The corner stays on each prompt
+line in the scrollback. [Conversations](../use/conversations.md#the-prompt-corner)
+tells how it works with a theme, a two-line prompt and `transient_rprompt`.
+
+For a prompt of your own, the function `efr_prompt_info` prints the scope alone, `app`
+or `⌂` (`full app` in full mode):
 
 ```zsh
 setopt prompt_subst
 RPROMPT='$(efr_prompt_info)'
 ```
 
-The variable `$efr_scope` holds the same text, for a prompt with no subshell:
-`RPROMPT='${efr_scope}'`. Both write each `%` of a project's name as `%%`, and each `!`
-as `!!` when you set `prompt_bang`, so the prompt shows the name as you typed it. `EFR_SCOPE_STYLE` sets the style of the scope in sticky
-mode (`fg=8` by default). Before efrd runs for the first time, there is no scope.
+The variable `$efr_scope` holds the scope, for a prompt with no subshell:
+`RPROMPT='${efr_scope}'`. All of them write each `%` of a project's name as `%%`, and
+each `!` as `!!` when you set `prompt_bang`, so the prompt shows the name as you typed
+it. Before efrd runs for the first time, there is no scope, and the corner shows the
+mode alone.
 
 ## Commands of the plugin
 

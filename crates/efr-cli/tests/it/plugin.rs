@@ -784,14 +784,15 @@ fn e2e_sticky_mode_shows_its_indicator_without_changing_the_prompt() {
     let before = std::fs::read_to_string(home.path().join("before.txt")).unwrap();
     let during = std::fs::read_to_string(home.path().join("during.txt")).unwrap();
     assert_eq!(before, during, "sticky mode must not change PROMPT");
-    // The indicator is drawn while sticky mode is on. The raw bytes cannot show it next
-    // to the typed text: ZLE writes a key, steps back and writes it again with colour.
-    assert!(screen.contains("efr> "), "{screen}");
+    // The marker is drawn while sticky mode is on: `>` in the C locale. The raw bytes
+    // cannot show it next to the typed text: ZLE writes a key, steps back and writes it
+    // again with colour. (`plugin/look.rs` checks the screen against the design.)
+    assert!(screen.contains("> "), "{screen}");
     assert!(home.calls().is_empty(), "{:?}", home.calls());
 }
 
 #[test]
-fn e2e_in_sticky_mode_a_prompt_line_starts_with_the_robot_instead_of_a_comma() {
+fn e2e_in_sticky_mode_a_prompt_line_starts_with_the_marker_instead_of_a_comma() {
     if !zsh_tests_enabled() {
         return;
     }
@@ -805,14 +806,28 @@ fn e2e_in_sticky_mode_a_prompt_line_starts_with_the_robot_instead_of_a_comma() {
     let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
     assert_eq!(prompts, [Some(prompt.to_owned())]);
     assert!(!home.path().join("x").exists(), "the prompt ran as shell syntax");
-    // History keeps the line that ran, which the screen showed all along: the robot
+    // History keeps the line that ran, which the screen showed all along: the marker
     // stood before the typed text and stays there, and no comma is ever drawn.
     let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
-    assert_eq!(history.trim_end(), format!("🤖 {prompt}"));
-    assert!(screen.contains('🤖'), "{screen}");
+    assert_eq!(history.trim_end(), format!("\u{203a} {prompt}"));
+    assert!(screen.contains('\u{203a}'), "{screen}");
+    assert!(!screen.contains('🤖'), "{screen}");
     assert!(!screen.contains(", what"), "{screen}");
 }
 
+#[test]
+fn e2e_a_marker_line_from_history_goes_to_the_agent_outside_sticky_mode() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(&home, UTF8, &["\u{203a} sent again; from history"]);
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some("sent again; from history".to_owned())]);
+}
+
+/// A line of the history of an older version, which put the robot in front, still
+/// goes to the agent.
 #[test]
 fn e2e_a_robot_line_from_history_goes_to_the_agent_outside_sticky_mode() {
     if !zsh_tests_enabled() {
@@ -831,15 +846,28 @@ fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
     }
     let calls = run(r#"
         alias taken=true
-        for indicator in '🤖 ' 'ai  ' 'efr> ' 'ls ' 'if ' 'taken ' '-x ' 'a b ' ', '; do
-          EFR_STICKY_INDICATOR=$indicator
-          if _efr_sticky_word; then efr word "$REPLY"; else efr none; fi
+        for word in '›' '🤖' 'ai' '>' 'ls' 'if' 'taken' '-x' 'a b' ','; do
+          if _efr_free_word $word; then efr word "$word"; else efr none; fi
         done
+        _efr_sticky_word || efr marker "[$REPLY]"
     "#);
     let words: Vec<String> = calls.iter().map(|call| call.args.join(" ")).collect();
     assert_eq!(
         words,
-        ["word 🤖", "word ai", "none", "none", "none", "none", "none", "none", "none"]
+        [
+            "word \u{203a}",
+            "word 🤖",
+            "word ai",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            // In the C locale the marker is `>`, which can be no word.
+            "marker []"
+        ]
     );
 }
 
@@ -1436,14 +1464,19 @@ fn e2e_a_bare_setting_shows_its_line_in_the_terminals_words() {
         ,mode
         ,model gpt-5.4
         ,effort
+        ,mode default
         "#,
     );
+    // A bare setting shows its line in the terminal's words; a value that the terminal
+    // keeps says what the next prompt gets (TM-Endings 5), plain where stdout is no
+    // terminal; `default` says that the config decides.
     assert_eq!(
         stdout.lines().collect::<Vec<_>>(),
         [
             "mode = auto  # this terminal (,mode); choices: manual, cautious, auto, full",
-            "model = gpt-5.4  # this terminal (,model); choices: gpt-5.5, gpt-5.4, my-model",
+            ",model: gpt-5.4 medium for this terminal from the next prompt",
             "effort = medium  # the default of gpt-5.5; choices: low, medium, high",
+            ",mode: auto from the next prompt; the config decides",
         ]
     );
 }
@@ -1733,10 +1766,10 @@ fn e2e_in_sticky_mode_a_bare_setting_word_runs_as_its_command() {
         [
             ",mode auto",
             ",model",
-            "🤖 effort matters",
-            "🤖 model the database schema",
+            "\u{203a} effort matters",
+            "\u{203a} model the database schema",
             ",effort high",
-            "🤖 what now",
+            "\u{203a} what now",
             ",mode default",
         ]
     );
@@ -1850,17 +1883,19 @@ fn e2e_a_comma_word_with_a_bang_steers_and_a_typo_of_a_command_stays_on_the_line
 /// the plugin's highlights after a `|`, and a line-finish hook that records what the
 /// line shows once Enter accepted it.
 const RECORD_LINES: [&str; 2] = [
-    r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:,:)${(@M)region_highlight:#*memo=efr*}}" >> typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#,
+    r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:;:)${(@M)region_highlight:#*memo=efr*}}" >> typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#,
     r#"_fin() { print -r -- "$PREDISPLAY$BUFFER" >> finished.txt; }; zle -N _fin; add-zle-hook-widget line-finish _fin"#,
 ];
 
+/// TM-Scope 17: the marker alone stands before the typed text, also when the terminal
+/// has settings of its own (the dim tag of older versions is gone), and Enter keeps it
+/// as the first word of the line.
 #[test]
-fn e2e_in_sticky_mode_the_settings_stand_before_the_robot_and_stay_on_enter() {
+fn e2e_in_sticky_mode_the_marker_stands_before_the_text_and_stays_on_enter() {
     if !zsh_tests_enabled() {
         return;
     }
     let home = Home::new();
-    // A terminal with 256 colours, where zsh draws the grey of the tag.
     let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
     type_lines_with(
         &home,
@@ -1880,45 +1915,23 @@ fn e2e_in_sticky_mode_the_settings_stand_before_the_robot_and_stay_on_enter() {
         ],
     );
     let read = |name: &str| std::fs::read_to_string(home.path().join(name)).unwrap();
-    // The tag is dim and the robot keeps its own style after it; once the terminal has
-    // no settings of its own, only the robot is left. zle gives the end of a highlight
-    // back in its own units, so only where each one starts and its style count.
-    let typed: Vec<(String, Vec<(String, String)>)> = read("typed.txt")
-        .lines()
-        .map(|line| {
-            let (shown, highlights) = line.rsplit_once('|').unwrap();
-            let highlights = highlights
-                .split(',')
-                .map(|entry| {
-                    let words: Vec<&str> = entry.split(' ').collect();
-                    assert_eq!(words.len(), 4, "{entry}");
-                    assert_eq!(words[3], "memo=efr");
-                    (words[0].to_owned(), words[2].to_owned())
-                })
-                .collect();
-            (shown.to_owned(), highlights)
-        })
-        .collect();
-    let entry = |start: &str, style: &str| (start.to_owned(), style.to_owned());
+    // The marker is bold in the accent colour, slot 3 in 16 colours. zle gives the end
+    // of a highlight back in its own units, so only where each one starts and its style
+    // count.
     assert_eq!(
-        typed,
+        typed_lines(&home),
         [
-            (
-                "auto gpt-5.4 🤖 what changed?".to_owned(),
-                vec![entry("P0", "fg=8"), entry("P13", "fg=magenta")]
-            ),
-            ("🤖 and now".to_owned(), vec![entry("P0", "fg=magenta")]),
+            typed("\u{203a} what changed?", &[("P0", "fg=yellow,bold")]),
+            typed("\u{203a} and now", &[("P0", "fg=yellow,bold")]),
         ]
     );
-    // Enter changed nothing on the screen: the robot became the first word of the line
-    // and the tag stayed before it.
+    // Enter changed nothing on the screen: the marker became the first word of the line.
     let finished = read("finished.txt");
-    assert!(finished.lines().any(|line| line == "auto gpt-5.4 🤖 what changed?"), "{finished}");
-    assert!(finished.lines().any(|line| line == "🤖 and now"), "{finished}");
-    // History keeps the lines that ran, without the tag.
+    assert!(finished.lines().any(|line| line == "\u{203a} what changed?"), "{finished}");
+    assert!(finished.lines().any(|line| line == "\u{203a} and now"), "{finished}");
     assert_eq!(
         read("history.txt").lines().collect::<Vec<_>>(),
-        ["🤖 what changed?", ",mode default", ",model default", "🤖 and now"]
+        ["\u{203a} what changed?", ",mode default", ",model default", "\u{203a} and now"]
     );
     let calls = home.calls();
     let prompts: Vec<(Option<&str>, [Option<&str>; 3])> = calls
@@ -2294,7 +2307,7 @@ fn typed_lines(home: &Home) -> Vec<Typed> {
         .map(|line| {
             let (shown, highlights) = line.rsplit_once('|').unwrap();
             let highlights = highlights
-                .split(',')
+                .split(';')
                 .filter(|entry| !entry.is_empty())
                 .map(|entry| {
                     let words: Vec<&str> = entry.split(' ').collect();
@@ -2332,9 +2345,8 @@ fn built_efr_zsh(home: &Home, daemon: &TestDaemon, script: &str) -> Command {
     zsh
 }
 
-/// The first line of what full mode's warning says on stderr.
-const FULL_WARNED: &str =
-    "efr: full mode: commands run with your rights, with no sandbox and no questions.";
+/// The first line of what `,mode full` says on stderr (TM-Endings 8).
+const FULL_WARNED: &str = "full mode for this terminal: no sandbox, no questions";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_mode_full_without_the_gate_keeps_the_old_value() {
@@ -2358,13 +2370,14 @@ async fn e2e_mode_full_without_the_gate_keeps_the_old_value() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
-    let modes: Vec<&str> = stdout.lines().filter(|line| !line.starts_with("model")).collect();
-    assert_eq!(modes.iter().filter(|line| line.starts_with("mode")).count(), 2, "{stdout}");
+    // `,mode cautious` says what the next prompt gets; `,mode full` fails and keeps it.
     assert!(
-        modes.iter().all(|line| !line.starts_with("mode")
-            || line.starts_with("mode = cautious  # this terminal (,mode)")),
+        stdout.contains(",mode: cautious for this terminal from the next prompt\n"),
         "{stdout}"
     );
+    let modes: Vec<&str> = stdout.lines().filter(|line| line.starts_with("mode")).collect();
+    assert_eq!(modes.len(), 1, "{stdout}");
+    assert!(modes[0].starts_with("mode = cautious  # this terminal (,mode)"), "{stdout}");
     assert!(stdout.contains("code 2\n"), "{stdout}");
     assert!(
         stderr.contains(
@@ -2405,66 +2418,54 @@ async fn e2e_mode_full_warning_reaches_stderr_once_per_set() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert_eq!(stderr.matches(FULL_WARNED).count(), 2, "{stderr}");
-    assert_eq!(stderr.matches("efr: a script or a program that a line starts").count(), 2);
-    // The warning goes to stderr only; the setting's line names the terminal.
-    assert!(!stdout.contains("full mode:"), "{stdout}");
+    assert_eq!(stderr.matches(",mode default goes back").count(), 2);
+    // efr says it on stderr; the plugin adds no line of its own for full mode, and a
+    // bare `,mode` names the terminal.
+    assert!(!stdout.contains("full mode"), "{stdout}");
+    assert!(!stdout.contains(",mode: full"), "{stdout}");
     assert!(stdout.contains("mode = full  # this terminal (,mode)"), "{stdout}");
     daemon.stop().await.unwrap();
 }
 
+/// TM-Scope 17: without the corner, sticky mode shows `full` in the error colour before
+/// the scope in full mode; with the corner, the corner shows it and the marker stands
+/// alone. On Enter the marker becomes the line's first word and `full` stays before it.
 #[test]
-fn e2e_mode_full_shows_the_mark_next_to_the_robot_in_sticky_mode() {
+fn e2e_mode_full_shows_full_before_the_marker_in_sticky_mode() {
     if !zsh_tests_enabled() {
         return;
     }
     let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
     let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
     type_lines_with(
         &home,
         &env,
         &[
-            RECORD_LINES[0],
+            RECORD_ANYWHERE,
             RECORD_LINES[1],
+            "cd p/app",
             ",mode full",
             ",model gpt-5.4",
             "<C-Space>",
             "what changed?\u{18}\u{12}",
-            ",model default",
+            ",mode default",
             "and now\u{18}\u{12}",
-            ",mode auto",
+            "!efr_corner",
             "then\u{18}\u{12}",
             "<C-Space>",
         ],
     );
-    // The mark stands next to the robot with no style of its own, in place of a `full`
-    // word in the dim tag; the terminal's other values stay in the tag.
     assert_eq!(
         typed_lines(&home),
         [
-            typed("gpt-5.4 🤖🔓 what changed?", &[("P0", "fg=8"), ("P8", "fg=magenta")]),
-            typed("🤖🔓 and now", &[("P0", "fg=magenta")]),
-            typed("auto 🤖 then", &[("P0", "fg=8"), ("P5", "fg=magenta")]),
+            typed("full app \u{203a} what changed?", &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]),
+            typed("app \u{203a} and now", &[("P4", "fg=yellow,bold")]),
+            typed("\u{203a} then", &[("P0", "fg=yellow,bold")]),
         ]
     );
-    // On Enter the robot becomes the line's first word, and the mark goes with the rest
-    // of the indicator: the turn's red first line says full mode.
-    let finished = std::fs::read_to_string(home.path().join("finished.txt")).unwrap();
-    assert!(finished.lines().any(|line| line == "gpt-5.4 🤖 what changed?"), "{finished}");
-}
-
-#[test]
-fn e2e_an_empty_full_mark_shows_none() {
-    if !zsh_tests_enabled() {
-        return;
-    }
-    let home = Home::new();
-    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color"), ("EFR_FULL_MARK", "")];
-    type_lines_with(
-        &home,
-        &env,
-        &[RECORD_LINES[0], ",mode full", "<C-Space>", "x\u{18}\u{12}", "<C-Space>"],
-    );
-    assert_eq!(typed_lines(&home), [typed("🤖 x", &[("P0", "fg=magenta")])]);
+    let finished = std::fs::read_to_string(home.path().join("p/app/finished.txt")).unwrap();
+    assert!(finished.lines().any(|line| line == "full app \u{203a} what changed?"), "{finished}");
 }
 
 #[test]
@@ -2525,12 +2526,16 @@ fn e2e_inherited_efr_mode_full_is_ignored_at_load() {
     assert_eq!(home.calls()[0].mode.as_deref(), Some("auto"));
 }
 
+/// The mode of the corner and of sticky mode comes from efr's config before efrd ever
+/// wrote its prompt file: `full` as the default needs `allow_full = true`, else the
+/// turns run as `auto`.
 #[test]
-fn e2e_a_config_that_makes_full_the_default_shows_the_mark() {
+fn e2e_a_config_that_makes_full_the_default_shows_full() {
     if !zsh_tests_enabled() {
         return;
     }
     let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
     let config = home.path().join(".config/efr");
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(
@@ -2542,26 +2547,33 @@ fn e2e_a_config_that_makes_full_the_default_shows_the_mark() {
         &home,
         &[UTF8[0], ("EFR_TEST_TERM", "xterm-256color")],
         &[
-            RECORD_LINES[0],
-            RECORD_LINES[1],
+            RECORD_ANYWHERE,
+            "cd p/app",
             "<C-Space>",
             "by default\u{18}\u{12}",
             ",mode cautious",
             "cautious\u{18}\u{12}",
             ",mode default",
-            r#"!printf '[permissions]\nmode = "auto"\nallow_full = true\n' > .config/efr/config.toml"#,
-            "auto\u{18}\u{12}",
+            r#"!printf '[permissions]\nmode = "full"\n' > ~/.config/efr/config.toml"#,
+            "not allowed\u{18}\u{12}",
+            r#"!print -r -- "$(efr_prompt_info)" > ~/info.txt"#,
             "<C-Space>",
         ],
     );
     assert_eq!(
         typed_lines(&home),
         [
-            typed("🤖🔓 by default", &[("P0", "fg=magenta")]),
-            typed("cautious 🤖 cautious", &[("P0", "fg=8"), ("P9", "fg=magenta")]),
-            typed("🤖 auto", &[("P0", "fg=magenta")]),
+            typed("full app \u{203a} by default", &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]),
+            typed("app \u{203a} cautious", &[("P4", "fg=yellow,bold")]),
+            typed("app \u{203a} not allowed", &[("P4", "fg=yellow,bold")]),
         ]
     );
+    let info = std::fs::read_to_string(home.path().join("info.txt")).unwrap();
+    assert_eq!(info, "app\n");
+    // Once efrd wrote its prompt file, its mode wins over the file's.
+    std::fs::write(home.path().join("efr/prompt.tsv"), "mode\tfull\n").unwrap();
+    let (stdout, _) = run_with(&home, UTF8, "cd p/app; efr_prompt_info");
+    assert_eq!(stdout, "full app\n");
 }
 
 // --- the scope marker -----------------------------------------------------------------
@@ -2570,7 +2582,7 @@ fn e2e_a_config_that_makes_full_the_default_shows_the_mark() {
 // `$HOME/efr` here (`XDG_RUNTIME_DIR` is the home). These tests write the file by hand.
 
 /// [`RECORD_LINES`]' first line, which writes to `~/typed.txt` from any directory.
-const RECORD_ANYWHERE: &str = r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:,:)${(@M)region_highlight:#*memo=efr*}}" >> ~/typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#;
+const RECORD_ANYWHERE: &str = r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:;:)${(@M)region_highlight:#*memo=efr*}}" >> ~/typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#;
 
 /// Writes the projects file of `home` with `lines` of `(root below the home, name)`,
 /// and returns the home with its links resolved, as efrd writes the roots.
@@ -2614,39 +2626,46 @@ fn e2e_sticky_marker_names_the_project() {
             "<C-Space>",
         ],
     );
-    // The scope is muted after the robot, the deepest root wins, and a root holds only
-    // whole components: ~/p/apple is outside projects.
+    // The scope stands before the marker, the deepest root wins, and a root holds only
+    // whole components: ~/p/apple is at home. zle has no dim, so the muted scope has no
+    // highlight in 16 colours (TM-Scope 18 draws it dim).
     assert_eq!(
         typed_lines(&home),
         [
-            typed("auto 🤖 app › one", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
-            typed("auto 🤖 lib › two", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
-            typed("auto 🤖 ○ › three", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
+            typed("app \u{203a} one", &[("P4", "fg=yellow,bold")]),
+            typed("lib \u{203a} two", &[("P4", "fg=yellow,bold")]),
+            typed("\u{2302} \u{203a} three", &[("P2", "fg=yellow,bold")]),
         ]
     );
 }
 
 #[test]
-fn e2e_sticky_marker_shows_the_mark_outside_projects() {
+fn e2e_sticky_marker_shows_the_home_mark_outside_projects() {
     if !zsh_tests_enabled() {
         return;
     }
     let home = Home::new();
     projects(&home, &[("p/app", "app")]);
-    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
+    std::fs::write(
+        home.path().join("efr/prompt.tsv"),
+        "mode\tcautious\ncolor.muted\t#8695b7\ncolor.accent\t#ffc940\n",
+    )
+    .unwrap();
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
     type_lines_with(
         &home,
         &env,
         &[RECORD_ANYWHERE, "<C-Space>", "one\u{18}\u{12}", "!cd /", "two\u{18}\u{12}", "<C-Space>"],
     );
+    // In truecolor the muted scope takes the colour of efrd's palette.
     assert_eq!(
         typed_lines(&home),
         [
-            typed("🤖 ○ › one", &[("P0", "fg=magenta"), ("P2", "fg=8")]),
-            typed("🤖 ○ › two", &[("P0", "fg=magenta"), ("P2", "fg=8")]),
+            typed("\u{2302} \u{203a} one", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
+            typed("\u{2302} \u{203a} two", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
         ]
     );
-    // Without a UTF-8 locale the marks are plain text.
+    // Without a UTF-8 locale the marks are their ASCII forms.
     let home = Home::new();
     projects(&home, &[("p/app", "app")]);
     type_lines(
@@ -2661,7 +2680,7 @@ fn e2e_sticky_marker_shows_the_mark_outside_projects() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["efr> o > one", "efr> app > two"]);
+    assert_eq!(shown, ["~ > one", "app > two"]);
 }
 
 #[test]
@@ -2678,7 +2697,7 @@ fn e2e_sticky_marker_through_a_symlinked_dir() {
         &[RECORD_ANYWHERE, "cd app-link", "<C-Space>", "one\u{18}\u{12}", "<C-Space>"],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["🤖 app › one"]);
+    assert_eq!(shown, ["app \u{203a} one"]);
 }
 
 /// A fake `git` that records each call in `$HOME/git-called`.
@@ -2709,7 +2728,7 @@ fn e2e_marker_runs_no_command() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["🤖 app › ", "🤖 ○ › "]);
+    assert_eq!(shown, ["app \u{203a} ", "\u{2302} \u{203a} "]);
     assert!(home.calls().is_empty(), "{:?}", home.calls());
     assert!(!home.path().join("git-called").exists(), "the marker ran git");
 }
@@ -2746,7 +2765,7 @@ fn e2e_marker_reads_the_file_again_only_when_it_changed() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["🤖 app › ", "🤖 app › ", "🤖 apq › "]);
+    assert_eq!(shown, ["app \u{203a} ", "app \u{203a} ", "apq \u{203a} "]);
 }
 
 #[test]
@@ -2769,7 +2788,7 @@ fn e2e_efr_prompt_info_prints_the_scope() {
         "#,
     );
     assert_eq!(status, Some(0));
-    assert_eq!(stdout, "[app]\n{app}\n[○]\n{○}\n[🔓 app]\n");
+    assert_eq!(stdout, "[app]\n{app}\n[\u{2302}]\n{\u{2302}}\n[full app]\n");
 }
 
 /// A `%` in a project's name is doubled in `$efr_scope` and `efr_prompt_info`, so a
@@ -2847,7 +2866,7 @@ fn e2e_marker_shows_a_bang_once_with_prompt_bang() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["🤖 a!b › "]);
+    assert_eq!(shown, ["a!b \u{203a} "]);
     let scope = std::fs::read_to_string(home.path().join("scope.txt")).unwrap();
     assert_eq!(scope, "{a!!b}\n");
 }
@@ -2866,7 +2885,7 @@ fn e2e_marker_shows_a_percent_once() {
         &[RECORD_ANYWHERE, "cd p/app", "<C-Space>", "\u{18}\u{12}", "<C-Space>"],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["🤖 a%~b › "]);
+    assert_eq!(shown, ["a%~b \u{203a} "]);
 }
 
 #[test]
@@ -2912,7 +2931,7 @@ fn e2e_no_projects_file_no_marker() {
             "<C-Space>",
         ],
     );
-    assert_eq!(typed_lines(&home), [typed("🤖 one", &[("P0", "fg=magenta")])]);
+    assert_eq!(typed_lines(&home), [typed("\u{203a} one", &[("P0", "fg=yellow,bold")])]);
     let info = std::fs::read_to_string(home.path().join("info.txt")).unwrap();
     assert_eq!(info, "[]{}\n");
 }
@@ -3409,3 +3428,5 @@ fn e2e_no_warm_up_runs_while_the_daemon_has_no_socket() {
     assert_eq!(warms(&home), Vec::<Vec<String>>::new());
     assert_eq!(home.calls().len(), 1, "only the prompt ran efr");
 }
+
+mod look;

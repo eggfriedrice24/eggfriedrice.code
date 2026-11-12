@@ -3,9 +3,9 @@
 #   , <prompt>     send a prompt with this shell's context (queues behind a running turn).
 #                  It goes to this terminal's conversation of the scope where you send
 #                  it: the registered project that holds $PWD (also below its root), or
-#                  the one conversation for every place outside projects. The
+#                  the one conversation of home, every place in no project. The
 #                  conversation changes when you send a prompt, not when you cd, and a
-#                  dim line before the reply says when it changes. A paste of several
+#                  line before the reply says when it changes. A paste of several
 #                  lines that all start with `,` is one prompt for each line: the first
 #                  runs, and the others wait behind it in their order, as Tab in the
 #                  input row queues them. A paste with any other line is one prompt
@@ -52,17 +52,17 @@
 #                  mode
 #   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious,
 #                  auto or full; without a value, show it with its source and the
-#                  choices; `default` lets the config decide again. `,mode full`
-#                  works only when efr's config sets permissions.allow_full = true:
-#                  commands then run with your rights, with no sandbox and no
-#                  questions, and efr says what it still reads and asks. While a
-#                  terminal's prompts run in full mode (its own value, or the
-#                  config's default when it has none), sticky mode shows the mark
-#                  EFR_FULL_MARK (🔓) next to the robot; outside sticky mode the
-#                  turn's red first line says it. EFR_MODE=full from the
-#                  environment is ignored when the plugin loads: only `,mode full`
+#                  choices; `default` lets the config decide again. A value that efr
+#                  keeps prints one muted line, such as `,mode: auto for this terminal
+#                  from the next prompt`. `,mode full` works only when efr's config
+#                  sets permissions.allow_full = true: commands then run with your
+#                  rights, with no sandbox and no questions, and efr says so once:
+#                  `full mode for this terminal: no sandbox, no questions`. After
+#                  that the corner shows `full` in the error colour. EFR_MODE=full from
+#                  the environment is ignored when the plugin loads: only `,mode full`
 #                  makes a terminal full
-#   ,model [id]    the same for the model (`efr models` lists them)
+#   ,model [id]    the same for the model (`efr models` lists them): `,model: b/gpt-5.5
+#                  medium for this terminal from the next prompt`
 #   ,effort [e]    the same for the reasoning effort
 #   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
 #                  could run is a prompt that starts with the word: `,run make`
@@ -80,32 +80,55 @@
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just a command word, as after
 #                  `, ` above (`resume`, or `mode` with one value that efr accepts),
-#                  which runs as its `,` command; a robot and the scope of the next prompt
-#                  stand before the typed text while it is on, such as `🤖 app › `
-#                  in a registered project and `🤖 ○ › ` outside projects (shown
-#                  with PREDISPLAY, so the prompt itself never changes), after a dim
-#                  tag with the terminal's own settings, such as `auto `; in full
-#                  mode the mark 🔓 stands next to the robot: `🤖🔓 app › `
-#   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
-#                  an alias of `,`, so the screen and history keep the line that ran,
-#                  and the line still goes to the agent when history recalls it
+#                  which runs as its `,` command. The marker `›` (bold, in the accent
+#                  colour) stands before the typed text while it is on. With the
+#                  prompt corner it carries nothing else; without the corner it
+#                  carries the scope of the next prompt, such as `app › ` in a
+#                  registered project and `⌂ › ` at home, and `full` in full mode:
+#                  `full app › `. It shows with PREDISPLAY, so the prompt itself never
+#                  changes. A locale that is not UTF-8 shows `>` and `~`
+#   › <prompt>     what a prompt line becomes on Enter in sticky mode: `›` is an alias
+#                  of `,`, so the screen and history keep the line that ran, and the
+#                  line still goes to the agent when history recalls it. A line from
+#                  an older version that starts with the robot 🤖 does the same
 #
-# The scope of the next prompt shows before you send it: in sticky mode, and through
-# efr_prompt_info, a function that prints `app` or `○` (with the full mark in full
-# mode) for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and
-# the variable $efr_scope, which precmd sets, for a prompt with no subshell
-# (`RPROMPT='${efr_scope}'`). Both double each `%` of a project's name, and each `!`
-# while prompt_bang is on, so a prompt shows `50%` as `50%` and `a!` as `a!`, and not
-# as a prompt escape or a history number. The plugin never changes PROMPT or
-# RPROMPT itself. It knows the scope with no fork and no git: efrd writes the
-# registered projects to projects.tsv in its runtime root, one `<root><tab><name>`
-# line each, and the plugin reads the file again only when it changed, then matches
-# $PWD and ${PWD:A} by whole components, the deepest root first. Before efrd ever ran
-# there is no file and no scope. The head line of efr's reply names the scope that
-# efrd routed by.
+# The prompt corner: the scope and the permission mode of the next prompt at the right
+# edge of your zsh prompt, such as `app · auto`, `⌂ · cautious` or `app · full` (the
+# scope in the text colour, the mode muted, `full` in the error colour). One line in
+# .zshrc, after the theme's own setup (starship, a framework, PROMPT and RPROMPT), sets
+# it up:
+#
+#   efr_corner
+#
+# It keeps the theme's own right side, two blanks, then the corner, which ends at the
+# right edge, so it stands in the same column on each prompt line up the scrollback.
+# It turns prompt_subst on (a `$` in a plain theme string then expands), and it adds
+# the corner again at each prompt when a theme sets RPROMPT again. A long typed line
+# hides it, as zsh hides any right prompt, and `setopt transient_rprompt` removes it
+# from the scrollback. For line 1 of a two-line prompt, `efr_corner export` instead
+# exports EFR_CORNER_SCOPE and EFR_CORNER_MODE, or EFR_CORNER_FULL in full mode, at each
+# prompt, for the theme to show (starship: `${env_var.EFR_CORNER_SCOPE}`), and leaves
+# RPROMPT alone. The corner costs no fork: efrd writes the default mode and the colours
+# of its palette to prompt.tsv in its runtime root, and the plugin reads that file
+# again only when it changed. Before efrd ever ran, the corner shows the mode alone.
+#
+# The scope of the next prompt shows before you send it: in the corner, in sticky mode
+# without the corner, through efr_prompt_info, a function that prints `app` or `⌂`
+# (`full app` in full mode) for your own prompt (`setopt prompt_subst;
+# RPROMPT='$(efr_prompt_info)'`), and the variable $efr_scope, which precmd sets, for a
+# prompt with no subshell (`RPROMPT='${efr_scope}'`). Home is every place that is in
+# no registered project: it has one conversation, and writes there ask you. All of
+# them double each `%` of a project's name, and each `!` while prompt_bang is on, so a
+# prompt shows `50%` as `50%` and `a!` as `a!`, and not as a prompt escape or a history
+# number. Only efr_corner changes RPROMPT, and nothing changes PROMPT. The plugin knows
+# the scope with no fork and no git: efrd writes the registered projects to
+# projects.tsv in its runtime root, one `<root><tab><name>` line each, and the plugin
+# reads the file again only when it changed, then matches $PWD and ${PWD:A} by whole
+# components, the deepest root first. Before efrd ever ran there is no file and no
+# scope. A line before the reply says when the conversation changed.
 #
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
-# and in history, except that a sticky prompt gets the robot in front and an unknown
+# and in history, except that a sticky prompt gets `›` in front and an unknown
 # `,word` line gets a blank after its `,` (`,!word` one after its `,!`). The accept-line widget saves the prompt text, and `,`,
 # `,new`, `,!` and `,compact` are aliases whose expansion ends in a comment marker, so
 # zsh reads the rest of the line as a comment; the commands then take the saved text. The two
@@ -178,7 +201,8 @@ typeset -ga _efr_model_names
 typeset -gi _efr_model_names_at
 # 1 once the completions are registered with compinit's compdef.
 typeset -gi _efr_completion_ready
-# 1 while the line being accepted is a prompt that sticky mode sends to the agent.
+# Not 0 while the line being accepted is a prompt that sticky mode sends to the agent:
+# 2 when it starts with the marker, 1 when it starts with `, `.
 typeset -gi _efr_prompt_line
 # Where the per-user runtime directories live; tests point it at a temporary tree.
 typeset -g _efr_run_user=${_efr_run_user:-/run/user}
@@ -219,32 +243,40 @@ typeset -gi _efr_called
 # The user's own interactive_comments and bang_hist ("on" or "off") while a plugin
 # line runs with its own settings, or empty.
 typeset -ga _efr_saved_options
-# Override before sourcing to change how sticky mode shows before the typed text:
-# plain text, and a region_highlight style for it (a colour emoji keeps its colours).
-# The robot needs a UTF-8 locale; any other locale gets plain text.
-# EFR_FULL_MARK is the mark next to the robot while the terminal's prompts run in full
-# mode; an empty value shows none. The marks of the scope (`○` outside projects, `›`
-# after the scope) have plain-text forms too. `○` has the "ambiguous" East Asian width
-# and `›` the "neutral" one. A CJK locale keeps them: glibc's wcwidth, which zle uses,
-# gives both one column in every UTF-8 locale, and Ghostty draws both one column wide
-# whatever the locale (efr-screen-ghostty's widths test).
+# The marks of the plugin and their plain-text forms for a locale that is not UTF-8:
+# home (`⌂`, every place that is in no registered project), the marker of sticky mode
+# (`›`) and the separator of the corner (`·`). `⌂` and `·` have the "neutral" East Asian
+# width and `›` too, so a CJK locale keeps them one column wide: glibc's wcwidth, which
+# zle uses, gives them one column in every UTF-8 locale, and Ghostty draws them one
+# column wide whatever the locale (efr-screen-ghostty's widths test). The marker is
+# also the sticky word (see _efr_sticky_word); `>` cannot be one, so a prompt line of
+# sticky mode starts with `, ` in such a locale.
 if [[ -o multibyte && ${LC_ALL:-${LC_CTYPE:-$LANG}} == *.[Uu][Tt][Ff](-|)8* ]]; then
-  : ${EFR_STICKY_INDICATOR:='🤖 '}
-  : ${EFR_FULL_MARK='🔓'}
-  typeset -g _efr_outside_mark='○' _efr_scope_end='›'
+  typeset -g _efr_home_mark='⌂' _efr_marker='›' _efr_separator='·' _efr_more='…'
+  # The sticky word of the versions before the marker. A line of history that starts
+  # with it still goes to the agent.
+  typeset -g _efr_old_sticky_word='🤖'
 else
-  : ${EFR_STICKY_INDICATOR:='efr> '}
-  : ${EFR_FULL_MARK='!'}
-  typeset -g _efr_outside_mark='o' _efr_scope_end='>'
+  typeset -g _efr_home_mark='~' _efr_marker='>' _efr_separator='-' _efr_more='...'
+  typeset -g _efr_old_sticky_word=
 fi
-: ${EFR_STICKY_STYLE:='fg=magenta'}
-# The region_highlight style of the tag with the terminal's settings before the robot.
-# zsh has no dim attribute; colour 8 is the grey that most themes use for it.
-: ${EFR_TAG_STYLE:='fg=8'}
-# The region_highlight style of the scope after the robot: the same muted grey.
-: ${EFR_SCOPE_STYLE:='fg=8'}
+# The longest scope that the corner shows, in columns; a longer name is cut and ends
+# with `…`.
+typeset -gi _efr_scope_cells=16
+# 1 once efr_corner ran: the prompt has the corner, so the marker of sticky mode
+# carries nothing else. 1 in _efr_corner_export when the corner goes to the exported
+# variables instead of RPROMPT.
+typeset -gi _efr_has_corner _efr_corner_export
+# The corner's text with the prompt escapes of its colours, which precmd sets, and the
+# RPROMPT that efr_corner made of the theme's own right side ($_efr_theme_rprompt) and
+# the corner.
+typeset -g _efr_corner_text _efr_corner_rprompt _efr_theme_rprompt _efr_theme_right
+# The prompt file's stamp that _efr_read_prompt_file read last, the default mode that
+# efrd wrote there, and the colour of each role that it wrote, by role.
+typeset -g _efr_prompt_seen _efr_default_mode
+typeset -gA _efr_colors
 # The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
-# the registered project that holds $PWD, the outside mark (`○`) anywhere else, or
+# the registered project that holds $PWD, the home mark (`⌂`) anywhere else, or
 # empty while efrd never wrote its projects file. precmd sets it. Each `%` of the name
 # is doubled, because a prompt reads `%` as the start of an escape, and so is each `!`
 # while prompt_bang is on, because that option reads `!` as the history number.
@@ -253,17 +285,16 @@ typeset -g efr_scope=
 # it before `emulate -L zsh`, which turns the option off inside a function.
 typeset -gi _efr_prompt_bang=0
 # The same scope as efr_scope with its `%` as typed, for the marker in PREDISPLAY,
-# which zle shows as plain text.
+# which zle shows as plain text, and for the variables of `efr_corner export`.
 typeset -g _efr_scope_text=
 # The projects file's stamp that _efr_read_projects read last, and its projects: their
 # roots and names in the order of the file, the deepest root first.
 typeset -g _efr_projects_seen
 typeset -ga _efr_project_roots _efr_project_names
-# The config file and its stamp that _efr_config_full read last, and whether it made
-# full mode the default.
-typeset -g _efr_config_seen
-typeset -gi _efr_config_full_mode
-# What the sticky word (see _efr_sticky_word) expands to. The backslash keeps zsh from
+# The config file and its stamp that _efr_config_mode read last, and the default mode
+# that it gives.
+typeset -g _efr_config_seen _efr_config_default_mode
+# What the sticky words (see _efr_sticky_word) expand to. The backslash keeps zsh from
 # expanding the `,` alias inside it again, which would leave a second `#` among the
 # words of a quoted prompt.
 typeset -g _efr_sticky_alias='\, #'
@@ -329,43 +360,77 @@ _efr_context_json() {
   REPLY="{${(j:,:)fields}}"
 }
 
-# Sets REPLY to the sticky word: the indicator without its trailing blanks, such as
-# the robot. A prompt line sent in sticky mode starts with it, where the indicator
-# stood, and it is an alias of `,`. It must be one plain word that names nothing else;
-# returns 1 when the indicator is no such word (`efr> ` holds a redirection), and a
-# prompt line then starts with `, ` instead.
-_efr_sticky_word() {
+# True when $1 can be a sticky word: one plain word that names nothing else. It is an
+# alias of `,`, so it must hold nothing that zsh reads as syntax in a command word, and
+# no command, function, builtin, reserved word or other alias may have its name.
+_efr_free_word() {
   emulate -L zsh -o extended_glob
-  REPLY=${EFR_STICKY_INDICATOR%%[[:space:]]##}
-  [[ -n $REPLY && $REPLY != -* ]] || return 1
+  [[ -n $1 && $1 != -* ]] || return 1
   # What zsh reads as syntax in a command word, and the `,` of the plugin's commands.
-  [[ $REPLY != *[[:space:]\\\'\"\`\$\;\&\|\<\>\(\)\[\]\{\}\*\?\~\^\#\=\!,%]* ]] || return 1
-  [[ ${aliases[$REPLY]-$_efr_sticky_alias} == "$_efr_sticky_alias" ]] || return 1
-  (( ! $+commands[$REPLY] && ! $+functions[$REPLY] && ! $+builtins[$REPLY] && ! ${reswords[(Ie)$REPLY]} ))
+  [[ $1 != *[[:space:]\\\'\"\`\$\;\&\|\<\>\(\)\[\]\{\}\*\?\~\^\#\=\!,%]* ]] || return 1
+  [[ ${aliases[$1]-$_efr_sticky_alias} == "$_efr_sticky_alias" ]] || return 1
+  (( ! $+commands[$1] && ! $+functions[$1] && ! $+builtins[$1] && ! ${reswords[(Ie)$1]} ))
 }
 
-# Makes the sticky word an alias of `,`. Runs when the plugin is sourced and on every
-# prompt line in sticky mode, so a new indicator works at once.
+# Sets REPLY to the sticky word: the marker (`›`). A prompt line sent in sticky mode
+# starts with it, where the marker stood, and it is an alias of `,`. Returns 1 when the
+# marker can be no such word (`>` is a redirection, see _efr_free_word); a prompt line
+# then starts with `, ` instead.
+_efr_sticky_word() {
+  REPLY=$_efr_marker
+  _efr_free_word "$REPLY" || { REPLY=; return 1 }
+}
+
+# Sets reply to every sticky word: the marker and the robot of older versions, which
+# lines of history may still start with. Both are aliases of `,`.
+_efr_sticky_words() {
+  local word
+  reply=()
+  for word in $_efr_marker $_efr_old_sticky_word; do
+    _efr_free_word "$word" && reply+=("$word")
+  done
+  return 0
+}
+
+# Makes each sticky word an alias of `,`. Runs when the plugin is sourced and on every
+# prompt line in sticky mode, so a word that became free works at once.
 _efr_alias_sticky_word() {
-  _efr_sticky_word || return 0
-  [[ ${aliases[$REPLY]-} == "$_efr_sticky_alias" ]] || alias -- "$REPLY=$_efr_sticky_alias"
+  local word
+  local -a reply
+  _efr_sticky_words
+  for word in $reply; do
+    [[ ${aliases[$word]-} == "$_efr_sticky_alias" ]] || alias -- "$word=$_efr_sticky_alias"
+  done
+}
+
+# Sets REPLY to the sticky words as alternatives of a pattern, each after a `|`, such
+# as `|›|🤖`, or to nothing without one.
+_efr_sticky_pattern() {
+  local word
+  local -a reply
+  _efr_sticky_words
+  REPLY=
+  for word in $reply; do
+    REPLY+="|${(b)word}"
+  done
 }
 
 # Sets REPLY to a pattern for the first word of a plugin line: `,new`, `,compact`,
-# `,!`, `,` or the sticky word.
+# `,!`, `,` or a sticky word.
 _efr_command_pattern() {
-  local word=
-  _efr_sticky_word && word="|${(b)REPLY}"
-  REPLY=",new|,compact|,!|,$word"
+  _efr_sticky_pattern
+  REPLY=",new|,compact|,!|,$REPLY"
 }
 
-# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, `,compact`, the
+# True when $1 runs one of this plugin's commands (`,`, `,new`, `,!`, `,compact`, a
 # sticky word), which is not a shell command worth reporting as the last command.
 _efr_is_plugin_line() {
   emulate -L zsh -o extended_glob
   local REPLY
   [[ $1 == [[:space:]]#,* ]] && return 0
-  _efr_sticky_word && [[ $1 == [[:space:]]#"$REPLY"([[:space:]]*|) ]]
+  _efr_sticky_pattern
+  [[ -n $REPLY ]] || return 1
+  [[ $1 == [[:space:]]#(${~REPLY#|})([[:space:]]*|) ]]
 }
 
 # Sets REPLY to the line that runs for the line $1. A line that calls one of this
@@ -515,33 +580,36 @@ _efr_settings() {
   return $code
 }
 
-# Sets REPLY to the tag of the terminal's own turn settings, such as `auto gpt-5.4 `:
-# each value that is set, then a blank. Empty when the config decides all of them. Full
-# mode is no word of the tag: the full mark next to the robot shows it.
-_efr_tag() {
-  emulate -L zsh
-  local mode=$_efr_turn_mode
-  [[ $mode == full ]] && mode=
-  # Unquoted, an empty value leaves no word.
-  local -a set=($mode $_efr_turn_model $_efr_turn_effort)
-  REPLY=${(j: :)set}
-  [[ -z $REPLY ]] || REPLY+=' '
+# Sets REPLY to the permission mode of a prompt sent now from this terminal, which the
+# corner shows: the terminal's own value (`,mode`), else the default that efrd wrote to
+# prompt.tsv (see _efr_read_prompt_file), else, before efrd ever ran, the one of
+# efr's config.toml (see _efr_config_mode), else `cautious`. efrd decides the mode of
+# each turn.
+_efr_mode_now() {
+  if [[ -n $_efr_turn_mode ]]; then
+    REPLY=$_efr_turn_mode
+  elif _efr_read_prompt_file && [[ -n $_efr_default_mode ]]; then
+    REPLY=$_efr_default_mode
+  else
+    _efr_config_mode
+  fi
 }
 
-# True when this terminal's prompts run in full mode: its own value is `full`, or it
-# has none and the config's default is full (see _efr_config_full).
+# True when this terminal's prompts run in full mode (see _efr_mode_now).
 _efr_full_mode() {
-  [[ $_efr_turn_mode == full ]] && return 0
-  [[ -z $_efr_turn_mode ]] && _efr_config_full
+  local REPLY
+  _efr_mode_now
+  [[ $REPLY == full ]]
 }
 
-# True when efr's config.toml makes full mode the default of a prompt that names no
-# mode: `mode = "full"` and `allow_full = true` in its [permissions] table (or as the
-# dotted keys permissions.mode and permissions.allow_full). The file is found by the
-# rule of efr's config root: EFR_CONFIG_DIR, else $EFR_HOME/config, else
-# $XDG_CONFIG_HOME/efr, else ~/.config/efr. It is read again only when its time or its
-# size changed. The answer only picks the tag; efrd decides the mode of each turn.
-_efr_config_full() {
+# Sets REPLY to the default mode of efr's config.toml for a prompt that names no mode:
+# `permissions.mode` in its [permissions] table (or as the dotted key), `auto` in place
+# of a `full` that `permissions.allow_full = true` does not allow, else `cautious`. The
+# file is found by the rule of efr's config root: EFR_CONFIG_DIR, else
+# $EFR_HOME/config, else $XDG_CONFIG_HOME/efr, else ~/.config/efr. It is read again
+# only when its time or its size changed. Only the corner uses it, before efrd ever
+# wrote prompt.tsv.
+_efr_config_mode() {
   emulate -L zsh -o extended_glob
   local file
   if [[ -n $EFR_CONFIG_DIR ]]; then
@@ -558,7 +626,6 @@ _efr_config_full() {
   zstat -H stat -- $file 2>/dev/null && stamp+=":$stat[mtime]:$stat[size]"
   if [[ $stamp != "$_efr_config_seen" ]]; then
     _efr_config_seen=$stamp
-    _efr_config_full_mode=0
     local line table= key value mode= allow=
     if [[ -f $file && -r $file ]]; then
       for line in "${(@f)$(<$file)}"; do
@@ -579,9 +646,14 @@ _efr_config_full() {
         esac
       done
     fi
-    [[ $mode == full && $allow == true ]] && _efr_config_full_mode=1
+    case $mode in
+      (manual|cautious|auto) ;;
+      (full) [[ $allow == true ]] || mode=auto ;;
+      (*) mode=cautious ;;
+    esac
+    _efr_config_default_mode=$mode
   fi
-  (( _efr_config_full_mode ))
+  REPLY=$_efr_config_default_mode
 }
 
 # Sets REPLY to the prompt text of a plugin command called with the arguments "$@".
@@ -782,7 +854,8 @@ function ,effort {
 # terminal gets now, with its source and the choices. `default` clears the terminal's
 # value, so the config decides again. Any other value is kept only when `efr settings`
 # accepts it together with the terminal's other values; otherwise efr says why and
-# lists the choices, and nothing changes.
+# lists the choices, and nothing changes. A value that is kept, or `default`, prints
+# one muted line that says what the next prompt gets (see _efr_said_setting).
 _efr_turn_setting() {
   emulate -L zsh
   local name=$1 var=_efr_turn_$1
@@ -797,14 +870,16 @@ _efr_turn_setting() {
   if [[ $value == default ]]; then
     typeset -g -- "$var="
     _efr_settings || return
+    _efr_said_setting $name default
   elif [[ -n $value ]]; then
     # One word with `=`, so a value that starts with `-` stays a value for efr.
     _efr_settings "--$name=$value" || return
     typeset -g -- "$var=$value"
+    _efr_said_setting $name set
   else
     _efr_settings || return
+    _efr_print_setting $name
   fi
-  _efr_print_setting $name
 }
 
 # Prints the line of the setting $1 from reply, the output of `efr settings`. A value
@@ -823,51 +898,87 @@ _efr_print_setting() {
   done
 }
 
+# Sets REPLY to the value of the setting $1 in reply, the output of `efr settings`; empty
+# when it is not set there.
+_efr_setting_value() {
+  local line
+  REPLY=
+  for line in $reply; do
+    [[ $line == "$1 = "* ]] || continue
+    REPLY=${${line#"$1 = "}%%  \#*}
+    [[ $REPLY == \(*\) ]] && REPLY=
+    return 0
+  done
+}
+
+# Prints what the next prompt from this terminal gets after `,$1 <value>` ($2 `set`) or
+# `,$1 default` ($2 `default`), muted: `,model: b/gpt-5.5 medium for this terminal from
+# the next prompt`. The model names its effort too. `,mode full` prints nothing here:
+# `efr settings` already said what full mode does.
+_efr_said_setting() {
+  emulate -L zsh
+  local name=$1 how=$2 what REPLY
+  _efr_setting_value $name
+  what=$REPLY
+  [[ $name == mode && $what == full && $how == set ]] && return 0
+  if [[ $name == model ]]; then
+    _efr_setting_value effort
+    [[ -n $REPLY ]] && what+=" $REPLY"
+  fi
+  [[ -n $what ]] || what="the daemon's default"
+  if [[ $how == set ]]; then
+    _efr_print_painted muted ",$name: $what for this terminal from the next prompt"
+  else
+    _efr_print_painted muted ",$name: $what from the next prompt; the config decides"
+  fi
+}
+
 # --- sticky agent mode ------------------------------------------------------------
 
-# Shows the indicator before the typed text while sticky mode is on: the dim tag of the
-# terminal's own turn settings (see _efr_tag), the robot, the full mark while the
-# terminal's prompts run in full mode (EFR_FULL_MARK, unstyled), and the
-# muted scope of the next prompt with `›` after it (see _efr_update_scope), such as
-# `auto 🤖🔓 app › `. Without a projects file the scope part is left out. With $1
-# `tag` only the tag stays, for a prompt line whose first word takes the robot's
-# place; with `hide` nothing shows. With sticky mode off nothing shows: the turn's red
-# first line says full mode. PREDISPLAY is not part of the buffer and leaves PROMPT
-# alone, so it works with any prompt theme, including one whose prompt starts with a
-# newline, and history never sees it. Only a command line gets it, never a
-# continuation line or a value that vared edits. Runs from the line-init hook, on every
-# toggle and when a line is accepted.
+# Shows the marker before the typed text while sticky mode is on: `›` (bold, in the
+# accent colour), and, without the prompt corner, what the corner would show before
+# it: `full` (in the error colour) in full mode and the muted scope of the next prompt
+# (see _efr_update_scope), such as `full app › `. With the corner, the marker alone.
+# Without a projects file the scope is left out. With $1 `tag` only the part before
+# the marker stays, for a prompt line whose first word takes the marker's place; with
+# `hide` nothing shows. PREDISPLAY is not part of the buffer and leaves PROMPT alone,
+# so it works with any prompt theme, including one whose prompt starts with a newline,
+# and history never sees it. Only a command line gets it, never a continuation line or
+# a value that vared edits. Runs from the line-init hook, on every toggle and when a
+# line is accepted.
 _efr_show_indicator() {
   # NOTE: zle gives region_highlight back with other offsets than it was given, so the
   # plugin's own entries are found by their memo, not by their text.
   region_highlight=(${region_highlight:#*memo=efr*})
   if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
-    local REPLY tag
+    local REPLY start
     local -a mine
-    _efr_tag
-    tag=$REPLY
-    PREDISPLAY=$tag
-    [[ -n $tag ]] && mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
-    if [[ $1 != tag ]]; then
-      # The robot without its trailing blanks, then the full mark, then the blanks.
-      local gap=${EFR_STICKY_INDICATOR##*[^[:space:]]} word start
-      word=${EFR_STICKY_INDICATOR%"$gap"}
-      start=${#PREDISPLAY}
-      if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
-        PREDISPLAY+=$word
-        mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
-        PREDISPLAY+=$EFR_FULL_MARK$gap
-      else
-        PREDISPLAY+=$word$gap
-        mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
+    PREDISPLAY=
+    if (( ! _efr_has_corner )); then
+      if _efr_full_mode; then
+        _efr_zle_style error
+        [[ -n $REPLY ]] && mine+=("P0 4 $REPLY memo=efr")
+        PREDISPLAY+='full '
       fi
       _efr_update_scope
       if [[ -n $_efr_scope_text ]]; then
-        [[ -z $gap ]] && PREDISPLAY+=' '
         start=${#PREDISPLAY}
-        PREDISPLAY+="$_efr_scope_text $_efr_scope_end "
-        mine+=("P$start ${#PREDISPLAY} $EFR_SCOPE_STYLE memo=efr")
+        PREDISPLAY+=$_efr_scope_text
+        _efr_zle_style muted
+        [[ -n $REPLY ]] && mine+=("P$start ${#PREDISPLAY} $REPLY memo=efr")
+        PREDISPLAY+=' '
       fi
+    fi
+    if [[ $1 != tag ]]; then
+      start=${#PREDISPLAY}
+      PREDISPLAY+=$_efr_marker
+      _efr_zle_style accent
+      mine+=("P$start ${#PREDISPLAY} $REPLY,bold memo=efr")
+      PREDISPLAY+=' '
+    elif [[ -n $2 ]]; then
+      # The marker that took its place on the line keeps its look.
+      _efr_zle_style accent
+      mine+=("0 ${#2} $REPLY,bold memo=efr")
     fi
     region_highlight+=($mine)
   else
@@ -978,8 +1089,9 @@ _efr_command_word_line() {
 # for any other line, also for a prompt of several lines.
 _efr_comma_command_line() {
   emulate -L zsh -o extended_glob
-  local word=
-  _efr_sticky_word && word="|${(b)REPLY}"
+  local word
+  _efr_sticky_pattern
+  word=$REPLY
   [[ $1 == (#b)([[:space:]]#)(,${~word})[[:space:]]##(*) ]] || return 1
   local lead=$match[1] text=${match[3]%%[[:space:]]##}
   [[ $text != *$'\n'* ]] || return 1
@@ -991,11 +1103,11 @@ _efr_comma_command_line() {
 # line goes to the agent unless it is a plugin line (`,` and the commands above, or a
 # line that history recalled with the sticky word in front), starts with `!` (an
 # escape hatch for one shell command), is a bare command word (see
-# _efr_command_word_line), or is empty. Such a prompt line gets the indicator's own text in
-# front, so the line looks on the screen as it did while it was typed; when the
-# indicator is no sticky word, it gets `, ` instead. Nothing else changes. Outside
-# sticky mode every line runs as typed. Sets _efr_prompt_line to 1 for a prompt line
-# and to 0 for any other.
+# _efr_command_word_line), or is empty. Such a prompt line gets the marker in front, so
+# the line looks on the screen as it did while it was typed; when the marker is no
+# sticky word, it gets `, ` instead. Nothing else changes. Outside sticky mode every
+# line runs as typed. Sets _efr_prompt_line to 2 for a prompt line that starts with the
+# marker, to 1 for one that starts with `, ` and to 0 for any other.
 _efr_line_to_run() {
   emulate -L zsh -o extended_glob
   local line=$1
@@ -1009,9 +1121,8 @@ _efr_line_to_run() {
   elif _efr_command_word_line "$line"; then
     :
   elif _efr_sticky_word; then
-    local gap=${EFR_STICKY_INDICATOR#"$REPLY"}
-    REPLY="$REPLY${gap:- }$line"
-    _efr_prompt_line=1
+    REPLY="$REPLY $line"
+    _efr_prompt_line=2
   else
     REPLY=", $line"
     _efr_prompt_line=1
@@ -1116,8 +1227,9 @@ _efr_stash_line() {
 _efr_split_line() {
   emulate -L zsh -o extended_glob
   [[ $1 == *$'\n'* ]] || return 1
-  local word= line text
-  _efr_sticky_word && word="|${(b)REPLY}"
+  local word line text
+  _efr_sticky_pattern
+  word=$REPLY
   local first=",new|,$word" later=",$word"
   local -a texts
   for line in "${(@f)1}"; do
@@ -1185,10 +1297,15 @@ _efr_accept_line() {
   if (( _efr_sticky )); then
     _efr_line_to_run "$BUFFER"
     [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
-    # The line that runs takes the indicator's place on the screen: a prompt line
-    # starts with the sticky word where the indicator stood, after the tag that stays,
-    # so nothing moves, and a `!` line shows the command that runs.
-    if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
+    # The line that runs takes the marker's place on the screen: a prompt line starts
+    # with the marker where it stood, after the scope that stays without the corner, so
+    # nothing moves, and a `!` line shows the command that runs. A prompt line that
+    # starts with `, ` shows as one.
+    if (( _efr_prompt_line == 2 )); then
+      _efr_show_indicator tag "$_efr_marker"
+    else
+      _efr_show_indicator hide
+    fi
     _efr_alias_sticky_word
     sticky_prompt=$_efr_prompt_line
   fi
@@ -1257,7 +1374,7 @@ _efr_read_projects() {
 
 # Sets _efr_scope_text to the scope of a prompt sent now: the name of the registered
 # project whose root holds $PWD, or else ${PWD:A} (its links resolved), as efrd routes;
-# the outside mark (`○`) anywhere else; empty without a projects file. A root matches
+# the home mark (`⌂`) anywhere else; empty without a projects file. A root matches
 # only whole components: ~/p/app holds ~/p/app/src but not ~/p/apple. The deepest root
 # wins. Sets efr_scope to the same text with each `%` doubled for a prompt, and each
 # `!` too while _efr_prompt_bang is 1.
@@ -1283,7 +1400,7 @@ _efr_update_scope() {
   if [[ -n $best ]]; then
     _efr_scope_text=${name:-${best:t}}
   else
-    _efr_scope_text=$_efr_outside_mark
+    _efr_scope_text=$_efr_home_mark
   fi
   efr_scope=${_efr_scope_text//\%/%%}
   (( _efr_prompt_bang )) && efr_scope=${efr_scope//\!/!!}
@@ -1291,11 +1408,11 @@ _efr_update_scope() {
 }
 
 # Prints the scope of a prompt sent now, for your own prompt: the project's name, such
-# as `app`, or `○` outside projects, after the full mark (EFR_FULL_MARK) and a blank
-# while the terminal's prompts run in full mode. No colours, and nothing without a
-# projects file. Each `%` of the name is doubled, as in $efr_scope, and each `!` while
-# prompt_bang is on, so a prompt with prompt_subst shows it as typed. It starts no
-# program, but $(efr_prompt_info) is a subshell; the variable $efr_scope needs none.
+# as `app`, or `⌂` at home, after `full` and a blank while the terminal's prompts run in
+# full mode. No colours, and nothing without a projects file. Each `%` of the name is
+# doubled, as in $efr_scope, and each `!` while prompt_bang is on, so a prompt with
+# prompt_subst shows it as typed. It starts no program, but $(efr_prompt_info) is a
+# subshell; the variable $efr_scope needs none, and efr_corner shows the mode too.
 # For example:
 #   setopt prompt_subst; RPROMPT='$(efr_prompt_info)'
 efr_prompt_info() {
@@ -1303,11 +1420,250 @@ efr_prompt_info() {
   emulate -L zsh
   _efr_update_scope
   [[ -n $efr_scope ]] || return 0
-  if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
-    print -r -- "$EFR_FULL_MARK $efr_scope"
+  if _efr_full_mode; then
+    print -r -- "full $efr_scope"
   else
     print -r -- "$efr_scope"
   fi
+}
+
+# --- the prompt corner -------------------------------------------------------------
+
+# Reads efrd's prompt file (prompt.tsv in the runtime root, see _efr_runtime_root) into
+# _efr_default_mode and _efr_colors, again only when its inode, time or size changed,
+# as _efr_read_projects reads the projects file. Each line is `<key><tab><value>`:
+# `mode` and `color.<role>`. Returns 1 when there is no file, such as before efrd ever
+# ran. It runs no program.
+_efr_read_prompt_file() {
+  emulate -L zsh -o extended_glob
+  local REPLY file
+  local -A stat
+  if ! _efr_runtime_root || ! zstat -H stat -- $REPLY/prompt.tsv 2>/dev/null; then
+    _efr_prompt_seen= _efr_default_mode=
+    _efr_colors=()
+    return 1
+  fi
+  file=$REPLY/prompt.tsv
+  local stamp="$file:$stat[inode]:$stat[mtime]:$stat[size]"
+  [[ $stamp == "$_efr_prompt_seen" ]] && return 0
+  _efr_prompt_seen=$stamp
+  _efr_default_mode=
+  _efr_colors=()
+  local line key value
+  [[ -r $file ]] || return 0
+  for line in "${(@f)$(<$file)}"; do
+    [[ $line == *$'\t'* ]] || continue
+    key=${line%%$'\t'*} value=${line#*$'\t'}
+    case $key in
+      (mode) [[ $value == (manual|cautious|auto|full) ]] && _efr_default_mode=$value ;;
+      (color.(text|muted|accent|warning|error))
+        [[ $value == (\#[[:xdigit:]](#c6)|<0-15>) ]] && _efr_colors[${key#color.}]=$value ;;
+    esac
+  done
+  return 0
+}
+
+# Sets REPLY to the depth of colour of this terminal, by efr's own rule: `none` when
+# NO_COLOR is set and not empty, `true` when COLORTERM says truecolor or 24bit, else
+# `16`, the terminal's 16 colours.
+_efr_depth() {
+  if [[ -n ${NO_COLOR-} ]]; then
+    REPLY=none
+  elif [[ ${(L)COLORTERM-} == (truecolor|24bit) ]]; then
+    REPLY=true
+  else
+    REPLY=16
+  fi
+}
+
+# Sets REPLY to the colour of the role $1 that efrd wrote to prompt.tsv, as zsh writes
+# it in a prompt or a highlight (`#8695b7` or a slot such as `8`), when a terminal of
+# the depth $2 (see _efr_depth) shows it: in truecolor only. Returns 1 without one.
+_efr_role_colour() {
+  REPLY=
+  [[ $2 == true ]] || return 1
+  _efr_read_prompt_file
+  REPLY=${_efr_colors[$1]-}
+  [[ -n $REPLY ]]
+}
+
+# Sets REPLY to the role $1 of efr's palette as prompt escapes around the text $2,
+# which must already be a prompt's text (`%` doubled). The role's colour from
+# prompt.tsv in truecolor, else its default in 16 colours: `muted` dim, `accent` and
+# `warning` slot 3, `error` slot 1, `text` the terminal's own; without colour, `muted`
+# dim and the other three bold. A prompt has no escape for dim: it is SGR 2 between
+# `%{` and `%}`.
+_efr_prompt_paint() {
+  emulate -L zsh
+  local role=$1 text=$2 depth
+  _efr_depth
+  depth=$REPLY
+  if _efr_role_colour $role $depth; then
+    REPLY="%F{$REPLY}$text%f"
+    return 0
+  fi
+  case $role:$depth in
+    (muted:*) REPLY="%{"$'\e[2m'"%}$text%{"$'\e[22m'"%}" ;;
+    (error:16) REPLY="%F{1}$text%f" ;;
+    ((accent|warning):16) REPLY="%F{3}$text%f" ;;
+    ((error|accent|warning):*) REPLY="%B$text%b" ;;
+    (*) REPLY=$text ;;
+  esac
+}
+
+# Sets REPLY to the role $1 as a style of zle's region_highlight, or to nothing when the
+# role shows plain: the role's colour in truecolor, else `accent` slot 3 and `error`
+# slot 1, and bold without colour. zle has no dim, so `muted` shows plain without a
+# colour of its own.
+_efr_zle_style() {
+  emulate -L zsh
+  local role=$1 depth
+  _efr_depth
+  depth=$REPLY
+  if _efr_role_colour $role $depth; then
+    REPLY="fg=$REPLY"
+    return 0
+  fi
+  case $role:$depth in
+    (error:16) REPLY='fg=1' ;;
+    ((accent|warning):16) REPLY='fg=3' ;;
+    ((error|accent|warning):none) REPLY='bold' ;;
+    (*) REPLY= ;;
+  esac
+}
+
+# Sets REPLY to the SGR sequence that starts the role $1 in text that the plugin prints
+# (a notice, the line of a setting), by the rules of _efr_prompt_paint; empty for a role
+# that shows plain. Only a terminal gets one: not a pipe or a file.
+_efr_term_style() {
+  emulate -L zsh
+  local role=$1 depth colour
+  REPLY=
+  [[ -t 1 ]] || return 0
+  _efr_depth
+  depth=$REPLY
+  if _efr_role_colour $role $depth; then
+    colour=$REPLY
+    if [[ $colour == \#* ]]; then
+      REPLY=$'\e'"[38;2;$(( 16#${colour[2,3]} ));$(( 16#${colour[4,5]} ));$(( 16#${colour[6,7]} ))m"
+    elif (( colour < 8 )); then
+      REPLY=$'\e'"[3${colour}m"
+    else
+      REPLY=$'\e'"[9$(( colour - 8 ))m"
+    fi
+    return 0
+  fi
+  case $role:$depth in
+    (muted:*) REPLY=$'\e[2m' ;;
+    (error:16) REPLY=$'\e[31m' ;;
+    ((accent|warning):16) REPLY=$'\e[33m' ;;
+    ((error|accent|warning):none) REPLY=$'\e[1m' ;;
+    (*) REPLY= ;;
+  esac
+}
+
+# Prints the pieces $2, $4, ... in the roles $1, $3, ... (see _efr_term_style) as one
+# line.
+_efr_print_painted() {
+  emulate -L zsh
+  local out= REPLY
+  while (( $# >= 2 )); do
+    _efr_term_style $1
+    if [[ -n $REPLY ]]; then
+      out+=$REPLY$2$'\e[0m'
+    else
+      out+=$2
+    fi
+    shift 2
+  done
+  print -r -- "$out"
+}
+
+# Sets _efr_corner_text to the corner of a prompt sent now, as prompt escapes: the scope
+# (see _efr_update_scope) in the text colour, cut to _efr_scope_cells columns, then
+# ` · ` and the mode (see _efr_mode_now) muted, or `full` in the error colour. Without a
+# projects file, the mode alone. With `efr_corner export`, it exports the scope and the
+# mode instead (EFR_CORNER_SCOPE, EFR_CORNER_MODE or EFR_CORNER_FULL). Then puts the
+# corner back in RPROMPT when the theme set it again (see efr_corner). Runs from precmd
+# after _efr_update_scope, only when efr_corner ran.
+_efr_update_corner() {
+  (( _efr_has_corner )) || return 0
+  local REPLY scope=$_efr_scope_text mode text= sep
+  _efr_mode_now
+  mode=$REPLY
+  if (( ${(m)#scope} > _efr_scope_cells )); then
+    local -i cut=$(( _efr_scope_cells - ${(m)#_efr_more} ))
+    while (( ${(m)#scope} > cut )); do
+      scope=${scope[1,-2]}
+    done
+    scope+=$_efr_more
+  fi
+  if (( _efr_corner_export )); then
+    if [[ -n $scope ]]; then
+      export EFR_CORNER_SCOPE=$scope
+    else
+      unset EFR_CORNER_SCOPE
+    fi
+    if [[ $mode == full ]]; then
+      unset EFR_CORNER_MODE
+      export EFR_CORNER_FULL=full
+    else
+      unset EFR_CORNER_FULL
+      export EFR_CORNER_MODE=$mode
+    fi
+    return 0
+  fi
+  if [[ -n $scope ]]; then
+    scope=${scope//\%/%%}
+    (( _efr_prompt_bang )) && scope=${scope//\!/!!}
+    _efr_prompt_paint text $scope
+    text=$REPLY
+    sep=" $_efr_separator "
+  fi
+  if [[ $mode == full ]]; then
+    if [[ -n $sep ]]; then
+      _efr_prompt_paint muted $sep
+      text+=$REPLY
+    fi
+    _efr_prompt_paint error full
+    text+=$REPLY
+  else
+    _efr_prompt_paint muted "$sep$mode"
+    text+=$REPLY
+  fi
+  _efr_corner_text=$text
+  efr_corner
+}
+
+# Puts the prompt corner at the right edge of the prompt: the scope and the permission
+# mode of the next prompt, such as `app · auto`. Call it once in .zshrc, after the
+# theme's own setup. The theme's right side (RPROMPT) stays in front of the corner,
+# with two blanks between them when it shows anything; it runs once for each prompt,
+# as before. It turns prompt_subst on, and it runs again at each prompt, so a theme that
+# sets RPROMPT again keeps the corner. `efr_corner export` exports the corner's parts
+# instead (see _efr_update_corner) and leaves RPROMPT alone, for a theme that shows
+# them itself, such as on line 1 of a two-line prompt.
+efr_corner() {
+  typeset -g _efr_has_corner=1
+  if [[ $1 == export ]]; then
+    typeset -g _efr_corner_export=1
+    return 0
+  fi
+  (( _efr_corner_export )) && return 0
+  [[ -n $_efr_corner_rprompt && $RPROMPT == "$_efr_corner_rprompt" ]] && return 0
+  _efr_theme_rprompt=$RPROMPT
+  if [[ -z $RPROMPT ]]; then
+    _efr_corner_rprompt='${_efr_corner_text}'
+  elif [[ -o prompt_subst ]]; then
+    # NOTE: the theme's string runs once, assigned as it expands, and gives the two
+    # blanks only when it shows something. It stays in a variable: a `}` of it, as in
+    # `%F{4}`, would end the expansion early.
+    _efr_corner_rprompt='${_efr_theme_right::=${(e)_efr_theme_rprompt}}${_efr_theme_right:+  }${_efr_corner_text}'
+  else
+    _efr_corner_rprompt='${_efr_theme_rprompt}  ${_efr_corner_text}'
+  fi
+  setopt prompt_subst
+  RPROMPT=$_efr_corner_rprompt
 }
 
 # --- daemon notices ---------------------------------------------------------------
@@ -1343,11 +1699,14 @@ _efr_runtime_root() {
 # zsh/datetime is missing, drops nothing.
 (( ${+_efr_shell_start} )) || typeset -gi _efr_shell_start=${${EPOCHREALTIME-0}%%[.,]*}
 
-# The daemon leaves notices (an approval waiting, a finished turn) in one file per
-# terminal under its runtime root; the prompt shows them. Moving the file first means
-# a notice written while printing lands in a new file instead of being lost. The rule
-# of _efr_shell_start works per file: the time of the file is the time of its last
-# line, so one new line keeps the older lines of the same file too.
+# The daemon leaves notices (a question waiting, a finished turn, a job's end) in one
+# file per terminal under its runtime root; the prompt shows them, one row each. Moving
+# the file first means a notice written while printing lands in a new file instead of
+# being lost. The rule of _efr_shell_start works per file: the time of the file is the
+# time of its last line, so one new line keeps the older lines of the same file too.
+# A line is muted. A line with tabs is pieces with roles of their own,
+# `<role><tab><text>` one after the other, such as a failed exit code in the error
+# colour and a waiting question in the warning colour.
 _efr_print_notices() {
   [[ -n $TTY ]] || return 0
   local REPLY
@@ -1362,7 +1721,14 @@ _efr_print_notices() {
     zf_rm -f -- "$shown" 2>/dev/null
     return 0
   fi
-  print -r -- "$(<$shown)"
+  local line
+  for line in "${(@f)$(<$shown)}"; do
+    if [[ $line == *$'\t'* ]]; then
+      _efr_print_painted "${(@ps:\t:)line}"
+    else
+      _efr_print_painted muted "$line"
+    fi
+  done
   zf_rm -f -- "$shown" 2>/dev/null
 }
 
@@ -1461,6 +1827,7 @@ _efr_precmd() {
   _efr_register_completion
   if [[ -o prompt_bang ]]; then _efr_prompt_bang=1; else _efr_prompt_bang=0; fi
   _efr_update_scope
+  _efr_update_corner
 }
 
 # --- terminal background ----------------------------------------------------------

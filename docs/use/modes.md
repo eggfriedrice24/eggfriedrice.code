@@ -1,6 +1,6 @@
 # Permission modes
 
-<!-- sources: README.md "The auto mode", "The full mode", "Use" (`,mode` bullet, approvals); docs/permissions.md "Permission modes", "How the engine decides", "Path classes", "The built-in rules", "Full mode"; docs/config.md [permissions]; shell/zsh/efr.plugin.zsh (`,mode`, EFR_MODE); crates/efr-cli/src/turn_settings.rs; crates/efr-cli/src/commands/settings.rs; crates/efr-cli/src/format/sandbox.rs; crates/efr-permissions/src/policy.rs, full.rs; crates/efr-daemon/src/full.rs; docs/adr/0015-full-mode.md -->
+<!-- sources: README.md "The auto mode", "The full mode", "Use" (`,mode` bullet, approvals); docs/permissions.md "Permission modes", "How the engine decides", "Path classes", "The built-in rules", "Full mode"; docs/config.md [permissions]; shell/zsh/efr.plugin.zsh (`,mode`, EFR_MODE, efr_corner); crates/efr-daemon/src/prompt_file.rs; crates/efr-cli/src/turn_settings.rs; crates/efr-cli/src/commands/settings.rs; crates/efr-cli/src/format/sandbox.rs; crates/efr-permissions/src/policy.rs, full.rs; crates/efr-daemon/src/full.rs; docs/adr/0015-full-mode.md -->
 
 Before a tool call of the agent runs, efr decides what to do with it. The call runs,
 it runs in the `auto` sandbox, it waits for your answer, or efr denies it. The
@@ -32,6 +32,12 @@ keep their own choice, and `,new` keeps the choice of its terminal. efr keeps a 
 only when the daemon accepts it. `,mode default` clears the choice, so the config
 file decides again. Tab completes the names of the modes.
 
+`,mode auto` says in one muted line what the next prompt gets:
+
+```text
+,mode: auto for this terminal from the next prompt
+```
+
 `,mode` alone shows the mode that the next prompt gets, where it comes from, and the
 choices:
 
@@ -55,8 +61,24 @@ A turn keeps its mode until it ends. A steer with `,!` takes no settings.
 
 ### Where you see the mode
 
-- In sticky mode, the choices of the terminal stand as a dim tag before the robot,
-  such as `auto gpt-5.4 🤖`.
+The prompt corner shows the mode of the next prompt at the right edge of your zsh
+prompt, after the scope: `app · auto`, `⌂ · cautious`. The mode is muted, and `full`
+is in the error colour: `app · full`. It records the mode of each prompt in the
+scrollback. One line in `.zshrc` sets it up, after the setup of your prompt theme:
+
+```zsh
+efr_corner
+```
+
+The corner reads the mode with no program run: efrd writes the default mode of
+`config.toml` to `prompt.tsv` in its runtime directory. Before efrd ever ran, the
+corner reads `permissions.mode` from `config.toml` itself.
+[Conversations](conversations.md#the-prompt-corner) tells more about the corner.
+
+- Without the corner, sticky mode shows `full` before the scope in full mode, such as
+  `full app › `.
+- The status row of a running full turn ends its scope with `· full` in the error
+  colour.
 - A reply has no line for the settings of its prompt. The status row of a running turn
   shows the model, and a turn on another model than the turn before starts with a `⇄`
   line, such as `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`.
@@ -148,13 +170,16 @@ or a prompt injection. Where `auto` can run, `auto` is the safer choice.
      turn that names no mode.
 
 `,mode full` asks the daemon first. When the config does not allow full mode, it fails
-with the reason, and the terminal keeps its old mode. If not, it prints three lines:
+with the reason, and the terminal keeps its old mode. If not, it says once what full
+mode does, the first line in the error colour:
 
 ```text
-efr: full mode: commands run with your rights, with no sandbox and no questions.
-efr: efr reads each line: it denies secrets and its own config, and asks for sudo, for a process that outlives the turn and for a delete of ~, / or a project.
-efr: a script or a program that a line starts is not read; it can do what you can.
+full mode for this terminal: no sandbox, no questions
+efr undo reverts the project and the files efr saw · ,mode default goes back
 ```
+
+After that, no turn says it again: the prompt corner shows `app · full`, and the
+status row shows `full` in the error colour.
 
 `efr status` shows `full mode` with `allowed`, `off (permissions.allow_full is
 false)` or `refused (<reason>)`.

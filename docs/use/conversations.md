@@ -1,6 +1,6 @@
 # Conversations, resume and search
 
-<!-- sources: README.md "Use" (scopes, sticky scope, repo hint, tty_idle_hours, pick-up, `,new`, `,resume`, the fzf picker, `,away`, `ctx`, `,compact`, `,context`, the commands by hand); docs/config.md [conversation], [compaction], [presence], [resume]; crates/efr-cli/src/cli.rs (history, resume, conversation delete, search, compact, context, away); crates/efr-cli/README.md (the rows of efr history, compact, context, resume, search, away; Context); crates/efr-cli/src/commands/resume.rs, search.rs, conversation.rs; crates/efr-daemon/src/methods/conversation_delete.rs, crates/efr-daemon/src/deletes.rs; crates/efr-cli/src/picker.rs; crates/efr-cli/src/format/route.rs, resume.rs, search.rs and their snapshots; shell/zsh/efr.plugin.zsh (,resume); docs/adr/0019-conversation-search.md -->
+<!-- sources: README.md "Use" (scopes, sticky scope, the prompt corner, home, repo hint, tty_idle_hours, pick-up, `,new`, `,resume`, the fzf picker, `,away`, `ctx`, `,compact`, `,context`, the commands by hand); docs/config.md [conversation], [compaction], [presence], [resume]; crates/efr-cli/src/cli.rs (history, resume, conversation delete, search, compact, context, away); crates/efr-cli/README.md (the rows of efr history, compact, context, resume, search, away; Context); crates/efr-cli/src/commands/resume.rs, search.rs, conversation.rs; crates/efr-daemon/src/methods/conversation_delete.rs, crates/efr-daemon/src/deletes.rs; crates/efr-cli/src/picker.rs; crates/efr-cli/src/format/route.rs, resume.rs, search.rs and their snapshots; shell/zsh/efr.plugin.zsh (,resume, efr_corner, the sticky marker, the home mark); docs/adr/0019-conversation-search.md -->
 
 A conversation is the record of your prompts, the model's answers and the tool calls
 in between. efr keeps your conversations, so you can continue one later, find it by
@@ -9,16 +9,16 @@ its text, or start a new one.
 ## One conversation for each scope
 
 A terminal keeps one conversation for each registered project that you worked in. It
-also keeps one conversation for everything outside registered projects: `~`, `/etc`,
-or a git repository that is not registered. A directory below a project's root is
-that project. [Permission modes](modes.md#registered-projects) tells how to register
-a project.
+also keeps one conversation for home. Home is every place that is in no registered
+project: `~`, `/etc`, or a git repository that is not registered. It has the mark
+`⌂`, and writes there ask you. A directory below a project's root is that project.
+[Permission modes](modes.md#registered-projects) tells how to register a project.
 
 A prompt goes to the conversation of the scope where you send it. The conversation
 changes when you send a prompt, not when you `cd`. For example:
 
 1. A prompt in `~/p/app` continues this terminal's `app` conversation.
-2. `cd ~` and a prompt go back to the conversation outside projects.
+2. `cd ~` and a prompt go back to the home conversation.
 3. `cd ~/p/app` and a prompt continue the `app` conversation again.
 
 A prompt about two projects stays in the conversation of the project where you are.
@@ -39,9 +39,59 @@ the reply names each change of conversation, and only a change:
 The mark is in the accent colour, the sentence in the text colour, and the part in
 parentheses and what follows it are muted.
 
-In sticky mode, the scope of the next prompt stands after the robot: `🤖 app › ` in a
-project, and `🤖 ○ › ` outside projects. The status row of a running turn shows
-the scope too.
+The status row of a running turn shows the scope too, such as `app` or
+`⌂ /etc/nftables.d`. The scope cannot change in a turn: a `cd` of the model does not
+move it.
+
+### The prompt corner
+
+The prompt corner shows the scope and the permission mode of the next prompt at the
+right edge of your zsh prompt, before you press Enter:
+
+```text
+~/p/app main ❯ , why does parse_empty fail?                     app · auto
+~ ❯ , is the firewall up?                                     ⌂ · cautious
+```
+
+The scope is in the text colour, the mode is muted, and `full` is in the error
+colour. The corner stays on each prompt line in the scrollback, so it records where
+each prompt went and in which mode. Set it up with one line in `.zshrc`, after the
+setup of your prompt theme (starship, a framework, `PROMPT` or `RPROMPT`):
+
+```zsh
+efr_corner
+```
+
+- The right side of your theme stays before the corner, with two blanks between them.
+  The corner ends at the right edge.
+- `efr_corner` turns on `prompt_subst`. A `$` in a plain prompt string of your theme
+  then expands.
+- A project name of more than 16 columns is cut, and ends with `…`.
+- Before efrd ever ran, the corner shows the mode alone, such as `auto`.
+- A long typed line hides the corner, as zsh hides any right prompt. Then the
+  scrollback has no corner on that line.
+- `setopt transient_rprompt` removes the corner from the scrollback.
+- In a two-line prompt, the corner stands on the line where you type. For the corner
+  on line 1, `efr_corner export` exports `EFR_CORNER_SCOPE` and `EFR_CORNER_MODE` (or
+  `EFR_CORNER_FULL` in full mode) at each prompt, and leaves `RPROMPT` alone. Your
+  theme then shows them, such as starship with `$fill` before
+  `${env_var.EFR_CORNER_SCOPE}`.
+- In 16 colours the mode is dim and `full` is red. With `NO_COLOR` the mode is dim and
+  `full` is bold.
+- In a locale that is not UTF-8, `⌂` is `~` and `·` is `-`.
+
+The corner starts no program: efrd writes the registered projects to `projects.tsv`
+and the default mode and its colours to `prompt.tsv` in its runtime directory, and the
+plugin reads them again only when they change. Without the corner, you get the lines
+of each change of conversation, and nothing else.
+
+### Sticky mode
+
+Ctrl+Space, or a line of only `,`, turns on sticky mode: each line that you type goes
+to the agent. The marker `›` (bold, in the accent colour) stands before the typed
+text. With the prompt corner, the marker stands alone. Without the corner, it carries
+the scope of the next prompt: `app › ` in a project, `⌂ › ` at home, and `full app › `
+in full mode. In a locale that is not UTF-8 the marker is `>`.
 
 ### A repository that is not a project
 
@@ -53,8 +103,9 @@ the repository is in the colour of code, so you can copy it:
 ⌂ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool
 ```
 
-efr never registers a repository by itself. The prompt goes to the conversation
-outside projects. `conversation.repo_hint = false` turns the line off.
+efr never registers a repository by itself. The prompt goes to the home conversation.
+`conversation.repo_hint = false` turns the line off. After `efr project add`, the
+corner shows the new project at the next prompt.
 
 ### When a conversation ends
 
@@ -71,16 +122,16 @@ when these conditions are true:
 - No open terminal holds the conversation.
 - The conversation was active within `conversation.tty_idle_hours`.
 
-The hidden shell of the conversation starts in its last directory, and a dim line
-tells you:
+The hidden shell of the conversation starts in its last directory, and a line tells
+you:
 
 ```text
-↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh
+↪ picked up "fix the proxy test" in app (25 min ago) · ,new starts fresh
 ```
 
 A conversation is never open in two terminals. A terminal holds a conversation while
-its shell runs, or while it follows the conversation. The scope outside projects
-never picks up a conversation. A conversation that no terminal held, such as one of
+its shell runs, or while it follows the conversation. The home conversation is never
+picked up. A conversation that no terminal held, such as one of
 an `efr send` in a script, is never picked up.
 
 `conversation.follow_project = false` keeps one conversation per terminal, in all

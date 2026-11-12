@@ -1590,18 +1590,18 @@ runs on a pseudo-terminal with a pause after each part of the keys, as a person 
 one `efr warm --tty <tty>` for each `, ` prompt line, `,new` line (with `--new`) and
 line of sticky mode, none for a plain command, none while the daemon has no socket,
 and no text of the prompt in its command line or its environment. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
-tag of the terminal's settings before the robot, the bare command words of sticky
-mode, a `,word` that names nothing as a prompt, the full mark next to the robot in
-sticky mode (`EFR_FULL_MARK`) and no tag outside it, the mark of a
-`config.toml` that makes full mode the default, until `,mode` or a change of the file
-says otherwise, and the scope marker: the project's name or `○` after the robot from a
+marker `›` alone before the typed text and as the first word after Enter, the bare
+command words of sticky mode, a `,word` that names nothing as a prompt, `full` before
+the scope in sticky mode without the corner, the default mode of a `config.toml`
+before efrd wrote `prompt.tsv`, until `,mode` or a change of the file says otherwise,
+and the scope marker: the project's name or `⌂` before the marker from a
 `projects.tsv` written by hand, the deepest root and whole components, a symlinked
-directory, the plain-text marks without UTF-8, no program run while lines draw (a
+directory, the ASCII marks without UTF-8, no program run while lines draw (a
 fake `efr` and a fake `git` record nothing), a new read only when the file's inode,
 time or size changed (`touch -d @<epoch>`, no sleep), `efr_prompt_info` and
 `$efr_scope`, a `%` in a name (doubled for a prompt, as typed in the marker), a `!` in
 a name (doubled for a prompt while `prompt_bang` is on, as typed in the marker), `PROMPT`
-and `RPROMPT` that never change, and no marker without the file) are tested by typing
+that never changes, and no marker without the file) are tested by typing
 into an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty`
 module, so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and
 skip with a message unless `EFR_TEST_ZSH=1`:
@@ -1609,6 +1609,18 @@ skip with a message unless `EFR_TEST_ZSH=1`:
 ```sh
 EFR_TEST_ZSH=1 cargo nextest run -p efr-cli -E 'test(/^plugin::/)'
 ```
+
+`tests/it/plugin/look.rs` compares the plugin's look with the frames of the design
+(`efr_test_support::design`): it starts `zsh -i` with its own `ZDOTDIR` on a
+pseudo-terminal of the frame's width, with a `.zshrc` whose prompt is the theme of the
+board's row and which calls `efr_corner`, types keys, replays the bytes on a vt100
+screen and compares rows cell by cell, in truecolor (with efrd's `prompt.tsv` of the
+design's palette), 16 colours and `NO_COLOR`: the corner in each mode, at home, before
+efrd ever ran, next to a theme's right side, on a plain and a two-line prompt, at 60
+columns and hidden by a long line (TM-Scope 1-10), the marker of sticky mode with and
+without the corner (TM-Scope 17, 18), TM-Legend 1-3, the line of `,model` and the
+corner after `,mode full` (TM-Endings 5, 8), the prompt rows of TM-Endings 1-9, and the
+notices at the next prompt (TM-Endings 11-13).
 
 `tests/it/smoke.rs` runs the built `efr` against a real daemon, `efr-test-daemon`'s
 `TestDaemon`, in the test's process: the `efr --help` snapshot, `efr status`, and an

@@ -25,7 +25,8 @@ efrd
 
 - **The zsh plugin** (`efr.plugin.zsh`) watches your shell. For each `,` line, it runs
   `efr`. It reads your directory and your recent commands, but it runs no git and
-  decides nothing.
+  decides nothing. Its prompt corner shows the scope and the mode of the next prompt,
+  from two small files that efrd writes for it.
 - **`efr`** is the command line client. It sends a request to the daemon and shows
   the answer, such as a reply that streams. It is a thin relay: the daemon holds the
   state.
@@ -45,8 +46,9 @@ efrd talks to the model API directly. It does not wrap another coding agent.
    read the arguments of a process.
 3. efr connects to efrd over a Unix socket.
 4. efrd decides the scope of the prompt: the registered project that holds the
-   directory, or the scope outside projects. It sends the prompt to this terminal's
-   conversation of that scope.
+   directory, or home (`⌂`), every place in no project. It sends the prompt to this
+   terminal's conversation of that scope. The prompt corner of the plugin showed the
+   same scope before you pressed Enter.
 5. The conversation runs a turn. It sends the prompt to the model. When the model calls
    a tool, such as the shell, efrd checks the call against the permission mode and your
    rules. Then it runs the call, runs it in the sandbox, sends it to the reviewer model,
@@ -64,7 +66,7 @@ A conversation is the history of your prompts, the answers and the calls of the 
 efrd keeps it in its database.
 
 A terminal has one conversation for each registered project that you worked in, and
-one for all places outside projects. A registered project is a directory that you
+one for home, all places in no project. A registered project is a directory that you
 listed with `efr project add`. The scope of a turn decides the conversation and what
 the agent can write without a question.
 [Conversations, resume and search](../use/conversations.md) tells more.
