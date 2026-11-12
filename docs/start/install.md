@@ -25,6 +25,7 @@ These programs are optional. efr works without them, but some parts do not:
 | `bubblewrap` and Linux 7.1 or newer | The kernel sandbox of the [`auto` mode](../use/sandbox-basics.md). Without them, `auto` runs as `cautious`. |
 | `fzf` 0.46 or newer | The live search picker of [`,resume`](../use/conversations.md). Without it, `,resume` shows a numbered list. |
 | `git` | Project roots and the git facts of a turn. |
+| `ripgrep` | The model searches text and file names with `rg`. Without it, the model uses `grep` and `find`, which are slower. |
 | `xdg-dbus-proxy` 0.1.9 or newer | Read-only system queries in the `auto` mode, such as `hostnamectl`. |
 | `xdg-utils` | `efr login openai` opens the browser itself, with `EFR_OPEN_BROWSER=1`. |
 

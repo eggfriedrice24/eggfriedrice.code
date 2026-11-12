@@ -28,3 +28,22 @@ fn the_system_prompt_tells_the_model_to_edit_with_the_edit_tool_that_it_has() {
     );
     assert!(DEFAULT_SYSTEM_PROMPT.contains("use write_file only"), "{DEFAULT_SYSTEM_PROMPT}");
 }
+
+/// The model has no search tool: it searches with `rg` in its shell, which runs at once
+/// in every mode, and falls back to `grep` and `find` on a machine without ripgrep.
+#[test]
+fn the_system_prompt_tells_the_model_to_search_with_rg() {
+    assert!(
+        DEFAULT_SYSTEM_PROMPT.contains("To search the text of files, use rg."),
+        "{DEFAULT_SYSTEM_PROMPT}"
+    );
+    assert!(
+        DEFAULT_SYSTEM_PROMPT
+            .contains("To find files by name, use rg --files, with -g '<glob>' for a pattern."),
+        "{DEFAULT_SYSTEM_PROMPT}"
+    );
+    assert!(
+        DEFAULT_SYSTEM_PROMPT.contains("Use grep and find only when rg is not installed."),
+        "{DEFAULT_SYSTEM_PROMPT}"
+    );
+}

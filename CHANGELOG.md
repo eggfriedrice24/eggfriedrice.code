@@ -335,6 +335,9 @@ into the GitHub release notes, and it stops when the section is missing.
   with the name in bold and the root muted, with `~` for your home directory. Before,
   they said `registered the project tool (/home/you/src/tool)`. `efr sandbox explain`
   says `at home` for a path outside the projects, in place of `outside a project`.
+- The system prompt tells the model to search text with `rg` and to find files by
+  name with `rg --files`, and to use `grep` and `find` only when `rg` is not
+  installed. The AUR packages name `ripgrep` as an optional dependency.
 
 ### Removed
 

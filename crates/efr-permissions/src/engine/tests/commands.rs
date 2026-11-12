@@ -65,6 +65,8 @@ fn allow_command(pattern: CommandPattern) -> Rule {
 #[case::dirname("dirname /a/b.txt")]
 #[case::tree("tree -L 2 src")]
 #[case::rg("rg -n 'fn main' src")]
+#[case::rg_files("rg --files src")]
+#[case::rg_files_glob("rg --files -g '*.rs' src")]
 #[case::grep("grep -rn TODO src")]
 #[case::egrep("egrep 'a|b' notes.txt")]
 #[case::fgrep("fgrep x notes.txt")]
