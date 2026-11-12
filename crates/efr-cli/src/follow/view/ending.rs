@@ -154,6 +154,12 @@ impl TurnView {
         if to.effort.is_none() {
             to.effort = self.ending.settings.as_ref().and_then(|settings| settings.effort.clone());
         }
+        // NOTE: the status row names the model that the turn runs on now.
+        let model = super::status::Model::switched_to(&to);
+        if let Some(status) = &mut self.status {
+            status.set_model(Some(model.clone()));
+        }
+        self.kept.model = Some(model);
         if !self.terminal() {
             let line = route::model_line(from, &to, None, self.options.glyphs());
             return self.row(&line, size);

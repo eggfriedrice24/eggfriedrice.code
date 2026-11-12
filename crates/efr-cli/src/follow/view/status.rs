@@ -108,16 +108,21 @@ pub(crate) struct Model {
 impl Model {
     /// The model of a turn with `settings`.
     pub(crate) fn of(settings: &EffectiveSettings) -> Model {
-        let account = settings
-            .provider
-            .as_deref()
+        Model::named(settings.provider.as_deref(), &settings.model, settings.effort.as_deref())
+    }
+
+    /// The model of the new side of a switch of model (`model_switched`).
+    pub(crate) fn switched_to(side: &efr_protocol::SwitchedModel) -> Model {
+        Model::named(side.provider.as_deref(), &side.model, side.effort.as_deref())
+    }
+
+    /// The model `name` of `provider`, whose account is the part after its `.`, with
+    /// `effort`.
+    fn named(provider: Option<&str>, name: &str, effort: Option<&str>) -> Model {
+        let account = provider
             .and_then(|provider| provider.split_once('.'))
             .map(|(_, account)| format::one_line(account));
-        Model {
-            account,
-            name: format::one_line(&settings.model),
-            effort: settings.effort.as_deref().map(format::one_line),
-        }
+        Model { account, name: format::one_line(name), effort: effort.map(format::one_line) }
     }
 
     /// The whole field: `work/claude-opus-5-5 high`.

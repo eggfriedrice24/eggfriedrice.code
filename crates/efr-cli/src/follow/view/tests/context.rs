@@ -501,7 +501,8 @@ fn a_switch_carries_the_compaction_that_came_first() {
         grid.lines(),
         [
             "\u{21c4} work/gpt-5.5 high  was work/claude-opus-5-5 high",
-            "\u{2022} compacting context",
+            // The status row names the model of the switch.
+            "\u{2022} compacting context   work/gpt-5.5 high",
         ]
     );
 }
@@ -566,4 +567,29 @@ fn the_view_knows_the_settings_of_its_turn_from_the_start() {
     let mut view = TurnView::new(turn(), RenderOptions::new(BOARD.cols)).with_look(LOOK);
     view.envelope(&sent(11, 0, started_on(Some(started.clone()))), BOARD, false);
     assert_eq!(view.turn_settings(), Some(&started));
+}
+
+/// The status row names the model of the turn: after a switch of model, the new one
+/// (DECISIONS: the model in the status row; TM-Endings 5).
+#[test]
+fn the_status_row_names_the_model_after_a_switch() {
+    let old = settings("anthropic-api.work", "claude-opus-5-5", "high");
+    let mut view =
+        TurnView::new(turn(), RenderOptions::new(BOARD.cols).with_colour(ColourMode::None))
+            .with_look(LOOK)
+            .with_model(Some(&old));
+    view.start();
+    let mut grid = Grid::new(BOARD.cols);
+    view.envelope(&sent(11, 0, started_on(None)), BOARD, true);
+    grid.write(&view.frame(BOARD, at(0)));
+    assert!(grid.lines().iter().any(|line| line.contains("work/claude-opus-5-5 high")));
+    let event = switched(
+        ("anthropic-api.work", "claude-opus-5-5", "high"),
+        ("openai-subscription.b", "gpt-5.5", "medium"),
+    );
+    view.envelope(&sent(12, 100, event), BOARD, true);
+    grid.write(&view.frame(BOARD, at(100)));
+    let lines = grid.lines();
+    let status = lines.last().unwrap();
+    assert!(status.contains("b/gpt-5.5 medium"), "{lines:?}");
 }
