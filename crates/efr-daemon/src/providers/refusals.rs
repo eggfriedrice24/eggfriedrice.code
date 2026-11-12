@@ -24,7 +24,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use async_trait::async_trait;
 use efr_provider::{
-    EditTool, ModelInfo, Provider, ProviderError, ProviderId, ProviderStream, Request,
+    CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError, ProviderId,
+    ProviderStream, Request,
 };
 use efr_stdx::time::Clock;
 use futures::StreamExt as _;
@@ -207,8 +208,20 @@ impl Provider for Watched {
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        self.stream_with_notices(request, &NoNotices).await
+    }
+
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
         let used = self.refusals.start(&self.provider, KeySource::Call);
-        let stream = self.inner.stream(request).await.inspect_err(|error| used.failed(error))?;
+        let stream = self
+            .inner
+            .stream_with_notices(request, notices)
+            .await
+            .inspect_err(|error| used.failed(error))?;
         // NOTE: a stream can still fail with a 401 before its first event, such as a
         // WebSocket call whose error status comes as an item, so the key counts as
         // working only from its first event on.

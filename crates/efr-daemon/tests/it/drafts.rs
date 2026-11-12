@@ -579,3 +579,72 @@ async fn a_client_that_joins_in_the_middle_of_a_message_gets_its_text_so_far() {
     drop((first, late, resumed, ended, client));
     daemon.stop().await.unwrap();
 }
+
+/// A model call whose first attempt gets a 503 from the real Messages provider: a
+/// subscriber that follows the turn hears of the retry before the answer, with the
+/// status and the reason, and the turn then completes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_subscriber_hears_of_a_retry_of_the_real_provider() {
+    let dirs = super::perf::tree();
+    let cwd = dirs.create_dir("home/project").unwrap();
+    let clock = efr_test_support::TestClock::new();
+    let _follower = super::perf::Follower::start(&clock);
+    let server = efr_test_daemon::ProviderServer::start().await.unwrap();
+    server.set(|knobs| knobs.claude = vec!["claude-opus-5-5".to_owned()]);
+    let daemon = Box::pin(
+        super::perf::builder(&dirs, &clock).messages_at(&server.base_url("anthropic")).start(),
+    )
+    .await
+    .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    server.set(|knobs| knobs.fail_once = Some(503));
+    let sent: PromptSendResult = client
+        .call(Method::PromptSend(super::perf::prompt(TTY, &cwd, "which shell?", None)))
+        .await
+        .unwrap();
+    let subscribe = ConversationSubscribe {
+        conversation_id: sent.conversation_id,
+        after_seq: Some(sent.seq),
+        answers_input: true,
+        drafts: true,
+    };
+    let mut stream = client.stream(Method::ConversationSubscribe(subscribe)).await.unwrap();
+    let mut retries = Vec::new();
+    let mut texts = 0;
+    let end = loop {
+        let item = tokio::time::timeout(Duration::from_secs(20), stream.next())
+            .await
+            .expect("the turn goes on")
+            .expect("the stream stays open")
+            .unwrap();
+        match item {
+            ConversationSubscribeItem::Draft(draft) => match draft.draft {
+                DraftPart::Retrying { .. } => {
+                    assert_eq!(texts, 0, "the retry comes before the answer");
+                    retries.push(draft.draft);
+                }
+                DraftPart::Text { .. } => texts += 1,
+                _ => {}
+            },
+            ConversationSubscribeItem::Event(envelope) => match envelope.event {
+                Event::TurnCompleted { .. } | Event::TurnFailed { .. } => {
+                    break envelope.event.kind().to_owned();
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    };
+    assert_eq!(end, "turn_completed");
+    assert!(
+        matches!(
+            retries.as_slice(),
+            [DraftPart::Retrying { attempt: 1, status: Some(503), reason, .. }]
+                if reason == "the provider answered 503"
+        ),
+        "{retries:?}"
+    );
+    drop(stream);
+    drop(client);
+    daemon.stop().await.unwrap();
+}

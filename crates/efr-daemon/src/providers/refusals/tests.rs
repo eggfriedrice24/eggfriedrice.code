@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_provider::{
-    EditTool, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
-    Request, StopReason,
+    CallNotice, CallNotices, EditTool, ModelInfo, Provider, ProviderError, ProviderEvent,
+    ProviderId, ProviderStream, Request, StopReason,
 };
 use efr_test_support::TestClock;
 use futures::StreamExt as _;
@@ -169,6 +169,38 @@ impl Provider for Scripted {
         let events = self.answers.lock().unwrap().pop_front().unwrap()?;
         Ok(Box::pin(futures::stream::iter(events)))
     }
+
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
+        notices.notice(CallNotice::Connecting);
+        self.stream(request).await
+    }
+}
+
+/// The notices of the calls, in order.
+#[derive(Debug, Default)]
+struct Heard(Mutex<Vec<CallNotice>>);
+
+impl CallNotices for Heard {
+    fn notice(&self, notice: CallNotice) {
+        self.0.lock().unwrap().push(notice);
+    }
+}
+
+#[tokio::test]
+async fn a_watched_provider_passes_the_notices_of_a_call_on() {
+    let clock = TestClock::new();
+    let inner = Scripted::new(vec![Ok(vec![done()])]);
+    let provider = Watched::new(inner, PROVIDER, refusals(&clock));
+    let heard = Heard::default();
+
+    let stream = provider.stream_with_notices(Request::new("claude-opus-5-5"), &heard).await;
+
+    assert!(stream.is_ok());
+    assert_eq!(heard.0.into_inner().unwrap(), [CallNotice::Connecting]);
 }
 
 fn done() -> Result<ProviderEvent, ProviderError> {

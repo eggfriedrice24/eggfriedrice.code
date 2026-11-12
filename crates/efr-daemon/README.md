@@ -556,7 +556,8 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   subscription token, the hint of a key, which one is active and, for a stored key that
   its provider refused, when (`key_refused_at`). When `[model] provider` uses a key
   (`openai-api`, `anthropic-api`), its model calls go through `Watched`
-  (`providers/refusals.rs`), and they and the fetches of its model list report each
+  (`providers/refusals.rs`), which passes the notices of a call's start
+  (`Provider::stream_with_notices`) on to the turn, and they and the fetches of its model list report each
   answer to `KeyRefusals`, each source into a state of its own (`KeySource`), because
   a key can work on one endpoint and not on the other: a 401 marks the key as refused
   at that time, and a request of the same source that works clears that mark (a
