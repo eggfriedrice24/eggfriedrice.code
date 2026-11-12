@@ -277,6 +277,7 @@ async fn a_prompts_settings_are_answered_and_recorded_on_its_turn() {
             asked: Mode::Auto,
             reason: "efr-sbx is not installed next to efrd".to_owned(),
         }),
+        default_effort: None,
     };
     assert_eq!(sent.settings, Some(expected.clone()));
     let started = seen.iter().find_map(|envelope| match &envelope.event {

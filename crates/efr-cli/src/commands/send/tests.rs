@@ -770,6 +770,7 @@ fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
         provider: None,
         overridden,
         fallback: None,
+        default_effort: None,
     }
 }
 

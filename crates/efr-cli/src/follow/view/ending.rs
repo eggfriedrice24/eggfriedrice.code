@@ -153,7 +153,9 @@ impl TurnView {
         // NOTE: a daemon before the effort of a switch: the effort of the turn's own
         // settings, from its `turn_started` in the same batch.
         if to.effort.is_none() {
-            to.effort = self.ending.settings.as_ref().and_then(|settings| settings.effort.clone());
+            to.effort = self.ending.settings.as_ref().and_then(|settings| {
+                settings.effort.clone().or_else(|| settings.default_effort.clone())
+            });
         }
         // NOTE: the status row names the model that the turn runs on now.
         let model = super::status::Model::switched_to(&to);

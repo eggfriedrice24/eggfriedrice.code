@@ -279,6 +279,7 @@ fn settings(provider: &str, model: &str, effort: &str) -> EffectiveSettings {
         provider: Some(provider.to_owned()),
         overridden: OverriddenSettings::default(),
         fallback: None,
+        default_effort: None,
     }
 }
 
@@ -326,6 +327,7 @@ fn switched(from: (&str, &str, &str), to: (&str, &str, &str)) -> Event {
         provider: Some(provider.to_owned()),
         model: model.to_owned(),
         effort: Some(effort.to_owned()),
+        default_effort: None,
     };
     Event::ModelSwitched { turn_id: turn(), from: side(from), to: side(to) }
 }

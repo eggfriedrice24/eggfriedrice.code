@@ -242,6 +242,7 @@ impl Script {
             provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         });
         let cwd = PathBuf::from(format!("/home/u/cwd{}", self.facts.next_u64() % 3));
         let started = Event::TurnStarted { turn_id: t, cwd, scope: Scope::Machine, settings };

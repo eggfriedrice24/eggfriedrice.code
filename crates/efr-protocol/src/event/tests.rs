@@ -182,6 +182,7 @@ fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
         provider: None,
         overridden: OverriddenSettings { effort: true, ..OverriddenSettings::default() },
         fallback: None,
+        default_effort: None,
     };
     let event = Event::TurnStarted {
         turn_id: turn(),

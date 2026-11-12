@@ -537,10 +537,11 @@ impl<'a> Transcript<'a> {
         match event {
             Event::PromptQueued { text, .. } => self.prompt(text),
             // NOTE: a turn recorded before turn settings names none.
-            Event::TurnStarted { settings: Some(settings), .. } => {
+            Event::TurnStarted { settings: Some(settings), cwd, .. } => {
                 self.turns += 1;
                 self.started = self.at;
-                self.effort.clone_from(&settings.effort);
+                self.cwd = Some(cwd.clone());
+                self.effort = settings.effort.clone().or_else(|| settings.default_effort.clone());
                 self.model_line(settings);
                 if let Some(fallback) = &settings.fallback {
                     self.note(&sandbox::fallback_note(fallback, settings.mode));
@@ -1102,7 +1103,7 @@ impl<'a> Transcript<'a> {
             }
             _ => model,
         };
-        if let Some(effort) = &settings.effort {
+        if let Some(effort) = settings.effort.as_ref().or(settings.default_effort.as_ref()) {
             let _ = write!(line, " {}", format::one_line(effort));
         }
         let _ = write!(line, "{dot}{}", settings.mode);

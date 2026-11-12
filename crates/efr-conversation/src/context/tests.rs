@@ -167,6 +167,7 @@ fn the_count_of_another_model_is_no_base() {
             provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         }),
     };
     let ended = Event::TurnCompleted {
@@ -203,6 +204,7 @@ fn the_count_of_another_provider_is_no_base() {
             provider: provider.map(str::to_owned),
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         }),
     };
     let ended = Event::TurnCompleted {

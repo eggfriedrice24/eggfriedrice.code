@@ -53,6 +53,7 @@ fn side(provider: Option<&str>, model: &str, effort: Option<&str>) -> SwitchedMo
         provider: provider.map(str::to_owned),
         model: model.to_owned(),
         effort: effort.map(str::to_owned),
+        default_effort: None,
     }
 }
 
@@ -152,6 +153,24 @@ fn the_event_lines_are_the_legend_and_the_endings_board() {
             let options = design_options(depth, frame.cols);
             assert_rows(&frame, row..=row, &rows(&pieces, 0, &options), depth);
         }
+    }
+}
+
+/// TM-Endings 5 when neither turn sent an effort: each side names its model's default
+/// effort, so the line is the board's.
+#[test]
+fn a_switch_between_default_efforts_names_them_endings_5() {
+    let default = |side: SwitchedModel| SwitchedModel {
+        default_effort: side.effort.clone(),
+        effort: None,
+        ..side
+    };
+    let pieces =
+        model_line(&default(work()), &default(gpt_b()), Some((86_400, 6_050)), &Glyphs::UNICODE);
+    let frame = Frame::load("TM-Endings", 5).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 3..=3, &rows(&pieces, 0, &options), depth);
     }
 }
 

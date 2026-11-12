@@ -670,6 +670,7 @@ impl Turn {
                     provider: settings.provider.clone(),
                     model: settings.model.clone(),
                     effort: settings.effort.clone(),
+                    default_effort: settings.default_effort.clone(),
                 },
             });
         }

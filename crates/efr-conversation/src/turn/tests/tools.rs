@@ -99,6 +99,7 @@ fn ran_on(model: &str) -> efr_protocol::SwitchedModel {
         provider: Some("replay".to_owned()),
         model: model.to_owned(),
         effort: None,
+        default_effort: None,
     }
 }
 

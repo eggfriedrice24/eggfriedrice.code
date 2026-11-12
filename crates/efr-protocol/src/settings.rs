@@ -193,6 +193,12 @@ pub struct EffectiveSettings {
     /// default for the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// The effort that the model uses when the turn sends none: the model's default in
+    /// the list of models, such as `medium`. Only for display: a client shows the model
+    /// with it, as `,model` does. Absent when the turn sends an effort, when the list
+    /// names no default, and from a daemon before it recorded the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
     /// The provider that runs the turn, such as `anthropic-api`. Absent from a daemon
     /// before it recorded the provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -223,6 +229,10 @@ pub struct SwitchedModel {
     /// the effort of a switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// The model's default effort when the turn sent none
+    /// ([`EffectiveSettings::default_effort`]), for display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<String>,
 }
 
 /// Which of a turn's [`EffectiveSettings`] the prompt set; the others are the config's.

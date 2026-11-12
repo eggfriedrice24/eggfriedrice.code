@@ -44,6 +44,7 @@ fn started(mode: Mode) -> Event {
             provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         }),
     }
 }

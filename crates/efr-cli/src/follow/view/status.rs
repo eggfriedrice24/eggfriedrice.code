@@ -108,12 +108,16 @@ pub(crate) struct Model {
 impl Model {
     /// The model of a turn with `settings`.
     pub(crate) fn of(settings: &EffectiveSettings) -> Model {
-        Model::named(settings.provider.as_deref(), &settings.model, settings.effort.as_deref())
+        // NOTE: a turn that sends no effort runs on the model's default, which `,model`
+        // names too (TM-Live 1).
+        let effort = settings.effort.as_deref().or(settings.default_effort.as_deref());
+        Model::named(settings.provider.as_deref(), &settings.model, effort)
     }
 
     /// The model of the new side of a switch of model (`model_switched`).
     pub(crate) fn switched_to(side: &efr_protocol::SwitchedModel) -> Model {
-        Model::named(side.provider.as_deref(), &side.model, side.effort.as_deref())
+        let effort = side.effort.as_deref().or(side.default_effort.as_deref());
+        Model::named(side.provider.as_deref(), &side.model, effort)
     }
 
     /// The model `name` of `provider`, whose account is the part after its `.`, with

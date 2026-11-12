@@ -425,6 +425,7 @@ fn a_fallback_says_which_mode_was_asked_for_and_why() {
             asked: Mode::Auto,
             reason: "auto cannot use your home directory as a project".to_owned(),
         }),
+        default_effort: None,
     };
     assert_eq!(
         serde_json::to_value(&settings).unwrap(),

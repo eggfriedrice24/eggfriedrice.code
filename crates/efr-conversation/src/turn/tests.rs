@@ -107,6 +107,7 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
         provider: Some("replay".to_owned()),
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
         fallback: None,
+        default_effort: None,
     };
     assert_eq!(sent.settings, Some(effective.clone()));
     let events = h.events().await;
@@ -337,6 +338,7 @@ async fn a_model_switch_sends_no_provider_items_of_the_other_model_and_a_switch_
         provider: Some("replay".to_owned()),
         model: model.to_owned(),
         effort: None,
+        default_effort: None,
     };
     let switched = LiveState {
         model: "test-model-2".to_owned(),
@@ -1448,6 +1450,7 @@ async fn provider_items_go_back_to_the_same_provider_and_not_to_another() {
             provider: Some("replay".to_owned()),
             model: MODEL.to_owned(),
             effort: None,
+            default_effort: None,
         }),
         ..state.clone()
     };
@@ -1601,6 +1604,7 @@ async fn a_running_turn_keeps_its_settings_and_the_next_turn_reads_the_new_ones(
             provider: Some("replay".to_owned()),
             model: MODEL.to_owned(),
             effort: None,
+            default_effort: None,
         }),
         ..state.clone()
     };

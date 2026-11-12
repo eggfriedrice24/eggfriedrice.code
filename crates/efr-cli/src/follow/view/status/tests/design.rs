@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use efr_protocol::ContextUse;
+use efr_protocol::{ContextUse, EffectiveSettings, Mode, OverriddenSettings};
 use efr_test_support::design::{Depth, Frame, assert_rows};
 use jiff::SignedDuration;
 
@@ -135,6 +135,23 @@ fn check(board: &str, number: u32, shown: &[Shown]) {
 #[test]
 fn waiting_for_the_model_is_live_1() {
     check("Live", 1, &[Shown::new(State::Model, 2).ctx(12)]);
+}
+
+/// TM-Live 1 for a turn that sends no effort: the model's default effort shows, as
+/// `,model` names it, so the field is always the model and its effort.
+#[test]
+fn a_turn_on_the_default_effort_names_that_effort_live_1() {
+    let settings = EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "claude-opus-5-5".to_owned(),
+        effort: None,
+        default_effort: Some("high".to_owned()),
+        provider: Some("anthropic-api.work".to_owned()),
+        overridden: OverriddenSettings::default(),
+        fallback: None,
+    };
+    let shown = Shown { model: Some(Model::of(&settings)), ..Shown::new(State::Model, 2).ctx(12) };
+    check("Live", 1, &[shown]);
 }
 
 #[test]

@@ -120,10 +120,14 @@ pub(crate) fn resolve(
         }
         None => config_effort(config, info),
     };
+    // NOTE: for display only: the effort that the model takes when none is sent.
+    let default_effort =
+        effort.is_none().then(|| info.and_then(|info| info.default_effort.clone())).flatten();
     Ok(EffectiveSettings {
         mode,
         model,
         effort,
+        default_effort,
         provider,
         overridden: OverriddenSettings {
             mode: asked.mode.is_some(),

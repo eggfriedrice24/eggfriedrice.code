@@ -193,6 +193,7 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
             provider: None,
             overridden: OverriddenSettings { model: true, ..OverriddenSettings::default() },
             fallback: None,
+            default_effort: None,
         }),
         route: None,
     };

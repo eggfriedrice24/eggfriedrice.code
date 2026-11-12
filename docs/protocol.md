@@ -987,3 +987,9 @@ No protocol version has shipped yet.
   daemon before. A client can then name both sides of a switch in full, such as
   `work/claude-opus-5-5 high`. The fixture `events/model_switched.json` names both
   efforts.
+- Version 1, additive: the effective settings of a turn (`turn_started.settings`, the
+  result of `prompt.send`) and each side of `model_switched` gain an optional
+  `default_effort`: the effort that the model uses when the turn sends none, from
+  `models.list`. It is for display only and is absent when the turn sends an effort.
+  A client then names the model with its effort, as `,model` does, such as
+  `b/gpt-5.5 medium`.

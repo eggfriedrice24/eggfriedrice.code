@@ -282,6 +282,11 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- A turn that sends no effort shows the model's default effort, as `,model` does: the
+  status row says `gpt-5.5 medium`, the `⇄` line `⇄ gpt-5.5 medium  was
+  claude-opus-5-5 high`, and `efr history` `gpt-5.5 medium · cautious`. Before, these
+  lines showed the model alone. efrd sends the default effort in the settings of a
+  turn as `default_effort`, only for display.
 - `efr project add` and `efr project remove` say `added the project tool  ~/src/tool`,
   with the name in bold and the root muted, with `~` for your home directory. Before,
   they said `registered the project tool (/home/you/src/tool)`. `efr sandbox explain`

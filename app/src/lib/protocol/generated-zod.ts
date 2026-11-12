@@ -1352,6 +1352,7 @@ export const overriddenSettingsSchema = z.object({
 }) satisfies z.ZodType<OverriddenSettings>;
 
 export const effectiveSettingsSchema = z.object({
+  default_effort: z.string().nullable().exactOptional(),
   effort: z.string().nullable().exactOptional(),
   fallback: modeFallbackSchema.nullable().exactOptional(),
   mode: modeSchema,
@@ -1652,6 +1653,7 @@ export const shellCommandEndSchema = z.enum([
 export const snapshotPhaseSchema = z.enum(["pre", "post"]) satisfies z.ZodType<SnapshotPhase>;
 
 export const switchedModelSchema = z.object({
+  default_effort: z.string().nullable().exactOptional(),
   effort: z.string().nullable().exactOptional(),
   model: z.string(),
   provider: z.string().nullable().exactOptional(),

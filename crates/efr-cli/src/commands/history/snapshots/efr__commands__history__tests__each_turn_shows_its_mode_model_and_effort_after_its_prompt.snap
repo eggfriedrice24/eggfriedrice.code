@@ -10,6 +10,6 @@ expression: text
   gpt-5.4 high · auto
 
 › and check  12:00
-  gpt-5.5 · cautious
+  gpt-5.5 medium · cautious
 
 efr history --verbose adds the output tails and the tokens of each turn

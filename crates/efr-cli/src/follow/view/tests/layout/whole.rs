@@ -634,6 +634,7 @@ fn long_turn(depth: Depth, titled: bool) -> String {
             provider: Some(provider.to_owned()),
             model: model.to_owned(),
             effort: Some("high".to_owned()),
+            default_effort: None,
         };
         play.event(
             0,
@@ -846,6 +847,7 @@ fn work_opus() -> efr_protocol::EffectiveSettings {
         provider: Some("anthropic-api.work".to_owned()),
         overridden: efr_protocol::OverriddenSettings::default(),
         fallback: None,
+        default_effort: None,
     }
 }
 

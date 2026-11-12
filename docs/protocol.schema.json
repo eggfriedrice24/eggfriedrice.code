@@ -3784,6 +3784,13 @@
     "EffectiveSettings": {
       "description": "The settings that a turn runs with: the prompt's [`TurnSettings`] over the config's\ndefaults, checked by the daemon.",
       "properties": {
+        "default_effort": {
+          "description": "The effort that the model uses when the turn sends none: the model's default in\nthe list of models, such as `medium`. Only for display: a client shows the model\nwith it, as `,model` does. Absent when the turn sends an effort, when the list\nnames no default, and from a daemon before it recorded the default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "effort": {
           "description": "The reasoning effort; absent when none is sent, so the backend uses its own\ndefault for the model.",
           "type": [
@@ -12008,6 +12015,13 @@
     "SwitchedModel": {
       "description": "One side of a switch of model ([`Event::ModelSwitched`](crate::Event::ModelSwitched)):\nthe provider, the model and the effort of a turn.",
       "properties": {
+        "default_effort": {
+          "description": "The model's default effort when the turn sent none\n([`EffectiveSettings::default_effort`]), for display only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "effort": {
           "description": "The effort of the turn on this model, such as `high`. Absent when the turn sent\nnone (the backend's own default), and for a turn of a daemon before it recorded\nthe effort of a switch.",
           "type": [

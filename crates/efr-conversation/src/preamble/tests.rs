@@ -504,6 +504,7 @@ fn the_first_turn_on_another_model_names_the_model_before_once() {
         provider: Some("anthropic-api".to_owned()),
         model: "claude-opus-5-5".to_owned(),
         effort: None,
+        default_effort: None,
     });
     let text = state.render();
     assert!(

@@ -366,6 +366,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         provider: None,
         overridden: OverriddenSettings { mode: true, ..OverriddenSettings::default() },
         fallback: None,
+        default_effort: None,
     };
     let cautious = EffectiveSettings {
         mode: Mode::Cautious,
@@ -374,6 +375,8 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         provider: None,
         overridden: OverriddenSettings::default(),
         fallback: None,
+        // NOTE: no effort sent: the line names the model's default (TM-Commands 4).
+        default_effort: Some("medium".to_owned()),
     };
     let page = ConversationHistoryResult {
         events: vec![
@@ -402,6 +405,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
         provider: None,
         overridden: OverriddenSettings::default(),
         fallback: Some(ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() }),
+        default_effort: None,
     };
     let facts = ExitFacts {
         programs: vec![program_fact("sudo", "/usr/bin/sudo")],
@@ -2017,6 +2021,7 @@ fn two_turns() -> ConversationHistoryResult {
             provider: Some(provider.to_owned()),
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         };
         let started = Event::TurnStarted {
             turn_id,
@@ -2164,6 +2169,7 @@ fn first_turn_with_calls() -> ConversationHistoryResult {
                     provider: Some("anthropic-api.work".to_owned()),
                     overridden: OverriddenSettings::default(),
                     fallback: None,
+                    default_effort: None,
                 }),
             },
         ),

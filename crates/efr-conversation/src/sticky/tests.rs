@@ -11,6 +11,7 @@ fn ran(model: &str, provider: &str, picked: bool, effort: Option<&str>) -> Effec
         provider: Some(provider.to_owned()),
         overridden: OverriddenSettings { mode: false, model: picked, effort: effort.is_some() },
         fallback: None,
+        default_effort: None,
     }
 }
 

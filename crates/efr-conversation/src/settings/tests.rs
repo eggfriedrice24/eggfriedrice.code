@@ -93,6 +93,7 @@ fn a_prompt_without_settings_runs_with_the_config_defaults() {
             provider: None,
             overridden: OverriddenSettings::default(),
             fallback: None,
+            default_effort: None,
         }
     );
 }
@@ -120,6 +121,9 @@ fn no_effort_leaves_it_to_the_backend() {
             .unwrap();
     assert_eq!(settings.effort, None);
     assert_eq!(settings.overridden, OverriddenSettings { model: true, ..Default::default() });
+    // NOTE: for display only: the model's default from the list, which `,model` names.
+    let listed = config().models.iter().find(|info| info.id == "gpt-6-sol").cloned().unwrap();
+    assert_eq!(settings.default_effort, listed.default_effort);
 }
 
 #[test]

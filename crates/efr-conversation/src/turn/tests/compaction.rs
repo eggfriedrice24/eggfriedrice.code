@@ -556,6 +556,7 @@ async fn a_history_that_would_leave_out_a_turn_compacts_instead() {
             provider: Some("replay".to_owned()),
             model: wide.to_owned(),
             effort: None,
+            default_effort: None,
         }),
         ..state.clone()
     };

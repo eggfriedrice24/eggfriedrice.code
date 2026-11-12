@@ -1425,6 +1425,7 @@ fn started_in(scope: Scope, fallback: Option<ModeFallback>) -> Event {
             provider: None,
             overridden: OverriddenSettings::default(),
             fallback,
+            default_effort: None,
         }),
     }
 }

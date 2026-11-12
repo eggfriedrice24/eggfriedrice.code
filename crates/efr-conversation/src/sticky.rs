@@ -68,6 +68,7 @@ pub(crate) fn switched(
         provider: previous.provider.clone(),
         model: previous.model.clone(),
         effort: previous.effort.clone(),
+        default_effort: previous.default_effort.clone(),
     })
 }
 

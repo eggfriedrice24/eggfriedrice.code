@@ -573,6 +573,7 @@ fn effective_settings() -> EffectiveSettings {
         provider: None,
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
         fallback: None,
+        default_effort: None,
     }
 }
 
@@ -2243,11 +2244,13 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 provider: Some("openai-subscription".into()),
                 model: "gpt-5.5".into(),
                 effort: Some("medium".into()),
+                default_effort: None,
             },
             to: SwitchedModel {
                 provider: Some("anthropic-api".into()),
                 model: "claude-opus-5-5".into(),
                 effort: Some("high".into()),
+                default_effort: None,
             },
         },
         Event::ScopeChanged {

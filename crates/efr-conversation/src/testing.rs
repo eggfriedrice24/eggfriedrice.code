@@ -1172,6 +1172,7 @@ pub(crate) fn default_settings() -> Option<EffectiveSettings> {
         provider: Some("replay".to_owned()),
         overridden: OverriddenSettings::default(),
         fallback: None,
+        default_effort: None,
     })
 }
 

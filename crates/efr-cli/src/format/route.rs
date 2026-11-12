@@ -227,8 +227,8 @@ pub(crate) fn model_line(
 
 /// One side of a switch as `,model` takes it: `work/claude-opus-5-5 high`, the account
 /// of the provider id (`anthropic-api.work` names `work`), the model and the effort.
-/// A provider id with no account gives the model alone, and a turn that sent no effort
-/// gives no effort.
+/// A provider id with no account gives the model alone. A turn that sent no effort
+/// gives the model's default effort, as `,model` names it, else no effort.
 fn side(model: &SwitchedModel) -> String {
     let account = model.provider.as_deref().and_then(|provider| provider.split_once('.'));
     let mut text = match account {
@@ -237,7 +237,8 @@ fn side(model: &SwitchedModel) -> String {
         }
         _ => one_line(&model.model),
     };
-    if let Some(effort) = model.effort.as_deref().filter(|effort| !effort.is_empty()) {
+    let effort = model.effort.as_deref().or(model.default_effort.as_deref());
+    if let Some(effort) = effort.filter(|effort| !effort.is_empty()) {
         text.push(' ');
         text.push_str(&one_line(effort));
     }

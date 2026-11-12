@@ -94,6 +94,7 @@ fn effective_settings_leave_out_an_absent_effort_and_unset_flags() {
         provider: None,
         overridden: OverriddenSettings::default(),
         fallback: None,
+        default_effort: None,
     };
     let value = serde_json::to_value(&settings).unwrap();
     assert_eq!(value, json!({ "mode": "cautious", "model": "gpt-5.5" }));

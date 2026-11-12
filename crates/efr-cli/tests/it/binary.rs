@@ -439,6 +439,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_reply_has_no_first_line() {
             provider: None,
             overridden: OverriddenSettings { mode: true, model: true, effort: false },
             fallback: None,
+            default_effort: None,
         };
         conn.reply(
             id,

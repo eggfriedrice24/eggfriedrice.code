@@ -4103,6 +4103,13 @@ export interface ClientCancel {
  */
 export interface EffectiveSettings {
   /**
+   * The effort that the model uses when the turn sends none: the model's default in
+   * the list of models, such as `medium`. Only for display: a client shows the model
+   * with it, as `,model` does. Absent when the turn sends an effort, when the list
+   * names no default, and from a daemon before it recorded the default.
+   */
+  default_effort?: string | null;
+  /**
    * The reasoning effort; absent when none is sent, so the backend uses its own
    * default for the model.
    */
@@ -4172,6 +4179,11 @@ export interface OverriddenSettings {
  * the provider, the model and the effort of a turn.
  */
 export interface SwitchedModel {
+  /**
+   * The model's default effort when the turn sent none
+   * ([`EffectiveSettings::default_effort`]), for display only.
+   */
+  default_effort?: string | null;
   /**
    * The effort of the turn on this model, such as `high`. Absent when the turn sent
    * none (the backend's own default), and for a turn of a daemon before it recorded
