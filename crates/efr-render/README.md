@@ -13,6 +13,13 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   text pushed in any pieces.
 - `render_trace`: one muted line, cut to the width, for a tool call trace or
   reasoning.
+- `Preload`: loads the syntax data of code blocks ahead, for a caller that runs it
+  on a thread of its own (the CLI does, from the start of the follow), so a frame
+  does not wait for it. `load` loads the grammars and the theme with its highlighter
+  (1 to 2 ms). `text` reads the reply's text as it comes and readies the grammar of
+  each fenced block whose opening line ends in it, which the block's first line
+  otherwise pays (1 to 125 ms the first time, by the language: about 14 ms for Rust,
+  125 ms for TypeScript).
 - `diff_rows`: a unified diff as painted rows, for a caller that lays a diff out
   itself (the CLI under a file write): the colours of a diff in a code block, each
   line cut at the width into rows that read back as the line (never at a space,
@@ -73,7 +80,10 @@ What commits when:
 - A paragraph commits at its end (a blank line or the next block). When it grows past
   three complete lines, its earlier lines commit and the last stays live, so a table
   delimiter row or a setext underline that arrives next still finds its line.
-- A fenced or indented code block commits line by line, with syntax colours.
+- A fenced or indented code block commits line by line, with syntax colours. A
+  fenced block in a list item or a quote does too: its first line commits with the
+  text of the item or quote before it. A blank line in it commits only with the next
+  line of code that is not blank, because at the end of a list item it is not code.
 - A list commits each item when the next item starts.
 - A table commits when it is complete, because column widths need every row.
 - A heading or a rule commits with its own line; a quote at a blank line.
@@ -82,21 +92,22 @@ What commits when:
 What the live zone costs: the text goes in one line at a time, and the work for a
 line does not grow with the reply. A fenced code block in a list item or a quote is
 followed line by line: each new line is checked against the text up to the block's
-opening line only, and the live zone grows by that one painted line. When the item
-ends, it commits as its live zone showed it, so the block is not rendered again.
-When a partial line ends the follow (the start of the next item, or a line after the
-item), the live zone is the kept rendering of the lines before it and that line
-rendered alone, when the line would commit the item as that rendering. Any other live
-zone is rendered again at each push, its partial last line included: for prose,
-tables, quotes and lists that costs about 40 us for each KB of pending text. Only from
-4 KB of pending text that holds a code block in a list item or a quote
+opening line only (the head), is painted alone and commits. The committed lines
+leave the pending text, so the pending text keeps the head and the lines that are
+not committed, and the live zone is the partial line alone. A later rendering of the
+item or quote renders the head again (it is short) and writes only what comes after
+the committed lines (`Continuation::Nested`). Any other live zone is rendered again
+at each push, its partial last line included: for prose, tables, quotes and lists
+that costs about 40 us for each KB of pending text. Only from 4 KB of pending text
+that holds a code block in a list item or a quote that is not followed
 (`LIVE_CACHE_BYTES`) is the live zone rendered again only when a line is complete,
 because each rendering paints the syntax colours of the whole block again (about
 1.5 ms for each KB).
 
 Because committed output stays on the screen, a few things differ from rendering the
 whole reply at once with a single parse: a reference-style link resolves only against
-a definition in its own block, and emphasis or a setext heading cannot reach back over
+a definition in its own block (and not against one after a committed code line in
+the same item or quote), and emphasis or a setext heading cannot reach back over
 paragraph lines that already committed. Each slice is rendered with a fresh parse,
 which is what makes the result independent of how the reply was chunked.
 
@@ -119,7 +130,10 @@ terminal reflows it on resize; text inside a list item or a quote is wrapped to 
 its indent.
 
 Grammars and themes come from `two-face` (bat's set) on `syntect` with the pure-Rust
-`fancy-regex` backend, and decompress on the first code block that needs them. The
+`fancy-regex` backend, and decompress on the first code block that needs them, or
+before when the caller asks for them with `Preload`. A grammar unpacks its contexts
+and builds its patterns at the first line of its first block, not at the label
+line, so a `Preload` has the time of the label line to do it first. The
 default theme is `ansi`, which uses the terminal's 16-colour palette and so follows the
 Ghostty theme. `CodeTheme::from_tmtheme` reads the bytes of a `.tmTheme` file (the CLI
 reads the file); while the options have one, it wins over the `Theme`. All code blocks
@@ -179,14 +193,19 @@ and the link that `last_rows` opens again, and that the rows of a diff fit the w
 and read back as its lines. Stream tests check that a long paragraph line and a long
 table show their partial line at once, that a long quote with a code block keeps its
 live zone until the line ends, and that the start of the next item after a long fence
-shows at once while more text of the item waits for its line. Property tests check that any chunking of a
+shows at once, and that each line of a fence in a list item or a quote, with a
+language and without one, commits when it ends while the pending text keeps the
+head only. Property tests check that any chunking of a
 document, byte-by-byte streaming included, commits what `render` does, and that early
 commits render the elements exactly as one parse of the whole document does. More
 property tests stream fences in list items and quotes (code, blank lines, closing
-fences, lines that end the block, tabs, carriage returns) and check that each push
-commits and shows what a renderer without the line-by-line follow and without kept
-live zones does. One more property test keeps every live zone it can: a pending text
-without a code block still shows what that renderer shows at each push. A unit test checks that the shared highlighter colours each line as
+fences, lines that end the block, tabs, carriage returns) and check that after each
+push the screen (all that was committed and the live zone) is what a renderer
+without the line-by-line follow and without kept live zones shows. One more property
+test keeps every live zone it can: a pending text without a code block still shows
+what the renderer without kept live zones shows at each push. Unit tests check that
+`Preload` loads the grammars and the theme only for colour on a terminal, and that
+it finds the fences that open in pieces of text, also in list items and quotes. A unit test checks that the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.
 
@@ -207,5 +226,6 @@ ladder. Their budgets are slopes and ratios, not times.
   with a slope below 1.3, and the median push at 1,000 lines takes at most
   three times the median push at 30 lines.
 - `bench_perf_highlight_line` (`src/highlight/tests.rs`): the time of each line with
-  the `ansi` and `catppuccin-mocha` themes, for 1k and 10k lines, and the first
-  highlight of a process, which loads the grammars.
+  the `ansi` and `catppuccin-mocha` themes, for 1k and 10k lines, the load of the
+  grammars and the theme, and the first line of Rust, Bash, Python, JSON, TOML,
+  TypeScript and Go after the load.

@@ -11,7 +11,7 @@
 mod diff;
 
 use crate::code_theme::CodeTheme;
-use crate::highlight::{Assets, Highlight, ThemeRef};
+use crate::highlight::{ASSETS, Assets, Highlight, ThemeRef};
 use crate::options::{ColourMode, RenderOptions, Theme};
 use crate::palette::Role;
 use crate::style::{Line, Span, Style, expand_tabs, push_span, sanitize};
@@ -223,6 +223,101 @@ impl CodeBlock {
             },
         }
     }
+}
+
+/// Loads the syntax data of code blocks ahead, for a caller that runs it on a thread
+/// of its own, so that a frame does not wait for the load. [`Preload::load`] loads the
+/// grammars and the theme with its highlighter (1 to 2 ms). [`Preload::text`] reads
+/// the text of a reply as it comes, and readies the grammar of each fenced block that
+/// opens in it, which the first line of the block otherwise pays: 1 to 125 ms the
+/// first time, by the language. The block's label line does not need the grammar, so
+/// the work starts while the label shows. Without a terminal or without colour,
+/// nothing loads.
+#[derive(Debug)]
+pub struct Preload {
+    style: Option<CodeStyle>,
+    /// The line in progress of the text.
+    line: String,
+    /// The info strings whose grammars are ready.
+    ready: Vec<String>,
+}
+
+/// A line in progress longer than this is no fence's opening line: it is dropped.
+const PRELOAD_LINE_MAX: usize = 1024;
+
+impl Preload {
+    /// A preload for the code blocks of `options`.
+    pub fn new(options: &RenderOptions) -> Preload {
+        Preload::with_assets(options, &ASSETS)
+    }
+
+    pub(crate) fn with_assets(options: &RenderOptions, assets: &'static Assets) -> Preload {
+        let colour = options.is_terminal() && options.colour() != ColourMode::None;
+        let style = colour.then(|| CodeStyle::new(options, assets));
+        Preload { style, line: String::new(), ready: Vec::new() }
+    }
+
+    /// Loads the grammars, and the embedded theme with its highlighter unless a code
+    /// theme of the user's own replaces it. A second call costs nothing.
+    pub fn load(&self) {
+        let Some(style) = &self.style else { return };
+        let theme = style.code_theme.is_none().then_some(style.theme);
+        style.assets.load(theme);
+    }
+
+    /// The info strings whose grammars this preload readied.
+    #[cfg(test)]
+    pub(crate) fn ready(&self) -> Vec<&str> {
+        self.ready.iter().map(String::as_str).collect()
+    }
+
+    /// Takes the next piece of a reply's text, and readies the grammar of each fenced
+    /// code block whose opening line ends in it.
+    pub fn text(&mut self, piece: &str) {
+        let Some(style) = &self.style else { return };
+        for part in piece.split_inclusive('\n') {
+            if self.line.len() + part.len() <= PRELOAD_LINE_MAX {
+                self.line.push_str(part);
+            } else {
+                self.line.clear();
+            }
+            if !part.ends_with('\n') {
+                continue;
+            }
+            let line = std::mem::take(&mut self.line);
+            if let Some(info) = fence_info(&line)
+                && !self.ready.iter().any(|ready| ready == info)
+            {
+                // NOTE: an empty line unpacks the grammar and builds the patterns of
+                // its first context.
+                CodeBlock::new(info, style).line("");
+                self.ready.push(info.to_owned());
+            }
+        }
+    }
+}
+
+/// The info string of `line` when it opens a fenced code block, at the top level or
+/// after quote and list markers; `None` for a fence without one. A guess is enough:
+/// a wrong one costs a grammar load, never a wrong rendering.
+pub(crate) fn fence_info(line: &str) -> Option<&str> {
+    let mut rest = line.trim_end_matches(['\n', '\r']);
+    loop {
+        let trimmed = rest.trim_start_matches([' ', '\t', '>']);
+        let bullet = trimmed.strip_prefix(['-', '*', '+']);
+        let digits = trimmed.trim_start_matches(|c: char| c.is_ascii_digit());
+        let number = (digits.len() < trimmed.len()).then(|| digits.strip_prefix(['.', ')']));
+        match bullet.or(number.flatten()).filter(|after| after.starts_with([' ', '\t'])) {
+            Some(after) => rest = after,
+            None => {
+                rest = trimmed;
+                break;
+            }
+        }
+    }
+    let fence = rest.strip_prefix("```").or_else(|| rest.strip_prefix("~~~"))?;
+    let info = fence.trim_start_matches(['`', '~']).trim();
+    (!info.is_empty()).then_some(info)
 }
 
 /// The lines of a code block's text, without their newlines. A final line without a

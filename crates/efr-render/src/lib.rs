@@ -7,6 +7,8 @@
 //! - [`render`]: a whole document at once, identical to what a [`Renderer`] commits
 //!   for the same text in any pieces.
 //! - [`render_trace`]: one muted line for a tool call trace or reasoning.
+//! - [`Preload`]: loads the syntax data of code blocks ahead, for a caller that runs
+//!   it on a thread of its own so that the first code block does not wait in a frame.
 //! - [`diff_rows`]: a unified diff as painted rows of a fixed width, for a caller that
 //!   lays the diff out itself.
 //! - [`RenderOptions`]: width, [`ColourMode`], [`Palette`], [`Theme`] or
@@ -52,6 +54,7 @@ mod trace;
 mod width;
 mod wrap;
 
+pub use code::Preload;
 pub use code_theme::CodeTheme;
 pub use diff_rows::diff_rows;
 pub use error::RenderError;

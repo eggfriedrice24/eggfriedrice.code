@@ -74,6 +74,13 @@ pub(crate) enum Continuation {
     /// counts the rendered lines still in the pending text (an indented block keeps
     /// them; a fenced block drops them and keeps only its opening line).
     Code { block: CodeBlock, skip: usize },
+    /// The rest of a list item or a quote whose text up to an open fenced code block,
+    /// and lines of that block, are committed. `before` is how the slice continues
+    /// the block before that, `at` is where the block's fence starts in the slice, and
+    /// `block` is the block's state after its last committed line. The slice renders
+    /// whole, and its output starts after the committed lines; the committed lines are
+    /// not in the slice.
+    Nested { before: Box<Continuation>, at: usize, block: CodeBlock },
 }
 
 /// What carries over from one committed slice to the next.
@@ -116,13 +123,11 @@ pub(crate) fn render_slice(ctx: &Ctx, flow: &mut Flow, text: &str) -> (String, O
 }
 
 /// What [`render_slice`] gives for a slice that ends in a code block, kept so that
-/// more lines of that block can be painted one at a time: the painted slice and the
-/// tail of its last list, the block's state after its last line, and the prefix of
-/// the block's next line.
+/// more lines of that block can be painted one at a time: the painted slice, the
+/// block's state after its last line, and the prefix of the block's next line.
 #[derive(Debug)]
 pub(crate) struct OpenCode {
     pub(crate) out: String,
-    pub(crate) tail: Option<ListTail>,
     pub(crate) block: CodeBlock,
     pub(crate) prefix: Line,
 }
@@ -134,12 +139,7 @@ pub(crate) struct OpenCode {
 pub(crate) fn render_open_code(ctx: &Ctx, flow: &mut Flow, text: &str) -> Option<OpenCode> {
     let writer = write_slice(ctx, flow, text, true);
     let (block, prefix, end) = writer.open_code?;
-    (end == writer.out.len()).then_some(OpenCode {
-        out: writer.out,
-        tail: writer.tail,
-        block,
-        prefix,
-    })
+    (end == writer.out.len()).then_some(OpenCode { out: writer.out, block, prefix })
 }
 
 /// Paints the next source line of an open code block under `prefix`, as
@@ -158,11 +158,15 @@ pub(crate) fn paint_code_line(
 }
 
 fn write_slice<'a>(ctx: &'a Ctx, flow: &'a mut Flow, text: &'a str, capture: bool) -> Writer<'a> {
-    let continuation = mem::take(&mut flow.continuation);
+    let (continuation, nested) = match mem::take(&mut flow.continuation) {
+        Continuation::Nested { before, at, block } => (*before, Some((at, block))),
+        other => (other, None),
+    };
     let mut writer = Writer {
         ctx,
-        continuing: !matches!(continuation, Continuation::None),
+        continuing: nested.is_some() || !matches!(continuation, Continuation::None),
         continuation,
+        nested,
         flow,
         source: text,
         out: String::new(),
@@ -245,6 +249,9 @@ struct Writer<'a> {
     /// Data the first block takes from the previous slice: list numbering or the
     /// code block state.
     continuation: Continuation,
+    /// The fenced code block in a container whose first lines are committed: where
+    /// its fence starts and its state ([`Continuation::Nested`]).
+    nested: Option<(usize, CodeBlock)>,
     depth: usize,
     top_blocks: usize,
     containers: Vec<Container>,
@@ -321,6 +328,10 @@ impl Writer<'_> {
             }
             Tag::CodeBlock(kind) => {
                 self.block_start(top);
+                if let Some(block) = self.take_nested(range.start) {
+                    self.code = Some((block, String::new(), 0));
+                    return;
+                }
                 let continued = if top && self.top_blocks == 1 {
                     match mem::take(&mut self.continuation) {
                         Continuation::Code { block, skip } => Some((block, skip)),
@@ -483,6 +494,25 @@ impl Writer<'_> {
             TagEnd::Image => self.end_image(),
             _ => {}
         }
+    }
+
+    /// The state of the committed code block whose fence starts at `start`, when this
+    /// is that block. Everything written before it is committed already, so it is
+    /// dropped, and each item marker counts as written.
+    fn take_nested(&mut self, start: usize) -> Option<CodeBlock> {
+        if self.nested.as_ref().is_none_or(|(at, _)| *at != start) {
+            return None;
+        }
+        let (_, block) = self.nested.take()?;
+        self.out.clear();
+        for container in &mut self.containers {
+            if let Container::Item(item) = container
+                && item.marker_width.is_none()
+            {
+                item.marker_width = Some(line_width(&item.marker(Style::PLAIN)));
+            }
+        }
+        Some(block)
     }
 
     fn start_item(&mut self, range: Range<usize>) {

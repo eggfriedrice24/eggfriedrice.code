@@ -818,6 +818,7 @@ fn bench_perf_stream_matrix() {
             .collect()
     };
     let mut budget = Vec::new();
+    let mut code = Vec::new();
     for group in groups {
         let shown: Vec<(String, Shown)> = std::thread::scope(|scope| {
             let runs: Vec<_> = group
@@ -839,6 +840,13 @@ fn bench_perf_stream_matrix() {
             if case.starts_with("para_") || case.starts_with("table_wide_40|") {
                 budget.push((case.clone(), shown.chars_never_on_screen, shown.chars_late_100ms));
             }
+            if case.starts_with("code_") {
+                code.push((
+                    case.clone(),
+                    [shown.rows_jump_max, shown.chars_late_100ms],
+                    [shown.frames_with_hidden_live, shown.cpu_over_4ms],
+                ));
+            }
         }
     }
     report.finish();
@@ -847,5 +855,15 @@ fn bench_perf_stream_matrix() {
     for (case, never, late) in budget {
         assert_eq!(never, 0, "{case}: chars never on a visible row");
         assert_eq!(late, 0, "{case}: chars more than 100 ms late");
+    }
+    // The budget of a code block, also in a list item (slice 9): each line commits when
+    // it ends, so no frame adds more than 3 rows, no live row is off the screen, and no
+    // character comes more than 100 ms late. The syntax data loads off the frames, so
+    // no frame, the first code block's included, takes more than 4 ms of CPU.
+    for (case, [jump, late], [hidden, slow]) in code {
+        assert!(jump <= 3, "{case}: a frame added {jump} rows");
+        assert_eq!(late, 0, "{case}: chars more than 100 ms late");
+        assert_eq!(hidden, 0, "{case}: frames with live rows off the screen");
+        assert_eq!(slow, 0, "{case}: text frames over 4 ms of CPU");
     }
 }

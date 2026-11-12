@@ -140,6 +140,14 @@ Replies:
   live zone again at the new width. After a stop (Ctrl+Z, then `fg`, SIGCONT), the
   shell's lines stand below the old live zone: the next frame starts a new live zone
   below them, moves nothing above the cursor, and hides the cursor again. The times come from the injected clock.
+- When the follow starts, a named thread (`syntax-load`) starts, once in a process.
+  It loads the syntax data of code blocks (`efr_render::Preload`). Then the follow
+  sends it each complete line of the text drafts that holds three backticks or
+  tildes: when such a line opens a fenced block, the thread readies the block's
+  grammar while the label line shows (about 14 ms for Rust, up to 125 ms for
+  TypeScript). So the first code block of a reply does not wait for it in a frame,
+  and a reply without code pays nothing on its frames. Nothing waits for the thread:
+  the process can end while it runs. Without colour it loads nothing.
 - The subscription asks for drafts (`drafts: true`): the text, the reasoning and the
   tool input of the running turn before the daemon records them, about every 16 ms.
   Draft text merges with the persisted updates of its message by byte offset: a
@@ -1523,11 +1531,19 @@ that takes more than 10 s stops its ladder.
   a mixed answer at 60 tokens a second, in bursts and in drafts 17 ms apart. It
   reports the reveal latency, the late characters and the ones that never stand on a
   visible row, the largest jump, the CPU, bytes and write calls of a frame, the rows
-  that a frame erases, and the wait from a draft to the next draw.
+  that a frame erases, and the wait from a draft to the next draw. Budget: each
+  character of a long paragraph or a wide table stands on a visible row, none more
+  than 100 ms late. In each code case, the fenced block in a list item too, no frame
+  adds more than 3 rows, no live row is off the screen, no character is more than
+  100 ms late, and no frame takes more than 4 ms of CPU, the first code block's
+  included.
 - `bench_perf_stream_ladder` (`src/follow/view/tests/stream.rs`): the CPU time and the
   bytes of one frame of the view while the open last block holds 256 bytes to 64 KiB,
   for ten kinds of block (also a closed fenced block in a list item) at 80x24 and
-  200x60, with the slope over the size.
+  200x60, with the slope over the size. Budget: no streamed frame takes 16 ms of
+  CPU. For a fenced block in a list item, open or closed, no frame takes 2 ms, and
+  the largest frame of a rung writes at most twice the bytes of the largest frame at
+  256 bytes, because each line of the block commits when it ends.
 - `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
   `_efr_precmd` over 200 prompts in zsh, and the `source` of the plugin, with 50 to
   5,000 exported variables, 0 and 1,000 draft files, a deep `PWD`, a projects file and

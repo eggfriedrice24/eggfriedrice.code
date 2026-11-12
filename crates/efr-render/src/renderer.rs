@@ -9,13 +9,12 @@
 //!
 //! The work for each line does not grow with the reply. The text goes in one line at
 //! a time, so a committed block never moves a long tail of pending text. An open
-//! fenced code block in a list item or a quote is followed line by line (`fence`),
-//! and its live zone grows by each new line. When the partial last line ends that
-//! follow, the live zone is the kept rendering of the lines before it and that line
-//! rendered alone. Any other live zone is rendered again at each push, its partial
-//! last line included, except a pending text longer than [`LIVE_CACHE_BYTES`] that
-//! holds a code block in a list item or a quote: it is rendered again only when a line
-//! is complete.
+//! fenced code block in a list item or a quote is followed line by line (`fence`):
+//! each complete line of it commits, as a line of a top-level code block does, and
+//! leaves the pending text. Any other live zone is rendered again at each push, its
+//! partial last line included, except a pending text longer than [`LIVE_CACHE_BYTES`]
+//! that holds a code block in a list item or a quote: it is rendered again only when a
+//! line is complete.
 
 mod fence;
 
@@ -29,14 +28,14 @@ use crate::options::RenderOptions;
 use crate::outline::{CodeText, Kind, line_start, outline};
 use crate::width::{WidthMethod, display_rows, last_rows};
 
-use fence::{Ended, Look, OpenFence};
+use fence::OpenFence;
 
 /// From this much pending text that holds a code block in a list item or a quote, the
 /// live zone is kept: it is rendered again only when a new line is complete. A
 /// rendering paints the syntax colours of the whole block again, about 1.5 ms for each
 /// KB, so the partial last line shows when its line ends. Any other pending text costs
 /// far less and shows its partial last line at once, as does an open fence that is
-/// followed.
+/// followed, whose lines are committed.
 const LIVE_CACHE_BYTES: usize = 4 * 1024;
 
 /// Renders a whole markdown document at once. The result equals everything a
@@ -145,7 +144,7 @@ pub struct Renderer {
     /// How many complete lines came in so far.
     lines: u64,
     /// The open fenced code block at the end of the pending text, while each line
-    /// after its opening line is code.
+    /// after its opening line is code. Its complete lines are committed.
     fence: Option<OpenFence>,
     /// The live zone of a long pending text that holds a code block, until the next
     /// line is complete.
@@ -164,28 +163,13 @@ struct Stream {
     /// How much of `pending` is complete lines already looked at.
     scanned: usize,
     flow: Flow,
-    /// The rendering that a fence kept when the line in progress ended its follow.
-    ended: Option<Ended>,
     /// The pending text holds a code block in a list item or a quote.
     holds_code: bool,
-    /// A preview of the line in progress ([`Renderer::preview`]): the first commit
-    /// may only take the rendering in `ended`.
-    preview: bool,
-    /// A preview's first commit was not the rendering in `ended`.
-    missed: bool,
 }
 
 impl Stream {
     fn new() -> Stream {
-        Stream {
-            pending: String::new(),
-            scanned: 0,
-            flow: Flow::default(),
-            ended: None,
-            holds_code: false,
-            preview: false,
-            missed: false,
-        }
+        Stream { pending: String::new(), scanned: 0, flow: Flow::default(), holds_code: false }
     }
 }
 
@@ -279,19 +263,15 @@ impl Renderer {
     fn line(&mut self, start: usize, out: &mut String) {
         let stream = &mut self.stream;
         if let Some(fence) = &mut self.fence {
-            let head = &stream.pending[..fence.head()];
-            if fence.take_line(&self.ctx, head, &stream.pending[start..stream.scanned]) {
-                // NOTE: a line that the fence takes commits nothing (see `fence`).
+            if fence.take_line(&self.ctx, stream, start, out) {
                 return;
             }
-            stream.ended = self.fence.take().and_then(|fence| fence.into_ended(start));
+            self.fence = None;
         }
         let fence = stream.step(&self.ctx, out);
-        stream.ended = None;
         if self.follow_fences {
-            self.fence = fence.and_then(|(at, in_list)| {
-                OpenFence::new(&stream.pending[..stream.scanned], at, in_list)
-            });
+            self.fence =
+                fence.and_then(|(at, in_list)| OpenFence::new(&self.ctx, stream, at, in_list, out));
         }
     }
 
@@ -305,30 +285,22 @@ impl Renderer {
     }
 
     /// The live zone and its rows: what finishing now would commit, rendered on a copy
-    /// of the state. An open fence adds its new lines to the live zone it made before.
-    /// A long pending text that holds a code block keeps its live zone until the next
+    /// of the state. An open fence that is followed shows its partial line alone. A
+    /// long pending text that holds a code block keeps its live zone until the next
     /// complete line.
     fn live(&mut self) -> (String, usize) {
         let stream = &self.stream;
         if stream.pending.is_empty() {
             return (String::new(), 0);
         }
-        let long = stream.pending.len() >= self.live_cache_bytes;
-        if let Some(fence) = &mut self.fence {
-            match fence.live(&self.ctx, &stream.flow, &stream.pending, stream.scanned) {
-                Some(Look::Whole(live, rows)) => return (live, rows),
-                Some(Look::Before) => {
-                    if let Some(live) = self.preview() {
-                        return live;
-                    }
-                    if long && let Some(live) = self.fence.as_ref().and_then(OpenFence::before) {
-                        return live;
-                    }
-                }
-                None => {}
-            }
+        if let Some(live) = self
+            .fence
+            .as_ref()
+            .and_then(|fence| fence.live(&self.ctx, &stream.flow, &stream.pending, stream.scanned))
+        {
+            return live;
         }
-        let stream = &self.stream;
+        let long = stream.pending.len() >= self.live_cache_bytes;
         let keep = long && stream.holds_code;
         if keep
             && let Some(kept) = &self.kept
@@ -341,35 +313,6 @@ impl Renderer {
         let rows = rows_of_text(&live, &self.ctx);
         self.kept = keep.then(|| KeptLive { lines: self.lines, live: live.clone(), rows });
         (live, rows)
-    }
-
-    /// The live zone when the partial last line ends the follow of a fence: what
-    /// finishing would commit once that line is complete, made from the rendering that
-    /// the fence kept of the lines before it, and the line rendered alone. `None` when
-    /// the line would not commit the text before it as that rendering.
-    fn preview(&self) -> Option<(String, usize)> {
-        let ended = self.fence.as_ref()?.to_ended(self.stream.scanned)?;
-        let mut pending = String::with_capacity(self.stream.pending.len() + 1);
-        pending.push_str(&self.stream.pending);
-        // NOTE: the end of a reply also ends its last line, so the rendering of the
-        // whole text does not change when the line ends here.
-        pending.push('\n');
-        let mut stream = Stream {
-            scanned: pending.len(),
-            pending,
-            flow: self.stream.flow.clone(),
-            ended: Some(ended),
-            preview: true,
-            ..Stream::new()
-        };
-        let mut live = String::new();
-        stream.step(&self.ctx, &mut live);
-        if stream.missed || stream.ended.is_some() {
-            return None;
-        }
-        live.push_str(&render_slice(&self.ctx, &mut stream.flow, &stream.pending).0);
-        let rows = rows_of_text(&live, &self.ctx);
-        Some((live, rows))
     }
 }
 
@@ -391,9 +334,6 @@ impl Stream {
             let last_start = line_start(text, last.range.start);
             if blocks.len() > 1 && last_start > 0 {
                 out.push_str(&self.commit(ctx, last_start).0);
-                if self.missed {
-                    return None;
-                }
                 continue;
             }
             self.holds_code = last.inner_code.is_some();
@@ -434,21 +374,10 @@ impl Stream {
         }
     }
 
-    /// Renders and drops the first `cut` bytes of pending text as final. A fence
-    /// that ended at this line kept the rendering of exactly that text.
+    /// Renders and drops the first `cut` bytes of pending text as final.
     fn commit(&mut self, ctx: &Ctx, cut: usize) -> (String, Option<ListTail>) {
         let slice: String = self.pending.drain(..cut).collect();
         self.scanned -= cut;
-        if let Some(ended) = self.ended.take_if(|ended| ended.end == cut) {
-            self.flow = ended.flow;
-            return (ended.out, ended.tail);
-        }
-        if self.preview && self.ended.take().is_some() {
-            // NOTE: a preview must not render the text before the line in progress.
-            self.missed = true;
-            return (String::new(), None);
-        }
-        self.ended = None;
         render_slice(ctx, &mut self.flow, &slice)
     }
 

@@ -5,93 +5,101 @@
 //! the containers around the block only: a line of code changes no state that the
 //! next line depends on. So a line is a line of the block's code exactly when it is
 //! one directly after the block's opening line. The renderer checks each new line
-//! against the short text up to the opening line, not against the whole block. While
-//! each line is code, nothing can commit (an open list item or quote commits only
-//! when a later block starts), and the live zone grows by one painted line.
+//! against the short text up to the opening line (the head), not against the block.
+//!
+//! Each complete line of code commits at once, as a line of a top-level block does:
+//! the first one with the rendering of the head, then each one painted alone under
+//! the prefix of the block's lines. A committed line leaves the pending text, so the
+//! pending text keeps the head and the lines that are not committed, and no work for
+//! a line grows with the block. The flow carries a [`Continuation::Nested`], so a
+//! later rendering of the pending text writes only what comes after the committed
+//! lines. A blank line of code waits for the next line of code that is not blank:
+//! at the end of a list item, the parser leaves blank lines out of the block.
 //!
 //! In a list, the follow goes on after the closing fence through the lines that add
-//! nothing, such as blank lines. When the next item starts, the item commits as the
-//! live zone shows it, so the block is not rendered again. A partial line that ends
-//! the follow gets the kept rendering too ([`OpenFence::to_ended`]).
+//! nothing, such as blank lines, so the live zone stays empty until the item goes on.
 
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 
-use crate::block::{Ctx, Flow, ListTail, OpenCode, paint_code_line, render_open_code};
+use crate::block::{Continuation, Ctx, Flow, paint_code_line, render_open_code};
 use crate::outline::parser_options;
+use crate::style::Line;
 
-use super::rows_of_text;
+use super::{Stream, rows_of_text};
 
 pub(crate) struct OpenFence {
+    /// Where the fence starts in the pending text.
+    at: usize,
     /// The pending text up to the end of the fence's opening line.
     head: usize,
     /// The events of that text alone.
     events: Vec<Event<'static>>,
     /// The fence is in a list, not in a quote, which a blank line ends.
     in_list: bool,
-    /// The lines of code after the opening line.
-    lines: usize,
+    state: State,
     /// Once the fence closed in a list: the closing line and the lines after it.
     closed: Option<String>,
-    live: Live,
 }
 
-/// The live zone of the pending text without its partial line, made once and then
-/// grown by each line of code.
-enum Live {
-    Unbuilt,
-    Built {
-        open: OpenCode,
-        flow: Flow,
-        rows: usize,
-    },
-    /// The rendering does not end with the block's lines; each live zone is rendered
-    /// in full.
-    Unavailable,
-}
-
-/// The rendering of the pending text up to `end`, kept from a follow that ended at
-/// a line which starts there: the output, the tail of its last list and the flow
-/// after it, as [`crate::block::render_slice`] gives them for that text.
-#[derive(Clone)]
-pub(crate) struct Ended {
-    pub(crate) end: usize,
-    pub(crate) out: String,
-    pub(crate) tail: Option<ListTail>,
-    pub(crate) flow: Flow,
+enum State {
+    /// No line of code that is not blank yet: an item marker can still be owed.
+    Waiting,
+    /// The head and the lines of code so far are committed; the next line of code is
+    /// painted under this prefix. `held` is the code of the blank lines after the
+    /// last committed line: they stay in the pending text until a line of code that
+    /// is not blank follows, because at the end of a list item they are not code.
+    Committing { prefix: Line, held: Vec<String> },
+    /// The rendering of the head does not end with the block's lines: the lines stay
+    /// in the pending text and each live zone is rendered in full.
+    Plain,
 }
 
 impl OpenFence {
-    /// The fence whose opening fence starts at `start` in `text`, which ends at a
-    /// line end. `None` unless the fence is the last element of the text, inside a
-    /// list item (`in_list`) or a quote, and each line after its opening line is
-    /// code.
-    pub(crate) fn new(text: &str, start: usize, in_list: bool) -> Option<OpenFence> {
-        let head = text[start..].find('\n').map(|at| start + at + 1)?;
+    /// Follows the fence whose opening fence starts at `at` in the complete lines of
+    /// `stream`, and commits to `out` the lines of code that came after its opening
+    /// line already. `None` unless the fence is the last element of the text, inside a
+    /// list item (`in_list`) or a quote, and each line after its opening line is code.
+    pub(crate) fn new(
+        ctx: &Ctx,
+        stream: &mut Stream,
+        at: usize,
+        in_list: bool,
+        out: &mut String,
+    ) -> Option<OpenFence> {
+        let text = &stream.pending[..stream.scanned];
+        let head = text[at..].find('\n').map(|end| at + end + 1)?;
         let events = events_of(&text[..head]);
         if !ends_with_nested_fence(&events) {
             return None;
         }
-        let fence =
-            OpenFence { head, events, in_list, lines: 0, closed: None, live: Live::Unbuilt };
+        let mut fence =
+            OpenFence { at, head, events, in_list, state: State::Waiting, closed: None };
         // Newest line first: after a closing fence only blank lines stay in the
         // block, so a closed fence fails at its last lines.
-        let mut lines = 0;
+        let mut last = None;
         for line in text[head..].split_inclusive('\n').rev() {
-            fence.code(&text[..head], line, true)?;
-            lines += 1;
+            let code = fence.code(&text[..head], line, true)?;
+            last.get_or_insert(code);
         }
-        Some(OpenFence { lines, ..fence })
+        if last.is_some_and(|code| !is_blank(&code)) {
+            fence.start(ctx, stream, out);
+        }
+        Some(fence)
     }
 
-    /// The end of the fence's opening line in the pending text.
-    pub(crate) fn head(&self) -> usize {
-        self.head
-    }
-
-    /// Takes the next complete line of the pending text, after `head`. False when
-    /// the line can change what commits or how the block renders: it is not code of
-    /// the open block, and it adds more than nothing after the closed one.
-    pub(crate) fn take_line(&mut self, ctx: &Ctx, head: &str, line: &str) -> bool {
+    /// Takes the complete line that starts at `start` and ends the scanned text of
+    /// `stream`, and commits it to `out` when it is code. False when the line can
+    /// change what commits or how the block renders: it is not code of the open
+    /// block, and it adds more than nothing after the closed one.
+    pub(crate) fn take_line(
+        &mut self,
+        ctx: &Ctx,
+        stream: &mut Stream,
+        start: usize,
+        out: &mut String,
+    ) -> bool {
+        let head = &stream.pending[..self.head];
+        let line = &stream.pending[start..stream.scanned];
         if let Some(after) = &self.closed {
             let text = format!("{after}{line}");
             if !self.adds_nothing(head, &text) {
@@ -107,91 +115,95 @@ impl OpenFence {
             }
             return false;
         };
-        self.lines += 1;
-        if let Live::Built { open, rows, .. } = &mut self.live {
-            let source = code.strip_suffix('\n').unwrap_or(&code);
-            let painted = paint_code_line(ctx, &open.prefix, &mut open.block, source);
-            *rows += rows_of_text(&painted, ctx);
-            open.out.push_str(&painted);
+        let blank = is_blank(&code);
+        if matches!(self.state, State::Waiting) {
+            if !blank {
+                self.start(ctx, stream, out);
+            }
+            return true;
         }
+        let State::Committing { prefix, held } = &mut self.state else { return true };
+        if blank {
+            held.push(code);
+            return true;
+        }
+        let Continuation::Nested { block, .. } = &mut stream.flow.continuation else {
+            // NOTE: nothing else sets the flow while the fence is followed.
+            self.state = State::Plain;
+            return true;
+        };
+        for code in held.drain(..).chain([code]) {
+            let source = code.strip_suffix('\n').unwrap_or(&code);
+            out.push_str(&paint_code_line(ctx, prefix, block, source));
+        }
+        stream.pending.truncate(self.head);
+        stream.scanned = self.head;
         true
     }
 
+    /// Commits the head and the lines of code after it, the complete lines of
+    /// `stream`, as [`crate::block::render_slice`] renders them, and keeps only the
+    /// head in the pending text.
+    fn start(&mut self, ctx: &Ctx, stream: &mut Stream, out: &mut String) {
+        let mut flow = stream.flow.clone();
+        let before = match flow.continuation.clone() {
+            Continuation::Nested { before, .. } => *before,
+            other => other,
+        };
+        let Some(open) = render_open_code(ctx, &mut flow, &stream.pending[..stream.scanned]) else {
+            self.state = State::Plain;
+            return;
+        };
+        out.push_str(&open.out);
+        flow.continuation =
+            Continuation::Nested { before: Box::new(before), at: self.at, block: open.block };
+        stream.flow = flow;
+        stream.pending.truncate(self.head);
+        stream.scanned = self.head;
+        self.state = State::Committing { prefix: open.prefix, held: Vec::new() };
+    }
+
     /// The live zone of `pending`, whose complete lines end at `scanned`, and its
-    /// rows: what [`crate::block::render_slice`] gives for all of `pending`.
-    /// [`Look::Before`] when the partial last line ends the follow. `None` when the
-    /// caller must render it in full.
+    /// rows: what [`crate::block::render_slice`] gives for all of `pending` after
+    /// the committed lines, with `flow`. `None` when the caller must render it.
     pub(crate) fn live(
-        &mut self,
+        &self,
         ctx: &Ctx,
         flow: &Flow,
         pending: &str,
         scanned: usize,
-    ) -> Option<Look> {
-        if matches!(self.live, Live::Unbuilt) {
-            // NOTE: with no line of code yet, an item marker can still be owed.
-            if self.lines == 0 {
-                return None;
-            }
-            let mut flow = flow.clone();
-            self.live = match render_open_code(ctx, &mut flow, &pending[..scanned]) {
-                Some(open) => {
-                    let rows = rows_of_text(&open.out, ctx);
-                    Live::Built { open, flow, rows }
-                }
-                None => Live::Unavailable,
-            };
-        }
-        let Live::Built { open, rows, .. } = &self.live else { return None };
+    ) -> Option<(String, usize)> {
+        let State::Committing { prefix, held } = &self.state else { return None };
+        let Continuation::Nested { block, .. } = &flow.continuation else { return None };
         let head = &pending[..self.head];
         let partial = &pending[scanned..];
+        if partial.is_empty() && held.is_empty() {
+            return Some((String::new(), 0));
+        }
         let painted = match &self.closed {
-            _ if partial.is_empty() => String::new(),
-            Some(after) if self.adds_nothing(head, &format!("{after}{partial}")) => String::new(),
-            Some(_) => return Some(Look::Before),
-            None => match self.code(head, partial, false) {
-                Some(code) if !code.is_empty() => {
-                    let mut block = open.block.clone();
-                    paint_code_line(ctx, &open.prefix, &mut block, &code)
+            Some(after)
+                if held.is_empty() && self.adds_nothing(head, &format!("{after}{partial}")) =>
+            {
+                String::new()
+            }
+            Some(_) => return None,
+            // NOTE: blank lines show only with code that is not blank after them.
+            None => match self.code(head, partial, false)? {
+                code if is_blank(&code) => return None,
+                code => {
+                    let mut block = block.clone();
+                    let mut painted = String::new();
+                    for line in held {
+                        let source = line.strip_suffix('\n').unwrap_or(line);
+                        painted.push_str(&paint_code_line(ctx, prefix, &mut block, source));
+                    }
+                    painted.push_str(&paint_code_line(ctx, prefix, &mut block, &code));
+                    painted
                 }
-                Some(_) => String::new(),
-                None => return Some(Look::Before),
             },
         };
-        let mut live = String::with_capacity(open.out.len() + painted.len());
-        live.push_str(&open.out);
-        live.push_str(&painted);
-        Some(Look::Whole(live, rows + rows_of_text(&painted, ctx)))
-    }
-
-    /// The live zone without the partial last line, and its rows: the kept rendering
-    /// of the complete lines. `None` before it is made.
-    pub(crate) fn before(&self) -> Option<(String, usize)> {
-        match &self.live {
-            Live::Built { open, rows, .. } => Some((open.out.clone(), *rows)),
-            Live::Unbuilt | Live::Unavailable => None,
-        }
-    }
-
-    /// The kept rendering as [`OpenFence::into_ended`] gives it, for a line that
-    /// starts at `end` and is not complete yet.
-    pub(crate) fn to_ended(&self, end: usize) -> Option<Ended> {
-        match &self.live {
-            Live::Built { open, flow, .. } => {
-                Some(Ended { end, out: open.out.clone(), tail: open.tail, flow: flow.clone() })
-            }
-            Live::Unbuilt | Live::Unavailable => None,
-        }
-    }
-
-    /// The kept rendering, when there is one, for the pending text up to `end`.
-    pub(crate) fn into_ended(self, end: usize) -> Option<Ended> {
-        match self.live {
-            Live::Built { open, flow, .. } => {
-                Some(Ended { end, out: open.out, tail: open.tail, flow })
-            }
-            Live::Unbuilt | Live::Unavailable => None,
-        }
+        let rows = rows_of_text(&painted, ctx);
+        Some((painted, rows))
     }
 
     /// The code that `line` adds to the block when it follows `head`, the text up to
@@ -242,13 +254,9 @@ impl OpenFence {
     }
 }
 
-/// What [`OpenFence::live`] found for the live zone.
-pub(crate) enum Look {
-    /// The live zone, its partial last line included, and its rows.
-    Whole(String, usize),
-    /// The partial last line ends the follow: it is not code of the open block, or it
-    /// adds more than nothing after the closed one.
-    Before,
+/// True for a line, or the code of one, with nothing but spaces and tabs.
+fn is_blank(line: &str) -> bool {
+    line.trim_end_matches(['\n', '\r']).chars().all(|c| c == ' ' || c == '\t')
 }
 
 fn events_of(text: &str) -> Vec<Event<'static>> {

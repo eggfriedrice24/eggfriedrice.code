@@ -65,6 +65,14 @@ into the GitHub release notes, and it stops when the section is missing.
   request together with its check of the WebSocket. When the WebSocket died without a
   close, the call still goes over HTTP after 5 seconds, as before. After 5 minutes or
   more, such as after a sleep of the computer, the request still waits for the check.
+- A code block in a list item or a quote now shows line by line, as a code block at
+  the top level does. Before, it stayed in the live part of the screen until its item
+  or quote ended, its top left a small pane, and then all its lines came at once.
+- The first code block of a language no longer holds the screen while efr loads its
+  colour data: about 14 ms for Rust, up to 125 ms for TypeScript. efr loads the data
+  in the background, and the data of a language when the line that opens its block
+  comes. Only when the first line of code comes together with that line does the
+  screen still wait for the rest of the load.
 
 ### Fixed
 

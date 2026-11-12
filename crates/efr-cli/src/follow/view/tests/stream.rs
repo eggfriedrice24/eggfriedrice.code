@@ -8,6 +8,8 @@
 //! more than 10 s ends the ladder of its kind and screen. The lines: the CPU time of a
 //! frame (p50, p95, max), its bytes, the CPU time of the first frame, and the slope of
 //! the p50 over the size. `EFR_STREAM_KINDS` names the kinds of a run by hand.
+//! Budget: no streamed frame takes 16 ms of CPU; for a fenced block in a list item, no
+//! frame takes 2 ms, and the bytes of a frame do not grow with the block.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -147,6 +149,9 @@ fn bench_perf_stream_ladder() {
         .filter(|kind| only.as_ref().is_none_or(|only| only.split(',').any(|name| name == *kind)));
     let screens = [Size { cols: 80, rows: 24 }, Size { cols: 200, rows: 60 }];
     let mut slowest: Option<(Duration, String)> = None;
+    // For a fenced block in a list item: the largest frame of each rung, in bytes, and
+    // the CPU time of its slowest frame.
+    let mut fences: Vec<(String, usize, usize, Duration)> = Vec::new();
     for kind in kinds {
         for size in screens {
             let case = format!("{kind}|{}x{}", size.cols, size.rows);
@@ -201,6 +206,10 @@ fn bench_perf_stream_ladder() {
                 let max = frame_bytes.last().copied().unwrap_or(0);
                 report.count(&format!("{rung}|bytes of a frame, p50"), p50 as u64);
                 report.count(&format!("{rung}|bytes of a frame, max"), max as u64);
+                if kind.contains("fence_in_list") {
+                    let slowest = cpu.iter().max().copied().unwrap_or_default();
+                    fences.push((rung.clone(), bytes, max, slowest));
+                }
                 if began.elapsed() > STOP_AFTER {
                     report.count(&format!("{case}|stopped_at_n (bytes)"), bytes as u64);
                     break;
@@ -214,5 +223,22 @@ fn bench_perf_stream_ladder() {
     // frame time of CPU. The first frame, which renders the whole head, is not streamed.
     if let Some((max, rung)) = slowest {
         assert!(max < Duration::from_millis(16), "{rung}: a streamed frame took {max:?} of CPU");
+    }
+    // The budget of a fenced block in a list item (slice 9): each line commits when it
+    // ends, so a frame writes the line in progress only, and its bytes do not grow
+    // with the block: at most twice those of the smallest rung. No frame takes more
+    // than 2 ms of CPU.
+    let smallest: Vec<(String, usize)> = fences
+        .iter()
+        .filter(|(_, bytes, ..)| *bytes == 256)
+        .map(|(rung, _, max, _)| (rung.replace("|256 bytes pending", ""), *max))
+        .collect();
+    for (rung, _, max, cpu) in &fences {
+        let Some((_, first)) = smallest.iter().find(|(case, _)| rung.starts_with(case.as_str()))
+        else {
+            continue;
+        };
+        assert!(max <= &(2 * first), "{rung}: a frame wrote {max} bytes, the smallest {first}");
+        assert!(*cpu <= Duration::from_millis(2), "{rung}: a frame took {cpu:?} of CPU");
     }
 }

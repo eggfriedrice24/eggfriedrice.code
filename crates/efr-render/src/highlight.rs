@@ -1,6 +1,8 @@
 //! Syntax highlighting through syntect, with two-face's grammars and themes (bat's
-//! set). Both decompress on first use, because `efr` is a short process per prompt
-//! and most replies have no code block.
+//! set). Both decompress on first use, or when a caller asks for them before
+//! ([`crate::Preload`]) on a thread of its own, because `efr` is a short process per
+//! prompt and a frame must not wait for the load. A grammar unpacks its contexts and
+//! builds its patterns at its first line, 1 to 125 ms by the language.
 
 use std::fmt;
 use std::path::Path;
@@ -95,9 +97,23 @@ impl Assets {
             .filter(|syntax| !is_plain_text(syntaxes, syntax))
     }
 
+    /// Loads the grammars now, and the embedded `theme` with its highlighter when
+    /// there is one, so a later code block finds them loaded.
+    pub(crate) fn load(&'static self, theme: Option<Theme>) {
+        self.syntaxes();
+        if let Some(theme) = theme {
+            self.theme_ref(theme);
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn grammars_loaded(&self) -> bool {
         self.syntaxes.get().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn highlighter_loaded(&self, theme: Theme) -> bool {
+        self.highlighters[theme.index()].get().is_some()
     }
 }
 
@@ -141,18 +157,21 @@ impl fmt::Debug for ThemeRef {
 pub(crate) struct Highlight {
     syntaxes: &'static SyntaxSet,
     theme: ThemeRef,
-    parse: ParseState,
+    syntax: &'static SyntaxReference,
+    /// Made at the first line: it unpacks the grammar's contexts, the first part of
+    /// the grammar's cost, so the label line of a block does not pay it.
+    parse: Option<ParseState>,
     state: HighlightState,
 }
 
 impl Highlight {
     pub(crate) fn new(
         assets: &'static Assets,
-        syntax: &SyntaxReference,
+        syntax: &'static SyntaxReference,
         theme: ThemeRef,
     ) -> Highlight {
         let state = HighlightState::new(theme.highlighter, ScopeStack::new());
-        Highlight { syntaxes: assets.syntaxes(), theme, parse: ParseState::new(syntax), state }
+        Highlight { syntaxes: assets.syntaxes(), theme, syntax, parse: None, state }
     }
 
     /// Highlights the next line, given without its newline. `None` when the grammar
@@ -160,7 +179,9 @@ impl Highlight {
     pub(crate) fn line(&mut self, line: &str) -> Option<Vec<(Style, String)>> {
         // The grammars are the "newlines" set, which expect each line to end in one.
         let text = format!("{line}\n");
-        let ops = self.parse.parse_line(&text, self.syntaxes).ok()?;
+        let syntax = self.syntax;
+        let parse = self.parse.get_or_insert_with(|| ParseState::new(syntax));
+        let ops = parse.parse_line(&text, self.syntaxes).ok()?;
         let highlighter = self.theme.highlighter;
         let mut tokens = Vec::new();
         for (style, piece) in HighlightIterator::new(&mut self.state, &ops, &text, highlighter) {

@@ -156,13 +156,29 @@ fn blocks_of_one_theme_share_one_highlighter() {
 #[ignore = "bench: run by just bench-perf"]
 fn bench_perf_highlight_line() {
     let mut report = Report::new("bench_perf_highlight_line");
-    // The first highlight of a process decompresses the grammars and the themes.
+    // The first highlight of a process decompresses the grammars and the themes, which
+    // `preload` does ahead, and then builds the patterns of its grammar.
     let assets = fresh_assets();
+    let start = Instant::now();
+    assets.load(Some(Theme::ANSI));
+    report.time("cold load of the grammars and the theme (preload)", &[start.elapsed()]);
     let start = Instant::now();
     let syntax = assets.syntax_for_label("rust").unwrap();
     let mut highlight = Highlight::new(assets, syntax, assets.theme_ref(Theme::ANSI));
     assert!(highlight.line(RUST[1]).is_some());
-    report.time("cold first highlight (syntax set load)", &[start.elapsed()]);
+    report.time("first highlight of a grammar after the load", &[start.elapsed()]);
+    let start = Instant::now();
+    let mut highlight = Highlight::new(assets, syntax, assets.theme_ref(Theme::ANSI));
+    assert!(highlight.line(RUST[1]).is_some());
+    report.time("second first line of the grammar", &[start.elapsed()]);
+    // What `Preload::text` readies ahead for the first block of other languages.
+    for label in ["bash", "python", "json", "toml", "typescript", "go"] {
+        let start = Instant::now();
+        let syntax = assets.syntax_for_label(label).unwrap();
+        let mut highlight = Highlight::new(assets, syntax, assets.theme_ref(Theme::ANSI));
+        assert!(highlight.line("").is_some());
+        report.time(&format!("first line of {label} after the load"), &[start.elapsed()]);
+    }
 
     let syntax = ASSETS.syntax_for_label("rust").unwrap();
     for name in ["ansi", "catppuccin-mocha"] {

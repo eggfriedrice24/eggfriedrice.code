@@ -90,6 +90,8 @@
 mod view;
 
 use std::pin::Pin;
+use std::sync::OnceLock;
+use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
 use efr_protocol::{
@@ -205,6 +207,69 @@ pub(crate) struct Target {
     pub(crate) after: Seq,
 }
 
+/// The stack of the thread that loads the syntax data.
+const PRELOAD_STACK: usize = 2 * 1024 * 1024;
+
+/// The way to the thread that loads the syntax data: lines of the reply that can open
+/// a fenced code block.
+static PRELOAD: OnceLock<Sender<String>> = OnceLock::new();
+
+/// Starts the thread that loads the syntax data of code blocks, once in a process: it
+/// loads the grammars and the theme at once, then readies the grammar of each fenced
+/// block that opens in the lines that [`FenceLines`] sends it. So a frame does not
+/// wait for the load, and a reply without code pays nothing on its frames. Nothing
+/// waits for the thread: the process can end while it runs.
+fn preload_syntax(ctx: &Context) {
+    PRELOAD.get_or_init(|| {
+        let (sender, texts) = mpsc::channel::<String>();
+        let options = ctx.render_options(crate::live::effective_width(ctx.screen.size()));
+        let load = move || {
+            let mut preload = efr_render::Preload::new(&options);
+            preload.load();
+            for text in texts {
+                preload.text(&text);
+            }
+        };
+        if let Err(error) = efr_stdx::thread::spawn_named("syntax-load", PRELOAD_STACK, load) {
+            tracing::debug!(%error, "the first code block loads the syntax data");
+        }
+        sender
+    });
+}
+
+/// A line in progress longer than this is no fence's opening line.
+const FENCE_LINE_MAX: usize = 1024;
+
+/// The line in progress of the followed reply's text, so that each complete line that
+/// can open a fenced code block goes to the thread that loads the syntax data.
+#[derive(Debug, Default)]
+struct FenceLines {
+    line: String,
+}
+
+impl FenceLines {
+    /// Takes the next piece of the text.
+    fn text(&mut self, piece: &str) {
+        for part in piece.split_inclusive('\n') {
+            if self.line.len() + part.len() <= FENCE_LINE_MAX {
+                self.line.push_str(part);
+            } else {
+                self.line.clear();
+            }
+            if !part.ends_with('\n') {
+                continue;
+            }
+            let line = std::mem::take(&mut self.line);
+            if (line.contains("```") || line.contains("~~~"))
+                && let Some(sender) = PRELOAD.get()
+            {
+                // NOTE: when the thread did not start, the line has nowhere to go.
+                let _ = sender.send(line);
+            }
+        }
+    }
+}
+
 /// Follows `target` on `client` until the turn ends, writing it to `out`. With `row`,
 /// the view's input row reads keys for the whole turn, and the view follows the
 /// prompts that it queues until the last one ends.
@@ -216,6 +281,7 @@ pub(crate) async fn follow(
     target: Target,
     row: Option<Row>,
 ) -> Result<(), CliError> {
+    preload_syntax(ctx);
     let (compose, keys, origin) = match row {
         Some(Row { compose, reader, origin }) if view.has_row() => {
             (Some(compose), Some((reader, Asking::Row)), Some(origin))
@@ -244,6 +310,7 @@ pub(crate) async fn follow(
         paste_until: None,
         stopping: None,
         lingering: None,
+        fence_lines: FenceLines::default(),
     };
     // The first frame shows the status row and the notes before the first event.
     let result = match follower.paint(out, view, false) {
@@ -397,6 +464,7 @@ struct Follower<'a> {
     /// call left running in the hidden shell waits for an answer here
     /// ([`TurnView::lingers`]).
     lingering: Option<TurnEnd>,
+    fence_lines: FenceLines,
 }
 
 /// The answer to a `jobs.stop`, which comes when the job ended.
@@ -924,6 +992,7 @@ impl Follower<'_> {
             Ok(ConversationSubscribeItem::Draft(draft)) => {
                 if let efr_protocol::DraftPart::Text { delta, .. } = &draft.draft {
                     efr_stdx::mark::text("follow.draft", delta.as_bytes());
+                    self.fence_lines.text(delta);
                 }
                 #[cfg(test)]
                 if let efr_protocol::DraftPart::Text { offset, delta, .. } = &draft.draft {

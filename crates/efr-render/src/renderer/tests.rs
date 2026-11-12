@@ -5,6 +5,7 @@ use proptest::prelude::{Just, Strategy, prop, prop_oneof, proptest};
 
 use super::{Renderer, render};
 use crate::block::{Ctx, Flow, render_slice};
+use crate::code::Preload;
 use crate::elements::{ELEMENTS, element};
 use crate::highlight::{ASSETS, Assets};
 use crate::options::{ColourMode, RenderOptions, Theme};
@@ -40,13 +41,21 @@ fn has_colour(painted: &str) -> bool {
 }
 
 /// The renderer as it was before it followed open fences and kept long live zones:
-/// each push renders the whole live zone again.
+/// each push renders the whole live zone again, and a fence in a list item or a quote
+/// commits only with its item or quote.
 fn plain(options: &RenderOptions) -> Renderer {
     Renderer::tuned(options.clone(), usize::MAX, false)
 }
 
+/// The rows of the painted lines of `live`, as [`super::Update::live_rows`] counts
+/// them.
+fn rows_of(live: &str, options: &RenderOptions) -> usize {
+    live.lines().map(|line| display_rows(line, options.columns(), options.width_method())).sum()
+}
+
 /// Pushes `markdown` cut at `cuts` into `fast` and into a [`plain`] renderer, and
-/// checks that each push commits the same and shows the same live zone. Returns
+/// checks that after each push the screen is the same: all that was committed so far
+/// and the live zone. `fast` commits the lines of a followed fence earlier. Returns
 /// everything committed and whether `fast` followed a fence at some point.
 fn same_as_plain(
     markdown: &str,
@@ -56,20 +65,27 @@ fn same_as_plain(
 ) -> (String, bool) {
     let mut reference = plain(options);
     let mut out = String::new();
+    let mut want_out = String::new();
     let mut followed = false;
     let mut from = 0;
     for to in boundaries(markdown, cuts) {
         let piece = &markdown[from..to];
         let got = fast.push(piece);
         let want = reference.push(piece);
-        assert_eq!(got, want, "after {to} bytes of {markdown:?}");
-        followed |= fast.follows_fence();
         out.push_str(got.committed());
+        want_out.push_str(want.committed());
+        assert_eq!(
+            format!("{out}{}", got.live()),
+            format!("{want_out}{}", want.live()),
+            "after {to} bytes of {markdown:?}"
+        );
+        assert_eq!(got.live_rows(), rows_of(got.live(), options), "after {to} bytes");
+        followed |= fast.follows_fence();
         from = to;
     }
-    let rest = fast.finish();
-    assert_eq!(rest, reference.finish());
-    out.push_str(&rest);
+    out.push_str(&fast.finish());
+    want_out.push_str(&reference.finish());
+    assert_eq!(out, want_out);
     (out, followed)
 }
 
@@ -151,31 +167,83 @@ fn after_a_long_fence_the_partial_line_of_the_next_item_shows_at_once() {
     let (head, rest) = markdown.split_at(markdown.find("2. Run").unwrap());
     assert!(head.len() > 4096);
     let mut renderer = Renderer::new(options());
-    let mut reference = plain(&options());
-    let before = renderer.push(head).live().to_owned();
-    reference.push(head);
+    let update = renderer.push(head);
     assert!(renderer.follows_fence());
+    assert!(update.committed().contains("value_119"));
+    assert_eq!(update.live(), "");
     let update = renderer.push(&rest[..4]);
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), format!("{before}\n2. R\n"));
-    assert_eq!(update, reference.push(&rest[..4]));
+    assert_eq!(update.live(), "\n2. R\n");
     let update = renderer.push(&rest[4..]);
-    assert_eq!(update.committed(), before);
+    assert_eq!(update.committed(), "");
     assert_eq!(update.live(), "\n2. Run the tests.\n");
 }
 
 #[test]
-fn after_a_long_fence_more_text_in_its_item_shows_when_its_line_ends() {
+fn after_a_long_fence_more_text_in_its_item_shows_at_once() {
     let markdown = nested_fence(120);
     let head = &markdown[..markdown.find("2. Run").unwrap()];
-    let mut renderer = Renderer::new(options());
-    let before = renderer.push(head).live().to_owned();
-    // The text is a paragraph of the first item: the item renders again with its code.
+    let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
+    renderer.push(head);
+    // The text is a paragraph of the first item, after its committed code.
     let update = renderer.push("   More");
-    assert_eq!(update.live(), before, "the partial line shows late");
+    assert_eq!(update.live(), "   More\n");
     let update = renderer.push(" text\n");
-    assert!(update.live().contains("More text"));
+    assert_eq!(update.live(), "   More text\n");
     assert_eq!(update.committed(), "");
+    let update = renderer.push("2. Next\n");
+    assert_eq!(update.committed(), "   More text\n");
+    assert_eq!(update.live(), "2. Next\n");
+}
+
+/// The fences of the tests that commit line by line: in a list item and in a quote,
+/// with a language and without one, and the text that ends each.
+const NESTED_FENCES: [(&str, &str, &str); 4] = [
+    ("1. Step:\n\n   ```rust\n", "   ", "   ```\n\n2. Next\n"),
+    ("- ```\n", "  ", "  ```\n- next\n"),
+    ("> Look:\n>\n> ```rust\n", "> ", "> ```\n\nAfter.\n"),
+    ("> ```\n", "> ", "> ```\n> more\n\nAfter.\n"),
+];
+
+#[test]
+fn each_line_of_a_fence_in_a_list_item_or_a_quote_commits_when_it_ends() {
+    for (opening, indent, closing) in NESTED_FENCES {
+        for options in [options(), options().with_colour(ColourMode::None)] {
+            let mut renderer = Renderer::new(options.clone());
+            let mut markdown = opening.to_owned();
+            let mut out = renderer.push(opening).into_committed();
+            let pending = renderer.stream.pending.len();
+            for at in 0..60 {
+                let line = format!("{indent}let value_{at} = parse(&input[{at}..])?;\n");
+                let (start, end) = line.split_at(12);
+                let update = renderer.push(start);
+                if at > 0 {
+                    assert_eq!(update.live_rows(), 1, "{opening:?}: the partial line");
+                }
+                out.push_str(update.committed());
+                let update = renderer.push(end);
+                assert!(update.committed().contains(&format!("value_{at}")), "{opening:?}");
+                assert_eq!(update.live(), "", "{opening:?}");
+                // The pending text keeps the text up to the opening line only.
+                assert_eq!(renderer.stream.pending.len(), pending, "{opening:?}");
+                out.push_str(update.committed());
+                markdown.push_str(&line);
+            }
+            markdown.push_str(closing);
+            out.push_str(renderer.push(closing).committed());
+            out.push_str(&renderer.finish());
+            assert_eq!(out, render(&markdown, &options), "{markdown:?}");
+            // A renderer that does not follow the fence shows the same in the end.
+            let (all, followed) = same_as_plain(
+                &markdown,
+                &every(&markdown, 7),
+                &options,
+                Renderer::new(options.clone()),
+            );
+            assert!(followed);
+            assert_eq!(all, out);
+        }
+    }
 }
 
 #[test]
@@ -195,20 +263,44 @@ fn a_long_paragraph_line_shows_its_partial_text_at_once() {
 #[test]
 fn an_open_fence_shows_its_partial_line_at_once() {
     let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
-    renderer.push("1. Step:\n\n   ```\n   one\n");
+    let update = renderer.push("1. Step:\n\n   ```\n   one\n");
     assert!(renderer.follows_fence());
+    assert_eq!(update.committed(), "1. Step:\n   one\n");
     let update = renderer.push("   tw");
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "1. Step:\n   one\n   tw\n");
-    assert_eq!(update.live_rows(), 3);
+    assert_eq!(update.live(), "   tw\n");
+    assert_eq!(update.live_rows(), 1);
     // The fence closes on a partial line, and the next item ends the first one.
-    assert_eq!(renderer.push("o\n   ``").live(), "1. Step:\n   one\n   two\n   ``\n");
-    assert_eq!(renderer.push("`").live(), "1. Step:\n   one\n   two\n");
+    let update = renderer.push("o\n   ``");
+    assert_eq!(update.committed(), "   two\n");
+    assert_eq!(update.live(), "   ``\n");
+    assert_eq!(renderer.push("`").live(), "");
     assert!(renderer.follows_fence());
     let update = renderer.push("\n2. Next\n");
     assert!(!renderer.follows_fence());
-    assert_eq!(update.committed(), "1. Step:\n   one\n   two\n");
+    assert_eq!(update.committed(), "");
     assert_eq!(update.live(), "2. Next\n");
+}
+
+#[test]
+fn a_blank_line_in_a_fence_in_a_list_item_commits_with_the_next_line_of_code() {
+    let options = options().with_colour(ColourMode::None);
+    let mut renderer = Renderer::new(options.clone());
+    assert_eq!(renderer.push("1. Step:\n   ```\n   one\n").committed(), "1. Step:\n   one\n");
+    assert_eq!(renderer.push("\n").committed(), "");
+    let update = renderer.push("   two\n");
+    assert_eq!(update.committed().lines().count(), 2);
+    assert!(update.committed().ends_with("   two\n"));
+    // At the end of the item, the blank line is not code.
+    for markdown in
+        ["1. Step:\n   ```\n   one\n\n2. Next\n", "1. Step:\n   ```\n   one\n\n   ```\n"]
+    {
+        let cuts: Vec<usize> = (0..markdown.len()).collect();
+        let (out, followed) =
+            same_as_plain(markdown, &cuts, &options, Renderer::new(options.clone()));
+        assert!(followed);
+        assert_eq!(out, render(markdown, &options), "{markdown:?}");
+    }
 }
 
 #[test]
@@ -443,6 +535,45 @@ fn no_colour_mode_writes_no_colour_codes() {
 }
 
 #[test]
+fn preload_loads_the_grammars_and_the_theme_only_for_colour_on_a_terminal() {
+    let none: &'static Assets = Box::leak(Box::new(Assets::new()));
+    for options in [options().with_colour(ColourMode::None), options().with_terminal(false)] {
+        let mut preload = Preload::with_assets(&options, none);
+        preload.load();
+        preload.text("```rust\nfn a() {}\n");
+    }
+    assert!(!none.grammars_loaded());
+    let assets: &'static Assets = Box::leak(Box::new(Assets::new()));
+    Preload::with_assets(&options(), assets).load();
+    assert!(assets.grammars_loaded());
+    assert!(assets.highlighter_loaded(Theme::default()));
+}
+
+#[test]
+fn preload_finds_the_fences_that_open_in_pieces_of_text() {
+    for (text, info) in [
+        ("```rust\n", Some("rust")),
+        ("Here:\n\n~~~~ python title=\"a.py\"\n", Some("python title=\"a.py\"")),
+        ("1. Step\n\n   ```toml\n", Some("toml")),
+        ("> - ```sh\n", Some("sh")),
+        ("10) ```go\n", Some("go")),
+        ("```\n", None),
+        ("text with ```rust inside\n", None),
+        ("```ru", None),
+    ] {
+        let found = text.lines().last().and_then(crate::code::fence_info);
+        let complete = text.ends_with('\n');
+        assert_eq!(found.filter(|_| complete), info, "{text:?}");
+    }
+    let assets: &'static Assets = Box::leak(Box::new(Assets::new()));
+    let mut preload = Preload::with_assets(&options(), assets);
+    preload.text("Some prose.\n\n1. Step\n\n   ```ru");
+    assert_eq!(preload.ready(), [] as [&str; 0]);
+    preload.text("st\n   fn a() {}\n");
+    assert_eq!(preload.ready(), ["rust"]);
+}
+
+#[test]
 fn prose_loads_no_grammar_and_the_first_code_block_does() {
     let assets: &'static Assets = Box::leak(Box::new(Assets::new()));
     let mut renderer = Renderer::with_assets(options(), assets);
@@ -593,8 +724,9 @@ fn fenced_block() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    /// Following an open fence and keeping its live zone changes nothing: each push
-    /// commits and shows what the plain path does.
+    /// Following an open fence and keeping its live zone changes nothing on the
+    /// screen: after each push, what was committed and the live zone show what the
+    /// plain path shows.
     #[test]
     fn following_fences_commits_and_shows_what_the_plain_path_does(
         markdown in prop_oneof![fenced_block(), document(), noise()],
@@ -626,7 +758,7 @@ proptest! {
         options in any_options(),
     ) {
         let mut fast = Renderer::tuned(options.clone(), 0, true);
-        let mut reference = plain(&options);
+        let mut reference = Renderer::tuned(options.clone(), usize::MAX, true);
         let mut from = 0;
         for to in boundaries(&markdown, &cuts) {
             let piece = &markdown[from..to];
