@@ -144,6 +144,7 @@ fn all_lists_every_variant() {
         Var::TestSessionBus,
         Var::BenchProject,
         Var::Mark,
+        Var::RecordStreams,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -174,6 +175,7 @@ fn all_lists_every_variant() {
             | Var::TestSessionBus
             | Var::BenchProject
             | Var::Mark
+            | Var::RecordStreams
             | Var::Mode
             | Var::Model
             | Var::Effort
@@ -261,4 +263,13 @@ fn efr_names(text: &str) -> BTreeSet<String> {
             (len > 0).then(|| format!("{prefix}{}", &rest[..len]))
         })
         .collect()
+}
+
+#[test]
+fn the_stream_recording_is_a_flag_that_is_off_unless_set() {
+    assert_eq!(Var::RecordStreams.name(), "EFR_RECORD_STREAMS");
+    assert!(!Var::RecordStreams.is_private());
+    assert!(!Env::fixed::<_, &str>([]).flag(Var::RecordStreams).unwrap());
+    assert!(!Env::fixed([(Var::RecordStreams, "")]).flag(Var::RecordStreams).unwrap());
+    assert!(Env::fixed([(Var::RecordStreams, "1")]).flag(Var::RecordStreams).unwrap());
 }

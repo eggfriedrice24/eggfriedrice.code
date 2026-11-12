@@ -203,7 +203,10 @@ impl OpenAiProvider {
     ) -> Result<HttpRequest, HttpError> {
         let mut request = HttpRequest::get(&self.config.responses_url())?
             .header(HeaderName::from_static(BETA_HEADER), HeaderValue::from_static(WEBSOCKET_BETA))
-            .timeout(CONNECT_TIMEOUT);
+            .timeout(CONNECT_TIMEOUT)
+            // NOTE: a recorder of efrd (`EFR_RECORD_STREAMS`) then gets the text messages
+            // of the socket; the handshake and its headers are never recorded.
+            .recorded();
         if self.config.backend() == Backend::Subscription
             && let Some(key) = key
         {

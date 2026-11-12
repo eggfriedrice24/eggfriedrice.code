@@ -467,3 +467,29 @@ fn a_remote_table_in_the_file_is_read_and_checked() {
     let error = Settings::parse(path, Some("[remote]\nbind = \"0.0.0.0\"\n")).unwrap_err();
     assert!(format!("{error:?}").contains("bind"), "{error:?}");
 }
+
+#[test]
+fn web_keys_have_defaults_and_checks() {
+    let defaults = Settings::default().web;
+    assert_eq!(defaults.search, crate::WebSearch::Mode);
+    assert_eq!(defaults.max_searches, 20);
+    let mut settings = Settings::default();
+    for refused in [0, 101] {
+        settings.web.max_searches = refused;
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("web.max_searches"));
+    }
+    for allowed in [1, 100] {
+        settings.web.max_searches = allowed;
+        assert_eq!(check(&settings), Ok(()));
+    }
+    let parsed = Settings::parse(
+        std::path::Path::new("config.toml"),
+        Some("[web]\nsearch = \"cached\"\nmax_searches = 5\n"),
+    )
+    .unwrap();
+    assert_eq!(parsed.web.search, crate::WebSearch::Cached);
+    assert_eq!(parsed.web.max_searches, 5);
+    let wrong =
+        Settings::parse(std::path::Path::new("config.toml"), Some("[web]\nsearch = \"auto\"\n"));
+    assert!(wrong.is_err(), "auto is a permission mode, not a value of web.search");
+}

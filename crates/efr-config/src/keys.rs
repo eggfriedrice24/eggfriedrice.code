@@ -16,7 +16,7 @@ use crate::{
     ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
     NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RecordingSettings,
     RemoteSettings, RenderColors, RenderSettings, ResumeSettings, SandboxSettings, Settings,
-    ShellSettings, SnapshotSettings, UndoSettings,
+    ShellSettings, SnapshotSettings, UndoSettings, WebSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -125,6 +125,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "recording" => fields::<RecordingSettings>(),
         "presence" => fields::<PresenceSettings>(),
         "jobs" => fields::<JobsSettings>(),
+        "web" => fields::<WebSettings>(),
         "remote" => fields::<RemoteSettings>(),
         "resume" => fields::<ResumeSettings>(),
         "diff" => fields::<DiffSettings>(),

@@ -1,0 +1,11 @@
+[
+  "too_many_requests",
+  "limit_reached",
+  "unavailable",
+  "invalid",
+  "not_allowed",
+  "not_accessible",
+  "unsupported",
+  "not_finished",
+  "unknown"
+]

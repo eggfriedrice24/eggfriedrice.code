@@ -345,6 +345,9 @@ pub(crate) fn summary_request(
         system: base.system.clone(),
         messages,
         tools: base.tools.clone(),
+        // NOTE: the same hosted tools as the turn's requests, as `tools`, so the summary
+        // request shares their prefix in the prompt cache.
+        hosted: base.hosted.clone(),
         max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS + SUMMARY_REASONING_TOKENS),
         effort: base.effort.clone(),
         side_call: true,

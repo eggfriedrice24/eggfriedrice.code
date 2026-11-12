@@ -103,6 +103,30 @@ workspace, or set `[anthropic] workspace_id` and restart efrd.
 `,model`, or set `model.provider`. Neither needs a restart. [When a prompt
 fails](../use/models-and-login.md#when-a-prompt-fails) tells more.
 
+**Record the stream of a model call.** To report a problem with a provider, or to make
+a test fixture, record what efr sends and what comes back. Set `EFR_RECORD_STREAMS=1`
+for efrd and start it again:
+
+```sh
+systemctl --user edit efrd
+```
+
+Add `Environment=EFR_RECORD_STREAMS=1` under `[Service]`, then run
+`systemctl --user restart efrd`. Send one prompt. The files are in
+`<state dir>/streams/<UTC time>-<pid>/`; `efr paths` names the state dir. For each
+model call `n` there are three entries:
+
+- `<n>.request.json`: the URL without its query, and the body of the request: your
+  prompt, the system prompt, the history and the output of tools.
+- `<n>.response.sse`: the answer of the model as it came.
+- one line in `index.jsonl`: the time, the transport, the status and how the answer
+  ended.
+
+efr never writes a header, so no token, API key or cookie goes into the files. But the
+files hold your prompts and the answers, so they are private: the directory has mode
+0700 and each file 0600, and efr never sends them anywhere. Read a file before you
+share it. Remove the variable and restart efrd to stop. Then delete the directory.
+
 ## The config file
 
 **An error in `config.toml`.** A file with an error changes nothing: the daemon keeps

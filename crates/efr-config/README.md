@@ -109,6 +109,12 @@ Modules:
   1440; no input for so long counts a person away from a conversation),
   `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
   client exists yet).
+- `tables/web`: `[web]` (`WebSettings`): `search` (`WebSearch`: `mode`, the default,
+  follows the permission mode of the turn; `off`, `cached` or `live`) and
+  `max_searches` (1 to 100, default 20), the web search that the provider runs inside
+  the model call. Both apply from the next turn. The name `mode` is not `auto`,
+  because `auto` is a permission mode. The daemon turns it into the conversation's
+  `WebConfig`, and `efr-conversation`'s `web.rs` decides the tool of each turn.
 - `tables/jobs`: `[jobs]` (`JobsSettings`), the background jobs of phase C:
   `enabled`, `default_minutes` (1 to `max_minutes`, default 60), `max_minutes` (1 to
   1440, default 480), `max_running` (1 to 64, default 4, per conversation),

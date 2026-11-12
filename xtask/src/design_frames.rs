@@ -21,7 +21,9 @@
 //! - It makes the corrections of the build spec (section 2.3): no live row for the
 //!   reasoning, the detail at the end of the status row, the diff sign at column 2, the
 //!   scope `app`, a blank row between calls and prose, one row for each read in `efr
-//!   history`, and mock names only (the repository is public).
+//!   history`, and mock names only (the repository is public); and the corrections of
+//!   the web board (the build spec of web search, 4.5): only the five rows of a run of
+//!   searches and of the OpenAI steps, and no row of today's end line.
 //!
 //! A row keeps the line breaks of the board, so a test gives mock Markdown with a line
 //! break at the end of each prose row.
@@ -109,6 +111,7 @@ pub(crate) fn depth_of(board: &str, frame: u64, caption: Option<&str>) -> (Depth
         ("TM-Questions", 9) => (Depth::Ansi16, Some(1)),
         ("TM-Questions", 10) => (Depth::NoColor, Some(1)),
         ("TM-Markdown", 2) => (Depth::NoColor, Some(1)),
+        ("TM-Web", 11) => (Depth::NoColor, Some(10)),
         _ => {
             let caption = caption.unwrap_or_default();
             if caption.contains("16 colours") {
@@ -222,6 +225,16 @@ pub(crate) fn correct(board: &str, frame: u64, json: &mut Json) -> anyhow::Resul
         }
         // Today's sticky line.
         ("TM-Scope", 17) => {
+            rows.remove(0);
+        }
+        // The rejected looks of the web board: the folded run of searches (frame 3) and
+        // the rows of a find (frame 5) (DECISIONS-web 3: never folded; a find gets no
+        // row).
+        ("TM-Web", 3 | 5) => {
+            rows.truncate(5);
+        }
+        // Today's end line.
+        ("TM-Web", 13) => {
             rows.remove(0);
         }
         _ => {}

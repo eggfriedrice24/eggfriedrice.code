@@ -459,3 +459,33 @@ async fn a_tool_call_answer_collects_into_a_message() {
     );
     assert_eq!(completion.message.provider_raw, Some(json!([1])));
 }
+
+#[tokio::test]
+async fn the_provider_has_no_web_tool_unless_a_test_gives_one_and_replays_web_events() {
+    use efr_provider::{HostedAction, HostedOutcome, HostedTool, WebAccess, WebSupport};
+
+    assert_eq!(echo(&[]).web_search(), WebSupport::None);
+    let mut asked = request("what changed");
+    asked.hosted = vec![HostedTool::web_search(WebAccess::Live, Some(20))];
+    let answer_events = [
+        ProviderEvent::HostedCallStart {
+            call_id: "srvtoolu_01A".to_owned(),
+            action: HostedAction::Search { query: None },
+        },
+        ProviderEvent::HostedCallEnd {
+            call_id: "srvtoolu_01A".to_owned(),
+            action: HostedAction::Search { query: Some("rust 2026".to_owned()) },
+            outcome: HostedOutcome::Done { results: Some(Vec::new()) },
+        },
+        text("Nothing."),
+        ProviderEvent::Citation { url: "https://a.test/".to_owned(), title: None, placed: true },
+        done(),
+    ];
+    let records = [ask(serde_json::to_value(&asked).unwrap()), answer(sse(&answer_events))];
+    let provider = ReplayProvider::new(&Transcript::from_records(records))
+        .unwrap()
+        .with_web_search(WebSupport::StoredOrLive);
+    assert_eq!(provider.web_search(), WebSupport::StoredOrLive);
+    assert_eq!(events(&provider, asked).await, answer_events);
+    provider.finish().unwrap();
+}

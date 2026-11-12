@@ -283,3 +283,51 @@ async fn a_ping_fails_when_the_connection_ends_before_the_pong() {
     let error = socket.ping().await.unwrap_err();
     assert!(matches!(error, HttpError::WebSocketClosed { .. }), "{error:?}");
 }
+
+/// Hears the text messages of recorded sockets, and anything else as a debug line.
+#[derive(Debug, Default)]
+struct Texts(std::sync::Mutex<Vec<String>>);
+
+impl crate::Recorder for Texts {
+    fn record(&self, record: &crate::Record<'_>) {
+        let line = match record {
+            crate::Record::SocketText { exchange, url, sent, text } => {
+                let way = if *sent { "sent" } else { "got" };
+                format!("{exchange} {url} {way} {text}")
+            }
+            other => format!("other {other:?}"),
+        };
+        self.0.lock().unwrap().push(line);
+    }
+}
+
+#[tokio::test]
+async fn a_recorded_socket_reports_its_text_messages_and_never_its_handshake() {
+    let script = |mut socket: ServerSocket<TcpStream>| async move {
+        let text = next_text(&mut socket).await;
+        socket.write_frame(text_frame(&format!("echo: {text}"))).await.unwrap();
+    };
+    let (url, _) = serve(Answer::Accept, script).await;
+    let texts = Arc::new(Texts::default());
+    let recording = client().with_recorder(texts.clone());
+    let secret = HeaderValue::from_static("Bearer sk-secret-value");
+    let request = HttpRequest::get(&url)
+        .unwrap()
+        .header(HeaderName::from_static("authorization"), secret)
+        .recorded();
+
+    let mut socket = recording.websocket(&request).await.unwrap();
+    socket.send_text("hello".to_owned()).await.unwrap();
+    assert_eq!(socket.next().await.unwrap().unwrap(), WsMessage::Text("echo: hello".to_owned()));
+
+    let lines = texts.0.lock().unwrap().clone();
+    assert_eq!(lines, [format!("1 {url} sent hello"), format!("1 {url} got echo: hello")]);
+    assert!(lines.iter().all(|line| !line.contains("sk-secret")), "{lines:?}");
+
+    // A socket of a request that is not marked is never reported.
+    let (url, _) = serve(Answer::Accept, script).await;
+    let mut socket = recording.websocket(&HttpRequest::get(&url).unwrap()).await.unwrap();
+    socket.send_text("quiet".to_owned()).await.unwrap();
+    socket.next().await.unwrap().unwrap();
+    assert_eq!(texts.0.lock().unwrap().len(), 2);
+}

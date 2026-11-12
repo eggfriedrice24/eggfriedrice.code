@@ -16,7 +16,8 @@ use crate::{
     AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, BlockReason, BusProxyOff, DraftPart,
     Event, ExitKind, FullRefusal, Grant, HelloResult, InputWait, JudgeKind, Launch, Method, Mode,
     ModelSource, NewReason, NotSavedReason, PairEnd, RootSource, RouteScope, SearchKind,
-    SearchPartial, ShellCommandEnd, Switch, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
+    SearchPartial, ShellCommandEnd, Switch, UndoAction, UndoReason, UndoRefused, WebAction,
+    WebError, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -160,10 +161,13 @@ fn event_index(event: &Event) -> usize {
         Event::ShellCommandEnded { .. } => 54,
         Event::ConversationDeleted { .. } => 55,
         Event::ModelSwitched { .. } => 56,
+        Event::WebCallStarted { .. } => 57,
+        Event::WebCallCompleted { .. } => 58,
+        Event::TurnWebReport { .. } => 59,
     }
 }
 
-const EVENT_COUNT: usize = 57;
+const EVENT_COUNT: usize = 60;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -512,6 +516,35 @@ fn approved_by_index(by: ApprovedBy) -> usize {
 }
 
 const APPROVED_BY_COUNT: usize = 5;
+
+/// The position of a web action in the enum, for the same purpose as `method_index`.
+fn web_action_index(action: WebAction) -> usize {
+    match action {
+        WebAction::Search => 0,
+        WebAction::Open => 1,
+        WebAction::Find => 2,
+        WebAction::Unknown => 3,
+    }
+}
+
+const WEB_ACTION_COUNT: usize = 4;
+
+/// The position of a web error in the enum, for the same purpose as `method_index`.
+fn web_error_index(error: WebError) -> usize {
+    match error {
+        WebError::TooManyRequests => 0,
+        WebError::LimitReached => 1,
+        WebError::Unavailable => 2,
+        WebError::Invalid => 3,
+        WebError::NotAllowed => 4,
+        WebError::NotAccessible => 5,
+        WebError::Unsupported => 6,
+        WebError::NotFinished => 7,
+        WebError::Unknown => 8,
+    }
+}
+
+const WEB_ERROR_COUNT: usize = 9;
 
 /// The position of a search hit's kind in the enum, for the same purpose as
 /// `method_index`.
@@ -892,5 +925,36 @@ fn bless_fixtures() {
         let path = Path::new(FIXTURES_DIR).join(&fixture.path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, fixture.json).unwrap();
+    }
+}
+
+#[test]
+fn every_web_action_and_error_has_a_sample_and_an_unknown_one_reads_as_unknown() {
+    let actions: Vec<usize> = WebAction::ALL.into_iter().map(web_action_index).collect();
+    assert_eq!(actions, (0..WEB_ACTION_COUNT).collect::<Vec<_>>());
+    for action in WebAction::ALL {
+        assert_eq!(serde_json::to_value(action).unwrap(), action.as_str());
+    }
+    let errors: Vec<usize> = WebError::ALL.into_iter().map(web_error_index).collect();
+    assert_eq!(errors, (0..WEB_ERROR_COUNT).collect::<Vec<_>>());
+    for error in WebError::ALL {
+        assert_eq!(serde_json::to_value(error).unwrap(), error.as_str());
+    }
+    let later: WebAction = serde_json::from_str("\"screenshot\"").unwrap();
+    assert_eq!(later, WebAction::Unknown);
+    let later: WebError = serde_json::from_str("\"payment_required\"").unwrap();
+    assert_eq!(later, WebError::Unknown);
+}
+
+/// An older client reads a web event as an unknown event of the same JSON, and moves on.
+#[test]
+fn a_web_event_is_an_unknown_event_to_a_reader_that_does_not_know_its_kind() {
+    for path in ["events/web_call_started.json", "events/turn_web_report.json"] {
+        let mut value: Value = serde_json::from_str(&read(path)).unwrap();
+        let kind = value["kind"].as_str().unwrap().to_owned();
+        value["kind"] = Value::String(format!("{kind}_v2"));
+        let event: Event = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(event, Event::Unknown { .. }), "{path}");
+        assert_eq!(serde_json::to_value(&event).unwrap(), value, "{path}");
     }
 }

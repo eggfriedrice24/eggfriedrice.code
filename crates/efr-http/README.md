@@ -41,7 +41,9 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   with a `Pong` to wait on, so the caller can send and read while the pong is on its
   way. The handshake
   key comes from the injected `Rng`. The handshake is never retried and never
-  recorded.
+  recorded. A socket that a `recorded()` request opens reports each text message that
+  it sends or reads to the client's `Recorder` (`Record::SocketText`, with the socket's
+  redacted URL); a binary message is never reported.
 - `unix`: `UnixClient`, HTTP/1.1 over a Unix socket with hyper and hyper-util. Its
   timeout runs on the injected clock. The caller names the socket; this crate has no
   default path.
@@ -71,8 +73,9 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
   is the oldest tailscaled that efrd's remote listener supports. What efrd admits or
   binds from these answers is the daemon's decision, not this crate's.
 - `redact`: header and URL redaction for logs, errors and transcripts.
-- `recorder`: the `Recorder` hook that receives provider traffic, for capturing a
-  transcript later; no binary installs one yet. Recording is opt-in per request.
+- `recorder`: the `Recorder` hook that receives provider traffic. efrd installs one,
+  `stream_record.rs`, when `EFR_RECORD_STREAMS` is on at its start, and writes the
+  bodies of model calls to private files. Recording is opt-in per request.
 
 Consumers: `efr_providers::openai` (the streaming Responses API over HTTP and over a
 WebSocket), `efr-oauth-openai`

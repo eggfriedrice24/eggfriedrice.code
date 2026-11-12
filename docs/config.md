@@ -246,6 +246,15 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
 | `forward_ports` | `true` | live | Forward each loopback port that a contained background job listens on to the same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also stops the forwards of the jobs that run; a later `true` does not start them again. |
 
+## [web]
+
+When the model can search the web.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `search` | `"mode"` | live | When the model gets the provider's web search. `mode` follows the permission mode of the turn: off in manual, a stored copy of the web in cautious on an OpenAI model (a Claude model searches the live web), the live web in auto and full. `off` never sends the web tool. `cached` asks for the stored copy, which can be some days old; a Claude model has none and searches the live web. `live` asks for the live web. In manual mode the model never gets the web tool, whatever this key says. |
+| `max_searches` | `20` | live | The most searches in one turn, from 1 to 100, for a provider that takes a limit (Claude). Page fetches have the same limit. |
+
 ## [remote]
 
 The listener for the efr phone app on this machine's Tailscale address.

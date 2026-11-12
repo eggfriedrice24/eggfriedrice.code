@@ -60,8 +60,8 @@ use crate::{
     SurfaceChange, Switch, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo,
     TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
+    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -125,6 +125,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures
         .push(fixture("events/approval_requested_local_only.json", &local_only_approval_sample()));
     fixtures.push(fixture("events/approval_requested_reason.json", &reason_approval_sample()));
+    fixtures.extend(web_samples().iter().map(|(path, event)| fixture(*path, event)));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -156,12 +157,69 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("attach_hows.json", &AttachHow::ALL.to_vec()));
     fixtures.push(fixture("shell_command_ends.json", &ShellCommandEnd::ALL.to_vec()));
     fixtures.push(fixture("approved_bys.json", &ApprovedBy::ALL.to_vec()));
+    fixtures.push(fixture("web_actions.json", &WebAction::ALL.to_vec()));
+    fixtures.push(fixture("web_errors.json", &WebError::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
     fixtures.push(fixture("device_prove_message.json", &prove_vector()));
     fixtures.push(fixture("pairing_qr_url.json", &qr_vector()));
     fixtures
+}
+
+/// The other forms of the web events: an open and its find, a failed search, and the
+/// report of a turn that read the stored copy for the first time, with no sources.
+pub(crate) fn web_samples() -> Vec<(&'static str, Event)> {
+    let page = "https://areweanticheatyet.com/game/rob-run";
+    vec![
+        (
+            "events/web_call_started_open.json",
+            Event::WebCallStarted {
+                turn_id: turn_id(),
+                call_id: call_id(),
+                action: WebAction::Open,
+                query: None,
+                url: Some(page.into()),
+                pattern: None,
+            },
+        ),
+        (
+            "events/web_call_completed_failed.json",
+            Event::WebCallCompleted {
+                turn_id: turn_id(),
+                call_id: call_id(),
+                action: WebAction::Search,
+                query: Some("\"ROB RUN\" EAC kernel 6.17".into()),
+                url: None,
+                pattern: None,
+                results: None,
+                error: Some(WebError::TooManyRequests),
+            },
+        ),
+        (
+            "events/web_call_completed_find.json",
+            Event::WebCallCompleted {
+                turn_id: turn_id(),
+                call_id: call_id(),
+                action: WebAction::Find,
+                query: None,
+                url: Some(page.into()),
+                pattern: Some("Easy Anti-Cheat".into()),
+                results: None,
+                error: None,
+            },
+        ),
+        (
+            "events/turn_web_report_stored_copy.json",
+            Event::TurnWebReport {
+                turn_id: turn_id(),
+                searches: 1,
+                stored_copy: true,
+                stored_copy_note: true,
+                sources: Vec::new(),
+            },
+        ),
+    ]
 }
 
 /// Every form of a route scope key, so `route_scopes.json` freezes the wire form of
@@ -2495,6 +2553,43 @@ pub(crate) fn event_samples() -> Vec<Event> {
                     detail: Some("build.rustc-wrapper".into()),
                 },
                 ReportedFile { path: "build.rs".into(), detail: None },
+            ],
+        },
+        Event::WebCallStarted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            action: WebAction::Search,
+            query: Some("\"ROB RUN\" areweanticheatyet".into()),
+            url: None,
+            pattern: None,
+        },
+        Event::WebCallCompleted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            action: WebAction::Search,
+            query: Some("\"ROB RUN\" Proton Easy Anti-Cheat".into()),
+            url: None,
+            pattern: None,
+            results: Some(vec![
+                WebResult {
+                    url: "https://areweanticheatyet.com/game/rob-run".into(),
+                    title: Some("ROB RUN \u{b7} Are We Anti-Cheat Yet?".into()),
+                },
+                WebResult { url: "https://www.protondb.com/app/2384710".into(), title: None },
+            ]),
+            error: None,
+        },
+        Event::TurnWebReport {
+            turn_id: turn_id(),
+            searches: 5,
+            stored_copy: false,
+            stored_copy_note: false,
+            sources: vec![
+                WebSource {
+                    url: "https://areweanticheatyet.com/game/rob-run".into(),
+                    title: Some("ROB RUN \u{b7} Are We Anti-Cheat Yet?".into()),
+                },
+                WebSource { url: "https://www.protondb.com/app/2384710".into(), title: None },
             ],
         },
         Event::SandboxUnavailable {

@@ -262,3 +262,67 @@ fn a_freeform_call_keeps_its_text_as_it_came() {
         vec![freeform("call_1", patch), freeform("call_2", "{\"a\": 1}"), freeform("call_3", "")]
     );
 }
+
+fn hosted_start(call_id: &str) -> ProviderEvent {
+    ProviderEvent::HostedCallStart {
+        call_id: call_id.to_owned(),
+        action: crate::HostedAction::Search { query: None },
+    }
+}
+
+fn hosted_end(call_id: &str) -> ProviderEvent {
+    ProviderEvent::HostedCallEnd {
+        call_id: call_id.to_owned(),
+        action: crate::HostedAction::Search { query: Some("rust".to_owned()) },
+        outcome: crate::HostedOutcome::Done { results: None },
+    }
+}
+
+#[test]
+fn text_a_hosted_start_and_text_give_two_text_blocks() {
+    let mut builder = CompletionBuilder::new();
+    for event in [text("I'll check "), text("what changed."), hosted_start("ws_1")] {
+        builder.push(&event).unwrap();
+    }
+    assert_eq!(builder.segment_text(), "");
+    builder.push(&hosted_end("ws_1")).unwrap();
+    builder.push(&text("It changed.")).unwrap();
+    assert_eq!(builder.segment_text(), "It changed.");
+    assert_eq!(builder.text(), "I'll check what changed.\n\nIt changed.");
+    builder.push(&done(StopReason::EndTurn)).unwrap();
+    let completion = builder.finish().unwrap();
+    assert_eq!(
+        completion.message.content,
+        vec![
+            ContentBlock::Text { text: "I'll check what changed.".to_owned() },
+            ContentBlock::Text { text: "It changed.".to_owned() },
+        ]
+    );
+}
+
+#[test]
+fn the_segment_is_the_whole_text_without_a_hosted_start() {
+    let mut builder = CompletionBuilder::new();
+    for event in [text("one"), start("call_1", "shell"), end("call_1", "{}"), text("two")] {
+        builder.push(&event).unwrap();
+    }
+    assert_eq!(builder.segment_text(), builder.text());
+    assert_eq!(builder.segment_text(), "one\n\ntwo");
+}
+
+#[test]
+fn a_hosted_end_without_a_start_and_a_citation_change_nothing() {
+    let citation =
+        ProviderEvent::Citation { url: "https://a.test/".to_owned(), title: None, placed: true };
+    let with = build(&[
+        text("A "),
+        hosted_end("srvtoolu_1"),
+        text("fact"),
+        citation,
+        text("."),
+        done(StopReason::EndTurn),
+    ])
+    .unwrap();
+    let without = build(&[text("A "), text("fact"), text("."), done(StopReason::EndTurn)]).unwrap();
+    assert_eq!(with, without);
+}

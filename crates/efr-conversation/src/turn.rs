@@ -101,6 +101,7 @@ use crate::scratch::Scratch;
 use crate::settings::{self, Place};
 use crate::steer::Steering;
 use crate::wake;
+use crate::web::{self, WebPlan, WhyOff};
 use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, FileBackup,
     JobNoticeInput, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
@@ -398,6 +399,10 @@ struct Turn {
     /// list when the turn starts: the request offers only this one of the two edit
     /// tools, and each call carries it so the toolbox refuses the other one.
     edit_tool: EditTool,
+    /// What the turn does with the provider's web tool, decided once when the request
+    /// is built (`web.rs`): every request of the turn carries the same hosted tools.
+    /// Off until then.
+    web_plan: WebPlan,
     spec: TurnSpec,
     control: Control,
     cwd: PathBuf,
@@ -529,6 +534,7 @@ impl Turn {
             provider: None,
             switched_from: None,
             edit_tool: EditTool::default(),
+            web_plan: WebPlan::Off(WhyOff::NoSupport),
             spec,
             control,
             cwd,
@@ -748,11 +754,17 @@ impl Turn {
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
         efr_stdx::mark::hit("turn.window");
         self.edit_tool = edit_tool(&*provider, &settings.model);
+        // NOTE: the gate of web search. A hosted search never passes the check point,
+        // so the mode decides here whether the request carries the tool at all: never
+        // in manual, never with `web.search = "off"` (`web.rs`).
+        self.web_plan = web::plan(settings.mode, config.web.search, provider.web_search());
+        tracing::debug!(web = ?self.web_plan, "the web plan of the turn");
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
             messages: Vec::new(),
             tools: shared.deps.toolbox.definitions(self.edit_tool),
+            hosted: web::hosted_tools(self.web_plan, settings.mode, config.web.max_searches),
             max_output_tokens: config.max_output_tokens,
             effort: settings.effort.clone(),
             side_call: false,

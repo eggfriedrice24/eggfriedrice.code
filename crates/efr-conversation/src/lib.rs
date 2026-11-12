@@ -33,6 +33,10 @@
 //!   [`ConversationConfig::draft_interval`] (zero: each change) to the daemon for live
 //!   clients, never stored;
 //!   and what the current model call streamed so far ([`LiveTurn`]).
+//! - Web search ([`WebConfig`], [`WebSearch`], [`DEFAULT_MAX_SEARCHES`]): whether a
+//!   turn's requests carry the provider's hosted web tool, by the mode, the `[web]`
+//!   setting and the provider (`web.rs`). A hosted search runs inside the model call
+//!   and never passes the check point, so the gate is where the request is built.
 //! - [`ScopeResolver`] ([`GitScopeResolver`]): the scope of each turn, derived again
 //!   from the shell's working directory through `efr-scope`.
 //! - The `auto` sandbox: the check point runs a contained call with no question, asks
@@ -90,6 +94,7 @@ mod toolbox;
 mod turn;
 mod unoffered;
 mod wake;
+mod web;
 
 pub use actor::{
     ConversationActor, ConversationHandle, ConversationState, PromptRouting, completed_result,
@@ -121,3 +126,4 @@ pub use toolbox::{
     CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
     Toolbox, TurnChanges, UndoCandidate, UndoRequest,
 };
+pub use web::{DEFAULT_MAX_SEARCHES, WebConfig, WebSearch};

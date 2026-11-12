@@ -3,10 +3,13 @@
 //!
 //! A [`Request`] carries canonical [`Message`]s made of [`ContentBlock`]s (text, tool
 //! calls, tool results, reasoning, images) and [`ToolDefinition`]s, each a function
-//! tool with a JSON Schema or a freeform tool with a [`ToolGrammar`]. Each assistant
+//! tool with a JSON Schema or a freeform tool with a [`ToolGrammar`], and the
+//! [`HostedTool`]s that the provider runs inside the call, such as its web search
+//! ([`WebAccess`], [`WebSupport`]). Each assistant
 //! message keeps the provider's own items in `provider_raw`, so a provider gets back
 //! exactly what it produced. The answer streams back as [`ProviderEvent`]s, ending with
-//! a [`StopReason`] and the call's [`TokenUsage`].
+//! a [`StopReason`] and the call's [`TokenUsage`]; the steps of a hosted tool come as
+//! [`HostedAction`]s with their [`HostedOutcome`] ([`WebResult`], [`HostedError`]).
 //!
 //! [`Provider`] is the dyn-compatible trait every model client implements, named by a
 //! [`ProviderId`]: [`Provider::stream`] is the one model call it must provide, returning
@@ -33,6 +36,7 @@
 mod completion;
 mod error;
 mod event;
+mod hosted;
 mod message;
 mod notice;
 mod provider;
@@ -45,6 +49,9 @@ mod usage;
 pub use completion::{Completion, CompletionBuilder};
 pub use error::ProviderError;
 pub use event::{ProviderEvent, StopReason};
+pub use hosted::{
+    HostedAction, HostedError, HostedOutcome, HostedTool, WebAccess, WebResult, WebSupport,
+};
 pub use message::{ContentBlock, Message, Role};
 pub use notice::{CallNotice, CallNotices, NoNotices};
 pub use provider::{EditTool, ModelInfo, Provider, ProviderStream, Warmup};

@@ -55,6 +55,8 @@ const LISTS: Readonly<Record<string, string>> = {
   shell_command_ends: "ShellCommandEnd",
   undo_actions: "UndoAction",
   undo_reasons: "UndoReason",
+  web_actions: "WebAction",
+  web_errors: "WebError",
   withdraw_targets: "WithdrawTarget",
 };
 

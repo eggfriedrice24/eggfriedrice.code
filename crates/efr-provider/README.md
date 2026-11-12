@@ -16,9 +16,13 @@ Modules:
   (`turn_messages`, not the event log) and sent back unchanged on the next request to
   the same provider and model. Only that provider reads it; when the
   conversation switches providers the history assembler drops it.
-- `request`: `Request { model, system, messages, tools, max_output_tokens, effort,
-  side_call, output, one_shot, provider_options }` and `ToolDefinition`, the tool as
-  the model sees it. `effort`
+- `request`: `Request { model, system, messages, tools, hosted, max_output_tokens,
+  effort, side_call, output, one_shot, provider_options }` and `ToolDefinition`, the
+  tool as the model sees it. `hosted` holds the tools that the provider runs inside the
+  call (`HostedTool`, below); it is left out of the serde form when empty, so every
+  recorded request without one keeps its bytes. `Request::has_web_search` says whether
+  it holds the web tool: a provider sends the raw items of an earlier web step back
+  only in such a request. `effort`
   is the reasoning effort of the call (`low`, `medium`, `high` and so on, one of
   `ModelInfo::efforts`), absent for the provider's default for the model. Every
   provider reads it and maps it to its own field: OpenAI's `reasoning.effort`,
@@ -41,10 +45,30 @@ Modules:
   function form in `input_schema`: one required string member, `FREEFORM_INPUT`
   (`input`), from `freeform_input_schema`.
 - `event`: `ProviderEvent` (`TextDelta`, `ReasoningDelta`, `ToolCallStart`,
-  `ToolCallDelta`, `ToolCallEnd`, `Usage`, `Done`, `Raw`) and `StopReason`. The order
-  a provider keeps is documented on the type: a tool call is start, deltas, end (with
-  the complete arguments); `Done` is last and carries the message's `provider_raw`;
-  provider events with no canonical form become `Raw` instead of being dropped.
+  `ToolCallDelta`, `ToolCallEnd`, the hosted steps `HostedCallStart` and
+  `HostedCallEnd`, `Citation`, `Usage`, `Done`, `Raw`) and `StopReason`. The order a
+  provider keeps is documented on the type: a tool call is start, deltas, end (with
+  the complete arguments); a hosted step is one start, then at most one end with the
+  complete action, and an end may come without a start in the same answer (its start
+  was in an earlier answer of the turn); a `Citation` with `placed` comes right after
+  the text that it backs; `Done` is last and carries the message's `provider_raw`;
+  provider events with no canonical form become `Raw` instead of being dropped. No
+  encrypted content of a provider is in an event: it stays in `provider_raw`.
+  `StopReason::PauseTurn` (Anthropic's `pause_turn`) means that the turn sends the
+  paused answer back and goes on.
+- `hosted`: the hosted tools. `HostedTool::WebSearch { access, max_uses,
+  urls_from_tool_results }` is the provider's web tool: `WebAccess::Stored` (the
+  provider's stored copy of the web, OpenAI's `external_web_access: false`) or `Live`,
+  the most searches of a turn for a provider that takes a limit, and whether a page
+  fetch may take a URL that only a result of efr's own tools holds (false unless the
+  turn runs in `full`). It is a field of its own and not a `ToolDefinition`: efr does
+  not run it, so `Request::offers`, the toolbox and the permission check never see it.
+  `WebSupport` (`None`, `Live`, `StoredOrLive`) is what `Provider::web_search` says;
+  the default `None` keeps every fake provider of the tests as it is. The steps of a
+  hosted tool come back as events: `HostedAction` (`Search { query }`,
+  `Open { url }`, `Find { pattern, url }`), `HostedOutcome` (`Done { results }`, with
+  `WebResult { url, title }` when the provider gives the results, or
+  `Failed { error }`) and `HostedError` (efr's words for every provider's codes).
 - `usage`: `TokenUsage` with cached, cache write and reasoning parts; usages add with
   saturation and convert to the wire's `efr_protocol::Usage`. See "Token counts"
   below for what each count means.
@@ -79,7 +103,10 @@ Modules:
   `account()` read the two parts.
 - `completion`: `Completion` and `CompletionBuilder`, which fold a stream into the
   assistant message by the order rules of `ProviderEvent` and reject a stream that
-  breaks them. The conversation pushes each event into a builder as it forwards it,
+  breaks them. A `HostedCallStart` is a border of the text: the next text delta starts
+  a new text block, and `segment_text()` gives the text after the last border, so the
+  turn can end an assistant message before the row of a web step. A hosted end and a
+  citation change nothing. The conversation pushes each event into a builder as it forwards it,
   so the stored message and what clients saw come from the same events.
 - `token_source`: the `TokenSource` trait (`access_token`, `invalidate`,
   `refreshable`) and `StaticToken` for an API key. `refreshable` is true by default

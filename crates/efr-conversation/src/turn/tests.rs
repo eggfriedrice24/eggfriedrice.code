@@ -44,6 +44,7 @@ mod sandbox;
 mod switch;
 mod tools;
 mod waits;
+mod web;
 
 fn kinds(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()

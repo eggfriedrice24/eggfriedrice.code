@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_conversation::{
-    CompactionConfig, ConfigSource, ConversationConfig, ForeignDefault, HostInfo,
+    CompactionConfig, ConfigSource, ConversationConfig, ForeignDefault, HostInfo, WebConfig,
 };
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
@@ -106,6 +106,7 @@ pub(crate) fn conversation_config(
     // NOTE: the drafts of a turn go at once. `conversation.draft_interval_ms` is the
     // gate of a remote subscriber, which `conversation.subscribe` applies.
     config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
+    config.web = WebConfig::new(web_search(settings.web.search), settings.web.max_searches);
     // NOTE: a default of another company goes to its provider when one with a login
     // lists it; it fails only without one.
     config.foreign_model = settings
@@ -120,6 +121,17 @@ pub(crate) fn conversation_config(
             )
         });
     config
+}
+
+/// The conversations' value of `web.search`. A value that this build of efrd does not
+/// know sends no web tool.
+fn web_search(search: efr_config::WebSearch) -> efr_conversation::WebSearch {
+    match search {
+        efr_config::WebSearch::Mode => efr_conversation::WebSearch::Mode,
+        efr_config::WebSearch::Cached => efr_conversation::WebSearch::Cached,
+        efr_config::WebSearch::Live => efr_conversation::WebSearch::Live,
+        _ => efr_conversation::WebSearch::Off,
+    }
 }
 
 /// True when a provider with a login lists `name` in `models`.

@@ -22,7 +22,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::{
     CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader, ProviderRouter,
-    ScopeResolver, Toolbox,
+    ScopeResolver, Toolbox, WebConfig,
 };
 
 /// The settings of one conversation.
@@ -106,6 +106,9 @@ pub struct ConversationConfig {
     /// names no model of its own then fails with the cause and the fix, also a prompt
     /// that queued before a reload made the default foreign. Read when the turn starts.
     pub foreign_model: Option<ForeignDefault>,
+    /// Whether a turn's requests carry the provider's web tool (`[web]`). Read when the
+    /// turn starts; the tool list stays the same for the whole turn.
+    pub web: WebConfig,
 }
 
 /// A default model of another company than the provider of the config (`[model] name`
@@ -150,8 +153,9 @@ impl ConversationConfig {
     /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
     /// question while the user is away, 6 turns per hour that job notices start, 64
-    /// model calls per turn, 16 queued prompts, no full mode, 8 recent commands and a
-    /// default model that fits its provider.
+    /// model calls per turn, 16 queued prompts, no full mode, 8 recent commands, a
+    /// default model that fits its provider and web search by the mode
+    /// ([`WebConfig::default`]).
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -179,6 +183,7 @@ impl ConversationConfig {
             full_mode: FullModeStatus { allowed: false, refused: None },
             recent_commands: 8,
             foreign_model: None,
+            web: WebConfig::default(),
         }
     }
 

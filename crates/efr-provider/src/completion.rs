@@ -49,6 +49,10 @@ impl Completion {
 ///   arguments that are not JSON are kept as a JSON string for the tool layer to
 ///   report; a freeform call keeps its text as a JSON string, as it came, empty or
 ///   not;
+/// - a `HostedCallStart` adds no block and is a border of the text: the next text delta
+///   starts a new text block, also right after a text block; `HostedCallEnd` and
+///   `Citation` change nothing, and an end without a start is valid (its start was in
+///   an earlier answer of the turn);
 /// - the last `Usage` counts; `Raw` events are ignored, even after `Done`;
 /// - a call that starts twice, arguments or an end for a call that is not open, a
 ///   second `Done`, or any other event after `Done` is
@@ -56,6 +60,10 @@ impl Completion {
 #[derive(Debug, Default)]
 pub struct CompletionBuilder {
     slots: Vec<Slot>,
+    /// The number of slots before the last border of the text (a `HostedCallStart`):
+    /// [`segment_text`](Self::segment_text) reads the text blocks from here, and a text
+    /// delta at the border starts a new block.
+    border: usize,
     usage: Option<TokenUsage>,
     done: Option<(StopReason, Option<Value>)>,
 }
@@ -119,6 +127,10 @@ impl CompletionBuilder {
                     parse_arguments(arguments)
                 });
             }
+            // NOTE: the border makes the text after a hosted step a block of its own, so
+            // the turn can end the message before the step's row and start the next one.
+            ProviderEvent::HostedCallStart { .. } => self.border = self.slots.len(),
+            ProviderEvent::HostedCallEnd { .. } | ProviderEvent::Citation { .. } => {}
             ProviderEvent::Usage(usage) => self.usage = Some(*usage),
             ProviderEvent::Done { stop_reason, provider_raw } => {
                 self.done = Some((*stop_reason, provider_raw.clone()));
@@ -131,15 +143,15 @@ impl CompletionBuilder {
     /// The text of the message so far, joined as [`Message::text`] joins it. The
     /// conversation sends it to subscribers while the answer streams.
     pub fn text(&self) -> String {
-        let texts: Vec<&str> = self
-            .slots
-            .iter()
-            .filter_map(|slot| match slot {
-                Slot::Block(ContentBlock::Text { text }) => Some(text.as_str()),
-                _ => None,
-            })
-            .collect();
-        texts.join("\n\n")
+        join_texts(&self.slots)
+    }
+
+    /// The text of the text blocks after the last border of the text (the newest
+    /// `HostedCallStart`), joined as [`text`](Self::text) joins them; the whole text
+    /// when no hosted step started. The turn sends it as the text of the current
+    /// assistant message, which ends at each border.
+    pub fn segment_text(&self) -> String {
+        join_texts(self.slots.get(self.border..).unwrap_or_default())
     }
 
     /// The completion. Fails with [`ProviderError::Incomplete`] when no `Done` came, and
@@ -173,8 +185,11 @@ impl CompletionBuilder {
         if delta.is_empty() {
             return;
         }
+        let at_border = self.slots.len() == self.border;
         match self.slots.last_mut() {
-            Some(Slot::Block(ContentBlock::Text { text })) if !reasoning => text.push_str(delta),
+            Some(Slot::Block(ContentBlock::Text { text })) if !reasoning && !at_border => {
+                text.push_str(delta);
+            }
             Some(Slot::Block(ContentBlock::Reasoning { text })) if reasoning => {
                 text.push_str(delta);
             }
@@ -206,6 +221,18 @@ impl CompletionBuilder {
             })
             .ok_or(ProviderError::InvalidStream { problem })
     }
+}
+
+/// The text blocks of `slots`, joined as [`Message::text`] joins them.
+fn join_texts(slots: &[Slot]) -> String {
+    let texts: Vec<&str> = slots
+        .iter()
+        .filter_map(|slot| match slot {
+            Slot::Block(ContentBlock::Text { text }) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    texts.join("\n\n")
 }
 
 /// The input of a tool call from its complete arguments text.

@@ -25,6 +25,7 @@ fn every_board_of_the_fixture_loads_with_its_depths() {
         "Questions",
         "Scope",
         "Sequence",
+        "Web",
     ];
     for board in boards {
         let first = super::board_frames(&format!("TM-{board}")).unwrap();
@@ -64,6 +65,29 @@ fn the_fixture_has_the_corrections_of_the_spec() {
     for (board, number) in [("BeforeAfter", 1), ("LongTurn", 5), ("Scope", 12), ("Depths", 13)] {
         assert!(Frame::load(board, number).is_err(), "{board} {number}");
     }
+}
+
+#[test]
+fn the_web_board_has_its_corrections_and_its_depths() {
+    // A run of searches is one row each, never folded, and a find gets no row.
+    let run = Frame::load("Web", 3).unwrap();
+    assert_eq!(run.texts().len(), 5);
+    assert!(run.texts().iter().all(|row| row.starts_with("\u{2713} web ")), "{:?}", run.texts());
+    let steps = Frame::load("Web", 5).unwrap();
+    assert_eq!(steps.texts().len(), 5);
+    assert!(steps.texts().iter().all(|row| !row.contains("web find")), "{:?}", steps.texts());
+    // No row of today's end line.
+    let ends = Frame::load("Web", 13).unwrap();
+    assert_eq!(
+        ends.texts()[0],
+        "\u{2713} done  42s \u{b7} ctx 43% \u{b7} 1.1k out \u{b7} cache 91%"
+    );
+    // The depths that the board draws.
+    let no_color = Frame::load("Web", 11).unwrap();
+    assert_eq!((no_color.depth, no_color.variant_of), (Depth::NoColor, Some(10)));
+    let depths: Vec<Depth> =
+        [16, 17, 18, 19].map(|number| Frame::load("Web", number).unwrap().depth).to_vec();
+    assert_eq!(depths, [Depth::Ansi16, Depth::NoColor, Depth::Ansi16, Depth::NoColor]);
 }
 
 #[test]

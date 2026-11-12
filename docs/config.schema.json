@@ -1793,6 +1793,50 @@
       },
       "type": "object"
     },
+    "WebSearch": {
+      "description": "The value of `web.search`.",
+      "oneOf": [
+        {
+          "const": "mode",
+          "description": "Follow the permission mode of the turn.",
+          "type": "string"
+        },
+        {
+          "const": "off",
+          "description": "Never send the web tool.",
+          "type": "string"
+        },
+        {
+          "const": "cached",
+          "description": "The provider's stored copy of the web where it has one, else the live web.",
+          "type": "string"
+        },
+        {
+          "const": "live",
+          "description": "The live web.",
+          "type": "string"
+        }
+      ]
+    },
+    "WebSettings": {
+      "additionalProperties": false,
+      "description": "`[web]`: when the model can search the web. The provider runs each search inside the\nmodel call, so efr cannot ask before one: a search never asks, in any mode. Every key\napplies from the next turn.",
+      "properties": {
+        "max_searches": {
+          "default": 20,
+          "description": "The most searches in one turn, from 1 to 100, for a provider that takes a limit\n(Claude). Page fetches have the same limit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "search": {
+          "$ref": "#/$defs/WebSearch",
+          "default": "mode",
+          "description": "When the model gets the provider's web search. `mode` follows the permission mode\nof the turn: off in manual, a stored copy of the web in cautious on an OpenAI\nmodel (a Claude model searches the live web), the live web in auto and full.\n`off` never sends the web tool. `cached` asks for the stored copy, which can be\nsome days old; a Claude model has none and searches the live web. `live` asks for\nthe live web. In manual mode the model never gets the web tool, whatever this\nkey says."
+        }
+      },
+      "type": "object"
+    },
     "WebSocketChoice": {
       "description": "Whether model calls go over the Responses WebSocket transport.",
       "oneOf": [
@@ -2142,6 +2186,14 @@
         "enabled": true
       },
       "description": "`efr undo`, which takes back the changes of a turn from efr's snapshots."
+    },
+    "web": {
+      "$ref": "#/$defs/WebSettings",
+      "default": {
+        "max_searches": 20,
+        "search": "mode"
+      },
+      "description": "When the model can search the web."
     }
   },
   "title": "efr config.toml",

@@ -63,6 +63,10 @@ pub enum Var {
     /// marks to it (`efr_stdx::mark`). The streaming benches set it for the processes
     /// that they start. Without it the marks are off.
     Mark,
+    /// `EFR_RECORD_STREAMS`: a flag; when it is on at the start of `efrd`, efrd writes the
+    /// body of each model request and the stream of its answer to private files below
+    /// `<state dir>/streams/`, never a header. Off by default.
+    RecordStreams,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
     /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
     /// over the terminal's choice in it.
@@ -127,6 +131,7 @@ impl Var {
         Var::TestSessionBus,
         Var::BenchProject,
         Var::Mark,
+        Var::RecordStreams,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -180,6 +185,7 @@ impl Var {
             Var::TestSessionBus => "EFR_TEST_SESSION_BUS",
             Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mark => "EFR_MARK",
+            Var::RecordStreams => "EFR_RECORD_STREAMS",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
             Var::Effort => "EFR_EFFORT",

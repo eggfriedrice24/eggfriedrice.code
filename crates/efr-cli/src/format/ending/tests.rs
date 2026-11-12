@@ -63,6 +63,20 @@ fn a_done_turn_is_the_endings_board() {
     endings(18, 4..=4, &[done(242, 88, usage(100_000, 93_000, 32_000))]);
 }
 
+/// TM-Web 13, row 0 (after the correction of the xtask, which drops today's line): the
+/// end line of a turn that ran no search is `main`'s line, with nothing about the web.
+/// The board draws it in truecolor only; `assert_rows` derives the 16 colours and
+/// `NO_COLOR` from it. A slice of web search checks its rows of TM-Web the same way:
+/// load the frame, write the real rows in each depth, and compare a range of rows.
+#[test]
+fn the_end_line_without_searches_is_the_web_board() {
+    let frame = Frame::load("TM-Web", 13).unwrap();
+    let line = done_line(secs(42), Some(&usage(12_000, 10_920, 1_100)), Some(&ctx(43)), G);
+    for depth in Depth::ALL {
+        assert_rows(&frame, 0..=0, &written(&[(0, line.clone())], depth, frame.cols), depth);
+    }
+}
+
 /// TM-Legend 35 at its 44 columns.
 #[test]
 fn the_outcome_line_is_the_legend() {

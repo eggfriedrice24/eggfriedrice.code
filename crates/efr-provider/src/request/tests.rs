@@ -150,3 +150,24 @@ fn a_request_offers_only_the_tools_that_it_names() {
     assert!(request.offers("shell"));
     assert!(!request.offers("apply_patch"));
 }
+
+#[test]
+fn a_request_without_a_hosted_tool_keeps_its_bytes_and_one_with_it_says_so() {
+    let plain = Request::new("gpt-5.5");
+    assert_eq!(
+        serde_json::to_value(&plain).unwrap(),
+        serde_json::json!({"model": "gpt-5.5", "messages": []})
+    );
+    assert!(!plain.has_web_search());
+    let web = Request {
+        hosted: vec![crate::HostedTool::web_search(crate::WebAccess::Stored, Some(20))],
+        ..Request::new("gpt-5.5")
+    };
+    assert!(web.has_web_search());
+    let wire = serde_json::to_value(&web).unwrap();
+    assert_eq!(
+        wire["hosted"],
+        serde_json::json!([{"kind": "web_search", "access": "stored", "max_uses": 20}])
+    );
+    assert_eq!(serde_json::from_value::<Request>(wire).unwrap(), web);
+}

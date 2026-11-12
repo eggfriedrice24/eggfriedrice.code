@@ -28,6 +28,7 @@ pub(crate) mod resume;
 pub(crate) mod sandbox;
 pub(crate) mod snapshot;
 pub(crate) mod undo;
+pub(crate) mod web;
 
 /// The tracing filter when nothing sets one: lifecycle lines only, as a service.
 pub const DEFAULT_LOG: &str = "info";

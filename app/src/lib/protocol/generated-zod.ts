@@ -293,6 +293,10 @@ import type {
   UserAuthorization,
   Verdict,
   Watch,
+  WebAction,
+  WebError,
+  WebResult,
+  WebSource,
   WithdrawTarget,
   WithdrawnPrompt,
   WithdrawnSteer,
@@ -1688,6 +1692,35 @@ export const turnUndoInfoSchema = z.object({
 
 export const undoIdSchema = z.guid() satisfies z.ZodType<UndoId>;
 
+export const webActionSchema = z.enum([
+  "search",
+  "open",
+  "find",
+  "unknown",
+]) satisfies z.ZodType<WebAction>;
+
+export const webErrorSchema = z.enum([
+  "too_many_requests",
+  "limit_reached",
+  "unavailable",
+  "invalid",
+  "not_allowed",
+  "not_accessible",
+  "unsupported",
+  "not_finished",
+  "unknown",
+]) satisfies z.ZodType<WebError>;
+
+export const webResultSchema = z.object({
+  title: z.string().nullable().exactOptional(),
+  url: z.string(),
+}) satisfies z.ZodType<WebResult>;
+
+export const webSourceSchema = z.object({
+  title: z.string().nullable().exactOptional(),
+  url: z.string(),
+}) satisfies z.ZodType<WebSource>;
+
 export const eventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("conversation_created"),
@@ -1783,6 +1816,26 @@ export const eventSchema = z.discriminatedUnion("kind", [
     sandbox: sandboxSummarySchema.nullable().exactOptional(),
     truncated: z.boolean(),
     turn_id: turnIdSchema,
+  }),
+  z.object({
+    action: webActionSchema,
+    call_id: callIdSchema,
+    kind: z.literal("web_call_started"),
+    pattern: z.string().nullable().exactOptional(),
+    query: z.string().nullable().exactOptional(),
+    turn_id: turnIdSchema,
+    url: z.string().nullable().exactOptional(),
+  }),
+  z.object({
+    action: webActionSchema,
+    call_id: callIdSchema,
+    error: webErrorSchema.nullable().exactOptional(),
+    kind: z.literal("web_call_completed"),
+    pattern: z.string().nullable().exactOptional(),
+    query: z.string().nullable().exactOptional(),
+    results: z.array(webResultSchema).nullable().exactOptional(),
+    turn_id: turnIdSchema,
+    url: z.string().nullable().exactOptional(),
   }),
   z.object({
     call_id: callIdSchema,
@@ -1964,6 +2017,14 @@ export const eventSchema = z.discriminatedUnion("kind", [
   z.object({
     files: z.array(reportedFileSchema),
     kind: z.literal("turn_surface_report"),
+    turn_id: turnIdSchema,
+  }),
+  z.object({
+    kind: z.literal("turn_web_report"),
+    searches: z.uint32(),
+    sources: z.array(webSourceSchema).exactOptional(),
+    stored_copy: z.boolean().exactOptional(),
+    stored_copy_note: z.boolean().exactOptional(),
     turn_id: turnIdSchema,
   }),
   compactionSchema.extend({ kind: z.literal("conversation_compacted") }),

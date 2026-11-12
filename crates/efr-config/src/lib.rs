@@ -10,7 +10,8 @@
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RecordingSettings`],
-//!   [`PresenceSettings`], [`JobsSettings`], [`RemoteSettings`],
+//!   [`PresenceSettings`], [`JobsSettings`], [`WebSettings`] with [`WebSearch`],
+//!   [`RemoteSettings`],
 //!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
@@ -99,6 +100,7 @@ pub use tables::sandbox::{
 };
 pub use tables::snapshot::{IgnoredFiles, SnapshotSettings};
 pub use tables::undo::UndoSettings;
+pub use tables::web::{WebSearch, WebSettings};
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings,

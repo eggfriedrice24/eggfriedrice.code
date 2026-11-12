@@ -6,7 +6,8 @@
 
 use efr_config::{
     AskDestructive, DbusSettings, IgnoredFiles, JobsSettings, NetworkHost, NetworkSettings,
-    RemoteSettings, SandboxSettings, Settings, SnapshotSettings, SudoCache, WriteProjects,
+    RemoteSettings, SandboxSettings, Settings, SnapshotSettings, SudoCache, WebSearch, WebSettings,
+    WriteProjects,
 };
 use efr_permissions::{Effect, Rule};
 use efr_protocol::NetworkMode;
@@ -20,8 +21,9 @@ use efr_protocol::NetworkMode;
 /// question, a `[jobs]` key that lets jobs run longer, more often, at a higher
 /// priority or with port forwards, a `[network]` key that opens the network view or
 /// efr's proxy, a `[dbus]` key that opens the filtered bus (efr's auto spec, section
-/// 13.1), or a `[remote]` key that opens efrd to the phone listener. Empty when the
-/// change loosens nothing.
+/// 13.1), a `[remote]` key that opens efrd to the phone listener, or `web.search`
+/// when the model reaches more of the web with no question. Empty when the change
+/// loosens nothing.
 pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str> {
     let mut keys = Vec::new();
     let old = before.permissions.rules.rules();
@@ -59,7 +61,16 @@ pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str>
     keys.extend(network_loosening(&before.network, &next.network));
     keys.extend(dbus_loosening(&before.dbus, &next.dbus));
     keys.extend(remote_loosening(&before.remote, &next.remote));
+    keys.extend(web_loosening(&before.web, &next.web));
     keys
+}
+
+/// `web.search` when the change lets the model reach more of the web with no question
+/// (a hosted search cannot ask): to `live` from any other value, or away from `off`.
+fn web_loosening(before: &WebSettings, next: &WebSettings) -> Vec<&'static str> {
+    let live = next.search == WebSearch::Live && before.search != WebSearch::Live;
+    let on = before.search == WebSearch::Off && next.search != WebSearch::Off;
+    keys([("web.search", live || on)])
 }
 
 /// The `[remote]` keys that open efrd to more peers: the phone listener turned on, or

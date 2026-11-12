@@ -1,12 +1,14 @@
 //! The transcript hook.
 //!
-//! A [`Recorder`] given to an [`HttpClient`] receives its recorded exchanges, which is
-//! how a later tool can capture replay fixtures from a live session. No binary installs
-//! one yet: the replay fixtures are written by hand. This module only defines what the
-//! client reports; the file format belongs to the test support crate.
+//! A [`Recorder`] given to an [`HttpClient`] receives its recorded exchanges. efrd
+//! installs one when `EFR_RECORD_STREAMS` is on at its start, and writes the bodies of
+//! model calls to private files (`efr-daemon`'s `stream_record.rs`), so a real stream
+//! can become a fixture. This module only defines what the client reports; the file
+//! format belongs to the daemon.
 //!
 //! Only requests marked with [`HttpRequest::recorded`] are reported, and headers and
-//! URLs arrive already redacted.
+//! URLs arrive already redacted. A WebSocket that such a request opens reports each
+//! text message ([`Record::SocketText`]); its handshake is never reported.
 //!
 //! [`HttpClient`]: crate::HttpClient
 //! [`HttpRequest::recorded`]: crate::HttpRequest::recorded
@@ -95,6 +97,20 @@ pub enum Record<'a> {
         exchange: ExchangeId,
         /// How it ended.
         end: BodyEnd,
+    },
+    /// A text message of a WebSocket that a recorded request opened
+    /// ([`HttpClient::websocket`](crate::HttpClient::websocket)). The socket is one
+    /// exchange for its whole life, so one exchange holds the messages of many model
+    /// calls. The handshake, its headers and a binary message are never reported.
+    SocketText {
+        /// The exchange: the socket.
+        exchange: ExchangeId,
+        /// The redacted URL of the socket.
+        url: &'a str,
+        /// True for a message that the client sent, false for one that it received.
+        sent: bool,
+        /// The message, whole.
+        text: &'a str,
     },
 }
 

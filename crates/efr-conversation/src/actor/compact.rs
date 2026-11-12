@@ -99,6 +99,11 @@ async fn compact(
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
         tools: shared.deps.toolbox.definitions(crate::turn::edit_tool(&*provider, &model)),
+        // NOTE: the hosted tools of the newest turn's settings, so the summary request
+        // sends what the turn's requests sent; before any turn there is none.
+        hosted: settings.map_or_else(Vec::new, |settings| {
+            crate::web::hosted_for(settings, &config, &*provider)
+        }),
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,

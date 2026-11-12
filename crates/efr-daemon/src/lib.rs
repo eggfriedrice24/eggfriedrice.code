@@ -67,6 +67,7 @@ mod settings;
 mod shells;
 mod signals;
 mod state;
+mod stream_record;
 mod telemetry;
 #[cfg(test)]
 mod testing;

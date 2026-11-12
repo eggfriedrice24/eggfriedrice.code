@@ -65,6 +65,10 @@ pub(super) async fn run(
     let provider =
         crate::router::provider_after(&model, newest_provider, &config, &*shared.deps.providers)?;
     let key = ModelKey::new(provider.id().clone(), model.clone());
+    // NOTE: the hosted tools of the newest turn's settings, so the count matches the
+    // turn's request; before any turn there is none.
+    let hosted = newest
+        .map_or_else(Vec::new, |settings| crate::web::hosted_for(settings, &config, &*provider));
     let head = snapshot.summary().and_then(|compaction| fresh::stored(compaction, fresh.as_ref()));
 
     // NOTE: the running turn counts as ended here, so the window rebuilds its messages
@@ -85,6 +89,7 @@ pub(super) async fn run(
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
         tools: shared.deps.toolbox.definitions(crate::turn::edit_tool(&*provider, &model)),
+        hosted,
         max_output_tokens: config.max_output_tokens,
         effort,
         side_call: false,

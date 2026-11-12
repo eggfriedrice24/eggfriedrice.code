@@ -6,7 +6,9 @@ use std::pin::Pin;
 use async_trait::async_trait;
 use futures::Stream;
 
-use crate::{CallNotices, Completion, ProviderError, ProviderEvent, ProviderId, Request};
+use crate::{
+    CallNotices, Completion, ProviderError, ProviderEvent, ProviderId, Request, WebSupport,
+};
 
 /// The stream a [`Provider`] answers with. It is boxed and `Send` so that the trait
 /// stays dyn-compatible and the conversation can poll it from any task.
@@ -47,6 +49,14 @@ pub trait Provider: Send + Sync + fmt::Debug {
     /// [`EditTool::ApplyPatch`] unless the provider says otherwise.
     fn default_edit_tool(&self) -> EditTool {
         EditTool::default()
+    }
+
+    /// What the provider can do with the web tool
+    /// ([`HostedTool::WebSearch`](crate::HostedTool::WebSearch)). The turn adds the tool
+    /// to a request only when it is not [`WebSupport::None`], the default, so a provider
+    /// that does not override it never gets one.
+    fn web_search(&self) -> WebSupport {
+        WebSupport::None
     }
 
     /// Sends `request` and returns the answer as it streams. An error here means the

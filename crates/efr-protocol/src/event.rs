@@ -17,7 +17,7 @@ use crate::{
     Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId,
     RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext,
     SnapshotPhase, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnUndoInfo, UndoId,
-    UserAuthorization, Verdict,
+    UserAuthorization, Verdict, WebAction, WebError, WebResult, WebSource,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -302,6 +302,64 @@ pub enum Event {
         /// the command still runs, not that it ended. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         left_running: bool,
+    },
+
+    /// The provider began a step of its web tool for the model: a search, the opening
+    /// of a page or a find in a page. efr does not run it and does not ask before it,
+    /// so no approval and no `tool_call_*` event belongs to it. The assistant message
+    /// before it is complete: the text after the step is the next message. The time of
+    /// the step is `at` of its `web_call_completed` minus `at` of this event.
+    WebCallStarted {
+        /// The turn.
+        turn_id: TurnId,
+        /// efr's own id of the step.
+        call_id: CallId,
+        /// What the step does.
+        action: WebAction,
+        /// For a search, the query as the model sent it, at most
+        /// [`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters. Absent when the
+        /// provider does not say it yet: the end of the step then has it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<String>,
+        /// For an open or a find, the page, at most
+        /// [`MAX_WEB_URL_CHARS`](crate::MAX_WEB_URL_CHARS) characters. Absent when the
+        /// provider does not say it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        /// For a find, the text to find, at most
+        /// [`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pattern: Option<String>,
+    },
+
+    /// A step of the web tool ended. It carries the whole state of the step again, so a
+    /// client that missed its start can show it. A step that was still open at the end
+    /// of the turn ends with the error `not_finished`.
+    WebCallCompleted {
+        /// The turn.
+        turn_id: TurnId,
+        /// efr's own id of the step, as in its `web_call_started`.
+        call_id: CallId,
+        /// What the step did.
+        action: WebAction,
+        /// For a search, the query as the model sent it. Absent when the provider never
+        /// said it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query: Option<String>,
+        /// For an open or a find, the page. Absent when the provider never said it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        /// For a find, the text to find.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pattern: Option<String>,
+        /// The results of a search when the provider gives them, at most
+        /// [`MAX_WEB_RESULTS`](crate::MAX_WEB_RESULTS). An empty list means that the
+        /// search found nothing. Absent when efr does not know them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        results: Option<Vec<WebResult>>,
+        /// Why the step failed. Absent for a step that went well.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<WebError>,
     },
 
     /// A tool call needs the user's approval before it runs.
@@ -740,6 +798,30 @@ pub enum Event {
         files: Vec<ReportedFile>,
     },
 
+    /// What the turn did on the web. It stands in the batch of the turn's end, before
+    /// the terminal event, only when the turn ran a search or its answer cited a page.
+    TurnWebReport {
+        /// The turn.
+        turn_id: TurnId,
+        /// The searches that ran: the steps with the action `search` that ended
+        /// without an error. Failed searches, opens and finds do not count.
+        searches: u32,
+        /// True when the searches read the provider's stored copy of the web, not the
+        /// live web. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stored_copy: bool,
+        /// True when this is the first turn of the conversation with `stored_copy`, so a
+        /// client says once what the stored copy means. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stored_copy_note: bool,
+        /// The pages that the answer cites, in the order of their first citation: source
+        /// `n` (the mark `[n]` in the text) is entry `n - 1`. At most
+        /// [`MAX_WEB_SOURCES`](crate::MAX_WEB_SOURCES). Absent when the answer cites
+        /// none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sources: Vec<WebSource>,
+    },
+
     /// efrd compacted the conversation's context: it pruned old tool output, wrote a
     /// summary of the history before a cut, or both. The model's next request starts
     /// from the compaction (the README of `efr-conversation`, section "Context"). Every
@@ -1072,6 +1154,8 @@ impl Event {
             | Event::ToolCallOutputUpdated { turn_id, .. }
             | Event::ToolCallInputChanged { turn_id, .. }
             | Event::ToolCallCompleted { turn_id, .. }
+            | Event::WebCallStarted { turn_id, .. }
+            | Event::WebCallCompleted { turn_id, .. }
             | Event::ApprovalRequested { turn_id, .. }
             | Event::ApprovalResolved { turn_id, .. }
             | Event::ApprovalExpired { turn_id, .. }
@@ -1094,6 +1178,7 @@ impl Event {
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
             | Event::TurnSurfaceReport { turn_id, .. }
+            | Event::TurnWebReport { turn_id, .. }
             | Event::SnapshotTaken { turn_id, .. }
             | Event::JobStarted { turn_id, .. }
             | Event::JobNotice { turn_id, .. } => Some(*turn_id),

@@ -4473,6 +4473,125 @@
           "type": "object"
         },
         {
+          "description": "The provider began a step of its web tool for the model: a search, the opening\nof a page or a find in a page. efr does not run it and does not ask before it,\nso no approval and no `tool_call_*` event belongs to it. The assistant message\nbefore it is complete: the text after the step is the next message. The time of\nthe step is `at` of its `web_call_completed` minus `at` of this event.",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/WebAction",
+              "description": "What the step does."
+            },
+            "call_id": {
+              "$ref": "#/$defs/CallId",
+              "description": "efr's own id of the step."
+            },
+            "kind": {
+              "const": "web_call_started",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "For a find, the text to find, at most\n[`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "For a search, the query as the model sent it, at most\n[`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters. Absent when the\nprovider does not say it yet: the end of the step then has it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn."
+            },
+            "url": {
+              "description": "For an open or a find, the page, at most\n[`MAX_WEB_URL_CHARS`](crate::MAX_WEB_URL_CHARS) characters. Absent when the\nprovider does not say it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "call_id",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A step of the web tool ended. It carries the whole state of the step again, so a\nclient that missed its start can show it. A step that was still open at the end\nof the turn ends with the error `not_finished`.",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/WebAction",
+              "description": "What the step did."
+            },
+            "call_id": {
+              "$ref": "#/$defs/CallId",
+              "description": "efr's own id of the step, as in its `web_call_started`."
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WebError"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the step failed. Absent for a step that went well."
+            },
+            "kind": {
+              "const": "web_call_completed",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "For a find, the text to find.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "query": {
+              "description": "For a search, the query as the model sent it. Absent when the provider never\nsaid it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "results": {
+              "description": "The results of a search when the provider gives them, at most\n[`MAX_WEB_RESULTS`](crate::MAX_WEB_RESULTS). An empty list means that the\nsearch found nothing. Absent when efr does not know them.",
+              "items": {
+                "$ref": "#/$defs/WebResult"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn."
+            },
+            "url": {
+              "description": "For an open or a find, the page. Absent when the provider never said it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "call_id",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
           "description": "A tool call needs the user's approval before it runs.",
           "properties": {
             "call_id": {
@@ -5556,6 +5675,46 @@
             "kind",
             "turn_id",
             "files"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the turn did on the web. It stands in the batch of the turn's end, before\nthe terminal event, only when the turn ran a search or its answer cited a page.",
+          "properties": {
+            "kind": {
+              "const": "turn_web_report",
+              "type": "string"
+            },
+            "searches": {
+              "description": "The searches that ran: the steps with the action `search` that ended\nwithout an error. Failed searches, opens and finds do not count.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sources": {
+              "description": "The pages that the answer cites, in the order of their first citation: source\n`n` (the mark `[n]` in the text) is entry `n - 1`. At most\n[`MAX_WEB_SOURCES`](crate::MAX_WEB_SOURCES). Absent when the answer cites\nnone.",
+              "items": {
+                "$ref": "#/$defs/WebSource"
+              },
+              "type": "array"
+            },
+            "stored_copy": {
+              "description": "True when the searches read the provider's stored copy of the web, not the\nlive web. False when absent.",
+              "type": "boolean"
+            },
+            "stored_copy_note": {
+              "description": "True when this is the first turn of the conversation with `stored_copy`, so a\nclient says once what the stored copy means. False when absent.",
+              "type": "boolean"
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn."
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "searches"
           ],
           "type": "object"
         },
@@ -12861,6 +13020,121 @@
       "required": [
         "pattern",
         "max_wakes"
+      ],
+      "type": "object"
+    },
+    "WebAction": {
+      "description": "What a step of the web tool does.",
+      "oneOf": [
+        {
+          "const": "search",
+          "description": "A search of the web, with its `query`.",
+          "type": "string"
+        },
+        {
+          "const": "open",
+          "description": "The opening of one page, its `url`.",
+          "type": "string"
+        },
+        {
+          "const": "find",
+          "description": "A find of a text (`pattern`) in a page that the model opened (`url`). A client\nshows no row of its own for it.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "An action that this build does not know.",
+          "type": "string"
+        }
+      ]
+    },
+    "WebError": {
+      "description": "Why a step of the web tool failed.",
+      "oneOf": [
+        {
+          "const": "too_many_requests",
+          "description": "The provider had too many requests.",
+          "type": "string"
+        },
+        {
+          "const": "limit_reached",
+          "description": "The limit of searches or page fetches of the turn is reached.",
+          "type": "string"
+        },
+        {
+          "const": "unavailable",
+          "description": "The web tool of the provider is not available now.",
+          "type": "string"
+        },
+        {
+          "const": "invalid",
+          "description": "The provider did not take the input, such as a query or a URL that is too long.",
+          "type": "string"
+        },
+        {
+          "const": "not_allowed",
+          "description": "The page is not allowed, such as a URL that no earlier message held.",
+          "type": "string"
+        },
+        {
+          "const": "not_accessible",
+          "description": "The page could not be reached.",
+          "type": "string"
+        },
+        {
+          "const": "unsupported",
+          "description": "The page has a type or a size that the tool does not take.",
+          "type": "string"
+        },
+        {
+          "const": "not_finished",
+          "description": "The step did not finish: the answer or the turn ended first.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A reason that this build does not know, or another reason.",
+          "type": "string"
+        }
+      ]
+    },
+    "WebResult": {
+      "description": "One result of a search: a page that the provider found.",
+      "properties": {
+        "title": {
+          "description": "Its title, at most [`MAX_WEB_TITLE_CHARS`] characters. Absent when the provider\ngives none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The page, at most [`MAX_WEB_URL_CHARS`] characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "WebSource": {
+      "description": "A page that the answer of a turn cites.",
+      "properties": {
+        "title": {
+          "description": "Its title, at most [`MAX_WEB_TITLE_CHARS`] characters. Absent when the provider\ngives none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "The page, at most [`MAX_WEB_URL_CHARS`] characters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
       ],
       "type": "object"
     },

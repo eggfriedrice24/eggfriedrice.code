@@ -43,6 +43,7 @@ Where things are:
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |
 | `src/framing.rs` | `encode` and `Decoder`: the 4-byte big-endian length prefix, 16 MiB cap |
 | `src/schema.rs` | the JSON Schema documents, behind the `schema` feature: `document` (the reference with the method table) and `codegen_document` (the form for code generators, `docs/protocol.schema.json`) |
+| `src/web.rs` | the web search of the model, which the provider runs inside the model call (the events `web_call_started`, `web_call_completed` and `turn_web_report` are in `event.rs`): `WebAction` (`search`, `open`, `find`) and `WebError` (why a step failed), each reading an unknown value as `Unknown`; `WebResult` (a result of a search) and `WebSource` (a page that the answer cites); the caps `MAX_WEB_RESULTS` (20) and `MAX_WEB_SOURCES` (50) and the lengths at which the daemon cuts a query or a pattern (`MAX_WEB_TEXT_CHARS`), a URL (`MAX_WEB_URL_CHARS`) and a title (`MAX_WEB_TITLE_CHARS`) |
 | `src/fixtures_check.rs` | the samples behind `fixtures/v1/` and their checks (tests only) |
 
 ### Wire rules

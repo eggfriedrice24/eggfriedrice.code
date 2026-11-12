@@ -347,6 +347,9 @@ impl Recorder for Log {
             }
             Record::BodyEnd { exchange, end } => format!("{exchange} end {end:?}"),
             Record::Failed { exchange, .. } => format!("{exchange} failed"),
+            Record::SocketText { exchange, sent, text, .. } => {
+                format!("{exchange} socket sent={sent} {text}")
+            }
         };
         self.0.lock().unwrap().push(line);
     }

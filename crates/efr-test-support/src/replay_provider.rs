@@ -30,6 +30,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_provider::{
     ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
+    WebSupport,
 };
 use futures::StreamExt as _;
 use serde::Deserialize;
@@ -63,6 +64,9 @@ pub struct ReplayProvider {
     id: ProviderId,
     /// What [`Provider::models`] answers; empty unless a test gives a list.
     models: Vec<ModelInfo>,
+    /// What [`Provider::web_search`] answers; [`WebSupport::None`] unless a test says
+    /// otherwise, so a request of a turn carries no hosted tool.
+    web: WebSupport,
     redactor: Redactor,
     state: Mutex<State>,
     /// The last transcript line the harness has handled, when the provider is paced.
@@ -155,6 +159,7 @@ impl ReplayProvider {
         Ok(ReplayProvider {
             id: replay_id(),
             models: Vec::new(),
+            web: WebSupport::None,
             redactor: Redactor::new(),
             state: Mutex::new(state),
             handled: None,
@@ -174,6 +179,18 @@ impl ReplayProvider {
     #[must_use]
     pub fn with_models(mut self, models: Vec<ModelInfo>) -> Self {
         self.models = models;
+        self
+    }
+
+    /// The same provider, which says that it has the web tool with `support`
+    /// ([`Provider::web_search`]), so a turn in a mode that allows web search sends the
+    /// hosted tool to it and the expected requests of the transcript must carry it
+    /// (`"hosted"`). It has none by default. A scenario of web search gives the
+    /// provider's canonical events (`hosted_call_start`, `hosted_call_end`, `citation`)
+    /// in its `provider_sse` records.
+    #[must_use]
+    pub fn with_web_search(mut self, support: WebSupport) -> Self {
+        self.web = support;
         self
     }
 
@@ -288,6 +305,10 @@ impl Provider for ReplayProvider {
 
     fn models(&self) -> Vec<ModelInfo> {
         self.models.clone()
+    }
+
+    fn web_search(&self) -> WebSupport {
+        self.web
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

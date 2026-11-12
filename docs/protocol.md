@@ -993,3 +993,27 @@ No protocol version has shipped yet.
   `models.list`. It is for display only and is absent when the turn sends an effort.
   A client then names the model with its effort, as `,model` does, such as
   `b/gpt-5.5 medium`.
+- Version 1, additive: web search. The provider runs the search inside the model call,
+  so efr does not ask before it and no `tool_call_*` event belongs to it. Three new
+  event kinds: `web_call_started` `{turn_id, call_id, action, query?, url?, pattern?}`
+  when the provider begins a step of its web tool, `web_call_completed` with the same
+  members and an optional `results` (`[{url, title?}]`, at most 20; an empty list
+  means that the search found nothing; absent when efr does not know them) and an
+  optional `error`, and `turn_web_report` `{turn_id, searches, stored_copy?,
+  stored_copy_note?, sources?}` in the batch of the turn's end, before the terminal
+  event, as `turn_surface_report` is, only when the turn ran a search or cited a page.
+  `searches` counts the searches that ran without an error; `sources` lists the cited
+  pages (`[{url, title?}]`, at most 50) in the order of their first citation, so the
+  mark `[n]` in the text of an answer is entry `n - 1`. New wire enums `web_action`
+  (`search`, `open`, `find`, `unknown`) and `web_error` (`too_many_requests`,
+  `limit_reached`, `unavailable`, `invalid`, `not_allowed`, `not_accessible`,
+  `unsupported`, `not_finished`, `unknown`); a value that a client does not know reads
+  as `unknown`. The daemon cuts a query and a pattern to 1000 characters, a URL to
+  2048 and a title to 200. The assistant message before a web step is complete: the
+  text after it is the next message. A client that does not know the new kinds skips
+  them and shows the text of the answer; an older daemon sends none of them. No
+  capability key. New fixtures `events/web_call_started.json`,
+  `events/web_call_started_open.json`, `events/web_call_completed.json`,
+  `events/web_call_completed_failed.json`, `events/web_call_completed_find.json`,
+  `events/turn_web_report.json`, `events/turn_web_report_stored_copy.json`,
+  `web_actions.json` and `web_errors.json`.

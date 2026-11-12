@@ -47,6 +47,39 @@ fn each_depth_and_its_truecolor_frame_are_named() {
     assert_eq!(depth_of("TM-Scope", 9, Some("16 colours")), (Depth::Ansi16, None));
     assert_eq!(depth_of("TM-Scope", 18, Some("NO_COLOR")), (Depth::NoColor, None));
     assert_eq!(depth_of("TM-Live", 3, None), (Depth::TrueColor, None));
+    assert_eq!(depth_of("TM-Web", 11, Some("NO_COLOR")), (Depth::NoColor, Some(10)));
+    assert_eq!(depth_of("TM-Web", 16, Some("16 colours")), (Depth::Ansi16, None));
+    assert_eq!(depth_of("TM-Web", 19, Some("NO_COLOR · 60")), (Depth::NoColor, None));
+}
+
+/// A frame of `n` rows, row `i` holding the text `row i`.
+fn rows(n: usize) -> serde_json::Value {
+    let rows: Vec<_> = (0..n).map(|i| json!({"segs": [{"t": format!("row {i}")}]})).collect();
+    json!({ "rows": rows })
+}
+
+fn texts(frame: &serde_json::Value) -> Vec<String> {
+    frame["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["segs"][0]["t"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn the_web_board_loses_its_rejected_rows_and_todays_end_line() {
+    for frame in [3, 5] {
+        let mut json = rows(9);
+        correct("TM-Web", frame, &mut json).unwrap();
+        assert_eq!(texts(&json), ["row 0", "row 1", "row 2", "row 3", "row 4"], "frame {frame}");
+    }
+    let mut json = rows(6);
+    correct("TM-Web", 13, &mut json).unwrap();
+    assert_eq!(texts(&json), ["row 1", "row 2", "row 3", "row 4", "row 5"]);
+    let mut json = rows(6);
+    correct("TM-Web", 1, &mut json).unwrap();
+    assert_eq!(texts(&json).len(), 6, "another frame keeps its rows");
 }
 
 #[test]

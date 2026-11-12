@@ -36,6 +36,7 @@ use tokio::io::{ReadHalf, WriteHalf};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
+use crate::recorder::{ExchangeId, Record, Recorder};
 use crate::{HttpError, HttpRequest, redact};
 
 /// The GUID that RFC 6455 (section 1.3) appends to a key to make the accept value.
@@ -80,6 +81,9 @@ pub enum WsMessage {
 pub struct WebSocket {
     url: String,
     headers: HeaderMap,
+    /// The recorder of a socket that a recorded request opened, with the socket's
+    /// exchange: it hears each text message that goes or comes.
+    recorder: Option<(Arc<dyn Recorder>, ExchangeId)>,
     incoming: mpsc::Receiver<Result<WsMessage, HttpError>>,
     outgoing: mpsc::Sender<Outgoing>,
     pings: Arc<Mutex<Pings>>,
@@ -124,6 +128,7 @@ impl WebSocket {
     /// Sends `text` as one text message. Fails when the connection is closed or the
     /// write fails; the connection is then unusable.
     pub async fn send_text(&self, text: String) -> Result<(), HttpError> {
+        self.record(true, &text);
         let frame = Frame::text(Payload::Owned(text.into_bytes()));
         self.send(frame).await
     }
@@ -180,7 +185,23 @@ impl WebSocket {
     /// read. An error ends the connection. Safe to cancel: a message that was not
     /// returned stays for the next call.
     pub async fn next(&mut self) -> Option<Result<WsMessage, HttpError>> {
-        self.incoming.recv().await
+        let message = self.incoming.recv().await;
+        if let Some(Ok(WsMessage::Text(text))) = &message {
+            self.record(false, text);
+        }
+        message
+    }
+
+    /// Tells the recorder of a recorded socket about a text message.
+    fn record(&self, sent: bool, text: &str) {
+        if let Some((recorder, exchange)) = &self.recorder {
+            recorder.record(&Record::SocketText {
+                exchange: *exchange,
+                url: &self.url,
+                sent,
+                text,
+            });
+        }
     }
 
     /// True when the reader has stopped: the server closed the connection, a read
@@ -293,8 +314,14 @@ pub(crate) fn check_answer(
     Ok(())
 }
 
-/// Starts the reader and the writer on an upgraded connection.
-pub(crate) fn start(url: String, headers: HeaderMap, upgraded: Upgraded) -> WebSocket {
+/// Starts the reader and the writer on an upgraded connection; `recorder` hears its text
+/// messages when it is given.
+pub(crate) fn start(
+    url: String,
+    headers: HeaderMap,
+    upgraded: Upgraded,
+    recorder: Option<(Arc<dyn Recorder>, ExchangeId)>,
+) -> WebSocket {
     let (read, write) = tokio::io::split(upgraded);
     let (mut read, write) = after_handshake_split(read, write, Role::Client);
     read.set_max_message_size(MAX_MESSAGE);
@@ -311,7 +338,7 @@ pub(crate) fn start(url: String, headers: HeaderMap, upgraded: Upgraded) -> WebS
         }
     });
     let writer = tokio::spawn(write_loop(write, outgoing_rx));
-    WebSocket { url, headers, incoming, outgoing, pings, reader, writer }
+    WebSocket { url, headers, recorder, incoming, outgoing, pings, reader, writer }
 }
 
 async fn read_loop(

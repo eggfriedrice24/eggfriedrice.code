@@ -147,6 +147,10 @@ pub struct Deps {
     pub(crate) procs: Option<Arc<dyn ProcView>>,
     /// A test's hook in the row loop of each search; `None` has none.
     pub(crate) search_hook: Option<SearchRowHook>,
+    /// True when efrd writes the streams of its model calls to private files below the
+    /// state root (`EFR_RECORD_STREAMS`, `stream_record.rs`). Only
+    /// [`Deps::from_process`] reads the variable; off otherwise.
+    pub(crate) record_streams: bool,
 }
 
 impl fmt::Debug for Deps {
@@ -173,6 +177,7 @@ impl fmt::Debug for Deps {
             .field("job_cgroups", &self.job_cgroups)
             .field("procs", &self.procs)
             .field("search_hook", &self.search_hook)
+            .field("record_streams", &self.record_streams)
             .finish_non_exhaustive()
     }
 }
@@ -211,6 +216,7 @@ impl Deps {
             job_cgroups: false,
             procs: None,
             search_hook: None,
+            record_streams: false,
         }
     }
 
@@ -239,6 +245,14 @@ impl Deps {
         deps.job_cgroups = deps.unit_cgroup.is_some();
         // NOTE: only a build with the test seams reads the smoke's test hosts.
         deps.seams = deps.seams.with_process_env();
+        // NOTE: read once at the start; a value that is not a flag records nothing.
+        deps.record_streams = match efr_stdx::env::flag(Var::RecordStreams) {
+            Ok(on) => on,
+            Err(error) => {
+                tracing::warn!(error = %error, "EFR_RECORD_STREAMS is not a flag; no stream is recorded");
+                false
+            }
+        };
         Ok(deps
             .with_shell_env(shell_env)
             .with_root_sources(root_sources)
@@ -450,6 +464,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         job_cgroups,
         procs,
         search_hook,
+        record_streams,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -552,8 +567,27 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         rng: Arc::clone(&rng),
     })?;
 
-    let http = HttpClient::new(&HttpConfig::default(), Arc::clone(&clock), Arc::clone(&rng))
+    let mut http = HttpClient::new(&HttpConfig::default(), Arc::clone(&clock), Arc::clone(&rng))
         .map_err(|source| DaemonError::Http { source })?;
+    if record_streams {
+        // NOTE: a recording that cannot start never stops efrd; the model calls run
+        // as without it.
+        match crate::stream_record::StreamRecorder::start(dirs.state(), Arc::clone(&clock)) {
+            Ok(recording) => {
+                tracing::info!(
+                    dir = %recording.dir.display(),
+                    "EFR_RECORD_STREAMS is on: the bodies of model calls go to private files"
+                );
+                http = http.with_recorder(recording.recorder);
+                // NOTE: the writer runs as long as the client lives, which is as long
+                // as efrd; nothing waits for it.
+                drop(recording.writer);
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "the streams of model calls cannot be recorded");
+            }
+        }
+    }
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);

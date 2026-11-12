@@ -1202,6 +1202,7 @@ pub(crate) fn request(messages: Vec<Message>) -> Request {
         system: Some(SYSTEM.to_owned()),
         messages,
         tools: FakeToolbox::tools(),
+        hosted: Vec::new(),
         max_output_tokens: None,
         effort: None,
         side_call: false,

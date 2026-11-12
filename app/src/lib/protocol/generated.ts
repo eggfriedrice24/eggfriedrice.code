@@ -741,6 +741,76 @@ export type Event =
     }
   | {
       /**
+       * What the step does.
+       */
+      action: WebAction;
+      /**
+       * efr's own id of the step.
+       */
+      call_id: CallId;
+      kind: "web_call_started";
+      /**
+       * For a find, the text to find, at most
+       * [`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters.
+       */
+      pattern?: string | null;
+      /**
+       * For a search, the query as the model sent it, at most
+       * [`MAX_WEB_TEXT_CHARS`](crate::MAX_WEB_TEXT_CHARS) characters. Absent when the
+       * provider does not say it yet: the end of the step then has it.
+       */
+      query?: string | null;
+      /**
+       * The turn.
+       */
+      turn_id: TurnId;
+      /**
+       * For an open or a find, the page, at most
+       * [`MAX_WEB_URL_CHARS`](crate::MAX_WEB_URL_CHARS) characters. Absent when the
+       * provider does not say it.
+       */
+      url?: string | null;
+    }
+  | {
+      /**
+       * What the step did.
+       */
+      action: WebAction;
+      /**
+       * efr's own id of the step, as in its `web_call_started`.
+       */
+      call_id: CallId;
+      /**
+       * Why the step failed. Absent for a step that went well.
+       */
+      error?: WebError | null;
+      kind: "web_call_completed";
+      /**
+       * For a find, the text to find.
+       */
+      pattern?: string | null;
+      /**
+       * For a search, the query as the model sent it. Absent when the provider never
+       * said it.
+       */
+      query?: string | null;
+      /**
+       * The results of a search when the provider gives them, at most
+       * [`MAX_WEB_RESULTS`](crate::MAX_WEB_RESULTS). An empty list means that the
+       * search found nothing. Absent when efr does not know them.
+       */
+      results?: WebResult[] | null;
+      /**
+       * The turn.
+       */
+      turn_id: TurnId;
+      /**
+       * For an open or a find, the page. Absent when the provider never said it.
+       */
+      url?: string | null;
+    }
+  | {
+      /**
        * The call that waits.
        */
       call_id: CallId;
@@ -1297,6 +1367,35 @@ export type Event =
        */
       files: ReportedFile[];
       kind: "turn_surface_report";
+      /**
+       * The turn.
+       */
+      turn_id: TurnId;
+    }
+  | {
+      kind: "turn_web_report";
+      /**
+       * The searches that ran: the steps with the action `search` that ended
+       * without an error. Failed searches, opens and finds do not count.
+       */
+      searches: number;
+      /**
+       * The pages that the answer cites, in the order of their first citation: source
+       * `n` (the mark `[n]` in the text) is entry `n - 1`. At most
+       * [`MAX_WEB_SOURCES`](crate::MAX_WEB_SOURCES). Absent when the answer cites
+       * none.
+       */
+      sources?: WebSource[];
+      /**
+       * True when the searches read the provider's stored copy of the web, not the
+       * live web. False when absent.
+       */
+      stored_copy?: boolean;
+      /**
+       * True when this is the first turn of the conversation with `stored_copy`, so a
+       * client says once what the stored copy means. False when absent.
+       */
+      stored_copy_note?: boolean;
       /**
        * The turn.
        */
@@ -1860,6 +1959,23 @@ export type BlockReason =
   | "bad_request"
   | "limit"
   | "denied"
+  | "unknown";
+/**
+ * What a step of the web tool does.
+ */
+export type WebAction = "search" | "open" | "find" | "unknown";
+/**
+ * Why a step of the web tool failed.
+ */
+export type WebError =
+  | "too_many_requests"
+  | "limit_reached"
+  | "unavailable"
+  | "invalid"
+  | "not_allowed"
+  | "not_accessible"
+  | "unsupported"
+  | "not_finished"
   | "unknown";
 /**
  * The risk of an exit, as the classifier rates it.
@@ -4407,6 +4523,20 @@ export interface SurfaceChange {
   rule: string;
 }
 /**
+ * One result of a search: a page that the provider found.
+ */
+export interface WebResult {
+  /**
+   * Its title, at most [`MAX_WEB_TITLE_CHARS`] characters. Absent when the provider
+   * gives none.
+   */
+  title?: string | null;
+  /**
+   * The page, at most [`MAX_WEB_URL_CHARS`] characters.
+   */
+  url: string;
+}
+/**
  * What an approval question for an exit shows, on top of its one-line summary.
  */
 export interface ExitInfo {
@@ -4950,6 +5080,20 @@ export interface ReportedFile {
    * The file, relative to its write root when it lies in one.
    */
   path: string;
+}
+/**
+ * A page that the answer of a turn cites.
+ */
+export interface WebSource {
+  /**
+   * Its title, at most [`MAX_WEB_TITLE_CHARS`] characters. Absent when the provider
+   * gives none.
+   */
+  title?: string | null;
+  /**
+   * The page, at most [`MAX_WEB_URL_CHARS`] characters.
+   */
+  url: string;
 }
 /**
  * One compaction of a conversation's context, as `conversation_compacted` records it.
@@ -7452,6 +7596,8 @@ export const EVENT_KINDS = [
   "tool_call_output_updated",
   "tool_call_input_changed",
   "tool_call_completed",
+  "web_call_started",
+  "web_call_completed",
   "approval_requested",
   "approval_resolved",
   "approval_expired",
@@ -7480,6 +7626,7 @@ export const EVENT_KINDS = [
   "surface_question_requested",
   "surface_question_answered",
   "turn_surface_report",
+  "turn_web_report",
   "conversation_compacted",
   "sandbox_unavailable",
   "snapshot_taken",

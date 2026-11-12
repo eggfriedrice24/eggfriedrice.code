@@ -7,6 +7,7 @@
 //! changed and the undo of a turn, the
 //! context's use and its compactions, the search of conversations, the enrolled
 //! devices with their pairing and the message that a device signs to prove its key,
+//! the steps of the provider's web search and the pages that an answer cites,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -48,6 +49,7 @@ mod settings;
 mod shell_context;
 mod undo;
 mod version;
+mod web;
 
 pub use capabilities::Capabilities;
 pub use changes::{
@@ -169,3 +171,7 @@ pub use undo::{
     UndoAction, UndoEntry, UndoReason, UndoRefused, UndoableTurn,
 };
 pub use version::PROTOCOL_VERSION;
+pub use web::{
+    MAX_WEB_RESULTS, MAX_WEB_SOURCES, MAX_WEB_TEXT_CHARS, MAX_WEB_TITLE_CHARS, MAX_WEB_URL_CHARS,
+    WebAction, WebError, WebResult, WebSource,
+};

@@ -366,7 +366,9 @@ What efr does not copy:
   the `client_metadata`, the `codex.*` events, safety buffering and
   `permessage-deflate` compression. Events that the parser does not know become
   `ProviderEvent::Raw`, as on the HTTP path.
-- A WebSocket exchange is not recorded through `efr_http`'s `Recorder`.
+- The handshake of the WebSocket is never recorded. Its request is marked `recorded()`, so a
+  `Recorder` of the client (efrd's `EFR_RECORD_STREAMS`) gets each text message of the
+  socket (`Record::SocketText`), and never a header.
 
 The usage of a finished response gives `input_tokens` (cached and written ones
 included), `output_tokens` (reasoning included), `input_tokens_details.cached_tokens`,

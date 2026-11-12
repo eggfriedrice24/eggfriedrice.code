@@ -110,3 +110,76 @@ fn unknown_kinds_are_refused() {
     let wire = json!({"kind": "audio_delta", "data": {"bytes": ""}});
     assert!(serde_json::from_value::<ProviderEvent>(wire).is_err());
 }
+
+#[test]
+fn the_events_of_a_hosted_tool_have_a_kind_and_data() {
+    use crate::{HostedAction, HostedError, HostedOutcome, WebResult};
+
+    let cases = [
+        (
+            ProviderEvent::HostedCallStart {
+                call_id: "ws_1".to_owned(),
+                action: HostedAction::Search { query: None },
+            },
+            json!({"kind": "hosted_call_start", "data": {"call_id": "ws_1", "action": {"action": "search"}}}),
+        ),
+        (
+            ProviderEvent::HostedCallEnd {
+                call_id: "srvtoolu_01A".to_owned(),
+                action: HostedAction::Search { query: Some("\"ROB RUN\" Proton".to_owned()) },
+                outcome: HostedOutcome::Done {
+                    results: Some(vec![WebResult::new(
+                        "https://www.protondb.com/app/2384710",
+                        Some("ROB RUN · ProtonDB".to_owned()),
+                    )]),
+                },
+            },
+            json!({"kind": "hosted_call_end", "data": {
+                "call_id": "srvtoolu_01A",
+                "action": {"action": "search", "query": "\"ROB RUN\" Proton"},
+                "outcome": {"outcome": "done", "results": [
+                    {"url": "https://www.protondb.com/app/2384710", "title": "ROB RUN · ProtonDB"}
+                ]}
+            }}),
+        ),
+        (
+            ProviderEvent::HostedCallEnd {
+                call_id: "ws_3".to_owned(),
+                action: HostedAction::Find {
+                    pattern: "Easy Anti-Cheat".to_owned(),
+                    url: Some("https://areweanticheatyet.com/game/rob-run".to_owned()),
+                },
+                outcome: HostedOutcome::Failed { error: HostedError::NotFinished },
+            },
+            json!({"kind": "hosted_call_end", "data": {
+                "call_id": "ws_3",
+                "action": {"action": "find", "pattern": "Easy Anti-Cheat", "url": "https://areweanticheatyet.com/game/rob-run"},
+                "outcome": {"outcome": "failed", "error": "not_finished"}
+            }}),
+        ),
+        (
+            ProviderEvent::Citation {
+                url: "https://areweanticheatyet.com/game/rob-run".to_owned(),
+                title: Some("ROB RUN · Are We Anti-Cheat Yet?".to_owned()),
+                placed: true,
+            },
+            json!({"kind": "citation", "data": {
+                "url": "https://areweanticheatyet.com/game/rob-run",
+                "title": "ROB RUN · Are We Anti-Cheat Yet?",
+                "placed": true
+            }}),
+        ),
+        (
+            ProviderEvent::Citation {
+                url: "https://a.test/".to_owned(),
+                title: None,
+                placed: false,
+            },
+            json!({"kind": "citation", "data": {"url": "https://a.test/"}}),
+        ),
+    ];
+    for (event, wire) in cases {
+        assert_eq!(serde_json::to_value(&event).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<ProviderEvent>(wire).unwrap(), event);
+    }
+}

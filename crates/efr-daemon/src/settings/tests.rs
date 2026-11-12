@@ -253,3 +253,30 @@ fn the_effort_of_each_company_reaches_the_conversations_for_its_providers() {
         [("anthropic-api", "max"), ("openai-api", "high"), ("openai-subscription", "high")]
     );
 }
+
+#[test]
+fn the_web_settings_reach_the_conversations() {
+    let convert = |config: &Settings| {
+        conversation_config(
+            config,
+            &builtin_catalogs(),
+            PathBuf::from("/d/s"),
+            HostInfo::default(),
+            TimeZone::UTC,
+        )
+        .web
+    };
+    assert_eq!(convert(&Settings::default()), efr_conversation::WebConfig::default());
+    let cases = [
+        (efr_config::WebSearch::Mode, efr_conversation::WebSearch::Mode),
+        (efr_config::WebSearch::Off, efr_conversation::WebSearch::Off),
+        (efr_config::WebSearch::Cached, efr_conversation::WebSearch::Cached),
+        (efr_config::WebSearch::Live, efr_conversation::WebSearch::Live),
+    ];
+    for (setting, value) in cases {
+        let mut config = Settings::default();
+        config.web.search = setting;
+        config.web.max_searches = 7;
+        assert_eq!(convert(&config), efr_conversation::WebConfig::new(value, 7));
+    }
+}

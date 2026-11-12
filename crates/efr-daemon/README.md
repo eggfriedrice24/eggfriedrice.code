@@ -318,8 +318,10 @@ offers it after the registry's tools, as `settings`.
   `[network]` (`netview` on, `mode` to `proxy`, an added `allow` entry, a removed
   `deny` entry, a `[[network.hosts]]` entry that no earlier entry covers, a higher
   `max_upload_bytes`), `[dbus]` and `[remote]` (`enabled` on, another
-  `tailscaled_socket`, whose whois says who each phone is); `loosens::loosening` names
-  each such key). The engine asks about it in every mode
+  `tailscaled_socket`, whose whois says who each phone is), and `web.search` to `live`
+  or away from `off` (a hosted search cannot ask, so such a change lets the model
+  reach more of the web with no question); `loosens::loosening` names each such
+  key). The engine asks about it in every mode
   and whatever the rules say, and denies it for a remote turn. The approval shows the
   unified diff of the file (`efr_tools::unified_diff`, as for `write_file`; for a new
   file, the diff from the example), headed by "This change loosens permissions." when
@@ -608,7 +610,8 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   `conflict` (kept as a receipt); a failed summary request has the code of the
   provider's error (`unauthorized`, `busy`, `invalid` or `internal`) and its message
   says why. The contract is in the README of efr-conversation, section "Context".
-  `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`.
+  `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`, and
+  `[web]` as `WebConfig`.
 - `conversation.context` (`methods/conversation_context.rs`, scope `read`) waits for a
   model list as a prompt does, starts the conversation's actor when none runs (a
   conversation that does not exist is `not_found`), and answers with what the actor
@@ -1806,6 +1809,25 @@ IPv4 address, with `[remote] enabled` (every key of `[remote]` needs a restart).
   in-crate tests (`remote/tests.rs`) call `remote::serve` with `127.0.0.1:0` and a fake
   tailscaled (`efr_test_support::FakeTailscaled`); the integration tests
   (`tests/it/remote.rs`) get the same through `TestDaemonBuilder::remote`.
+
+### Recording the streams of model calls
+
+- `EFR_RECORD_STREAMS` (a flag, off by default) is read once by `Deps::from_process`.
+  With it, `run.rs` installs `stream_record.rs`'s `StreamRecorder` on the one HTTP
+  client of the providers, through `efr_http::Recorder`. It writes
+  `<state dir>/streams/<UTC time>-<pid>/` (mode 0700): for model call `n`,
+  `<n>.request.json` (`transport`, `method`, the URL without its query and user, the
+  body as sent), `<n>.response.sse` (the answer as it came; for the WebSocket of the
+  Responses API, each message as an SSE event, so the file is a provider fixture as it
+  is) and one line of `index.jsonl` (`n`, `at`, `transport`, `status`, `end`), each
+  file at mode 0600.
+- It never writes a header, takes only a URL whose path ends in `/responses` or
+  `/messages`, and drops the query of the URL, so no token, key, cookie or account id
+  reaches a file; `stream_record/tests.rs` sends secret headers and a token request
+  through a recording client and checks every file. `record` only queues; a named
+  thread writes. A recording that cannot start logs a warning and efrd runs on.
+- The files hold prompts, tool output and answers: private, never sent, never
+  deleted by efrd (`docs/help/troubleshooting.md`, `docs/storage.md`).
 
 ### Features
 

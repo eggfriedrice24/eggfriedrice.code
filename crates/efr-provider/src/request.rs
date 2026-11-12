@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::Message;
+use crate::{HostedTool, Message};
 
 /// Everything a provider needs for one model call.
 ///
@@ -24,6 +24,13 @@ pub struct Request {
     /// The tools the model may call.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDefinition>,
+    /// The tools that the provider runs inside the call, such as its web search. The
+    /// turn fills it from the mode and the `[web]` setting
+    /// (`efr_conversation`'s `web.rs`); a provider without the support gets none. Left
+    /// out of the serde form when empty, so a recorded request without one keeps its
+    /// bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosted: Vec<HostedTool>,
     /// The most tokens the model may produce, reasoning included; the provider's
     /// default when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,6 +75,13 @@ impl Request {
     /// ([`unoffered_call_text`](crate::unoffered_call_text)).
     pub fn offers(&self, name: &str) -> bool {
         self.tools.iter().any(|tool| tool.name == name)
+    }
+
+    /// True when [`hosted`](Self::hosted) has the web tool. A provider sends the raw
+    /// items of an earlier web step back only in such a request; in any other it sends
+    /// the canonical content of their message.
+    pub fn has_web_search(&self) -> bool {
+        self.hosted.iter().any(|tool| matches!(tool, HostedTool::WebSearch { .. }))
     }
 }
 

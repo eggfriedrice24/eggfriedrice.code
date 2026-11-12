@@ -76,3 +76,34 @@ fn the_phone_listener_on_or_another_tailscaled_socket_loosens() {
     port.remote.port += 1;
     assert_eq!(loosening(&off, &port), Vec::<&str>::new(), "another port admits no one more");
 }
+
+#[test]
+fn web_search_to_live_or_away_from_off_loosens() {
+    use efr_config::WebSearch;
+
+    let with = |search| {
+        let mut settings = Settings::default();
+        settings.web.search = search;
+        settings
+    };
+    let cases = [
+        (WebSearch::Mode, WebSearch::Live, true),
+        (WebSearch::Cached, WebSearch::Live, true),
+        (WebSearch::Off, WebSearch::Mode, true),
+        (WebSearch::Off, WebSearch::Cached, true),
+        (WebSearch::Off, WebSearch::Live, true),
+        (WebSearch::Live, WebSearch::Mode, false),
+        (WebSearch::Mode, WebSearch::Cached, false),
+        (WebSearch::Cached, WebSearch::Mode, false),
+        (WebSearch::Mode, WebSearch::Off, false),
+        (WebSearch::Live, WebSearch::Live, false),
+    ];
+    for (before, next, loosens) in cases {
+        let keys = loosening(&with(before), &with(next));
+        let expected: &[&str] = if loosens { &["web.search"] } else { &[] };
+        assert_eq!(keys, expected, "{before:?} to {next:?}");
+    }
+    let mut more = Settings::default();
+    more.web.max_searches += 10;
+    assert_eq!(loosening(&Settings::default(), &more), Vec::<&str>::new());
+}

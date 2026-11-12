@@ -173,7 +173,8 @@ impl HttpClient {
     /// Fails with [`HttpError::UpgradeRefused`] when the server answers with any status
     /// but `101 Switching Protocols`, and with [`HttpError::Handshake`] when its answer
     /// does not accept the handshake key. The handshake is never sent twice and never
-    /// recorded.
+    /// recorded. When `request` is [recorded](HttpRequest::recorded), the client's
+    /// [`Recorder`] hears each text message of the socket ([`Record::SocketText`]).
     pub async fn websocket(&self, request: &HttpRequest) -> Result<WebSocket, HttpError> {
         let url = websocket::redacted_url(request);
         let key = websocket::handshake_key(&*self.rng);
@@ -189,7 +190,11 @@ impl HttpClient {
             url: url.clone(),
             source: source.without_url(),
         })?;
-        Ok(websocket::start(url, headers, upgraded))
+        let recorder = self.recorder.as_ref().filter(|_| request.is_recorded()).map(|recorder| {
+            let exchange = ExchangeId(self.next_exchange.fetch_add(1, Ordering::Relaxed));
+            (Arc::clone(recorder), exchange)
+        });
+        Ok(websocket::start(url, headers, upgraded, recorder))
     }
 
     /// Sends `request` and sends it again while `policy` says so, waiting on the

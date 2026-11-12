@@ -12,6 +12,25 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
+- The model can search the web. The provider runs the search inside the model call,
+  so efr loads nothing from the web itself and needs no key of a search company. A
+  search never asks. In manual mode the model gets no web search. In cautious mode an
+  OpenAI model searches a stored copy of the web, which can be some days old, and a
+  Claude model searches the live web. In auto and full mode every model searches the
+  live web.
+- `[web] search` overrides the table by mode: `off`, `cached` or `live`. The default,
+  `mode`, follows the permission mode. Manual mode stays off whatever it says.
+  `[web] max_searches` (default 20) limits the searches of one turn on a provider that
+  takes a limit. Both apply from the next turn. A change of `web.search` to `live`, or
+  away from `off`, counts as a change that loosens permissions.
+- `EFR_RECORD_STREAMS=1` for efrd writes the body of each model request and the
+  stream of its answer to private files below `<state dir>/streams/`, so you can report
+  a problem with a provider. efr never writes a header, so no token, key or cookie.
+  The files hold your prompts and the answers: the directory has mode 0700 and each
+  file 0600.
+- Three new protocol events: `web_call_started`, `web_call_completed` and
+  `turn_web_report`. An older client skips them.
+
 - `[openai] effort` and `[anthropic] effort` set the reasoning effort for the models
   of one company, in place of `[model] effort`.
 - A conversation keeps the model that a prompt picked. A later prompt that names no

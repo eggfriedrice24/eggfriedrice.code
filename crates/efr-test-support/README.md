@@ -44,7 +44,10 @@ directories, a store and provider traffic from one place and never from the mach
   its rows with their segments, fill and live flag; each colour resolved for the
   depth: `#rrggbb` in truecolor, an ANSI slot in 16 colours, none without colour). It
   drops the frames that lose and makes the corrections of the build spec (the module
-  of the xtask lists them). `Frame::load(board, number)` reads a frame;
+  of the xtask lists them). The board `TM-Web` (web search) came later and keeps only
+  its chosen looks: frames 3 and 5 lose their rejected rows, frame 13 loses today's
+  end line, and frame 11 is the `NO_COLOR` form of frame 10. `Frame::load(board,
+  number)` reads a frame;
   `cells(ansi)` reads real output as a terminal shows it (SGR, `ESC [ K` and its fill,
   OSC 8); `expect(frame, depth)` gives the board's own frame of a `Depth` or derives
   it from the truecolor frame through one table; `assert_rows(frame, range, real,
@@ -86,7 +89,11 @@ directories, a store and provider traffic from one place and never from the mach
   harness reports through `handled_through(line)` that it has handled the records
   before it, for an interrupt in the middle of an answer. `with_models(list)` makes
   `models()` answer that list, such as a model that changes files with `edit`; the
-  list is empty by default. The transcript is validated
+  list is empty by default. `with_web_search(support)` makes `web_search()` answer
+  `support`, so a turn in a mode that allows web search sends the hosted web tool and
+  the expected request names it in `hosted`; a provider has no web tool by default.
+  The canonical events of a web step (`hosted_call_start`, `hosted_call_end`,
+  `citation`) replay as any other event. The transcript is validated
   when the provider is built, so a broken fixture fails before the test runs. A
   provider's own wire format, such as the Responses API, is replayed at the HTTP level
   with wiremock instead.

@@ -86,6 +86,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         recording,
         presence,
         jobs,
+        web,
         remote,
         diff,
         render,
@@ -228,6 +229,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_recording(recording)?;
     check_presence(presence)?;
     check_jobs(jobs)?;
+    within("web.max_searches", u64::from(web.max_searches), 1..=100, "between 1 and 100")?;
     check_remote(remote)?;
     check_diff(diff)?;
 

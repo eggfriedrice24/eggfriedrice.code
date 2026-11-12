@@ -450,7 +450,21 @@ request:
    prompt, so a system prompt replaced in `config.toml` cannot drop them. The turn
    saves the prompt with its preamble, and later requests send both again unchanged
    (see "The history only grows");
-4. the tool definitions, with the one edit tool that the turn's model knows.
+4. the tool definitions, with the one edit tool that the turn's model knows;
+5. the hosted tools (`Request::hosted`), which the provider runs inside the model call:
+   today only its web search. `web.rs` decides them once for the turn, from the
+   effective mode, `ConversationConfig::web` (`[web]`) and `Provider::web_search`, in
+   this order: a provider without support gets none; `manual` gets none, whatever the
+   setting says, because a hosted search cannot ask; `web.search = "off"` gets none;
+   `live` gets the live web; `cached` gets the stored copy where the provider has one,
+   else the live web; `mode` gets the stored copy in `cautious` where the provider has
+   one, and the live web in every other case. The tool has `max_uses` from
+   `web.max_searches`, and its page fetches take a URL from efr's own tool results only
+   in `full`. A hosted search never passes `authorize_tool_call`, so this is the gate
+   of web search. `Turn::drive` keeps the plan in `Turn::web_plan`; the manual
+   compaction and the context view build the same list from the newest turn's
+   settings (`web::hosted_for`), and a summary request copies the list of its base, so
+   their requests match the turn's.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at
 most one per `update_interval` on the injected clock, the text held back sent when the
