@@ -8,7 +8,7 @@ use efr_protocol::{
 };
 use pretty_assertions::assert_eq;
 
-use crate::notices::{Wake, append, file_name, line, not_run, wake_of};
+use crate::notices::{Known, Wake, append, file_name, line, line_with, not_run, wake_of};
 
 fn turn() -> TurnId {
     TurnId::from_uuid(uuid::Uuid::from_u128(1))
@@ -69,9 +69,11 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
         line(&failed, Some("fix nginx"), None).as_deref(),
         Some("efr: turn failed: fix nginx: the provider stream broke")
     );
+    // TM-Endings 13: what waits, never what it asks (the summary may hold a secret's
+    // path), in the warning role.
     assert_eq!(
         line(&approval, None, None).as_deref(),
-        Some("efr: approval waiting: a conversation: write /etc/hosts")
+        Some("warning\tefr: a question waits in a conversation")
     );
 }
 
@@ -94,8 +96,12 @@ fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
     );
 }
 
+/// TM-Endings 13: `efr: a question waits in "fix steer race" (desktop · /dev/pts/4) ·
+/// ,resume 1`. NOTE: efrd knows no name of a device for a terminal, and the number of a
+/// list changes with the directory where it is asked, so the line names the terminal
+/// and the start of the conversation's id, which `,resume` takes.
 #[test]
-fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
+fn a_question_names_its_conversation_its_terminal_and_how_to_resume_it() {
     let approval = Event::ApprovalRequested {
         turn_id: turn(),
         call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
@@ -107,11 +113,12 @@ fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
         local_only: false,
         reason: None,
     };
+    let conversation: ConversationId = "019a7c02-7a00-7000-8000-000000000003".parse().unwrap();
+    let known = Known { conversation: Some(conversation), tty: Some("/dev/pts/4"), command: None };
     assert_eq!(
-        line(&approval, Some("fix nginx"), None).as_deref(),
+        line_with(&approval, Some("fix steer race"), None, known).as_deref(),
         Some(
-            "efr: approval waiting: fix nginx: shell: run \"uptime; hostnamectl\"; asks for: \
-             hostnamectl"
+            "warning\tefr: a question waits in \"fix steer race\" (/dev/pts/4) \u{b7} ,resume 019a7c02"
         )
     );
 }
@@ -210,7 +217,7 @@ fn a_prompt_that_did_not_run_is_named_by_its_conversation_and_never_quoted() {
 
 #[test]
 fn a_notice_shows_a_stand_in_for_each_format_character() {
-    // The approval's summary names a path whose name turns around on the screen.
+    // The title of the conversation turns around on the screen.
     let approval = Event::ApprovalRequested {
         turn_id: turn(),
         call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
@@ -223,10 +230,11 @@ fn a_notice_shows_a_stand_in_for_each_format_character() {
         reason: None,
     };
 
-    let text = line(&approval, Some("title\u{2066}"), None).unwrap();
+    let text = line(&approval, Some("ti\ttle\u{2066}"), None).unwrap();
 
     assert!(!text.contains(['\u{202e}', '\u{200b}', '\u{2066}']), "{text:?}");
-    assert!(text.ends_with("write /home/u/\u{fffd}fdp.sh\u{fffd}"), "{text:?}");
+    // A tab of a title is a blank: only the marks of the roles are tabs.
+    assert_eq!(text, "warning\tefr: a question waits in \"ti tle\u{fffd}\"");
 }
 
 /// A job's end with how it ended.
@@ -255,8 +263,6 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
 fn job_ended_notice_line() {
     let title = Some("run the dev server");
     let cases = [
-        (job_ended(JobState::Exited, Some(0), None), "ended (exit 0)"),
-        (job_ended(JobState::Exited, Some(3), None), "ended (exit 3)"),
         (job_ended(JobState::TimedOut, None, Some(JobStopBy::TimeLimit)), "timed out"),
         (job_ended(JobState::Stopped, None, Some(JobStopBy::User)), "stopped by you"),
         (job_ended(JobState::Stopped, None, Some(JobStopBy::Model)), "stopped by the model"),
@@ -307,6 +313,58 @@ fn job_ended_notice_line() {
     let text = line(&lost, Some(&"x".repeat(300)), None).unwrap();
     assert!(text.ends_with("2 processes of the job may still run"), "{text}");
     assert!(text.chars().count() <= 200, "{text}");
+}
+
+/// TM-Endings 11 and 12: a job whose command ended by itself names how long it ran,
+/// its exit code and its command; a failed exit code is in the error role and the line
+/// ends with `· efr jobs`.
+#[test]
+fn a_job_that_ended_by_itself_is_the_line_of_the_design() {
+    let Event::JobEnded { job_id, state, output_bytes, tail, .. } =
+        job_ended(JobState::Exited, Some(0), None)
+    else {
+        unreachable!()
+    };
+    let ended = |code: i32, secs: u64| Event::JobEnded {
+        job_id: job_id.clone(),
+        state,
+        exit_code: Some(code),
+        stopped_by: None,
+        output_bytes,
+        ran_secs: secs,
+        tail: tail.clone(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
+    };
+    let known = |command| Known { command: Some(command), ..Known::default() };
+    assert_eq!(
+        line_with(&ended(0, 252), Some("x"), None, known("npm run build")).as_deref(),
+        Some("efr: job j3 ended after 4m 12s (exit 0) \u{b7} npm run build")
+    );
+    assert_eq!(
+        line_with(&ended(101, 42), Some("x"), None, known("cargo test --workspace")).as_deref(),
+        Some(
+            "muted\tefr: job j3 ended after 42s \terror\t(exit 101)\tmuted\t \u{b7} cargo test \
+             --workspace \u{b7} efr jobs"
+        )
+    );
+    // Without the job's command, as after a restart, the line ends after the code.
+    assert_eq!(
+        line(&ended(3, 3_725), Some("x"), None).as_deref(),
+        Some(
+            "muted\tefr: job j3 ended after 1h 02m 05s \terror\t(exit 3)\tmuted\t \u{b7} efr jobs"
+        )
+    );
+    // A command line never breaks the line, and a tab of it never makes a mark.
+    let text = line_with(&ended(0, 1), None, None, known("a\tb\nc")).unwrap();
+    assert_eq!(text, "efr: job j3 ended after 1s (exit 0) \u{b7} a b c");
 }
 
 #[test]

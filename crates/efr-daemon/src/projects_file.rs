@@ -10,8 +10,8 @@
 //! only when its time or its size changed.
 //!
 //! A root with a tab, a newline or a carriage return cannot be one field of a line, so
-//! it is left out: the marker then says "no project" there, and efrd's head line on the
-//! reply stays the truth. Such characters in a name become blanks.
+//! it is left out: the plugin then says home there, and efrd's route of the prompt
+//! stays the truth. Such characters in a name become blanks.
 
 use std::path::{Path, PathBuf};
 

@@ -596,16 +596,24 @@ async fn summary(
 /// read on the blocking pool; the key needs no git run. A registry that cannot be read
 /// counts as empty, so the prompt goes outside projects, and the next turn reports it.
 /// A registry that differs from the zsh plugin's copy (`projects_file.rs`), after a
-/// hand edit of `projects.toml`, is written there again.
+/// hand edit of `projects.toml`, is written there again, and so is the default mode of
+/// its prompt corner (`prompt_file.rs`), such as after the runtime root was cleared.
 pub(crate) async fn read_place(state: &State, pwd: Option<PathBuf>) -> (Registry, Option<PathBuf>) {
     let file = state.engine_parts.registry.clone();
     let projects = crate::projects_file::path(state.dirs.runtime());
+    let prompt = crate::prompt_file::path(state.dirs.runtime());
+    let settings = Arc::clone(&state.settings.borrow());
+    let refused = crate::reload::full_refused(&settings, state.runs_as_root);
+    let home = state.sandbox.home().path().to_path_buf();
     let read = tokio::task::spawn_blocking(move || {
         let registry = Registry::load(&file);
         let written = registry.as_ref().ok().map(|registry| {
             crate::projects_file::sync(&projects, &crate::projects_file::text(registry))
         });
         crate::projects_file::log(written);
+        let colors = crate::prompt_file::colors(&settings, &home);
+        let text = crate::prompt_file::text(&settings, refused, &colors);
+        crate::prompt_file::log(Some(crate::projects_file::sync(&prompt, &text)));
         let resolved = pwd.and_then(|pwd| std::fs::canonicalize(pwd).ok());
         (registry, resolved)
     })

@@ -310,10 +310,12 @@ a row of its own, so you can copy it with a double click:
 `efr` then exits with code 1 and prints no other message.
 
 When a turn ends, a job ends, or a question waits in a terminal that does not follow
-the turn, your next prompt there shows one line about it:
+the turn, your next prompt there shows one line about it. It is muted; a failed exit
+code is in the error colour, and a question that waits is in the warning colour:
 
 ```text
-efr: job j3 ended (exit 0): <title>
+efr: job j3 ended after 4m 12s (exit 0) · npm run build
+efr: a question waits in "fix steer race" (/dev/pts/4) · ,resume 019a7c02
 ```
 
 ## The progress bar

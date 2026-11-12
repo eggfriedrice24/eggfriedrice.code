@@ -1,9 +1,10 @@
-//! The scope marker's projects file and the repository hint (DV52, DV53), over the
+//! The scope marker's projects file, the default mode of the prompt corner
+//! (`prompt.tsv`) and the repository hint (DV52, DV53), over the
 //! [`Place`] of `routing.rs`: `app` (`~/p/app`) and `lib` (`~/p/lib`) are registered,
 //! and `~/p/tool` is a directory outside every project.
 //!
-//! efrd writes `<runtime root>/projects.tsv` for the zsh plugin, which reads it with no
-//! fork. A prompt outside projects in a git work tree gets the hint at most once a day
+//! efrd writes `<runtime root>/projects.tsv` and `<runtime root>/prompt.tsv` for the zsh
+//! plugin, which reads them with no fork. A prompt outside projects in a git work tree gets the hint at most once a day
 //! for each work tree; the tests move the `TestClock` only after the turn before it
 //! ended (`Place::at` waits for that), and the hint rule has no sleep.
 
@@ -140,6 +141,54 @@ async fn projects_file_is_private() {
     let file = place.daemon.dirs().dirs().runtime().join("projects.tsv");
     let mode = std::fs::metadata(file).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
+    place.stop().await;
+}
+
+/// The text of the prompt corner's file of `place`'s daemon.
+fn prompt_file(place: &Place) -> String {
+    let file = place.daemon.dirs().dirs().runtime().join("prompt.tsv");
+    std::fs::read_to_string(file).unwrap()
+}
+
+/// Reloads the config of `place`'s daemon after `text` was written to its file.
+async fn reload(place: &Place, text: &str) {
+    let file = place.daemon.dirs().dirs().config().join("config.toml");
+    std::fs::write(file, text).unwrap();
+    let client = place.daemon.client().await.unwrap();
+    let _: efr_protocol::AdminConfigReloadResult = client
+        .call(Method::AdminConfigReload(efr_protocol::AdminConfigReload::default()))
+        .await
+        .unwrap();
+}
+
+/// TM-Scope 1-3: the corner shows the mode of a prompt that names none, and efrd tells
+/// the plugin which one, with the colours of the roles that the corner paints.
+#[tokio::test]
+async fn prompt_file_at_start_after_a_reload_and_at_a_prompt() {
+    let (dirs, procs) = tree();
+    std::fs::write(dirs.dirs().config().join("config.toml"), "[permissions]\nmode = \"auto\"\n")
+        .unwrap();
+    let daemon = start(&dirs, &procs, |builder| {
+        builder.config(|config| config.permissions.mode = efr_protocol::Mode::Auto)
+    })
+    .await;
+    let place = Place::on(daemon, procs, &dirs);
+    assert_eq!(prompt_file(&place), "mode\tauto\n");
+    let file = place.daemon.dirs().dirs().runtime().join("prompt.tsv");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+
+    reload(
+        &place,
+        "[permissions]\nmode = \"manual\"\n\n[render.colors]\nmuted = \"#8695B7\"\nerror = 1\n",
+    )
+    .await;
+    assert_eq!(prompt_file(&place), "mode\tmanual\ncolor.muted\t#8695b7\ncolor.error\t1\n");
+
+    // A runtime root that lost the file, such as after a clean, gets it at a prompt.
+    std::fs::remove_file(&file).unwrap();
+    place.at(1, &place.home, "pts-1", 100).await;
+    assert_eq!(prompt_file(&place), "mode\tmanual\ncolor.muted\t#8695b7\ncolor.error\t1\n");
     place.stop().await;
 }
 

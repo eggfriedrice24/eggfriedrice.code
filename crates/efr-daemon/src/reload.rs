@@ -530,6 +530,7 @@ async fn apply(
         Hold::Apply => {
             let warnings = install(state, &running, settings).await?;
             follow_full_gate(state);
+            crate::prompt_file::refresh(state).await;
             return Ok(Applied::Done { restart_needed, warnings });
         }
         Hold::Keep(loosens) => (loosens, false),
@@ -542,6 +543,7 @@ async fn apply(
     if lowered != *running {
         warnings = install(state, &running, lowered).await?;
         follow_full_gate(state);
+        crate::prompt_file::refresh(state).await;
     }
     Ok(Applied::Held { loosens, refused, warnings })
 }

@@ -162,11 +162,16 @@ The agent can also ask to hear about an output line that matches a pattern, such
 the line where a dev server is ready. Each pattern can wake the agent at most 3 times
 (`jobs.max_wakes_per_watch`).
 
-Between turns, your next prompt shows one line for each job that ended:
+Between turns, your next prompt shows one muted line for each job that ended, with
+how long it ran, its exit code and its command:
 
 ```text
-efr: job j3 ended (exit 0): <title>
+efr: job j3 ended after 4m 12s (exit 0) · npm run build
+efr: job j4 ended after 42s (exit 101) · cargo test --workspace · efr jobs
 ```
+
+A failed exit code is in the error colour, and `efr jobs` shows the output. A job that
+something stopped says who, such as `efr: job j3 stopped by you: <title>`.
 
 ## List your jobs
 

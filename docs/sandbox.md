@@ -1573,7 +1573,8 @@ format characters. A notice never enters a running turn. It waits until the turn
   (jobs.forward_ports is off)`. A terminal that does not follow the conversation
   shows the line at its next prompt: `efr: <title>: job j1 listens on 127.0.0.1:8765
   -> http://localhost:8765`. `efr history` shows it too.
-- Between turns, your next prompt shows `efr: job j3 ended (exit 0): <title>`. After a
+- Between turns, your next prompt shows `efr: job j3 ended after 4m 12s (exit 0) ·
+  npm run build`. After a
   wake turn, it shows the jobs and the first line of the model's answer: `efr: job
   notice turn finished (job j3): <title>: The tests pass.; efr history shows all`.
 - A notice file that is older than your shell does not show: it belongs to an earlier

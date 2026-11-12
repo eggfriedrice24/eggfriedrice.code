@@ -829,6 +829,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
     crate::projects_file::refresh(state.engine_parts.registry.clone(), state.dirs.runtime()).await;
+    // NOTE: and the default mode for its prompt corner, from the same moment on.
+    crate::prompt_file::refresh(&state).await;
     // NOTE: before the socket opens, so a delete that a stop broke off ends before a
     // client can ask for anything.
     crate::deletes::finish_pending(&state).await;

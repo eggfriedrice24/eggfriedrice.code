@@ -27,6 +27,13 @@
 //! command and the row went through the screen of the hidden shell; a line keeps
 //! neither a control nor a format character of them.
 //!
+//! Each line is one row, muted, as the plugin prints it. A line whose parts have roles of
+//! their own is marked: it is `<role>\t<text>` pieces one after the other, such as
+//! `muted\tefr: job j4 ended after 42s \terror\t(exit 101)\tmuted\t · cargo test`. The
+//! plugin reads the marks with no fork and paints each piece in its role (`muted`,
+//! `error`, `warning`); a line with no tab is muted. No text of a line holds a tab: each
+//! piece goes through [`one_line`]. The design draws these lines on `TM-Endings` 11-13.
+//!
 //! The decision waits while a client in the terminal may still show the event: `efr`
 //! sends a prompt and then follows its turn, which may already have ended, and it
 //! leaves as soon as it has shown the end, often before this task reads the commit.
@@ -104,10 +111,33 @@ pub(crate) fn wake_of(turn: TurnId, prompt: &str, page: &[EventEnvelope]) -> Wak
     Wake { jobs: jobs.trim().to_owned(), answer }
 }
 
+/// What the notice task knows of an event beyond the event itself, for its line.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Known<'a> {
+    /// The conversation of the event.
+    pub(crate) conversation: Option<ConversationId>,
+    /// The terminal that holds the conversation, such as `/dev/pts/4`.
+    pub(crate) tty: Option<&'a str>,
+    /// The command line of the job that a `job_ended` ends.
+    pub(crate) command: Option<&'a str>,
+}
+
 /// The notice for `event` of a conversation titled `title`, if the event deserves one.
 /// `wake` is the job notice turn that a `turn_completed` or `turn_failed` ends.
 pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> Option<String> {
-    let title = title.filter(|title| !title.trim().is_empty()).unwrap_or("a conversation");
+    line_with(event, title, wake, Known::default())
+}
+
+/// [`line`], with what the notice task knows of the event: the place of a question and
+/// the command of a job.
+pub(crate) fn line_with(
+    event: &Event,
+    title: Option<&str>,
+    wake: Option<&Wake>,
+    known: Known<'_>,
+) -> Option<String> {
+    let named = title.filter(|title| !title.trim().is_empty());
+    let title = named.unwrap_or("a conversation");
     let text = match event {
         Event::TurnCompleted { .. } => {
             let Some(wake) = wake else {
@@ -133,11 +163,7 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
             }
             text
         }
-        Event::ApprovalRequested { summary, .. } => {
-            // NOTE: a summary's second line names the parts of a command line that
-            // ask; on one line it follows after a `;`.
-            format!("efr: approval waiting: {title}: {}", summary.replace('\n', "; "))
-        }
+        Event::ApprovalRequested { .. } => return Some(question_line(named, known)),
         Event::JobEnded {
             job_id,
             state,
@@ -146,9 +172,9 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
             quarantined,
             survivors,
             launcher_lost,
+            ran_secs,
             ..
         } => {
-            let what = job_end(*state, *exit_code, *stopped_by, *quarantined);
             let mut extra = String::new();
             if *launcher_lost {
                 extra.push_str("; its launcher was lost, and its processes may still run");
@@ -158,6 +184,10 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
                 1 => extra.push_str("; 1 process of the job may still run"),
                 count => extra.push_str(&format!("; {count} processes of the job may still run")),
             }
+            if *state == JobState::Exited && stopped_by.is_none() {
+                return Some(exited_line(job_id, *exit_code, *ran_secs, known.command, &extra));
+            }
+            let what = job_end(*state, *exit_code, *stopped_by, *quarantined);
             return Some(with_extra(&format!("efr: job {job_id} {what}: {title}"), &extra));
         }
         Event::JobNoticeHeld { job_id, reason, .. } => {
@@ -186,6 +216,79 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
 
 /// The most characters of a command line in a notice, so the rest of the line fits.
 const COMMAND_CHARS: usize = 60;
+
+/// The line of a job whose command ended by itself, as `TM-Endings` 11 and 12 draw it:
+/// `efr: job j3 ended after 4m 12s (exit 0) · npm run build`, muted. A failed exit
+/// code is in the error role, and `· efr jobs` ends the line, where its output is.
+/// `extra` (the processes that may still run) follows the command.
+fn exited_line(
+    job_id: &efr_protocol::JobId,
+    exit_code: Option<i32>,
+    ran_secs: u64,
+    command: Option<&str>,
+    extra: &str,
+) -> String {
+    let head = format!("efr: job {job_id} ended after {}", elapsed(ran_secs));
+    let mut tail = String::new();
+    if let Some(command) = command.map(|command| one_line(command.trim(), COMMAND_CHARS)) {
+        tail.push_str(&format!(" \u{b7} {command}"));
+    }
+    tail.push_str(&one_line(extra, MAX_CHARS));
+    match exit_code {
+        Some(0) => one_line(&format!("{head} (exit 0){tail}"), MAX_CHARS),
+        Some(code) => {
+            tail.push_str(" \u{b7} efr jobs");
+            painted(&[
+                ("muted", &format!("{head} ")),
+                ("error", &format!("(exit {code})")),
+                ("muted", &tail),
+            ])
+        }
+        None => one_line(&format!("{head}{tail}"), MAX_CHARS),
+    }
+}
+
+/// The line of a question that waits, as `TM-Endings` 13 draws it, in the warning
+/// role: `efr: a question waits in "fix steer race" (/dev/pts/4) \u{b7} ,resume 019a7c02`.
+/// The terminal is the one that holds the conversation; `,resume` takes the start of
+/// the conversation's id, which stays the same, where the number of a list would not.
+fn question_line(title: Option<&str>, known: Known<'_>) -> String {
+    let mut text = match title {
+        Some(title) => format!("efr: a question waits in \"{}\"", one_line(title, TITLE_CHARS)),
+        None => "efr: a question waits in a conversation".to_owned(),
+    };
+    if let Some(tty) = known.tty {
+        text.push_str(&format!(" ({})", one_line(tty, COMMAND_CHARS)));
+    }
+    if let Some(conversation) = known.conversation {
+        let id = conversation.to_string();
+        let short = id.get(..8).unwrap_or(&id);
+        text.push_str(&format!(" \u{b7} ,resume {short}"));
+    }
+    painted(&[("warning", &text)])
+}
+
+/// The most characters of a title in a question's line.
+const TITLE_CHARS: usize = 80;
+
+/// A marked line (see the module): `role\ttext` for each piece, each text on one line.
+fn painted(pieces: &[(&str, &str)]) -> String {
+    let parts: Vec<String> = pieces
+        .iter()
+        .map(|(role, text)| format!("{role}\t{}", one_line(text, MAX_CHARS)))
+        .collect();
+    parts.join("\t")
+}
+
+/// How long a job ran, as efr counts a running time: `42s`, `4m 12s`, `1h 05m 00s`.
+fn elapsed(seconds: u64) -> String {
+    let (hours, minutes, secs) = (seconds / 3_600, seconds / 60 % 60, seconds % 60);
+    match (hours, minutes) {
+        (0, 0) => format!("{secs}s"),
+        (0, _) => format!("{minutes}m {secs:02}s"),
+        _ => format!("{hours}h {minutes:02}m {secs:02}s"),
+    }
+}
 
 /// The most characters of the row that asks for input in a notice.
 const PROMPT_CHARS: usize = 40;
@@ -574,13 +677,47 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     };
     let wake = wake_turn(&state.readers, conversation_id, envelope).await;
     let title = summary.title.as_deref();
-    let Some(text) = line(&envelope.event, title, wake.as_ref()).or_else(|| shell(title)) else {
+    let command = job_command(&state.readers, conversation_id, &envelope.event).await;
+    let known = Known {
+        conversation: Some(conversation_id),
+        tty: Some(tty.as_str()),
+        command: command.as_deref(),
+    };
+    let text = line_with(&envelope.event, title, wake.as_ref(), known).or_else(|| shell(title));
+    let Some(text) = text else {
         return;
     };
     let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
     match state.connections.decide(notice, state.clock.now()) {
         Decision::Write(notice) => write(state, notice).await,
         Decision::Shown | Decision::Held => {}
+    }
+}
+
+/// The most recent jobs of a conversation that the notice of a job's end looks at for
+/// its command.
+const JOBS_LOOKED_AT: u32 = 200;
+
+/// The command line of the job that `event` ends, when it is a `job_ended`; `None` for
+/// any other event, or when the store does not have it.
+async fn job_command(
+    readers: &efr_store::Readers,
+    conversation_id: ConversationId,
+    event: &Event,
+) -> Option<String> {
+    let Event::JobEnded { job_id, .. } = event else {
+        return None;
+    };
+    let job_id = job_id.clone();
+    let read = readers
+        .with(move |conn| efr_store::jobs::of_conversation(conn, conversation_id, JOBS_LOOKED_AT))
+        .await;
+    match read {
+        Ok(rows) => rows.into_iter().find(|row| row.info.id == job_id).map(|row| row.info.command),
+        Err(error) => {
+            tracing::warn!(error = %error, %conversation_id, "the job of a notice could not be read");
+            None
+        }
     }
 }
 

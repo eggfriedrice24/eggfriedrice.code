@@ -635,7 +635,11 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   one `<root>\t<name>` line per project, the deepest root first, 0600, by a rename,
   without a root that holds a tab or a line break). efrd also writes it at start, and
   at a prompt whose registry read differs from it, after a hand edit of
-  `projects.toml`. Both reload after the write, so the engine trusts the new set of
+  `projects.toml`. Next to it efrd writes `<runtime root>/prompt.tsv` for the plugin's
+  prompt corner (`prompt_file.rs`): the default mode of a prompt that names none (`auto`
+  in place of a `full` that efrd refuses) and the colours of the roles that the corner
+  paints, from `[render.colors]` over the theme file, in the same form; at start, after
+  each reload that installs settings, and at a prompt when it differs. Both reload after the write, so the engine trusts the new set of
   projects from the next tool call on, and answer with that reload's outcome; when
   `config.toml` has an error, the project counts for the engine from the next reload
   that succeeds. A broken file or project is `invalid`, a second registration and a
@@ -1562,8 +1566,12 @@ A model-side peer holds no `approve` scope at all.
 
 ### Notices
 
-When a turn finishes or fails, an approval waits, a background job ends (`efr: job j3
-ended (exit 0): <title>`, with the processes that may still run and a lost launcher),
+When a turn finishes or fails, an approval waits (`efr: a question waits in "<title>"
+(/dev/pts/4) · ,resume 019a7c02`, in the warning role), a background job ends (`efr: job
+j3 ended after 4m 12s (exit 0) · npm run build` for a command that ended by itself,
+with the command from the store and a failed exit code in the error role and `· efr
+jobs` at the end; `efr: job j3 stopped by you: <title>` for a job that something
+stopped; with the processes that may still run and a lost launcher),
 or a job's notice waits for the next prompt (`...; no wake turn (wake limit reached)`),
 or efr forwards a port of a job or says why not (`efr: <title>: job j1 listens on
 127.0.0.1:8765 -> http://localhost:8765`; the title comes first, so a cut never takes
@@ -1575,7 +1583,8 @@ type), and no subscription from the
 conversation's terminal (a connection whose hello named that tty) was handed the event,
 nor a live lease from it names the conversation, the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
-its next prompt. The notices decide after the commit, on a task of their own, and
+its next prompt, one muted row each. A line whose pieces have roles of their own is
+marked: `<role>\t<text>` pieces one after the other (`notices.rs`, `TM-Endings` 11-13). The notices decide after the commit, on a task of their own, and
 `efr` both subscribes after its prompt, when a quick turn may have ended already, and
 exits as soon as it has shown the end, often before that task reads the commit. So
 `connections.rs` keeps, behind one lock, the highest sequence number handed to each
