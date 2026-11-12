@@ -196,10 +196,10 @@ move allows nothing new. A call outside the sandbox asks first, because the comm
 keeps running with your rights after the turn:
 
 ```text
-? move this command to the background
-│ ...
-│ it keeps running with your full rights after the turn, for up to 60 minutes
-│ y move · n no
+ ?  move this command to the background
+    ...
+    it keeps running with your full rights after the turn, for up to 60 minutes
+    y move   n no
 ```
 
 The row of the call then says so, such as `→ $ npm run build  moved to job j3 after

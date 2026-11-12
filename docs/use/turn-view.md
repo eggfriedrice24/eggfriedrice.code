@@ -18,28 +18,40 @@ A running turn has three parts, from top to bottom:
 ### The status row
 
 The last rows of the view show a spinner, what the turn does, its time, how full the
-model's context is, and the scope:
+model's context is, the model and the scope. Three spaces stand between the fields:
 
 ```text
-⠼ thinking  4s  ctx 43%  app
+⠼ thinking   4s   ctx 43%   work/claude-opus-5-5 high   app
 ```
 
+The model shows as `,model` takes it: the account, the model and the effort. The scope
+is the project, such as `app`, or `⌂` and the directory at home. A turn in full mode
+shows `app · full`, with `full` in red. A turn that waits behind another one shows no
+gauge and no model.
+
 The states include `waiting for the model`, `thinking`, `writing`, `preparing <tool>`,
-`reviewing: <command>` and `compacting context`. After 20 seconds with no data, the row
-says so, such as `waiting for the model, no data for 25s`. The row also shows `away`
-while efr counts you away, and `full` in red for a turn in full mode.
+`reviewing` and `compacting context`. A note can follow the state, two spaces after it:
+
+- `no data for 25s`, in yellow, after 20 seconds with no data from the model.
+- `away`, in yellow, while efr counts you away.
+- What the reviewer checks, such as `reviewing  curl -LO https://example.com/x`.
+
+On a narrow screen the row drops fields in this order: the detail at its end, the
+account and the effort of the model, the model, the gauge. The state keeps 10 columns.
+The state, the time, the scope and `full` never go. A long directory is cut from the
+left, such as `⌂ …/nftables.d`.
 
 When the provider is busy or a connection fails, efr sends the model call again after
 a short wait. The row then tells why it waits and counts down:
 `trying again in 2s (the provider answered 503)`. A connect that takes half a second or
 more shows `connecting`.
 
-While the model writes a long tool input, such as a long shell command, the row ends
-with the newest words of the input, after 1 s, by the rules of the reasoning words
-below. A newline of the input shows as a space:
+While the model writes a tool input, the row ends with its size. For a long input,
+such as a long shell command, the newest words of the input follow, after 1 s, by the
+rules of the reasoning words below. A newline of the input shows as a space:
 
 ```text
-⠼ preparing shell, 3.8 KB  39s  ctx 2%  app  … print(len(s.split()))
+⠼ preparing shell   39s   ctx 2%   app   3.8 KB  … print(len(s.split()))
 ```
 
 `ctx 43%` tells how full the model's context is. At 100%, efr compacts the context.
@@ -49,12 +61,12 @@ The field is green below 50%, yellow from 50% and red from 90%.
 ### The reasoning
 
 While the model thinks, the status row says `thinking`. When the reasoning has a bold
-title, the title ends the row: `⠼ thinking  4s  ctx 43%  app  Reading the logs`. A
+title, the title ends the row: `⠼ thinking   4s   ctx 43%   app   Reading the logs`. A
 reasoning with no title, such as the reasoning of a Claude model, shows its newest
 words in that place, after the model thought for 1 s:
 
 ```text
-⠼ thinking  17s  ctx 2%  app  … weighing three ways to keep the provider
+⠼ thinking   17s   ctx 2%   app   … weighing three ways to keep the provider
 ```
 
 The title or the words stand last, so the time, the context and the scope keep their
@@ -67,8 +79,8 @@ When the model thought for 2 seconds or more, one line stays in your scrollback:
 ▸ Reading the journal size  thought 6s
 ```
 
-The title is bold. A reasoning with no title, such as the reasoning of a Claude
-model, shows its first words in italic. A reasoning with no text shows only
+The mark is yellow and the title is bold. A reasoning with no title, such as the
+reasoning of a Claude model, shows its first words in italic, cut after 59 columns. A reasoning with no text shows only
 `▸ thought 3s`. A shorter reasoning leaves no line. The line stays with the text or
 the tool call that comes after it, with no blank line between them. The reasoning
 shows only on a terminal: when stdout is not a terminal, efr does not write it.
@@ -133,35 +145,52 @@ tells more.
 
 ### Questions
 
-When the agent asks for approval, a card shows below the reply:
+When the agent asks for approval, a card shows below the reply, after one empty row:
 
 ```text
-? allow outside the sandbox
-│ cd ~/p/app && find target/debug/build \
-│     -path '*ghostty*' -type f | awk '{print $1}'
-│ runs with your full rights: files, secrets, network
-│ programs: cd, find, awk
-│ y allow · n deny
+ ?  allow outside the sandbox
+    cd ~/p/app && find target/debug/build \
+        -path '*ghostty*' -type f | awk '{print $1}'
+    runs with your full rights: files, secrets, network
+    programs  cd, find, awk
+    y allow   n deny
 ```
 
-`y` allows, and `n` denies. At some questions, `a` (always) and then `y` saves a rule,
-so the same action runs with no question next time. When you answer, the card gives
-its place to one line, such as `✓ allowed` or `✗ denied`. A question takes the keys
+The ` ? ` badge is yellow in reverse video, and the title is bold yellow. The card has
+no frame and no bar: its rows stand four columns in, so a copy of a command holds
+nothing of the card. A label, such as `why` or `programs`, is dim, and its value
+follows after two spaces. The keys are bold yellow.
+
+`y` allows, and `n` denies. At some questions, `a always…` saves a rule, so the same
+action runs with no question next time. After `a`, the card shows the rule and asks
+once more:
+
+```text
+    always saves the rule  network index.crates.io for cargo
+    y save the rule and allow   n back
+```
+
+When you answer, the card gives its place to one line with what it asked about, such
+as `✓ allowed · network (github.com)` or `✗ denied · outside the sandbox`. The mark is
+green or red, and the rest is dim. An `a` answer and the rule that it saved make one
+line: `✓ allowed always · saved as sandbox.allow[2]: …`. A question takes the keys
 first: the input row hides and keeps its text, and comes back after the question.
+With `render.bell = true`, efr rings the bell once when a card shows, so the terminal
+can mark the tab.
 [Permission modes](modes.md) tells what asks you in each mode.
 
 ## The input row
 
 While a turn runs, the input row below the status row shows `› `. When it is empty,
-it shows a hint:
+it shows a hint, one blank column after the cursor:
 
 ```text
-› enter steer · tab queue · esc interrupt
+›   enter steer · tab queue · esc interrupt
 ```
 
 | Key | What it does |
 |---|---|
-| Enter | Steer the turn. The model reads the text at its next call, and the text shows in the reply as your message. |
+| Enter | Steer the turn. The model reads the text at its next call, and the text shows in the reply as `› <text>`, in bold, with one blank line above and below it. |
 | Tab | Queue the text as a prompt that runs after the turn. efr follows that prompt too. |
 | Alt+Up | Take back the newest prompt that you queued. Its text comes back into the row. |
 | Esc | Interrupt the turn. |
@@ -175,7 +204,8 @@ Ctrl+W, Ctrl+K, Alt+B and Alt+F. Ctrl+B does not move the cursor back; use the L
 arrow. A paste keeps its newlines and never sends.
 
 Above the status row, each steer that the model did not read yet shows as
-`↳ steer: <text>`, and each queued prompt as `↳ queued: <text>`.
+`↳ steer  <text> · not read yet`, and each queued prompt as `↳ queued  <text>`. At most
+three rows show; more make one row, such as `↳ 2 more queued`.
 
 Keys that you type while the prompt goes out land in the row, so you can type at once.
 
@@ -205,11 +235,20 @@ of that terminal's last prompt.
 ## A command that waits for input
 
 When a command of the agent waits for an answer, an answer line takes the place of the
-input row. Type the answer and press Enter.
+input row. Type the answer after `›` and press Enter:
 
-- efr does not show a password as you type it.
+```text
+? the command waits for input  enter answers · ctrl+c stops the command
+› y
+```
+
+- efr does not show a password as you type it, not even as dots:
+  `? password for sudo  typing is hidden · enter answers`.
+- A prompt that looks like a password prompt behind another program, such as ssh,
+  says so: `? looks like a password behind ssh  typing is not shown here; ssh decides
+  the rest`.
 - When a command prints nothing for 10 seconds and efr sees no prompt, a dim line
-  offers `Ctrl+\`. Press it to type an input for the command.
+  offers `Ctrl+\`: `no output for 10s · ctrl+\ types an input for the command`.
 - While the last output line looks like a password prompt, the input row hides. What
   you type then never goes to the model.
 

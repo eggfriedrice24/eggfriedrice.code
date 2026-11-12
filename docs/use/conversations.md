@@ -40,7 +40,7 @@ The mark is in the accent colour, the sentence in the text colour, and the part 
 parentheses and what follows it are muted.
 
 In sticky mode, the scope of the next prompt stands after the robot: `🤖 app › ` in a
-project, and `🤖 ○ › ` outside projects. The status row of a running turn ends with
+project, and `🤖 ○ › ` outside projects. The status row of a running turn shows
 the scope too.
 
 ### A repository that is not a project

@@ -99,7 +99,7 @@ messages, so you see few questions:
 - It refuses an action that nothing you said relates to.
 - It hands an unsure case to you.
 
-While it works, the status row shows `reviewing: <command>`. Its answer stays as one
+While it works, the status row shows `reviewing  <command>`. Its answer stays as one
 dim line, such as:
 
 ```text
@@ -123,17 +123,17 @@ change that runs later asks you when no message of yours names it.
 The question shows the whole line and every program:
 
 ```text
-? allow outside the sandbox
-│ sudo ./scripts/setup.sh
-│ runs with your full rights: files, secrets, network
-│ why: sudo (you may need to type your password)
-│ programs: sudo, ./scripts/setup.sh ~/p/app/scripts/setup.sh (untrusted: written in the sandbox; in a write root, changed this turn)
-│ efr: only you can allow this
-│ y allow · n deny
+ ?  allow outside the sandbox
+    sudo ./scripts/setup.sh
+    runs with your full rights: files, secrets, network
+    why  sudo (you may need to type your password)
+    programs  sudo, ./scripts/setup.sh ~/p/app/scripts/setup.sh (untrusted: written in the sandbox; in a write root, changed this turn)
+    efr  only you can allow this
+    y allow   n deny
 ```
 
 A program that the sandbox wrote is marked `untrusted`: it can do anything with your
-rights. Lines that start with `efr:` are facts that efr found itself.
+rights. A row with the label `efr` holds facts that efr found itself.
 
 ### What efr refuses
 
@@ -158,9 +158,11 @@ names the files that run code later outside the sandbox, such as a `Makefile` or
 
 ## Always-allow rules
 
-At some exit questions, `a` saves a standing answer. The question shows the rule in
-words, such as `y allow · n deny · a always: write under ~/notes`. After `a`, efr asks
-`save rule "write under ~/notes"? y/n`, and only `y` saves the rule and runs the call.
+At some exit questions, `a` saves a standing answer. The keys of the question then
+end with `a always…`. After `a`, the card shows the rule in words and asks once more:
+`always saves the rule  write under ~/notes`, then `y save the rule and allow   n
+back`. Only `y` saves the rule and runs the call. The answer line then names the rule:
+`✓ allowed always · saved as sandbox.allow[2]: write under ~/notes`.
 
 The rule goes to `[[sandbox.allow]]` at the end of `config.toml`:
 

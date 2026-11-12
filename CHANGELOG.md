@@ -93,6 +93,37 @@ into the GitHub release notes, and it stops when the section is missing.
 - The hint in a git repository that is not a project ends with the command alone, in
   the colour of code: `⌂ ~/p/tool is a git repo but not a project: writes there ask
   you. efr project add ~/p/tool`.
+- The status row has the order of the terminal look: the spinner, the state, the
+  time, the context, the model and the scope, three spaces apart, such as
+  `⠼ thinking   9s   ctx 12%   work/claude-opus-5-5 high   app`. The model is new in
+  the row. A turn
+  in full mode shows `app · full`. `no data for 25s` and `away` follow the state in
+  yellow, and the reasoning title or the size of a tool input stands last. On a narrow
+  screen the title goes first, then the account and the effort of the model, then the
+  model, then the context; the scope and `full` stay, and a long directory is cut from
+  the left.
+- The question card has no bar. A yellow ` ? ` badge in reverse video stands before the
+  bold title, the rows stand four columns in, labels such as `why` are dim with the
+  value after two spaces, and the keys are bold yellow, such as `y allow   n deny   a
+  always…`. After `a`, the card shows the rule and asks `y save the rule and allow   n
+  back`. A diff in the card names the file with its counts and shows the short hunk
+  header, such as `@@ 41 input`.
+- The line that takes the place of a question names what it asked, such as
+  `✓ allowed · network (github.com)`, with a green or red mark and the rest dim. An `a` answer and
+  the rule that it saved make one line. An expired question says how long it waited.
+- A steer that the model read shows as `› <text>` in bold, with one blank line above
+  and below it. Unread steers and queued prompts show as `↳ steer  <text> · not read
+  yet` and `↳ queued  <text>`, at most three rows, then `↳ 2 more queued`.
+- A command that waits for input shows a short answer line, such as
+  `? the command waits for input  enter answers · ctrl+c stops the command`, then `› `
+  and what you type. A password says `? password for sudo  typing is hidden · enter answers`. The
+  offer after 10 s of silence says `no output for 10s · ctrl+\ types an input for the
+  command`.
+- The line of a reasoning of 2 s or more, `▸ <title>  thought 6s`, has a yellow mark,
+  and the first words of a reasoning without a title are no longer dim.
+- The empty input row shows one more blank column between the cursor and the hint.
+- In a locale that is not UTF-8, the status row, the input row, the steers, the card
+  and the answer lines use ASCII marks, such as `>` for `›`.
 - New default colours, as the design of the terminal look sets them. Inline code
   and the command of a call are green (slot 2), not cyan, and links are magenta (slot
   5), not blue. The `warning` role is no longer bold in colour; with `NO_COLOR` it is
