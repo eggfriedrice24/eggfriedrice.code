@@ -1015,6 +1015,23 @@ async fn a_warm_up_closes_a_quiet_socket_that_gives_no_pong_and_the_call_opens_a
 }
 
 #[tokio::test]
+async fn a_warm_up_that_cannot_connect_leaves_the_call_free_to_open_the_socket() {
+    let sockets = vec![
+        Socket::refused(503),
+        Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]),
+    ];
+    let setup = setup(sockets, Vec::new(), WebSocketMode::Auto).await;
+
+    assert!(setup.provider.warm(&warmup()).await);
+    eventually(|| setup.server.sockets().len() == 1).await;
+    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    assert_eq!(first.message.text(), "Hello.");
+    assert_eq!(setup.server.sockets().len(), 2);
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
 async fn a_warm_up_opens_nothing_without_a_conversation_or_for_a_call_over_http() {
     let setup = setup(Vec::new(), Vec::new(), WebSocketMode::Auto).await;
     let without = Warmup::new("gpt-5.5", None);

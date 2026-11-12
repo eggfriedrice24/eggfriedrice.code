@@ -408,9 +408,10 @@ impl Sockets {
     /// connection, or with one near [`MAX_AGE`], it opens one with `connect`, which
     /// then waits free for the call. It sends no request. Nothing happens while
     /// WebSockets are paused, while a call runs on the connection or while another
-    /// opening for `key` runs. A failure only shows in the log; one that says that
-    /// WebSockets do not work pauses them, as for a call, so the call does not try
-    /// again. Returns true when a connection is ready or on its way.
+    /// opening for `key` runs. A failure only shows in the log, and only a handshake
+    /// that times out pauses WebSockets: a warm-up can run before the network is up,
+    /// as after a sleep of the laptop, so the call judges its own connect. Returns true
+    /// when a connection is ready or on its way.
     pub(crate) async fn warm<F, Fut>(&self, key: &str, connect: F) -> bool
     where
         F: FnOnce() -> Fut,
@@ -442,13 +443,10 @@ impl Sockets {
         efr_stdx::mark::hit("ws.warm.open");
         let socket = match self.clock.timeout(CONNECT_TIMEOUT, connect()).await {
             Ok(Ok(socket)) => socket,
-            Ok(Err(ConnectError { reason, health })) => {
+            Ok(Err(ConnectError { reason, .. })) => {
+                // NOTE: no pause: a network that is not up yet at the first key of a
+                // line would send each call of the next minutes over HTTP.
                 tracing::debug!(reason = %reason, "the warm-up could not open the websocket");
-                // NOTE: a refused token says nothing yet: the call refreshes it over
-                // HTTP. Only a sign that WebSockets do not work pauses them.
-                if health == Health::Broken {
-                    self.pause();
-                }
                 return false;
             }
             Err(_) => {
