@@ -36,9 +36,8 @@ pub(crate) mod search;
 mod status;
 
 pub(crate) use call::{
-    CallText, CommandRow, EDIT_TOOL, RowEnd, WORD_MARK, call_text, columns, command_line,
-    command_lines, numbered_lines, refused, run_heading, tool_call, tool_result, wrap_command,
-    wrap_spans,
+    CallText, CommandRow, EDIT_TOOL, RowEnd, call_text, columns, command_line, command_lines,
+    numbered_lines, refused, run_heading, tool_call, tool_result, wrap_command, wrap_spans,
 };
 pub(crate) use ending::{
     CACHE_SHOWN_FROM, turn_done, turn_interrupted, turn_settings, turn_stop, usage_line,
@@ -48,7 +47,7 @@ pub(crate) use status::{
 };
 // NOTE: only tests name these from outside their files.
 #[cfg(test)]
-pub(crate) use call::WRAP_MARK;
+pub(crate) use call::{WORD_MARK, WRAP_MARK};
 #[cfg(test)]
 use call::{push_span, runs};
 

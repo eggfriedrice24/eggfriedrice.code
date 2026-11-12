@@ -266,10 +266,16 @@ pub(crate) fn shown(
     let (body, cut) = changes::split_cut(diff);
     let mut out = render(&format::code_block("diff", body), options);
     if cut > 0 {
-        let _ = writeln!(out, "{}", format::paint(&changes::more_lines(cut), Tone::Dim, options));
+        let more = changes::more_lines(cut, options.glyphs());
+        let _ = writeln!(out, "{}", format::paint(&more, Tone::Dim, options));
     }
-    if let Some(line) = changes::turn_line(&result.changes, groups) {
-        let _ = write!(out, "\n{}\n", format::paint(&line, Tone::Dim, options));
+    let line = changes::turn_line(&result.changes, options);
+    if !line.is_empty() {
+        out.push('\n');
+        for (text, tone) in &line {
+            out.push_str(&format::paint(text, *tone, options));
+        }
+        out.push('\n');
     }
     out
 }

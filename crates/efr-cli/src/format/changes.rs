@@ -5,19 +5,20 @@
 //! snapshot covers; `efr history` names each undo and, with `--verbose`, each snapshot.
 //!
 //! ```text
-//! changed src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)
-//! 3 files changed, +24 -7
-//! 9 files changed, +635 -44 (evals +503, tests +77)
-//! changed 3 files (+24 -7) in app and 2 in ~; efr undo reverts this turn
+//! changed src/a.rs +3 -1 · Cargo.lock +18 · deleted old.rs (+2 more)
+//! 3 files changed  +24 -7  crates/app/src/turn.rs, tests/steer.rs, CHANGELOG.md
+//! changed 4 files  +12 -3  in app and 2 in ~ · efr undo reverts this turn
 //! not covered: target/ (ignored, large), refs of app (shallow)
 //! ```
 //!
-//! The groups of the files ([`groups`]) follow the counts of a turn: at
-//! most two groups that are not code, the largest first. A turn that changed only
-//! code shows no groups. `efr diff --stat` starts with a table of every group.
+//! The line of a turn names at most three files after its counts, each after the first
+//! without the directories that it shares with the first, then how many more. The
+//! count of the files is in `text`, the names and the rest in `muted`. `efr diff
+//! --stat` starts with a table of the groups of the files ([`groups`]) when a file is
+//! not code.
 //!
 //! Every path comes from the daemon and passes through [`one_line`]. Added lines are in
-//! the `success` role and removed lines in the `error` role; the rest is muted.
+//! the `success` role and removed lines in the `error` role.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -27,7 +28,7 @@ use efr_protocol::{
     ChangeKind, Event, FileChange, FileChanges, RefChange, RootFiles, SnapshotPhase, TurnId,
     TurnUndoInfo,
 };
-use efr_render::{RenderOptions, WidthMethod, text_width};
+use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 
 use super::groups::{self, GroupCount};
 use super::{Tone, one_line, paint};
@@ -85,9 +86,6 @@ pub(crate) const MINUS: char = '-';
 /// The files that a call's row names; the rest are counted.
 const ROW_FILES: usize = 3;
 
-/// What joins the groups of a call's row.
-const JOIN: &str = " \u{b7} ";
-
 /// A piece of text with its tone.
 pub(crate) type Piece = (String, Tone);
 
@@ -102,13 +100,18 @@ fn word(kind: ChangeKind) -> &'static str {
 }
 
 /// The path of `file`, safe to print: `from → path` for a rename.
-fn path(file: &FileChange) -> String {
+fn path(file: &FileChange, glyphs: &Glyphs) -> String {
     match (&file.from, file.kind) {
         (Some(from), ChangeKind::Renamed) => {
-            format!("{} \u{2192} {}", one_line(from), one_line(&file.path))
+            format!("{} {} {}", one_line(from), glyphs.arrow, one_line(&file.path))
         }
         _ => one_line(&file.path),
     }
+}
+
+/// ` · ` with the separator of `glyphs`.
+fn join(glyphs: &Glyphs) -> String {
+    format!(" {} ", glyphs.separator)
 }
 
 /// `+3 -1` as pieces, a part left out when it is 0; nothing when both are.
@@ -146,10 +149,13 @@ fn row_counts(file: &FileChange) -> Vec<Piece> {
     }
 }
 
-/// The row of changes under a call, such as `changed src/a.rs +3 -1 · deleted old.rs ·
-/// new notes.md (+2 more)`: the first files, grouped by their kind in the order the
-/// kinds first come, then how many more files changed. Empty when nothing changed.
-pub(crate) fn call_row(changes: &FileChanges) -> Vec<Piece> {
+/// The row of changes under a call, such as `changed src/a.rs +3 -1 · Cargo.lock +18 ·
+/// deleted old.rs (+2 more)`: the first files, grouped by their kind in the order the
+/// kinds first come, each after ` · `, then how many more files changed. Empty when
+/// nothing changed.
+pub(crate) fn call_row(changes: &FileChanges, options: &RenderOptions) -> Vec<Piece> {
+    let glyphs = options.glyphs();
+    let join = join(glyphs);
     let shown = &changes.files[..changes.files.len().min(ROW_FILES)];
     let hidden = changes.files.len() - shown.len() + usize::try_from(changes.more).unwrap_or(0);
     let mut kinds: Vec<ChangeKind> = Vec::new();
@@ -161,14 +167,14 @@ pub(crate) fn call_row(changes: &FileChanges) -> Vec<Piece> {
     let mut pieces: Vec<Piece> = Vec::new();
     for (at, kind) in kinds.iter().enumerate() {
         if at > 0 {
-            pieces.push((JOIN.to_owned(), Tone::Dim));
+            pieces.push((join.clone(), Tone::Dim));
         }
         pieces.push((format!("{} ", word(*kind)), Tone::Dim));
         for (number, file) in shown.iter().filter(|file| file.kind == *kind).enumerate() {
             if number > 0 {
-                pieces.push((", ".to_owned(), Tone::Dim));
+                pieces.push((join.clone(), Tone::Dim));
             }
-            pieces.push((path(file), Tone::Dim));
+            pieces.push((path(file, glyphs), Tone::Dim));
             pieces.extend(row_counts(file));
         }
     }
@@ -191,52 +197,79 @@ fn file_count(changes: &FileChanges) -> usize {
     changes.files.len() + usize::try_from(changes.more).unwrap_or(0)
 }
 
-/// The most groups that the line of a turn names.
-const LINE_GROUPS: usize = 2;
+/// The files that the line of a turn names; the rest are counted.
+const LINE_FILES: usize = 3;
 
-/// `+24 -7` as plain text; empty when both are 0.
-fn counts_text(added: u32, removed: u32) -> String {
-    counts(added, removed).into_iter().map(|(text, _)| text).collect()
-}
-
-/// The groups of a turn's line, such as `evals +503, tests +77`: at most two groups
-/// that are not code and changed lines, the largest first. Empty when there is none.
-/// The files that `changes` leaves out of its list have no group.
-fn groups_text(changes: &FileChanges, groups: &DiffGroups) -> String {
-    groups::breakdown(&changes.files, groups)
-        .iter()
-        .filter(|count| count.name != groups::CODE && count.lines() > 0)
-        .take(LINE_GROUPS)
-        .map(|count| {
-            format!("{} {}", one_line(&count.name), counts_text(count.added, count.removed))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// The line at the end of a turn that changed files, such as `3 files changed, +24 -7`
-/// or `9 files changed, +635 -44 (evals +503, tests +77)`; `None` when it changed none.
-pub(crate) fn turn_line(changes: &FileChanges, groups: &DiffGroups) -> Option<String> {
-    let mut line = total_line(changes)?;
-    let named = groups_text(changes, groups);
-    if !named.is_empty() {
-        let _ = write!(line, " ({named})");
+/// The count of the files and the lines, as the start of the line of a turn: `3 files
+/// changed` in `text`, two spaces, `+24 -7` in colour.
+fn total_pieces(count: &str, added: u32, removed: u32) -> Vec<Piece> {
+    let mut pieces = vec![(count.to_owned(), Tone::Text)];
+    let counts = counts(added, removed);
+    if !counts.is_empty() {
+        pieces.push(("  ".to_owned(), Tone::Plain));
+        pieces.extend(counts);
     }
-    Some(line)
+    pieces
 }
 
-/// [`turn_line`] without the groups, such as `3 files changed, +24 -7`.
-fn total_line(changes: &FileChanges) -> Option<String> {
+/// `path` without the directories at its start that it shares with `first`:
+/// `crates/app/tests/steer.rs` after `crates/app/src/turn.rs` is `tests/steer.rs`.
+pub(crate) fn short_path<'a>(path: &'a str, first: &str) -> &'a str {
+    let mut shared = 0;
+    for ((at, a), b) in path.char_indices().zip(first.chars()) {
+        if a != b {
+            break;
+        }
+        if a == '/' {
+            shared = at + 1;
+        }
+    }
+    &path[shared..]
+}
+
+/// The names of `paths` for a line: at most `shown`, the first whole and each later one
+/// without the directories it shares with the first, joined by `, `, then ` (+N more)`
+/// for the rest (`more` names `N more` in the words of the line).
+fn names(paths: &[String], hidden: usize, more: impl Fn(usize) -> String) -> String {
+    let first = paths.first().map(String::as_str).unwrap_or_default();
+    let shown: Vec<&str> = paths
+        .iter()
+        .take(LINE_FILES)
+        .enumerate()
+        .map(|(at, path)| if at == 0 { path.as_str() } else { short_path(path, first) })
+        .collect();
+    let rest = paths.len().saturating_sub(shown.len()) + hidden;
+    let mut text = shown.join(", ");
+    if rest > 0 && !shown.is_empty() {
+        let _ = write!(text, " ({})", more(rest));
+    }
+    text
+}
+
+/// The line at the end of a turn that changed files, as pieces: `3 files changed  +24
+/// -7  crates/app/src/turn.rs, tests/steer.rs, CHANGELOG.md (+1 more)`, the count in
+/// `text`, the counts in colour and the names muted (TM-Legend 34); empty when it
+/// changed none.
+pub(crate) fn turn_line(changes: &FileChanges, options: &RenderOptions) -> Vec<Piece> {
     let count = file_count(changes);
     if count == 0 {
-        return None;
+        return Vec::new();
     }
-    let mut line = files_changed(count);
-    let counts = counts_text(changes.added, changes.removed);
-    if !counts.is_empty() {
-        let _ = write!(line, ", {counts}");
+    let glyphs = options.glyphs();
+    let mut pieces = total_pieces(&files_changed(count), changes.added, changes.removed);
+    let paths: Vec<String> = changes.files.iter().map(|file| path(file, glyphs)).collect();
+    let more = usize::try_from(changes.more).unwrap_or(usize::MAX);
+    let named = names(&paths, more, |rest| format!("+{rest} more"));
+    if !named.is_empty() {
+        pieces.push(("  ".to_owned(), Tone::Plain));
+        pieces.push((named, Tone::Dim));
     }
-    Some(line)
+    pieces
+}
+
+/// [`turn_line`] as plain text, for a caller that prints it as one line.
+pub(crate) fn plain(pieces: &[Piece]) -> String {
+    pieces.iter().map(|(text, _)| text.as_str()).collect()
 }
 
 /// The hint at the end of the line of an `auto` turn that `efr undo` can take back.
@@ -250,70 +283,59 @@ fn files(count: usize) -> String {
     if count == 1 { "1 file".to_owned() } else { format!("{count} files") }
 }
 
-/// The line at the end of an `auto` turn that `efr undo` can take back, such as
-/// `changed 4 files (+12 -3) in eggfriedrice.code and 2 in ~; efr undo reverts this
-/// turn`: the files in the roots, named by the roots, with the groups of the files
-/// after the counts (`(+635 -44; evals +503, tests +77)`), and the files outside the
-/// roots that efr copied first; for a turn that only moved refs, `moved 1 ref in
-/// eggfriedrice.code; efr undo reverts this turn`. `None` when the turn changed no file
-/// or ref that undo covers, or undo cannot take the turn back now.
+/// The line at the end of an `auto` turn that `efr undo` can take back, as pieces:
+/// `changed 4 files  +12 -3  in app and 2 in ~ · efr undo reverts this turn`
+/// (TM-Endings 17): the count in `text`, the counts in colour, then muted the roots
+/// that hold the files and the files outside the roots that efr copied first, and the
+/// hint. For a turn that only moved refs: `moved 1 ref  in app · efr undo reverts this
+/// turn`. Empty when the turn changed no file or ref that undo covers, or undo cannot
+/// take the turn back now.
 pub(crate) fn undo_line(
     changes: Option<&FileChanges>,
     undo: &TurnUndoInfo,
-    groups: &DiffGroups,
-) -> Option<String> {
+    options: &RenderOptions,
+) -> Vec<Piece> {
     if !undo.undoable {
-        return None;
+        return Vec::new();
     }
+    let separator = options.glyphs().separator;
     let count = changes.map_or(0, file_count);
     let home = usize::try_from(undo.home_files).unwrap_or(usize::MAX);
     let roots: Vec<String> =
         undo.roots.iter().filter(|root| root.files > 0).map(|root| one_line(&root.shown)).collect();
-    let mut line = match (count, home) {
+    let (mut pieces, mut place) = match (count, home) {
         (0, 0) => {
             // NOTE: a turn that only moved refs, such as `git reset --soft HEAD~1`.
             let moved: Vec<&RootFiles> = undo.roots.iter().filter(|root| root.refs > 0).collect();
             let refs: u32 = moved.iter().map(|root| root.refs).sum();
             if refs == 0 {
-                return None;
+                return Vec::new();
             }
             let names: Vec<String> = moved.iter().map(|root| one_line(&root.shown)).collect();
             let unit = if refs == 1 { "ref" } else { "refs" };
-            format!("moved {refs} {unit} in {}", joined(&names))
+            (vec![(format!("moved {refs} {unit}"), Tone::Text)], format!("in {}", joined(&names)))
         }
-        (0, home) => format!("changed {} in ~", files(home)),
+        (0, home) => (vec![(format!("changed {}", files(home)), Tone::Text)], "in ~".to_owned()),
         (count, home) => {
-            let mut line = format!("changed {}", files(count));
-            let counts = changes
-                .map(|changes| counts_text(changes.added, changes.removed))
-                .unwrap_or_default();
-            let named = changes.map(|changes| groups_text(changes, groups)).unwrap_or_default();
-            match (counts.is_empty(), named.is_empty()) {
-                (true, _) => {}
-                (false, true) => {
-                    let _ = write!(line, " ({counts})");
-                }
-                (false, false) => {
-                    let _ = write!(line, " ({counts}; {named})");
-                }
-            }
-            match (roots.as_slice(), home) {
-                ([], 0) => {}
-                ([], home) => {
-                    let _ = write!(line, " and {home} in ~");
-                }
-                (roots, 0) => {
-                    let _ = write!(line, " in {}", joined(roots));
-                }
-                (roots, home) => {
-                    let _ = write!(line, " in {} and {home} in ~", roots.join(", "));
-                }
-            }
-            line
+            let (added, removed) =
+                changes.map_or((0, 0), |changes| (changes.added, changes.removed));
+            let pieces = total_pieces(&format!("changed {}", files(count)), added, removed);
+            let place = match (roots.as_slice(), home) {
+                ([], 0) => String::new(),
+                ([], home) => format!("and {home} in ~"),
+                (roots, 0) => format!("in {}", joined(roots)),
+                (roots, home) => format!("in {} and {home} in ~", roots.join(", ")),
+            };
+            (pieces, place)
         }
     };
-    let _ = write!(line, "; {UNDO_HINT}");
-    Some(line)
+    if !place.is_empty() {
+        place.push(' ');
+    }
+    let _ = write!(place, "{separator} {UNDO_HINT}");
+    pieces.push(("  ".to_owned(), Tone::Plain));
+    pieces.push((place, Tone::Dim));
+    pieces
 }
 
 /// `a`, `a and b`, `a, b and c`.
@@ -429,14 +451,17 @@ const NOT_LISTED: &str = "not listed";
 /// `(binary)`), the files left out, then the totals. The paths start in one column.
 pub(crate) fn stat(changes: &FileChanges, groups: &DiffGroups, options: &RenderOptions) -> String {
     let method = options.width_method();
-    let paths: Vec<String> = changes.files.iter().map(path).collect();
+    let glyphs = options.glyphs();
+    let paths: Vec<String> = changes.files.iter().map(|file| path(file, glyphs)).collect();
     let widest = paths.iter().map(|path| text_width(path, method)).max().unwrap_or(0);
     let mut out = group_table(changes, groups, options);
     if !out.is_empty() {
         out.push('\n');
     }
     for (file, path) in changes.files.iter().zip(&paths) {
-        out.push_str(&paint(&format!("{:<8}", word(file.kind)), Tone::Dim, options));
+        let word = word(file.kind);
+        out.push_str(&paint(word, Tone::Dim, options));
+        out.push_str(&pad(word, WORD_COLUMN, method));
         out.push_str(path);
         let counts = if file.binary {
             vec![("(binary)".to_owned(), Tone::Dim)]
@@ -454,14 +479,23 @@ pub(crate) fn stat(changes: &FileChanges, groups: &DiffGroups, options: &RenderO
     }
     if changes.more > 0 {
         let unit = if changes.more == 1 { "file" } else { "files" };
-        let more = format!("\u{2026} {} more {unit}", changes.more);
+        let more = format!("{} {} more {unit}", glyphs.more, changes.more);
         let _ = writeln!(out, "{}", paint(&more, Tone::Dim, options));
     }
-    if let Some(line) = total_line(changes) {
-        let _ = writeln!(out, "{}", paint(&line, Tone::Dim, options));
+    let count = file_count(changes);
+    if count > 0 {
+        let pieces = total_pieces(&files_changed(count), changes.added, changes.removed);
+        for (text, tone) in &pieces {
+            out.push_str(&paint(text, *tone, options));
+        }
+        out.push('\n');
     }
     out
 }
+
+/// The column where the paths of `efr diff --stat` start: after the longest word of a
+/// kind (`changed`, `deleted`, `renamed`) and two spaces (TM-Commands 5).
+const WORD_COLUMN: usize = 9;
 
 /// The table of the groups at the top of `efr diff --stat`: one row per group with
 /// changed lines, the largest first, then the files that the list leaves out and the
@@ -608,9 +642,9 @@ fn cut_lines(line: &str) -> Option<usize> {
 }
 
 /// `… 12 more lines`, the row after the lines of a diff that are shown.
-pub(crate) fn more_lines(count: usize) -> String {
+pub(crate) fn more_lines(count: usize, glyphs: &Glyphs) -> String {
     let unit = if count == 1 { "line" } else { "lines" };
-    format!("\u{2026} {count} more {unit}")
+    format!("{} {count} more {unit}", glyphs.more)
 }
 
 /// The spaces that bring `text` to `width` columns.

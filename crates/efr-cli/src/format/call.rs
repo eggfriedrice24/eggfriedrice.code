@@ -3,7 +3,7 @@
 //! a call's end. The calls slice of the terminal look owns this file; `format.rs`
 //! re-exports its items, so callers name them as `format::...`.
 
-use efr_render::{RenderOptions, WidthMethod, text_width};
+use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 use serde_json::Value;
 
 use super::{Tone, cut, fits, one_line, patch, pieces, visible};
@@ -125,42 +125,44 @@ impl CallLine {
 pub(crate) struct CallText {
     pub(crate) name: String,
     pub(crate) lines: Vec<String>,
-    /// The entries of a list that `lines` joins with `, `, such as the files of an
-    /// `apply_patch` call: a row of the call's block is cut only between two of them,
-    /// and with no mark, because the list is no command. Empty for other calls.
-    pub(crate) entries: Vec<String>,
+    /// The files of an `apply_patch` call, from its patch: the row of the call names
+    /// one file with the word of what the patch does to it (`edit`, `write`, `delete`,
+    /// `move`), or counts them (`patch 3 files`). Empty for other calls.
+    pub(crate) files: Vec<patch::PatchFile>,
 }
 
 /// The text of a call of `tool` with `input`, such as `$` and `cargo test -p app`.
 pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
     let detail = call_detail(tool, input);
     let lines = command_lines(&detail).into_iter().map(command_line).collect();
-    let entries = match patch::text(input).filter(|_| tool == patch::TOOL) {
-        Some(text) => patch::entries(&patch::files(text)),
+    let files = match patch::text(input).filter(|_| tool == patch::TOOL) {
+        Some(text) => patch::files(text),
         None => Vec::new(),
     };
-    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines, entries }
+    CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines, files }
 }
 
-/// What ends a row of a command that is cut after a space. The rows after it are
-/// indented: the cut falls between two words, so the indent reads as the space that is
-/// there. The mark is muted and is not part of the command.
-pub(crate) const WRAP_MARK: &str = "\\";
+/// What ends a row of a command that is cut after a space (`Glyphs::wrap`). The rows
+/// after it are indented: the cut falls between two words, so the indent reads as the
+/// space that is there. The mark is muted and is not part of the command.
+#[cfg(test)]
+pub(crate) const WRAP_MARK: &str = Glyphs::UNICODE.wrap;
 
 /// What ends a row of a command that is cut inside a word, because no space fits in
-/// the row. The next row goes on at the same column as this one, so no space shows
-/// where the command has none. The mark is muted, is not part of the command, and is
-/// no shell syntax.
-pub(crate) const WORD_MARK: &str = "\u{21a9}";
+/// the row (`Glyphs::word_cut`). The next row goes on at the same column as this one,
+/// so no space shows where the command has none. The mark is muted, is not part of the
+/// command, and is no shell syntax.
+#[cfg(test)]
+pub(crate) const WORD_MARK: &str = Glyphs::UNICODE.word_cut;
 
 /// How a row of a command ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowEnd {
     /// The line ends in this row.
     Last,
-    /// The row is cut after a space, and [`WRAP_MARK`] follows.
+    /// The row is cut after a space, and `Glyphs::wrap` follows.
     Space,
-    /// The row is cut inside a word, and [`WORD_MARK`] follows.
+    /// The row is cut inside a word, and `Glyphs::word_cut` follows.
     Word,
 }
 
@@ -174,14 +176,30 @@ pub(crate) struct CommandRow {
 }
 
 impl CommandRow {
-    /// The mark after the row, if any.
+    /// The mark after the row in the Unicode glyphs, if any.
     pub(crate) fn mark(&self) -> Option<&'static str> {
+        self.mark_in(&Glyphs::UNICODE)
+    }
+
+    /// The mark after the row in `glyphs`, if any.
+    pub(crate) fn mark_in(&self, glyphs: &Glyphs) -> Option<&'static str> {
         match self.end {
             RowEnd::Last => None,
-            RowEnd::Space => Some(WRAP_MARK),
-            RowEnd::Word => Some(WORD_MARK),
+            RowEnd::Space => Some(glyphs.wrap),
+            RowEnd::Word => Some(glyphs.word_cut),
         }
     }
+}
+
+/// The widest mark that ends a cut row in either table of glyphs: a row keeps room for
+/// it whatever the locale.
+fn mark_width(method: WidthMethod) -> usize {
+    [Glyphs::UNICODE, Glyphs::ASCII]
+        .iter()
+        .flat_map(|glyphs| [glyphs.wrap, glyphs.word_cut])
+        .map(|mark| text_width(mark, method))
+        .max()
+        .unwrap_or(1)
 }
 
 /// The rows of `line`, one line of a command that is safe to print, as a terminal that
@@ -196,7 +214,7 @@ pub(crate) fn wrap_command(
     indent: usize,
     method: WidthMethod,
 ) -> Vec<CommandRow> {
-    let mark = text_width(WRAP_MARK, method).max(text_width(WORD_MARK, method));
+    let mark = mark_width(method);
     let mut rows = Vec::new();
     let mut left = line;
     let mut indented = false;

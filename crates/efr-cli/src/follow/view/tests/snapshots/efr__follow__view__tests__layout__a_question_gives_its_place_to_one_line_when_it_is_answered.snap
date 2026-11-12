@@ -5,69 +5,51 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
 === 40 columns, colour
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ make install\e[0m
-  \e[32m✓ 1.5s\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mmake install\e[0m  \e[2m1.5s\e[0m
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[32m$ rm -rf build\e[0m
-
+\e[2m·\e[0m \e[2m$\e[0m \e[2mrm -rf build\e[0m  \e[2mdid not run\e[0m
 \e[32m✓ allowed from the phone\e[0m
-\e[33m·\e[0m \e[32m$ git push\e[0m
-  \e[32m✓\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[31m✗ the approval expired\e[0m
-\e[33m·\e[0m \e[32m$ systemctl --user restart app\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user \e[0m\e[2m\\e[0m
+      \e[2mrestart app\e[0m  \e[2mdid not run\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 40 columns, NO_COLOR
 [end]
 ✓ allowed
-\e[1m·\e[0m $ make install
-  ✓ 1.5s
-
+✓ \e[2m$\e[0m \e[2mmake install\e[0m  \e[2m1.5s\e[0m
 \e[1m✗ denied\e[0m
-\e[1m·\e[0m $ rm -rf build
-
+\e[2m·\e[0m \e[2m$\e[0m \e[2mrm -rf build\e[0m  \e[2mdid not run\e[0m
 ✓ allowed from the phone
-\e[1m·\e[0m $ git push
-  ✓
-
+✓ \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[1m✗ the approval expired\e[0m
-\e[1m·\e[0m $ systemctl --user restart app
+\e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user \e[0m\e[2m\\e[0m
+      \e[2mrestart app\e[0m  \e[2mdid not run\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 80 columns, colour
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ make install\e[0m
-  \e[32m✓ 1.5s\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mmake install\e[0m  \e[2m1.5s\e[0m
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[32m$ rm -rf build\e[0m
-
+\e[2m·\e[0m \e[2m$\e[0m \e[2mrm -rf build\e[0m  \e[2mdid not run\e[0m
 \e[32m✓ allowed from the phone\e[0m
-\e[33m·\e[0m \e[32m$ git push\e[0m
-  \e[32m✓\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[31m✗ the approval expired\e[0m
-\e[33m·\e[0m \e[32m$ systemctl --user restart app\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user restart app\e[0m  \e[2mdid not run\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === 80 columns, NO_COLOR
 [end]
 ✓ allowed
-\e[1m·\e[0m $ make install
-  ✓ 1.5s
-
+✓ \e[2m$\e[0m \e[2mmake install\e[0m  \e[2m1.5s\e[0m
 \e[1m✗ denied\e[0m
-\e[1m·\e[0m $ rm -rf build
-
+\e[2m·\e[0m \e[2m$\e[0m \e[2mrm -rf build\e[0m  \e[2mdid not run\e[0m
 ✓ allowed from the phone
-\e[1m·\e[0m $ git push
-  ✓
-
+✓ \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[1m✗ the approval expired\e[0m
-\e[1m·\e[0m $ systemctl --user restart app
+\e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user restart app\e[0m  \e[2mdid not run\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
 
 === not a terminal
@@ -78,24 +60,22 @@ stderr:
 │ make install
 │ y allow · n deny
 ✓ allowed
-· $ make install
-  ✓ 1.5s
+✓ $ make install  1.5s
 
 ? allow this command
 │ rm -rf build
 │ y allow · n deny
 ✗ denied
-· $ rm -rf build
+· $ rm -rf build  did not run
 
 ? allow this command
 │ git push
 │ y allow · n deny
 ✓ allowed from the phone
-· $ git push
-  ✓
+✓ $ git push  0.4s
 
 ? allow this command
 │ systemctl --user restart app
 │ y allow · n deny
 ✗ the approval expired
-· $ systemctl --user restart app
+· $ systemctl --user restart app  did not run

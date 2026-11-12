@@ -2,6 +2,5 @@
 source: crates/efr-cli/src/follow/view/tests/left.rs
 expression: err
 ---
-· $ rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack
-  │ u@h's password:
-  still runs in the hidden shell
+→ $ rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack  still runs in the hidden shell
+    u@h's password:

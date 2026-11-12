@@ -2,7 +2,10 @@ use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{DiffFile, Op, PatchFile, file_diffs, files, flow, rows, summary, text};
+use super::{
+    DiffFile, Op, PatchFile, count, cut_rows, file_diffs, files, layout, rows, short_hunk,
+    split_painted, summary, text,
+};
 use crate::format::{Tone, call_text, tool_call};
 use crate::testing::readable;
 
@@ -70,34 +73,6 @@ fn a_patch_read_leniently_and_safely() {
     assert_eq!(summary(&files("not a patch")), "");
     let patch = "*** Begin Patch\n*** Add File: a\u{1b}[2Jb\n+x\n*** End Patch\n";
     assert_eq!(summary(&files(patch)), "new a\u{241b}[2Jb +1");
-}
-
-#[test]
-fn the_entries_flow_into_rows_cut_only_between_two_of_them() {
-    let entries = super::entries(&files(PATCH));
-    let rows = flow(&entries, 26, WidthMethod::CodePoint);
-    assert_eq!(
-        rows,
-        [
-            "src/a.rs +2 -1,",
-            "src/b.rs +1,",
-            "new notes.md +2,",
-            "delete old.rs,",
-            "move src/expr.rs \u{2192}",
-            "src/expression.rs +1 -1",
-        ]
-    );
-    let wide = flow(&entries, 40, WidthMethod::CodePoint);
-    assert_eq!(wide[0], "src/a.rs +2 -1, src/b.rs +1,");
-    for row in &rows {
-        assert!(display_width(row, WidthMethod::CodePoint) <= 26, "{rows:?}");
-    }
-    // Nothing is lost: the rows joined by a space are the line.
-    assert_eq!(rows.join(" "), summary(&files(PATCH)));
-    // An entry wider than a row is cut at its spaces.
-    let long = vec!["move src/parse/expression.rs \u{2192} src/parse/expr.rs +1".to_owned()];
-    let rows = flow(&long, 20, WidthMethod::CodePoint);
-    assert_eq!(rows, ["move", "src/parse/expression", ".rs \u{2192}", "src/parse/expr.rs +1"]);
 }
 
 #[test]
@@ -243,11 +218,54 @@ fn the_heading_of_a_file_marks_a_delete_and_a_move_in_a_question() {
 fn each_file_keeps_its_limit_and_counts_what_it_leaves_out() {
     let diffs = file_diffs(DIFF);
     let options = RenderOptions::new(40).with_colour(ColourMode::None).with_terminal(false);
-    let first = rows(&diffs[0].parts, None, 2, "  \u{2502} ", &options);
+    let first = rows(&diffs[0].parts, None, 2, "  ", &options);
+    assert_eq!(first, "  @@ 1\n    fn main() {\n  \u{2026} 4 more lines\n");
+    let last = layout(&diffs[4].parts, None, 20, "  ", true, &options);
+    assert!(last.ends_with("  \u{2026} 12 more lines \u{b7} efr diff\n"), "{}", readable(&last));
+}
+
+#[test]
+fn a_row_of_a_diff_is_its_sign_a_space_and_its_text() {
+    let options = RenderOptions::new(40).with_colour(ColourMode::None).with_terminal(false);
+    let diff = "@@ -88,4 +88,5 @@ impl Turn {\n     keep();\n-    old();\n+    new();\n+\n";
+    let parts = crate::format::changes::diff_parts(diff);
     assert_eq!(
-        first,
-        "  \u{2502} @@ -1,3 +1,4 @@\n  \u{2502}  fn main() {\n  \u{2502} \u{2026} 4 more lines\n"
+        layout(&parts, Some("src/turn.rs"), 20, "  ", true, &options),
+        "  @@ 88 impl Turn\n        keep();\n  -     old();\n  +     new();\n  +\n"
     );
-    let last = rows(&diffs[4].parts, None, 20, "  \u{2502} ", &options);
-    assert!(last.ends_with("  \u{2502} \u{2026} 12 more lines\n"), "{}", readable(&last));
+    // A new file starts at its first line: its hunk says nothing.
+    let new =
+        crate::format::changes::diff_parts("--- /dev/null\n+++ b/n.md\n@@ -0,0 +1,1 @@\n+# N\n");
+    assert_eq!(layout(&new, None, 20, "  ", true, &options), "  + # N\n");
+    assert_eq!(count(diff), (2, 1));
+}
+
+#[test]
+fn the_hunk_header_is_short() {
+    let glyphs = &efr_render::Glyphs::UNICODE;
+    assert_eq!(short_hunk("@@ -88,7 +88,11 @@ impl Turn {", glyphs), "@@ 88 impl Turn");
+    assert_eq!(
+        short_hunk("@@ -140,1 +140,1 @@ fn judge(line: &str) {", glyphs),
+        "@@ 140 fn judge(line: &str)"
+    );
+    assert_eq!(short_hunk("@@ -1 +1 @@", glyphs), "@@ 1");
+    assert_eq!(short_hunk("@@ not a header", glyphs), "@@ not a header");
+}
+
+#[test]
+fn a_wide_row_goes_on_two_columns_before_its_code() {
+    // TM-Diffs 4: the row is cut after `self.rx.` with a muted `↩`; the rest goes on at
+    // column 10, two columns before the code at column 12, on the tint of the row.
+    let text = "        while let Ok(msg) = self.rx.try_recv() {";
+    let rows = cut_rows(text, 4, 41, WidthMethod::CodePoint);
+    assert_eq!(
+        rows,
+        [(4, "        while let Ok(msg) = self.rx.".to_owned()), (10, "try_recv() {".to_owned())]
+    );
+    // The paint runs on in the next row.
+    let painted = split_painted("\x1b[33mabcdef\x1b[0mgh", 4, 4, WidthMethod::CodePoint);
+    assert_eq!(painted, ["\x1b[33mabcd\x1b[0m", "\x1b[33mef\x1b[0mgh"]);
+    for row in &rows {
+        assert!(display_width(&row.1, WidthMethod::CodePoint) + row.0 < 41);
+    }
 }

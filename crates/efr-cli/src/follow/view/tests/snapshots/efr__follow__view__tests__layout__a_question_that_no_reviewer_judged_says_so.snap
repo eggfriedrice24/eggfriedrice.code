@@ -15,9 +15,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ curl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
-    \e[32mar.gz\e[0m
-  \e[32m✓ 3.9s\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcurl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
+    \e[2mar.gz\e[0m  \e[2m3.9s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 
 === 40 columns, NO_COLOR
@@ -33,9 +32,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ curl -LO https://example.com/tool.t\e[2m↩\e[0m
-    ar.gz
-  ✓ 3.9s
+✓ \e[2m$\e[0m \e[2mcurl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
+    \e[2mar.gz\e[0m  \e[2m3.9s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 
 === 80 columns, colour
@@ -48,8 +46,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ curl -LO https://example.com/tool.tar.gz\e[0m
-  \e[32m✓ 3.9s\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcurl -LO https://example.com/tool.tar.gz\e[0m  \e[2m3.9s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 
 === 80 columns, NO_COLOR
@@ -62,8 +59,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ curl -LO https://example.com/tool.tar.gz
-  ✓ 3.9s
+✓ \e[2m$\e[0m \e[2mcurl -LO https://example.com/tool.tar.gz\e[0m  \e[2m3.9s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
 
 === not a terminal
@@ -85,5 +81,4 @@ stderr:
 │ reviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)
 │ y allow · n deny
 ✓ allowed
-· $ curl -LO https://example.com/tool.tar.gz
-  ✓ 3.9s
+✓ $ curl -LO https://example.com/tool.tar.gz  3.9s

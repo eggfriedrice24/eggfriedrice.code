@@ -12,11 +12,10 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ echo "built $HOME/p/eggfriedrice.co\e[0m\e[2m↩\e[0m
-    \e[32mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
-    \e[32m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
-    \e[32m.so"\e[0m
-  \e[32m✓\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.co\e[0m\e[2m↩\e[0m
+    \e[2mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[2m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[2m.so"\e[0m  \e[2m0.8s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -29,11 +28,10 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ echo "built $HOME/p/eggfriedrice.co\e[2m↩\e[0m
-    de/target/debug/build/libghostty-vt\e[2m↩\e[0m
-    -1a2b3c4d5e6f/out/lib/libghostty-vt\e[2m↩\e[0m
-    .so"
-  ✓
+✓ \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.co\e[0m\e[2m↩\e[0m
+    \e[2mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[2m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[2m.so"\e[0m  \e[2m0.8s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
@@ -45,9 +43,8 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 
 [end]
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[32m$ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
-    \e[32m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m
-  \e[32m✓\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
+    \e[2m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m  \e[2m0.8s\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
@@ -59,9 +56,8 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 
 [end]
 ✓ allowed
-\e[1m·\e[0m $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[2m↩\e[0m
-    3c4d5e6f/out/lib/libghostty-vt.so"
-  ✓
+✓ \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
+    \e[2m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m  \e[2m0.8s\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === not a terminal
@@ -79,5 +75,4 @@ stderr:
 │ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
 │ y allow · n deny
 ✓ allowed
-· $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"
-  ✓
+✓ $ echo "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b3c4d5e6f/out/lib/libghostty-vt.so"  0.8s

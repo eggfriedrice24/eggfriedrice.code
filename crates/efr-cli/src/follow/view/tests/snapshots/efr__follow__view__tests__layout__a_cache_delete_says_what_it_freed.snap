@@ -4,9 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ go clean -cache\e[0m
-  \e[32m✓\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mgo clean -cache\e[0m  \e[2m0.8s\e[0m
 \e[2mreviewer allowed: delete 2 paths in\e[0m
   \e[2m~/.cache/go-build for this call (low\e[0m
   \e[2mrisk; you asked to free disk space)\e[0m
@@ -16,9 +14,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 
 === 40 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ go clean -cache
-  ✓
-
+✓ \e[2m$\e[0m \e[2mgo clean -cache\e[0m  \e[2m0.8s\e[0m
 \e[2mreviewer allowed: delete 2 paths in\e[0m
   \e[2m~/.cache/go-build for this call (low\e[0m
   \e[2mrisk; you asked to free disk space)\e[0m
@@ -28,9 +24,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ go clean -cache\e[0m
-  \e[32m✓\e[0m
-
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mgo clean -cache\e[0m  \e[2m0.8s\e[0m
 \e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
   \e[2myou asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
@@ -38,9 +32,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 
 === 80 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ go clean -cache
-  ✓
-
+✓ \e[2m$\e[0m \e[2mgo clean -cache\e[0m  \e[2m0.8s\e[0m
 \e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
   \e[2myou asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
@@ -50,8 +42,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 [end]
 stdout:
 stderr:
-· $ go clean -cache
-  ✓
-
+✓ $ go clean -cache  0.8s
 reviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk; you asked to free disk space)
 freed 1.2 GB in ~/.cache/go-build (2 paths)

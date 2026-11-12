@@ -4,274 +4,254 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(900, message(0, \"I will
 ---
 === 40 columns, colour
 [running]
-I will greet the user and run the
-formatter.
+I will greet the user and run the formatter.
 
-\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
-\e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    println!("a new greeting that\e[0m \e[2m↩\e[0m
-\e[2m  │ \e[0m\e[32mis much wider than forty columns");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(1);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(2);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(3);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(4);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(5);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(6);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(7);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(8);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(9);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(10);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(11);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(12);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(13);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(14);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(15);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(16);\e[0m
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  \e[32m✓\e[0m
-
-\e[33m•\e[0m \e[32m$ cargo fmt\e[0m
+\e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[36m@@ 1\e[0m
+    \e[35mfn\e[0m \e[34mmain\e[0m() {
+  \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
+  \e[1;32m+\e[0m     println!(\e[32m"a new greeting that i\e[0m\e[2m↩\e[0m
+      \e[32ms much wider than forty columns"\e[0m)\e[2m↩\e[0m
+      ;
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[33m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
-I will greet the user and run the
-formatter.
+I will greet the user and run the formatter.
 
-\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
-\e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    println!("a new greeting that\e[0m \e[2m↩\e[0m
-\e[2m  │ \e[0m\e[32mis much wider than forty columns");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(1);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(2);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(3);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(4);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(5);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(6);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(7);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(8);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(9);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(10);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(11);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(12);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(13);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(14);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(15);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(16);\e[0m
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  \e[32m✓\e[0m
-
-\e[33m·\e[0m \e[32m$ cargo fmt\e[0m
-  \e[32m✓ 1.3s\e[0m
+\e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[36m@@ 1\e[0m
+    \e[35mfn\e[0m \e[34mmain\e[0m() {
+  \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
+  \e[1;32m+\e[0m     println!(\e[32m"a new greeting that i\e[0m\e[2m↩\e[0m
+      \e[32ms much wider than forty columns"\e[0m)\e[2m↩\e[0m
+      ;
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
 The greeting is in \e[32msrc/main.rs\e[0m.
 
-\e[2m2 files changed, +25 -3\e[0m
+\e[2m2 files changed +25 -3 src/main.rs, lib…\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
 [running]
-I will greet the user and run the
-formatter.
+I will greet the user and run the formatter.
 
-\e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1m-\e[0m\e[2m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that \e[2m↩\e[0m
-\e[2m  │ \e[0mis much wider than forty columns");
-\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  ✓
-
-\e[1m•\e[0m $ cargo fmt
+✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
+  \e[2m@@ 1\e[0m
+    fn main() {
+  \e[1m-\e[0m     println!("old");
+  \e[1m+\e[0m     println!("a new greeting that i\e[2m↩\e[0m
+      s much wider than forty columns")\e[2m↩\e[0m
+      ;
+  \e[1m+\e[0m     step(1);
+  \e[1m+\e[0m     step(2);
+  \e[1m+\e[0m     step(3);
+  \e[1m+\e[0m     step(4);
+  \e[1m+\e[0m     step(5);
+  \e[1m+\e[0m     step(6);
+  \e[1m+\e[0m     step(7);
+  \e[1m+\e[0m     step(8);
+  \e[1m+\e[0m     step(9);
+  \e[1m+\e[0m     step(10);
+  \e[1m+\e[0m     step(11);
+  \e[1m+\e[0m     step(12);
+  \e[1m+\e[0m     step(13);
+  \e[1m+\e[0m     step(14);
+  \e[1m+\e[0m     step(15);
+  \e[1m+\e[0m     step(16);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[1m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
-I will greet the user and run the
-formatter.
+I will greet the user and run the formatter.
 
-\e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1m-\e[0m\e[2m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that \e[2m↩\e[0m
-\e[2m  │ \e[0mis much wider than forty columns");
-\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  ✓
-
-\e[1m·\e[0m $ cargo fmt
-  ✓ 1.3s
+✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
+  \e[2m@@ 1\e[0m
+    fn main() {
+  \e[1m-\e[0m     println!("old");
+  \e[1m+\e[0m     println!("a new greeting that i\e[2m↩\e[0m
+      s much wider than forty columns")\e[2m↩\e[0m
+      ;
+  \e[1m+\e[0m     step(1);
+  \e[1m+\e[0m     step(2);
+  \e[1m+\e[0m     step(3);
+  \e[1m+\e[0m     step(4);
+  \e[1m+\e[0m     step(5);
+  \e[1m+\e[0m     step(6);
+  \e[1m+\e[0m     step(7);
+  \e[1m+\e[0m     step(8);
+  \e[1m+\e[0m     step(9);
+  \e[1m+\e[0m     step(10);
+  \e[1m+\e[0m     step(11);
+  \e[1m+\e[0m     step(12);
+  \e[1m+\e[0m     step(13);
+  \e[1m+\e[0m     step(14);
+  \e[1m+\e[0m     step(15);
+  \e[1m+\e[0m     step(16);
+  \e[2m… 7 more lines · efr diff\e[0m
+✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
 The greeting is in `src/main.rs`.
 
-\e[2m2 files changed, +25 -3\e[0m
+\e[2m2 files changed +25 -3 src/main.rs, lib…\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
 [running]
 I will greet the user and run the formatter.
 
-\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
-\e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(1);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(2);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(3);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(4);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(5);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(6);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(7);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(8);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(9);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(10);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(11);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(12);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(13);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(14);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(15);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(16);\e[0m
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  \e[32m✓\e[0m
-
-\e[33m•\e[0m \e[32m$ cargo fmt\e[0m
+\e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[36m@@ 1\e[0m
+    \e[35mfn\e[0m \e[34mmain\e[0m() {
+  \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
+  \e[1;32m+\e[0m     println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[33m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
 I will greet the user and run the formatter.
 
-\e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
-\e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(1);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(2);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(3);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(4);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(5);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(6);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(7);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(8);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(9);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(10);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(11);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(12);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(13);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(14);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(15);\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m    step(16);\e[0m
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  \e[32m✓\e[0m
-
-\e[33m·\e[0m \e[32m$ cargo fmt\e[0m
-  \e[32m✓ 1.3s\e[0m
+\e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[36m@@ 1\e[0m
+    \e[35mfn\e[0m \e[34mmain\e[0m() {
+  \e[1;31m-\e[0m     println!(\e[32m"old"\e[0m);
+  \e[1;32m+\e[0m     println!(\e[32m"a new greeting that is much wider than forty columns"\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m1\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m2\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m3\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m4\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m5\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m6\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m7\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m8\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m9\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m10\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m11\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m12\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m13\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m14\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m15\e[0m);
+  \e[1;32m+\e[0m     \e[36mstep\e[0m(\e[33m16\e[0m);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
 The greeting is in \e[32msrc/main.rs\e[0m.
 
-\e[2m2 files changed, +25 -3\e[0m
+\e[2m2 files changed +25 -3 src/main.rs, lib.rs\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [running]
 I will greet the user and run the formatter.
 
-\e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1m-\e[0m\e[2m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");
-\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  ✓
-
-\e[1m•\e[0m $ cargo fmt
+✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
+  \e[2m@@ 1\e[0m
+    fn main() {
+  \e[1m-\e[0m     println!("old");
+  \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
+  \e[1m+\e[0m     step(1);
+  \e[1m+\e[0m     step(2);
+  \e[1m+\e[0m     step(3);
+  \e[1m+\e[0m     step(4);
+  \e[1m+\e[0m     step(5);
+  \e[1m+\e[0m     step(6);
+  \e[1m+\e[0m     step(7);
+  \e[1m+\e[0m     step(8);
+  \e[1m+\e[0m     step(9);
+  \e[1m+\e[0m     step(10);
+  \e[1m+\e[0m     step(11);
+  \e[1m+\e[0m     step(12);
+  \e[1m+\e[0m     step(13);
+  \e[1m+\e[0m     step(14);
+  \e[1m+\e[0m     step(15);
+  \e[1m+\e[0m     step(16);
+  \e[2m… 7 more lines · efr diff\e[0m
+\e[1m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
 I will greet the user and run the formatter.
 
-\e[1m·\e[0m write src/main.rs
-\e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
-\e[2m  │ \e[0m fn main() {
-\e[2m  │ \e[0m\e[1m-\e[0m\e[2m    println!("old");\e[0m
-\e[2m  │ \e[0m\e[1m+\e[0m    println!("a new greeting that is much wider than forty columns");
-\e[2m  │ \e[0m\e[1m+\e[0m    step(1);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(2);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(3);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(4);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(5);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(6);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(7);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(8);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(9);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(10);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(11);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(12);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(13);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(14);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(15);
-\e[2m  │ \e[0m\e[1m+\e[0m    step(16);
-\e[2m  │ \e[0m\e[2m… 7 more lines\e[0m
-  ✓
-
-\e[1m·\e[0m $ cargo fmt
-  ✓ 1.3s
+✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
+  \e[2m@@ 1\e[0m
+    fn main() {
+  \e[1m-\e[0m     println!("old");
+  \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
+  \e[1m+\e[0m     step(1);
+  \e[1m+\e[0m     step(2);
+  \e[1m+\e[0m     step(3);
+  \e[1m+\e[0m     step(4);
+  \e[1m+\e[0m     step(5);
+  \e[1m+\e[0m     step(6);
+  \e[1m+\e[0m     step(7);
+  \e[1m+\e[0m     step(8);
+  \e[1m+\e[0m     step(9);
+  \e[1m+\e[0m     step(10);
+  \e[1m+\e[0m     step(11);
+  \e[1m+\e[0m     step(12);
+  \e[1m+\e[0m     step(13);
+  \e[1m+\e[0m     step(14);
+  \e[1m+\e[0m     step(15);
+  \e[1m+\e[0m     step(16);
+  \e[2m… 7 more lines · efr diff\e[0m
+✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
 The greeting is in `src/main.rs`.
 
-\e[2m2 files changed, +25 -3\e[0m
+\e[2m2 files changed +25 -3 src/main.rs, lib.rs\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
@@ -279,29 +259,28 @@ The greeting is in `src/main.rs`.
 stdout:
 I will greet the user and run the formatter.
 stderr:
-· write src/main.rs
-  │ @@ -1,4 +1,27 @@
-  │  fn main() {
-  │ -    println!("old");
-  │ +    println!("a new greeting that is much wider than forty columns");
-  │ +    step(1);
-  │ +    step(2);
-  │ +    step(3);
-  │ +    step(4);
-  │ +    step(5);
-  │ +    step(6);
-  │ +    step(7);
-  │ +    step(8);
-  │ +    step(9);
-  │ +    step(10);
-  │ +    step(11);
-  │ +    step(12);
-  │ +    step(13);
-  │ +    step(14);
-  │ +    step(15);
-  │ +    step(16);
-  │ … 7 more lines
-  ✓
+✓ write src/main.rs  +23 -1
+  @@ 1
+    fn main() {
+  -     println!("old");
+  +     println!("a new greeting that is much wider than forty columns");
+  +     step(1);
+  +     step(2);
+  +     step(3);
+  +     step(4);
+  +     step(5);
+  +     step(6);
+  +     step(7);
+  +     step(8);
+  +     step(9);
+  +     step(10);
+  +     step(11);
+  +     step(12);
+  +     step(13);
+  +     step(14);
+  +     step(15);
+  +     step(16);
+  … 7 more lines · efr diff
 
 [end]
 stdout:
@@ -309,32 +288,28 @@ I will greet the user and run the formatter.
 
 The greeting is in `src/main.rs`.
 stderr:
-· write src/main.rs
-  │ @@ -1,4 +1,27 @@
-  │  fn main() {
-  │ -    println!("old");
-  │ +    println!("a new greeting that is much wider than forty columns");
-  │ +    step(1);
-  │ +    step(2);
-  │ +    step(3);
-  │ +    step(4);
-  │ +    step(5);
-  │ +    step(6);
-  │ +    step(7);
-  │ +    step(8);
-  │ +    step(9);
-  │ +    step(10);
-  │ +    step(11);
-  │ +    step(12);
-  │ +    step(13);
-  │ +    step(14);
-  │ +    step(15);
-  │ +    step(16);
-  │ … 7 more lines
-  ✓
-
-· $ cargo fmt
-  ✓ 1.3s
+✓ write src/main.rs  +23 -1
+  @@ 1
+    fn main() {
+  -     println!("old");
+  +     println!("a new greeting that is much wider than forty columns");
+  +     step(1);
+  +     step(2);
+  +     step(3);
+  +     step(4);
+  +     step(5);
+  +     step(6);
+  +     step(7);
+  +     step(8);
+  +     step(9);
+  +     step(10);
+  +     step(11);
+  +     step(12);
+  +     step(13);
+  +     step(14);
+  +     step(15);
+  +     step(16);
+  … 7 more lines · efr diff
+✓ $ cargo fmt  1.3s
   changed src/lib.rs +2 -2
-
-2 files changed, +25 -3
+2 files changed +25 -3 src/main.rs, lib.rs

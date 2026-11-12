@@ -132,7 +132,8 @@ fn raw_output_is_the_markdown_as_it_streams() {
         out,
         "It failed because **make** ran out of memory.\n\nAdd swap:\n\n```sh\nswapon -a\n```\n"
     );
-    assert_eq!(err, "\u{b7} $ free -h\n");
+    // NOTE: the row of a call says how it ended: a call that never ended has none.
+    assert_eq!(err, "");
     assert_eq!(end, Some(TurnEnd::Completed));
 }
 
@@ -222,10 +223,10 @@ fn refused_call_completed() -> Event {
 
 #[test]
 fn a_denied_call_is_not_reported_as_failed_too() {
-    // The end of a call that never ran writes its command once, with no result.
+    // The end of a call that never ran writes its command once: it did not run.
     let only_the_command = |step: Step| {
-        let out = readable(&step.out);
-        assert_eq!(out.matches("$ touch note.txt").count(), 1, "{out}");
+        let out = crate::testing::bare(&step.out);
+        assert_eq!(out.matches("\u{b7} $ touch note.txt  did not run").count(), 1, "{out}");
         assert!(!out.contains('\u{2717}') && !out.contains("refused"), "{out}");
         assert!(step.err.is_empty(), "{}", step.err);
     };
@@ -294,7 +295,7 @@ fn a_call_that_efr_refused_says_why() {
     let (_, closing, _) = feed(&mut view, &[turn_completed()], false);
     assert_eq!(
         format!("{err}{closing}"),
-        "\u{b7} $ echo x >> ~/.config/efr/config.toml\n  \u{2717} refused: efr's config (floor)\n"
+        "! $ echo x >> ~/.config/efr/config.toml  refused \u{b7} efr's config (floor)\n"
     );
 }
 
@@ -306,8 +307,8 @@ fn an_allowed_call_that_fails_is_still_reported() {
     framed(view.answered(call(), ApprovalDecision::Allow, SIZE), &mut view);
     let step = framed(view.event(&refused_call_completed(), SIZE, true), &mut view);
     let out = readable(&step.out);
-    assert!(out.contains("$ touch /root/x\\e[0m\n"), "{out}");
-    assert!(out.contains("\n  \\e[31m\u{2717} failed\\e[0m\n"), "{out}");
+    assert!(out.contains("\\e[1;31m\u{2717}\\e[0m \\e[2m$\\e[0m touch /root/x  "), "{out}");
+    assert!(out.contains("  \\e[31mfailed\\e[0m\n"), "{out}");
 }
 
 #[test]
@@ -574,7 +575,8 @@ fn a_tool_call_completes_the_message_before_it() {
         false,
     );
     assert_eq!(out, "Let me check\n");
-    assert_eq!(err, "\u{b7} $ df -h\n");
+    // NOTE: the row of the call comes when it ends.
+    assert_eq!(err, "");
 }
 
 #[test]
@@ -585,7 +587,7 @@ fn on_a_terminal_the_message_is_committed_above_the_tool_call() {
     // The call's line shows live below a blank line, with the spinner.
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[32m$ df -h\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[1A\\e[JLet me check\n\n\\e[33m\u{2022}\\e[0m \\e[2m$\\e[0m df -h\n\\e[?2026l"
     );
 }
 
@@ -693,7 +695,7 @@ fn a_failed_call_commits_its_block_with_the_last_lines_of_its_output() {
     let out = readable(&framed(view.event(&call_completed(2), SIZE, false), &mut view).out);
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[32m$ make\\e[0m\n\\e[2m  \u{2502} cc -c a.c\\e[0m\n\\e[2m  \u{2502} error: no rule\\e[0m\n  \\e[31m\u{2717} exit 2\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[1;31m\u{2717}\\e[0m \\e[2m$\\e[0m make  \\e[31mexit 2\\e[0m\n    cc -c a.c\n    error: no rule\n\\e[?2026l"
     );
 }
 
@@ -707,19 +709,19 @@ fn a_call_that_went_well_commits_its_block_and_none_of_its_output() {
     );
     assert_eq!(
         out,
-        "\\e[?2026h\\r\\e[3A\\e[J\\e[33m\u{b7}\\e[0m \\e[32m$ cargo build\\e[0m\n  \\e[32m\u{2713} 6.2s\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[3A\\e[J\\e[32m\u{2713}\\e[0m \\e[2m$\\e[0m \\e[2mcargo build\\e[0m  \\e[2m6.2s\\e[0m\n\\e[?2026l"
     );
-    // A call under a second shows no time.
+    // A call of a few milliseconds shows no time.
     let mut view = terminal_view();
     view.envelope(&sent(11, 0, tool_started("true")), SIZE, false);
     let out = readable(
-        &framed(view.envelope(&sent(12, 900, call_completed(0)), SIZE, false), &mut view).out,
+        &framed(view.envelope(&sent(12, 60, call_completed(0)), SIZE, false), &mut view).out,
     );
-    assert!(out.ends_with("\\e[32m$ true\\e[0m\n  \\e[32m\u{2713}\\e[0m\n\\e[?2026l"), "{out}");
+    assert!(out.ends_with("\\e[2m$\\e[0m \\e[2mtrue\\e[0m\n\\e[?2026l"), "{out}");
 }
 
 #[test]
-fn consecutive_calls_are_blocks_with_a_blank_line_between_them() {
+fn consecutive_calls_are_rows_with_no_blank_line_between_them() {
     let mut view = terminal_view();
     let shown = writes(
         &mut view,
@@ -758,13 +760,12 @@ fn a_running_call_shows_its_line_and_three_lines_of_output_at_40_and_80_columns(
 #[test]
 fn a_tail_is_not_written_when_stdout_is_not_a_terminal() {
     let mut view = raw_view();
-    // The call's first rows wait for a question that may come.
+    // The call's row says how it ended, so it comes at its end, and its output never.
     assert_eq!(framed(view.event(&tool_started("make"), SIZE, false), &mut view), Step::default());
-    // Its output says that it runs, so its first rows come, but not the output.
     let step = framed(view.event(&output("building\n"), SIZE, false), &mut view);
-    assert_eq!((step.out.as_str(), step.err.as_str()), ("", "\u{b7} $ make\n"));
+    assert_eq!((step.out.as_str(), step.err.as_str()), ("", ""));
     let step = framed(view.event(&call_completed(0), SIZE, false), &mut view);
-    assert_eq!((step.out.as_str(), step.err.as_str()), ("", "  \u{2713}\n"));
+    assert_eq!((step.out.as_str(), step.err.as_str()), ("", "\u{2713} $ make\n"));
 }
 
 #[test]
@@ -778,7 +779,7 @@ fn a_raw_question_comes_before_the_rows_of_its_call_as_on_a_terminal() {
     assert_eq!(
         err,
         "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} y allow \u{b7} n deny\n\
-         \u{2713} allowed\n\u{b7} $ touch note.txt\n  \u{2713}\n"
+         \u{2713} allowed\n\u{2713} $ touch note.txt\n"
     );
 
     // Denied elsewhere: the call shows once under the answer, with no result.
@@ -797,7 +798,7 @@ fn a_raw_question_comes_before_the_rows_of_its_call_as_on_a_terminal() {
     assert_eq!(
         err,
         "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} waiting for another client to \
-         answer\n\u{2717} denied from the phone\n\u{b7} $ touch note.txt\n"
+         answer\n\u{2717} denied from the phone\n\u{b7} $ touch note.txt  did not run\n"
     );
 }
 
@@ -870,10 +871,10 @@ fn a_completed_call_settles_its_input_and_drops_the_question() {
     let step = framed(view.event(&call_completed(1), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
-    // The question goes; the call's block and the last line of its output stay.
+    // The question goes; the call's row and the last line of its output stay.
     assert!(!out.contains("type the answer"), "{out}");
-    assert!(out.contains("$ sudo true\\e[0m\n"), "{out}");
-    assert!(out.contains("[sudo] password for egg:\\e[0m\n  \\e[31m\u{2717} exit 1"), "{out}");
+    assert!(out.contains("\\e[2m$\\e[0m sudo true  \\e[31mexit 1\\e[0m\n"), "{out}");
+    assert!(out.contains("\n    [sudo] password for egg:\n"), "{out}");
 }
 
 #[test]
@@ -1503,11 +1504,10 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
     framed(view.event(&contained_started("ssh-add"), WIDE, true), &mut view);
     let step = framed(view.event(&input(InputWait::Hidden), WIDE, true), &mut view);
     assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
-    // The call's first rows come first: nothing showed it before.
+    // NOTE: the row of the call comes at its end.
     assert_eq!(
         step.err,
-        "\u{b7} $ ssh-add\n\nsandbox: the command asked for a secret; efr does not type \
-         secrets into the sandbox\n"
+        "sandbox: the command asked for a secret; efr does not type secrets into the sandbox\n"
     );
 }
 
@@ -1562,10 +1562,7 @@ fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
         ],
         true,
     );
-    assert_eq!(
-        err,
-        "\u{b7} $ ls\n  \u{2713}\n\nsandbox: writes in $SCRATCH, private /tmp; no network\n"
-    );
+    assert_eq!(err, "\u{2713} $ ls\nsandbox: writes in $SCRATCH, private /tmp; no network\n");
 }
 
 #[test]
@@ -1587,8 +1584,8 @@ fn a_turn_with_the_network_view_says_so_in_its_trace() {
     );
     assert_eq!(
         err,
-        "\u{b7} $ ss -tln\n  \u{2713}\n\nsandbox: writes in $SCRATCH, private /tmp; no network; \
-         host network view (no sending)\n"
+        "\u{2713} $ ss -tln\nsandbox: writes in $SCRATCH, private /tmp; no network; host \
+         network view (no sending)\n"
     );
     // The next turn with no such call has the plain trace again.
     let (_, err, _) = feed(
@@ -1983,7 +1980,7 @@ fn a_call_of_a_command_of_several_lines_shows_each_line() {
     let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC), call_completed(0)], false);
     assert_eq!(
         err,
-        "\u{b7} $ cd src\n    export RUST_LOG=debug\n    cargo test -p efr-cli\n    unset RUST_LOG\n  \u{2713}\n"
+        "\u{2713} $ cd src\n    export RUST_LOG=debug\n    cargo test -p efr-cli\n    unset RUST_LOG\n"
     );
 }
 
@@ -2432,7 +2429,7 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     view.envelope(&sent(12, 40, tool_started("ls")), SIZE, false);
     // The call's line carries the spinner, so the status row hides while it runs.
     let running = view.frame(SIZE, at(40));
-    assert!(running.contains("$ ls"), "{}", readable(&running));
+    assert!(crate::testing::bare(&running).contains("$ ls"), "{}", readable(&running));
     assert!(
         !running.contains("preparing") && !running.contains("waiting"),
         "{}",
@@ -2478,12 +2475,8 @@ fn a_patch_that_the_model_writes_shows_its_size_then_its_files() {
     };
     view.envelope(&sent(12, 20, started), SIZE, false);
     let running = view.frame(SIZE, at(20));
-    // The running row is cut to the width of the screen.
-    assert!(
-        running.contains("apply_patch src/a.rs +2 -1, delete ol\u{2026}"),
-        "{}",
-        readable(&running)
-    );
+    // The running row names the files of the patch, as its row will.
+    assert!(crate::testing::bare(&running).contains("patch 2 files"), "{}", readable(&running));
     assert!(!running.contains("preparing") && !running.contains("Begin Patch"));
 }
 
@@ -2723,15 +2716,15 @@ fn a_call_that_waits_for_its_approval_shows_no_line_and_its_time_counts_from_the
     view.envelope(&sent(12, 0, tool_started("make install")), SIZE, true);
     view.envelope(&sent(13, 0, approval(None)), SIZE, true);
     let asked = view.frame(SIZE, at(0));
-    assert!(!asked.contains("$ make install"), "{}", readable(&asked));
+    assert!(!crate::testing::bare(&asked).contains("$ make install"), "{}", readable(&asked));
     view.answered(call(), ApprovalDecision::Allow, SIZE);
     view.envelope(&sent(14, 30_000, resolved(Origin::Shell)), SIZE, true);
     let running = view.frame(SIZE, at(30_000));
-    assert!(running.contains("$ make install"), "{}", readable(&running));
+    assert!(crate::testing::bare(&running).contains("$ make install"), "{}", readable(&running));
     assert!(!running.contains("waiting for"), "the call's line replaces the row");
     let done = view.envelope(&sent(15, 32_500, call_completed(0)), SIZE, true);
-    let out = readable(&framed(done, &mut view).out);
-    assert!(out.contains("$ make install\\e[0m\n  \\e[32m\u{2713} 2.5s"), "{out}");
+    let out = crate::testing::bare(&framed(done, &mut view).out);
+    assert!(out.contains("\u{2713} $ make install  2.5s\n"), "{out}");
 }
 
 #[test]
@@ -2743,10 +2736,10 @@ fn a_denied_call_keeps_its_command_under_the_answer() {
     framed(view.event(&tool_started("rm -rf build"), SIZE, true), &mut view);
     framed(view.event(&approval(None), SIZE, true), &mut view);
     let denied = framed(view.answered(call(), ApprovalDecision::Deny, SIZE), &mut view).out;
-    assert!(!readable(&denied).contains("$ rm"), "{}", readable(&denied));
+    assert!(!crate::testing::bare(&denied).contains("$ rm"), "{}", readable(&denied));
     let ended = framed(view.event(&refused_call_completed(), SIZE, true), &mut view).out;
-    let ended = readable(&ended);
-    assert_eq!(ended.matches("$ rm -rf build").count(), 1, "{ended}");
+    let ended = crate::testing::bare(&ended);
+    assert_eq!(ended.matches("\u{b7} $ rm -rf build  did not run").count(), 1, "{ended}");
     assert!(!ended.contains('\u{2717}'), "{ended}");
 }
 

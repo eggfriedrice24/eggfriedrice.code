@@ -2,5 +2,4 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-· $ cargo test
-  ✗ the sandbox could not start: bwrap: Can't mount proc on /newroot/proc; efr checks it again
+! $ cargo test  refused · the sandbox could not start: bwrap: Can't mount proc on /newroot/proc; efr checks it again

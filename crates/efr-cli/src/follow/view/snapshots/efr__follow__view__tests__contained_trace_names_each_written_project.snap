@@ -2,7 +2,5 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-· $ npm run build
-  ✓
-
+✓ $ npm run build
 sandbox: wrote in app and lib; could write $SCRATCH, private /tmp; no network

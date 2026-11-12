@@ -183,7 +183,8 @@ impl Screen {
     fn sequence(&mut self, sequence: &str) {
         let Some(last) = sequence.chars().last() else { return };
         match last {
-            'm' => self.current.push_str(sequence),
+            // NOTE: an erase to the end of the row keeps the fill of a diff's row.
+            'm' | 'K' => self.current.push_str(sequence),
             'A' => {
                 let count: usize = sequence[2..sequence.len() - 1].parse().unwrap_or(1);
                 let mut gone = 0;
@@ -196,6 +197,11 @@ impl Screen {
             }
             _ => {}
         }
+    }
+
+    /// The rows as the terminal keeps them, with their paint, each with its newline.
+    fn raw(&self) -> String {
+        self.rows.iter().map(|row| format!("{row}\n")).collect()
     }
 
     /// The lines, with their paint as `\e` sequences. A line of efr's own never takes
@@ -946,16 +952,16 @@ fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
             Sent(40, changed(1, changes, Some(diff))),
         ],
     );
-    let block: Vec<&str> = shown.lines().skip(1).take(5).collect();
+    let block: Vec<&str> = shown.lines().skip(1).take(4).collect();
     assert_eq!(
         block,
         [
-            "\\e[1m·\\e[0m apply_patch src/lib.rs +1",
+            // A patch of one file is named by what it does to the file (TM-Diffs 1).
+            "✓ \\e[2medit\\e[0m src/lib.rs  +1",
             // Without colour a hunk header is dim (TM-Legend 20).
-            "\\e[2m  │ \\e[0m\\e[2m@@ -1,1 +1,2 @@\\e[0m",
-            "\\e[2m  │ \\e[0m pub mod parse;",
-            "\\e[2m  │ \\e[0m\\e[1m+\\e[0mpub mod greet;",
-            "  ✓",
+            "  \\e[2m@@ 1\\e[0m",
+            "    pub mod parse;",
+            "  \\e[1m+\\e[0m pub mod greet;",
         ],
         "{shown}"
     );
@@ -1434,21 +1440,21 @@ fn turn_line_counts_home_files_and_names_undo() {
     ]);
     assert_eq!(
         err,
-        "changed 3 files (+24 -7) in eggfriedrice.code and 2 in ~; efr undo reverts this \
-         turn\n"
+        "changed 3 files  +24 -7  in eggfriedrice.code and 2 in ~ \u{b7} efr undo reverts \
+         this turn\n"
     );
     let undo = undo_info(&[("app", 2), ("$SCRATCH", 1), ("lib", 1)], 0, &[], 0);
     let err =
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
     assert!(
         err.starts_with(
-            "changed 3 files (+24 -7) in app, $SCRATCH and lib; efr undo reverts this turn\n"
+            "changed 3 files  +24 -7  in app, $SCRATCH and lib \u{b7} efr undo reverts this turn\n"
         ),
         "{err}"
     );
     let undo = undo_info(&[], 1, &[], 0);
     let err = piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(None, undo))]);
-    assert!(err.starts_with("changed 1 file in ~; efr undo reverts this turn\n"), "{err}");
+    assert!(err.starts_with("changed 1 file  in ~ \u{b7} efr undo reverts this turn\n"), "{err}");
 }
 
 #[test]
@@ -1508,7 +1514,7 @@ fn turn_line_lists_not_covered_paths() {
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
     assert!(
         err.starts_with(
-            "changed 3 files (+24 -7) in app; efr undo reverts this turn\nnot covered: \
+            "changed 3 files  +24 -7  in app \u{b7} efr undo reverts this turn\nnot covered: \
              target/ (ignored, large), .env.large (over 10 MiB), a, b, c and 6 more\n"
         ),
         "{err}"
@@ -1532,7 +1538,9 @@ fn turn_line_of_manual_turn_has_no_undo_hint() {
     let undo = TurnUndoInfo { undoable: false, ..undo_info(&[("app", 3)], 0, &["x (big)"], 0) };
     let err =
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
-    assert_eq!(err, "3 files changed, +24 -7\n");
+    // NOTE: the line of the turn is muted text until the turn slice paints its pieces;
+    // a note shows its words with single spaces.
+    assert_eq!(err, "3 files changed +24 -7 src/a.rs, notes.txt, old.rs\n");
 }
 
 /// Files of every kind of group: code, tests, a group of `[diff.groups]` and a lock file.
@@ -1676,3 +1684,5 @@ fn a_moved_call_shows_its_job_in_place_of_a_result() {
         Sent(100, turn_completed()),
     ]));
 }
+
+mod design;

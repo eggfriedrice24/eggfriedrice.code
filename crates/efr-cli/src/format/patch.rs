@@ -1,21 +1,18 @@
 //! The `apply_patch` tool as the CLI shows it: the line of a call with each file of
-//! its patch and their counts, and a diff of several files cut into one block per
-//! file.
+//! its patch and their counts, a diff of several files cut into one block per file,
+//! and the rows of a diff under a call ([`layout`]).
 //!
 //! ```text
-//! · apply_patch src/a.rs +3 -1, new notes.md +2, delete old.rs
-//!   src/a.rs
-//!   │ @@ -1,2 +1,2 @@
-//!   │ -    old();
-//!   │ +    new();
-//!   new notes.md
-//!   │ @@ -0,0 +1,2 @@
-//!   │ +# Notes
-//!   │ +
-//!   deleted old.rs
-//!   │ @@ -1,1 +0,0 @@
-//!   │ -fn old() {}
-//!   ✓
+//! ✓ patch 3 files  +5 -1
+//!   src/a.rs  +1 -1
+//!     @@ 1 fn main
+//!     -     old();
+//!     +     new();
+//!   new notes.md  +2
+//!     + # Notes
+//!     +
+//!   delete old.rs
+//!     deleted; its lines are in efr diff
 //! ```
 //!
 //! The patch is the model's text in the format of Codex (`*** Begin Patch` to
@@ -28,11 +25,16 @@
 //! preview puts a line `delete <path>` or `move <from> -> <to>` before the diff of a
 //! file that a patch deletes or moves.
 
-use efr_render::{RenderOptions, WidthMethod, diff_rows, text_width};
+use efr_render::{DiffLineKind, Glyphs, RenderOptions, Role, WidthMethod, diff_lines, text_width};
 use serde_json::Value;
 
 use super::changes::{DiffParts, MINUS, Piece, more_lines};
-use super::{Tone, columns, one_line, paint, wrap_spans};
+use super::{Tone, columns, one_line, paint};
+
+/// The arrow between the two paths of a move (`Glyphs::arrow`), in a call's line.
+fn arrow() -> String {
+    format!(" {} ", Glyphs::UNICODE.arrow)
+}
 
 /// The name of the tool.
 pub(crate) const TOOL: &str = "apply_patch";
@@ -43,9 +45,6 @@ const INPUT: &str = "input";
 
 /// What joins the files of a call's line.
 const JOIN: &str = ", ";
-
-/// The arrow between the two paths of a move.
-const ARROW: &str = " \u{2192} ";
 
 /// The fewest columns a row of a diff gets, so a very narrow screen still shows a few
 /// characters of each row.
@@ -155,7 +154,7 @@ pub(crate) fn entries(files: &[PatchFile]) -> Vec<String> {
                 Op::Update => path,
                 Op::Add => format!("new {path}"),
                 Op::Delete => return format!("delete {path}"),
-                Op::Move(to) => format!("move {path}{ARROW}{}", one_line(to)),
+                Op::Move(to) => format!("move {path}{}{}", arrow(), one_line(to)),
             };
             if file.added > 0 {
                 part.push_str(&format!(" +{}", file.added));
@@ -166,40 +165,6 @@ pub(crate) fn entries(files: &[PatchFile]) -> Vec<String> {
             part
         })
         .collect()
-}
-
-/// The entries of a call's line as rows of `room` columns, as a terminal that counts
-/// widths by `method` shows them: as many entries in a row as fit, joined by `, `, and
-/// a row cut only between two entries. An entry wider than a row is cut at its spaces,
-/// or inside a word when one word is wider. Nothing of the entries is left out.
-pub(crate) fn flow(entries: &[String], room: usize, method: WidthMethod) -> Vec<String> {
-    let room = room.max(1);
-    let mut rows: Vec<String> = Vec::new();
-    let mut row = String::new();
-    for (at, entry) in entries.iter().enumerate() {
-        let piece = if at + 1 < entries.len() { format!("{entry},") } else { entry.clone() };
-        let width = text_width(&piece, method);
-        if !row.is_empty() && text_width(&row, method) + 1 + width > room {
-            rows.push(std::mem::take(&mut row));
-        }
-        if !row.is_empty() {
-            row.push(' ');
-            row.push_str(&piece);
-        } else if width <= room {
-            row = piece;
-        } else {
-            let mut cut: Vec<String> = wrap_spans(&[(piece, Tone::Plain)], room, room, method)
-                .into_iter()
-                .map(|pieces| pieces.into_iter().map(|(text, _)| text).collect())
-                .collect();
-            row = cut.pop().unwrap_or_default();
-            rows.extend(cut);
-        }
-    }
-    if !row.is_empty() {
-        rows.push(row);
-    }
-    rows
 }
 
 /// The file of one diff in a diff of several files, as its headers name it.
@@ -248,7 +213,7 @@ impl DiffFile {
             }
             DiffFile::Delete(path) => marked("delete", "deleted", one_line(path)),
             DiffFile::Move { from, to } => {
-                marked("move", "moved", format!("{}{ARROW}{}", one_line(from), one_line(to)))
+                marked("move", "moved", format!("{}{}{}", one_line(from), arrow(), one_line(to)))
             }
         }
     }
@@ -418,21 +383,66 @@ fn named(head: &[&str]) -> DiffFile {
     }
 }
 
-/// The rows of one file's diff, each after `bar` (muted): at most `limit` lines from
-/// its first hunk on, in the `diff.*` roles with the file's syntax colours, then a
-/// muted `… N more lines` for the lines left out and the lines that the daemon cut.
-/// The file headers stay out; they only give the syntax colours, as `path` does for a
-/// diff without them. On a terminal a line wider than the screen goes on in the next
-/// row at the same column after a muted `↩`, so nothing of it is cut; elsewhere each
-/// line is one row, without colour.
+/// The lines that `diff` adds and removes, counted from its lines, outside its headers.
+pub(crate) fn count(diff: &str) -> (u32, u32) {
+    file_diffs(diff).iter().fold((0, 0), |(added, removed), file| {
+        let (more, fewer) = count_parts(&file.parts);
+        (added.saturating_add(more), removed.saturating_add(fewer))
+    })
+}
+
+/// The lines that one file's diff adds and removes, counted from its lines.
+pub(crate) fn count_parts(parts: &DiffParts<'_>) -> (u32, u32) {
+    let mut counts = (0_u32, 0_u32);
+    for line in &parts.body {
+        if line.starts_with("+++ ") || line.starts_with("--- ") {
+            continue;
+        }
+        match line.as_bytes().first() {
+            Some(b'+') => counts.0 = counts.0.saturating_add(1),
+            Some(b'-') => counts.1 = counts.1.saturating_add(1),
+            _ => {}
+        }
+    }
+    counts
+}
+
+/// The rows of one file's diff after `indent`, as a question's card shows them: as
+/// [`layout`], with no hint after the count of the lines left out.
 pub(crate) fn rows(
     parts: &DiffParts<'_>,
     path: Option<&str>,
     limit: usize,
-    bar: &str,
+    indent: &str,
     options: &RenderOptions,
 ) -> String {
-    let shown = parts.body.len().min(limit);
+    layout(parts, path, limit, indent, false, options)
+}
+
+/// The rows of one file's diff, each after `indent`: at most `limit` lines from its
+/// first hunk on, then a muted `… N more lines` for the lines left out and the lines
+/// that the daemon cut, with ` · efr diff` after it when `hint`. The file headers stay
+/// out; they only give the syntax colours, as `path` does for a diff without them.
+///
+/// - A hunk header is short, in the `diff.hunk` role: `@@ 88 impl Turn`, the first line
+///   of the new side and the function that git names, without its `{`.
+/// - A line of the diff is its sign (`efr_render::diff_lines` paints it), one space and
+///   its text, on the fill of its kind to the end of the row where the palette gives
+///   one (`ESC [ K`); a line that stays has two spaces in place of its sign.
+/// - On a terminal a line wider than the screen goes on in the next row after a muted
+///   `↩`, 2 columns before the code of the line, so nothing of it is cut. Elsewhere
+///   each line is one row, without colour.
+pub(crate) fn layout(
+    parts: &DiffParts<'_>,
+    path: Option<&str>,
+    limit: usize,
+    indent: &str,
+    hint: bool,
+    options: &RenderOptions,
+) -> String {
+    // NOTE: the hunk of a new file shows no row, so it takes none of the limit.
+    let quiet = usize::from(parts.body.first().is_some_and(|line| new_file_hunk(line)));
+    let shown = parts.body.len().min(limit.saturating_add(quiet));
     let hidden = parts.body.len() - shown + parts.cut;
     let mut source: Vec<String> = parts.head.iter().map(|line| (*line).to_owned()).collect();
     if let Some(path) = path.filter(|_| !parts.head.iter().any(|line| line.starts_with("--- "))) {
@@ -440,36 +450,226 @@ pub(crate) fn rows(
         source.push(format!("+++ b/{path}"));
     }
     let head = source.len();
-    source.extend(parts.body[..shown].iter().map(|line| (*line).to_owned()));
+    let body = &parts.body[..shown];
+    source.extend(body.iter().map(|line| (*line).to_owned()));
     let mut text = source.join("\n");
     text.push('\n');
-    let room = match columns(options) {
-        Some((width, method)) => {
-            let taken = text_width(bar, method) + text_width(super::WORD_MARK, method);
-            width.saturating_sub(taken).max(MIN_DIFF_WIDTH)
-        }
-        None => usize::from(options.width()),
+    // NOTE: one row for each line; this function cuts the rows itself, at the column
+    // that each row starts at.
+    let whole = options.clone().with_width(u16::MAX);
+    let glyphs = options.glyphs();
+    let method = options.width_method();
+    let indent_width = text_width(indent, method);
+    let painted_indent = if indent.trim().is_empty() {
+        indent.to_owned()
+    } else {
+        paint(indent, Tone::Dim, options)
     };
-    let options = options.clone().with_width(u16::try_from(room).unwrap_or(u16::MAX));
-    let bar = paint(bar, Tone::Dim, &options);
     let mut out = String::new();
-    for rows in diff_rows(&text, &options).into_iter().skip(head) {
-        let last = rows.len().saturating_sub(1);
-        for (at, row) in rows.iter().enumerate() {
-            out.push_str(&bar);
-            out.push_str(row);
-            if at < last {
-                out.push_str(&paint(super::WORD_MARK, Tone::Dim, &options));
+    for (line, source) in diff_lines(&text, &whole).into_iter().skip(head).zip(body) {
+        match line.kind {
+            // NOTE: the hunk of a new file starts at its first line and says nothing.
+            DiffLineKind::Hunk if new_file_hunk(source) => {}
+            DiffLineKind::Hunk => {
+                out.push_str(&painted_indent);
+                out.push_str(&options.paint(Role::DiffHunk, &short_hunk(source, glyphs)));
+                out.push('\n');
             }
-            out.push('\n');
+            DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => {
+                // NOTE: the sign is the first column of the line, however the painter
+                // joined it with the text after it.
+                let whole = format!("{}{}", line.sign, line.rows.concat());
+                let mut parts = split_painted(&whole, 1, usize::MAX, method).into_iter();
+                let sign = parts.next().filter(|sign| !bare(sign).is_empty());
+                let sign = sign.unwrap_or_else(|| " ".to_owned());
+                let content = parts.next().unwrap_or_default();
+                let lead = format!("{painted_indent}{sign} ");
+                let column = indent_width + 2;
+                let rows = match columns(options) {
+                    Some((width, method)) => cut_rows(&content, column, width, method),
+                    None => vec![(0, content)],
+                };
+                let count = rows.len();
+                for (at, (start, row)) in rows.into_iter().enumerate() {
+                    let mut body = if at == 0 { lead.clone() } else { " ".repeat(start) };
+                    body.push_str(&row);
+                    if at + 1 < count {
+                        body.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
+                    }
+                    let body = if line.fill.is_none() { body.trim_end().to_owned() } else { body };
+                    push_filled(&mut out, &body, line.fill.as_deref());
+                }
+            }
+            _ => {
+                out.push_str(&painted_indent);
+                out.push_str(&line.rows.concat());
+                out.push('\n');
+            }
         }
     }
     if hidden > 0 {
-        out.push_str(&bar);
-        out.push_str(&paint(&more_lines(hidden), Tone::Dim, &options));
+        let mut more = more_lines(hidden, glyphs);
+        if hint {
+            more.push_str(&format!(" {} efr diff", glyphs.separator));
+        }
+        out.push_str(&painted_indent);
+        out.push_str(&paint(&more, Tone::Dim, options));
         out.push('\n');
     }
     out
+}
+
+/// True for the hunk header of a new file, `@@ -0,0 +1,12 @@`, which says nothing that
+/// the row of the call does not.
+fn new_file_hunk(line: &str) -> bool {
+    line.starts_with("@@ -0,0 ")
+}
+
+/// A hunk header `@@ -88,7 +88,11 @@ impl Turn {` in its short form, `@@ 88 impl Turn`:
+/// the first line of the new side and git's function context without its `{`. A header
+/// of another form stays as it is.
+fn short_hunk(line: &str, glyphs: &Glyphs) -> String {
+    let short = || -> Option<String> {
+        let rest = line.strip_prefix("@@ ")?;
+        let (ranges, context) = rest.split_once(" @@")?;
+        let new = ranges.split(' ').find_map(|range| range.strip_prefix('+'))?;
+        let start = new.split(',').next()?;
+        start.parse::<u64>().ok()?;
+        let context = context.trim();
+        let context = context.strip_suffix('{').unwrap_or(context).trim_end();
+        let mut short = format!("{} {start}", glyphs.hunk);
+        if !context.is_empty() {
+            short.push(' ');
+            short.push_str(&one_line(context));
+        }
+        Some(short)
+    };
+    short().unwrap_or_else(|| one_line(line))
+}
+
+/// `painted`, the text of a line of a diff after its sign, as rows of a screen `width`
+/// wide whose first row starts at `column`: the first row and each row that goes on
+/// keep one column for the mark of the cut. A row that goes on starts 2 columns before
+/// the code of the line (after its leading spaces), and never before 2 columns after
+/// `column`. Gives each row with the column it starts at; the paint of each row is
+/// whole (`ESC [ 0 m` at its end, the paint that runs on again at the start of the
+/// next).
+fn cut_rows(
+    painted: &str,
+    column: usize,
+    width: usize,
+    method: WidthMethod,
+) -> Vec<(usize, String)> {
+    let plain = bare(painted);
+    if column + text_width(&plain, method) <= width {
+        return vec![(column, painted.to_owned())];
+    }
+    let leading = plain.chars().take_while(|c| *c == ' ').count();
+    let goes_on = (column + leading).saturating_sub(2).max(column + 2);
+    let first = width.saturating_sub(column + 1).max(MIN_DIFF_WIDTH);
+    let rest = width.saturating_sub(goes_on + 1).max(MIN_DIFF_WIDTH);
+    split_painted(painted, first, rest, method)
+        .into_iter()
+        .enumerate()
+        .map(|(at, row)| (if at == 0 { column } else { goes_on }, row))
+        .collect()
+}
+
+/// `text` without its escape sequences.
+fn bare(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.next() == Some('[') {
+                for c in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&c) {
+                        break;
+                    }
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The reset of SGR.
+const RESET: &str = "\x1b[0m";
+
+/// `painted` as rows of `first` columns, then of `rest`: each row starts with the SGR
+/// that runs at its start and ends with a reset when any runs at its end. Only SGR and
+/// other CSI sequences may be in it; they take no column.
+fn split_painted(painted: &str, first: usize, rest: usize, method: WidthMethod) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut row = String::new();
+    // The SGR that runs now, the sequences since the last character, and whether the
+    // row has paint open at its end.
+    let mut active: Vec<String> = Vec::new();
+    let mut pending = String::new();
+    let mut open = false;
+    let mut used = 0;
+    let mut room = first.max(1);
+    let mut chars = painted.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            let mut sequence = String::from("\x1b");
+            for c in chars.by_ref() {
+                sequence.push(c);
+                if ('\x40'..='\x7e').contains(&c) && c != '[' {
+                    break;
+                }
+            }
+            if sequence.ends_with('m') {
+                if sequence == RESET || sequence == "\x1b[m" {
+                    active.clear();
+                } else {
+                    active.push(sequence.clone());
+                }
+            }
+            pending.push_str(&sequence);
+            continue;
+        }
+        let width = text_width(c.encode_utf8(&mut [0; 4]), method);
+        if used > 0 && used + width > room {
+            // NOTE: the sequences since the last character belong to the next row,
+            // whose start sets the paint that runs.
+            if open {
+                row.push_str(RESET);
+            }
+            rows.push(std::mem::take(&mut row));
+            row.push_str(&active.concat());
+            pending.clear();
+            used = 0;
+            room = rest.max(1);
+        }
+        row.push_str(&std::mem::take(&mut pending));
+        open = !active.is_empty();
+        row.push(c);
+        used += width;
+    }
+    row.push_str(&pending);
+    rows.push(row);
+    rows
+}
+
+/// Adds `body` as one row with its newline: on `fill`, the SGR parameters of the
+/// background of its kind, from its first column to the end of the row (`ESC [ K`), with
+/// the background set again after each reset in it and reset before the newline, so the
+/// next row starts clean.
+fn push_filled(out: &mut String, body: &str, fill: Option<&str>) {
+    match fill {
+        Some(fill) => {
+            let on = format!("\x1b[{fill}m");
+            out.push_str(&on);
+            out.push_str(&body.replace(RESET, &format!("{RESET}{on}")));
+            out.push_str("\x1b[K");
+            out.push_str(RESET);
+        }
+        None => out.push_str(body),
+    }
+    out.push('\n');
 }
 
 #[cfg(test)]

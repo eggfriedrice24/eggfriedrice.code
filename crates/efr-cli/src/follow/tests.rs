@@ -926,7 +926,7 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
     .await;
     result.unwrap();
     assert_eq!(out, "");
-    assert!(err.contains("> yo\u{8} \u{8}es\n\nanswer sent\n"), "{err:?}");
+    assert!(err.contains("> yo\u{8} \u{8}es\nanswer sent\n"), "{err:?}");
     assert_eq!(err.matches("answer sent").count(), 1, "only the visible answer: {err:?}");
     assert!(!err.contains("hunter") && !err.contains("ter2"), "{err:?}");
 }
@@ -978,9 +978,8 @@ async fn without_keys_a_hidden_wait_is_a_note_and_nobody_answers() {
     result.unwrap();
     assert_eq!(
         err,
-        "\u{b7} $ sudo true\n\n\
-         the command waits for hidden input, such as a password; efr cannot ask for it here\n  \
-         \u{2717} exit 1\n"
+        "the command waits for hidden input, such as a password; efr cannot ask for it here\n\
+         \u{2717} $ sudo true  exit 1 \u{b7} 0.0s\n"
     );
 }
 

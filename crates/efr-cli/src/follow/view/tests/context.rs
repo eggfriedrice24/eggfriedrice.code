@@ -156,14 +156,14 @@ fn the_running_call_carries_the_gauge_while_the_status_row_hides() {
     view.frame(SIZE, at(0));
     let frame = readable(&view.tick(SIZE, at(12_300)));
     assert!(
-        frame.contains("$ cargo test -p app\\e[0m  \\e[2m12s\\e[0m  \\e[31mctx 90%"),
+        frame.contains("$\\e[0m cargo test -p app  \\e[2m12s\\e[0m   \\e[31mctx 90%"),
         "{frame}"
     );
     assert!(!frame.contains("waiting for"), "the call's line replaces the row: {frame}");
     // At 30 columns the gauge stays and the command is cut; at 20 the command keeps
     // what room is left, and the gauge goes.
     let frame = bare(&view.tick(Size { cols: 30, rows: 20 }, at(13_400)));
-    assert!(frame.contains("$ cargo test \u{2026}  13s  ctx 90%"), "{frame}");
+    assert!(frame.contains("$ cargo test\u{2026}  13s   ctx 90%"), "{frame}");
     let frame = bare(&view.tick(Size { cols: 20, rows: 20 }, at(14_400)));
     assert!(frame.contains("$ cargo test\u{2026}  14s") && !frame.contains("ctx"), "{frame}");
 }

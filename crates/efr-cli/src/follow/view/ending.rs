@@ -89,7 +89,10 @@ impl TurnView {
         let changed = changes
             .as_ref()
             .filter(|_| !undoable)
-            .and_then(|changes| format::changes::turn_line(changes, &self.groups));
+            .map(|changes| {
+                format::changes::plain(&format::changes::turn_line(changes, &self.options_now()))
+            })
+            .filter(|line| !line.is_empty());
         let line = self
             .summary()
             .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
@@ -254,7 +257,8 @@ impl TurnView {
             ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable)
         {
             undo.home_files = undo.home_files.saturating_sub(own);
-            lines.extend(format::changes::undo_line(changes.as_ref(), &undo, &self.groups));
+            let line = format::changes::undo_line(changes.as_ref(), &undo, &self.options_now());
+            lines.extend(Some(format::changes::plain(&line)).filter(|line| !line.is_empty()));
             lines.extend(format::changes::not_covered_line(&not_covered, undo.not_covered_more));
         }
         lines

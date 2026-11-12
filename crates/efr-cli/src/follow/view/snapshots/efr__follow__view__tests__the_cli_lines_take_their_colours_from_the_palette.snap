@@ -6,21 +6,19 @@ expression: "shown.join(\"\\n===\\n\")"
 \e[?25l\e[?2026h\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[32m$ make\e[0m
-\e[2m  │ error: no rule\e[0m
+\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[2m$\e[0m make
+    \e[2merror: no rule\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[2A\e[J\e[33m·\e[0m \e[32m$ make\e[0m
-\e[2m  │ error: no rule\e[0m
-  \e[31m✗ exit 2 · 2.0s\e[0m
+\e[?2026h\r\e[2A\e[J\e[1;31m✗\e[0m \e[2m$\e[0m make  \e[31mexit 2\e[0m \e[2m· 2s\e[0m
+    error: no rule
 
 \e[33m? allow this command\e[0m
 \e[2m│ \e[0mwrite ~/.zshrc
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 \e[?2026l\e[?25h
 ---
-\e[?25l\e[?2026h\r\e[4A\e[J
-\e[32m✓ allowed\e[0m
+\e[?25l\e[?2026h\r\e[4A\e[J\e[32m✓ allowed\e[0m
 \e[33m⠴\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -28,21 +26,19 @@ expression: "shown.join(\"\\n===\\n\")"
 \e[?25l\e[?2026h\e[33m⠋\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[32m$ make\e[0m
-\e[90m  │ error: no rule\e[0m
+\e[?2026h\r\e[1A\e[J\e[33m⠋\e[0m \e[90m$\e[0m make
+    \e[90merror: no rule\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[2A\e[J\e[33m·\e[0m \e[32m$ make\e[0m
-\e[90m  │ error: no rule\e[0m
-  \e[31m✗ exit 2 · 2.0s\e[0m
+\e[?2026h\r\e[2A\e[J\e[1;31m✗\e[0m \e[90m$\e[0m make  \e[31mexit 2\e[0m \e[90m· 2s\e[0m
+    error: no rule
 
 \e[35m? allow this command\e[0m
 \e[90m│ \e[0mwrite ~/.zshrc
 \e[90m│ \e[0m\e[1my\e[0m\e[90m allow\e[0m\e[90m · \e[0m\e[1mn\e[0m\e[90m deny\e[0m
 \e[?2026l\e[?25h
 ---
-\e[?25l\e[?2026h\r\e[4A\e[J
-\e[92m✓ allowed\e[0m
+\e[?25l\e[?2026h\r\e[4A\e[J\e[92m✓ allowed\e[0m
 \e[33m⠴\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -50,21 +46,19 @@ truecolor, palette:
 \e[?25l\e[?2026h\e[38;2;242;193;78m⠋\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[38;2;242;193;78m⠋\e[0m \e[38;2;96;230;84m$ make\e[0m
-\e[90m  │ error: no rule\e[0m
+\e[?2026h\r\e[1A\e[J\e[38;2;242;193;78m⠋\e[0m \e[90m$\e[0m make
+    \e[90merror: no rule\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[2A\e[J\e[38;2;242;193;78m·\e[0m \e[38;2;96;230;84m$ make\e[0m
-\e[90m  │ error: no rule\e[0m
-  \e[38;2;224;108;117m✗ exit 2 · 2.0s\e[0m
+\e[?2026h\r\e[2A\e[J\e[1;38;2;224;108;117m✗\e[0m \e[90m$\e[0m make  \e[38;2;224;108;117mexit 2\e[0m \e[90m· 2s\e[0m
+    error: no rule
 
 \e[35m? allow this command\e[0m
 \e[90m│ \e[0mwrite ~/.zshrc
 \e[90m│ \e[0m\e[1my\e[0m\e[90m allow\e[0m\e[90m · \e[0m\e[1mn\e[0m\e[90m deny\e[0m
 \e[?2026l\e[?25h
 ---
-\e[?25l\e[?2026h\r\e[4A\e[J
-\e[92m✓ allowed\e[0m
+\e[?25l\e[?2026h\r\e[4A\e[J\e[92m✓ allowed\e[0m
 \e[38;2;242;193;78m⠴\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -72,20 +66,18 @@ NO_COLOR, palette:
 \e[?25l\e[?2026h\e[1m⠋\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[1m⠋\e[0m $ make
-\e[2m  │ error: no rule\e[0m
+\e[?2026h\r\e[1A\e[J\e[1m⠋\e[0m \e[2m$\e[0m make
+    \e[2merror: no rule\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[2A\e[J\e[1m·\e[0m $ make
-\e[2m  │ error: no rule\e[0m
-  \e[1m✗ exit 2 · 2.0s\e[0m
+\e[?2026h\r\e[2A\e[J\e[1m✗\e[0m \e[2m$\e[0m make  \e[1mexit 2\e[0m \e[2m· 2s\e[0m
+    error: no rule
 
 \e[1m? allow this command\e[0m
 \e[2m│ \e[0mwrite ~/.zshrc
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 \e[?2026l\e[?25h
 ---
-\e[?25l\e[?2026h\r\e[4A\e[J
-✓ allowed
+\e[?25l\e[?2026h\r\e[4A\e[J✓ allowed
 \e[1m⠴\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l

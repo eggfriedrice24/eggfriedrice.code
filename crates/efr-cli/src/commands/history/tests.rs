@@ -1423,7 +1423,7 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     );
     for line in [
         "changed ~/.zshrc; efr undo reverts it\n",
-        "changed 1 file in ~; efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
+        "changed 1 file  in ~ \u{b7} efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
         &format!(
             "undid turn {}: 2 files restored, 1 moved to the undo trash, 1 skipped (changed \
              after the turn)\n",
@@ -1615,11 +1615,12 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
 
     let text = show(&page, &options);
 
-    assert!(text.contains("2 files changed, +10 -1 (tests +7)\n"), "{text}");
+    // NOTE: the line names the files, not their groups (the calls slice).
+    assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
     let groups = DiffGroups::new(vec![("checks".to_owned(), vec!["tests/".to_owned()])]);
     let shown = Shown { options: &options, verbose: false, home: None, groups: &groups };
     let text = transcript(conversation(), &page, &shown);
-    assert!(text.contains("2 files changed, +10 -1 (checks +7)\n"), "{text}");
+    assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
     // A turn that changed no file shows no line.
     let none = ConversationHistoryResult {
         events: vec![envelope(

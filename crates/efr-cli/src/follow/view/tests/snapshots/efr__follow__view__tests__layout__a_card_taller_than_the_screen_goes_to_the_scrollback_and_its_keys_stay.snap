@@ -33,7 +33,7 @@ expression: shown
 \e[2m│ \e[0mecho step 11
 \e[2m│ \e[0mecho step 12
 ✓ allowed
-\e[1m•\e[0m $ echo step 1
+\e[1m•\e[0m \e[2m$\e[0m echo step 1
     echo step 2
     echo step 3
     \e[2m(9 more lines)\e[0m

@@ -21,11 +21,12 @@
 //! answered. This client tells the daemon that a person here can answer, so it must
 //! ask for the running turn's input as well.
 //!
-//! While a tool call of this turn runs on a terminal, its block (`call`) sits in the
+//! While a tool call of this turn runs on a terminal, its row (`call`) sits in the
 //! live zone with the spinner and its time, in place of the status row, and the last
 //! three lines of its output with text in them follow, muted and cut to the width. When
-//! the call ends, its block is written once in its place, with its result, and a failed
-//! call keeps its last lines of output. When the call's command waits for input and
+//! the call ends, one row is written once in its place that says how it ended, and a
+//! failed call keeps its last lines of output. Reads that follow each other fold into
+//! one row (`fold`). When the call's command waits for input and
 //! keys can be read, the view
 //! asks for an answer line below it: a hidden answer (a password) never reaches the
 //! view at all, and a visible one is echoed here as the user types it, unless its
@@ -88,12 +89,13 @@
 //! line in the scrollback, such as `context compacted (auto): 231k -> 24k tokens, kept
 //! 3 turns, summary 3.2k`.
 //!
-//! What a call changed comes with its end: a file write shows the first lines of its
-//! diff in its block (`render.diff_lines`), a patch the first lines of each file's
-//! diff, and a call that changed files without a
-//! diff shown gets one muted row of them under its result (`format::changes`). A turn
-//! that changed files ends with one muted line that counts them, right before the line
-//! of its time and tokens. Before both, however the turn ended, comes one muted line for
+//! What a call changed comes with its end: a file write's row names its file and its
+//! counts, and the first lines of its diff follow (`render.diff_lines`, and
+//! `render.diff_lines_long` from the 6th call of a turn on), a patch the first lines of
+//! each file's diff, and a call that changed files without a diff shown gets one muted
+//! row of them under it (`format::changes`). A turn that changed files ends with one
+//! line that counts them and names three, right before the line of its time and
+//! tokens. Before both, however the turn ended, comes one muted line for
 //! each file outside the project that runs code later and that the turn changed, such
 //! as `changed ~/.zshrc; efr undo reverts it` (or, in an event from before the home
 //! store, `changed ~/.zshrc; backup at <path>`), and for each file outside the roots
@@ -129,7 +131,7 @@
 //! A background job belongs to the conversation, not to a turn: the end of a job, a
 //! line that matched its `watch` pattern and a notice that did not start a turn show
 //! while the view follows any turn of the conversation (`format::jobs`). A call that
-//! starts a job says `(background)`, and its block names the job. A turn that a job
+//! starts a job says `(background)`, and the row under it names the job. A turn that a job
 //! notice started is marked once. Ctrl+X asks whether to stop the newest running job
 //! ([`TurnView::stop_question`]).
 //!
@@ -137,8 +139,8 @@
 //! ([`TurnView::background_call`]): efrd moves a call in the sandbox at once, and for a
 //! call outside the sandbox it answers a preview, which the view asks about with one
 //! key ([`TurnView::move_question`]). The empty input row names the key once such a
-//! call has run for [`BACKGROUND_AFTER`]. A moved call's block ends with `(moved to
-//! job j3)` and the line of the job, from its `job_started`.
+//! call has run for [`BACKGROUND_AFTER`]. A moved call's row says `moved to job j3`,
+//! and the line of the job, from its `job_started`, follows it.
 
 mod asking;
 mod call;
@@ -645,8 +647,12 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
-    /// The reads that fold into one row (`fold`): a seam that the calls slice fills.
-    fold: Fold,
+    /// The reads that fold into one row (`fold`).
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    fold: Box<Fold>,
+    /// The tool calls of the turn so far: from the 6th on, a diff shows
+    /// `render.diff_lines_long` lines.
+    calls: usize,
     /// What the lines at the end of the turn name, gathered while it runs.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
     ending: Box<Ending>,
@@ -744,7 +750,8 @@ impl TurnView {
             reviewed: HashMap::new(),
             commands: HashMap::new(),
             away: false,
-            fold: Fold::default(),
+            fold: Box::default(),
+            calls: 0,
             ending: Box::default(),
             ended_undo: None,
             surface: None,
@@ -2260,6 +2267,7 @@ impl TurnView {
         // An echo line left open would carry what is written after the view.
         let mut err = header;
         err.push_str(&self.raw_err(String::new()));
+        self.flush_fold();
         let mut step = Step { err, ..self.commit(committed) };
         // A question that nobody answered stays in the scrollback.
         self.commit_question();
@@ -2361,7 +2369,8 @@ impl TurnView {
             return Step { out: committed, ..Step::default() };
         }
         // NOTE: not `stage`, which would push the waiting text of this message before
-        // the output that comes ahead of it.
+        // the output that comes ahead of it. The fold of reads stands before the message.
+        self.flush_fold();
         self.pending.push_str(&committed);
         self.dirty = true;
         Step::default()
@@ -2409,6 +2418,7 @@ impl TurnView {
         self.draft_boundary = None;
         self.interrupting = false;
         self.resent_note = false;
+        self.calls = 0;
         self.ending.home_changes.clear();
         self.ending.full_exits.clear();
         if let Some(input) = &mut self.input {
@@ -2471,6 +2481,10 @@ impl TurnView {
     /// Keeps `committed` for the next frame, after the text that the current message
     /// still holds back, and marks the live zone for that frame.
     fn stage(&mut self, committed: &str) {
+        // NOTE: the fold of reads ends with anything that is written after it.
+        if !committed.is_empty() {
+            self.flush_fold();
+        }
         if !committed.is_empty()
             && let Some(message) = &mut self.message
         {

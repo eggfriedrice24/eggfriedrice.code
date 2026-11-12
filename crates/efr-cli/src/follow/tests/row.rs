@@ -1714,7 +1714,7 @@ async fn ctrl_b_moves_a_contained_call_at_once_whatever_the_row_holds() {
         conn.item(sub, &item(13, moved_call_completed())).await;
         let moved = efr_protocol::CallBackgroundResult::Moved { job_id: JobId::nth(1) };
         conn.reply(id, &moved).await;
-        shows(&seen, "(moved to job j1)").await;
+        shows(&seen, "$ cargo build  moved to job j1").await;
         keys.type_bytes(b"!").await;
         shows(&seen, "\u{203a} draft!").await;
         conn.item(sub, &item(14, turn_completed())).await;
@@ -1756,7 +1756,7 @@ async fn ctrl_b_asks_before_it_moves_a_call_outside_the_sandbox() {
         conn.item(sub, &item(13, moved_call_completed())).await;
         let moved = efr_protocol::CallBackgroundResult::Moved { job_id: JobId::nth(1) };
         conn.reply(id, &moved).await;
-        shows(&seen, "(moved to job j1)").await;
+        shows(&seen, "$ rsync -a src/ host:dst/  moved to job j1").await;
         conn.item(sub, &item(14, turn_completed())).await;
         conn.until_closed().await;
     })

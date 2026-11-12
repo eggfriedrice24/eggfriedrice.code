@@ -4,44 +4,34 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"cargo fmt\
 ---
 === 40 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ cargo fmt\e[0m
-  \e[32m✓\e[0m
-
-\e[2mchanged 3 files (+24 -7) in app; efr\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m0.8s\e[0m
+\e[2mchanged 3 files  +24 -7  in app · efr\e[0m
   \e[2mundo reverts this turn\e[0m
 \e[2minterrupted after 1.0s\e[0m
 
 === 40 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ cargo fmt
-  ✓
-
-\e[2mchanged 3 files (+24 -7) in app; efr\e[0m
+✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m0.8s\e[0m
+\e[2mchanged 3 files  +24 -7  in app · efr\e[0m
   \e[2mundo reverts this turn\e[0m
 \e[2minterrupted after 1.0s\e[0m
 
 === 80 columns, colour
 [end]
-\e[33m·\e[0m \e[32m$ cargo fmt\e[0m
-  \e[32m✓\e[0m
-
-\e[2mchanged 3 files (+24 -7) in app; efr undo reverts this turn\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m0.8s\e[0m
+\e[2mchanged 3 files  +24 -7  in app · efr undo reverts this turn\e[0m
 \e[2minterrupted after 1.0s\e[0m
 
 === 80 columns, NO_COLOR
 [end]
-\e[1m·\e[0m $ cargo fmt
-  ✓
-
-\e[2mchanged 3 files (+24 -7) in app; efr undo reverts this turn\e[0m
+✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m0.8s\e[0m
+\e[2mchanged 3 files  +24 -7  in app · efr undo reverts this turn\e[0m
 \e[2minterrupted after 1.0s\e[0m
 
 === not a terminal
 [end]
 stdout:
 stderr:
-· $ cargo fmt
-  ✓
-
-changed 3 files (+24 -7) in app; efr undo reverts this turn
+✓ $ cargo fmt  0.8s
+changed 3 files  +24 -7  in app · efr undo reverts this turn
 interrupted

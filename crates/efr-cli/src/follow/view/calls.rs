@@ -1,6 +1,7 @@
 //! The events of a tool call in the view: its start, its output and its end, and the
-//! block that a call leaves in the scrollback. The calls slice of the terminal look
-//! owns this file: an `impl TurnView` block next to `view.rs`.
+//! rows that a call leaves in the scrollback (`call`): one row for each call, the rows
+//! under it, and the fold of reads that follow each other (`fold`). The calls slice of
+//! the terminal look owns this file: an `impl TurnView` block next to `view.rs`.
 
 use efr_protocol::{CallId, Event, FileChanges, Grant, Launch, looks_secret};
 
@@ -10,18 +11,20 @@ use super::status::State;
 use super::{
     About, Ask, Changed, MOVE_ENDED, NO, Running, Step, TurnView, call, last_line, open_line,
 };
+use crate::format::changes::Piece;
 use crate::format::{self, Block, sandbox};
 use crate::terminal::Size;
 
 impl TurnView {
-    /// The start of a tool call: its block shows in the live zone on a terminal, and its
-    /// first rows wait for stderr elsewhere (`due_header`).
+    /// The start of a tool call: its row shows in the live zone on a terminal. Elsewhere
+    /// its row goes to stderr when it ends.
     pub(super) fn tool_call_started(&mut self, event: &Event) -> Step {
         let Event::ToolCallStarted { call_id, tool, input, manual_input, launch, .. } = event
         else {
             return Step::default();
         };
         self.state(State::Tool(format::one_line(tool)));
+        self.calls = self.calls.saturating_add(1);
         self.tools.insert(*call_id, tool.clone());
         if let Some(command) = format::command_of(input) {
             self.commands.insert(*call_id, command.to_owned());
@@ -47,11 +50,11 @@ impl TurnView {
         if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
             call = call.in_background();
         }
-        // On a terminal the call's block shows in the live zone while it runs
-        // and is written once when it ends; elsewhere its first rows go to
-        // stderr after its question and its answer, if it has one
-        // (`due_header`), and its result when it ends.
-        call.header_due = !self.terminal();
+        // NOTE: on a terminal the call's row shows in the live zone while it runs and is
+        // written once when it ends. Elsewhere it goes to stderr when it ends, after its
+        // question and its answer, if it has one: its row says how it ended, so nothing
+        // of it waits (`due_header`).
+        call.header_due = false;
         self.call = Some(call);
         Step { settled, ..self.commit(before) }
     }
@@ -128,13 +131,16 @@ impl TurnView {
             self.left = Some(Box::new(left));
         }
         // The job that the call started, first: it runs on after the call.
-        let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
+        let options = self.options_at(size);
+        let mut notes: Vec<Vec<Piece>> =
+            self.jobs.lines.remove(call_id).into_iter().map(call::note).collect();
         if let Some(summary) = summary {
-            notes.extend(sandbox::blocked_lines(&summary.blocked, summary.blocked_more));
-            notes
-                .extend(sandbox::bus_refused_lines(&summary.bus_refused, summary.bus_refused_more));
-            notes.extend(sandbox::background_stopped(&summary.background_stopped));
-            notes.extend(sandbox::survivors(&summary.survivors));
+            notes.extend(call::blocked_rows(&summary.blocked, summary.blocked_more, &options));
+            let lines = sandbox::bus_refused_lines(&summary.bus_refused, summary.bus_refused_more)
+                .into_iter()
+                .chain(sandbox::background_stopped(&summary.background_stopped))
+                .chain(sandbox::survivors(&summary.survivors));
+            notes.extend(lines.map(call::note));
         }
         let step = match self.call.take().filter(|call| call.call_id == *call_id) {
             Some(call) if denied && refusal.is_none() => self.denied_block(&call, &notes, size),
@@ -165,8 +171,8 @@ impl TurnView {
                     all.push(format!("{}: {}", format::one_line(tool), call::LEFT_RUNNING));
                 }
                 all.extend(sandbox::setup_failed(setup));
-                all.extend(changes.as_ref().and_then(changes_note));
-                all.extend(notes);
+                all.extend(changes.as_ref().and_then(|changes| changes_note(changes, &options)));
+                all.extend(notes.iter().map(|pieces| format::changes::plain(pieces)));
                 self.notes(&all, size)
             }
         };
@@ -175,67 +181,95 @@ impl TurnView {
         Step { settled, err, ..step }
     }
 
-    /// The block of call `call`, which ended as `outcome` at the time of the event being
-    /// taken, written once, with `notes` under its result; a failed call keeps `lines`,
-    /// the last of its output. A file write's diff stands above the result; the files
-    /// that a call without a diff shown changed stand under it. When stdout is not a
-    /// terminal, its first rows went to stderr before this event (`due_header`), and
-    /// the rest follows now.
+    /// The rows of call `call`, which ended as `outcome` at the time of the event being
+    /// taken, written once: its row, then the last lines of its output for a failed
+    /// call, the diff of a file write or the row of the files that it changed, then
+    /// `notes`. A read that went well on a terminal joins the fold of reads instead
+    /// (`fold`). When stdout is not a terminal, the rows go to stderr.
     pub(super) fn call_block(
         &mut self,
         call: &Call,
         outcome: Outcome<'_>,
         lines: &[String],
-        notes: &[String],
+        notes: &[Vec<Piece>],
         changed: Changed<'_>,
         size: Size,
     ) -> Step {
         let options = self.options_at(size);
-        let mut block = String::new();
-        if outcome.keeps_tail() {
+        if self.terminal() && call.reads() && outcome == Outcome::Ran && notes.is_empty() {
+            let subject = call.subject().unwrap_or_default().to_owned();
+            if self.fold.takes(call::READ) {
+                let spacing = &mut self.spacing;
+                self.fold.push(call::READ, subject, || spacing.before(Block::Row));
+                self.dirty = true;
+                return Step::default();
+            }
+        }
+        // NOTE: the limit of a long turn counts this call too (`render.diff_lines_long`).
+        let limit =
+            if self.calls > LONG_TURN { self.look.diff_lines_long } else { self.look.diff_lines };
+        let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
+        let edit = call.edit(changed.changes, changed.diff);
+        let mut block = call.row(self.event_at, outcome, edit.as_ref(), &options);
+        if outcome.failed() {
+            block.push_str(&call::failed_tail(lines, &options));
+        } else if outcome.keeps_tail() {
             block.push_str(&call::tail(lines, false, &options));
         }
-        let limit = self.look.diff_lines;
-        let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
-        if let Some(diff) = diff {
-            // NOTE: the line of a patch's call is its files with their counts, no path:
-            // each file's diff names its own. The line of an `edit` call names its one
-            // file, as a write's does.
+        let deleted = edit.as_ref().is_some_and(|edit| edit.deleted()) && outcome == Outcome::Ran;
+        if deleted {
+            block.push_str(&call::deleted(&options));
+        } else if let Some(diff) = diff {
+            // NOTE: a patch's diff names each of its files; the row of an `edit` call
+            // names its one file, as a write's does, and gives the diff its syntax.
             let patch =
                 self.tools.get(&call.call_id).is_some_and(|tool| tool == format::patch::TOOL);
             let path = if patch { None } else { call.subject() };
-            block.push_str(&call::diff(diff, path, limit, &options));
+            block.push_str(&call::diff(diff, path, limit, changed.changes, &options));
         }
-        block.push_str(&call.result(self.event_at, outcome, &options));
-        if let Some(changes) = changed.changes.filter(|_| diff.is_none()) {
+        if let Some(changes) = changed.changes.filter(|_| diff.is_none() && !deleted) {
             block.push_str(&call::changes(changes, &options));
         }
         block.push_str(&call::notes(notes, &options));
         if !self.terminal() {
-            return Step { err: self.raw_err(block), ..Step::default() };
+            let text = format!("{}{block}", self.err_spacing.before(Block::Row));
+            return Step { err: self.raw_err(text), ..Step::default() };
         }
-        let mut committed = self.spacing.before(Block::Call).to_owned();
-        committed.push_str(&call.header(&options));
+        let mut committed = self.spacing.before(Block::Row).to_owned();
         committed.push_str(&block);
         self.stage(&committed);
         Step::default()
     }
 
-    /// The rows of call `call`, whose approval was denied or expired, with `notes`
-    /// under them. It never ran, so it has no result. On a terminal its card gave its
-    /// place to the answer line, so these rows follow that line and the scrollback
-    /// keeps what did not run. When stdout is not a terminal, the rows went to stderr
-    /// after the answer line, as on a terminal.
-    pub(super) fn denied_block(&mut self, call: &Call, notes: &[String], size: Size) -> Step {
-        if !self.terminal() {
-            return self.notes(notes, size);
-        }
+    /// The row of call `call`, whose approval was denied or expired, with `notes` under
+    /// it: `· $ cargo update  did not run`, muted. It never ran. On a terminal its card
+    /// gave its place to the answer line, so this row follows that line and the
+    /// scrollback keeps what did not run. When stdout is not a terminal, the row goes to
+    /// stderr after the answer line, as on a terminal.
+    pub(super) fn denied_block(&mut self, call: &Call, notes: &[Vec<Piece>], size: Size) -> Step {
         let options = self.options_at(size);
-        let mut committed = self.spacing.before(Block::Call).to_owned();
-        committed.push_str(&call.header(&options));
-        committed.push_str(&call::notes(notes, &options));
+        let mut block = call.row(self.event_at, Outcome::Denied, None, &options);
+        block.push_str(&call::notes(notes, &options));
+        if !self.terminal() {
+            let text = format!("{}{block}", self.err_spacing.before(Block::Row));
+            return Step { err: self.raw_err(text), ..Step::default() };
+        }
+        let mut committed = self.spacing.before(Block::Row).to_owned();
+        committed.push_str(&block);
         self.stage(&committed);
         Step::default()
+    }
+
+    /// Writes the fold of reads, when it holds any, ahead of what is written next: its
+    /// place in the spacing is taken already.
+    pub(super) fn flush_fold(&mut self) {
+        if self.fold.is_empty() {
+            return;
+        }
+        let options = self.options_now();
+        let written = self.fold.take(&options);
+        self.pending.push_str(&written);
+        self.dirty = true;
     }
 
     /// The output of call `call_id` grew and now ends in `tail`. With the input row,
@@ -303,10 +337,13 @@ impl TurnView {
     }
 }
 
-/// The row of the files that a call changed as one plain note, for a call whose block
-/// is not shown; `None` when it changed none.
-fn changes_note(changes: &FileChanges) -> Option<String> {
-    let row: String =
-        format::changes::call_row(changes).into_iter().map(|(text, _)| text).collect();
+/// The calls of a turn up to which a file write shows `render.diff_lines` lines of its
+/// diff; from the next one on, `render.diff_lines_long`.
+const LONG_TURN: usize = 5;
+
+/// The row of the files that a call changed as one plain note, for a call whose row is
+/// not shown; `None` when it changed none.
+fn changes_note(changes: &FileChanges, options: &efr_render::RenderOptions) -> Option<String> {
+    let row = format::changes::plain(&format::changes::call_row(changes, options));
     (!row.is_empty()).then_some(row)
 }

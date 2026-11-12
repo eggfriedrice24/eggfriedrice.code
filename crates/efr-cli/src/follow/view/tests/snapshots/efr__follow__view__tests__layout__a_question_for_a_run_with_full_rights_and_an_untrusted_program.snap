@@ -23,7 +23,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[32m$ sudo ./scripts/setup.sh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 40 columns, NO_COLOR
@@ -47,7 +47,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[1m✗ denied\e[0m
-\e[1m·\e[0m $ sudo ./scripts/setup.sh
+\e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 80 columns, colour
@@ -67,7 +67,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[31m✗ denied\e[0m
-\e[33m·\e[0m \e[32m$ sudo ./scripts/setup.sh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === 80 columns, NO_COLOR
@@ -87,7 +87,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, line)),\nSen
 
 [end]
 \e[1m✗ denied\e[0m
-\e[1m·\e[0m $ sudo ./scripts/setup.sh
+\e[2m·\e[0m \e[2m$\e[0m \e[2msudo ./scripts/setup.sh\e[0m  \e[2mdid not run\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m5s\e[0m
 
 === not a terminal
@@ -113,7 +113,6 @@ stderr:
 │ efr: only you can allow this
 │ y allow · n deny
 ✗ denied
-· $ sudo ./scripts/setup.sh
 
 [end]
 stdout:
@@ -126,4 +125,4 @@ stderr:
 │ efr: only you can allow this
 │ y allow · n deny
 ✗ denied
-· $ sudo ./scripts/setup.sh
+· $ sudo ./scripts/setup.sh  did not run

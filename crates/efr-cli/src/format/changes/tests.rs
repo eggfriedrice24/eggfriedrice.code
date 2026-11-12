@@ -3,7 +3,7 @@ use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 
-use super::{DiffParts, call_row, diff_parts, more_lines, stat, turn_line};
+use super::{DiffParts, call_row, diff_parts, more_lines, short_path, stat, turn_line};
 use crate::format::Tone;
 use crate::testing::readable;
 
@@ -26,6 +26,11 @@ fn text(pieces: &[(String, Tone)]) -> String {
     pieces.iter().map(|(text, _)| text.as_str()).collect()
 }
 
+/// The options of a terminal 80 columns wide.
+fn options() -> RenderOptions {
+    RenderOptions::new(80)
+}
+
 #[test]
 fn a_row_names_the_first_files_by_kind_and_counts_the_rest() {
     let changes = changes(
@@ -38,7 +43,7 @@ fn a_row_names_the_first_files_by_kind_and_counts_the_rest() {
         1,
     );
     assert_eq!(
-        text(&call_row(&changes)),
+        text(&call_row(&changes, &options())),
         "changed src/a.rs +3 -1 \u{b7} deleted old.rs \u{b7} new notes.md (+2 more)"
     );
 }
@@ -53,7 +58,11 @@ fn files_of_one_kind_share_their_word() {
         ],
         0,
     );
-    assert_eq!(text(&call_row(&changes)), "changed a.rs +3 -1, b.rs -2 \u{b7} deleted gone.rs");
+    // TM-Calls 5: `changed crates/efr-store/Cargo.toml +1 · Cargo.lock +18`.
+    assert_eq!(
+        text(&call_row(&changes, &options())),
+        "changed a.rs +3 -1 \u{b7} b.rs -2 \u{b7} deleted gone.rs"
+    );
 }
 
 #[test]
@@ -64,7 +73,7 @@ fn a_rename_shows_both_paths_and_a_binary_file_no_counts() {
     logo.binary = true;
     let changes = changes(vec![renamed, logo], 0);
     assert_eq!(
-        text(&call_row(&changes)),
+        text(&call_row(&changes, &options())),
         "renamed src/old.rs \u{2192} src/new.rs +1 -1 \u{b7} changed logo.png (binary)"
     );
 }
@@ -72,7 +81,7 @@ fn a_rename_shows_both_paths_and_a_binary_file_no_counts() {
 #[test]
 fn the_counts_are_in_the_success_and_error_roles_and_the_rest_is_muted() {
     let changes = changes(vec![file("a.rs", ChangeKind::Modified, 3, 1)], 0);
-    let row = call_row(&changes);
+    let row = call_row(&changes, &options());
     assert!(row.contains(&("+3".to_owned(), Tone::Success)), "{row:?}");
     assert!(row.contains(&("-1".to_owned(), Tone::Failure)), "{row:?}");
     assert!(row.iter().all(|(_, tone)| matches!(tone, Tone::Dim | Tone::Success | Tone::Failure)));
@@ -81,33 +90,62 @@ fn the_counts_are_in_the_success_and_error_roles_and_the_rest_is_muted() {
 #[test]
 fn a_path_cannot_drive_the_terminal() {
     let changes = changes(vec![file("a\x1b[2Jb.rs", ChangeKind::Added, 1, 0)], 0);
-    assert_eq!(text(&call_row(&changes)), "new a\u{241b}[2Jb.rs");
+    assert_eq!(text(&call_row(&changes, &options())), "new a\u{241b}[2Jb.rs");
 }
 
 #[test]
 fn nothing_changed_gives_no_row_and_no_line() {
     let none = FileChanges::default();
-    assert!(call_row(&none).is_empty());
-    assert_eq!(turn_line(&none, &no_groups()), None);
+    assert!(call_row(&none, &options()).is_empty());
+    assert!(turn_line(&none, &options()).is_empty());
     // Only files that the list left out still count.
     let left_out = FileChanges { more: 3, ..FileChanges::default() };
-    assert_eq!(text(&call_row(&left_out)), "3 files changed");
-    assert_eq!(turn_line(&left_out, &no_groups()).as_deref(), Some("3 files changed"));
+    assert_eq!(text(&call_row(&left_out, &options())), "3 files changed");
+    assert_eq!(text(&turn_line(&left_out, &options())), "3 files changed");
 }
 
 #[test]
-fn the_line_of_a_turn_counts_files_and_lines() {
+fn the_line_of_a_turn_counts_files_and_lines_and_names_three() {
     let three = changes(
         vec![
-            file("a.rs", ChangeKind::Modified, 20, 7),
-            file("b.rs", ChangeKind::Added, 4, 0),
-            file("c.rs", ChangeKind::Deleted, 0, 0),
+            file("crates/efr-daemon/src/turn.rs", ChangeKind::Modified, 20, 7),
+            file("crates/efr-daemon/tests/steer.rs", ChangeKind::Added, 4, 0),
+            file("CHANGELOG.md", ChangeKind::Deleted, 0, 0),
         ],
         0,
     );
-    assert_eq!(turn_line(&three, &no_groups()).as_deref(), Some("3 files changed, +24 -7"));
+    let line = turn_line(&three, &options());
+    assert_eq!(
+        text(&line),
+        "3 files changed  +24 -7  crates/efr-daemon/src/turn.rs, tests/steer.rs, CHANGELOG.md"
+    );
+    assert_eq!(line[0], ("3 files changed".to_owned(), Tone::Text));
+    assert_eq!(line.last().map(|piece| piece.1), Some(Tone::Dim));
     let one = changes(vec![file("a.rs", ChangeKind::Modified, 5, 0)], 0);
-    assert_eq!(turn_line(&one, &no_groups()).as_deref(), Some("1 file changed, +5"));
+    assert_eq!(text(&turn_line(&one, &options())), "1 file changed  +5  a.rs");
+    // More than three: the rest are counted (TM-LongTurn 3).
+    let four = changes(
+        vec![
+            file("crates/efr-store/src/sqlite.rs", ChangeKind::Added, 142, 0),
+            file("crates/efr-store/src/lib.rs", ChangeKind::Modified, 3, 1),
+            file("crates/efr-store/Cargo.toml", ChangeKind::Modified, 1, 0),
+            file("Cargo.lock", ChangeKind::Modified, 1, 2),
+        ],
+        0,
+    );
+    assert_eq!(
+        text(&turn_line(&four, &options())),
+        "4 files changed  +147 -3  crates/efr-store/src/sqlite.rs, lib.rs, Cargo.toml (+1 more)"
+    );
+}
+
+#[test]
+fn a_later_path_drops_the_directories_it_shares_with_the_first() {
+    assert_eq!(short_path("crates/a/tests/steer.rs", "crates/a/src/turn.rs"), "tests/steer.rs");
+    assert_eq!(short_path("crates/a/src/lib.rs", "crates/a/src/turn.rs"), "lib.rs");
+    assert_eq!(short_path("CHANGELOG.md", "crates/a/src/turn.rs"), "CHANGELOG.md");
+    // A shared start of a name is no shared directory.
+    assert_eq!(short_path("crates/ab/x.rs", "crates/a/y.rs"), "ab/x.rs");
 }
 
 #[test]
@@ -128,7 +166,7 @@ fn a_diff_splits_into_its_headers_its_lines_and_the_cut() {
     assert_eq!((odd.head.len(), odd.body.len()), (0, 3));
     // A line of the diff that only looks like the cut stays a line.
     assert_eq!(diff_parts("+... 3 more lines\n").cut, 0);
-    assert_eq!(more_lines(1), "\u{2026} 1 more line");
+    assert_eq!(more_lines(1, &efr_render::Glyphs::UNICODE), "\u{2026} 1 more line");
 }
 
 #[test]
@@ -180,20 +218,26 @@ fn the_undo_line_names_the_roots_and_the_home_files() {
         vec![file("a.rs", ChangeKind::Modified, 1, 0), file("b.rs", ChangeKind::Added, 0, 0)],
         0,
     );
+    let line =
+        |changes: Option<&FileChanges>, info| text(&super::undo_line(changes, &info, &options()));
     assert_eq!(
-        super::undo_line(Some(&two), &undo(&[("a", 1), ("b", 1)], 3), &no_groups()).as_deref(),
-        Some("changed 2 files (+1) in a, b and 3 in ~; efr undo reverts this turn")
+        line(Some(&two), undo(&[("a", 1), ("b", 1)], 3)),
+        "changed 2 files  +1  in a, b and 3 in ~ \u{b7} efr undo reverts this turn"
     );
     assert_eq!(
-        super::undo_line(Some(&two), &undo(&[("a", 1), ("empty", 0)], 0), &no_groups()).as_deref(),
-        Some("changed 2 files (+1) in a; efr undo reverts this turn")
+        line(Some(&two), undo(&[("a", 1), ("empty", 0)], 0)),
+        "changed 2 files  +1  in a \u{b7} efr undo reverts this turn"
     );
-    assert_eq!(super::undo_line(None, &undo(&[], 0), &no_groups()), None, "nothing changed");
+    assert_eq!(line(None, undo(&[], 0)), "", "nothing changed");
     let off = efr_protocol::TurnUndoInfo { undoable: false, ..undo(&[("a", 1)], 1) };
+    assert_eq!(line(Some(&two), off), "", "undo cannot take it back now");
+    // TM-Endings 17: the count in text, the counts in colour, the rest muted.
+    let four = changes(vec![file("a.rs", ChangeKind::Modified, 12, 3)], 3);
+    let pieces = super::undo_line(Some(&four), &undo(&[("app", 4)], 2), &options());
+    assert_eq!(pieces[0], ("changed 4 files".to_owned(), Tone::Text));
     assert_eq!(
-        super::undo_line(Some(&two), &off, &no_groups()),
-        None,
-        "undo cannot take it back now"
+        pieces.last(),
+        Some(&("in app and 2 in ~ \u{b7} efr undo reverts this turn".to_owned(), Tone::Dim))
     );
 }
 
@@ -213,56 +257,15 @@ fn the_undo_line_of_a_turn_that_only_moved_refs_names_them() {
     let mut info = undo(&[], 0);
     info.roots = vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 0, refs: 1 }];
     assert_eq!(
-        super::undo_line(None, &info, &no_groups()).as_deref(),
-        Some("moved 1 ref in app; efr undo reverts this turn")
+        text(&super::undo_line(None, &info, &options())),
+        "moved 1 ref  in app \u{b7} efr undo reverts this turn"
     );
     info.roots[0].refs = 0;
-    assert_eq!(super::undo_line(None, &info, &no_groups()), None, "nothing to take back");
+    assert!(super::undo_line(None, &info, &options()).is_empty(), "nothing to take back");
 }
 
 fn evals() -> DiffGroups {
     DiffGroups::new(vec![("evals".to_owned(), vec!["evals/".to_owned()])])
-}
-
-#[test]
-fn the_line_of_a_turn_names_at_most_two_groups_that_are_not_code() {
-    let many = changes(
-        vec![
-            file("src/a.rs", ChangeKind::Modified, 55, 44),
-            file("tests/a.rs", ChangeKind::Added, 77, 0),
-            file("evals/case.toml", ChangeKind::Added, 503, 0),
-            file("README.md", ChangeKind::Modified, 3, 1),
-            file("docs/logo.png", ChangeKind::Added, 0, 0),
-        ],
-        0,
-    );
-    assert_eq!(
-        turn_line(&many, &evals()).as_deref(),
-        Some("5 files changed, +638 -45 (evals +503, tests +77)")
-    );
-    // Without the group of the file, its files are code.
-    assert_eq!(
-        turn_line(&many, &no_groups()).as_deref(),
-        Some("5 files changed, +638 -45 (tests +77, docs +3 -1)")
-    );
-    // A group without changed lines is left out of the line.
-    let binary = changes(
-        vec![file("a.rs", ChangeKind::Modified, 2, 0), file("docs/a.png", ChangeKind::Added, 0, 0)],
-        0,
-    );
-    assert_eq!(turn_line(&binary, &no_groups()).as_deref(), Some("2 files changed, +2"));
-}
-
-#[test]
-fn the_undo_line_names_the_groups_after_the_counts() {
-    let two = changes(
-        vec![file("a.rs", ChangeKind::Modified, 1, 0), file("tests/b.rs", ChangeKind::Added, 9, 2)],
-        0,
-    );
-    assert_eq!(
-        super::undo_line(Some(&two), &undo(&[("app", 2)], 0), &no_groups()).as_deref(),
-        Some("changed 2 files (+10 -2; tests +9 -2) in app; efr undo reverts this turn")
-    );
 }
 
 #[test]
@@ -306,8 +309,7 @@ fn a_group_without_changed_lines_has_no_row_of_the_table() {
         2,
     );
     insta::assert_snapshot!(super::group_table(&binary, &no_groups(), &options));
-    // Code and a group of binary files only: the line of the turn names no group, and
-    // there is no table.
+    // Code and a group of binary files only: there is no table.
     let only = changes(
         vec![
             file("src/a.rs", ChangeKind::Modified, 2, 0),
@@ -315,6 +317,5 @@ fn a_group_without_changed_lines_has_no_row_of_the_table() {
         ],
         0,
     );
-    assert_eq!(turn_line(&only, &no_groups()).as_deref(), Some("2 files changed, +2"));
     assert_eq!(super::group_table(&only, &no_groups(), &options), "");
 }

@@ -117,10 +117,11 @@ fn a_timed_out_call_with_left_running_says_it_still_runs() {
     assert!(!err.contains('\u{2713}'), "no check mark: the command did not end: {err}");
     insta::assert_snapshot!(err);
 
-    // On a terminal the result is in the warning role.
+    // On a terminal the row has the mark of a command that runs on, in the accent role.
     let mut view = TurnView::new(turn(), RenderOptions::new(WIDE.cols));
     let (out, _, _) = feed(&mut view, &[started(RSYNC, false), left_completed()], false);
-    assert!(readable(&out).contains("33mstill runs in the hidden shell"), "{}", readable(&out));
+    assert!(readable(&out).contains("\\e[33m\u{2192}\\e[0m"), "{}", readable(&out));
+    assert!(bare(&out).contains("still runs in the hidden shell"), "{out}");
 }
 
 #[test]

@@ -1423,7 +1423,17 @@ pub(crate) fn blocked_joined(blocked: &[Blocked], more: u32) -> Option<String> {
 
 /// `host:port (reason)`, with `; N times` in the parentheses for a count over one.
 fn blocked_entry(blocked: &Blocked) -> String {
-    let reason = match blocked.reason {
+    let reason = block_reason(blocked.reason);
+    let host = one_line(&blocked.host);
+    match blocked.count {
+        0 | 1 => format!("{host}:{} ({reason})", blocked.port),
+        count => format!("{host}:{} ({reason}; {count} times)", blocked.port),
+    }
+}
+
+/// Why efr's proxy blocked a connection, in words: `not on the allow list`.
+pub(crate) fn block_reason(reason: BlockReason) -> &'static str {
+    match reason {
         BlockReason::NotAllowed => "not on the allow list",
         BlockReason::PrivateAddress => "a private address",
         BlockReason::SniMismatch => "the TLS name differs from the host",
@@ -1436,11 +1446,6 @@ fn blocked_entry(blocked: &Blocked) -> String {
         BlockReason::Denied => "denied for this command",
         BlockReason::Unknown => "unknown reason",
         _ => "refused",
-    };
-    let host = one_line(&blocked.host);
-    match blocked.count {
-        0 | 1 => format!("{host}:{} ({reason})", blocked.port),
-        count => format!("{host}:{} ({reason}; {count} times)", blocked.port),
     }
 }
 

@@ -301,6 +301,8 @@ struct Transcript<'a> {
     options: &'a RenderOptions,
     verbose: bool,
     home: Option<&'a Path>,
+    // NOTE: the line of a turn's files names the files now, not their groups.
+    #[expect(dead_code, reason = "the line of the files of a turn names no group")]
     groups: &'a DiffGroups,
     out: String,
     spacing: Spacing,
@@ -722,13 +724,17 @@ impl<'a> Transcript<'a> {
     /// it changed, such as `3 files changed, +24 -7`, as the turn showed it.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
         let Some(undo) = undo.filter(|undo| undo.undoable) else {
-            if let Some(line) = changes.and_then(|changes| changes::turn_line(changes, self.groups))
-            {
+            let line = changes
+                .map(|changes| changes::plain(&changes::turn_line(changes, self.options)))
+                .filter(|line| !line.is_empty());
+            if let Some(line) = line {
                 self.dim_lines(&[line]);
             }
             return;
         };
-        let lines: Vec<String> = changes::undo_line(changes, undo, self.groups)
+        let line = changes::plain(&changes::undo_line(changes, undo, self.options));
+        let lines: Vec<String> = Some(line)
+            .filter(|line| !line.is_empty())
             .into_iter()
             .chain(changes::not_covered_line(&undo.not_covered, undo.not_covered_more))
             .collect();
