@@ -235,6 +235,10 @@ into the GitHub release notes, and it stops when the section is missing.
   and `it continues at your next prompt`. The picker's prompt is `> ` with the count
   of the rows at its right end, and its key line is dim: `enter resumes · ctrl-o
   prints · ctrl-d deletes · esc closes`.
+- `efr history <id>` starts with the title, the place, the start of the id and the
+  turns of the conversation. Each prompt shows `›` and its time, the line under it the
+  model as `,model` takes it, its effort and the mode, and the rows of the turn stand 2
+  columns in. A last line says what `--verbose` adds.
 
 ### Fixed
 

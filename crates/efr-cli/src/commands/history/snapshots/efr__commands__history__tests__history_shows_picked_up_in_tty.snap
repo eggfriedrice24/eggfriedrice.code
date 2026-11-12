@@ -2,18 +2,18 @@
 source: crates/efr-cli/src/commands/history/tests.rs
 expression: "show(&page, &options)"
 ---
-conversation 019a9b1c-3d00-7a10-8b20-000000000001
-picked up in /dev/pts/7
+(no title) · 019a9b1c · 0 turns
 
-> is nginx
-> healthy?
+  picked up in /dev/pts/7
 
-$ systemctl status nginx
-approval needed: run systemctl restart nginx
-allowed from the phone
+› is nginx  12:00
+  healthy?
+  $ systemctl status nginx
+  approval needed: run systemctl restart nginx
+  allowed from the phone
 
 It is **running** again.
 
 Cut off mid
 
-interrupted
+  interrupted

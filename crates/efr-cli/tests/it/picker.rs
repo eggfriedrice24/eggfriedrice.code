@@ -482,8 +482,9 @@ fn ctrl_o_prints_the_conversation_and_resumes_nothing() {
     let ran = run(&roots, &[], "0.73.1", &[("FAKE_FZF_KEY", "ctrl-o")]);
 
     assert!(ran.status.success(), "{}", ran.stderr);
-    assert_eq!(methods(&ran.seen), [vec!["hello", "conversations.search", "conversation.history"]]);
-    assert!(ran.screen.contains(&format!("conversation {}", id(1))), "{}", ran.screen);
+    let asked = ["hello", "conversations.search", "conversation.history", "conversations.recent"];
+    assert_eq!(methods(&ran.seen), [asked.to_vec()]);
+    assert!(ran.screen.contains(&format!(" - {} - ", &id(1)[..8])), "{}", ran.screen);
 }
 
 #[test]

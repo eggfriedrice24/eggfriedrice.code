@@ -270,9 +270,24 @@ delete.
 
 ## See a conversation
 
-`efr history` lists your recent conversations. `efr history <id>` shows one, with the
-mode, model and effort of each turn. The id can be the start of an id, from 4
-characters.
+`efr history` lists your recent conversations. `efr history <id>` shows one, as the
+view showed it. The id can be the start of an id, from 4 characters.
+
+```text
+fix steer race in turn loop · app · 019a9b11 · 3 turns
+
+› a steer sometimes lands after the turn ended. find the race  14:31
+  work/claude-opus-5-5 high · cautious
+  $ cargo test -p efr-daemon steer
+  edit crates/efr-daemon/src/turn.rs +5 -3
+
+efr history --verbose adds the output tails and the tokens of each turn
+```
+
+The first line names the conversation, its place (`⌂ home` outside every project), the
+start of its id and its turns. Each prompt shows its time, and the line under it the
+model, as `,model` takes it, the effort and the mode. The rows of the turn stand 2
+columns in.
 
 - `--verbose` adds the records of each exit from the sandbox, the last lines of each
   job's output, and the tokens of each turn. Without an id, it shows the newest

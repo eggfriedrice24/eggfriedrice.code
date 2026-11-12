@@ -31,13 +31,8 @@ use super::{Tone, cut, lines, one_line, paint, sandbox, size};
 /// prompt would stand.
 pub(crate) const WAKE_WORDS: &str = "a job notice started this turn (not your input)";
 
-/// The line of a turn that a job notice started: `↪ a job notice started this turn (not
-/// your input)`, with the mark of the locale.
-pub(crate) fn wake_line(glyphs: &Glyphs) -> String {
-    format!("{} {WAKE_WORDS}", glyphs.conversation)
-}
-
-/// [`wake_line`] painted: the mark in `accent`, the words `muted`.
+/// The line of a turn that a job notice started, painted: `↪ a job notice started this
+/// turn (not your input)`, the mark in `accent`, the words `muted`.
 pub(crate) fn wake_painted(options: &RenderOptions) -> String {
     let mark = paint(options.glyphs().conversation, Tone::Accent, options);
     format!("{mark}{}", paint(&format!(" {WAKE_WORDS}"), Tone::Dim, options))

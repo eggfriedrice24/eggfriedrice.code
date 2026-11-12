@@ -10,6 +10,7 @@ use efr_protocol::{
     SandboxSummary, Scope, Seq, SurfaceChange, TurnSettings, Verdict,
 };
 use efr_render::RenderOptions;
+use jiff::tz::TimeZone;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -26,7 +27,14 @@ fn show(page: &ConversationHistoryResult, options: &RenderOptions) -> String {
     transcript(
         conversation(),
         page,
-        &Shown { options, verbose: false, home: None, groups: &DiffGroups::default() },
+        &Shown {
+            options,
+            verbose: false,
+            home: None,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     )
 }
 
@@ -201,6 +209,14 @@ async fn history_without_a_conversation_lists_them() {
     assert_eq!(captured.stdout(), expected);
 }
 
+/// Answers the next request, which must be `conversations.recent`, with no row: the
+/// head of the transcript then says what its page knows.
+async fn answer_recent(conn: &mut crate::testing::Conn) {
+    let (id, method) = conn.request().await;
+    assert!(matches!(method, Method::ConversationsRecent(_)), "{}", method.name());
+    conn.reply(id, &efr_protocol::ConversationsRecentResult::default()).await;
+}
+
 #[tokio::test]
 async fn history_of_a_whole_id_asks_for_its_events() {
     let env = TestEnv::new();
@@ -214,12 +230,14 @@ async fn history_of_a_whole_id_asks_for_its_events() {
         assert_eq!(params.conversation_id, conversation());
         assert_eq!(params.cursor, Some(PageCursor::new("c-1")));
         conn.reply(id, &ConversationHistoryResult::default()).await;
+        answer_recent(&mut conn).await;
         conn.until_closed().await;
     };
     let line = command(&["history", CONVERSATION, "--cursor", "c-1"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
-    assert_eq!(captured.stdout(), format!("conversation {CONVERSATION}\n"));
+    // NOTE: efrd names the conversation in no recent row, and the page has no turn.
+    assert_eq!(captured.stdout(), "(no title) - 019a9b1c - 0 turns\n\n");
 }
 
 #[tokio::test]
@@ -244,6 +262,7 @@ async fn history_matches_the_start_of_an_id() {
             matches!(method, Method::ConversationHistory(ref p) if p.conversation_id == conversation())
         );
         conn.reply(id, &ConversationHistoryResult::default()).await;
+        answer_recent(&mut conn).await;
         conn.until_closed().await;
     };
     let line = command(&["history", "019A9B"]);
@@ -511,13 +530,27 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(!plain.contains("exit requested"), "{plain}");
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
@@ -543,7 +576,14 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
     let shown = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home: None, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home: None,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(shown.contains("later"), "{shown}");
     assert!(shown.contains("withdrawn before it ran"), "{shown}");
@@ -638,15 +678,15 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
 
     let at = |line: &str| text.find(line).unwrap_or_else(|| panic!("no {line:?} in {text}"));
     let order = [
-        "> fix the bug",
+        "\u{203a} fix the bug",
         "$ cargo test",
         "steered: look at the logs first",
         "interrupted",
-        "> look at the logs first",
+        "\u{203a} look at the logs first",
         "The logs show a timeout.",
-        "> then update the docs",
+        "\u{203a} then update the docs",
         "Docs updated.",
-        "> and the changelog",
+        "\u{203a} and the changelog",
         "withdrawn before it ran",
     ];
     for pair in order.windows(2) {
@@ -716,7 +756,14 @@ fn a_steer_taken_back_says_that_the_model_did_not_read_it() {
     let shown = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home: None, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home: None,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(shown.contains("took back a steer that the model did not read"), "{shown}");
 }
@@ -776,12 +823,26 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
@@ -903,6 +964,9 @@ async fn verbose_from(
                         ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
                     conn.reply(id, &page).await;
                 }
+                Method::ConversationsRecent(_) => {
+                    conn.reply(id, &efr_protocol::ConversationsRecentResult::default()).await;
+                }
                 other => panic!("unexpected {}", other.name()),
             }
         }
@@ -924,10 +988,10 @@ async fn history_verbose_without_a_conversation_shows_the_newest_of_this_termina
     assert_eq!(exit, Exit::Success);
     assert_eq!(shown, Some(conversation()));
     assert!(
-        stdout.starts_with(&format!(
+        stdout.starts_with(
             "the newest conversation of this terminal; efr history lists them all\n\
-             conversation {CONVERSATION}\n"
-        )),
+             (no title) - 019a9b1c - 1 turn\n"
+        ),
         "{stdout}"
     );
     assert!(stdout.contains("exit requested: privilege (predicted from the line)"), "{stdout}");
@@ -941,9 +1005,10 @@ async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
     assert_eq!(exit, Exit::Success);
     assert_eq!(shown, Some(newest.parse().unwrap()));
     assert!(
-        stdout.starts_with(&format!(
-            "the newest conversation; efr history lists them all\nconversation {newest}\n"
-        )),
+        stdout.starts_with(
+            "the newest conversation; efr history lists them all\n(no title) - 019a9b1c - 1 \
+             turn\n"
+        ),
         "{stdout}"
     );
     assert!(stdout.contains("exit requested:"), "{stdout}");
@@ -1016,6 +1081,7 @@ async fn history_verbose_is_a_flag() {
         let (id, _) = conn.request().await;
         let page = ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
         conn.reply(id, &page).await;
+        answer_recent(&mut conn).await;
         conn.until_closed().await;
     };
     let line = command(&["history", CONVERSATION, "--verbose"]);
@@ -1065,8 +1131,14 @@ fn a_compaction_marks_its_place_and_verbose_adds_its_summary() {
         ("pipe", RenderOptions::new(80).with_terminal(false)),
     ] {
         for verbose in [false, true] {
-            let shown_as =
-                Shown { options: &options, verbose, home: None, groups: &DiffGroups::default() };
+            let shown_as = Shown {
+                options: &options,
+                verbose,
+                home: None,
+                groups: &DiffGroups::default(),
+                zone: &TimeZone::UTC,
+                head: None,
+            };
             let text = transcript(conversation(), &page, &shown_as);
             shown.push(format!("=== {name}, verbose {verbose}\n{}", readable(&text)));
         }
@@ -1164,7 +1236,14 @@ fn history_shows_reviewer_and_backup_lines() {
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     // NOTE: the backup line stays whole at 60 columns: it names where the copy is.
     assert!(
@@ -1177,7 +1256,14 @@ fn history_shows_reviewer_and_backup_lines() {
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
@@ -1245,7 +1331,14 @@ fn history_shows_judge_always_with_the_rule() {
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(plain.contains("allowed always from the shell\n"), "{plain}");
     assert!(plain.contains("saved as sandbox.allow[2]: write under ~/notes\n"), "{plain}");
@@ -1256,7 +1349,14 @@ fn history_shows_judge_always_with_the_rule() {
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(
         verbose.contains("exit allowed by an always-allow rule: sandbox.allow[2]\n"),
@@ -1301,13 +1401,27 @@ fn history_verbose_shows_exit_allowed_by_full_mode() {
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(verbose.contains("exit allowed by full mode\n"), "{verbose}");
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(!plain.contains("exit allowed"), "{plain}");
 }
@@ -1399,6 +1513,8 @@ fn history_names_a_home_file_that_two_calls_changed_once() {
                 verbose: false,
                 home: Some(Path::new("/home/user")),
                 groups: &DiffGroups::default(),
+                zone: &TimeZone::UTC,
+                head: None,
             },
         )
     };
@@ -1422,11 +1538,18 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     let plain = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: false,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     for line in [
         "changed ~/.zshrc \u{b7} efr undo reverts it\n",
-        "changed 1 file  in ~ \u{b7} efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
+        "changed 1 file  in ~ \u{b7} efr undo reverts this turn\n  not covered: target/ (ignored, large)\n",
         &format!(
             "undid turn {}: 2 files restored, 1 moved to the undo trash, 1 skipped (changed \
              after the turn)\n",
@@ -1439,7 +1562,14 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(
         verbose.contains(
@@ -1544,7 +1674,14 @@ fn wake_turn_marked_in_history() {
     let verbose = transcript(
         conversation(),
         &page,
-        &Shown { options: &options, verbose: true, home: None, groups: &DiffGroups::default() },
+        &Shown {
+            options: &options,
+            verbose: true,
+            home: None,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
     );
     assert!(verbose.contains("    error[E0308]: mismatched types\n"), "{verbose}");
     assert!(verbose.contains("    efr: this is a job notice\n"), "{verbose}");
@@ -1622,7 +1759,14 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
     // NOTE: the line names the files, not their groups (the calls slice).
     assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
     let groups = DiffGroups::new(vec![("checks".to_owned(), vec!["tests/".to_owned()])]);
-    let shown = Shown { options: &options, verbose: false, home: None, groups: &groups };
+    let shown = Shown {
+        options: &options,
+        verbose: false,
+        home: None,
+        groups: &groups,
+        zone: &TimeZone::UTC,
+        head: None,
+    };
     let text = transcript(conversation(), &page, &shown);
     assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
     // A turn that changed no file shows no line.
@@ -1646,7 +1790,14 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
 /// The transcript of `page` without colour, verbose or not.
 fn plain(page: &ConversationHistoryResult, verbose: bool) -> String {
     let options = RenderOptions::new(80).with_terminal(false);
-    let shown = Shown { options: &options, verbose, home: None, groups: &DiffGroups::default() };
+    let shown = Shown {
+        options: &options,
+        verbose,
+        home: None,
+        groups: &DiffGroups::default(),
+        zone: &TimeZone::UTC,
+        head: None,
+    };
     transcript(conversation(), page, &shown)
 }
 
@@ -1687,7 +1838,7 @@ fn interrupted_partial_prints_once() {
     let text = plain(&page, false);
 
     assert_eq!(text.matches("Once upon a time").count(), 1, "{text}");
-    assert!(text.ends_with("Once upon a time\n\ninterrupted\n"), "{text}");
+    assert!(text.ends_with("Once upon a time\n\n  interrupted\n"), "{text}");
 }
 
 #[test]
@@ -1772,7 +1923,7 @@ fn history_verbose_shows_usage_per_turn() {
 
     let verbose = plain(&page, true);
     assert!(verbose.contains("18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)\n"), "{verbose}");
-    assert!(verbose.contains("interrupted\n900 in, 12 out\n"), "interrupted too: {verbose}");
+    assert!(verbose.contains("interrupted\n  900 in, 12 out\n"), "interrupted too: {verbose}");
     let quiet = plain(&page, false);
     assert!(!quiet.contains(" in, "), "only --verbose shows the tokens: {quiet}");
 }
@@ -1818,4 +1969,123 @@ fn history_says_who_moved_a_call_to_a_job_and_what_the_move_covered() {
         "{plain}"
     );
     assert!(plain.contains("your move covered: write; efr: a job asks in cautious\n"), "{plain}");
+}
+
+/// Two turns of TM-Commands frame 4: the prompts at 14:31 and 14:40, on the work account
+/// of `anthropic-api` and then on the ChatGPT account `b`, in cautious mode.
+fn two_turns() -> ConversationHistoryResult {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let at = |time: &str| format!("2026-10-04T{time}:00Z").parse::<jiff::Timestamp>().unwrap();
+    let mut events = Vec::new();
+    let turns = [
+        (
+            "a steer sometimes lands after the turn ended. find the race",
+            "14:31",
+            "anthropic-api.work",
+            "claude-opus-5-5",
+            "high",
+            2,
+        ),
+        (
+            "review the fix as a second pair of eyes",
+            "14:40",
+            "openai-subscription.b",
+            "gpt-5.5",
+            "medium",
+            3,
+        ),
+    ];
+    for (text, time, provider, model, effort, n) in turns {
+        let turn_id: efr_protocol::TurnId =
+            format!("019a9b1c-3d00-7a10-8b20-00000000000{n}").parse().unwrap();
+        let queued = Event::PromptQueued {
+            turn_id,
+            command_id,
+            text: text.to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: TurnSettings::default(),
+            steers: Vec::new(),
+        };
+        let settings = EffectiveSettings {
+            mode: Mode::Cautious,
+            model: model.to_owned(),
+            effort: Some(effort.to_owned()),
+            provider: Some(provider.to_owned()),
+            overridden: OverriddenSettings::default(),
+            fallback: None,
+        };
+        let started = Event::TurnStarted {
+            turn_id,
+            cwd: "/home/u/p/app".into(),
+            scope: Scope::Machine,
+            settings: Some(settings),
+        };
+        for event in [queued, started] {
+            let seq = u64::try_from(events.len()).unwrap() + 1;
+            events.push(EventEnvelope { at: at(time), ..envelope(seq, event) });
+        }
+    }
+    ConversationHistoryResult { events, next_cursor: None }
+}
+
+/// The transcript of [`two_turns`] with `head`, in `depth`.
+fn design_transcript(
+    head: &super::Head,
+    id: &str,
+    depth: efr_test_support::design::Depth,
+) -> String {
+    let options = crate::testing::design_options(depth, 100);
+    let shown = Shown {
+        options: &options,
+        verbose: false,
+        home: None,
+        groups: &DiffGroups::default(),
+        zone: &TimeZone::UTC,
+        head: Some(head),
+    };
+    transcript(id.parse().unwrap(), &two_turns(), &shown)
+}
+
+/// TM-Commands frame 4: the head, the prompt line with its time, the model line under it
+/// and the last line, in the three depths. The rows of the calls and the end lines come
+/// from the calls and the turn slices, the `⇄` line from `format::route::model_line`.
+#[test]
+fn the_head_the_prompts_and_the_model_lines_of_a_transcript_are_the_design() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    let frame = Frame::load("TM-Commands", 4).unwrap();
+    let head = super::Head {
+        title: Some("fix steer race in turn loop".to_owned()),
+        place: "app".to_owned(),
+        turns: 3,
+    };
+    for depth in Depth::ALL {
+        let text = design_transcript(&head, "019a9b11-3d00-7a10-8b20-000000000001", depth);
+        let rows: Vec<&str> = text.lines().collect();
+        let row = |at: usize| format!("{}\n", rows[at]);
+        assert_eq!(crate::testing::bare(rows[1]), "", "a blank row after the head");
+        assert_rows(&frame, 1..=1, &row(0), depth);
+        assert_rows(&frame, 3..=4, &format!("{}{}", row(2), row(3)), depth);
+        assert_rows(&frame, 15..=16, &format!("{}{}", row(5), row(6)), depth);
+        assert_rows(&frame, 22..=22, &row(rows.len() - 1), depth);
+    }
+}
+
+/// TM-Scope frame 11, row 7: the head of the home conversation.
+#[test]
+fn the_head_of_the_home_conversation_is_the_design() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    let frame = Frame::load("TM-Scope", 11).unwrap();
+    let head = super::Head {
+        title: Some("nftables rules".to_owned()),
+        place: format!("{} home", efr_render::Glyphs::UNICODE.home),
+        turns: 5,
+    };
+    for depth in Depth::ALL {
+        let text = design_transcript(&head, "019a7c02-3d00-7a10-8b20-000000000001", depth);
+        let first = text.lines().next().unwrap();
+        assert_rows(&frame, 7..=7, &format!("{first}\n"), depth);
+    }
 }

@@ -2,22 +2,23 @@
 source: crates/efr-cli/src/commands/history/tests.rs
 expression: text
 ---
-conversation 019a9b1c-3d00-7a10-8b20-000000000001
-> fix the bug
+(no title) · 019a9b1c · 3 turns
 
-$ cargo test
-steered: look at the logs first
-shell exited with 130
-interrupted
+› fix the bug  12:00
+  $ cargo test
+  steered: look at the logs first
+  shell exited with 130
+  interrupted
 
-> look at the logs first
+› look at the logs first  12:00
 
 The logs show a timeout.
 
-> then update the docs
+› then update the docs  12:00
 
 Docs updated.
 
-> and the changelog
+› and the changelog  12:00
+  withdrawn before it ran
 
-withdrawn before it ran
+efr history --verbose adds the output tails and the tokens of each turn

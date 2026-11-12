@@ -38,17 +38,20 @@ use std::path::Path;
 use efr_config::DiffGroups;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
-    ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
-    PageCursor, Seq, TurnId, TurnUndoInfo, Usage, Verdict,
+    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
+    Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin, PageCursor, Seq,
+    SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict,
 };
-use efr_render::{RenderOptions, render, render_trace};
+use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
 use crate::format::changes::HomeChange;
-use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, sandbox};
+use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, resume, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -95,11 +98,14 @@ pub(crate) async fn run(
     let page: ConversationHistoryResult = client.call(method).await?;
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
+    let head = head_of(&client, conversation_id, options.glyphs()).await;
     let shown = Shown {
         options: &options,
         verbose: args.verbose,
         home: ctx.home.as_deref(),
         groups: &ctx.settings.diff.groups,
+        zone: &ctx.time_zone,
+        head: head.as_ref(),
     };
     let mut text = String::new();
     if let Some(picked) = picked {
@@ -108,6 +114,47 @@ pub(crate) async fn run(
     }
     text.push_str(&transcript(conversation_id, &page, &shown));
     out.out(&text)
+}
+
+/// The most conversations of `conversations.recent`, where the head of a transcript
+/// finds its title, its place and its turns.
+const RECENT_ROWS: u32 = 50;
+
+/// What the head of a transcript says of its conversation (TM-Commands frame 4): its
+/// title, its place (`app`, `⌂ home`) and its prompt turns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Head {
+    pub(crate) title: Option<String>,
+    pub(crate) place: String,
+    pub(crate) turns: u32,
+}
+
+/// The head of `conversation` from the recent conversations of efrd; `None` when it is
+/// not among them or efrd does not answer. The transcript then says what its page
+/// knows.
+pub(crate) async fn head_of(
+    client: &Client,
+    conversation: ConversationId,
+    glyphs: &Glyphs,
+) -> Option<Head> {
+    let method = Method::ConversationsRecent(ConversationsRecent {
+        tty: None,
+        pwd: None,
+        limit: Some(RECENT_ROWS),
+    });
+    let recent: ConversationsRecentResult = match client.call(method).await {
+        Ok(recent) => recent,
+        Err(error) => {
+            tracing::debug!(error = %error, "the head of the transcript could not be read");
+            return None;
+        }
+    };
+    let row = recent.conversations.into_iter().find(|row| row.summary.id == conversation)?;
+    Some(Head {
+        title: row.summary.title,
+        place: resume::scope_word(&row.route, row.project.as_deref(), glyphs),
+        turns: row.turns,
+    })
 }
 
 /// Why `efr history --verbose` without a conversation shows the one it shows.
@@ -156,6 +203,10 @@ pub(crate) struct Shown<'a> {
     pub(crate) home: Option<&'a Path>,
     /// The groups of `[diff.groups]`, for the line of the files at the end of a turn.
     pub(crate) groups: &'a DiffGroups,
+    /// The time zone of the times of the prompts.
+    pub(crate) zone: &'a TimeZone,
+    /// What the head says of the conversation, when efrd named it.
+    pub(crate) head: Option<&'a Head>,
 }
 
 /// The conversation that `query` names: a whole id, or the start of exactly one
@@ -207,9 +258,8 @@ pub(crate) fn transcript(
     shown: &Shown<'_>,
 ) -> String {
     let options = shown.options;
-    let mut out = String::new();
-    let header = format!("conversation {conversation_id}");
-    let _ = writeln!(out, "{}", format::paint(&header, Tone::Dim, options));
+    let mut out = head_line(conversation_id, page, shown);
+    out.push('\n');
     if let Some(cursor) = &page.next_cursor {
         let earlier = format!(
             "earlier events: efr history {conversation_id} --cursor {}",
@@ -225,7 +275,51 @@ pub(crate) fn transcript(
         }
         transcript.flush();
     }
-    transcript.finish()
+    let turns = transcript.turns;
+    let mut out = transcript.finish();
+    if turns > 0 && !shown.verbose {
+        let _ = write!(out, "\n{}\n", format::paint(VERBOSE_ADDS, Tone::Dim, options));
+    }
+    out
+}
+
+/// The last line of a transcript without `--verbose`. The reasoning and the tokens of
+/// each call are in no event, so `--verbose` cannot add them (TM-Commands frame 4).
+const VERBOSE_ADDS: &str =
+    "efr history --verbose adds the output tails and the tokens of each turn";
+
+/// The first line of a transcript: the title in `text` bold, then, `muted`, its place,
+/// the start of its id and its prompt turns, such as `fix steer race in turn loop · app
+/// · 019a9b11 · 3 turns`. Without a head from efrd: the turns that the page started.
+fn head_line(
+    conversation_id: ConversationId,
+    page: &ConversationHistoryResult,
+    shown: &Shown<'_>,
+) -> String {
+    let options = shown.options;
+    let dot = format::status::separator(options);
+    let id = conversation_id.to_string();
+    let short = id.get(..8).unwrap_or(&id);
+    let started = |event: &Event| matches!(event, Event::TurnStarted { .. });
+    let turns = shown.head.map_or_else(
+        || page.events.iter().filter(|envelope| started(&envelope.event)).count(),
+        |head| usize::try_from(head.turns).unwrap_or(usize::MAX),
+    );
+    let title = shown
+        .head
+        .and_then(|head| head.title.as_deref())
+        .map_or_else(|| "(no title)".to_owned(), format::one_line);
+    let mut rest = String::new();
+    if let Some(head) = shown.head {
+        let _ = write!(rest, "{}{dot}", head.place);
+    }
+    let word = if turns == 1 { "turn" } else { "turns" };
+    let _ = write!(rest, "{short}{dot}{turns} {word}");
+    format!(
+        "{} {}\n",
+        format::paint(&title, Tone::TextBold, options),
+        format::paint(&format!("{}{rest}", dot.trim_start()), Tone::Dim, options)
+    )
 }
 
 /// The events of one turn, or one event of no turn, and where they go in the
@@ -299,6 +393,8 @@ fn in_turn_order(page: &[EventEnvelope]) -> Vec<Vec<&EventEnvelope>> {
 /// Builds a transcript event by event.
 struct Transcript<'a> {
     options: &'a RenderOptions,
+    /// The options of the rows under a prompt: 2 columns narrower.
+    inner: RenderOptions,
     verbose: bool,
     home: Option<&'a Path>,
     // NOTE: the line of a turn's files names the files now, not their groups.
@@ -324,12 +420,21 @@ struct Transcript<'a> {
     /// The files outside the roots that the calls of the current group changed, one
     /// entry for each path. A file's line shows at its first change.
     home_changes: Vec<HomeChange>,
+    zone: &'a TimeZone,
+    /// When the event that the transcript writes now was recorded.
+    at: Option<Timestamp>,
+    /// The effort of the turn that started last, for its line of a switch of model.
+    effort: Option<String>,
+    /// The turns that started on the page.
+    turns: usize,
 }
 
 impl<'a> Transcript<'a> {
     fn new(shown: &Shown<'a>, out: String) -> Transcript<'a> {
+        let width = shown.options.width();
         Transcript {
             options: shown.options,
+            inner: shown.options.clone().with_width(width.saturating_sub(2).max(1)),
             verbose: shown.verbose,
             home: shown.home,
             groups: shown.groups,
@@ -343,6 +448,10 @@ impl<'a> Transcript<'a> {
             printed: None,
             woken: HashSet::new(),
             home_changes: Vec::new(),
+            zone: shown.zone,
+            at: None,
+            effort: None,
+            turns: 0,
         }
     }
 
@@ -356,6 +465,7 @@ impl<'a> Transcript<'a> {
     }
 
     fn event(&mut self, envelope: &EventEnvelope) {
+        self.at = Some(envelope.at);
         match &envelope.event {
             Event::AssistantMessageUpdated { turn_id, index, offset, delta } => {
                 if self.partial.as_ref().is_some_and(|(t, i, _)| (t, i) != (turn_id, index)) {
@@ -394,13 +504,15 @@ impl<'a> Transcript<'a> {
             Event::PromptQueued { text, .. } => self.prompt(text),
             // NOTE: a turn recorded before turn settings names none.
             Event::TurnStarted { settings: Some(settings), .. } => {
-                if let Some(line) = format::turn_settings(settings, true) {
-                    self.note(&line);
-                }
+                self.turns += 1;
+                self.effort.clone_from(&settings.effort);
+                self.model_line(settings);
                 if let Some(fallback) = &settings.fallback {
                     self.note(&sandbox::fallback_note(fallback, settings.mode));
                 }
             }
+            Event::TurnStarted { .. } => self.turns += 1,
+            Event::ModelSwitched { from, to, .. } => self.switched(from, to),
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 if let Some(command) = format::command_of(input) {
@@ -446,11 +558,11 @@ impl<'a> Transcript<'a> {
             | Event::JobPortForwarded { .. }) => {
                 if let Some(line) = jobs::conversation_line(event) {
                     let url = jobs::link_of(event);
-                    self.out.push_str(self.spacing.before(Block::Note));
+                    self.out.push_str(self.spacing.before(Block::Row));
                     let painted = format::paint(&line, Tone::Dim, self.options);
                     let _ = writeln!(
                         self.out,
-                        "{}",
+                        "{INDENT}{}",
                         jobs::linked(&painted, url.as_deref(), self.options)
                     );
                 }
@@ -677,8 +789,9 @@ impl<'a> Transcript<'a> {
                 self.note(&format!("steered: {}", format::one_line(text)));
             }
             Event::ConversationCompacted(compaction) => {
-                self.out.push_str(self.spacing.before(Block::Note));
-                self.out.push_str(&context::compacted_rows(compaction, self.options));
+                self.out.push_str(self.spacing.before(Block::Row));
+                let rows = context::compacted_rows(compaction, &self.inner);
+                self.out.push_str(&indented_rows(&rows));
                 if self.verbose {
                     self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
                 }
@@ -795,15 +908,66 @@ impl<'a> Transcript<'a> {
         }
     }
 
+    /// A prompt as the view shows it (TM-Commands frame 4): `› <first line>  14:31`, the
+    /// mark in `accent`, the prompt bold, the time `muted`; each further line at 2
+    /// columns, bold.
     fn prompt(&mut self, text: &str) {
         self.out.push_str(self.spacing.before(Block::Prompt));
-        for line in format::lines(text).lines() {
-            let _ = writeln!(
-                self.out,
-                "{}",
-                format::paint(&format!("> {line}"), Tone::Bold, self.options)
-            );
+        let mark = format::paint(self.options.glyphs().prompt, Tone::Accent, self.options);
+        let time = self.at.map(|at| short_time(at, self.zone));
+        for (at, line) in format::lines(text).lines().enumerate() {
+            if at == 0 {
+                let _ =
+                    write!(self.out, "{mark} {}", format::paint(line, Tone::Bold, self.options));
+                if let Some(time) = &time {
+                    let _ = write!(self.out, "  {}", format::paint(time, Tone::Dim, self.options));
+                }
+                self.out.push('\n');
+            } else {
+                let _ = writeln!(self.out, "  {}", format::paint(line, Tone::Bold, self.options));
+            }
         }
+    }
+
+    /// The muted line under a prompt at 2 columns: the model as `,model` takes it, its
+    /// effort and the mode, such as `work/claude-opus-5-5 high · cautious`.
+    fn model_line(&mut self, settings: &EffectiveSettings) {
+        let dot = format::status::separator(self.options);
+        let model = format::one_line(&settings.model);
+        let mut line = match settings.provider.as_deref() {
+            Some(provider) if provider.contains('.') => {
+                format!("{}/{model}", format::status::account_of(provider).0)
+            }
+            _ => model,
+        };
+        if let Some(effort) = &settings.effort {
+            let _ = write!(line, " {}", format::one_line(effort));
+        }
+        let _ = write!(line, "{dot}{}", settings.mode);
+        self.out.push_str(self.spacing.before(Block::Row));
+        let _ = writeln!(self.out, "{INDENT}{}", format::paint(&line, Tone::Dim, self.options));
+    }
+
+    /// The line of a switch of model between two turns (TM-Commands frame 4): the
+    /// pieces of the view's `⇄` line, then the time of the switch, apart by a blank line.
+    fn switched(&mut self, from: &SwitchedModel, to: &SwitchedModel) {
+        // NOTE: an older efrd records no effort of the new side; the turn's settings
+        // name it.
+        let mut to = to.clone();
+        if to.effort.is_none() {
+            to.effort.clone_from(&self.effort);
+        }
+        let pieces = format::route::model_line(from, &to, None, self.options.glyphs());
+        self.out.push_str(self.spacing.before(Block::Prompt));
+        for (text, tone) in &pieces {
+            self.out.push_str(&format::paint(text, *tone, self.options));
+        }
+        if let Some(at) = self.at {
+            let time =
+                format!("{}{}", format::status::separator(self.options), short_time(at, self.zone));
+            self.out.push_str(&format::paint(&time, Tone::Dim, self.options));
+        }
+        self.out.push('\n');
     }
 
     fn message(&mut self, text: &str) {
@@ -814,17 +978,19 @@ impl<'a> Transcript<'a> {
         }
     }
 
+    /// A row of the turn at 2 columns under its prompt (TM-Commands frame 4), cut to the
+    /// screen.
     fn note(&mut self, text: &str) {
-        self.out.push_str(self.spacing.before(Block::Note));
-        self.out.push_str(&render_trace(text, self.options));
+        self.out.push_str(self.spacing.before(Block::Row));
+        self.out.push_str(&indented_rows(&render_trace(text, &self.inner)));
     }
 
-    /// Dim lines that keep their indentation and their whole width, unlike a note,
+    /// Dim rows that keep their indentation and their whole width, unlike a note,
     /// which is cut to the screen: an exit's line and its facts must stay complete.
     fn dim_lines(&mut self, lines: &[String]) {
-        self.out.push_str(self.spacing.before(Block::Note));
+        self.out.push_str(self.spacing.before(Block::Row));
         for line in lines {
-            let _ = writeln!(self.out, "{}", format::paint(line, Tone::Dim, self.options));
+            let _ = writeln!(self.out, "{INDENT}{}", format::paint(line, Tone::Dim, self.options));
         }
     }
 
@@ -839,6 +1005,22 @@ impl<'a> Transcript<'a> {
         self.flush();
         self.out
     }
+}
+
+/// The indent of the rows of a turn under its prompt.
+const INDENT: &str = "  ";
+
+/// Each row of `rows` after [`INDENT`]; an empty row stays empty.
+fn indented_rows(rows: &str) -> String {
+    rows.split_inclusive('\n')
+        .map(|row| if row == "\n" { row.to_owned() } else { format!("{INDENT}{row}") })
+        .collect()
+}
+
+/// `at` in `zone` as hours and minutes, `14:31`.
+fn short_time(at: Timestamp, zone: &TimeZone) -> String {
+    let zoned = at.to_zoned(zone.clone());
+    jiff::fmt::strtime::format("%H:%M", &zoned).unwrap_or_default()
 }
 
 #[cfg(test)]

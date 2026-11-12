@@ -598,7 +598,8 @@ async fn ctrl_o_prints_the_conversation_and_moves_nothing() {
     assert!(ran.resumes.is_empty(), "no switch");
     let [history] = ran.histories.try_into().unwrap();
     assert_eq!((history.conversation_id, history.cursor), (id(1), None));
-    assert_eq!(bare(&ran.stdout), format!("conversation {}\n", id(1)));
+    let short = &id(1).to_string()[..8];
+    assert!(bare(&ran.stdout).contains(&format!(" {short} ")), "the head: {}", ran.stdout);
 }
 
 #[tokio::test]

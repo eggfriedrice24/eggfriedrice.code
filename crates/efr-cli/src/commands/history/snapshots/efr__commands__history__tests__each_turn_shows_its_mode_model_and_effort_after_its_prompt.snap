@@ -2,13 +2,14 @@
 source: crates/efr-cli/src/commands/history/tests.rs
 expression: text
 ---
-conversation 019a9b1c-3d00-7a10-8b20-000000000001
-> an old turn
+(no title) · 019a9b1c · 3 turns
 
-> build it
+› an old turn  12:00
 
-mode auto, model gpt-5.4, effort high
+› build it  12:00
+  gpt-5.4 high · auto
 
-> and check
+› and check  12:00
+  gpt-5.5 · cautious
 
-mode cautious, model gpt-5.5, effort default
+efr history --verbose adds the output tails and the tokens of each turn

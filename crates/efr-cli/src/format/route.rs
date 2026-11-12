@@ -87,7 +87,7 @@ fn event_line(mark: &str, sentence: &str, rest: &str) -> Pieces {
 pub(crate) fn wake_line(glyphs: &Glyphs) -> Pieces {
     vec![
         (glyphs.conversation.to_owned(), Tone::Accent),
-        (" a job notice started this turn (not your input)".to_owned(), Tone::Dim),
+        (format!(" {}", super::jobs::WAKE_WORDS), Tone::Dim),
     ]
 }
 

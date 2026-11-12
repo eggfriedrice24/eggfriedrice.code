@@ -2,17 +2,17 @@
 source: crates/efr-cli/src/commands/history/tests.rs
 expression: "show(&page, &options)"
 ---
-conversation 019a9b1c-3d00-7a10-8b20-000000000001
-earlier events: efr history 019a9b1c-3d00-7a10-8b20-000000000001 --cursor c-1
-> is nginx
-> healthy?
+(no title) · 019a9b1c · 0 turns
 
-$ systemctl status nginx
-approval needed: run systemctl restart nginx
-allowed from the phone
+earlier events: efr history 019a9b1c-3d00-7a10-8b20-000000000001 --cursor c-1
+› is nginx  12:00
+  healthy?
+  $ systemctl status nginx
+  approval needed: run systemctl restart nginx
+  allowed from the phone
 
 It is **running** again.
 
 Cut off mid
 
-interrupted
+  interrupted

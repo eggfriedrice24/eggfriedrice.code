@@ -366,11 +366,14 @@ async fn print(
     });
     let page: ConversationHistoryResult = call(client, method).await?;
     let options = ctx.render_options(effective_width(ctx.screen.size()));
+    let head = history::head_of(client, id, options.glyphs()).await;
     let shown = Shown {
         options: &options,
         verbose: false,
         home: ctx.home.as_deref(),
         groups: &ctx.settings.diff.groups,
+        zone: &ctx.time_zone,
+        head: head.as_ref(),
     };
     out.out(&history::transcript(id, &page, &shown))
 }

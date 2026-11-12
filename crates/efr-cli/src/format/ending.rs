@@ -13,7 +13,7 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use efr_protocol::{ContextUse, EffectiveSettings, StopReason, TurnStop, Usage};
+use efr_protocol::{ContextUse, StopReason, TurnStop, Usage};
 use efr_render::{Glyphs, RenderOptions};
 
 use super::route::Pieces;
@@ -27,24 +27,6 @@ const GOES_ON: usize = 2;
 /// How far the rows under an outcome line stand in: the reason of a failure, its fix,
 /// what goes again after an interrupt.
 pub(crate) const UNDER: usize = 2;
-
-/// A turn's settings on one line, such as `mode auto, model gpt-5.4, effort high`: every
-/// value with `all`, else only the ones that the prompt set. `None` when that leaves
-/// none. An effort that is not sent shows as `default`, the backend's.
-pub(crate) fn turn_settings(settings: &EffectiveSettings, all: bool) -> Option<String> {
-    let EffectiveSettings { mode, model, effort, overridden, .. } = settings;
-    let mut parts = Vec::new();
-    if all || overridden.mode {
-        parts.push(format!("mode {mode}"));
-    }
-    if all || overridden.model {
-        parts.push(format!("model {}", one_line(model)));
-    }
-    if all || overridden.effort {
-        parts.push(format!("effort {}", one_line(effort.as_deref().unwrap_or("default"))));
-    }
-    (!parts.is_empty()).then(|| parts.join(", "))
-}
 
 /// The smallest input of a turn, in tokens, for which the end-of-turn line shows the
 /// share that the prompt cache served. Below the providers' minimums (512 tokens on
