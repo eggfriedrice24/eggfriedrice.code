@@ -301,7 +301,8 @@ fn the_scope_never_leaves_a_narrow_row_and_the_gauge_goes() {
         scoped("\u{2302} /etc/nftables.d/rules", 40),
         @"• thinking   4s   ⌂ …/nftables.d/rules"
     );
-    insta::assert_snapshot!(scoped("\u{2302} /etc/nftables.d", 30), @"• thinking   4s   ⌂ …ftables.d");
+    // A cut inside the last part keeps the `/` of the cut (TM-Live 28: `…/nftables.d`).
+    insta::assert_snapshot!(scoped("\u{2302} /etc/nftables.d", 30), @"• thinking   4s   ⌂ …/tables.d");
     // The scope is muted, as every routing line is.
     let palette = Palette::new().with(Role::Muted, Colour::Palette(8));
     let options = RenderOptions::new(60).with_colour(ColourMode::TrueColor).with_palette(palette);

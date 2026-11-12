@@ -282,6 +282,8 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- A long home directory in the status row that is cut inside its last part keeps the
+  `/` of the cut, such as `⌂ …/tables.d`, as a cut at a `/` does.
 - Under the rows of the calls, one blank row stands above the status row, the blank
   row that the next prose gets, so the rows do not touch the status row. A text of the
   model that starts with no characters no longer leaves a blank row.

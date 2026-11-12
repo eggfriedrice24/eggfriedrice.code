@@ -1,0 +1,17 @@
+{"run_id":"ed94950e-82df-4ae8-87bc-a55c6a85e19d","line":304,"new":{"module_name":"efr__follow__view__status__tests","snapshot_name":"the_scope_never_leaves_a_narrow_row_and_the_gauge_goes-4","metadata":{"source":"crates/efr-cli/src/follow/view/status/tests.rs","assertion_line":304,"expression":"scoped(\"\\u{2302} /etc/nftables.d\", 30)"},"snapshot":"• think…   4s   ⌂ …/nftables.d"},"old":{"module_name":"efr__follow__view__status__tests","metadata":{},"snapshot":"• thinking   4s   ⌂ …ftables.d"}}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":285,"new":null,"old":null}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":290,"new":null,"old":null}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":296,"new":null,"old":null}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":298,"new":null,"old":null}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":300,"new":null,"old":null}
+{"run_id":"96f076c8-ac4a-4fa0-a34b-44ce20419394","line":304,"new":{"module_name":"efr__follow__view__status__tests","snapshot_name":"the_scope_never_leaves_a_narrow_row_and_the_gauge_goes-4","metadata":{"source":"crates/efr-cli/src/follow/view/status/tests.rs","assertion_line":304,"expression":"scoped(\"\\u{2302} /etc/nftables.d\", 30)"},"snapshot":"• thinking   4s   ⌂ …/tables.d"},"old":{"module_name":"efr__follow__view__status__tests","metadata":{},"snapshot":"• thinking   4s   ⌂ …ftables.d"}}
+{"run_id":"0328332f-959c-4375-b4c6-5b102aca59fd","line":296,"new":null,"old":null}
+{"run_id":"0328332f-959c-4375-b4c6-5b102aca59fd","line":298,"new":null,"old":null}
+{"run_id":"0328332f-959c-4375-b4c6-5b102aca59fd","line":300,"new":null,"old":null}
+{"run_id":"0328332f-959c-4375-b4c6-5b102aca59fd","line":304,"new":{"module_name":"efr__follow__view__status__tests","snapshot_name":"the_scope_never_leaves_a_narrow_row_and_the_gauge_goes-4","metadata":{"source":"crates/efr-cli/src/follow/view/status/tests.rs","assertion_line":304,"expression":"scoped(\"\\u{2302} /etc/nftables.d\", 30)"},"snapshot":"• thinking   4s   ⌂ …/tables.d"},"old":{"module_name":"efr__follow__view__status__tests","metadata":{},"snapshot":"• thinking   4s   ⌂ …ftables.d"}}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":290,"new":null,"old":null}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":285,"new":null,"old":null}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":296,"new":null,"old":null}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":298,"new":null,"old":null}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":300,"new":null,"old":null}
+{"run_id":"53315281-2bc2-449b-87f1-2422f56f6b57","line":305,"new":null,"old":null}

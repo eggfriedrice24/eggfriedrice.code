@@ -244,6 +244,22 @@ fn the_scope_and_full_never_go_and_a_directory_is_cut_from_the_left_live_28() {
     check("Live", 28, &[full, home]);
 }
 
+/// TM-Live 28 at other widths: a directory cut from the left keeps the `/` of the cut,
+/// as the frame's `⌂ …/nftables.d`, also where its last part is cut.
+#[test]
+fn a_directory_keeps_the_slash_of_its_cut_at_every_width_live_28() {
+    let home = Shown {
+        scope: Some("\u{2302} /etc/nftables.d"),
+        full: true,
+        ..Shown::new(State::Thinking(None), 3).ctx(8)
+    };
+    for cols in [30, 40] {
+        let options = design_options(Depth::NoColor, cols);
+        let row = efr_test_support::design::cells(&home.row(&options))[0].text();
+        assert!(row.contains("\u{2302} \u{2026}/"), "{cols}: {row:?}");
+    }
+}
+
 #[test]
 fn at_40_columns_the_model_then_the_gauge_go_live_30() {
     let thinking = Shown::new(State::Thinking(None), 9).ctx(12);

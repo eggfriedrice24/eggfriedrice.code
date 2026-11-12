@@ -625,6 +625,10 @@ fn cut_left(path: &str, columns: usize, glyphs: &Glyphs, method: WidthMethod) ->
     if let Some(tail) = tail {
         return format!("{more}{tail}");
     }
+    // NOTE: a directory cut inside its last part still shows the `/` of the cut, as
+    // `…/tables.d`, so the cut reads as one of a path (TM-Live 28: `…/nftables.d`).
+    let slash = path.contains('/') && room > 1;
+    let room = if slash { room - 1 } else { room };
     let mut kept: Vec<char> = Vec::new();
     let mut used = 0;
     for c in path.chars().rev() {
@@ -636,7 +640,8 @@ fn cut_left(path: &str, columns: usize, glyphs: &Glyphs, method: WidthMethod) ->
         kept.push(c);
     }
     kept.reverse();
-    format!("{more}{}", kept.into_iter().collect::<String>())
+    let slash = if slash { "/" } else { "" };
+    format!("{more}{slash}{}", kept.into_iter().collect::<String>())
 }
 
 /// The width of `pieces`.
