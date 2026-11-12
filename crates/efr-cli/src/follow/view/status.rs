@@ -23,8 +23,9 @@
 //! one shows no gauge and no model.
 //!
 //! A narrow row drops, in this order: the detail, the account and the effort of the
-//! model, the model, the gauge. The state keeps [`MIN_WORDS`] columns, and the state,
-//! the time, the scope and `full` never go. A long directory of the scope is cut from the
+//! model, the model, the gauge. These go before the words of the state are cut; a state
+//! keeps at least [`MIN_WORDS`] columns, and the state, the time, the scope and `full`
+//! never go. A long directory of the scope is cut from the
 //! left (`⌂ …/nftables.d`) and keeps at least [`MIN_WORDS`] columns.
 //!
 //! While a model call waits for its answer, the row says why when the daemon tells: a
@@ -448,8 +449,14 @@ impl Status {
             .saturating_sub(time.as_ref().map_or(0, |time| gap + time.len()))
             .saturating_sub(scope.as_ref().map_or(0, |scope| gap + scope.least));
         // The others in the opposite order of the one in which they leave a narrow row.
+        // NOTE: each of them takes its columns only while the words of the state still
+        // fit whole (at least [`MIN_WORDS`] columns), because the state never goes
+        // (DECISIONS.md 2): `waiting for the model` stays whole at 60 columns and the
+        // effort of the model goes first.
+        let words = self.state.words(silence, lasted);
+        let need = text_width(&words, method).max(MIN_WORDS);
         let mut take = |width: usize| match room.checked_sub(width) {
-            Some(left) if left >= MIN_WORDS => {
+            Some(left) if left >= need => {
                 room = left;
                 true
             }
@@ -469,7 +476,6 @@ impl Status {
         });
         let model = whole.clone().or_else(|| named.map(|model| model.name.clone()));
         // The state with its notes, cut to what the row has left.
-        let words = self.state.words(silence, lasted);
         let mut state = vec![(words, Tone::Dim)];
         for note in self.notes(silence) {
             state.push((NOTE_GAP.to_owned(), Tone::Plain));

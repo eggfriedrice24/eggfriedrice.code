@@ -11,7 +11,7 @@ use efr_test_support::design::{Depth, Frame, assert_rows};
 use jiff::SignedDuration;
 
 use super::super::{Model, State, Status};
-use crate::testing::{design_options, now};
+use crate::testing::{design_fixed, design_options, now};
 
 /// What a row of a frame shows.
 #[derive(Clone)]
@@ -244,6 +244,34 @@ fn every_field_shows_at_160_and_100_columns_live_25_26() {
 fn at_60_columns_the_detail_then_the_account_and_the_effort_go_live_27() {
     let state = State::Thinking(Some("planning the migration".to_owned()));
     check("Live", 27, &[Shown::new(state, 9).ctx(12)]);
+}
+
+/// TM-Live 27 with a state of 21 columns and a model that fits: the state stays whole
+/// and the effort goes. NOTE: the board draws `thinking`; the words of the state and
+/// the model are this test's, to show the order of DECISIONS.md 2 ("the account and
+/// the effort of the model" go before the state, which "never goes").
+#[test]
+fn at_60_columns_the_effort_goes_before_the_state_is_cut_live_27() {
+    let frame = Frame::load("Live", 27).unwrap();
+    let model =
+        Model { account: None, name: "gpt-5.5".to_owned(), effort: Some("medium".to_owned()) };
+    let shown = Shown { model: Some(model), ..Shown::new(State::Model, 9).ctx(12) };
+    let fixes = [
+        (0, "th", "wa"),
+        (0, "ink", "iti"),
+        (0, "ing", "ng for the model"),
+        (0, "claude-opus-5-5", "gpt-5.5"),
+    ];
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        let fixed = design_fixed(&frame, depth, &fixes);
+        assert_rows(&fixed, .., &shown.row(&options), depth);
+    }
+    // A model that does not fit beside the whole state goes, and the gauge stays.
+    let options = design_options(Depth::NoColor, frame.cols);
+    let row = Shown::new(State::Model, 9).ctx(12).row(&options);
+    let text = efr_test_support::design::cells(&row)[0].text();
+    assert_eq!(text.trim_end(), "\u{283c} waiting for the model   9s   ctx 12%   app");
 }
 
 #[test]

@@ -37,8 +37,9 @@ The states include `waiting for the model`, `thinking`, `writing`, `preparing <t
 - What the reviewer checks, such as `reviewing  curl -LO https://example.com/x`.
 
 On a narrow screen the row drops fields in this order: the detail at its end, the
-account and the effort of the model, the model, the gauge. The state keeps 10 columns.
-The state, the time, the scope and `full` never go. A long directory is cut from the
+account and the effort of the model, the model, the gauge. They go before the words of
+the state are cut, so `waiting for the model` stays whole at 60 columns. The state
+keeps at least 10 columns. The state, the time, the scope and `full` never go. A long directory is cut from the
 left, such as `⌂ …/nftables.d`.
 
 When the provider is busy or a connection fails, efr sends the model call again after

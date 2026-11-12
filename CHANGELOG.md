@@ -109,8 +109,8 @@ into the GitHub release notes, and it stops when the section is missing.
   in full mode shows `app · full`. `no data for 25s` and `away` follow the state in
   yellow, and the reasoning title or the size of a tool input stands last. On a narrow
   screen the title goes first, then the account and the effort of the model, then the
-  model, then the context; the scope and `full` stay, and a long directory is cut from
-  the left.
+  model, then the context, all before the words of the state are cut; the scope and
+  `full` stay, and a long directory is cut from the left.
 - The question card has no bar. A yellow ` ? ` badge in reverse video stands before the
   bold title, the rows stand four columns in, labels such as `why` are dim with the
   value after two spaces, and the keys are bold yellow, such as `y allow   n deny   a
@@ -157,6 +157,11 @@ into the GitHub release notes, and it stops when the section is missing.
   `render.colors.diff.add_bg` or `render.colors.diff.remove_bg`, or with the tint of a
   truecolor code theme. In 16 colours an added or a removed line is whole in green or
   red, with no syntax colours. With `NO_COLOR` a removed line is dim.
+- Code in more colours, as in the editor. In Rust a variable, a field, a macro name
+  with its `!`, the name of an attribute, a module, `self` and a type such as `usize`
+  now take the colour of their kind in the code theme. So do an upper-case constant in
+  TypeScript, and a number, a test such as `-ne` and the `#!` line in a shell script.
+  A list item in a diff of a Markdown file no longer shows in the colour of a list.
 - efr wraps a long line of prose in a reply at a word, so a word is no longer cut in two
   at the edge of the terminal. The cost: the rows are fixed, so the terminal no longer
   reflows a reply when you make the window wider or narrower, and a copy of a
