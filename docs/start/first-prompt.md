@@ -35,10 +35,8 @@ stays one prompt.
 The reply goes into your scrollback, like the output of any command. When the turn
 ends, your shell prompt comes back at once.
 
-The first line names the scope of the prompt. In a registered project it is the name of
-the project, such as `app`. Outside projects it is `○ no project · ~/notes`. When the
-conversation changes, the first line tells you that in place of the scope (see
-[Conversations](#conversations)).
+The reply has no first line of its own. A line comes only when the conversation
+changed (see [Conversations](#conversations)), or when the turn runs on another model.
 
 While the turn runs, the last row shows a spinner, what the turn does, its time and how
 full the model's context is:
@@ -54,14 +52,15 @@ below it. When the command ends, one line stays:
 $ cargo test -p app  exit 101  6.2s
 ```
 
-The turn ends with one dim line:
+The turn ends with one line that tells how it ended, with its cost muted after it:
 
 ```text
-done in 42s, ctx 43% (89k/206k), 1.1k out, cache 91%
+✓ done  42s · ctx 43% · 1.1k out · cache 91%
 ```
 
 `cache 91%` is the part of the input of the turn that came from the provider's prompt
-cache.
+cache. A turn that failed ends with `✗ failed`, its reason, and the command that fixes
+it on a row of its own.
 
 ## Answer a question
 
@@ -94,7 +93,7 @@ A prompt in a git repository that is not registered shows a hint, at most one ti
 day for each repository. `conversation.repo_hint = false` turns it off:
 
 ```text
-○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.
+⌂ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool
 ```
 
 [Permission modes](../use/modes.md) tells what each mode allows.
@@ -176,7 +175,7 @@ hint. It does not go to the model.
 A terminal keeps one conversation for each registered project that you worked in, and
 one conversation for all places outside registered projects. A prompt goes to the
 conversation of the scope where you send it. The conversation changes when you send a
-prompt, not when you `cd`. The first line of the reply tells you when it changes:
+prompt, not when you `cd`. A line at the start of the reply tells you when it changes:
 
 ```text
 ↪ back to "fix the tests" in app (2 h ago)

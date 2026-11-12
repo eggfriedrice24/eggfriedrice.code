@@ -22,6 +22,7 @@ into the GitHub release notes, and it stops when the section is missing.
 - On the first turn after a switch of model, the model reads one line that names the
   model before it, so it does not take the earlier answers for its own. The log
   records the switch as a `model_switched` event, for a row in the transcript.
+  The event names the effort of each side too.
 - More than one API key of a provider: `efr login anthropic --account work` and
   `efr login openai-api --account NAME` keep one more key next to the default one. The
   account runs at once as a provider of its own, such as `anthropic-api.work`, with its
@@ -63,6 +64,35 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- A reply has no first line of its own any more. The scope line (`app`,
+  `○ no project · ~/notes`) and the note of the prompt's settings go: the prompt line
+  shows where the prompt goes. A line comes only when something changed: `↪` when the
+  conversation changed, such as `↪ back to "fix steer race" in app (2 h ago)`, and
+  `⇄` when the turn runs on another model, provider or account, such as
+  `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`. Before, efr showed nothing for
+  a switch of model. The place outside projects is "home" in these lines, such as
+  `↪ new conversation at home (from app)`.
+- A turn in full mode no longer starts with a red line. `,mode full` says once what
+  full mode does, and the status row keeps `full` in red.
+- The end of a turn has new lines. The last line says how the turn ended, with a
+  mark: `✓ done  42s · ctx 43% · 1.1k out · cache 91%`, `■ interrupted  12s ·
+  ctx 43%` or `✗ failed  9s`. The input tokens and `(89k/206k)` leave the line:
+  `efr context` tells more. A stop for a reason reads `! stopped: the answer reached
+  the output limit (max_tokens)`.
+- A failed turn shows its reason under `✗ failed`, and the command that fixes it on a
+  row of its own, such as `efr login anthropic-api`, so a double click copies it.
+  `efr` then prints no `efr: the turn failed ...` message. An error outside a turn
+  shows its fix the same way, 2 columns in: `systemctl --user start efrd` in place of
+  `efr: start the daemon with: ...`. "no daemon is listening" is now "no daemon
+  listens".
+- The line of a compaction and the lines of files at home use `→` and ` · `:
+  `context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k` and
+  `changed ~/.zshrc · efr undo reverts it`.
+- A turn that a job notice started is marked `↪ a job notice started this turn (not
+  your input)`, with no emoji.
+- The hint in a git repository that is not a project ends with the command alone, in
+  the colour of code: `⌂ ~/p/tool is a git repo but not a project: writes there ask
+  you. efr project add ~/p/tool`.
 - New default colours, as the design of the terminal look sets them. Inline code
   and the command of a call are green (slot 2), not cyan, and links are magenta (slot
   5), not blue. The `warning` role is no longer bold in colour; with `NO_COLOR` it is

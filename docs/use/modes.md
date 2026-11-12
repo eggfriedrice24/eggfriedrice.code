@@ -57,9 +57,10 @@ A turn keeps its mode until it ends. A steer with `,!` takes no settings.
 
 - In sticky mode, the choices of the terminal stand as a dim tag before the robot,
   such as `auto gpt-5.4 🤖`.
-- When a prompt asks for a setting that the config does not give, the first line of
-  the reply names it after the scope, such as `app · mode auto, model gpt-5.4`.
-- A full turn starts with a red line and shows `full` in red in the status row.
+- A reply has no line for the settings of its prompt. The status row of a running turn
+  shows the model, and a turn on another model than the turn before starts with a `⇄`
+  line, such as `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`.
+- A full turn has no line of its own. It shows `full` in red in the status row.
 
 ## Registered projects
 

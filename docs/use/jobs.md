@@ -152,7 +152,7 @@ When a job ends, efr tells the agent with a job notice. A job notice is never yo
 input, and it never counts as your permission.
 
 When the conversation is idle, a notice starts a short turn of its own, a wake turn.
-The turn is marked `🤖 (job notice, not your input)`. A wake turn runs at most 20 tool
+The turn is marked `↪ a job notice started this turn (not your input)`. A wake turn runs at most 20 tool
 calls. Outside `auto`, its commands ask you, as in any turn of that mode. At most 6
 wake turns start in a conversation in an hour (`jobs.max_wakes_per_hour`), and at most
 12 in all conversations (`jobs.max_wakes_per_hour_daemon`). `0` means that a notice

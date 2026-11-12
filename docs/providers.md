@@ -216,7 +216,7 @@ conversation append-only, so each request starts with the request before it and 
 answer.
 
 The end-of-turn line shows the part of the turn's input that came from the cache,
-such as `done in 42s, ctx 43% (89k/207k), 1.1k out, cache 91%`. A write to the cache
+such as `✓ done  42s · ctx 43% · 1.1k out · cache 91%`. A write to the cache
 counts as a miss. The line shows it only when the turn's input is 2048 tokens or
 more: below 512 tokens (Claude) or 1024 tokens (OpenAI), no cache entry forms.
 

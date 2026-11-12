@@ -169,7 +169,7 @@ names it. In `manual` and `cautious`, efr makes no copy. After a copy, the turn 
 with a line such as:
 
 ```text
-changed ~/.zshrc; efr undo reverts it
+changed ~/.zshrc · efr undo reverts it
 ```
 
 When a call can write a whole directory outside the project, efr copies the directory

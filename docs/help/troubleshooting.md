@@ -16,12 +16,15 @@ journalctl --user -u efrd   # the log of the daemon
 ```
 
 An error of `efr` starts with `efr: `. When efr knows the next step, a second line
-names it:
+names it, 2 columns in. When one command fixes the error, the line is that command
+alone, so you can copy it with a double click:
 
 ```text
-efr: no daemon is listening on /run/user/1000/efr/daemon.sock
-efr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one
+efr: no daemon listens on /run/user/1000/efr/daemon.sock
+  systemctl --user start efrd
 ```
+
+To run a daemon in the foreground for a test, use `just run` in the efr checkout.
 
 ## Exit codes
 

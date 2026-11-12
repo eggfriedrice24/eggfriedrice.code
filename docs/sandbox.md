@@ -269,7 +269,7 @@ yours from the call's change.
   does not run, and the model gets the reason.
 - In `manual` and `cautious`, a file tool write outside the roots gets no copy.
 - The turn ends with one dim line for each changed floor file, such as `changed
-  ~/.zshrc; efr undo reverts it`, and the line of the turn counts the other files,
+  ~/.zshrc · efr undo reverts it`, and the line of the turn counts the other files,
   such as `changed 1 file  in ~ · efr undo reverts this turn`. A file behind a dotfile
   link keeps the path through the link and names its real file too.
 - The collector keeps the copies of the newest `snapshot.keep_turns` turns of each
@@ -1534,7 +1534,8 @@ answers a question, and it never counts as your permission. efr escapes the job'
 format characters. A notice never enters a running turn. It waits until the turn ends.
 
 - When the conversation is idle, the notice starts a short turn of its own, a wake
-  turn, marked `🤖 (job notice, not your input)`. This occurs in every mode. The wake
+  turn, marked `↪ a job notice started this turn (not your input)`. This occurs in
+  every mode. The wake
   turn runs in the mode of your newest prompt, or in the mode of the job's turn when
   you sent no prompt since. Outside `auto`, its commands ask you as in any turn of
   that mode.

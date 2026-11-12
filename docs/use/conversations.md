@@ -23,13 +23,21 @@ changes when you send a prompt, not when you `cd`. For example:
 
 A prompt about two projects stays in the conversation of the project where you are.
 
-The first line of each reply names the scope, such as `app` or
-`○ no project · ~/notes`. A dim line names each change of conversation:
+A reply has no line for its scope: the prompt line shows it. A line at the start of
+the reply names each change of conversation, and only a change:
 
 ```text
-↪ back to "fix the tests" in app (2 h ago)
-↪ new conversation for app (from ~)
+↪ back to "fix steer race" in app (2 h ago)
+↪ back to "nftables rules" at home (2 h ago)
+↪ new conversation for app (from home)
+↪ new conversation at home (from app)
+↪ new conversation for app (the last one was idle for 13 h)
+↪ new conversation for app ("fix the tests" moved to /dev/pts/7)
+↪ picked up "fix the proxy test" in app (25 min ago) · ,new starts fresh
 ```
+
+The mark is in the accent colour, the sentence in the text colour, and the part in
+parentheses and what follows it are muted.
 
 In sticky mode, the scope of the next prompt stands after the robot: `🤖 app › ` in a
 project, and `🤖 ○ › ` outside projects. The status row of a running turn ends with
@@ -37,11 +45,12 @@ the scope too.
 
 ### A repository that is not a project
 
-A prompt in a git repository that is not a registered project shows one dim line, at
-most once a day for each repository:
+A prompt in a git repository that is not a registered project shows one line, at most
+once a day for each repository. The sentence is muted, and the command that registers
+the repository is in the colour of code, so you can copy it:
 
 ```text
-○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.
+⌂ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool
 ```
 
 efr never registers a repository by itself. The prompt goes to the conversation
@@ -276,7 +285,7 @@ turns and keeps the newest turns as they are. Then the turn goes on, and one dim
 line stays:
 
 ```text
-context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k
+context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k
 ```
 
 `[compaction] auto_at` sets the point, as a percent of the model's window (76 by

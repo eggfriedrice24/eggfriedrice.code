@@ -215,19 +215,60 @@ input row. Type the answer and press Enter.
 
 [The hidden shell](hidden-shell.md#a-command-that-asks-for-input) has the details.
 
-## The end of a turn
+## The start of a turn
 
-A turn that changed files ends with a line such as `3 files changed  +24 -7  turn.rs,
-lib.rs, notes.md`. It names at most three files, then how many more. Then one dim line
-sums up the turn:
+A reply has no first line of its own: your prompt line already shows where the prompt
+goes. A line comes only when something changed:
 
 ```text
-done in 42s, ctx 43% (89k/206k), 1.1k out, cache 91%
+↪ back to "fix steer race" in app (2 h ago)
+⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high · context compacted 86k → 6k
 ```
 
-`cache 91%` is the part of the turn's input that came from the provider's prompt
-cache. An interrupted turn ends with `interrupted after 12s`. When the model stopped
-for a reason, such as the output limit, one line before the end says why.
+- `↪` tells that the terminal's conversation changed: back to an older one, a new one
+  after a `cd`, one that this terminal picked up. [Conversations, resume and
+  search](conversations.md) has the sentences.
+- `⇄` tells that the turn runs on another model, provider or account. When the switch
+  made efr compact the context first, the line says so. When only the account or the
+  provider changed, it ends with `cache starts cold`: the new provider has no prompt
+  cache for the conversation yet.
+- When both changed, `↪` comes first.
+
+A prompt that sets its own mode, model or effort gets no line for it. A turn in full
+mode gets no line either: `,mode full` says once what full mode does.
+
+## The end of a turn
+
+The end of a turn is one blank line, then at most a few lines with no blank line
+between them:
+
+```text
+3 files changed  +24 -7  crates/efr-daemon/src/turn.rs, tests/steer.rs, CHANGELOG.md
+✓ done  42s · ctx 43% · 1.1k out · cache 91%
+```
+
+- The first line tells which files the turn changed. When `efr undo` can take the turn
+  back, the line says so, and a file in your home directory that efr can revert has a
+  line of its own.
+- The last line tells how the turn ended: `✓ done`, `■ interrupted` or `✗ failed`. The
+  muted part after it is the time, how full the context is, the tokens that the model
+  wrote and the part of the turn's input that came from the provider's prompt cache
+  (`cache 91%`). The time shows from 1 second.
+- When the model stopped for a reason, such as the output limit, a line before the
+  end says why: `! stopped: the answer reached the output limit (max_tokens)`.
+- Under an interrupted turn whose steers go again as a new prompt, a line says so:
+  `your steer "use TurnState" goes again as a new prompt`.
+
+A failed turn names its reason under the last line, and the command that fixes it on
+a row of its own, so you can copy it with a double click:
+
+```text
+✗ failed  9s
+  the login of anthropic-api expired at 14:02
+  efr login anthropic-api
+```
+
+`efr` then exits with code 1 and prints no other message.
 
 When a turn ends, a job ends, or a question waits in a terminal that does not follow
 the turn, your next prompt there shows one line about it:

@@ -772,9 +772,8 @@ efr config reload.`
 
 ### What you see
 
-- A full turn starts with one red line: `full mode: no sandbox, no questions; efr undo
-  reverts the project and the files efr saw`. The status row shows `full` in red, and
-  so does the row of a running call.
+- A full turn has no line of its own: `,mode full` says once what full mode does. The
+  status row shows `full` in red, and so does the row of a running call.
 - At its end, one dim line lists what efr saw full mode let through, such as `efr saw 2
   actions that full mode let through: write ~/notes.txt, upload (git push)`. A turn
   with no such action shows no line.
@@ -784,8 +783,7 @@ efr config reload.`
 - In sticky mode, the zsh plugin shows the mark 🔓 next to the robot while the
   terminal's prompts run in full mode, such as `🤖🔓 app › `. It reads `config.toml`
   for a default of full. `EFR_FULL_MARK` sets another mark, and an empty value shows
-  none. Outside sticky mode the plugin shows no mark: the red first line of
-  the turn says full mode. `efr_prompt_info` shows the mark too.
+  none. Outside sticky mode the plugin shows no mark. `efr_prompt_info` shows the mark too.
 
 `crates/efr-permissions/src/full.rs` holds the settle pass of a full call,
 `crates/efr-permissions/src/exits/critical.rs` the delete guard, and
