@@ -497,10 +497,11 @@ async fn serve(
     if let Some(probe) = probe.filter(|_| quiet != Quiet::No) {
         // NOTE: the ping of a warm-up went out a moment ago. A short quiet connection
         // sends the request now and lets that pong prove the connection; a long quiet
-        // one waits for that pong, as for a ping of its own.
+        // one waits for that pong, as for a ping of its own. The time of the proof
+        // starts again at the request, which may come near the end of the warm-up's.
         efr_stdx::mark::hit("ws.probe.begin");
         if quiet == Quiet::Short {
-            proof = Some(probe);
+            proof = Some(Proof { pong: probe.pong, deadline: clock.sleep(limits.probe) });
         } else {
             let heard = listen(&mut Some(probe)).await;
             efr_stdx::mark::hit("ws.probe.end");

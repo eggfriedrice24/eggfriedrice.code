@@ -931,6 +931,37 @@ async fn a_warm_up_pings_a_long_quiet_socket_so_the_call_after_the_pong_sends_no
 }
 
 #[tokio::test]
+async fn a_call_that_takes_over_the_ping_of_a_warm_up_waits_the_whole_probe_time_from_its_request()
+{
+    // The server reads the ping and the request, then says nothing, as on a path that
+    // stalls.
+    let socket =
+        Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))], vec![Step::Hang]])
+            .without_pongs();
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+    assert!(setup.provider.warm(&warmup()).await);
+    eventually(|| setup.server.sockets()[0].pings == 1).await;
+    // Enter comes near the end of the probe time of the warm-up's ping.
+    let late = Duration::from_millis(100);
+    setup.clock.advance(PROBE_TIMEOUT - late);
+
+    let stall = async {
+        eventually(|| setup.server.sockets()[0].messages.len() == 2).await;
+        setup.clock.advance(late);
+        // The request has the whole probe time: the call stays on the socket.
+        eventually(|| setup.clock.waits_for(PROBE_TIMEOUT - late)).await;
+        assert!(setup.server.posts().is_empty());
+        setup.clock.advance(PROBE_TIMEOUT - late);
+    };
+    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), stall);
+
+    assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
+    assert_eq!(setup.server.posts().len(), 1);
+}
+
+#[tokio::test]
 async fn a_warm_up_closes_a_quiet_socket_that_gives_no_pong_and_the_call_opens_a_new_one() {
     let sockets = vec![
         Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello.")), Step::Hang]]),
