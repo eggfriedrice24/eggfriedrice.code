@@ -114,7 +114,9 @@ impl State {
     /// `lasted` how long the state has shown.
     fn words(&self, silence: Duration, lasted: Duration) -> String {
         match self {
-            State::Model | State::Writing if silence >= STALL => {
+            // NOTE: `connecting` lasts until the response headers come, so a request
+            // that gets none is a stall too.
+            State::Model | State::Writing | State::Connecting if silence >= STALL => {
                 format!("waiting for the model, no data for {}", format::elapsed(silence))
             }
             State::Queued => "waiting for the running turn".to_owned(),

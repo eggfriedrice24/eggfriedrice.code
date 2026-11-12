@@ -152,6 +152,18 @@ fn twenty_seconds_without_data_while_waiting_or_writing_is_a_stall() {
 }
 
 #[test]
+fn a_connect_that_gets_no_answer_for_twenty_seconds_is_a_stall() {
+    let mut status = started(false);
+    status.set(State::Connecting);
+    status.at(at(1_000), false);
+    status.at(at(5_000), false);
+    assert!(status.row(at(5_000), &options()).contains("connecting"));
+    status.at(at(60_000), false);
+    let row = status.row(at(60_000), &options());
+    assert!(row.contains("waiting for the model, no data for 1m 00s"), "{row:?}");
+}
+
+#[test]
 fn the_time_stops_while_the_user_is_asked() {
     let mut status = started(false);
     status.at(at(5_000), true);
