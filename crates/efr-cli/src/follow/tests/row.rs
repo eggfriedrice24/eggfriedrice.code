@@ -1588,7 +1588,7 @@ async fn a_stop_asked_as_the_turn_ends_still_reaches_efrd() {
     let setup = Setup::new();
     let ctx = setup.context(true);
     let keys = Arc::clone(&setup.keys);
-    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+    let (result, _, _) = Box::pin(run_row(&setup, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         keys.press(CTRL_X).await;
         jobs_listed(&mut conn, vec![job(3, "npm run dev")]).await;
@@ -1606,7 +1606,7 @@ async fn a_stop_asked_as_the_turn_ends_still_reaches_efrd() {
         stopped.state = JobState::Stopped;
         conn.reply(id, &JobsStopResult { job: stopped }).await;
         conn.until_closed().await;
-    })
+    }))
     .await;
     result.unwrap();
 }

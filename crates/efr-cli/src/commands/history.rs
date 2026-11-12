@@ -438,7 +438,7 @@ struct Transcript<'a> {
     prompt_at: Option<(TurnId, usize)>,
     /// The switch of model of a turn, until the event after it: a compaction right after
     /// it puts its counts on the `⇄` line. The turn, both sides and when it was recorded.
-    switch: Option<Box<(TurnId, SwitchedModel, SwitchedModel, Option<Timestamp>)>>,
+    switch: Option<Box<Switched>>,
     /// The user's directory of the turn that started last: the path of a file tool's
     /// call below it shows relative to it.
     cwd: Option<PathBuf>,
@@ -1220,6 +1220,10 @@ impl<'a> Transcript<'a> {
         self.out
     }
 }
+
+/// A switch of model that waits for the event after it: its turn, the model before, the
+/// model after and when it was recorded.
+type Switched = (TurnId, SwitchedModel, SwitchedModel, Option<Timestamp>);
 
 /// A question of a call that waits for its answer in the transcript.
 struct Asked {

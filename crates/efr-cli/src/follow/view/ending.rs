@@ -42,7 +42,7 @@ impl TurnView {
             return Step::default();
         };
         self.queued = false;
-        self.cwd = Some(cwd.clone());
+        self.kept.cwd = Some(cwd.clone());
         self.started_at = self.event_at;
         self.reasoning = Reasoning::default();
         let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);

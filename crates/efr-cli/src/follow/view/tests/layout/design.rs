@@ -1292,12 +1292,8 @@ fn a_question_that_another_client_answers_ends_the_screen_questions_6() {
             local_only: false,
             reason: None,
         };
-        let envelope = EventEnvelope {
-            seq: Seq::new(40),
-            conversation_id: None,
-            at: super::super::at(20),
-            event: approval,
-        };
+        let envelope =
+            EventEnvelope { seq: Seq::new(40), conversation_id: None, at: at(20), event: approval };
         play.view.envelope(&envelope, play.size, false);
         play.frame();
         let screen = play.screen.raw();

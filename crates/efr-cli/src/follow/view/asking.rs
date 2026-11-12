@@ -73,7 +73,7 @@ impl TurnView {
         // so a delete or a move stands out before the user answers. An edit is a patch
         // of one file.
         let diff = request.diff.map(|diff| {
-            format::patch::short_paths(diff, self.cwd.as_deref(), self.home.as_deref())
+            format::patch::short_paths(diff, self.kept.cwd.as_deref(), self.home.as_deref())
         });
         let diff_rows = match (diff.as_deref(), tool) {
             (Some(diff), Some(format::patch::TOOL | format::EDIT_TOOL)) => card::patch_rows(diff),
