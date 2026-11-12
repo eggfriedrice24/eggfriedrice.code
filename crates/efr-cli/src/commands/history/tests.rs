@@ -1529,12 +1529,13 @@ fn wake_turn_marked_in_history() {
     let plain = show(&page, &options);
     assert!(plain.contains("$ cargo build (background)\n"), "{plain}");
     assert!(
-        plain.contains("job j1 started; output $SCRATCH/jobs/j1.out; ends in 180 minutes\n"),
+        plain
+            .contains("job j1 started \u{b7} output $SCRATCH/jobs/j1.out \u{b7} ends in 180 min\n"),
         "{plain}"
     );
     assert!(plain.contains("job j1 ended with exit 2 after 1 minute; 2.0 KB output\n"), "{plain}");
     assert_eq!(
-        plain.matches("\u{1f916} (job notice, not your input)\n").count(),
+        plain.matches("\u{21aa} a job notice started this turn (not your input)\n").count(),
         1,
         "one mark for the turn, however many notices it took: {plain}"
     );
@@ -1813,10 +1814,7 @@ fn history_says_who_moved_a_call_to_a_job_and_what_the_move_covered() {
     };
     let plain = show(&page, &RenderOptions::new(100).with_terminal(false));
     assert!(
-        plain.contains(
-            "moved to job j3 by you after 42 seconds; output $SCRATCH/jobs/j3.out; ends in 60 \
-             minutes\n"
-        ),
+        plain.contains("job j3 \u{b7} output $SCRATCH/jobs/j3.out \u{b7} ends in 60 min\n"),
         "{plain}"
     );
     assert!(plain.contains("your move covered: write; efr: a job asks in cautious\n"), "{plain}");

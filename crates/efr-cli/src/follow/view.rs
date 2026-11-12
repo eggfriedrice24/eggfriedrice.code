@@ -1700,7 +1700,7 @@ impl TurnView {
                 if job.moved_from.is_some() {
                     self.jobs.moved.insert(*call_id, job.id.clone());
                 }
-                let line = jobs::started(job);
+                let line = jobs::started(job, self.options.glyphs());
                 // NOTE: efrd records the start before the call ends, so the line goes in
                 // the call's block, under its result.
                 if self.call.as_ref().is_some_and(|call| call.call_id == *call_id) {

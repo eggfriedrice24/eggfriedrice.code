@@ -139,7 +139,8 @@ async fn list(ctx: &Context, out: &mut Output, args: &JobsListArgs) -> Result<()
             leftover: leftover.contains(&job.id),
         })
         .collect();
-    out.out(&job_lines::list(&rows, ctx.clock.now()))
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
+    out.out(&job_lines::list(&rows, ctx.clock.now(), args.all, &options))
 }
 
 /// The title of each listed conversation, `(untitled)` for one with none.

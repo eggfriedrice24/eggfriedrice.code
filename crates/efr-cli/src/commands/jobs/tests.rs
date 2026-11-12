@@ -136,9 +136,12 @@ async fn efr_jobs_list_rows() {
     assert_eq!(ran.listed, [JobsList { conversation_id: Some(conversation()) }]);
     assert_eq!(
         ran.stdout,
-        "j2  running         ends in 3h 0m      0 B  npm run dev\n\
-         j1  stopped by you  ended just now  2.0 KB  cargo build --release  (its processes may \
-         still run)\n"
+        "job  state           when              output  command\n\
+         j2   running         ends in 3h        0 B     npm run dev\n\
+         j1   stopped by you  ended just now    2.0 KB  cargo build --release  (its processes \
+         may still run)\n\
+         \n\
+         efr jobs stop j2 - efr jobs --all lists every conversation\n"
     );
     assert_eq!(
         ran.stderr,
@@ -154,7 +157,7 @@ async fn efr_jobs_list_rows() {
     let ran = Box::pin(jobs_with(&["list", "--all"], daemon)).await;
     assert_eq!(ran.exit, Exit::Success, "{}", ran.stderr);
     assert_eq!(ran.listed, [JobsList { conversation_id: None }]);
-    assert!(ran.stdout.starts_with("run the dev server  j2  running"), "{}", ran.stdout);
+    assert!(ran.stdout.contains("\nrun the dev server  j2   running"), "{}", ran.stdout);
     assert_eq!(ran.stderr, "");
 
     let daemon =

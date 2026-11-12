@@ -14,7 +14,7 @@ once with the job's id (`j1`, `j2` and so on in each conversation) and its outpu
 file. While you follow the turn, the view shows:
 
 ```text
-job j3 started; output $SCRATCH/jobs/j3.out; ends in 60 minutes
+job j3 started · output $SCRATCH/jobs/j3.out · ends in 60 min
 ```
 
 `&`, `nohup` and `setsid` in a normal command do not make a job. Their processes stop
@@ -173,11 +173,16 @@ efr: job j3 ended (exit 0): <title>
 `efr jobs` lists the jobs of this terminal's conversation, newest first:
 
 ```text
-j2  running         ends in 3h 0m      0 B  npm run dev
-j1  stopped by you  ended just now  2.0 KB  cargo build --release
+job  state           when              output  command
+j4   exit 101        ended 2m ago      14 KB   cargo test --workspace  (moved by you)
+j3   running         ends in 52m 3s    1.2 MB  npm run dev  (port 5173)
+j2   stopped by you  ended 1h ago      2.0 KB  cargo build --release
+
+efr jobs stop j3 · efr jobs --all lists every conversation
 ```
 
-A running job with forwards shows its ports, such as `(ports 8765, 5173)`. `--all`
+A failed exit shows in red and a running job in green; the other states are dim. A
+running job with forwards shows its ports, such as `(ports 8765, 5173)`. `--all`
 lists the jobs of every conversation. `efr history` shows each start and end of a job,
 and `--verbose` adds the last lines of each output.
 

@@ -602,9 +602,10 @@ async fn efr_jobs_stop_works() {
     let listed = run(jobs(&[])).await;
     assert!(listed.status.success(), "{}", text(&listed.stderr));
     let row = text(&listed.stdout);
+    let row = row.lines().nth(1).unwrap_or_default();
     // NOTE: the test daemon's clock stands still in the past, so the time limit may
     // read as passed.
-    assert!(row.starts_with("j1  running  ends "), "{row}");
+    assert!(row.starts_with("j1   running  ends "), "{row}");
     // NOTE: a test daemon never moves itself into a cgroup, so the job says why it has
     // none (ADR 0021).
     assert!(
@@ -622,7 +623,11 @@ async fn efr_jobs_stop_works() {
 
     let listed = run(jobs(&["list"])).await;
     assert!(
-        text(&listed.stdout).starts_with("j1  stopped by you  ended "),
+        text(&listed.stdout)
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .starts_with("j1   stopped by you  ended "),
         "{}",
         text(&listed.stdout)
     );

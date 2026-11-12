@@ -19,15 +19,29 @@ use efr_protocol::{
     Blocked, Event, ExitInfo, ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState,
     JobStopBy, SurfaceChange,
 };
-use efr_render::{RenderOptions, WidthMethod};
+use efr_render::{Glyphs, RenderOptions, WidthMethod};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
-use super::{ago, cut, lines, one_line, sandbox, size, until};
+use super::status::{separator, short_ago, short_until};
+use super::{Tone, cut, lines, one_line, paint, sandbox, size};
 
-/// The line of a turn that a job notice started, not the user: the view and
-/// `efr history` show it where a prompt would stand.
-pub(crate) const WAKE_MARK: &str = "\u{1f916} (job notice, not your input)";
+/// The words of the line of a turn that a job notice started, not the user, after the
+/// mark of a switch of conversation (`↪`): the view and `efr history` show it where a
+/// prompt would stand.
+pub(crate) const WAKE_WORDS: &str = "a job notice started this turn (not your input)";
+
+/// The line of a turn that a job notice started: `↪ a job notice started this turn (not
+/// your input)`, with the mark of the locale.
+pub(crate) fn wake_line(glyphs: &Glyphs) -> String {
+    format!("{} {WAKE_WORDS}", glyphs.conversation)
+}
+
+/// [`wake_line`] painted: the mark in `accent`, the words `muted`.
+pub(crate) fn wake_painted(options: &RenderOptions) -> String {
+    let mark = paint(options.glyphs().conversation, Tone::Accent, options);
+    format!("{mark}{}", paint(&format!(" {WAKE_WORDS}"), Tone::Dim, options))
+}
 
 /// The note of the stop key when no job of the conversation runs.
 pub(crate) const NO_JOB: &str = "no job runs";
@@ -96,19 +110,24 @@ pub(crate) fn command(command: &str, columns: usize) -> String {
     if more && !shown.ends_with('\u{2026}') { format!("{shown} \u{2026}") } else { shown }
 }
 
-/// The line of a job's start: `job j3 started; output $SCRATCH/jobs/j3.out; ends in 180
-/// minutes`. For a job that the user moved from a running call (Ctrl+B): `moved to job
-/// j3 by you after 42 seconds; output ...; ends in 60 minutes`.
-pub(crate) fn started(job: &JobInfo) -> String {
+/// The row of a job's start under its call (TM-Calls frame 15): `job j3 started ·
+/// output $SCRATCH/jobs/j3.out · ends in 180 min`. For a job that the user moved from a
+/// running call (Ctrl+B) the call's row says that it moved, so the row is `job j4 ·
+/// output $SCRATCH/jobs/j4.out · ends in 60 min`.
+pub(crate) fn started(job: &JobInfo, glyphs: &Glyphs) -> String {
+    let dot = format!(" {} ", glyphs.separator);
     let output = output_name(&job.output);
-    let ends = minutes(seconds_between(job.started_at, job.ends_by));
-    match &job.moved_from {
-        Some(moved) => format!(
-            "moved to job {} by you after {}; output {output}; ends in {ends}",
-            job.id,
-            minutes(moved.after_secs)
-        ),
-        None => format!("job {} started; output {output}; ends in {ends}", job.id),
+    let ends = short_minutes(seconds_between(job.started_at, job.ends_by));
+    let what = if job.moved_from.is_some() { "" } else { " started" };
+    format!("job {}{what}{dot}output {output}{dot}ends in {ends}", job.id)
+}
+
+/// A time limit as the start row of a job says it: `60 min`, `180 min`, or `45s` under
+/// a minute.
+fn short_minutes(seconds: u64) -> String {
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        _ => format!("{} min", seconds / 60),
     }
 }
 
@@ -373,14 +392,15 @@ pub(crate) fn linked(painted: &str, url: Option<&str>, options: &RenderOptions) 
     }
 }
 
-/// `ports 8765, 5173`: the ports that efr forwards for a running job; `None` for a job
-/// that does not run or forwards none.
+/// `ports 8765, 5173` or `port 5173`: the ports that efr forwards for a running job;
+/// `None` for a job that does not run or forwards none.
 pub(crate) fn ports(job: &JobInfo) -> Option<String> {
     if job.state != JobState::Running || job.forwards.is_empty() {
         return None;
     }
     let ports: Vec<String> = job.forwards.iter().map(|forward| forward.port.to_string()).collect();
-    Some(format!("ports {}", ports.join(", ")))
+    let word = if ports.len() == 1 { "port" } else { "ports" };
+    Some(format!("{word} {}", ports.join(", ")))
 }
 
 /// Why a job notice did not start a turn, in the words of the view.
@@ -447,23 +467,27 @@ pub(crate) struct ListRow<'a> {
     pub(crate) leftover: bool,
 }
 
-/// The state of `job` in a word or two, for a row of `efr jobs list`.
-fn state_words(job: &JobInfo) -> String {
+/// The state of `job` in a word or two, for a row of `efr jobs list`, with its tone: a
+/// failed exit in `error`, a running job in `success`, the rest `muted`.
+fn state_words(job: &JobInfo) -> (String, Tone) {
+    let muted = |words: &str| (words.to_owned(), Tone::Dim);
     match (job.state, job.stopped_by) {
-        (JobState::Running, _) => "running".to_owned(),
-        (_, Some(JobStopBy::DaemonRestart)) => "stopped (efrd restarted)".to_owned(),
-        (_, Some(JobStopBy::DaemonStop)) => "stopped (efrd stopped)".to_owned(),
-        (_, Some(JobStopBy::Guard)) => "stopped (git settings)".to_owned(),
-        (_, Some(JobStopBy::FullOff)) => "stopped (full mode off)".to_owned(),
-        (JobState::TimedOut, _) | (_, Some(JobStopBy::TimeLimit)) => "timed out".to_owned(),
-        (_, Some(JobStopBy::User)) => "stopped by you".to_owned(),
-        (_, Some(JobStopBy::Model)) => "stopped by the model".to_owned(),
-        (JobState::Exited, _) => {
-            job.exit_code.map_or_else(|| "ended".to_owned(), |c| format!("exit {c}"))
-        }
-        (JobState::Failed, _) => "failed".to_owned(),
-        (JobState::Stopped, _) => "stopped".to_owned(),
-        _ => "unknown".to_owned(),
+        (JobState::Running, _) => ("running".to_owned(), Tone::Success),
+        (_, Some(JobStopBy::DaemonRestart)) => muted("stopped (efrd restarted)"),
+        (_, Some(JobStopBy::DaemonStop)) => muted("stopped (efrd stopped)"),
+        (_, Some(JobStopBy::Guard)) => ("stopped (git settings)".to_owned(), Tone::Attention),
+        (_, Some(JobStopBy::FullOff)) => muted("stopped (full mode off)"),
+        (JobState::TimedOut, _) | (_, Some(JobStopBy::TimeLimit)) => muted("timed out"),
+        (_, Some(JobStopBy::User)) => muted("stopped by you"),
+        (_, Some(JobStopBy::Model)) => muted("stopped by the model"),
+        (JobState::Exited, _) => match job.exit_code {
+            Some(0) => muted("exit 0"),
+            Some(code) => (format!("exit {code}"), Tone::Failure),
+            None => muted("ended"),
+        },
+        (JobState::Failed, _) => ("failed".to_owned(), Tone::Failure),
+        (JobState::Stopped, _) => muted("stopped"),
+        _ => muted("unknown"),
     }
 }
 
@@ -484,77 +508,132 @@ pub(crate) fn cgroup_words(cgroup: &JobCgroup) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(", "))
 }
 
-/// When `job` ends or ended, at `now`: `ends in 52m 3s`, `ends now`, `ended 5m 3s ago`.
+/// When `job` ends or ended, at `now`: `ends in 52m 3s`, `ends now`, `ended 2m ago`.
 fn when(job: &JobInfo, now: Timestamp) -> String {
     match (job.state, job.ended_at) {
         // NOTE: a job past its time limit ends at once; the daemon's clock may differ.
         (JobState::Running, _) if job.ends_by <= now => "ends now".to_owned(),
-        (JobState::Running, _) => format!("ends {}", until(job.ends_by, now)),
-        (_, Some(ended)) => format!("ended {}", ago(ended, now)),
+        (JobState::Running, _) => format!("ends {}", short_until(job.ends_by, now)),
+        (_, Some(ended)) => format!("ended {}", short_ago(ended, now)),
         _ => "ended".to_owned(),
     }
 }
 
-/// The rows of `efr jobs list` at `now`, in columns: the id, the state, when it ends or
-/// ended, the size of its output, its command, and a mark when its processes may still
-/// run. With `--all` the conversation's title comes first.
-pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
-    let cells: Vec<Vec<String>> = rows
+/// The size of a job's output in the list: one decimal under 10 of its unit, such as
+/// `2.0 KB` and `1.2 MB`, none from 10, such as `14 KB`.
+fn output_size(bytes: u64) -> String {
+    let shown = size(bytes);
+    match shown.split_once(' ') {
+        Some((number, unit)) if number.len() > 3 && number.contains('.') => {
+            format!("{} {unit}", number.split('.').next().unwrap_or(number))
+        }
+        _ => shown,
+    }
+}
+
+/// The narrowest column of the time: `ends in 52m 3s` and `ended 59m 59s ago` change
+/// width from run to run, so the column of the output stays where it is.
+const WHEN_COLUMNS: usize = 16;
+
+/// The rows of `efr jobs list` at `now` (TM-Commands frame 3): a muted head, then a row
+/// for each job in columns: the id, the state, when it ends or ended, the size of its
+/// output, and its command with muted marks: the ports that efr forwards, `(moved by
+/// you)`, its memory and CPU time. A mark that needs care, such as a command that
+/// waits for input or processes that may still run, is in `warning`. With `--all`
+/// (`all`) the conversation's title comes first, and no last line follows; else a
+/// muted last line says how to stop a running job and list every conversation.
+pub(crate) fn list(
+    rows: &[ListRow<'_>],
+    now: Timestamp,
+    all: bool,
+    options: &RenderOptions,
+) -> String {
+    struct Cells {
+        lead: Vec<(String, Tone)>,
+        marks: Vec<(String, Tone)>,
+    }
+    let dot = separator(options);
+    let head: Vec<&str> = if all {
+        vec!["conversation", "job", "state", "when", "output", "command"]
+    } else {
+        vec!["job", "state", "when", "output", "command"]
+    };
+    let cells: Vec<Cells> = rows
         .iter()
         .map(|row| {
-            let mut cells = Vec::new();
+            let mut lead = Vec::new();
             if let Some(title) = &row.conversation {
-                cells.push(cut(&one_line(title), 24, WidthMethod::CodePoint));
+                lead.push((cut(&one_line(title), 24, WidthMethod::CodePoint), Tone::Text));
             }
-            cells.push(row.job.id.to_string());
-            cells.push(state_words(row.job));
-            cells.push(when(row.job, now));
-            cells.push(size(row.job.output_bytes));
-            let mut command = command(&row.job.command, COMMAND_COLUMNS);
+            lead.push((row.job.id.to_string(), Tone::Text));
+            lead.push(state_words(row.job));
+            lead.push((when(row.job, now), Tone::Text));
+            lead.push((output_size(row.job.output_bytes), Tone::Text));
+            lead.push((command(&row.job.command, COMMAND_COLUMNS), Tone::Text));
+            let mut marks = Vec::new();
             if let Some(ports) = ports(row.job) {
-                let _ = write!(command, "  ({ports})");
+                marks.push((format!("({ports})"), Tone::Dim));
             }
             if row.job.moved_from.is_some() {
-                let _ = write!(command, "  {MOVED_MARK}");
+                marks.push((MOVED_MARK.to_owned(), Tone::Dim));
             }
             if row.job.state == JobState::Running && row.job.waits_input {
-                let _ = write!(command, "  {WAITS_MARK}");
+                marks.push((WAITS_MARK.to_owned(), Tone::Attention));
             }
             if row.job.state == JobState::Running
                 && let Some(words) = row.job.cgroup.as_ref().and_then(cgroup_words)
             {
-                let _ = write!(command, "  ({words})");
+                marks.push((format!("({words})"), Tone::Dim));
             }
             if row.leftover {
-                command.push_str("  (its processes may still run)");
+                marks.push(("(its processes may still run)".to_owned(), Tone::Attention));
             }
-            cells.push(command);
-            cells
+            Cells { lead, marks }
         })
         .collect();
-    let columns = cells.iter().map(Vec::len).max().unwrap_or(0);
+    let columns = head.len();
+    let when_at = columns - 3;
     let widths: Vec<usize> = (0..columns)
         .map(|at| {
-            cells.iter().filter_map(|row| row.get(at)).map(|cell| cell.width()).max().unwrap_or(0)
+            let widest = cells.iter().map(|row| row.lead[at].0.width()).max().unwrap_or(0);
+            let widest = widest.max(head[at].width());
+            if at == when_at { widest.max(WHEN_COLUMNS) } else { widest }
         })
         .collect();
-    // NOTE: the size is the cell before the command, and its numbers line up at the
-    // right.
-    let size_at = columns.saturating_sub(2);
     let mut out = String::new();
-    for row in &cells {
-        let last = row.len().saturating_sub(1);
-        for (at, cell) in row.iter().enumerate() {
-            let pad = " ".repeat(widths[at].saturating_sub(cell.width()));
-            if at == last {
-                out.push_str(cell);
-            } else if at == size_at {
-                let _ = write!(out, "{pad}{cell}  ");
+    let pad = |text: &str, at: usize| " ".repeat(widths[at] - text.width());
+    let head_row: String = head
+        .iter()
+        .enumerate()
+        .map(|(at, word)| {
+            if at + 1 == columns {
+                (*word).to_owned()
             } else {
-                let _ = write!(out, "{cell}{pad}  ");
+                format!("{word}{}  ", pad(word, at))
+            }
+        })
+        .collect();
+    let _ = writeln!(out, "{}", paint(&head_row, Tone::Dim, options));
+    for row in &cells {
+        for (at, (text, tone)) in row.lead.iter().enumerate() {
+            out.push_str(&paint(text, *tone, options));
+            if at + 1 < columns {
+                let _ = write!(out, "{}  ", pad(text, at));
             }
         }
+        for (text, tone) in &row.marks {
+            out.push_str("  ");
+            out.push_str(&paint(text, *tone, options));
+        }
         out.push('\n');
+    }
+    if !all {
+        let mut last = Vec::new();
+        if let Some(running) = rows.iter().find(|row| row.job.state == JobState::Running) {
+            last.push(format!("efr jobs stop {}", running.job.id));
+        }
+        last.push("efr jobs --all lists every conversation".to_owned());
+        let _ = write!(out, "\n{}\n", paint(&last.join(&dot), Tone::Dim, options));
     }
     out
 }

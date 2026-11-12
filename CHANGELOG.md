@@ -225,6 +225,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr models` groups the models by account, with a head such as `work ·
   anthropic-api · from the backend, fetched 5m ago`. The default effort of a model is
   underlined, and a last line says what the marks mean and how `,model` picks a model.
+- `efr jobs` has a head row and a last line that says how to stop a running job. A
+  failed exit is red and a running job green. The line of a job's start reads `job j3
+  started · output $SCRATCH/jobs/j3.out · ends in 60 min`, and a turn that a job
+  notice started is marked `↪ a job notice started this turn (not your input)`, with
+  no emoji.
 
 ### Fixed
 

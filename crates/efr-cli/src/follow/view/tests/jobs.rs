@@ -214,8 +214,8 @@ fn a_background_call_says_so_and_its_block_names_the_job() {
     let (_, err, _) = feed(&mut view, &[started, job_started, completed], true);
     assert_eq!(
         err,
-        "\u{2713} $ npm run dev  (background)\n  job j3 started; output \
-         $SCRATCH/jobs/j3.out; ends in 180 minutes\n"
+        "\u{2713} $ npm run dev  (background)\n  job j3 started \u{b7} output \
+         $SCRATCH/jobs/j3.out \u{b7} ends in 180 min\n"
     );
 }
 
@@ -379,7 +379,7 @@ fn a_moved_call_ends_with_its_job_and_no_check_mark() {
     let (_, err, _) = feed(&mut view, &events, true);
     assert_eq!(
         err,
-        "\u{2192} $ make deploy  moved to job j3\n  moved to job j3 by you after 42 seconds; \
-         output $SCRATCH/jobs/j3.out; ends in 60 minutes\n"
+        "\u{2192} $ make deploy  moved to job j3\n  job j3 \u{b7} output \
+         $SCRATCH/jobs/j3.out \u{b7} ends in 60 min\n"
     );
 }

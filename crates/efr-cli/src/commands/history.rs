@@ -25,10 +25,10 @@
 //! Background jobs show as the view shows them: a job's start, its end, a line that
 //! matched its `watch` pattern, a notice that did not start a turn and a port that efr
 //! forwards or not, with the URL as an OSC 8 link on a terminal. A call that the user
-//! moved to a job with Ctrl+B shows `moved to job j3 by you after 42 seconds; ...` and
-//! the exits that the answer to the move covered. A turn that a
-//! job notice started shows `🤖 (job notice, not your input)` where a prompt would
-//! stand. `--verbose` adds the text of each notice and the tail of each end, through
+//! moved to a job with Ctrl+B shows `job j3 · output $SCRATCH/jobs/j3.out · ends in 60
+//! min` and the exits that the answer to the move covered. A turn that a job notice
+//! started shows `↪ a job notice started this turn (not your input)` where a prompt
+//! would stand. `--verbose` adds the text of each notice and the tail of each end, through
 //! `format::lines`, so the output of a job cannot drive the terminal.
 
 use std::collections::{HashMap, HashSet};
@@ -416,7 +416,7 @@ impl<'a> Transcript<'a> {
                 self.note(&line);
             }
             Event::JobStarted { job, .. } => {
-                self.note(&jobs::started(job));
+                self.note(&jobs::started(job, self.options.glyphs()));
                 // NOTE: a call that the user moved with Ctrl+B names the exits that the
                 // answer to the move covered, as an approval names its exit.
                 for line in jobs::moved_exits(job, self.home) {
@@ -432,11 +432,7 @@ impl<'a> Transcript<'a> {
                 // Each notice of a turn that notices started says so; the mark shows once.
                 if *woke && self.woken.insert(*turn_id) {
                     self.out.push_str(self.spacing.before(Block::Prompt));
-                    let _ = writeln!(
-                        self.out,
-                        "{}",
-                        format::paint(jobs::WAKE_MARK, Tone::Dim, self.options)
-                    );
+                    let _ = writeln!(self.out, "{}", jobs::wake_painted(self.options));
                 } else if !*woke {
                     self.note(&jobs::notice_rides(job_id));
                 }

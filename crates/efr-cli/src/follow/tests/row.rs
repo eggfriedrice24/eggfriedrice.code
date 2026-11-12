@@ -1576,7 +1576,7 @@ async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
         .await;
     result.unwrap();
     assert_eq!(
-        out.matches("a job notice started this turn (not your input)").count(),
+        out.matches("\u{21aa} a job notice started this turn (not your input)").count(),
         1,
         "{}",
         readable(&out)
@@ -1730,7 +1730,7 @@ async fn ctrl_b_moves_a_contained_call_at_once_whatever_the_row_holds() {
     .await;
     result.unwrap();
     // The line of the job, under the call's result; the screen is 80 columns wide.
-    let line = "moved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in";
+    let line = "job j1 \u{b7} output $SCRATCH/jobs/j1.out \u{b7} ends in";
     assert!(out.contains(line), "{}", readable(&out));
     assert!(!out.contains("this command to the background"), "no question: {}", readable(&out));
     // NOTE: the outcome line of the turn has its own mark.

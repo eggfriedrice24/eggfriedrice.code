@@ -4,14 +4,16 @@ use efr_protocol::{
     BlockReason, Blocked, Event, ForwardOutcome, HeldReason, JobId, JobState, JobStopBy,
     PortForward, Seq, SurfaceChange,
 };
-use efr_render::RenderOptions;
+use efr_render::{Glyphs, RenderOptions};
+use efr_test_support::design::{Depth, Frame, assert_rows};
 use pretty_assertions::assert_eq;
 
 use super::{
     Ended, ListRow, conversation_line, ended, held, link_of, linked, list, matched, minutes,
     move_exit, move_risk, moved_exits, not_moved, output_name, ports, started, tail_lines,
 };
-use crate::testing::{job, now};
+use crate::format::{Tone, paint};
+use crate::testing::{design_options, job, now};
 
 fn j3() -> JobId {
     JobId::nth(3)
@@ -59,9 +61,69 @@ fn the_output_file_is_named_as_the_model_names_it() {
 #[test]
 fn a_start_names_the_job_its_file_and_its_time_limit() {
     assert_eq!(
-        started(&job(3, "npm run dev")),
-        "job j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes"
+        started(&job(3, "npm run dev"), &Glyphs::UNICODE),
+        "job j3 started \u{b7} output $SCRATCH/jobs/j3.out \u{b7} ends in 180 min"
     );
+    assert_eq!(
+        started(&job(3, "npm run dev"), &Glyphs::ASCII),
+        "job j3 started - output $SCRATCH/jobs/j3.out - ends in 180 min"
+    );
+}
+
+/// TM-Calls frame 15, row 1: the row of a moved call's job, at 2 columns under the
+/// call's row, all `muted`. The view puts the row there; this checks its text and role.
+#[test]
+fn the_row_of_a_moved_job_is_the_design() {
+    let frame = Frame::load("TM-Calls", 15).unwrap();
+    let mut job = moved(42, Vec::new());
+    job.id = JobId::nth(4);
+    job.output = std::path::PathBuf::from("/home/u/.local/share/efr/scratch/jobs/j4.out");
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        let row = format!("  {}\n", paint(&started(&job, options.glyphs()), Tone::Dim, &options));
+        assert_rows(&frame, 1..=1, &row, depth);
+    }
+}
+
+/// The jobs of TM-Commands frame 3: a moved job that failed, a running job with a
+/// forwarded port, a job that the user stopped and one that timed out.
+fn four_jobs() -> [efr_protocol::JobInfo; 4] {
+    let ago = |minutes| Some(now() - jiff::SignedDuration::from_mins(minutes));
+    let mut j4 = moved(42, Vec::new());
+    j4.id = JobId::nth(4);
+    j4.command = "cargo test --workspace".to_owned();
+    j4.state = JobState::Exited;
+    j4.exit_code = Some(101);
+    j4.ended_at = ago(2);
+    j4.output_bytes = 14_000;
+    let mut j3 = job(3, "npm run dev");
+    j3.ends_by = now() + jiff::SignedDuration::from_secs(52 * 60 + 3);
+    j3.output_bytes = 1_200_000;
+    j3.forwards = vec![PortForward { listen: "127.0.0.1".to_owned(), port: 5173 }];
+    let mut j2 = job(2, "cargo build --release");
+    j2.state = JobState::Stopped;
+    j2.stopped_by = Some(JobStopBy::User);
+    j2.ended_at = ago(60);
+    j2.output_bytes = 2_000;
+    let mut j1 = job(1, "rsync -a ~/photos laptop:");
+    j1.state = JobState::TimedOut;
+    j1.ended_at = ago(180);
+    j1.output_bytes = 4_000;
+    [j4, j3, j2, j1]
+}
+
+/// TM-Commands frame 3, rows 1 to 7 (row 0 and row 8 are the user's prompt), in the
+/// three depths.
+#[test]
+fn efr_jobs_is_the_design() {
+    let frame = Frame::load("TM-Commands", 3).unwrap();
+    let jobs = four_jobs();
+    let rows: Vec<ListRow<'_>> =
+        jobs.iter().map(|job| ListRow { job, conversation: None, leftover: false }).collect();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 1..=7, &list(&rows, now(), false, &options), depth);
+    }
 }
 
 #[test]
@@ -221,17 +283,24 @@ fn the_list_has_a_row_per_job_in_columns() {
         ListRow { job: &running, conversation: None, leftover: false },
         ListRow { job: &ended, conversation: None, leftover: true },
     ];
+    let plain = RenderOptions::new(100).with_terminal(false);
     assert_eq!(
-        list(&rows, now()),
-        "j2  running  ends in 3h 0m        0 B  npm run dev \u{2026}\n\
-         j1  exit 0   ended 5m 0s ago  34.0 KB  cargo build  (its processes may still run)\n"
+        list(&rows, now(), false, &plain),
+        "job  state    when              output  command\n\
+         j2   running  ends in 3h        0 B     npm run dev \u{2026}\n\
+         j1   exit 0   ended 5m ago      34 KB   cargo build  (its processes may still run)\n\
+         \n\
+         efr jobs stop j2 \u{b7} efr jobs --all lists every conversation\n"
     );
     let rows = [ListRow {
         job: &running,
         conversation: Some("fix the build".to_owned()),
         leftover: false,
     }];
-    assert!(list(&rows, now()).starts_with("fix the build  j2  running"));
+    let all = list(&rows, now(), true, &plain);
+    assert!(all.starts_with("conversation   job  state    when"), "{all}");
+    assert!(all.contains("\nfix the build  j2   running  ends in 3h "), "{all}");
+    assert!(!all.contains("efr jobs"), "no last line with --all: {all}");
 }
 
 /// The `job_port_forwarded` of job 1 for `listen`:`port`.
@@ -347,6 +416,9 @@ fn a_running_job_lists_its_forwarded_ports() {
         PortForward { listen: "::1".to_owned(), port: 5173 },
     ];
     assert_eq!(ports(&running).as_deref(), Some("ports 8765, 5173"));
+    let mut one = running.clone();
+    one.forwards.truncate(1);
+    assert_eq!(ports(&one).as_deref(), Some("port 8765"));
     let mut ended = running.clone();
     ended.id = JobId::nth(1);
     ended.state = JobState::Stopped;
@@ -357,10 +429,14 @@ fn a_running_job_lists_its_forwarded_ports() {
         ListRow { job: &running, conversation: None, leftover: false },
         ListRow { job: &ended, conversation: None, leftover: false },
     ];
-    assert_eq!(
-        list(&rows, now()),
-        "j2  running         ends in 3h 0m    0 B  python3 -m http.server 8765  (ports 8765, 5173)\n\
-         j1  stopped by you  ended 5m 0s ago  0 B  python3 -m http.server 8765\n"
+    let plain = RenderOptions::new(100).with_terminal(false);
+    let listed = list(&rows, now(), false, &plain);
+    assert!(
+        listed.contains(
+            "\nj2   running         ends in 3h        0 B     python3 -m http.server 8765  (ports \
+             8765, 5173)\nj1   stopped by you  ended 5m ago      0 B     python3"
+        ),
+        "{listed}"
     );
 }
 
@@ -380,11 +456,11 @@ fn moved(after_secs: u64, exits: Vec<efr_protocol::ExitInfo>) -> efr_protocol::J
 
 #[test]
 fn a_moved_job_starts_with_who_moved_it_and_when() {
+    // NOTE: the call's row says that the user moved it, and after how long.
     assert_eq!(
-        started(&moved(42, Vec::new())),
-        "moved to job j3 by you after 42 seconds; output $SCRATCH/jobs/j3.out; ends in 60 minutes"
+        started(&moved(42, Vec::new()), &Glyphs::UNICODE),
+        "job j3 \u{b7} output $SCRATCH/jobs/j3.out \u{b7} ends in 60 min"
     );
-    assert!(started(&moved(150, Vec::new())).contains("after 2 minutes;"));
     assert_eq!(moved_exits(&moved(42, Vec::new()), None), Vec::<String>::new());
     assert_eq!(moved_exits(&job(3, "npm run dev"), None), Vec::<String>::new());
     let mut exit =
@@ -413,30 +489,31 @@ fn the_texts_of_the_background_key() {
     assert_eq!(move_exit(&exit, None), "as a job: network");
 }
 
+/// The row of `job` in a plain list: no colour, no head, no last line.
+fn row_of(job: &efr_protocol::JobInfo) -> String {
+    let rows = [ListRow { job, conversation: None, leftover: false }];
+    let listed = list(&rows, now(), false, &RenderOptions::new(100).with_terminal(false));
+    listed.lines().nth(1).unwrap_or_default().to_owned()
+}
+
 #[test]
 fn the_list_marks_a_moved_job() {
     let job = moved(42, Vec::new());
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
-    assert_eq!(
-        list(&rows, now()),
-        "j3  running  ends in 1h 0m  0 B  make deploy  (moved by you)\n"
-    );
+    assert_eq!(row_of(&job), "j3   running  ends in 1h        0 B     make deploy  (moved by you)");
 }
 
 #[test]
 fn the_list_marks_a_moved_job_that_waits_for_input() {
     let mut job = moved(42, Vec::new());
     job.waits_input = true;
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
     assert_eq!(
-        list(&rows, now()),
-        "j3  running  ends in 1h 0m  0 B  make deploy  (moved by you)  (waits for input; efr \
-         jobs stop ends it)\n"
+        row_of(&job),
+        "j3   running  ends in 1h        0 B     make deploy  (moved by you)  (waits for input; \
+         efr jobs stop ends it)"
     );
     // NOTE: a job that ended waits for nothing.
     job.state = JobState::Exited;
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
-    assert!(!list(&rows, now()).contains("waits for input"));
+    assert!(!row_of(&job).contains("waits for input"));
 }
 
 /// A running job shows the memory and the CPU time of its cgroup, or why it has none
@@ -450,27 +527,23 @@ fn the_list_shows_the_cgroup_of_a_running_job() {
         memory_bytes: Some(183_500_800),
         cpu_usec: Some(42_150_000),
     });
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
     assert_eq!(
-        list(&rows, now()),
-        "j3  running  ends in 1h 0m  0 B  make deploy  (183.5 MB of memory, 42.1 s of CPU)\n"
+        row_of(&job),
+        "j3   running  ends in 1h        0 B     make deploy  (183.5 MB of memory, 42.1 s of CPU)"
     );
     job.cgroup = Some(efr_protocol::JobCgroup {
         off: Some("efrd's cgroup is not delegated (Delegate=yes)".to_owned()),
         ..efr_protocol::JobCgroup::default()
     });
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
     assert_eq!(
-        list(&rows, now()),
-        "j3  running  ends in 1h 0m  0 B  make deploy  (no cgroup: efrd's cgroup is not \
-         delegated (Delegate=yes))\n"
+        row_of(&job),
+        "j3   running  ends in 1h        0 B     make deploy  (no cgroup: efrd's cgroup is not \
+         delegated (Delegate=yes))"
     );
     // NOTE: a cgroup that says nothing yet adds nothing, and an ended job shows none.
     job.cgroup = Some(efr_protocol::JobCgroup::default());
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
-    assert_eq!(list(&rows, now()), "j3  running  ends in 1h 0m  0 B  make deploy\n");
+    assert_eq!(row_of(&job), "j3   running  ends in 1h        0 B     make deploy");
     job.cgroup = Some(efr_protocol::JobCgroup { memory_bytes: Some(1), ..Default::default() });
     job.state = JobState::Exited;
-    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
-    assert!(!list(&rows, now()).contains("memory"));
+    assert!(!row_of(&job).contains("memory"));
 }
