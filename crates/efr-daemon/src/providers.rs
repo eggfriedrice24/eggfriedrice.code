@@ -240,12 +240,11 @@ impl Providers {
         // NOTE: every provider with a catalog runs, also one without a login: its
         // credential is read at each request, so a later login serves it at once.
         let route = |id: &str| -> Result<(String, Arc<dyn Provider>), DaemonError> {
-            let mut provider = factory.provider(id)?;
+            let mut provider: Arc<dyn Provider> =
+                Arc::new(Noted::new(factory.provider(id)?, id, Arc::clone(&warmups)));
             if takes_key(id) {
                 provider = Arc::new(Watched::new(provider, id, Arc::clone(&refusals)));
             }
-            let provider: Arc<dyn Provider> =
-                Arc::new(Noted::new(provider, id, Arc::clone(&warmups)));
             Ok((id.to_owned(), provider))
         };
         let active = route(provider)?;
@@ -311,12 +310,11 @@ impl Providers {
         let cache = catalog::cache_path_of(id, &self.state);
         let catalog = catalog::load_of(&settings, id, &cache).await;
         credential.add_catalog(id, catalog.clone());
-        let mut provider = credential.provider(id)?;
+        let mut provider: Arc<dyn Provider> =
+            Arc::new(Noted::new(credential.provider(id)?, id, Arc::clone(&self.warmups)));
         if takes_key(id) {
             provider = Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
         }
-        let provider: Arc<dyn Provider> =
-            Arc::new(Noted::new(provider, id, Arc::clone(&self.warmups)));
         let models = match credential.fetcher(id, &catalog)? {
             Some(fetcher) => {
                 let models = Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock));
