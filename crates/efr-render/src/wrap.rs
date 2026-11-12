@@ -1,10 +1,13 @@
 //! Hard wrapping for indented blocks. Prose at the top level is never wrapped, so
 //! the terminal reflows it on resize; text inside a list item or a quote is wrapped
-//! here, so its continuation lines keep the indent.
+//! here, so its continuation lines keep the indent. Widths count as the terminal
+//! counts them ([`WidthMethod`]), or a row can be one cell too wide and the terminal
+//! wraps it again.
 
-use unicode_width::UnicodeWidthChar as _;
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use crate::style::{Line, Span, Style, push_span};
+use crate::width::{WidthMethod, text_width};
 
 /// A piece of a span: a run of spaces or a run of other characters.
 struct Piece<'a> {
@@ -21,17 +24,18 @@ enum Token<'a> {
     Word(Vec<Piece<'a>>),
 }
 
-/// Breaks `spans` into lines of at most `width` columns, at spaces where it can and
-/// inside a word only when the word alone is wider than a line. Spaces at a break
-/// are dropped.
-pub(crate) fn wrap(spans: &[Span], width: usize) -> Vec<Line> {
+/// Breaks `spans` into lines of at most `width` columns as a terminal that counts by
+/// `method` shows them, at spaces where it can and inside a word only when the word
+/// alone is wider than a line, between grapheme clusters for `WidthMethod::Grapheme`.
+/// Spaces at a break are dropped.
+pub(crate) fn wrap(spans: &[Span], width: usize, method: WidthMethod) -> Vec<Line> {
     let width = width.max(1);
     let mut lines: Vec<Line> = Vec::new();
     let mut line: Line = Vec::new();
     let mut used = 0;
     let mut gap: Vec<Piece<'_>> = Vec::new();
 
-    for token in tokens(spans) {
+    for token in tokens(spans, method) {
         match token {
             Token::Gap(pieces) => gap = pieces,
             Token::Word(pieces) => {
@@ -48,7 +52,7 @@ pub(crate) fn wrap(spans: &[Span], width: usize) -> Vec<Line> {
                     }
                 }
                 gap.clear();
-                place_word(&pieces, width, &mut lines, &mut line, &mut used);
+                place_word(&pieces, width, method, &mut lines, &mut line, &mut used);
             }
         }
     }
@@ -60,6 +64,7 @@ pub(crate) fn wrap(spans: &[Span], width: usize) -> Vec<Line> {
 fn place_word(
     pieces: &[Piece<'_>],
     width: usize,
+    method: WidthMethod,
     lines: &mut Vec<Line>,
     line: &mut Line,
     used: &mut usize,
@@ -74,8 +79,20 @@ fn place_word(
     }
     for piece in pieces {
         let mut start = 0;
-        for (at, c) in piece.text.char_indices() {
-            let w = c.width().unwrap_or(0);
+        let cells: Vec<(usize, &str)> = match method {
+            WidthMethod::CodePoint => piece
+                .text
+                .split_inclusive(|_| true)
+                .scan(0, |at, cell| {
+                    let start = *at;
+                    *at += cell.len();
+                    Some((start, cell))
+                })
+                .collect(),
+            WidthMethod::Grapheme => piece.text.grapheme_indices(true).collect(),
+        };
+        for (at, cell) in cells {
+            let w = text_width(cell, method);
             if *used + w > width && *used > 0 {
                 push_piece(line, piece, &piece.text[start..at]);
                 lines.push(std::mem::take(line));
@@ -93,7 +110,7 @@ fn push_piece(line: &mut Line, piece: &Piece<'_>, text: &str) {
 }
 
 /// Splits spans into words and the gaps between them.
-fn tokens(spans: &[Span]) -> Vec<Token<'_>> {
+fn tokens(spans: &[Span], method: WidthMethod) -> Vec<Token<'_>> {
     let mut tokens: Vec<Token<'_>> = Vec::new();
     for span in spans {
         let mut rest = span.text.as_str();
@@ -106,7 +123,7 @@ fn tokens(spans: &[Span]) -> Vec<Token<'_>> {
                 text,
                 style: span.style,
                 link: span.link.as_ref(),
-                width: text.chars().map(|c| c.width().unwrap_or(0)).sum(),
+                width: text_width(text, method),
             };
             match (tokens.last_mut(), is_space) {
                 (Some(Token::Gap(pieces)), true) | (Some(Token::Word(pieces)), false) => {

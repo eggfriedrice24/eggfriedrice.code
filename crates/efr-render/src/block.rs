@@ -754,7 +754,7 @@ impl Writer<'_> {
         let lines = if wrap_text && prefix_width > 0 {
             let available =
                 self.ctx.options.columns().saturating_sub(prefix_width).max(MIN_TEXT_WIDTH);
-            wrap(content, available)
+            wrap(content, available, self.ctx.options.width_method())
         } else {
             vec![content.to_vec()]
         };
