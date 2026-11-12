@@ -583,8 +583,9 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   `provider.warm` fetches the provider's model list (`Models::warm`), which opens the
   pooled connection, at most once a minute for each provider and not within a minute
   of a prompt of it (`Warmups`). The start of `prompt.send` runs after routing, warms
-  only the provider's own connection and the token, and spawns its reads, so it holds
-  no prompt. A warm-up records nothing, never sends a model request, carries no text
+  only the provider's own connection and the token for the prompt's model or the
+  default (it does not read the pick, so it adds no store read to the prompt's), and
+  runs in a task, so it holds no prompt. A warm-up records nothing, never sends a model request, carries no text
   of the prompt, and only logs a failure at debug level.
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)

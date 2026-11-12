@@ -6,7 +6,8 @@
 //! line, so the handshake (DNS, TCP, TLS and the WebSocket upgrade) and the refresh of a
 //! token that ends soon happen while the user types. `prompt.send` starts the same
 //! warm-up when it arrives, so a pasted prompt gains the few milliseconds of efrd's own
-//! work before its request.
+//! work before its request; it takes the prompt's model or the default, and does not
+//! read the conversation's pick, so it adds no read of the store to the prompt's.
 //!
 //! efrd picks what the next prompt of the terminal would use ([`Target`]): the
 //! terminal's conversation of the scope of `pwd` while it continues (not one that was
@@ -126,6 +127,10 @@ pub(crate) struct Next {
     pub(crate) new_conversation: bool,
     /// The conversation, when the prompt names it or routing picked it.
     pub(crate) conversation: Option<ConversationId>,
+    /// Read the conversation's pick from the store. The start of `prompt.send` does
+    /// not: that read would compete with the turn's own read of the history, and the
+    /// default provider is the right one unless a prompt picked another.
+    pub(crate) read_pick: bool,
 }
 
 /// The target of the warm-up of the prompt `next`, as its turn would pick it.
@@ -137,8 +142,10 @@ pub(crate) async fn target(state: &State, next: &Next) -> Target {
         None => continued(state, next).await,
     };
     let pick = match (&next.model, conversation) {
-        (Some(_), _) | (None, None) => None,
-        (None, Some(conversation_id)) => newest_pick(state, conversation_id).await,
+        (None, Some(conversation_id)) if next.read_pick => {
+            newest_pick(state, conversation_id).await
+        }
+        _ => None,
     };
     let (model, named, picked) = match (&next.model, pick) {
         (Some(model), _) => (Some(model.clone()), next.provider.clone(), false),

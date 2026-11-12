@@ -35,6 +35,7 @@ pub(crate) async fn handle(
         provider,
         new_conversation,
         conversation: None,
+        read_pick: true,
     };
     let target = warmup::target(state, &next).await;
     let provider = target.provider();
