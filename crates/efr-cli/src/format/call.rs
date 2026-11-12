@@ -3,6 +3,8 @@
 //! a call's end. The calls slice of the terminal look owns this file; `format.rs`
 //! re-exports its items, so callers name them as `format::...`.
 
+use std::path::Path;
+
 use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 use serde_json::Value;
 
@@ -81,6 +83,46 @@ pub(crate) fn call_text(tool: &str, input: &Value) -> CallText {
         None => Vec::new(),
     };
     CallText { name: call_name(tool).trim_end_matches(':').to_owned(), lines, files }
+}
+
+impl CallText {
+    /// The same text, with the path of a file tool's call as the user knows it
+    /// ([`short_path`]): `crates/app/src/lib.rs` in the turn's directory and
+    /// `~/.ssh/config` in the home directory, as the Calls board draws them, also when
+    /// the model wrote the whole path.
+    #[must_use]
+    pub(crate) fn shortened(mut self, cwd: Option<&Path>, home: Option<&Path>) -> CallText {
+        if PATH_WORDS.contains(&self.name.as_str())
+            && let Some(path) = self.lines.first_mut()
+        {
+            *path = short_path(path, cwd, home);
+        }
+        self
+    }
+}
+
+/// The words of a call whose first line is the path of one file.
+const PATH_WORDS: &[&str] = &["read", "write", EDIT_TOOL];
+
+/// `path` relative to `cwd` when it is an absolute path below it, else with `~` for
+/// `home` when it is below that, else as it is.
+pub(crate) fn short_path(path: &str, cwd: Option<&Path>, home: Option<&Path>) -> String {
+    let whole = Path::new(path);
+    if !whole.is_absolute() {
+        return path.to_owned();
+    }
+    let below = |root: Option<&Path>| {
+        root.and_then(|root| whole.strip_prefix(root).ok())
+            .filter(|rest| !rest.as_os_str().is_empty())
+            .and_then(Path::to_str)
+    };
+    if let Some(rest) = below(cwd) {
+        return rest.to_owned();
+    }
+    match below(home) {
+        Some(rest) => format!("~/{rest}"),
+        None => path.to_owned(),
+    }
 }
 
 /// What ends a row of a command that is cut after a space (`Glyphs::wrap`). The rows

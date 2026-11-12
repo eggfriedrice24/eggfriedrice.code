@@ -46,7 +46,9 @@ impl TurnView {
         // The model writes a tool call after the text it belongs to, so the
         // message before it is complete.
         let before = self.finish_message();
-        let mut call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
+        let text =
+            format::call_text(tool, input).shortened(self.cwd.as_deref(), self.home.as_deref());
+        let mut call = Call::new(*call_id, text, self.event_at);
         if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
             call = call.in_background();
         }

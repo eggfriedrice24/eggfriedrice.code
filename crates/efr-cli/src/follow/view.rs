@@ -636,6 +636,9 @@ pub(crate) struct TurnView {
     left: Option<Box<Left>>,
     /// The home directory, which the sandbox's lines print as `~`.
     home: Option<PathBuf>,
+    /// The user's directory of the turn, from its start: the path of a file tool's call
+    /// below it shows relative to it.
+    cwd: Option<PathBuf>,
     /// The scope of the prompt, such as `app` or `⌂ ~/notes`, at the end of the status
     /// row (DV52).
     scope: Option<String>,
@@ -750,6 +753,7 @@ impl TurnView {
             flagged: HashSet::new(),
             left: None,
             home: None,
+            cwd: None,
             scope: None,
             in_project: false,
             traced: false,

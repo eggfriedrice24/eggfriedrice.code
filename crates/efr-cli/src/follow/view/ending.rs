@@ -38,10 +38,11 @@ impl TurnView {
     /// note shows. Full mode has no line here: `,mode full` said it once, and the
     /// status row keeps `full` (`DECISIONS.md`).
     pub(super) fn turn_started(&mut self, event: &Event, size: Size) -> Step {
-        let Event::TurnStarted { scope, settings, .. } = event else {
+        let Event::TurnStarted { scope, settings, cwd, .. } = event else {
             return Step::default();
         };
         self.queued = false;
+        self.cwd = Some(cwd.clone());
         self.started_at = self.event_at;
         self.reasoning = Reasoning::default();
         let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);

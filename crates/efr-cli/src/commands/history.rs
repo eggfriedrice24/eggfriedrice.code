@@ -33,7 +33,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use efr_config::DiffGroups;
 use efr_protocol::{
@@ -429,6 +429,9 @@ struct Transcript<'a> {
     effort: Option<String>,
     /// The turns that started on the page.
     turns: usize,
+    /// The user's directory of the turn that started last: the path of a file tool's
+    /// call below it shows relative to it.
+    cwd: Option<PathBuf>,
     /// When the turn that started last started, for the time on its outcome line.
     started: Option<Timestamp>,
     /// The calls that started and did not end yet: the row of a call shows at its end,
@@ -475,6 +478,7 @@ impl<'a> Transcript<'a> {
             at: None,
             effort: None,
             turns: 0,
+            cwd: None,
             started: None,
             calls: HashMap::new(),
             denied: HashSet::new(),
@@ -542,9 +546,10 @@ impl<'a> Transcript<'a> {
                     self.note(&sandbox::fallback_note(fallback, settings.mode));
                 }
             }
-            Event::TurnStarted { .. } => {
+            Event::TurnStarted { cwd, .. } => {
                 self.turns += 1;
                 self.started = self.at;
+                self.cwd = Some(cwd.clone());
             }
             Event::ModelSwitched { from, to, .. } => self.switched(from, to),
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
@@ -557,7 +562,8 @@ impl<'a> Transcript<'a> {
                 }
                 // NOTE: the row of a call says how it ended (TM-Commands frame 4), so it
                 // shows at the call's end, as the view writes it.
-                let mut call = Call::new(*call_id, format::call_text(tool, input), self.at);
+                let text = format::call_text(tool, input).shortened(self.cwd.as_deref(), self.home);
+                let mut call = Call::new(*call_id, text, self.at);
                 if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
                     call = call.in_background();
                 }

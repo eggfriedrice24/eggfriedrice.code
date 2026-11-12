@@ -468,6 +468,26 @@ fn refused_by_you(n: u8) -> Event {
     }
 }
 
+/// TM-Calls 6 and 11: a file tool's row names its path as the user knows it, also when
+/// the model wrote the whole path: below the turn's directory without it, below the
+/// home directory with `~`.
+#[test]
+fn a_whole_path_shows_from_the_project_or_from_home() {
+    for depth in Depth::ALL {
+        let mut play = Play::new(depth, 100);
+        play.event(10, read(1, "/home/user/project/crates/efr-daemon/src/turn.rs"));
+        play.event(20, ended(1, None, ""));
+        play.event(
+            30,
+            tool(2, "write_file", json!({ "path": "/home/user/.ssh/config", "content": "x" })),
+        );
+        play.event(40, refused(2, "efr's config (floor)"));
+        let shown = play.committed();
+        check(&Frame::load("Calls", 6).unwrap(), .., &rows(&shown, 0..1), depth, all);
+        check(&Frame::load("Calls", 11).unwrap(), .., &rows(&shown, 1..2), depth, all);
+    }
+}
+
 // --- the fold of reads ------------------------------------------------------------
 
 #[test]

@@ -170,6 +170,9 @@ into the GitHub release notes, and it stops when the section is missing.
   with its result on a row of its own.
 - Reads that follow each other fold into one row, such as `✓ read 6 files
   src/lib.rs, session.rs, json.rs (+3)`.
+- The row of a read, a write or an edit shows the path from the directory of the turn,
+  such as `crates/app/src/lib.rs`, or from your home directory with `~`, such as
+  `~/.ssh/config`, also when the model wrote the whole path.
 - A file write names its file and its counts, such as `✓ edit src/turn.rs  +5 -1`,
   with `new` for a new file, and `delete`, `move a → b` or `patch 3 files` for a
   patch. Its diff follows 2 columns in, with no bar: a short hunk header such as
