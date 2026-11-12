@@ -89,6 +89,11 @@ impl Play {
         self.view.live_body(self.size, at(millis))
     }
 
+    /// The glyphs of the view's options.
+    fn view_glyphs(&self) -> efr_render::Glyphs {
+        *self.view.options.glyphs()
+    }
+
     /// The rows that the scrollback keeps once the view ends.
     fn committed(&mut self) -> String {
         self.view.close();
@@ -1306,5 +1311,65 @@ fn a_question_that_another_client_answers_ends_the_screen_questions_6() {
             shown.iter().map(efr_test_support::design::CellRow::text).collect::<Vec<_>>()
         );
         assert_eq!(shown[5].text().trim_start(), "waiting for another client to answer");
+    }
+}
+
+/// TM-Endings 7 in a view: the `↪` line that the prompt's result gives, then the `⇄`
+/// line of the turn's switch of account, in that order, before the reply.
+#[test]
+fn the_conversation_line_comes_before_the_model_line_endings_7() {
+    let side = |provider: &str| efr_protocol::SwitchedModel {
+        provider: Some(provider.to_owned()),
+        model: "claude-opus-5-5".to_owned(),
+        effort: Some("high".to_owned()),
+        default_effort: None,
+    };
+    let scope = efr_protocol::RouteLabel {
+        scope: efr_protocol::RouteScope::Project(
+            "0192f0c1-7a00-7000-8000-0000000a4401".parse().unwrap(),
+        ),
+        name: Some("app".to_owned()),
+        dir: PathBuf::from("/home/user/p/app"),
+    };
+    let back = efr_protocol::Switch::Back {
+        title: Some("fix steer race".to_owned()),
+        updated_at: crate::testing::now() - jiff::SignedDuration::from_mins(125),
+    };
+    let frame = Frame::load("Endings", 7).unwrap();
+    for depth in Depth::ALL {
+        let mut play = Play::new(depth, 100);
+        let glyphs = play.view_glyphs();
+        let line = crate::format::route::switch_line(
+            &back,
+            &scope,
+            crate::testing::now(),
+            Some(std::path::Path::new("/home/user")),
+            &glyphs,
+        );
+        play.view.event_row(&line, play.size);
+        play.event(
+            10,
+            Event::ModelSwitched {
+                turn_id: turn(),
+                from: side("anthropic-api.work"),
+                to: side("anthropic-api.personal"),
+            },
+        );
+        play.event(20, message(0, "Done.\n"));
+        let shown = play.committed();
+        check(&frame, 1..3, &rows(&shown, 0..2), depth, all);
+    }
+}
+
+/// TM-Live 16 rows 1 and 2: a running call with its gauge and the newest line of its
+/// output, 4 columns in, muted.
+#[test]
+fn a_running_call_with_its_gauge_and_its_tail_live_16() {
+    for depth in Depth::ALL {
+        let mut play = Play::new(depth, 100);
+        play.context(38).event(10, shell(1, "cargo test --workspace"));
+        play.event(500, output(1, "test store::tests::open_twice ... ok\n"));
+        let live = spun(&play.live(14_010), "\u{283c}");
+        check(&Frame::load("Live", 16).unwrap(), 0..2, &live, depth, all);
     }
 }
