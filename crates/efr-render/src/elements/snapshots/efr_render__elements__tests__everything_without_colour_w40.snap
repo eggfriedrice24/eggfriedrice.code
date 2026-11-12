@@ -2,13 +2,13 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(&document, &options))"
 ---
-\e[1;4mHeading one\e[0m
+\e[2m#\e[0m \e[1;4mHeading one\e[0m
 
-\e[1mHeading two\e[0m
+\e[2m##\e[0m \e[1mHeading two\e[0m
 
-\e[1mHeading three\e[0m
+\e[2m###\e[0m \e[1mHeading three\e[0m
 
-\e[1;4mSetext heading\e[0m
+\e[2m#\e[0m \e[1;4mSetext heading\e[0m
 
 Some \e[3mitalic\e[0m, \e[1mbold\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m and `inline code` in one line of prose.
 
@@ -24,31 +24,31 @@ line four
 line five
 line six
 
-• one
-• two, with text long enough to wrap
+\e[2m-\e[0m one
+\e[2m-\e[0m two, with text long enough to wrap
   inside the item at forty columns
-  ◦ nested
-    ▪ deeper
-• three
+  \e[2m-\e[0m nested
+    \e[2m-\e[0m deeper
+\e[2m-\e[0m three
 
-1. first
-2. second
-3. third
+\e[2m1.\e[0m first
+\e[2m2.\e[0m second
+\e[2m3.\e[0m third
    with a second paragraph in the third
    item
-4. fourth
+\e[2m4.\e[0m fourth
 
-[ ] to do
+\e[2m[ ]\e[0m to do
 [x] done
-[ ] a task whose text is long enough to
+\e[2m[ ]\e[0m a task whose text is long enough to
     wrap at forty columns
 
-\e[2m│ \e[0m\e[3mA quote long enough to wrap when the\e[0m
-\e[2m│ \e[0m\e[3mterminal is forty columns wide.\e[0m
-\e[2m│\e[0m
-\e[2m│ \e[0m\e[3mIts second paragraph.\e[0m
-\e[2m│\e[0m
-\e[2m│ \e[0m• \e[3ma list inside the quote\e[0m
+\e[2m>\e[0m \e[3mA quote long enough to wrap when the\e[0m
+\e[2m>\e[0m \e[3mterminal is forty columns wide.\e[0m
+\e[2m>\e[0m
+\e[2m>\e[0m \e[3mIts second paragraph.\e[0m
+\e[2m>\e[0m
+\e[2m>\e[0m \e[2m-\e[0m \e[3ma list inside the quote\e[0m
 
 \e[2mrust\e[0m
 fn main() {
@@ -59,10 +59,10 @@ fn main() {
 plain text
     after a tab
 
-1. Build it:
+\e[2m1.\e[0m Build it:
    \e[2msh\e[0m
    cargo build --release
-2. Done.
+\e[2m2.\e[0m Done.
 
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
 \e[1mindex 1111111..2222222 100644\e[0m
@@ -74,16 +74,16 @@ plain text
 \e[1m+\e[0m    println!("new");
  }
 
-\e[1mName\e[0m        \e[2m │ \e[0m\e[1mKind\e[0m\e[2m │ \e[0m\e[1mSize\e[0m
-\e[2m─────────────┼──────┼─────\e[0m
-`efr-render`\e[2m │ \e[0mlib \e[2m │ \e[0m   1
-efrd        \e[2m │ \e[0m\e[1mbin\e[0m \e[2m │ \e[0m  22
+\e[1mName\e[0m           \e[1mKind\e[0m   \e[1mSize\e[0m
+\e[2m──────────────────────────\e[0m
+`efr-render`   lib       1
+efrd           \e[1mbin\e[0m      22
 
-\e[1mOption:\e[0m width
-\e[1mMeaning:\e[0m the number of columns text is laid out in
+\e[2mOption\e[0m   \e[1mwidth\e[0m
+\e[2mMeaning\e[0m  the number of columns text is laid out in
 
-\e[1mOption:\e[0m theme
-\e[1mMeaning:\e[0m the syntax theme of code blocks and diffs
+\e[2mOption\e[0m   \e[1mtheme\e[0m
+\e[2mMeaning\e[0m  the syntax theme of code blocks and diffs
 
 See \e]8;;https://example.com/docs\e\\e[4mthe docs\e]8;;\e\\e[0m, \e]8;;https://example.com\e\\e[4mhttps://example.com\e]8;;\e\\e[0m, \e]8;;https://example.com/bare\e\\e[4mhttps://example.com/bare\e]8;;\e\\e[0m, \e]8;;file:///etc/hosts\e\\e[4mhosts\e]8;;\e\\e[0m, \e]8;;file:///var/log/syslog\e\`/var/log/syslog`\e]8;;\e\ and \e[4ma relative link\e[0m\e[2m (src/lib.rs)\e[0m.
 

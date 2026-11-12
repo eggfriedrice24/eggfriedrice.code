@@ -2,10 +2,10 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: "writes.join(\"\\n---\\n\")"
 ---
-\e[?2026h\e[1;4;33mPlan\e[0m
+\e[?2026h\e[2m#\e[0m \e[1;4;33mPlan\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[1;4;33mPlan\e[0m
+\e[?2026h\r\e[1A\e[J\e[2m#\e[0m \e[1;4;33mPlan\e[0m
 
 First we
 \e[?2026l
@@ -13,11 +13,11 @@ First we
 \e[?2026h\r\e[2A\e[J
 First we check the logs.
 
-• one
+\e[2m-\e[0m one
 \e[?2026l
 ---
 \e[?2026h\r\e[2A\e[J
-• one
-• two
+\e[2m-\e[0m one
+\e[2m-\e[0m two
 \e[?2026l
 ---

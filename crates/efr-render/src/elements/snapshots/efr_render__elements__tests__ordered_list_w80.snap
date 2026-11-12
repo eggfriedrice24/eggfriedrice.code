@@ -2,8 +2,8 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-1. first
-2. second
-3. third
+\e[2m1.\e[0m first
+\e[2m2.\e[0m second
+\e[2m3.\e[0m third
    with a second paragraph in the third item
-4. fourth
+\e[2m4.\e[0m fourth

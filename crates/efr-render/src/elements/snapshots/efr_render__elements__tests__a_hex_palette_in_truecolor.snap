@@ -2,20 +2,20 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: every_role(&options)
 ---
-\e[1;4;38;2;242;193;78mAccent heading\e[0m
+\e[38;2;122;114;102m#\e[0m\e[38;2;232;226;212m \e[0m\e[1;4;38;2;242;193;78mAccent heading\e[0m
 
-\e[1;38;2;242;193;78mSecond heading\e[0m
+\e[38;2;122;114;102m##\e[0m\e[38;2;232;226;212m \e[0m\e[1;38;2;242;193;78mSecond heading\e[0m
 
-\e[1;38;2;232;226;212mThird heading\e[0m
+\e[38;2;122;114;102m###\e[0m\e[38;2;232;226;212m \e[0m\e[1;38;2;232;226;212mThird heading\e[0m
 
-\e[1;3;38;2;232;226;212mFourth heading\e[0m
+\e[38;2;122;114;102m####\e[0m\e[38;2;232;226;212m \e[0m\e[1;3;38;2;232;226;212mFourth heading\e[0m
 
 \e[38;2;232;226;212mProse with \e[0m\e[38;2;159;194;122mcode\e[0m\e[38;2;232;226;212m, a \e]8;;https://example.com\e\\e[0m\e[4;38;2;127;180;202mlink\e]8;;\e\\e[0m\e[38;2;232;226;212m and \e[0m\e[1;38;2;232;226;212mbold\e[0m\e[38;2;232;226;212m.\e[0m
 
-\e[38;2;122;114;102m│ \e[0m\e[3;38;2;184;176;160mA quoted line.\e[0m
+\e[38;2;122;114;102m>\e[0m\e[38;2;232;226;212m \e[0m\e[3;38;2;184;176;160mA quoted line.\e[0m
 
 \e[38;2;143;191;106m[x]\e[0m\e[38;2;232;226;212m done\e[0m
-\e[38;2;232;226;212m[ ] open\e[0m
+\e[38;2;122;114;102m[ ]\e[0m\e[38;2;232;226;212m open\e[0m
 
 \e[38;2;122;114;102m────────────────────────────────────────\e[0m
 

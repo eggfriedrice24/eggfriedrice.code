@@ -34,8 +34,6 @@ const NOT_YET: &[&str] = &[
     "crates/efr-cli/src/format/resume.rs",
     "crates/efr-cli/src/format/route.rs",
     "crates/efr-cli/src/format/search.rs",
-    "crates/efr-render/src/block.rs",
-    "crates/efr-render/src/table.rs",
     "crates/efr-render/src/width.rs",
 ];
 

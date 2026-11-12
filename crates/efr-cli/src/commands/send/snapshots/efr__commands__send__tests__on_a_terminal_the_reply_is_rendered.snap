@@ -3,7 +3,7 @@ source: crates/efr-cli/src/commands/send/tests.rs
 expression: readable(&captured.stdout())
 ---
 \e[?25l\e[?2026h\e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
-\e[?2026l\e[?2026h\r\e[1A\e[J\e[1;4;33mPlan\e[0m
+\e[?2026l\e[?2026h\r\e[1A\e[J\e[2m#\e[0m \e[1;4;33mPlan\e[0m
 
 Restart
 \e[33m⠋\e[0m \e[2mwriting\e[0m

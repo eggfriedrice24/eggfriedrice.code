@@ -2,20 +2,20 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: every_role(&options)
 ---
-\e[1;4;33mAccent heading\e[0m
+\e[2m#\e[0m \e[1;4;33mAccent heading\e[0m
 
-\e[1;33mSecond heading\e[0m
+\e[2m##\e[0m \e[1;33mSecond heading\e[0m
 
-\e[1mThird heading\e[0m
+\e[2m###\e[0m \e[1mThird heading\e[0m
 
-\e[1;3mFourth heading\e[0m
+\e[2m####\e[0m \e[1;3mFourth heading\e[0m
 
 Prose with \e[32mcode\e[0m, a \e]8;;https://example.com\e\\e[4;35mlink\e]8;;\e\\e[0m and \e[1mbold\e[0m.
 
-\e[2m│ \e[0m\e[3mA quoted line.\e[0m
+\e[2m>\e[0m \e[3mA quoted line.\e[0m
 
 \e[32m[x]\e[0m done
-[ ] open
+\e[2m[ ]\e[0m open
 
 \e[2m────────────────────────────────────────\e[0m
 

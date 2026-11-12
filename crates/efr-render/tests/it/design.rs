@@ -1,7 +1,10 @@
 //! The output of the renderer against the frames of the terminal design
 //! (`efr_test_support::design`). The pattern for every slice of the terminal look:
 //! build the options of a depth, render mock text at the frame's width, and compare
-//! the rows with the frame, cell by cell.
+//! the rows with the frame, cell by cell. One module for each board: `markdown`
+//! (TM-Markdown and the Markdown marks of TM-Legend).
+
+mod markdown;
 
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role, render};
 use efr_test_support::design::{DESIGN_ROLES, Depth, Frame, assert_rows, rgb};

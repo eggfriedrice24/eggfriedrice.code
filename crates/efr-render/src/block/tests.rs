@@ -2,6 +2,7 @@ use pretty_assertions::assert_eq;
 
 use super::{Continuation, Ctx, Flow, ListTail, ends_with_blank_line, render_slice};
 use crate::code::CodeBlock;
+use crate::glyph::Glyphs;
 use crate::highlight::ASSETS;
 use crate::options::{ColourMode, RenderOptions};
 use crate::palette::{Palette, Role};
@@ -47,13 +48,18 @@ fn paint(markdown: &str, options: RenderOptions) -> String {
     paint_with(markdown, options, &mut Flow::default())
 }
 
+/// `painted` without the muted mark of a heading before its text.
+fn strip_mark(painted: &str) -> String {
+    painted.split_once("\x1b[0m ").map_or(painted, |(_, rest)| rest).to_owned()
+}
+
 fn visible(markdown: &str, width: u16) -> String {
     strip(&paint(markdown, RenderOptions::new(width)))
 }
 
 #[test]
 fn blocks_are_separated_by_one_blank_line() {
-    assert_eq!(visible("one\n\n\n\ntwo\n# three\n", 80), "one\n\ntwo\n\nthree\n");
+    assert_eq!(visible("one\n\n\n\ntwo\n# three\n", 80), "one\n\ntwo\n\n# three\n");
 }
 
 #[test]
@@ -63,28 +69,41 @@ fn soft_breaks_keep_the_authors_lines_and_prose_is_not_wrapped() {
 }
 
 #[test]
-fn headings_have_one_colour_and_show_their_level_by_weight() {
+fn headings_have_one_colour_and_show_their_level_by_weight_and_their_mark() {
     let options = RenderOptions::new(80);
-    assert_eq!(paint("# One\n", options.clone()), "\x1b[1;4;33mOne\x1b[0m\n");
-    assert_eq!(paint("## Two\n", options.clone()), "\x1b[1;33mTwo\x1b[0m\n");
-    assert_eq!(paint("### Three\n", options.clone()), "\x1b[1mThree\x1b[0m\n");
-    assert_eq!(paint("#### Four\n", options.clone()), "\x1b[1;3mFour\x1b[0m\n");
-    assert_eq!(paint("###### Six\n", options.clone()), "\x1b[1;3mSix\x1b[0m\n");
-    assert_eq!(paint("Setext\n===\n", options), "\x1b[1;4;33mSetext\x1b[0m\n");
+    let mark = |mark: &str| format!("\x1b[2m{mark}\x1b[0m ");
+    assert_eq!(paint("# One\n", options.clone()), format!("{}\x1b[1;4;33mOne\x1b[0m\n", mark("#")));
+    assert_eq!(paint("## Two\n", options.clone()), format!("{}\x1b[1;33mTwo\x1b[0m\n", mark("##")));
+    assert_eq!(
+        paint("### Three\n", options.clone()),
+        format!("{}\x1b[1mThree\x1b[0m\n", mark("###"))
+    );
+    assert_eq!(
+        paint("#### Four\n", options.clone()),
+        format!("{}\x1b[1;3mFour\x1b[0m\n", mark("####"))
+    );
+    assert_eq!(
+        paint("###### Six\n", options.clone()),
+        format!("{}\x1b[1;3mSix\x1b[0m\n", mark("######"))
+    );
+    assert_eq!(
+        paint("Setext\n===\n", options),
+        format!("{}\x1b[1;4;33mSetext\x1b[0m\n", mark("#"))
+    );
     let no_colour = RenderOptions::new(80).with_colour(ColourMode::None);
-    assert_eq!(paint("# One\n", no_colour.clone()), "\x1b[1;4mOne\x1b[0m\n");
-    assert_eq!(paint("## Two\n", no_colour), "\x1b[1mTwo\x1b[0m\n");
+    assert_eq!(paint("# One\n", no_colour.clone()), format!("{}\x1b[1;4mOne\x1b[0m\n", mark("#")));
+    assert_eq!(paint("## Two\n", no_colour), format!("{}\x1b[1mTwo\x1b[0m\n", mark("##")));
 }
 
 #[test]
 fn headings_take_the_accent_or_their_own_colour() {
     let accent = Palette::new().with(Role::Accent, Colour::Palette(5));
     let options = RenderOptions::new(80).with_palette(accent.clone());
-    assert_eq!(paint("## Two\n", options), "\x1b[1;35mTwo\x1b[0m\n");
+    assert_eq!(strip_mark(&paint("## Two\n", options)), "\x1b[1;35mTwo\x1b[0m\n");
     let own = accent.with(Role::Heading, Colour::Palette(4));
     let options = RenderOptions::new(80).with_palette(own);
-    assert_eq!(paint("## Two\n", options.clone()), "\x1b[1;34mTwo\x1b[0m\n");
-    assert_eq!(paint("### Three\n", options), "\x1b[1mThree\x1b[0m\n");
+    assert_eq!(strip_mark(&paint("## Two\n", options.clone())), "\x1b[1;34mTwo\x1b[0m\n");
+    assert_eq!(strip_mark(&paint("### Three\n", options)), "\x1b[1mThree\x1b[0m\n");
 }
 
 #[test]
@@ -103,40 +122,41 @@ fn inline_code_is_coloured_or_keeps_backticks_without_colour() {
 }
 
 #[test]
-fn bullets_change_with_nesting() {
-    assert_eq!(
-        visible("- a\n  - b\n    - c\n      - d\n", 80),
-        "\u{2022} a\n  \u{25e6} b\n    \u{25aa} c\n      \u{2022} d\n"
-    );
+fn every_level_of_a_list_has_a_muted_dash_and_two_more_columns() {
+    assert_eq!(visible("- a\n  - b\n    - c\n      - d\n", 80), "- a\n  - b\n    - c\n      - d\n");
+    assert_eq!(paint("- a\n", RenderOptions::new(80)), "\x1b[2m-\x1b[0m a\n");
 }
 
 #[test]
 fn ordered_lists_number_from_their_start() {
     assert_eq!(visible("1. a\n1. b\n1. c\n", 80), "1. a\n2. b\n3. c\n");
     assert_eq!(visible("7. a\n8. b\n", 80), "7. a\n8. b\n");
+    assert_eq!(paint("1. a\n", RenderOptions::new(80)), "\x1b[2m1.\x1b[0m a\n");
 }
 
 #[test]
 fn task_items_show_their_boxes() {
     assert_eq!(visible("- [ ] todo\n- [x] done\n", 80), "[ ] todo\n[x] done\n");
     assert_eq!(visible("1. [x] first\n", 80), "1. [x] first\n");
+    let painted = paint("- [ ] todo\n- [x] done\n", RenderOptions::new(80));
+    assert_eq!(painted, "\x1b[2m[ ]\x1b[0m todo\n\x1b[32m[x]\x1b[0m done\n");
 }
 
 #[test]
 fn a_blank_line_between_items_in_the_source_stays() {
-    assert_eq!(visible("- a\n\n- b\n- c\n", 80), "\u{2022} a\n\n\u{2022} b\n\u{2022} c\n");
+    assert_eq!(visible("- a\n\n- b\n- c\n", 80), "- a\n\n- b\n- c\n");
 }
 
 #[test]
 fn blocks_inside_an_item_follow_each_other_without_blank_lines() {
-    assert_eq!(visible("- a\n\n  more\n- b\n", 80), "\u{2022} a\n  more\n\u{2022} b\n");
+    assert_eq!(visible("- a\n\n  more\n- b\n", 80), "- a\n  more\n- b\n");
 }
 
 #[test]
 fn list_items_wrap_and_keep_their_indent() {
     assert_eq!(
         visible("- one two three four five six seven\n", 20),
-        "\u{2022} one two three four\n  five six seven\n"
+        "- one two three four\n  five six seven\n"
     );
     assert_eq!(
         visible("10. one two three four five six\n", 20),
@@ -146,17 +166,17 @@ fn list_items_wrap_and_keep_their_indent() {
 
 #[test]
 fn an_empty_item_still_shows_its_marker() {
-    assert_eq!(visible("-\n- b\n", 80), "\u{2022}\n\u{2022} b\n");
+    assert_eq!(visible("-\n- b\n", 80), "-\n- b\n");
 }
 
 #[test]
-fn quotes_have_a_bar_on_every_line() {
+fn quotes_have_a_muted_mark_on_every_line() {
     assert_eq!(
         visible("> one\n>\n> two two two two two two\n", 20),
-        "\u{2502} one\n\u{2502}\n\u{2502} two two two two\n\u{2502} two two\n"
+        "> one\n>\n> two two two two\n> two two\n"
     );
     let painted = paint("> q\n", RenderOptions::new(80));
-    assert_eq!(painted, "\x1b[2m\u{2502} \x1b[0m\x1b[3mq\x1b[0m\n");
+    assert_eq!(painted, "\x1b[2m>\x1b[0m \x1b[3mq\x1b[0m\n");
 }
 
 #[test]
@@ -164,9 +184,9 @@ fn quote_text_is_italic_in_items_too_and_code_in_it_is_not() {
     let painted = paint("> - item\n>\n> ```\n> code\n> ```\n", RenderOptions::new(80));
     assert_eq!(
         painted,
-        "\x1b[2m\u{2502} \x1b[0m\u{2022} \x1b[3mitem\x1b[0m\n\
-         \x1b[2m\u{2502}\x1b[0m\n\
-         \x1b[2m\u{2502} \x1b[0mcode\n"
+        "\x1b[2m>\x1b[0m \x1b[2m-\x1b[0m \x1b[3mitem\x1b[0m\n\
+         \x1b[2m>\x1b[0m\n\
+         \x1b[2m>\x1b[0m code\n"
     );
 }
 
@@ -205,12 +225,12 @@ fn tables_lay_out_as_a_grid_or_as_records() {
     let table = "| a | b |\n|---|--:|\n| x | 10 |\n";
     assert_eq!(
         visible(table, 80),
-        "a \u{2502}  b\n\u{2500}\u{2500}\u{253c}\u{2500}\u{2500}\u{2500}\nx \u{2502} 10\n"
+        "a    b\n\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\nx   10\n"
     );
     let wide = "| name | description |\n|---|---|\n| a | the first entry |\n| b | the second |\n";
     assert_eq!(
         visible(wide, 20),
-        "name: a\ndescription: the first entry\n\nname: b\ndescription: the second\n"
+        "name         a\ndescription  the first entry\n\nname         b\ndescription  the second\n"
     );
 }
 
@@ -259,7 +279,9 @@ fn images_show_their_alt_text() {
 #[test]
 fn a_rule_spans_the_width_up_to_forty_columns() {
     assert_eq!(visible("---\n", 10), format!("{}\n", "\u{2500}".repeat(10)));
-    assert_eq!(visible("- a\n\n  ***\n", 10), format!("\u{2022} a\n  {}\n", "\u{2500}".repeat(8)));
+    assert_eq!(visible("- a\n\n  ***\n", 10), format!("- a\n  {}\n", "\u{2500}".repeat(8)));
+    let ascii = RenderOptions::new(10).with_glyphs(&Glyphs::ASCII);
+    assert_eq!(strip(&paint("---\n", ascii)), format!("{}\n", "-".repeat(10)));
     assert_eq!(visible("---\n", 120), format!("{}\n", "\u{2500}".repeat(40)));
     assert_eq!(visible("---\n", 2), format!("{}\n", "\u{2500}".repeat(3)));
 }
@@ -312,7 +334,7 @@ fn a_continuing_bullet_list_stays_unnumbered() {
         continuation: Continuation::List { next: None, blank_before: false },
         ..Flow::default()
     };
-    assert_eq!(strip(&paint_with("- c\n", RenderOptions::new(80), &mut flow)), "\u{2022} c\n");
+    assert_eq!(strip(&paint_with("- c\n", RenderOptions::new(80), &mut flow)), "- c\n");
 }
 
 #[test]

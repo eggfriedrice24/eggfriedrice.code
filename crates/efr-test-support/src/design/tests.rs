@@ -144,3 +144,24 @@ fn the_design_roles_are_the_sixteen_roles_with_their_hex() {
     assert_eq!(Ink::Rgb(0xff, 0xc9, 0x40), YELLOW);
     assert_ne!(MUTED, YELLOW);
 }
+
+#[test]
+fn a_cell_on_the_fill_of_its_row_compares_as_a_cell_on_no_background() {
+    // TM-Legend 38 has no fill; TM-Code 1 row 87 is a code row of plain text on
+    // `code.bg`.
+    let frame = Frame::load("Code", 1).unwrap();
+    let fill = "\x1b[48;2;18;23;34m";
+    let text = "efrd 0.0.5 \u{b7} protocol 1";
+    // The fill behind each cell and to the edge, and the fill only to the edge.
+    let behind = format!("{fill}{text}\x1b[K\x1b[0m\n");
+    assert_rows(&frame, 87..88, &behind, Depth::TrueColor);
+    let edge = format!("{text}{fill}\x1b[K\x1b[0m\n");
+    assert_rows(&frame, 87..88, &edge, Depth::TrueColor);
+    // A cell on another background still differs.
+    let other = format!("\x1b[48;2;1;2;3m{text}\x1b[0m{fill}\x1b[K\x1b[0m\n");
+    let problem = check_rows(&frame, 87..88, &other, Depth::TrueColor).unwrap_err();
+    assert!(problem.contains("column 0"), "{problem}");
+    // No fill at all differs too.
+    let bare = format!("{text}\n");
+    assert!(check_rows(&frame, 87..88, &bare, Depth::TrueColor).unwrap_err().contains("fill"));
+}

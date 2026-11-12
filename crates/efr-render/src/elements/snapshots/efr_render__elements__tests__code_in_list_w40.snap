@@ -2,7 +2,7 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-1. Build it:
+\e[2m1.\e[0m Build it:
    \e[2msh\e[0m
    cargo build\e[36m --release\e[0m
-2. Done.
+\e[2m2.\e[0m Done.

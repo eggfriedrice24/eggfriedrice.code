@@ -5,7 +5,7 @@ use super::Table;
 use crate::style::{Span, Style, line_text};
 
 fn table(aligns: Vec<Alignment>, head: &[&str], rows: &[&[&str]]) -> Table {
-    let mut table = Table::new(aligns, Style::PLAIN.dim());
+    let mut table = Table::new(aligns, Style::PLAIN.dim(), "\u{2500}");
     table.start_row();
     for cell in head {
         table.push_cell(vec![Span::plain(*cell)]);
@@ -28,11 +28,17 @@ fn texts(table: &Table, width: usize) -> Vec<String> {
 #[test]
 fn a_table_that_fits_is_a_grid() {
     let t = table(vec![Alignment::None; 2], &["name", "size"], &[&["a", "1"], &["bbb", "22"]]);
-    let rule = format!("{}\u{253c}{}", "\u{2500}".repeat(5), "\u{2500}".repeat(5));
-    assert_eq!(
-        texts(&t, 80),
-        ["name \u{2502} size", rule.as_str(), "a    \u{2502} 1", "bbb  \u{2502} 22"]
-    );
+    let rule = "\u{2500}".repeat(11);
+    assert_eq!(texts(&t, 80), ["name   size", rule.as_str(), "a      1", "bbb    22"]);
+}
+
+#[test]
+fn the_rule_is_muted_and_as_wide_as_the_table() {
+    let t = table(vec![Alignment::None; 3], &["a", "b", "c"], &[&["xxxx", "y", "zz"]]);
+    let lines = t.layout(80);
+    assert_eq!(lines[1].len(), 1);
+    assert_eq!(lines[1][0].text.chars().count(), 4 + 1 + 2 + 3 * 2);
+    assert!(lines[1][0].style.dim);
 }
 
 #[test]
@@ -43,7 +49,7 @@ fn alignment_pads_on_the_right_side() {
         &[&["xxx", "yyy", "zzzzz"]],
     );
     let lines = texts(&t, 80);
-    assert_eq!(lines[0], "l   \u{2502}   r \u{2502}   c");
+    assert_eq!(lines[0], "l       r     c");
 }
 
 #[test]
@@ -63,19 +69,37 @@ fn a_table_wider_than_the_width_becomes_records() {
     );
     assert_eq!(
         texts(&t, 20),
-        ["name: a", "description: the first one", "", "name: b", "description: the second one"]
+        [
+            "name         a",
+            "description  the first one",
+            "",
+            "name         b",
+            "description  the second one"
+        ]
     );
+}
+
+#[test]
+fn a_record_has_muted_labels_and_its_first_value_bold() {
+    let t = table(vec![Alignment::None; 2], &["name", "kind"], &[&["efrd", "bin"]]);
+    let lines = t.layout(5);
+    let style = |line: usize, text: &str| {
+        lines[line].iter().find(|span| span.text.trim_start() == text).map(|span| span.style)
+    };
+    assert_eq!(style(0, "name"), Some(Style::PLAIN.dim()));
+    assert_eq!(style(0, "efrd"), Some(Style::PLAIN.bold()));
+    assert_eq!(style(1, "bin"), Some(Style::PLAIN));
 }
 
 #[test]
 fn the_grid_needs_the_full_width_including_gaps() {
     let t = table(vec![Alignment::None; 2], &["aa", "bb"], &[]);
-    assert_eq!(texts(&t, 7)[0], "aa \u{2502} bb");
+    assert_eq!(texts(&t, 7)[0], "aa   bb");
     assert_eq!(texts(&t, 6), ["aa", "bb"]);
 }
 
 #[test]
 fn missing_cells_are_empty() {
     let t = table(vec![Alignment::None; 2], &["a", "b"], &[&["1"], &["", "2"]]);
-    assert_eq!(texts(&t, 80)[2..], ["1 \u{2502}", "  \u{2502} 2"]);
+    assert_eq!(texts(&t, 80)[2..], ["1", "    2"]);
 }

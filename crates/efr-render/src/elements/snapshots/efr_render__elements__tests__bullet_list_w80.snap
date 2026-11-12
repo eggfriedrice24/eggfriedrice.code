@@ -2,8 +2,8 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-• one
-• two, with text long enough to wrap inside the item at forty columns
-  ◦ nested
-    ▪ deeper
-• three
+\e[2m-\e[0m one
+\e[2m-\e[0m two, with text long enough to wrap inside the item at forty columns
+  \e[2m-\e[0m nested
+    \e[2m-\e[0m deeper
+\e[2m-\e[0m three

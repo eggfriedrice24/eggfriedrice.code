@@ -2,7 +2,7 @@
 source: crates/efr-render/src/elements/tests.rs
 expression: "readable(&render(markdown, &options))"
 ---
-[ ] to do
+\e[2m[ ]\e[0m to do
 \e[32m[x]\e[0m done
-[ ] a task whose text is long enough to
+\e[2m[ ]\e[0m a task whose text is long enough to
     wrap at forty columns

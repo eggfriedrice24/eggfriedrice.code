@@ -535,7 +535,10 @@ fn derive_look(look: Look, code: bool, depth: Depth) -> Option<Look> {
 /// efr, row by row and cell by cell: the text, the colours and the attributes of each
 /// cell, and the fill of each row. A space compares by its text and its background
 /// only, so the colour of a blank does not matter, and a cell past the end of a row is
-/// a blank. In truecolor the frame's foreground ([`Frame::foreground`]) and the
+/// a blank. A cell on the background of its row's fill compares as a cell on no
+/// background of its own: a row filled to the edge shows the same either way, and efr
+/// paints the fill behind each cell of the row too, so a reset inside the row does not
+/// drop it. In truecolor the frame's foreground ([`Frame::foreground`]) and the
 /// terminal's own compare equal: the board draws both in one colour. Gives the first
 /// row that differs, with both sides, as text.
 pub fn check_rows(
@@ -580,8 +583,8 @@ pub fn check_rows(
             if problem.is_some() {
                 break;
             }
-            let w = want.get(column).copied().unwrap_or(blank);
-            let r = real.cells.get(column).copied().unwrap_or(blank);
+            let w = on_fill(want.get(column).copied().unwrap_or(blank), row.fill);
+            let r = on_fill(real.cells.get(column).copied().unwrap_or(blank), real.fill);
             let space = w.text == ' ' && r.text == ' ';
             let matches = w.text == r.text
                 && same(w.look.bg, r.look.bg)
@@ -606,6 +609,14 @@ pub fn check_rows(
         }
     }
     Ok(())
+}
+
+/// `cell` with no background of its own when its background is the fill of its row.
+fn on_fill(mut cell: Cell, fill: Option<Ink>) -> Cell {
+    if fill == Some(cell.look.bg) {
+        cell.look.bg = Ink::Default;
+    }
+    cell
 }
 
 /// [`check_rows`], as an assertion: a test fails with the first row that differs.

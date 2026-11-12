@@ -173,10 +173,10 @@ fn after_a_long_fence_the_partial_line_of_the_next_item_shows_at_once() {
     assert_eq!(update.live(), "");
     let update = renderer.push(&rest[..4]);
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "\n2. R\n");
+    assert_eq!(update.live(), "\n\x1b[2m2.\x1b[0m R\n");
     let update = renderer.push(&rest[4..]);
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "\n2. Run the tests.\n");
+    assert_eq!(update.live(), "\n\x1b[2m2.\x1b[0m Run the tests.\n");
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn after_a_long_fence_more_text_in_its_item_shows_at_once() {
     assert_eq!(update.committed(), "");
     let update = renderer.push("2. Next\n");
     assert_eq!(update.committed(), "   More text\n");
-    assert_eq!(update.live(), "2. Next\n");
+    assert_eq!(update.live(), "\x1b[2m2.\x1b[0m Next\n");
 }
 
 /// The fences of the tests that commit line by line: in a list item and in a quote,
@@ -265,7 +265,7 @@ fn an_open_fence_shows_its_partial_line_at_once() {
     let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
     let update = renderer.push("1. Step:\n\n   ```\n   one\n");
     assert!(renderer.follows_fence());
-    assert_eq!(update.committed(), "1. Step:\n   one\n");
+    assert_eq!(update.committed(), "\x1b[2m1.\x1b[0m Step:\n   one\n");
     let update = renderer.push("   tw");
     assert_eq!(update.committed(), "");
     assert_eq!(update.live(), "   tw\n");
@@ -279,14 +279,17 @@ fn an_open_fence_shows_its_partial_line_at_once() {
     let update = renderer.push("\n2. Next\n");
     assert!(!renderer.follows_fence());
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "2. Next\n");
+    assert_eq!(update.live(), "\x1b[2m2.\x1b[0m Next\n");
 }
 
 #[test]
 fn a_blank_line_in_a_fence_in_a_list_item_commits_with_the_next_line_of_code() {
     let options = options().with_colour(ColourMode::None);
     let mut renderer = Renderer::new(options.clone());
-    assert_eq!(renderer.push("1. Step:\n   ```\n   one\n").committed(), "1. Step:\n   one\n");
+    assert_eq!(
+        renderer.push("1. Step:\n   ```\n   one\n").committed(),
+        "\x1b[2m1.\x1b[0m Step:\n   one\n"
+    );
     assert_eq!(renderer.push("\n").committed(), "");
     let update = renderer.push("   two\n");
     assert_eq!(update.committed().lines().count(), 2);
@@ -370,9 +373,9 @@ fn a_partial_line_is_never_committed() {
     let mut renderer = Renderer::new(options());
     let update = renderer.push("# Tit");
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "\x1b[1;4;33mTit\x1b[0m\n");
+    assert_eq!(update.live(), "\x1b[2m#\x1b[0m \x1b[1;4;33mTit\x1b[0m\n");
     let update = renderer.push("le\n");
-    assert_eq!(update.committed(), "\x1b[1;4;33mTitle\x1b[0m\n");
+    assert_eq!(update.committed(), "\x1b[2m#\x1b[0m \x1b[1;4;33mTitle\x1b[0m\n");
     assert_eq!(update.live(), "");
 }
 
@@ -442,12 +445,13 @@ fn list_items_commit_when_the_next_one_starts() {
     assert_eq!(renderer.push("1. a\n").committed(), "");
     assert_eq!(renderer.push("   more\n").committed(), "");
     let update = renderer.push("1. b\n");
-    assert_eq!(update.committed(), "1. a\n   more\n");
-    assert_eq!(update.live(), "2. b\n");
+    let n = |number: u8| format!("\x1b[2m{number}.\x1b[0m");
+    assert_eq!(update.committed(), format!("{} a\n   more\n", n(1)));
+    assert_eq!(update.live(), format!("{} b\n", n(2)));
     let update = renderer.push("\n1. c\n");
-    assert_eq!(update.committed(), "2. b\n");
-    assert_eq!(update.live(), "\n3. c\n");
-    assert_eq!(renderer.finish(), "\n3. c\n");
+    assert_eq!(update.committed(), format!("{} b\n", n(2)));
+    assert_eq!(update.live(), format!("\n{} c\n", n(3)));
+    assert_eq!(renderer.finish(), format!("\n{} c\n", n(3)));
 }
 
 #[test]

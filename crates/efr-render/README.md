@@ -60,7 +60,7 @@ Colour roles and their defaults in 16 colours:
 | Role | Used for | Default | Without colour |
 |---|---|---|---|
 | `text` | prose | the terminal's foreground | plain |
-| `muted` | labels, rules, quote bars, notes, traces | dim | dim |
+| `muted` | the marks of Markdown, labels, rules, notes, traces | dim | dim |
 | `accent` | the colour of headings, the spinner | palette entry 3 (yellow) | bold |
 | `heading` | headings of level 1 and 2 | bold, in the accent's colour | bold |
 | `link` | links | entry 5 (magenta), underlined | underlined |
@@ -134,19 +134,31 @@ the same item or quote), and emphasis or a setext heading cannot reach back over
 paragraph lines that already committed. Each slice is rendered with a fresh parse,
 which is what makes the result independent of how the reply was chunked.
 
-Elements: headings without `#` in one colour, with the level by weight (level 1 bold
-and underlined in the heading colour, level 2 bold in the heading colour, level 3 bold,
-lower levels bold italic); bold, italic and strikethrough as SGR; inline code in the
-`code` role (with its backticks when there is no colour); code blocks never wrapped,
-with a muted label line: the file name when the fence names one (`rust src/main.rs`,
-`title="x"`, `file=x`), no label for plain text and diffs (`text`, `txt`, `plain`,
-`plaintext`, `diff`, `patch`, `udiff` or no info), else the language; unified diffs in
-the `diff.*` roles with the diffed file's syntax colours inside (tinted backgrounds with
-a truecolor theme); lists and quotes indented, quotes with a muted bar and italic text;
-task items as `[ ]` and `[x]`; tables as a grid, or one `header: value` record per row
-when wider than the terminal; rules muted and at most 40 columns wide, so they do not
-wrap when the terminal gets narrower; links, bare URLs, absolute paths in links and
-inline code as OSC 8 hyperlinks (`file://` for paths); images as `[image: alt]`.
+Elements: the marks of Markdown stay where they carry structure, in `muted`, so the
+level of a heading or a list reads without colour and a copy pastes as Markdown
+(TM-Markdown). A heading starts with `#` once for each level and a space, then its
+text in one colour with the level by weight (level 1 bold and underlined in the
+heading colour, level 2 bold in the heading colour, level 3 bold, lower levels bold
+italic). An item of a bullet list starts with `-` at every level, and each level is two
+columns further in; an ordered item starts with its number and a dot; a task item
+starts with its box, `[x]` in `success` and `[ ]` in `muted`, and no `-`. A quote
+line starts with `>` and a space, and its text is in the `quote` role (italic).
+Bold, italic and strikethrough are SGR; inline code is in the `code` role (with its
+backticks when there is no colour). Code blocks are never wrapped, with a muted label
+line: the file name when the fence names one (`rust src/main.rs`, `title="x"`,
+`file=x`), no label for plain text and diffs (`text`, `txt`, `plain`, `plaintext`,
+`diff`, `patch`, `udiff` or no info), else the language; unified diffs in the
+`diff.*` roles with the diffed file's syntax colours inside (tinted backgrounds with a
+truecolor theme). A table that fits is a grid: the columns apart by three spaces, the
+header in bold, one `muted` rule under the header as wide as the table, and no row
+ends in padding. A table wider than the terminal is one record for each row: one line
+for each column with the header in `muted` in a column of its own, two spaces and the
+value, the first value of a record in bold, and a blank line between records. Rules
+are muted and at most 40 columns wide, so they do not wrap when the terminal gets
+narrower. Links, bare URLs, absolute paths in links and inline code are OSC 8
+hyperlinks (`file://` for paths); without a hyperlink, the target follows in muted
+parentheses. Images show as `[image: alt]`. The line of a rule and of the table's rule
+is the `rule` glyph of the options (`─`, or `-` in ASCII).
 
 Soft line breaks keep the author's lines. Top-level prose is not hard-wrapped, so the
 terminal reflows it on resize; text inside a list item or a quote is wrapped to keep

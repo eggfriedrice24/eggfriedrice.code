@@ -67,6 +67,14 @@ into the GitHub release notes, and it stops when the section is missing.
   and the command of a call are green (slot 2), not cyan, and links are magenta (slot
   5), not blue. The `warning` role is no longer bold in colour; with `NO_COLOR` it is
   bold. With `NO_COLOR` a hunk header of a diff is dim.
+- The marks of Markdown in a reply stay, muted, so the level of a heading or a list
+  shows without colour and a copy is Markdown again. A heading starts with its `#`
+  marks. An item of a list starts with `-` at every level, not `•`, `◦` and `▪`; the
+  number of an ordered item and an open task box `[ ]` are muted. A quote line starts
+  with `>`, not a bar. A table has spaces between its columns, not `│`, and one rule
+  under its header as wide as the table. A table that is too wide for the terminal
+  shows each row as lines of a header in a column of its own and a value, with the
+  first value in bold, not as `header: value` lines.
 - An effort from `config.toml` that a model does not take no longer fails the turn.
   The turn uses the model's own default effort, so a switch to a model of the other
   company works. An effort that you choose with `,effort` must still be one that the

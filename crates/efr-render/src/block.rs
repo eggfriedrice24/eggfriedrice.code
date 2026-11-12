@@ -3,6 +3,11 @@
 //! headings inside a container are wrapped so their continuation lines keep the
 //! indent, while top-level prose and code are never wrapped.
 //!
+//! The marks of Markdown stay where they carry structure, in the `muted` role, so the
+//! level of a heading or a list reads without colour and a copy pastes as Markdown:
+//! `#` before a heading, `-` before an item at every level, the number of an ordered
+//! item, `>` before a quote (TM-Markdown).
+//!
 //! A slice is rendered on its own, with a fresh parse. What links one slice to the
 //! next is [`Flow`]: whether a blank line is owed before the next block, and how the
 //! slice continues a block whose first part was committed earlier.
@@ -26,9 +31,13 @@ use crate::wrap::wrap;
 
 use inline::{Inline, InlineKind};
 
-const QUOTE_BAR: &str = "\u{2502} ";
-const BULLETS: [&str; 3] = ["\u{2022}", "\u{25e6}", "\u{25aa}"];
-const RULE: &str = "\u{2500}";
+/// The mark before each line of a quote, and its width with the space after it.
+const QUOTE_MARK: &str = ">";
+const QUOTE_WIDTH: usize = 2;
+/// The mark of an item of a bullet list, at every level: the indent shows the level.
+const BULLET: &str = "-";
+/// The mark of a heading, once for each level.
+const HEADING_MARK: &str = "#";
 
 /// A rule is never wider than this, so it does not wrap onto a second row when the
 /// terminal gets narrower and reflows its scrollback.
@@ -175,6 +184,7 @@ fn write_slice<'a>(ctx: &'a Ctx, flow: &'a mut Flow, text: &'a str, capture: boo
         containers: Vec::new(),
         lists: Vec::new(),
         inline: None,
+        heading: None,
         styles: Vec::new(),
         links: Vec::new(),
         code: None,
@@ -198,25 +208,25 @@ enum Container {
 
 struct Item {
     number: Option<u64>,
-    level: usize,
     task: Option<bool>,
     /// Set once the item's first line, the one with the marker, is written.
     marker_width: Option<usize>,
 }
 
 impl Item {
-    /// The marker of the item's first line; a done task box is in `done`, the
-    /// `success` role.
-    fn marker(&self, done: Style) -> Line {
+    /// The marker of the item's first line: the number of an ordered item or `-`, in
+    /// `muted`; a task box in place of `-`, done in `done` (the `success` role) and
+    /// open in `muted`.
+    fn marker(&self, muted: Style, done: Style) -> Line {
         let mut line = Vec::new();
         if let Some(number) = self.number {
-            line.push(Span::plain(format!("{number}. ")));
+            line.extend([Span::new(format!("{number}."), muted), Span::plain(" ")]);
         }
         match self.task {
             Some(true) => line.extend([Span::new("[x]", done), Span::plain(" ")]),
-            Some(false) => line.push(Span::plain("[ ] ")),
+            Some(false) => line.extend([Span::new("[ ]", muted), Span::plain(" ")]),
             None if self.number.is_none() => {
-                line.push(Span::plain(format!("{} ", BULLETS[self.level % BULLETS.len()])));
+                line.extend([Span::new(BULLET, muted), Span::plain(" ")]);
             }
             None => {}
         }
@@ -257,6 +267,8 @@ struct Writer<'a> {
     containers: Vec<Container>,
     lists: Vec<ListState>,
     inline: Option<Inline>,
+    /// The level of the heading in `inline`, for its mark.
+    heading: Option<usize>,
     styles: Vec<Style>,
     links: Vec<LinkState>,
     /// The code block being collected: its state, its text so far, and how many of
@@ -299,7 +311,8 @@ impl Writer<'_> {
                 self.block_start(self.depth == 0);
                 let width = self.available_width().clamp(3, RULE_MAX_WIDTH);
                 let muted = self.ctx.role(Role::Muted);
-                self.emit(&[Span::new(RULE.repeat(width), muted)], false);
+                let rule = self.ctx.options.glyphs().rule.repeat(width);
+                self.emit(&[Span::new(rule, muted)], false);
             }
             Event::TaskListMarker(done) => {
                 if let Some(Container::Item(item)) =
@@ -321,6 +334,7 @@ impl Writer<'_> {
                 self.block_start(top);
                 let style = self.heading_style(level);
                 self.inline = Some(self.new_inline(InlineKind::Heading(style)));
+                self.heading = Some(heading_level(level));
             }
             Tag::BlockQuote(_) => {
                 self.block_start(top);
@@ -372,7 +386,8 @@ impl Writer<'_> {
             Tag::Item => self.start_item(range),
             Tag::Table(aligns) => {
                 self.block_start(top);
-                self.table = Some(Table::new(aligns, self.ctx.role(Role::Muted)));
+                let muted = self.ctx.role(Role::Muted);
+                self.table = Some(Table::new(aligns, muted, self.ctx.options.glyphs().rule));
             }
             Tag::TableHead | Tag::TableRow => {
                 if let Some(table) = &mut self.table {
@@ -509,7 +524,7 @@ impl Writer<'_> {
             if let Container::Item(item) = container
                 && item.marker_width.is_none()
             {
-                item.marker_width = Some(line_width(&item.marker(Style::PLAIN)));
+                item.marker_width = Some(line_width(&item.marker(Style::PLAIN, Style::PLAIN)));
             }
         }
         Some(block)
@@ -529,13 +544,7 @@ impl Writer<'_> {
         if blank_before {
             self.blank_line();
         }
-        let level = self.lists.len().saturating_sub(1);
-        self.containers.push(Container::Item(Item {
-            number,
-            level,
-            task: None,
-            marker_width: None,
-        }));
+        self.containers.push(Container::Item(Item { number, task: None, marker_width: None }));
     }
 
     fn end_link(&mut self) {
@@ -664,10 +673,16 @@ impl Writer<'_> {
         }
     }
 
-    /// Writes out the paragraph or heading in progress.
+    /// Writes out the paragraph or heading in progress. A heading starts with its
+    /// mark: `#` once for each level, in `muted`, and a space.
     fn flush_inline(&mut self) {
         let Some(inline) = self.inline.take() else { return };
-        for line in inline.finish() {
+        let level = self.heading.take();
+        for (index, mut line) in inline.finish().into_iter().enumerate() {
+            if let Some(level) = level.filter(|_| index == 0) {
+                let mark = Span::new(HEADING_MARK.repeat(level), self.ctx.role(Role::Muted));
+                line.splice(0..0, [mark, Span::plain(" ")]);
+            }
             self.emit(&line, true);
         }
     }
@@ -697,10 +712,10 @@ impl Writer<'_> {
             .containers
             .iter()
             .map(|container| match container {
-                Container::Quote { .. } => QUOTE_BAR.chars().count(),
-                Container::Item(item) => {
-                    item.marker_width.unwrap_or_else(|| line_width(&item.marker(Style::PLAIN)))
-                }
+                Container::Quote { .. } => QUOTE_WIDTH,
+                Container::Item(item) => item
+                    .marker_width
+                    .unwrap_or_else(|| line_width(&item.marker(Style::PLAIN, Style::PLAIN))),
             })
             .sum();
         self.ctx.options.columns().saturating_sub(prefix)
@@ -735,14 +750,15 @@ impl Writer<'_> {
         for container in &mut self.containers {
             match container {
                 Container::Quote { .. } => {
-                    first.push(Span::new(QUOTE_BAR, muted));
-                    rest.push(Span::new(QUOTE_BAR, muted));
+                    for line in [&mut first, &mut rest] {
+                        line.extend([Span::new(QUOTE_MARK, muted), Span::plain(" ")]);
+                    }
                 }
                 Container::Item(item) => {
                     if let Some(width) = item.marker_width {
                         first.push(Span::plain(" ".repeat(width)));
                     } else {
-                        let marker = item.marker(done);
+                        let marker = item.marker(muted, done);
                         let width = line_width(&marker);
                         item.marker_width = Some(width);
                         first.extend(marker);
@@ -767,19 +783,31 @@ impl Writer<'_> {
         Some(self.prefixes().0)
     }
 
-    /// A blank line inside the current containers: quote bars stay, indents go.
+    /// A blank line inside the current containers: quote marks stay, indents go.
     fn blank_line(&mut self) {
         let mut line = Vec::new();
         let muted = self.ctx.role(Role::Muted);
         for container in &self.containers {
             match container {
-                Container::Quote { .. } => line.push(Span::new(QUOTE_BAR, muted)),
+                Container::Quote { .. } => line.push(Span::new(QUOTE_MARK, muted)),
                 Container::Item(item) => {
                     line.push(Span::plain(" ".repeat(item.marker_width.unwrap_or(0))));
                 }
             }
         }
         self.flow.write(self.ctx, &mut self.out, &line);
+    }
+}
+
+/// The number of a heading level: 1 for `#`, 6 for `######`.
+fn heading_level(level: HeadingLevel) -> usize {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
     }
 }
 
