@@ -1097,3 +1097,31 @@ fn the_turn_in_time_is_the_board_at_each_moment() {
         moment(&mut play, 12, 0, depth);
     }
 }
+
+// --- TM-Diffs 1: the end lines after a diff ----------------------------------------
+
+#[test]
+fn the_end_lines_after_a_diff_are_the_board() {
+    // TM-Diffs 1: the last row of a diff (row 16), then one blank row, the changes line
+    // and the outcome line (rows 46 to 48). The edits between them are the calls slice's
+    // test (layout/design.rs).
+    let diff = "@@ -88,2 +88,5 @@ impl Turn {\n     pub fn finish(&mut self) -> usize {\n-        self.state = State::Done;\n+        while let Ok(msg) = self.rx.try_recv() {\n@@ -131,1 +131,1 @@ fn steer\n-        self.pending.push(msg);\n+        self.tx.send(msg)?;\n... 14 more lines\n";
+    let mut play = Play::new(Depth::TrueColor, 100, None);
+    let turn_rs = "crates/efr-daemon/src/turn.rs";
+    edited(&mut play, 1, turn_rs, 7, 2, diff, 10);
+    let files = changes(
+        vec![
+            file(turn_rs, ChangeKind::Modified, 5, 1),
+            file("crates/efr-daemon/tests/steer.rs", ChangeKind::Added, 3, 0),
+            file("CHANGELOG.md", ChangeKind::Modified, 1, 1),
+        ],
+        0,
+    );
+    completed(&mut play, 102_000, 43, 4_200, 91, files);
+    let shown = play.committed();
+    let all: Vec<&str> = shown.split_inclusive('\n').collect();
+    let frame = Frame::load("Diffs", 1).unwrap();
+    let last = all.len();
+    check(&frame, 16..17, all[last - 4], Depth::TrueColor);
+    check(&frame, 46..49, &all[last - 3..].concat(), Depth::TrueColor);
+}
