@@ -511,3 +511,163 @@ fn a_long_paragraph_that_streams_shows_what_a_full_redraw_shows() {
         replay(&text, &cuts, size(cols, rows), GR);
     }
 }
+
+/// Draws `frames` in turn, each the committed text and the body of the live zone, with
+/// a status row, through a live zone that writes only what changed and one that writes
+/// all each frame, onto two screens, and checks after each frame that both screens
+/// show the same.
+fn play(frames: &[(String, String)], size: Size, method: WidthMethod) {
+    let mut changes = LiveZone::new(method);
+    let mut whole = LiveZone::whole(method);
+    let mut left = Screen::new(size.cols, size.rows, method);
+    let mut right = Screen::new(size.cols, size.rows, method);
+    let mut written = Vec::new();
+    for (index, (committed, body)) in frames.iter().enumerate() {
+        let status = status_row((index % 4) as u8, index);
+        let one = changes.draw(committed, body, &status, &Tail::default(), size);
+        let two = whole.draw(committed, body, &status, &Tail::default(), size);
+        left.write(&one);
+        right.write(&two);
+        written.push(readable(&one));
+        assert!(
+            left.shot() == right.shot(),
+            "frames:\n{}\nthe frames that write only what changed:\n{}\nthe frames that write all:\n{}",
+            written.join("\n"),
+            left.text(),
+            right.text(),
+        );
+    }
+}
+
+/// The frames of `lines` one after another as bodies of the live zone, none committed.
+fn bodies(lines: &[&str]) -> Vec<(String, String)> {
+    lines.iter().map(|line| (String::new(), format!("{line}\n"))).collect()
+}
+
+#[test]
+fn a_mark_after_a_style_that_a_line_loses_goes_from_the_screen() {
+    for method in [CP, GR] {
+        play(&bodies(&["\x1b[1mbo\x1b[0m\u{301} x", "\x1b[1mbo\x1b[0m x"]), size(40, 10), method);
+        play(
+            &bodies(&["see \x1b[1mcafe\x1b[0m\u{301}s", "see \x1b[1mcafe\x1b[0m!"]),
+            size(40, 10),
+            method,
+        );
+        play(&bodies(&["a\x1b[0m\u{200d}\u{1f469}", "a\x1b[0m"]), size(40, 10), method);
+    }
+}
+
+/// A piece of a painted line: words, wide characters, clusters, marks of no width
+/// alone, styles and links.
+fn painted() -> impl Strategy<Value = String> {
+    prop_oneof![
+        6 => "[a-z]{1,6}".prop_map(|word| word),
+        4 => Just(" ".to_owned()),
+        1 => Just("\u{65e5}\u{672c}".to_owned()),
+        1 => Just("e\u{301}".to_owned()),
+        1 => Just("\u{301}".to_owned()),
+        1 => Just("\u{200d}".to_owned()),
+        1 => Just("\u{fe0f}".to_owned()),
+        1 => Just(FAMILY.to_owned()),
+        1 => Just(FLAG.to_owned()),
+        1 => Just(HEART.to_owned()),
+        2 => Just("\x1b[1m".to_owned()),
+        2 => Just("\x1b[0m".to_owned()),
+        1 => Just("\x1b[38;2;1;2;3m".to_owned()),
+        1 => Just("\x1b]8;;https://e.io\x1b\\".to_owned()),
+        1 => Just("\x1b]8;;\x1b\\".to_owned()),
+        1 => Just("x".repeat(31)),
+    ]
+}
+
+/// One change of the lines of the live zone from one frame to the next. A line is a
+/// list of pieces, so a cut never splits an escape sequence.
+#[derive(Debug, Clone)]
+enum Edit {
+    /// Adds the piece at the end of the last line.
+    Grow(String),
+    /// Cuts this many pieces from the end of a line.
+    Cut(usize, usize),
+    /// Puts these pieces in place of a line.
+    Replace(usize, Vec<String>),
+    /// Drops a line.
+    Drop(usize),
+    /// Adds a line.
+    Add(Vec<String>),
+    /// Commits the first line: it leaves the live zone and goes above it.
+    Commit,
+}
+
+fn edit() -> impl Strategy<Value = Edit> {
+    let line = || prop::collection::vec(painted(), 0..6);
+    prop_oneof![
+        4 => painted().prop_map(Edit::Grow),
+        2 => (0_usize..8, 1_usize..4).prop_map(|(line, count)| Edit::Cut(line, count)),
+        2 => (0_usize..8, line()).prop_map(|(at, pieces)| Edit::Replace(at, pieces)),
+        1 => (0_usize..8).prop_map(Edit::Drop),
+        2 => line().prop_map(Edit::Add),
+        1 => Just(Edit::Commit),
+    ]
+}
+
+/// A line of the live zone as the renderer ends one: no style and no link stay open.
+fn closed(pieces: &[String]) -> String {
+    format!("{}\x1b[0m\x1b]8;;\x1b\\\n", pieces.concat())
+}
+
+/// The frames that `edits` make, one for each edit.
+fn edited(edits: &[Edit]) -> Vec<(String, String)> {
+    let mut lines: Vec<Vec<String>> = vec![Vec::new()];
+    let mut frames = Vec::new();
+    for edit in edits {
+        let mut committed = String::new();
+        let count = lines.len().max(1);
+        match edit {
+            Edit::Grow(piece) => match lines.last_mut() {
+                Some(last) => last.push(piece.clone()),
+                None => lines.push(vec![piece.clone()]),
+            },
+            Edit::Cut(at, pieces) => {
+                if let Some(line) = lines.get_mut(at % count) {
+                    line.truncate(line.len().saturating_sub(*pieces));
+                }
+            }
+            Edit::Replace(at, pieces) => {
+                if let Some(line) = lines.get_mut(at % count) {
+                    line.clone_from(pieces);
+                }
+            }
+            Edit::Drop(at) => {
+                if !lines.is_empty() {
+                    lines.remove(at % count);
+                }
+            }
+            Edit::Add(pieces) => lines.push(pieces.clone()),
+            Edit::Commit => {
+                if !lines.is_empty() {
+                    committed = closed(&lines.remove(0));
+                }
+            }
+        }
+        let body: String = lines.iter().map(|line| closed(line)).collect();
+        frames.push((committed, body));
+    }
+    frames
+}
+
+proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(600))]
+
+    /// As [`a_frame_shows_what_a_full_redraw_shows`], but the lines also get shorter,
+    /// change in the middle, go away and commit, on screens from 2 columns and 1 row.
+    #[test]
+    fn a_frame_that_cuts_or_replaces_lines_shows_what_a_full_redraw_shows(
+        edits in prop::collection::vec(edit(), 1..30),
+        cols in 2_u16..30,
+        rows in 1_u16..8,
+        grapheme in proptest::bool::ANY,
+    ) {
+        let method = if grapheme { GR } else { CP };
+        play(&edited(&edits), size(cols, rows), method);
+    }
+}

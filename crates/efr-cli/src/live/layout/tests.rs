@@ -73,10 +73,21 @@ fn the_spot_of_a_wide_character_that_wraps_is_at_the_end_of_the_row_before() {
 }
 
 #[test]
-fn the_spot_past_the_last_cell_is_the_end_of_the_line() {
+fn a_change_past_the_last_cell_writes_the_last_cell_again() {
+    // In the old line a mark of no width could have stood after the escape sequence
+    // and joined `b`.
     let old = layout("ab\x1b[0m", 10, CP);
     let (_, spot) = relayout("ab\x1b[1m", &old, 4, 10, CP);
-    assert_eq!((spot.row, spot.col, spot.at), (0, 2, 6));
+    assert_eq!((spot.row, spot.col, spot.at), (0, 1, 1));
+    assert_eq!(spot.pen, Pen::default());
+}
+
+#[test]
+fn a_mark_after_an_escape_sequence_that_the_line_loses_is_written_over() {
+    // The accent joined `o` across the end of the bold span.
+    let old = layout("\x1b[1mbo\x1b[0m\u{301} x", 40, CP);
+    let (_, spot) = relayout("\x1b[1mbo\x1b[0m x", &old, 10, 40, CP);
+    assert_eq!((spot.row, spot.col, spot.at), (0, 1, 5));
     let mut bold = String::new();
     spot.pen.push_to(&mut bold);
     assert_eq!(bold, "\x1b[1m");

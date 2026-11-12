@@ -129,7 +129,8 @@ struct Cell {
 }
 
 /// Lays out `line` from the last of `known`, the starts of its first rows, and with
-/// `find` finds the first cell that ends at or after that byte offset.
+/// `find` finds the first cell whose next cell does not start before that byte offset:
+/// the first cell that can differ from the old line's.
 fn walk(
     line: &str,
     width: usize,
@@ -148,14 +149,18 @@ fn walk(
     let mut col = 0;
     let mut spot = None;
     let mut escape = 0;
-    for cell in cells {
+    for (index, cell) in cells.iter().enumerate() {
         while let Some((start, end)) = escapes.get(escape).filter(|(start, _)| *start < cell.start)
         {
             pen.apply(&line[*start..*end]);
             escape += 1;
         }
         let wraps = cell.width > 0 && col > 0 && col + cell.width > width;
-        if spot.is_none() && find.is_some_and(|same| cell.end >= same) {
+        // NOTE: a character of no width joins the cell before it also across an
+        // escape sequence, so a cell stays only when the next cell starts in the
+        // shared text: what stands between the two can have changed.
+        let next = cells.get(index + 1).map_or(line.len(), |next| next.start);
+        if spot.is_none() && find.is_some_and(|same| next >= same) {
             let (row, col) = if wraps && col >= width { (row + 1, 0) } else { (row, col) };
             spot = Some(Spot { row, col, at: cell.start, pen: pen.clone() });
         }
