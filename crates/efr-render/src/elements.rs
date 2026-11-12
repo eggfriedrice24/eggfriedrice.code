@@ -13,7 +13,7 @@ pub(crate) const ELEMENTS: &[(&str, &str)] = &[
     ),
     (
         "paragraphs",
-        "A first paragraph on one line.\nIts second line stays a line of its own.\n\nA second paragraph long enough to pass forty columns, which the terminal wraps, not the renderer.\n",
+        "A first paragraph on one line.\nIts second line stays a line of its own.\n\nA second paragraph long enough to pass forty columns, which the renderer wraps at a word.\n",
     ),
     (
         "long_paragraph",

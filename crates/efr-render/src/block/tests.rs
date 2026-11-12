@@ -63,9 +63,19 @@ fn blocks_are_separated_by_one_blank_line() {
 }
 
 #[test]
-fn soft_breaks_keep_the_authors_lines_and_prose_is_not_wrapped() {
+fn soft_breaks_keep_the_authors_lines_and_prose_wraps_at_words() {
     let long = "a long line of prose that is much wider than the twenty columns";
-    assert_eq!(visible(&format!("{long}\nsecond line\n"), 20), format!("{long}\nsecond line\n"));
+    assert_eq!(
+        visible(&format!("{long}\nsecond line\n"), 20),
+        "a long line of prose\nthat is much wider\nthan the twenty\ncolumns\nsecond line\n"
+    );
+    // A word wider than the line is cut where it must be.
+    assert_eq!(visible("abcdefghijklmnopqrstuvwxyz\n", 10), "abcdefghij\nklmnopqrst\nuvwxyz\n");
+    // A heading wraps after its mark.
+    assert_eq!(visible("## a heading that is long\n", 12), "## a heading\nthat is long\n");
+    // Code never wraps.
+    let code = "fn main() { println!(\"a line far wider than twenty columns\"); }";
+    assert_eq!(visible(&format!("```\n{code}\n```\n"), 20), format!("{code}\n"));
 }
 
 #[test]

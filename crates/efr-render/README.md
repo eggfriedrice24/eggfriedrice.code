@@ -98,8 +98,8 @@ the width of every emoji in it. Ghostty counts by grapheme cluster (mode 2027): 
 cluster takes the width of its first code point, a variation selector 16 makes a narrow
 emoji wide, a variation selector 15 makes a wide one narrow, and a flag takes two
 columns. `WidthMethod::Grapheme` counts the same way. The row count of the live zone and
-the cut of a trace line use the method of the options; the layout of tables and
-indented blocks counts by code point.
+the cut of a trace line and the word wrap of prose use the method of the options; the
+layout of tables counts by code point.
 
 What commits when:
 
@@ -178,9 +178,12 @@ hyperlinks (`file://` for paths); without a hyperlink, the target follows in mut
 parentheses. Images show as `[image: alt]`. The line of a rule and of the table's rule
 is the `rule` glyph of the options (`─`, or `-` in ASCII).
 
-Soft line breaks keep the author's lines. Top-level prose is not hard-wrapped, so the
-terminal reflows it on resize; text inside a list item or a quote is wrapped to keep
-its indent.
+Soft line breaks keep the author's lines. A line of prose or a heading wider than the
+terminal is wrapped at words into rows of the width, as the boards of the design draw
+it, so the terminal does not cut a word in two; text inside a list item or a quote is
+wrapped to keep its indent. The cost: the rows are hard, so a terminal no longer
+reflows a reply when its width changes, and a copy of a paragraph has a line break at
+each wrap. Code blocks are never wrapped, so a copy of code is the code.
 
 Grammars and themes come from `two-face` (bat's set) on `syntect` with the pure-Rust
 `fancy-regex` backend, and decompress on the first code block that needs them, or

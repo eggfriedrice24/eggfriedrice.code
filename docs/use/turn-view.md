@@ -227,3 +227,8 @@ runs.
 [config.toml reference](../config.md#render) tell how. `NO_COLOR` turns colours off.
 Then the fences of a code block come back, dim, and a removed line of a diff is dim,
 so the reply still reads as Markdown.
+
+efr wraps a long line of the reply at a word, so no word is cut in two at the edge of
+the terminal. The rows stay as they are when you change the width of the window. A
+code block is never wrapped: a long line of code goes on in the next row of the
+terminal, and a copy of it is one line.

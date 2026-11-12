@@ -4,12 +4,14 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(900, message(0, \"I will
 ---
 === 40 columns, colour
 [asked]
-I will look for the \e[1mlibghostty\e[0m build first.
+I will look for the \e[1mlibghostty\e[0m build
+first.
 
 \e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
   \e[32m✓\e[0m
 
-It is there. Now I copy it out of the sandbox.
+It is there. Now I copy it out of the
+sandbox.
 
 \e[33m? allow this command\e[0m
 \e[2m│ \e[0m\e[32mcp target/debug/build/libghostty-vt-1\e[0m\e[2m↩\e[0m
@@ -18,12 +20,14 @@ It is there. Now I copy it out of the sandbox.
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
-I will look for the \e[1mlibghostty\e[0m build first.
+I will look for the \e[1mlibghostty\e[0m build
+first.
 
 \e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
   \e[32m✓\e[0m
 
-It is there. Now I copy it out of the sandbox.
+It is there. Now I copy it out of the
+sandbox.
 
 \e[32m✓ allowed\e[0m
 \e[33m·\e[0m \e[32m$ cp target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
@@ -37,12 +41,14 @@ Done: \e[32m~/lib/libghostty.so\e[0m is in place.
 
 === 40 columns, NO_COLOR
 [asked]
-I will look for the \e[1mlibghostty\e[0m build first.
+I will look for the \e[1mlibghostty\e[0m build
+first.
 
 \e[1m·\e[0m $ ls target/debug/build | grep ghostty
   ✓
 
-It is there. Now I copy it out of the sandbox.
+It is there. Now I copy it out of the
+sandbox.
 
 \e[1m? allow this command\e[0m
 \e[2m│ \e[0mcp target/debug/build/libghostty-vt-1\e[2m↩\e[0m
@@ -51,12 +57,14 @@ It is there. Now I copy it out of the sandbox.
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
-I will look for the \e[1mlibghostty\e[0m build first.
+I will look for the \e[1mlibghostty\e[0m build
+first.
 
 \e[1m·\e[0m $ ls target/debug/build | grep ghostty
   ✓
 
-It is there. Now I copy it out of the sandbox.
+It is there. Now I copy it out of the
+sandbox.
 
 ✓ allowed
 \e[1m·\e[0m $ cp target/debug/build/libghostty-vt\e[2m↩\e[0m

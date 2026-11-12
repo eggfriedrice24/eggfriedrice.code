@@ -1,8 +1,8 @@
-//! Hard wrapping for indented blocks. Prose at the top level is never wrapped, so
-//! the terminal reflows it on resize; text inside a list item or a quote is wrapped
-//! here, so its continuation lines keep the indent. Widths count as the terminal
-//! counts them ([`WidthMethod`]), or a row can be one cell too wide and the terminal
-//! wraps it again.
+//! Word wrap of prose: a paragraph or a heading breaks at spaces into rows of the
+//! width, so a word is not cut where the terminal would cut it; text inside a list
+//! item or a quote wraps at the width that its indent leaves. Widths count as the
+//! terminal counts them ([`WidthMethod`]), or a row can be one cell too wide and the
+//! terminal wraps it again.
 
 use unicode_segmentation::UnicodeSegmentation as _;
 

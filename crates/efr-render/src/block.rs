@@ -1,7 +1,8 @@
 //! The block layer: turns the events of a final slice of markdown into painted lines.
-//! Containers (quotes and list items) give every line its prefix; paragraphs and
-//! headings inside a container are wrapped so their continuation lines keep the
-//! indent, while top-level prose and code are never wrapped.
+//! Containers (quotes and list items) give every line its prefix. Paragraphs and
+//! headings are wrapped at words to the width, inside a container so that their
+//! continuation lines keep the indent; code is never wrapped. A wrapped line is hard
+//! rows: a terminal no longer reflows it when its width changes.
 //!
 //! The marks of Markdown stay where they carry structure, in the `muted` role, so the
 //! level of a heading or a list reads without colour and a copy pastes as Markdown:
@@ -746,14 +747,17 @@ impl Writer<'_> {
         self.ctx.options.columns().saturating_sub(prefix)
     }
 
-    /// Writes `content` as one or more lines under the current containers, wrapping
-    /// it when `wrap_text` is set and the containers indent it.
+    /// Writes `content` as one or more lines under the current containers, wrapped at
+    /// words to the width that the containers leave when `wrap_text` is set.
     fn emit(&mut self, content: &[Span], wrap_text: bool) {
         let (first, rest) = self.prefixes();
         let prefix_width = line_width(&first);
-        let lines = if wrap_text && prefix_width > 0 {
-            let available =
-                self.ctx.options.columns().saturating_sub(prefix_width).max(MIN_TEXT_WIDTH);
+        let lines = if wrap_text {
+            let columns = self.ctx.options.columns();
+            let available = match prefix_width {
+                0 => columns,
+                width => columns.saturating_sub(width).max(MIN_TEXT_WIDTH),
+            };
             wrap(content, available, self.ctx.options.width_method())
         } else {
             vec![content.to_vec()]

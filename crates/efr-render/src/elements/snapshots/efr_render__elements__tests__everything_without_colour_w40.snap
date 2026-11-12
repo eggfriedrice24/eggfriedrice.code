@@ -10,12 +10,15 @@ expression: "readable(&render(&document, &options))"
 
 \e[2m#\e[0m \e[1;4mSetext heading\e[0m
 
-Some \e[3mitalic\e[0m, \e[1mbold\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m and `inline code` in one line of prose.
+Some \e[3mitalic\e[0m, \e[1mbold\e[0m, \e[1;3mboth\e[0m, \e[9mstruck\e[0m and
+`inline code` in one line of prose.
 
 A first paragraph on one line.
 Its second line stays a line of its own.
 
-A second paragraph long enough to pass forty columns, which the terminal wraps, not the renderer.
+A second paragraph long enough to pass
+forty columns, which the renderer wraps
+at a word.
 
 line one of a long paragraph
 line two
@@ -91,7 +94,10 @@ efrd           \e[1mbin\e[0m      22
 \e[2mOption\e[0m   \e[1mtheme\e[0m
 \e[2mMeaning\e[0m  the syntax theme of code blocks and diffs
 
-See \e]8;;https://example.com/docs\e\\e[4mthe docs\e]8;;\e\\e[0m, \e]8;;https://example.com\e\\e[4mhttps://example.com\e]8;;\e\\e[0m, \e]8;;https://example.com/bare\e\\e[4mhttps://example.com/bare\e]8;;\e\\e[0m, \e]8;;file:///etc/hosts\e\\e[4mhosts\e]8;;\e\\e[0m, \e]8;;file:///var/log/syslog\e\`/var/log/syslog`\e]8;;\e\ and \e[4ma relative link\e[0m\e[2m (src/lib.rs)\e[0m.
+See \e]8;;https://example.com/docs\e\\e[4mthe docs\e]8;;\e\\e[0m, \e]8;;https://example.com\e\\e[4mhttps://example.com\e]8;;\e\\e[0m,
+\e]8;;https://example.com/bare\e\\e[4mhttps://example.com/bare\e]8;;\e\\e[0m, \e]8;;file:///etc/hosts\e\\e[4mhosts\e]8;;\e\\e[0m,
+\e]8;;file:///var/log/syslog\e\`/var/log/syslog`\e]8;;\e\ and \e[4ma relative link\e[0m
+\e[2m(src/lib.rs)\e[0m.
 
 \e]8;;https://example.com/diagram.png\e\\e[2m[image: a diagram]\e[0m\e]8;;\e\
 

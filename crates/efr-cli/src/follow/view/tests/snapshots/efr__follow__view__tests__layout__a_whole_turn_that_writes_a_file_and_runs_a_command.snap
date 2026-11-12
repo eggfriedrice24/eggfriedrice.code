@@ -4,7 +4,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(900, message(0, \"I will
 ---
 === 40 columns, colour
 [running]
-I will greet the user and run the formatter.
+I will greet the user and run the
+formatter.
 
 \e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
@@ -34,7 +35,8 @@ I will greet the user and run the formatter.
 \e[33m•\e[0m \e[32m$ cargo fmt\e[0m
 
 [end]
-I will greet the user and run the formatter.
+I will greet the user and run the
+formatter.
 
 \e[33m·\e[0m \e[32mwrite src/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,4 +1,27 @@\e[0m
@@ -72,7 +74,8 @@ The greeting is in \e[32msrc/main.rs\e[0m.
 
 === 40 columns, NO_COLOR
 [running]
-I will greet the user and run the formatter.
+I will greet the user and run the
+formatter.
 
 \e[1m·\e[0m write src/main.rs
 \e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m
@@ -102,7 +105,8 @@ I will greet the user and run the formatter.
 \e[1m•\e[0m $ cargo fmt
 
 [end]
-I will greet the user and run the formatter.
+I will greet the user and run the
+formatter.
 
 \e[1m·\e[0m write src/main.rs
 \e[2m  │ \e[0m\e[2m@@ -1,4 +1,27 @@\e[0m

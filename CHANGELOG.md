@@ -85,6 +85,11 @@ into the GitHub release notes, and it stops when the section is missing.
   `render.colors.diff.add_bg` or `render.colors.diff.remove_bg`, or with the tint of a
   truecolor code theme. In 16 colours an added or a removed line is whole in green or
   red, with no syntax colours. With `NO_COLOR` a removed line is dim.
+- efr wraps a long line of prose in a reply at a word, so a word is no longer cut in two
+  at the edge of the terminal. The cost: the rows are fixed, so the terminal no longer
+  reflows a reply when you make the window wider or narrower, and a copy of a
+  paragraph has a line break at each wrap. Code blocks still do not wrap, so a copy of
+  code is the code.
 - An effort from `config.toml` that a model does not take no longer fails the turn.
   The turn uses the model's own default effort, so a switch to a model of the other
   company works. An effort that you choose with `,effort` must still be one that the
