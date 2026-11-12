@@ -38,6 +38,10 @@
 //! `[model] name` is a model of another company than `[model] provider`
 //! (`efr_config::ForeignModel`): the error names the cause and the fix.
 //!
+//! Once routing knows the conversation, the prompt starts the warm-up of its provider's
+//! connection in a task of its own (`warmup.rs`), so a socket that a turn needs opens
+//! while efrd records the prompt and starts the turn. It never holds the prompt.
+//!
 //! The connection counts as one that may still show the conversation from the moment
 //! the request arrives until it closes (`connections.rs`): `efr` subscribes to the turn
 //! right after the answer, and a turn that ended before that must not leave a notice
@@ -60,6 +64,7 @@ use crate::conversations::{self, Slot};
 use crate::methods::conversation_resume;
 use crate::routing::{self, Before, Candidate, Outcome, Verdict};
 use crate::state::State;
+use crate::warmup;
 use crate::{DaemonError, receipts};
 
 const METHOD: &str = "prompt.send";
@@ -105,7 +110,7 @@ struct Routing {
 }
 
 pub(crate) async fn handle(
-    state: &State,
+    state: &Arc<State>,
     context: &ConnectionContext,
     params: PromptSend,
     responder: &Responder,
@@ -127,7 +132,7 @@ pub(crate) async fn handle(
 }
 
 async fn send(
-    state: &State,
+    state: &Arc<State>,
     context: &ConnectionContext,
     mut params: PromptSend,
 ) -> Result<Value, DaemonError> {
@@ -178,6 +183,7 @@ async fn send(
         _ => None,
     };
     efr_stdx::mark::hit("ps.routed");
+    warm(state, &params, &provider, routing.as_ref().and_then(|routing| routing.target));
     let sent = match (routing, params.conversation_id) {
         (_, Some(conversation_id)) => {
             ensure_exists(state, conversation_id).await?;
@@ -210,6 +216,27 @@ async fn send(
         Err(ConversationError::DuplicateCommand { receipt }) => receipts::replay(METHOD, *receipt),
         Err(error) => Err(error.into()),
     }
+}
+
+/// Starts the warm-up of the connection of the prompt `params` on `provider`, in the
+/// conversation `routed` that routing picked or the one that the prompt names. A
+/// prompt for a new conversation warms only the token: a socket needs the
+/// conversation's id. The resolution of the conversation's pick runs in the task, so
+/// the prompt waits for no read.
+fn warm(state: &Arc<State>, params: &PromptSend, provider: &str, routed: Option<ConversationId>) {
+    state.providers.warmups().used(provider);
+    let next = warmup::Next {
+        model: params.settings.model.clone(),
+        provider: params.settings.provider.clone(),
+        conversation: params.conversation_id.or(routed),
+        new_conversation: params.conversation_id.or(routed).is_none(),
+        ..warmup::Next::default()
+    };
+    let state = Arc::clone(state);
+    tokio::spawn(async move {
+        let target = warmup::target(&state, &next).await;
+        warmup::start(state.providers.warmups(), target, warmup::Trigger::Prompt);
+    });
 }
 
 /// Sends a prompt from a terminal where `routing` says, and brings the terminal's

@@ -73,6 +73,7 @@ mod presence_set;
 mod projects_list;
 mod prompt_send;
 mod prompt_withdraw;
+mod provider_warm;
 mod pty_attach;
 mod pty_resize;
 mod pty_write;
@@ -86,6 +87,7 @@ mod turn_interrupt;
 mod turn_steer;
 mod turn_undo;
 
+pub(crate) use prompt_send::read_place;
 pub(crate) use pty_attach::MAX_REPLAY;
 pub use search::SearchRowHook;
 
@@ -163,6 +165,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::DeviceList(_) => ScopeName::Admin,
         Method::DeviceRevoke(_) => ScopeName::Admin,
         Method::ConversationsWatch(_) => ScopeName::Read,
+        Method::ProviderWarm(_) => ScopeName::Operate,
     }
 }
 
@@ -247,6 +250,8 @@ impl Input {
             | Method::ConversationsSearch(_)
             | Method::ConversationSearch(_)
             | Method::ConversationsWatch(_) => None,
+            // NOTE: typing is not yet input in a conversation: the prompt is.
+            Method::ProviderWarm(_) => None,
             // NOTE: a delete is the user's act, but a deleted conversation records no
             // presence: the store refuses its events.
             Method::ConversationDelete(_) => None,
@@ -618,6 +623,9 @@ impl Dispatcher for Methods {
                 Method::ConversationsWatch(params) => {
                     Box::pin(conversations_watch::handle(state, params, &responder, cancelled))
                         .await
+                }
+                Method::ProviderWarm(params) => {
+                    provider_warm::handle(state, &context, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

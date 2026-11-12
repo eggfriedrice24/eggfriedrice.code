@@ -209,6 +209,8 @@ import type {
   ProtocolVersion,
   ProveContext,
   ProviderStatus,
+  ProviderWarm,
+  ProviderWarmResult,
   PtyAttach,
   PtyAttachItem,
   PtyId,
@@ -1043,6 +1045,14 @@ export const promptWithdrawSchema = z.object({
   target: withdrawTargetSchema,
 }) satisfies z.ZodType<PromptWithdraw>;
 
+export const providerWarmSchema = z.object({
+  model: z.string().nullable().exactOptional(),
+  new_conversation: z.boolean().exactOptional(),
+  provider: z.string().nullable().exactOptional(),
+  pwd: z.string().nullable().exactOptional(),
+  tty: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<ProviderWarm>;
+
 export const ptyAttachSchema = z.object({
   pty_id: ptyIdSchema,
   scrollback_rows: z.uint32().nullable().exactOptional(),
@@ -1174,6 +1184,7 @@ export const methodSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("device.list"), params: deviceListSchema }),
   z.object({ method: z.literal("device.revoke"), params: deviceRevokeSchema }),
   z.object({ method: z.literal("conversations.watch"), params: conversationsWatchSchema }),
+  z.object({ method: z.literal("provider.warm"), params: providerWarmSchema }),
 ]) satisfies z.ZodType<Method>;
 
 export const clientRequestSchema = z.intersection(
@@ -2447,6 +2458,7 @@ export const methodNameSchema = z.enum([
   "device.list",
   "device.revoke",
   "conversations.watch",
+  "provider.warm",
 ]) satisfies z.ZodType<MethodName>;
 
 export const methodParamsSchema = z.strictObject({
@@ -2488,6 +2500,7 @@ export const methodParamsSchema = z.strictObject({
   "projects.list": projectsListSchema,
   "prompt.send": promptSendSchema,
   "prompt.withdraw": promptWithdrawSchema,
+  "provider.warm": providerWarmSchema,
   "pty.attach": ptyAttachSchema,
   "pty.resize": ptyResizeSchema,
   "pty.write": ptyWriteSchema,
@@ -2587,6 +2600,10 @@ export const withdrawnPromptSchema = z.object({
 export const promptWithdrawResultSchema = z.object({
   withdrawn: withdrawnPromptSchema,
 }) satisfies z.ZodType<PromptWithdrawResult>;
+
+export const providerWarmResultSchema = z.object({
+  provider: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<ProviderWarmResult>;
 
 export const rowCellsSchema = z.object({
   cells: z.array(cellSchema),
@@ -2750,6 +2767,7 @@ export const methodResultsSchema = z.strictObject({
   "projects.list": projectsListResultSchema,
   "prompt.send": promptSendResultSchema,
   "prompt.withdraw": promptWithdrawResultSchema,
+  "provider.warm": providerWarmResultSchema,
   "pty.attach": ptyAttachItemSchema,
   "pty.resize": ptyResizeResultSchema,
   "pty.write": ptyWriteResultSchema,

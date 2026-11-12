@@ -569,6 +569,23 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   checked the key. The marks live in memory only: after a restart, a stored key has
   neither until its first answer, and `efr status` says `not checked since efrd
   started` (DV32).
+- `provider.warm` (`methods/provider_warm.rs`, scope `operate`, the method of `efr
+  warm`, which the zsh plugin starts once for each prompt line while the user types it)
+  and the start of `prompt.send` warm the connection of the next prompt (`warmup.rs`).
+  efrd picks what the terminal's next prompt would use: the conversation of its slot
+  for the scope of `pwd` while it continues (not one idle for
+  `conversation.tty_idle_hours`), the asked model, else the conversation's pick (the
+  model of its newest turn when a prompt picked it and a list still has it, found in
+  its newest 200 events), else the default, and that model's provider
+  (`Providers::warm_target`). It answers at once with the provider and warms in a
+  task: `Provider::warm` refreshes a login's token that ends soon and opens or pings
+  the conversation's WebSocket; when the call goes over the shared HTTP pool,
+  `provider.warm` fetches the provider's model list (`Models::warm`), which opens the
+  pooled connection, at most once a minute for each provider and not within a minute
+  of a prompt of it (`Warmups`). The start of `prompt.send` runs after routing, warms
+  only the provider's own connection and the token, and spawns its reads, so it holds
+  no prompt. A warm-up records nothing, never sends a model request, carries no text
+  of the prompt, and only logs a failure at debug level.
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
   and no provider with a login lists it (checked after the wait for a first list):
@@ -2284,10 +2301,14 @@ the test binary, with a git first on its `PATH` that counts its runs.
   `websocket = "off"`) and `messages` (`anthropic-api`). At 20, 200 and up to 2,000
   turns it measures the first prompt after a start, the second one and a warm one.
   At 20 turns it also measures a prompt after 31 s of quiet (with a pong of 0 and
-  100 ms), on a new connection (with an upgrade of 0 and 100 ms), after 10 min of idle
-  time, and against a provider that waits 500 ms. It counts connections, pings,
-  upgrades, list fetches and request bytes. It took the place of `bench_perf_ttft`,
-  whose servers answered at once.
+  100 ms), on a new connection (with an upgrade of 0 and 100 ms), on a new connection
+  after a `provider.warm` of the prompt line a minute after the last prompt
+  (`coldconn+upgrade100ms+warm`), after 10 min of idle time, and against a provider
+  that waits 500 ms. It counts connections, pings, upgrades, list fetches and request
+  bytes. Its budgets: a prompt on `ws` after 31 s of quiet with a pong of 100 ms, and
+  one after a warm-up with an upgrade of 100 ms, show their first text within 50 ms
+  (p50), and a prompt after a warm-up opens no connection on any path. It took the
+  place of `bench_perf_ttft`, whose servers answered at once.
 - `bench_perf_start_places`: the same spans on the `http` and `messages` paths in a
   plain directory, a git work tree, a registered project in `cautious`, `auto` and
   `manual`, and with a live hidden zsh that stays or that the user's `cd` moves (the

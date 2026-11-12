@@ -47,7 +47,7 @@ mod unix;
 mod websocket;
 
 pub use bytes::Bytes;
-pub use client::{HttpClient, HttpConfig};
+pub use client::{HttpClient, HttpConfig, POOL_IDLE_TIMEOUT};
 pub use error::HttpError;
 pub use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 pub use json_lines::JsonLines;

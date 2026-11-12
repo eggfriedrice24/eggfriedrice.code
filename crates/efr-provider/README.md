@@ -56,7 +56,11 @@ Modules:
   `NoNotices`.
 - `provider`: the `Provider` trait, dyn-compatible through `async-trait`.
   `stream(Request) -> ProviderStream` is the one model call a provider implements;
-  `complete` collects it by default, and `models` defaults to an empty list. `models`
+  `complete` collects it by default, and `models` defaults to an empty list. `warm`
+  makes the connection of a next call ready before it (a token that ends soon, a
+  WebSocket that the provider keeps), with what a `Warmup` knows of the call (its model
+  and its conversation); it never sends a model request and never fails, and by default
+  it does nothing and says that the call goes over the shared HTTP pool. `models`
   returns a copy, because the list can change while the provider runs, such as when
   a new model catalog comes from the backend. `id` is also required: a `ProviderId`
   such as `openai-subscription` or `openai-api`, which decides whose `provider_raw` a

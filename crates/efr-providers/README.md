@@ -227,6 +227,21 @@ The connections:
   computer, waits for the pong before its request goes out. When the pong does not
   come in 5 seconds, the call goes over HTTP, and the connection never had the
   request.
+- A warm-up (`Provider::warm`, which efrd starts while the user types a prompt line
+  and when a prompt arrives) opens the conversation's connection before the call, or
+  sends a ping on a free connection that had no call for 30 seconds. The opened
+  connection waits free for the call, and a call that comes during its handshake waits
+  for it (at most the 15 seconds of a handshake) and opens no second one; a call does
+  not wait for the opening of another call. The pong of a warm-up's ping makes the call
+  skip its own ping and starts the 10 minutes of idle time again; a connection that
+  gives no pong in 5 seconds closes, and the next call or warm-up opens a new one. A
+  call that comes before that pong takes the ping over: after 30 seconds it sends its
+  request at once, after 5 minutes it waits for that pong. A connection with less than
+  5 minutes left of its 55 is opened anew. A warm-up sends no `response.create`, so no
+  model runs, needs the conversation's key (a new conversation has none yet), does
+  nothing while WebSockets are paused, and pauses them only after a failure that says
+  that they do not work (not after a refused token). It also asks the token source for
+  a token, which refreshes a login's token that ends soon.
 - The handshake is an HTTP/1.1 `GET <base_url>/responses` through `efr_http`'s client
   (the same rustls stack and `User-Agent: efr/<version>`), with the headers of the
   HTTP path (`Authorization`, and on the subscription `chatgpt-account-id`,

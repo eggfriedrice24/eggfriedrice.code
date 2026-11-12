@@ -445,3 +445,13 @@ async fn the_body_limit_applies_to_whole_reads() {
     let response = client.send(&HttpRequest::get(&url(&server, "/big")).unwrap()).await.unwrap();
     assert!(matches!(response.bytes().await, Err(HttpError::BodyTooLarge { limit: 4, .. })));
 }
+
+#[test]
+fn the_pool_keeps_an_idle_connection_over_a_pause_and_closes_it_before_the_server() {
+    let config = HttpConfig::default();
+
+    // A prompt after a pause of 2 minutes finds its connection (scenario h of the
+    // streaming plan), and the client closes it before Cloudflare's 400 s.
+    assert!(config.pool_idle_timeout >= Duration::from_secs(120));
+    assert!(config.pool_idle_timeout <= Duration::from_secs(400) - Duration::from_secs(60));
+}

@@ -11,6 +11,13 @@
 //! and the call goes over HTTP. After [`Limits::ping_first`] without a request, such as
 //! after a sleep of the laptop, the request waits for the pong before it goes out, so a
 //! connection that is only late never gets a request that HTTP also sent.
+//!
+//! A warm-up asks the free connection for a check ([`Connection::probe`]): after
+//! [`Limits::probe_after`] without a request, the task sends a ping. Its pong makes the
+//! next request skip the ping and starts the idle time again; no pong within
+//! [`Limits::probe`] closes the connection. A request that comes before the pong takes
+//! that ping over instead of sending its own. A connection that a warm-up opened starts
+//! free and idle.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -20,7 +27,7 @@ use efr_provider::ProviderError;
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio::task::JoinHandle;
 use tracing::Instrument as _;
 
@@ -123,32 +130,60 @@ pub(crate) struct Connection {
     commands: mpsc::Sender<Create>,
     shared: Arc<Mutex<Shared>>,
     opened_at: Timestamp,
+    /// Asks the task to check a quiet connection with a ping, for a warm-up.
+    probes: Arc<Notify>,
     task: JoinHandle<()>,
 }
 
 impl Connection {
-    /// Starts the task on `socket`, opened at `opened_at`. The connection starts busy:
-    /// the caller that opened it sends the first request.
+    /// Starts the task on `socket`, opened at `opened_at`. With `busy` the caller that
+    /// opened it sends the first request at once; else, for a warm-up, it starts free
+    /// and idle.
     pub(crate) fn start(
         socket: WebSocket,
         clock: Arc<dyn Clock>,
         limits: Limits,
         opened_at: Timestamp,
+        busy: bool,
     ) -> Connection {
-        let shared = Arc::new(Mutex::new(Shared { busy: true, ..Shared::default() }));
+        let shared = Arc::new(Mutex::new(Shared { busy, ..Shared::default() }));
         let (commands, receiver) = mpsc::channel(1);
+        let probes = Arc::new(Notify::new());
         let span = tracing::debug_span!("provider_websocket");
+        let idle_from = (!busy).then_some(opened_at);
         let task = tokio::spawn(
-            run(socket, receiver, Arc::clone(&shared), clock, limits).instrument(span),
+            run(
+                socket,
+                receiver,
+                Arc::clone(&shared),
+                clock,
+                limits,
+                Arc::clone(&probes),
+                idle_from,
+            )
+            .instrument(span),
         );
-        Connection { commands, shared, opened_at, task }
+        Connection { commands, shared, opened_at, probes, task }
+    }
+
+    /// True when the connection is younger than `max_age` at `now`.
+    pub(crate) fn is_younger(&self, now: Timestamp, max_age: Duration) -> bool {
+        now.duration_since(self.opened_at).unsigned_abs() < max_age
+    }
+
+    /// Asks the task to check the connection with a ping when it had no request for
+    /// [`Limits::probe_after`]: its pong makes the next request skip the ping, and a
+    /// connection that gives none closes, so the next request opens a new one. A free
+    /// connection only; one that runs a request shows its health in the answer.
+    pub(crate) fn probe(&self) {
+        self.probes.notify_one();
     }
 
     /// Marks the connection busy and takes its last completed answer, when it is open,
     /// free and younger than `max_age` at `now`. `None` when it cannot take a request.
     pub(crate) fn take(&self, now: Timestamp, max_age: Duration) -> Option<Option<Continuation>> {
         let mut shared = lock(&self.shared);
-        let young = now.duration_since(self.opened_at).unsigned_abs() < max_age;
+        let young = self.is_younger(now, max_age);
         if shared.busy || shared.closed || self.task.is_finished() || !young {
             return None;
         }
@@ -207,27 +242,66 @@ async fn run(
     shared: Arc<Mutex<Shared>>,
     clock: Arc<dyn Clock>,
     limits: Limits,
+    probes: Arc<Notify>,
+    idle_from: Option<Timestamp>,
 ) {
-    // NOTE: `None` until the first request has ended: the caller that opened the
-    // connection sends its request at once, on a socket that just answered.
-    let mut idle_since: Option<Timestamp> = None;
+    // NOTE: `None` until the first request has ended when the caller that opened the
+    // connection sends its request at once, on a socket that just answered. A
+    // connection that a warm-up opened starts idle at its opening.
+    let mut idle_since: Option<Timestamp> = idle_from;
     loop {
-        let create = tokio::select! {
-            create = commands.recv() => create,
-            message = socket.next() => {
-                // NOTE: nothing should arrive between answers; a close or an error here
-                // means the server dropped the connection while it was unused.
-                match message {
-                    Some(Ok(WsMessage::Text(_) | WsMessage::Binary(_))) => {
-                        tracing::debug!("the websocket sent a message between answers; closing it");
+        // NOTE: the idle time runs from the end of the last request, or from the pong of
+        // a warm-up's ping: a prompt follows that ping soon.
+        let mut idle = clock.sleep(limits.idle);
+        // NOTE: the open check of a warm-up: its ping went out, and its pong is on its
+        // way. A request that comes before the pong takes it over.
+        let mut probe: Option<Proof> = None;
+        let create = loop {
+            tokio::select! {
+                create = commands.recv() => break create,
+                message = socket.next() => {
+                    // NOTE: nothing should arrive between answers; a close or an error
+                    // here means the server dropped the connection while it was unused.
+                    match message {
+                        Some(Ok(WsMessage::Text(_) | WsMessage::Binary(_))) => {
+                            tracing::debug!("the websocket sent a message between answers; closing it");
+                        }
+                        other => tracing::debug!(message = ?other, "the server closed an unused websocket"),
                     }
-                    other => tracing::debug!(message = ?other, "the server closed an unused websocket"),
+                    break None;
                 }
-                None
-            }
-            () = clock.sleep(limits.idle) => {
-                tracing::debug!(idle = ?limits.idle, "closing an idle websocket");
-                None
+                () = &mut idle => {
+                    tracing::debug!(idle = ?limits.idle, "closing an idle websocket");
+                    break None;
+                }
+                () = probes.notified(), if probe.is_none() => {
+                    let quiet = idle_since
+                        .is_some_and(|since| clock.now().duration_since(since).unsigned_abs() >= limits.probe_after);
+                    if !quiet {
+                        continue;
+                    }
+                    efr_stdx::mark::hit("ws.warm.ping");
+                    match clock.timeout(limits.probe, socket.send_ping()).await {
+                        Ok(Ok(pong)) => {
+                            probe = Some(Proof { pong: Some(pong), deadline: clock.sleep(limits.probe) });
+                        }
+                        _ => {
+                            tracing::debug!("the ping of a warm-up could not be sent; closing the websocket");
+                            break None;
+                        }
+                    }
+                }
+                heard = listen(&mut probe), if probe.is_some() => {
+                    if matches!(heard, Heard::Pong) {
+                        efr_stdx::mark::hit("ws.warm.pong");
+                        probe = None;
+                        idle_since = Some(clock.now());
+                        idle = clock.sleep(limits.idle);
+                    } else {
+                        tracing::debug!("a quiet websocket did not answer the ping of a warm-up; closing it");
+                        break None;
+                    }
+                }
             }
         };
         let Some(create) = create else {
@@ -238,7 +312,7 @@ async fn run(
             Some(idle) if idle >= limits.probe_after => Quiet::Short,
             _ => Quiet::No,
         };
-        match serve(&mut socket, create, &shared, &*clock, limits, quiet).await {
+        match serve(&mut socket, create, &shared, &*clock, limits, quiet, probe).await {
             Served::Idle => idle_since = Some(clock.now()),
             Served::Dead => break,
         }
@@ -389,7 +463,8 @@ impl Request<'_> {
 }
 
 /// Runs one request. `quiet`: how long the connection had no request, so whether it
-/// may have died without a close.
+/// may have died without a close. `probe`: the open check of a warm-up whose pong has
+/// not come yet; the request takes it over and sends no ping of its own.
 async fn serve(
     socket: &mut WebSocket,
     create: Create,
@@ -397,6 +472,7 @@ async fn serve(
     clock: &dyn Clock,
     limits: Limits,
     quiet: Quiet,
+    probe: Option<Proof>,
 ) -> Served {
     let Create { message, settings, prints, events } = create;
     let mut request = Request {
@@ -418,7 +494,23 @@ async fn serve(
     // a long quiet time, the likely case of a sleep of the laptop, the request waits
     // for the pong instead, and the request goes out only on a connection that works.
     let mut proof = None;
-    if quiet == Quiet::Long {
+    if let Some(probe) = probe.filter(|_| quiet != Quiet::No) {
+        // NOTE: the ping of a warm-up went out a moment ago. A short quiet connection
+        // sends the request now and lets that pong prove the connection; a long quiet
+        // one waits for that pong, as for a ping of its own.
+        efr_stdx::mark::hit("ws.probe.begin");
+        if quiet == Quiet::Short {
+            proof = Some(probe);
+        } else {
+            let heard = listen(&mut Some(probe)).await;
+            efr_stdx::mark::hit("ws.probe.end");
+            if !matches!(heard, Heard::Pong) {
+                let reason =
+                    "a long quiet websocket did not answer the ping of its warm-up".to_owned();
+                return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
+            }
+        }
+    } else if quiet == Quiet::Long {
         efr_stdx::mark::hit("ws.probe.begin");
         let reason = match Clock::timeout(&clock, limits.probe, socket.ping()).await {
             Ok(Ok(())) => None,
@@ -431,7 +523,7 @@ async fn serve(
             return request.fail(reason, Health::Fine, ProviderError::Incomplete).await;
         }
     }
-    if quiet == Quiet::Short {
+    if quiet == Quiet::Short && proof.is_none() {
         efr_stdx::mark::hit("ws.probe.begin");
         let reason = match Clock::timeout(&clock, limits.probe, socket.send_ping()).await {
             Ok(Ok(pong)) => {

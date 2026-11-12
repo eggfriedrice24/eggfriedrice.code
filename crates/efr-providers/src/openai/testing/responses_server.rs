@@ -76,6 +76,8 @@ pub(crate) struct SocketLog {
     pub(crate) messages: Vec<Value>,
     /// The client closed the connection.
     pub(crate) closed: bool,
+    /// The pings that the connection read.
+    pub(crate) pings: usize,
 }
 
 #[derive(Debug, Default)]
@@ -219,7 +221,12 @@ async fn serve(
         return;
     }
     let mut socket = WebSocket::after_handshake(stream, Role::Server);
-    socket.set_auto_pong(pongs);
+    // NOTE: the pongs go out by hand, so the log can count each ping.
+    socket.set_auto_pong(false);
+    let pinged = || {
+        log.lock().unwrap().sockets[index].pings += 1;
+        pongs
+    };
     let record = |message: Option<Value>| {
         let mut log = log.lock().unwrap();
         match message {
@@ -228,7 +235,7 @@ async fn serve(
         }
     };
     for steps in script {
-        let Some(create) = next_message(&mut socket).await else {
+        let Some(create) = next_message(&mut socket, &pinged).await else {
             record(None);
             return;
         };
@@ -241,7 +248,7 @@ async fn serve(
                     }
                 }
                 Step::AfterNext(events) => {
-                    let Some(message) = next_message(&mut socket).await else {
+                    let Some(message) = next_message(&mut socket, &pinged).await else {
                         record(None);
                         return;
                     };
@@ -267,7 +274,7 @@ async fn serve(
     // Past its script, the connection records what else arrives until the client
     // closes it.
     loop {
-        match next_message(&mut socket).await {
+        match next_message(&mut socket, &pinged).await {
             Some(message) => record(Some(message)),
             None => {
                 record(None);
@@ -282,12 +289,21 @@ fn unavailable() -> String {
 }
 
 /// The next text message as JSON, or `None` once the client closed the connection.
-async fn next_message(socket: &mut WebSocket<TcpStream>) -> Option<Value> {
+/// `pinged` hears of each ping on the way and says whether it gets a pong.
+async fn next_message(
+    socket: &mut WebSocket<TcpStream>,
+    pinged: &(dyn Fn() -> bool + Sync),
+) -> Option<Value> {
     loop {
         let frame = socket.read_frame().await.ok()?;
         match frame.opcode {
             OpCode::Text => return Some(serde_json::from_slice(&frame.payload).unwrap()),
             OpCode::Close => return None,
+            // NOTE: the guard counts each ping; only a connection with pongs answers.
+            OpCode::Ping if pinged() => {
+                let pong = Frame::pong(Payload::Owned(frame.payload.to_vec()));
+                socket.write_frame(pong).await.ok()?;
+            }
             _ => {}
         }
     }

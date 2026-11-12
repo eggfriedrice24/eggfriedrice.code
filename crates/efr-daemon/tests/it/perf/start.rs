@@ -23,7 +23,8 @@ use std::time::{Duration, Instant};
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ConversationSubscribe,
-    ConversationSubscribeItem, DraftPart, Event, Method, Mode, PromptSendResult,
+    ConversationSubscribeItem, DraftPart, Event, Method, Mode, PromptSendResult, ProviderWarm,
+    ProviderWarmResult,
 };
 use efr_stdx::time::{Clock as _, SystemClock};
 use efr_test_daemon::{
@@ -396,7 +397,8 @@ fn claude(server: &ProviderServer) {
 /// The states of a prompt on each path, with a history of 20, 200 and 2,000 turns: the
 /// first prompt after a start, the second one at once, a warm one; and with 20 turns
 /// also a prompt after 31 s of quiet (on `ws` also on a socket that died without a
-/// close), after the provider closed the connection, after
+/// close), after the provider closed the connection, the same with a warm-up of the
+/// prompt line (`provider.warm`) before it, after
 /// 10 min of idle time, and against a provider that answers slowly.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
@@ -411,6 +413,7 @@ async fn bench_perf_start_phases() {
     claude(&server);
     let mut report = Report::new("bench_perf_start_phases");
     let mut quiet_budget = None;
+    let mut warm_budgets = Vec::new();
     let mut turns = 0;
     let mut spent = Duration::ZERO;
     for (rung, target) in [("h20", 20), ("h200", 200), ("h2000", 2_000)] {
@@ -502,8 +505,22 @@ async fn bench_perf_start_phases() {
                     cold_slow.0.push(one(&daemon, &server, &cwd, None, plain).await);
                     settle().await;
                 }
-                server.set(|knobs| knobs.upgrade = Duration::ZERO);
                 cold_slow.report(&mut report, "h20 coldconn+upgrade100ms", path.name());
+
+                // NOTE: the user types the prompt line a minute after the last prompt, so
+                // `provider.warm` opens the connection that the server closed; on the HTTP
+                // paths a warm-up fetches the model list only a minute after a prompt.
+                let mut warmed = Samples::default();
+                for _ in 0..3 {
+                    clock.advance(Duration::from_secs(61));
+                    settle().await;
+                    warm_up(&daemon, &cwd).await;
+                    warmed.0.push(one(&daemon, &server, &cwd, None, plain).await);
+                    settle().await;
+                }
+                server.set(|knobs| knobs.upgrade = Duration::ZERO);
+                warmed.report(&mut report, "h20 coldconn+upgrade100ms+warm", path.name());
+                warm_budgets.push((path, warmed));
 
                 let mut idle = Samples::default();
                 for _ in 0..3 {
@@ -548,6 +565,58 @@ async fn bench_perf_start_phases() {
         quiet < QUIET_PROMPT_BUDGET,
         "h20 quiet31s+pong100ms|ws: send -> first text, p50 {quiet:?}"
     );
+    // The budgets of the warm-up: the prompt after it opens no connection on any path,
+    // and on `ws` it does not wait for the upgrade of 100 ms (the warm level is 3.5 to
+    // 4 ms).
+    assert_eq!(warm_budgets.len(), Path::ALL.len(), "every path ran the warm state");
+    for (path, warmed) in &warm_budgets {
+        for timeline in &warmed.0 {
+            let opened = timeline.count("s.accepted") + timeline.count("s.upgrade");
+            assert_eq!(
+                opened,
+                0,
+                "h20 coldconn+upgrade100ms+warm|{}: a new connection",
+                path.name()
+            );
+        }
+        if *path == Path::Ws {
+            let mut sends: Vec<Duration> = warmed
+                .0
+                .iter()
+                .filter_map(|timeline| timeline.span("c.send", "c.first_text"))
+                .collect();
+            sends.sort_unstable();
+            let p50 = sends[sends.len() / 2];
+            assert!(
+                p50 < WARM_PROMPT_BUDGET,
+                "h20 coldconn+upgrade100ms+warm|ws: send -> first text, p50 {p50:?}"
+            );
+        }
+    }
+}
+
+/// The budget of T1 (send -> first text) of a prompt whose WebSocket the warm-up of
+/// its prompt line opened, when the upgrade takes 100 ms.
+const WARM_PROMPT_BUDGET: Duration = Duration::from_millis(50);
+
+/// Sends `provider.warm` for [`TTY`] in `cwd`, as the zsh plugin does while the user
+/// types a prompt line, and waits until the warm-up ends.
+async fn warm_up(daemon: &TestDaemon, cwd: &FsPath) {
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let params = ProviderWarm {
+        tty: Some(TTY.to_owned()),
+        pwd: Some(cwd.to_owned()),
+        model: None,
+        provider: None,
+        new_conversation: false,
+    };
+    efr_stdx::mark::drain();
+    let _: ProviderWarmResult = client.call(Method::ProviderWarm(params)).await.unwrap();
+    let begin = Instant::now();
+    while !efr_stdx::mark::drain().iter().any(|mark| mark.name == "warm.done") {
+        assert!(begin.elapsed() < Duration::from_secs(10), "the warm-up did not end");
+        SystemClock.sleep(Duration::from_millis(2)).await;
+    }
 }
 
 /// The budget of T1 (send -> first text) of a call on a WebSocket after 31 quiet

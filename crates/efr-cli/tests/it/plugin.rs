@@ -3280,3 +3280,113 @@ fn e2e_a_prompt_of_several_lines_with_a_blank_in_front_keeps_out_of_history() {
     let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
     assert_eq!(history.trim_end(), "true");
 }
+
+/// As [`DRIVER`], but `$EFR_KEYS` comes in parts split at `<pause>`, with a pause of
+/// 0.4 s after each part, as a person types: ZLE redraws, and runs its redraw hooks,
+/// only when no key waits.
+const PAUSING_DRIVER: &str = r#"
+zmodload zsh/zpty || exit 90
+zmodload zsh/zselect || exit 92
+zpty user "TERM=xterm zsh -f -i"
+zpty -r user screen $'*\e\\[\\?2004h*' || exit 91
+print -rn -- "$screen"
+nul=$'\0'
+for part in "${(@s:<pause>:)EFR_KEYS}"; do
+  zpty -w -n user "${part//'<C-Space>'/$nul}"
+  zselect -t 40
+  while zpty -r -t user chunk; do print -rn -- "$chunk"; done
+done
+while zpty -r user chunk; do print -rn -- "$chunk"; done
+"#;
+
+/// Types `parts` into an interactive zsh after a line that sources the plugin, with a
+/// pause after each part, then `exit`; returns what the terminal showed.
+fn type_slowly(home: &Home, parts: &[&str]) -> String {
+    let mut keys = format!("source {}\r<pause>", plugin().display());
+    for part in parts {
+        keys.push_str(part);
+        keys.push_str("<pause>");
+    }
+    keys.push_str("exit\r!exit\r");
+    // NOTE: a known background colour skips the plugin's question to the terminal at
+    // load, which would take the keys of its first second.
+    let output = home
+        .zsh()
+        .env("EFR_TERMINAL_BG", "dark")
+        .env("EFR_KEYS", keys)
+        .args(["-f", "-c", PAUSING_DRIVER])
+        .output()
+        .unwrap();
+    let screen = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "the driver failed: {stderr}\n{screen}");
+    screen
+}
+
+/// The arguments of each call of the fake `efr` that is `efr warm`.
+fn warms(home: &Home) -> Vec<Vec<String>> {
+    home.calls().into_iter().map(|call| call.args).filter(|args| args[0] == "warm").collect()
+}
+
+#[test]
+fn e2e_a_prompt_line_warms_the_connection_once_while_it_is_typed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let runtime = home.path().join("efr");
+    std::fs::create_dir(&runtime).unwrap();
+    let _socket = std::os::unix::net::UnixListener::bind(runtime.join("daemon.sock")).unwrap();
+
+    type_slowly(
+        &home,
+        &[
+            "echo plain",
+            "\r",
+            ", one",
+            "\r",
+            ",",
+            " how",
+            " is the build",
+            "\r",
+            ",new start",
+            " over",
+            "\r",
+            "<C-Space>",
+            "explain",
+            " this",
+            "\r",
+            "<C-Space>",
+        ],
+    );
+
+    let all: Vec<Vec<String>> = home.calls().into_iter().map(|call| call.args).collect();
+    let warms = warms(&home);
+    let tty = |args: &[String]| args.iter().position(|arg| arg == "--tty").map(|at| at + 1);
+    assert_eq!(warms.len(), 4, "one warm-up for each prompt line: {all:?}");
+    for args in &warms {
+        let at = tty(args).expect("the terminal");
+        assert!(args[at].starts_with("/dev/"), "{args:?}");
+    }
+    let new: Vec<bool> = warms.iter().map(|args| args.contains(&"--new".to_owned())).collect();
+    assert_eq!(new, [false, false, true, false]);
+    // The warm-up carries no text of the prompt, on its command line or in its
+    // environment.
+    for call in home.calls().iter().filter(|call| call.args[0] == "warm") {
+        assert!(!call.cmdline.contains("build") && !call.cmdline.contains("explain"));
+        assert_eq!((call.prompt.as_deref(), call.context.as_deref()), (None, None));
+    }
+}
+
+#[test]
+fn e2e_no_warm_up_runs_while_the_daemon_has_no_socket() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+
+    type_slowly(&home, &[",", " how", " is the build", "\r"]);
+
+    assert_eq!(warms(&home), Vec::<Vec<String>>::new());
+    assert_eq!(home.calls().len(), 1, "only the prompt ran efr");
+}

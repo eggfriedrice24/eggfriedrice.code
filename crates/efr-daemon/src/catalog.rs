@@ -328,6 +328,18 @@ impl Models {
         efr_stdx::mark::hit("catalog.wait.end");
     }
 
+    /// Fetches the list now, for the warm-up of the next prompt's connection
+    /// (`warmup.rs`): the fetch goes over the shared HTTP pool, so it opens the
+    /// connection that the prompt's request then takes. Its answer counts as any fetch
+    /// does. The task's own fetches keep their times. Nothing happens for a catalog that
+    /// is never fetched.
+    pub(crate) async fn warm(&self) {
+        if let Some(refresh) = &self.refresh {
+            efr_stdx::mark::hit("catalog.warm");
+            self.fetch(refresh).await;
+        }
+    }
+
     /// True while a prompt waits for a fetch: the catalog has no list, and the first
     /// fetch after a start or a login has not ended.
     fn holding(&self) -> bool {

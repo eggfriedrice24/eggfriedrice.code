@@ -48,19 +48,20 @@ use crate::{
     PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource,
     ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
     PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
-    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
-    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
-    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, SwitchedModel,
-    TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ProviderStatus, ProviderWarm, ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
+    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
+    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
+    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
+    SurfaceChange, Switch, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo,
+    TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -1122,6 +1123,13 @@ pub(crate) fn method_samples() -> Vec<Method> {
         Method::DeviceList(DeviceList {}),
         Method::DeviceRevoke(DeviceRevoke { device_id: device_id() }),
         Method::ConversationsWatch(ConversationsWatch { limit: Some(20) }),
+        Method::ProviderWarm(ProviderWarm {
+            tty: Some("/dev/pts/3".into()),
+            pwd: Some("/home/me/app".into()),
+            model: Some("claude-opus-5-5".into()),
+            provider: Some("work".into()),
+            new_conversation: true,
+        }),
     ]
 }
 
@@ -1561,6 +1569,10 @@ fn answer_fixtures() -> Vec<Fixture> {
                     ended: Some(at("2026-10-11T09:30:00Z")),
                 }],
             },
+        ),
+        fixture(
+            "provider_warm_result.json",
+            &ProviderWarmResult { provider: Some("openai-subscription".into()) },
         ),
         fixture(
             "presence_set_result.json",

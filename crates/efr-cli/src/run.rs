@@ -7,6 +7,7 @@ use crate::cli::{Cli, Command};
 use crate::commands::{
     away, compact, config, context, conversation, device, diff, history, jobs, login, logout,
     models, new, paths, project, resume, sandbox, search, send, settings, shell, status, undo,
+    warm,
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
@@ -69,6 +70,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::Project(command) => project::run(ctx, out, command).await,
         Command::Sandbox(command) => sandbox::run(ctx, out, command).await,
         Command::Device(command) => Box::pin(device::run(ctx, out, command)).await,
+        Command::Warm(args) => warm::run(ctx, args).await,
     };
     match result {
         Ok(()) => Exit::Success,

@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use async_trait::async_trait;
 use efr_provider::{
     CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError, ProviderId,
-    ProviderStream, Request,
+    ProviderStream, Request, Warmup,
 };
 use efr_stdx::time::Clock;
 use futures::StreamExt as _;
@@ -234,6 +234,10 @@ impl Provider for Watched {
             Ok(_) => {}
             Err(error) => used.failed(error),
         })))
+    }
+
+    async fn warm(&self, warmup: &Warmup) -> bool {
+        self.inner.warm(warmup).await
     }
 }
 

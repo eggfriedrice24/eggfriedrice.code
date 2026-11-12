@@ -8678,6 +8678,23 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "`provider.warm`: make the connection of a terminal's next prompt ready while the\nuser types it.",
+          "properties": {
+            "method": {
+              "const": "provider.warm",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/ProviderWarm"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -8731,7 +8748,8 @@
         "device.prove",
         "device.list",
         "device.revoke",
-        "conversations.watch"
+        "conversations.watch",
+        "provider.warm"
       ],
       "type": "string"
     },
@@ -8853,6 +8871,9 @@
         "prompt.withdraw": {
           "$ref": "#/$defs/PromptWithdraw"
         },
+        "provider.warm": {
+          "$ref": "#/$defs/ProviderWarm"
+        },
         "pty.attach": {
           "$ref": "#/$defs/PtyAttach"
         },
@@ -8932,7 +8953,8 @@
         "device.prove",
         "device.list",
         "device.revoke",
-        "conversations.watch"
+        "conversations.watch",
+        "provider.warm"
       ],
       "type": "object"
     },
@@ -9054,6 +9076,9 @@
         "prompt.withdraw": {
           "$ref": "#/$defs/PromptWithdrawResult"
         },
+        "provider.warm": {
+          "$ref": "#/$defs/ProviderWarmResult"
+        },
         "pty.attach": {
           "$ref": "#/$defs/PtyAttachItem"
         },
@@ -9133,7 +9158,8 @@
         "device.prove",
         "device.list",
         "device.revoke",
-        "conversations.watch"
+        "conversations.watch",
+        "provider.warm"
       ],
       "type": "object"
     },
@@ -10095,6 +10121,57 @@
         "provider",
         "logged_in"
       ],
+      "type": "object"
+    },
+    "ProviderWarm": {
+      "description": "The params of `provider.warm`. The daemon picks the provider, the model and the\nconversation that the next prompt of the terminal would use, and makes that\nprovider's connection ready: it refreshes a token that ends soon and opens, or\nchecks, the connection. It never sends a model request, so it never costs a token,\nand the params carry no text of the prompt. A warm-up that does not work is silent;\nthe prompt does the work as before.",
+      "properties": {
+        "model": {
+          "description": "The model that the terminal's turn settings ask for. Absent: the model of the\nconversation's pick, else the config's default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "new_conversation": {
+          "description": "True when the next prompt starts a new conversation (`,new`).",
+          "type": "boolean"
+        },
+        "provider": {
+          "description": "The provider or account of `model`, as `TurnSettings::provider` names it, such\nas `work`. Only with `model`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pwd": {
+          "description": "The working directory of the next prompt, which picks the terminal's\nconversation of that scope. Absent: no conversation, only the provider.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tty": {
+          "description": "The terminal of the next prompt. Absent: the terminal that the connection's\n`hello` named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ProviderWarmResult": {
+      "description": "The result of `provider.warm`. It comes before the warm-up ends, which runs on in\nthe daemon.",
+      "properties": {
+        "provider": {
+          "description": "The provider that the warm-up is for, such as `openai-subscription`. Absent when\nthe daemon warms nothing, such as for a provider that a test injects.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "PtyAttach": {

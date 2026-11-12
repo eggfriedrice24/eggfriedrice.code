@@ -94,10 +94,11 @@ fn method_index(method: &Method) -> usize {
         Method::DeviceList(_) => 45,
         Method::DeviceRevoke(_) => 46,
         Method::ConversationsWatch(_) => 47,
+        Method::ProviderWarm(_) => 48,
     }
 }
 
-const METHOD_COUNT: usize = 48;
+const METHOD_COUNT: usize = 49;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

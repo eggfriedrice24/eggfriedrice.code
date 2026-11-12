@@ -11,8 +11,9 @@ use crate::{
     ConversationsList, ConversationsRecent, ConversationsSearch, ConversationsWatch, DeviceEnroll,
     DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve, DeviceRevoke, Hello, InputRespond,
     JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend,
-    PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond,
-    ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer, TurnUndo,
+    PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer,
+    TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -181,6 +182,10 @@ pub enum Method {
     /// change of what a list shows of one (streaming).
     #[serde(rename = "conversations.watch")]
     ConversationsWatch(ConversationsWatch),
+    /// `provider.warm`: make the connection of a terminal's next prompt ready while the
+    /// user types it.
+    #[serde(rename = "provider.warm")]
+    ProviderWarm(ProviderWarm),
 }
 
 impl Method {
@@ -236,6 +241,7 @@ impl Method {
             Method::DeviceList(_) => "device.list",
             Method::DeviceRevoke(_) => "device.revoke",
             Method::ConversationsWatch(_) => "conversations.watch",
+            Method::ProviderWarm(_) => "provider.warm",
         }
     }
 
@@ -291,7 +297,8 @@ impl Method {
             | Method::DeviceProve(_)
             | Method::DeviceList(_)
             | Method::DeviceRevoke(_)
-            | Method::ConversationsWatch(_) => None,
+            | Method::ConversationsWatch(_)
+            | Method::ProviderWarm(_) => None,
         }
     }
 
@@ -346,7 +353,8 @@ impl Method {
             | Method::DeviceEnroll(_)
             | Method::DeviceProve(_)
             | Method::DeviceList(_)
-            | Method::DeviceRevoke(_) => false,
+            | Method::DeviceRevoke(_)
+            | Method::ProviderWarm(_) => false,
         }
     }
 }
@@ -392,7 +400,8 @@ impl ScopeName {
             | Method::PresenceSet(_)
             | Method::TurnUndo(_)
             | Method::JobsStop(_)
-            | Method::ConversationResume(_) => ScopeName::Operate,
+            | Method::ConversationResume(_)
+            | Method::ProviderWarm(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

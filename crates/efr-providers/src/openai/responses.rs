@@ -11,7 +11,7 @@ use efr_http::{
 };
 use efr_provider::{
     AccessToken, CallNotice, CallNotices, ModelInfo, NoNotices, Provider, ProviderError,
-    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource,
+    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource, Warmup,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -165,11 +165,12 @@ impl OpenAiProvider {
         Ok(unsigned.recorded())
     }
 
-    /// Opens a WebSocket to the Responses endpoint for the conversation of `body`, with
-    /// the headers of the HTTP path and the WebSocket beta header.
+    /// Opens a WebSocket to the Responses endpoint for the conversation `key`, the
+    /// request's `prompt_cache_key`, with the headers of the HTTP path and the
+    /// WebSocket beta header. `notices` hears of the connect.
     async fn connect(
         &self,
-        body: &ResponsesBody,
+        key: Option<&str>,
         notices: &dyn CallNotices,
     ) -> Result<WebSocket, ConnectError> {
         efr_stdx::mark::hit("ws.connect.begin");
@@ -179,7 +180,7 @@ impl OpenAiProvider {
             health: Health::Fine,
         })?;
         efr_stdx::mark::hit("ws.connect.token");
-        let request = self.websocket_request(body, &token).map_err(|error| ConnectError {
+        let request = self.websocket_request(key, &token).map_err(|error| ConnectError {
             reason: format!("the handshake could not be built: {error}"),
             health: Health::Broken,
         })?;
@@ -197,14 +198,14 @@ impl OpenAiProvider {
 
     fn websocket_request(
         &self,
-        body: &ResponsesBody,
+        key: Option<&str>,
         token: &AccessToken,
     ) -> Result<HttpRequest, HttpError> {
         let mut request = HttpRequest::get(&self.config.responses_url())?
             .header(HeaderName::from_static(BETA_HEADER), HeaderValue::from_static(WEBSOCKET_BETA))
             .timeout(CONNECT_TIMEOUT);
         if self.config.backend() == Backend::Subscription
-            && let Some(key) = body.prompt_cache_key()
+            && let Some(key) = key
         {
             request = request.header_text(HeaderName::from_static(SESSION_HEADER), key)?;
         }
@@ -425,7 +426,7 @@ impl Provider for OpenAiProvider {
         if self.config.uses_websocket(model.as_ref())
             && let Some(key) = body.prompt_cache_key()
         {
-            let connect = || self.connect(&body, notices);
+            let connect = || self.connect(Some(key), notices);
             let attempt = self
                 .sockets
                 .stream(key, &body, connect, timing.clone(), span.clone())
@@ -455,6 +456,33 @@ impl Provider for OpenAiProvider {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });
         Ok(events(response, span, timing))
+    }
+
+    /// Refreshes a token that ends soon (a login's, not an API key), and for a model
+    /// that uses the WebSocket opens or checks the conversation's connection. It sends
+    /// no `response.create`, so no model runs.
+    async fn warm(&self, warmup: &Warmup) -> bool {
+        efr_stdx::mark::hit("prov.warm.begin");
+        // NOTE: only a token that can change is worth a read here: an API key is read
+        // again by the call.
+        if self.tokens.refreshable()
+            && let Err(error) = self.tokens.access_token().await
+        {
+            tracing::debug!(provider = %self.id, error = %error, "the warm-up got no access token");
+            return false;
+        }
+        let model = self.models().into_iter().find(|model| model.id == warmup.model);
+        if !self.config.uses_websocket(model.as_ref()) {
+            return false;
+        }
+        let Some(key) = warmup.conversation.as_deref() else {
+            // NOTE: a socket belongs to one conversation, and a new conversation has no
+            // id before its prompt, so there is nothing to open yet.
+            return true;
+        };
+        let ready = self.sockets.warm(key, || self.connect(Some(key), &NoNotices)).await;
+        efr_stdx::mark::hit_for("prov.warm.end", if ready { "ready" } else { "not ready" });
+        true
     }
 }
 

@@ -1,6 +1,8 @@
 //! The bench of the zsh plugin's cost per prompt (`bench_perf_zsh_prompt`), which
 //! `just bench-perf` runs in release: `_efr_preexec` and `_efr_precmd` around each of
-//! 200 prompts, timed by `$EPOCHREALTIME` inside zsh, and the `source` of the plugin.
+//! 200 prompts, timed by `$EPOCHREALTIME` inside zsh, the `source` of the plugin, and
+//! the redraw hook of the warm-up (`_efr_warm_line`) for each key of a command line
+//! and of a prompt line, which has a budget.
 //!
 //! zsh starts as `zsh -f -i` with its stdin on a pseudo-terminal, a cleared
 //! environment, a temp `HOME`, an empty runtime root of its own (`EFR_RUNTIME_DIR`)
@@ -44,6 +46,21 @@ for (( i = 1; i <= EFR_BENCH_PROMPTS; i++ )); do
   c=$EPOCHREALTIME
   out+=("prompt $(( (b - a) * 1e6 )) $(( (c - b) * 1e6 ))")
 done
+# The redraw hook for each key: of the command line, then of a prompt line, whose
+# first key that makes it a prompt starts the warm-up (with no socket, no efr runs).
+# BUFFER and CONTEXT are plain variables outside the line editor.
+typeset -g CONTEXT=start BUFFER
+local typed
+for typed in "$EFR_BENCH_LINE" ", how is the build going after the change of the cache"; do
+  _efr_warmed=0
+  for (( i = 1; i <= $#typed; i++ )); do
+    BUFFER=${typed[1,i]}
+    a=$EPOCHREALTIME
+    _efr_warm_line
+    b=$EPOCHREALTIME
+    out+=("key $(( (b - a) * 1e6 ))")
+  done
+done
 print -rl -- $out > $EFR_BENCH_OUT_FILE
 "#;
 
@@ -75,6 +92,8 @@ struct Run {
     load: Duration,
     preexec: Vec<Duration>,
     precmd: Vec<Duration>,
+    /// The redraw hook of the warm-up, for each key of a command line and a prompt.
+    keys: Vec<Duration>,
     tty: String,
 }
 
@@ -169,8 +188,13 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
     drop(master);
     assert!(output.status.success(), "zsh failed: {}", String::from_utf8_lossy(&output.stderr));
     let text = std::fs::read_to_string(&out_file).unwrap();
-    let mut run =
-        Run { load: Duration::ZERO, preexec: Vec::new(), precmd: Vec::new(), tty: String::new() };
+    let mut run = Run {
+        load: Duration::ZERO,
+        preexec: Vec::new(),
+        precmd: Vec::new(),
+        keys: Vec::new(),
+        tty: String::new(),
+    };
     for row in text.lines() {
         let words: Vec<&str> = row.split_whitespace().collect();
         match words[..] {
@@ -180,6 +204,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
                 run.preexec.push(micros(pre));
                 run.precmd.push(micros(post));
             }
+            ["key", key] => run.keys.push(micros(key)),
             _ => panic!("an unknown row {row:?}"),
         }
     }
@@ -188,7 +213,7 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
         .unwrap()
         .filter(|entry| entry.as_ref().unwrap().file_name().to_string_lossy().starts_with("calls."))
         .count();
-    assert_eq!(ran_efr, 0, "a prompt runs no efr");
+    assert_eq!(ran_efr, 0, "a prompt runs no efr, and a key no warm-up without a daemon");
     run
 }
 
@@ -217,6 +242,7 @@ fn bench_perf_zsh_prompt() {
     ];
     let mut var_points = Vec::new();
     let mut tty_set = 0;
+    let mut worst_key = Duration::ZERO;
     for case in cases {
         let run = run(zsh, case, PROMPTS);
         tty_set = u64::from(run.tty != "none");
@@ -226,6 +252,8 @@ fn bench_perf_zsh_prompt() {
         report.time(&format!("{label}: precmd"), &run.precmd);
         let stats = report.time(&format!("{label}: per prompt"), &total);
         report.time(&format!("{label}: source"), &[run.load]);
+        let keys = report.time(&format!("{label}: warm-up hook per key"), &run.keys);
+        worst_key = worst_key.max(keys.p50);
         if case.drafts == 0 && case.depth == 3 && case.projects == 0 && case.line == 0 {
             var_points.push((case.vars as u64, stats.p50));
         }
@@ -235,4 +263,10 @@ fn bench_perf_zsh_prompt() {
     report.time("source the plugin (base, 10 shells)", &loads);
     report.count("TTY is set in zsh", tty_set);
     report.finish();
+    // The budget: the redraw hook runs for each key, so it stays a few tests of a
+    // variable with no fork (about 10 to 30 µs in zsh on a desktop machine).
+    assert!(worst_key < KEY_BUDGET, "warm-up hook per key: p50 {worst_key:?}");
 }
+
+/// The budget of the warm-up's redraw hook for one key (p50 of each case).
+const KEY_BUDGET: Duration = Duration::from_micros(200);

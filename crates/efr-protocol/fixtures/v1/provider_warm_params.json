@@ -1,0 +1,10 @@
+{
+  "method": "provider.warm",
+  "params": {
+    "tty": "/dev/pts/3",
+    "pwd": "/home/me/app",
+    "model": "claude-opus-5-5",
+    "provider": "work",
+    "new_conversation": true
+  }
+}

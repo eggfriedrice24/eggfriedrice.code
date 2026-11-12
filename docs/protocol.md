@@ -969,3 +969,14 @@ No protocol version has shipped yet.
   does not know the new parts skips them, and one that does not read `tail` shows the
   size as before. The `draft_parts.json` fixture now sets `tail` and holds the three
   new parts.
+- Version 1, additive: new method `provider.warm` (scope `operate`, unary, no command
+  id) for the zsh plugin while the user types a prompt line. Its params are an
+  optional `tty` (else the hello's), `pwd`, `model` and `provider` (as in
+  `TurnSettings`), and a `new_conversation` flag, false when absent. They carry no
+  text of the prompt. efrd picks the provider, the model and the conversation that the
+  terminal's next prompt would use, answers at once with the optional `provider` id,
+  and then makes that provider's connection ready: it refreshes a login token that
+  ends soon, opens or pings the conversation's WebSocket, or fetches the model list to
+  open a pooled HTTP connection (at most once a minute for each provider). It records
+  nothing and never sends a model request. An older efrd refuses the unknown method.
+  New fixtures `provider_warm_params.json` and `provider_warm_result.json`.

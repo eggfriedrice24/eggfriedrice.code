@@ -28,21 +28,32 @@ pub struct HttpConfig {
     /// The longest silence between two reads of a response. It catches a stalled
     /// stream without limiting how long a healthy one runs.
     pub read_timeout: Duration,
-    /// How long an idle pooled connection is kept.
+    /// How long an idle pooled connection is kept. The client must close it before
+    /// the server does: a request on a connection that the server closes at that
+    /// moment can fail.
     pub pool_idle_timeout: Duration,
     /// The largest body that [`HttpResponse::bytes`] and friends read into memory.
     pub max_body_bytes: usize,
 }
 
+/// How long an idle pooled connection is kept by default. The model APIs of OpenAI
+/// and Anthropic sit behind Cloudflare, which closes an idle client connection after
+/// 400 s, for HTTP/1.1 and HTTP/2 alike (its "Connection limits" page). 300 s keeps a
+/// connection over the pause before the next prompt of a person, and the client closes
+/// it 100 s before the server does, so no request goes out on a connection that the
+/// server is about to close. It was 90 s, so each prompt after a pause of 90 s paid a
+/// new TCP and TLS handshake.
+pub const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
 impl Default for HttpConfig {
     /// `efr/<version>`, 10 s to connect, 300 s of silence (a reasoning model can think
-    /// for minutes between events), 90 s idle, 16 MiB bodies.
+    /// for minutes between events), [`POOL_IDLE_TIMEOUT`] idle, 16 MiB bodies.
     fn default() -> Self {
         HttpConfig {
             user_agent: concat!("efr/", env!("CARGO_PKG_VERSION")).to_owned(),
             connect_timeout: Duration::from_secs(10),
             read_timeout: Duration::from_secs(300),
-            pool_idle_timeout: Duration::from_secs(90),
+            pool_idle_timeout: POOL_IDLE_TIMEOUT,
             max_body_bytes: 16 * 1024 * 1024,
         }
     }

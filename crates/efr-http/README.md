@@ -7,7 +7,11 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
 - `client`: `HttpClient`, the one outbound client. reqwest over rustls (no OpenSSL;
   `deny.toml` bans it), with a connect timeout, a read timeout that catches a stalled
   stream without limiting a healthy one, and a cap on bodies read into memory. Clones
-  share one connection pool.
+  share one connection pool. An idle pooled connection stays for 300 seconds
+  (`POOL_IDLE_TIMEOUT`): over the pause before a person's next prompt, and closed by
+  the client before Cloudflare, in front of the APIs of OpenAI and Anthropic, closes an
+  idle client connection after 400 seconds, so no request goes out on a connection
+  that the server is about to close.
 - `request` and `response`: `HttpRequest` (built in memory, cheap to clone, so a
   retry resends it; `Debug` never shows the body) and `HttpResponse` (status and
   headers, with the body read whole, as chunks or as server-sent events).

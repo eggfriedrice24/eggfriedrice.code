@@ -91,6 +91,14 @@ into the GitHub release notes, and it stops when the section is missing.
   could hold the next words for one more frame. Now efrd sends each word to a terminal
   on this machine at once, and `efr` alone keeps the screen at 60 frames a second.
   `conversation.draft_interval_ms` now sets only the pace of the drafts to the phone.
+- The connection to the model provider is ready before you press Enter. While you
+  type a `,` prompt line (in sticky mode, from the first key of a line), the zsh plugin
+  asks efrd once to open the connection, check a quiet WebSocket and refresh a login
+  token that ends soon. efrd sends no text of the prompt and runs no model for this.
+  Without a WebSocket, efrd fetches the model list to open the connection, at most
+  once a minute. A pasted prompt starts the same work when it arrives. efrd also keeps
+  an idle HTTP connection for 5 minutes, not 90 seconds, so a prompt after a short
+  pause needs no new one.
 
 ### Fixed
 

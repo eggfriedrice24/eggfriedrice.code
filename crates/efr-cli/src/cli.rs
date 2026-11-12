@@ -141,6 +141,10 @@ pub(crate) enum Command {
     /// Pair a phone with efrd over Tailscale, and list or revoke the paired devices.
     #[command(subcommand)]
     Device(DeviceCommand),
+    /// Make the connection of this terminal's next prompt ready (the zsh plugin runs
+    /// it in the background while you type a prompt line).
+    #[command(hide = true)]
+    Warm(WarmArgs),
 }
 
 /// The `efr device` commands.
@@ -463,6 +467,7 @@ impl Command {
     /// error message.
     pub(crate) fn is_quiet(&self) -> bool {
         matches!(self, Command::Search(args) if args.is_hidden())
+            || matches!(self, Command::Warm(_))
     }
 }
 
@@ -553,6 +558,18 @@ pub(crate) struct ContextArgs {
     /// Print the daemon's answer as JSON, for scripts.
     #[arg(long)]
     pub(crate) json: bool,
+}
+
+/// The arguments of `efr warm`.
+#[derive(Debug, Args)]
+pub(crate) struct WarmArgs {
+    /// The terminal of the next prompt. Without it, the terminal on stdin.
+    #[arg(long, value_name = "TTY")]
+    pub(crate) tty: Option<String>,
+
+    /// The next prompt starts a new conversation (`,new`).
+    #[arg(long)]
+    pub(crate) new: bool,
 }
 
 /// The arguments of `efr away`.

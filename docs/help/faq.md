@@ -68,6 +68,16 @@ status, and the recent commands of the terminal (8 by default). Set
 `context.recent_commands` to change the number, or to 0 to send none. A command line
 that starts with a space never goes to the model.
 
+### Does efr talk to the provider before I press Enter?
+
+Yes, but it sends nothing of your prompt. While you type a `,` prompt line, or the
+first key of a line in sticky mode, the zsh plugin tells efrd once. efrd then opens the
+connection to the model provider, checks a quiet one and refreshes a login token that
+ends soon, so the reply starts sooner. Without a WebSocket, it fetches the model list
+to open the connection, at most once a minute. It runs no model, so it costs no
+tokens. Only the terminal, the current directory and the model of `,model` reach
+efrd before Enter.
+
 ### Can the agent see my passwords?
 
 When a command asks for a password, efr asks you below the reply, and it does not show

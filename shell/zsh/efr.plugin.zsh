@@ -875,7 +875,42 @@ _efr_show_indicator() {
 }
 
 _efr_line_init() {
+  _efr_warmed=0
   _efr_show_indicator
+}
+
+# --- warm-up of the next prompt's connection ----------------------------------------
+
+# 1 once the line being edited started the warm-up of its prompt's connection.
+typeset -gi _efr_warmed
+
+# While the user types a prompt line, efrd makes the connection to the model provider
+# ready, so the prompt does not wait for a handshake after Enter. The hook runs before
+# each redraw of the line, but it acts once for each line: when the line is a prompt
+# that starts with `, ` or `,new ` and some text, or in sticky mode at the first key of
+# a line that does not start with `!` or `,`. It then starts `efr warm` in the
+# background, with no wait and no output, and only while the daemon's socket exists.
+# Until then it costs a few tests of a variable, with no fork. `efr warm` sends the
+# terminal, the directory and the terminal's model, never the typed text, and efrd
+# runs no model for it.
+_efr_warm_line() {
+  (( _efr_warmed )) && return 0
+  [[ $CONTEXT == start && -n $BUFFER ]] || return 0
+  emulate -L zsh -o extended_glob
+  if [[ $BUFFER != ,(new|)[[:space:]]##[^[:space:]]* ]]; then
+    (( _efr_sticky )) && [[ $BUFFER == [^!,[:space:]]* ]] || return 0
+  fi
+  _efr_warmed=1
+  local REPLY
+  _efr_runtime_root || return 0
+  [[ -S $REPLY/daemon.sock ]] || return 0
+  _efr_available || return 0
+  local -a args=(warm)
+  [[ -n $TTY ]] && args+=(--tty $TTY)
+  if (( _efr_new_pending )) || [[ $BUFFER == ,new[[:space:]]* ]]; then
+    args+=(--new)
+  fi
+  EFR_MODE= EFR_MODEL=$_efr_turn_model EFR_EFFORT= efr $args </dev/null >/dev/null 2>&1 &!
 }
 
 # Turns sticky agent mode on (1) or off (0); turning it on fails while efr is missing.
@@ -1563,6 +1598,7 @@ zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
+add-zle-hook-widget line-pre-redraw _efr_warm_line
 # Each alias ends in a comment marker; see the header. Recursion cannot happen: zsh does
 # not expand an alias again inside its own expansion, so `,` reaches the function.
 alias ,=', #' ,new=',new #' ,compact=',compact #'

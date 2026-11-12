@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
 use efr_provider::{
-    Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request,
+    Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, Warmup,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
@@ -859,4 +859,148 @@ async fn a_new_connection_tells_its_connect_and_a_reused_one_tells_nothing() {
 
     assert_eq!(second.0.into_inner().unwrap(), []);
     assert_eq!(setup.server.sockets().len(), 1);
+}
+
+fn warmup() -> Warmup {
+    Warmup::new("gpt-5.5", Some(KEY.to_owned()))
+}
+
+#[tokio::test]
+async fn a_warm_up_opens_the_socket_and_sends_no_request_so_the_call_takes_it() {
+    let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+
+    let warmed = setup.provider.warm(&warmup()).await;
+    assert!(warmed);
+    eventually(|| setup.server.sockets().len() == 1).await;
+    // The socket waits for the call: no model ran.
+    assert!(setup.server.sockets()[0].messages.is_empty());
+    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    assert_eq!(first.message.text(), "Hello.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 1);
+    assert_eq!(sockets[0].messages.len(), 1);
+    assert_eq!(sockets[0].pings, 0);
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_call_waits_for_the_handshake_of_its_warm_up_and_opens_no_second_socket() {
+    let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
+    let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    let warmup = warmup();
+    let (warmed, first) = tokio::join!(
+        setup.provider.warm(&warmup),
+        setup.provider.complete(request("gpt-5.5", "hi"))
+    );
+
+    assert!(warmed);
+    assert_eq!(first.unwrap().message.text(), "Hello.");
+    assert_eq!(setup.server.sockets().len(), 1);
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_warm_up_pings_a_long_quiet_socket_so_the_call_after_the_pong_sends_no_ping() {
+    let socket = Socket::serving(vec![
+        vec![Step::Send(answer("resp_1", "Hello."))],
+        vec![Step::Send(answer("resp_2", "Again."))],
+    ]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = request("gpt-5.5", "hi");
+    let first = setup.provider.complete(request.clone()).await.unwrap();
+    setup.clock.advance(PING_FIRST);
+
+    let warmed = setup.provider.warm(&warmup()).await;
+    assert!(warmed);
+    // NOTE: whether the pong came first or the call took over the open ping, the call
+    // sends no ping of its own.
+    eventually(|| setup.server.sockets()[0].pings == 1).await;
+    request.messages.push(first.message);
+    request.messages.push(Message::user("and now?"));
+    let second = setup.provider.complete(request).await.unwrap();
+
+    assert_eq!(second.message.text(), "Again.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 1);
+    assert_eq!(sockets[0].pings, 1, "the call sent no ping of its own");
+    assert_eq!(sockets[0].messages[1]["previous_response_id"], "resp_1");
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_warm_up_closes_a_quiet_socket_that_gives_no_pong_and_the_call_opens_a_new_one() {
+    let sockets = vec![
+        Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello.")), Step::Hang]]),
+        Socket::serving(vec![vec![Step::Send(answer("resp_2", "Fresh."))]]),
+    ];
+    let setup = setup(sockets, Vec::new(), WebSocketMode::Auto).await;
+    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.clock.advance(PROBE_AFTER);
+
+    let warmed = setup.provider.warm(&warmup()).await;
+    assert!(warmed);
+    eventually(|| setup.clock.waits_for(PROBE_TIMEOUT)).await;
+    setup.clock.advance(PROBE_TIMEOUT);
+    eventually(|| !setup.provider.sockets().is_busy(KEY) && !setup.provider.sockets().has(KEY))
+        .await;
+    // The next warm-up opens a new socket before the call.
+    let warmed = setup.provider.warm(&warmup()).await;
+    assert!(warmed);
+    eventually(|| setup.server.sockets().len() == 2).await;
+    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+
+    assert_eq!(second.message.text(), "Fresh.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 2);
+    assert_eq!(sockets[1].messages.len(), 1);
+    assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_warm_up_opens_nothing_without_a_conversation_or_for_a_call_over_http() {
+    let setup = setup(Vec::new(), Vec::new(), WebSocketMode::Auto).await;
+    let without = Warmup::new("gpt-5.5", None);
+    assert!(setup.provider.warm(&without).await);
+    let off = setup_off().await;
+    let warmup = warmup();
+    assert!(!off.provider.warm(&warmup).await);
+
+    assert!(setup.server.sockets().is_empty());
+    assert!(off.server.sockets().is_empty());
+    assert!(setup.server.posts().is_empty());
+    assert!(off.server.posts().is_empty());
+}
+
+async fn setup_off() -> Setup {
+    setup(Vec::new(), Vec::new(), WebSocketMode::Off).await
+}
+
+#[tokio::test]
+async fn a_warm_up_asks_for_the_token_so_one_that_ends_soon_is_refreshed() {
+    let server = ResponsesServer::start(Vec::new(), Vec::new()).await;
+    let clock = Arc::new(ManualClock::new());
+    let http =
+        HttpClient::new(&HttpConfig::default(), clock.clone(), Arc::new(FixedRng(0))).unwrap();
+    let config = OpenAiConfig::subscription()
+        .with_base_url(&format!("{}/backend-api/codex", server.uri()))
+        .unwrap()
+        .with_websocket(WebSocketMode::Off);
+    let tokens = Arc::new(FakeTokens::new(&["eyJ.access.one"]));
+    let provider = OpenAiProvider::new(
+        ProviderId::new("openai-test").unwrap(),
+        config,
+        http,
+        tokens.clone(),
+        clock,
+        Arc::new(FixedRng(0)),
+    );
+
+    let warmup = warmup();
+    assert!(!provider.warm(&warmup).await);
+
+    assert_eq!(tokens.fetches(), 1);
+    assert!(server.posts().is_empty());
 }

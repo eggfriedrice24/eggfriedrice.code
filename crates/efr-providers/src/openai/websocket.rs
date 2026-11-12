@@ -18,6 +18,12 @@
 //! before the call goes over HTTP, and never the read timeout. After [`PING_FIRST`]
 //! without a call, as after a sleep of the laptop, the request waits for the pong.
 //!
+//! A warm-up ([`Sockets::warm`]) makes the connection of the next call ready before
+//! the call: it opens the conversation's connection, which then waits free, or pings a
+//! free one that had no call for [`PROBE_AFTER`]. A call that comes during the
+//! handshake of a warm-up waits for it, so the two open one connection. It sends no
+//! request, so no model runs.
+//!
 //! A call goes over HTTP when the server did not act on its request: when the
 //! connection cannot be opened, when the server refuses the upgrade, when a quiet
 //! connection breaks, ends or stays silent for [`PROBE_TIMEOUT`] before its pong and
@@ -52,7 +58,7 @@ use efr_stdx::time::Clock;
 use futures::stream;
 use jiff::{SignedDuration, Timestamp};
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::Instrument as _;
 
 use crate::openai::convert::ResponsesBody;
@@ -89,6 +95,11 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// ping before its request goes out, as after a sleep of the laptop. Below this, the
 /// request goes out with the ping and costs no round trip.
 pub(crate) const PING_FIRST: Duration = Duration::from_secs(5 * 60);
+
+/// A warm-up opens a new connection in place of one that has less than this left of
+/// [`MAX_AGE`], so the prompt that follows the warm-up finds a connection that still
+/// takes it.
+const WARM_AGE_MARGIN: Duration = Duration::from_secs(5 * 60);
 
 /// How long every call goes over HTTP after a failure that says that WebSockets do not
 /// work now, such as a refused upgrade.
@@ -157,6 +168,10 @@ pub(crate) struct Sockets {
 #[derive(Debug, Default)]
 struct State {
     connections: HashMap<String, Arc<Connection>>,
+    /// The conversations whose connection is being opened, by a call or by a warm-up.
+    /// A call waits for the opening of a warm-up, so a warm-up and the call that follows
+    /// it open one connection; a warm-up opens none while any opening runs.
+    opening: HashMap<String, Noted>,
     paused_until: Option<Timestamp>,
     /// The last call that the socket did not serve failed on a refused token.
     unauthorized: bool,
@@ -229,6 +244,7 @@ impl Sockets {
         Fut: Future<Output = Result<WebSocket, ConnectError>>,
     {
         efr_stdx::mark::hit("ws.begin");
+        self.wait_opening(key).await;
         let mut taken = match self.take(key) {
             Ok(Some(taken)) => taken,
             Ok(None) => match self.open(key, connect).await {
@@ -344,6 +360,7 @@ impl Sockets {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<WebSocket, ConnectError>>,
     {
+        let _opening = self.opening(key, false);
         let watch = efr_stdx::time::Stopwatch::start();
         let socket = match self.clock.timeout(CONNECT_TIMEOUT, connect()).await {
             Ok(Ok(socket)) => socket,
@@ -359,8 +376,13 @@ impl Sockets {
         tracing::debug!(phase = "provider_connect", transport = "websocket", elapsed_ms = %watch, "phase=provider_connect transport=websocket elapsed_ms={}", watch);
         efr_stdx::mark::hit("ws.connected");
         let opened_at = self.clock.now();
-        let connection =
-            Arc::new(Connection::start(socket, Arc::clone(&self.clock), self.limits, opened_at));
+        let connection = Arc::new(Connection::start(
+            socket,
+            Arc::clone(&self.clock),
+            self.limits,
+            opened_at,
+            true,
+        ));
         let mut state = self.state();
         // NOTE: two calls of one conversation can both find no connection and both
         // open one. The first stays the conversation's connection; the second serves
@@ -370,6 +392,114 @@ impl Sockets {
         }
         drop(state);
         Ok(Taken::new(connection, None, true))
+    }
+
+    /// Makes the connection of the conversation `key` ready for its next call, for a
+    /// warm-up: a free connection that had no call for [`PROBE_AFTER`] gets a ping, so
+    /// its pong lets the call skip the ping, or its silence closes it; without a
+    /// connection, or with one near [`MAX_AGE`], it opens one with `connect`, which
+    /// then waits free for the call. It sends no request. Nothing happens while
+    /// WebSockets are paused, while a call runs on the connection or while another
+    /// opening for `key` runs. A failure only shows in the log; one that says that
+    /// WebSockets do not work pauses them, as for a call, so the call does not try
+    /// again. Returns true when a connection is ready or on its way.
+    pub(crate) async fn warm<F, Fut>(&self, key: &str, connect: F) -> bool
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<WebSocket, ConnectError>>,
+    {
+        let now = self.clock.now();
+        let opening = {
+            let mut state = self.state();
+            if state.paused_until.is_some_and(|until| now < until) {
+                return false;
+            }
+            state.connections.retain(|_, connection| !connection.is_finished());
+            if state.opening.contains_key(key) {
+                return true;
+            }
+            let ready = state.connections.get(key).filter(|connection| {
+                !connection.is_closed()
+                    && connection.is_younger(now, MAX_AGE.saturating_sub(WARM_AGE_MARGIN))
+            });
+            if let Some(connection) = ready {
+                if !connection.is_busy() {
+                    efr_stdx::mark::hit("ws.warm.probe");
+                    connection.probe();
+                }
+                return true;
+            }
+            Opening::start(&self.state, &mut state, key, true)
+        };
+        efr_stdx::mark::hit("ws.warm.open");
+        let socket = match self.clock.timeout(CONNECT_TIMEOUT, connect()).await {
+            Ok(Ok(socket)) => socket,
+            Ok(Err(ConnectError { reason, health })) => {
+                tracing::debug!(reason = %reason, "the warm-up could not open the websocket");
+                // NOTE: a refused token says nothing yet: the call refreshes it over
+                // HTTP. Only a sign that WebSockets do not work pauses them.
+                if health == Health::Broken {
+                    self.pause();
+                }
+                return false;
+            }
+            Err(_) => {
+                tracing::debug!("the handshake of the warm-up timed out");
+                self.pause();
+                return false;
+            }
+        };
+        efr_stdx::mark::hit("ws.warm.connected");
+        let connection = Arc::new(Connection::start(
+            socket,
+            Arc::clone(&self.clock),
+            self.limits,
+            self.clock.now(),
+            false,
+        ));
+        let mut state = self.state();
+        // NOTE: a call that found no connection and did not wait opens its own; the
+        // first one stays the conversation's connection.
+        let kept = state.connections.get(key).is_some_and(|existing| {
+            !existing.is_closed()
+                && existing.is_younger(now, MAX_AGE.saturating_sub(WARM_AGE_MARGIN))
+        });
+        if !kept {
+            state.connections.insert(key.to_owned(), connection);
+        }
+        drop(state);
+        drop(opening);
+        true
+    }
+
+    /// Notes that a call (`warm` false) or a warm-up opens the connection of `key`,
+    /// until the guard drops.
+    fn opening(&self, key: &str, warm: bool) -> Opening<'_> {
+        let mut state = self.state();
+        Opening::start(&self.state, &mut state, key, warm)
+    }
+
+    /// Waits for the opening of the connection of `key` by a warm-up that runs now, at
+    /// most [`CONNECT_TIMEOUT`]. A call does not wait for another call's opening: that
+    /// connection serves only the other call.
+    async fn wait_opening(&self, key: &str) {
+        let waiting = self
+            .state()
+            .opening
+            .get(key)
+            .filter(|noted| noted.warm)
+            .map(|noted| noted.done.clone());
+        let Some(mut done) = waiting else {
+            return;
+        };
+        efr_stdx::mark::hit("ws.wait_opening");
+        let _ = self.clock.timeout(CONNECT_TIMEOUT, done.wait_for(|done| *done)).await;
+    }
+
+    /// True while `key` has a connection that takes calls.
+    #[cfg(test)]
+    pub(crate) fn has(&self, key: &str) -> bool {
+        self.state().connections.get(key).is_some_and(|connection| !connection.is_closed())
     }
 
     /// True while the connection of `key` runs or drains a call.
@@ -403,6 +533,49 @@ impl Sockets {
             tracing::debug!(pause = ?PAUSE, "websockets are paused");
             self.state().paused_until = Some(until);
         }
+    }
+}
+
+/// An opening noted in [`State::opening`].
+#[derive(Debug)]
+struct Noted {
+    /// Turns true when the opening has ended, also when it failed.
+    done: watch::Receiver<bool>,
+    /// A warm-up opens the connection, so a call may wait for it.
+    warm: bool,
+}
+
+/// An opening of the connection of one conversation, noted in [`State::opening`] until
+/// it drops.
+struct Opening<'a> {
+    state: &'a Mutex<State>,
+    key: String,
+    done: watch::Sender<bool>,
+}
+
+impl<'a> Opening<'a> {
+    /// Notes the opening of `key` by a warm-up (`warm`) or a call in `locked`, the guard
+    /// of `state`. A note that is there already is replaced; its waiters still see its
+    /// own end.
+    fn start(state: &'a Mutex<State>, locked: &mut State, key: &str, warm: bool) -> Opening<'a> {
+        let (done, waiting) = watch::channel(false);
+        locked.opening.insert(key.to_owned(), Noted { done: waiting, warm });
+        Opening { state, key: key.to_owned(), done }
+    }
+}
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let ours = state
+            .opening
+            .get(&self.key)
+            .is_some_and(|noted| noted.done.same_channel(&self.done.subscribe()));
+        if ours {
+            state.opening.remove(&self.key);
+        }
+        drop(state);
+        self.done.send_replace(true);
     }
 }
 

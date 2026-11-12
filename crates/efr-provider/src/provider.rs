@@ -70,6 +70,42 @@ pub trait Provider: Send + Sync + fmt::Debug {
     async fn complete(&self, request: Request) -> Result<Completion, ProviderError> {
         Completion::collect(self.stream(request).await?).await
     }
+
+    /// Makes the connection of the next model call that `warmup` describes ready before
+    /// that call: it refreshes a token that ends soon and opens, or checks, a
+    /// connection that the provider keeps itself, such as a WebSocket. It never sends a
+    /// model request, so it never costs a token, and it never fails: a warm-up that
+    /// does not work leaves the call to do the work as before.
+    ///
+    /// True when the call goes over a connection that the provider keeps itself, which
+    /// the warm-up took care of, also when it could not open it now. False when the
+    /// call goes over the shared HTTP pool, which the caller may open with a cheap
+    /// request of its own, such as the fetch of the model list. The default does
+    /// nothing and returns false.
+    async fn warm(&self, warmup: &Warmup) -> bool {
+        let _ = warmup;
+        false
+    }
+}
+
+/// What a warm-up knows of the next model call ([`Provider::warm`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Warmup {
+    /// The model of the call.
+    pub model: String,
+    /// The key of the call's conversation, the `prompt_cache_key` that the request will
+    /// carry, when the conversation is known. A provider that keeps a connection for
+    /// each conversation opens or checks that one; without a key it opens none.
+    pub conversation: Option<String>,
+}
+
+impl Warmup {
+    /// A warm-up for a call on `model`, in the conversation `conversation` when it is
+    /// known.
+    pub fn new(model: impl Into<String>, conversation: Option<String>) -> Self {
+        Warmup { model: model.into(), conversation }
+    }
 }
 
 /// What a provider says about one model it serves.

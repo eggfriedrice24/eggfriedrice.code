@@ -24,3 +24,4 @@ pub(crate) mod settings;
 pub(crate) mod shell;
 pub(crate) mod status;
 pub(crate) mod undo;
+pub(crate) mod warm;

@@ -55,6 +55,7 @@ use tokio_util::sync::CancellationToken;
 use crate::DaemonError;
 use crate::catalog::{self, Fetcher, Models, NoList, ProviderCatalog, backend};
 use crate::catalogs::Catalogs;
+use crate::warmup::Warmups;
 
 mod api_key;
 mod refusals;
@@ -112,6 +113,8 @@ pub(crate) struct Providers {
     /// The catalog of each provider, the one of `configured` first, and the logins.
     catalogs: Arc<Catalogs>,
     refusals: Arc<KeyRefusals>,
+    /// When each provider last had a prompt or a warm-up of its HTTP pool.
+    warmups: Arc<Warmups>,
 }
 
 /// The start of the catalog of one provider: its list and its cache file.
@@ -276,6 +279,7 @@ impl Providers {
             stop: OnceLock::new(),
             catalogs,
             refusals,
+            warmups: Arc::new(Warmups::new(clock)),
         })
     }
 
@@ -388,8 +392,52 @@ impl Providers {
         Arc::clone(&self.catalogs)
     }
 
+    /// When each provider last had a prompt or a warm-up of its HTTP pool.
+    pub(crate) fn warmups(&self) -> Arc<Warmups> {
+        Arc::clone(&self.warmups)
+    }
+
+    /// The provider and the model of a turn for the warm-up of its connection
+    /// (`warmup.rs`), without a wait for a list: `model`, else the default model; the
+    /// provider `named` while its list names the model, else the first provider whose
+    /// list names the model, else the provider of new conversations. With `picked`, the
+    /// model is the conversation's pick, which gives way to the default when no list
+    /// names it any more, as a turn's pick does (`sticky.rs` of efr-conversation).
+    pub(crate) fn warm_target(
+        &self,
+        settings: &Settings,
+        model: Option<&str>,
+        named: Option<&str>,
+        picked: bool,
+    ) -> (Arc<dyn Provider>, String) {
+        let configured = self.catalogs.configured(settings);
+        let routed = self.catalogs.routed(settings);
+        let listed = |model: &str| routed.iter().any(|info| info.id == model);
+        let (model, named) = match model {
+            Some(model) if !picked || listed(model) => (model.to_owned(), named),
+            _ => (configured.default_model(settings), None),
+        };
+        let named = named.filter(|id| {
+            routed.iter().any(|info| info.id == model && info.provider.as_deref() == Some(*id))
+        });
+        let id = named
+            .map(str::to_owned)
+            .or_else(|| self.listed_provider(settings, &model))
+            .unwrap_or_else(|| configured.provider().to_owned());
+        (self.route(&id), model)
+    }
+
+    /// The id of the running provider with a login that `name` names, such as
+    /// `anthropic-api.work` for `work`, as a prompt's provider is read.
+    pub(crate) fn named(&self, name: &str) -> Option<String> {
+        let ids = self.ids();
+        let logged_in: Vec<&str> =
+            ids.iter().map(String::as_str).filter(|id| self.catalogs.logged_in(id)).collect();
+        efr_protocol::provider_id_named(name, &logged_in).map(str::to_owned)
+    }
+
     /// The catalog of `provider`, if efrd keeps one.
-    fn models_of(&self, provider: &str) -> Option<Arc<Models>> {
+    pub(crate) fn models_of(&self, provider: &str) -> Option<Arc<Models>> {
         self.catalogs.of(provider)
     }
 

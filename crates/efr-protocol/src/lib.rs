@@ -129,6 +129,7 @@ pub use methods::prompt_send::{PromptSend, PromptSendResult, RecentCommand};
 pub use methods::prompt_withdraw::{
     PromptWithdraw, PromptWithdrawResult, WithdrawTarget, WithdrawnPrompt,
 };
+pub use methods::provider_warm::{ProviderWarm, ProviderWarmResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
