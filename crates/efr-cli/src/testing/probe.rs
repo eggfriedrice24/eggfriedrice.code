@@ -21,6 +21,8 @@ pub(crate) struct Zone {
     pub(crate) committed_rows: usize,
     /// The rows of the old live zone that the draw erased.
     pub(crate) erased_rows: usize,
+    /// The rows of the live zone before the draw.
+    pub(crate) old_rows: usize,
     /// The rows of the live zone after the draw.
     pub(crate) live_rows: usize,
     /// The rows of the live zone that the clip to the screen keeps off the screen.

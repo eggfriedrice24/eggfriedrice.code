@@ -352,6 +352,7 @@ impl LiveZone {
                     && status_index.is_some_and(|index| done.in_place == [index]),
                 committed_rows,
                 erased_rows: done.erased,
+                old_rows: self.rows,
                 live_rows: rows,
                 hidden_rows: rows_of(&live, width, method).saturating_sub(rows),
             });

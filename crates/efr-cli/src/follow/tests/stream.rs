@@ -669,7 +669,10 @@ fn analyse(doc: &Doc, size: Size, probe: &Probe, log: &WriteLog) -> Shown {
             shown.erased_rows.push(zone.erased_rows as f64);
             shown.committed_rows_max_frame =
                 shown.committed_rows_max_frame.max(zone.committed_rows as u64);
-            let jump = (zone.committed_rows + zone.live_rows).saturating_sub(zone.erased_rows);
+            // NOTE: the rows that the frame adds to the screen. A frame that writes only
+            // what changed erases fewer rows than the old live zone holds, so the erased
+            // rows do not tell the growth.
+            let jump = (zone.committed_rows + zone.live_rows).saturating_sub(zone.old_rows);
             shown.rows_jump_max = shown.rows_jump_max.max(jump as u64);
             if frame.cpu > Duration::from_millis(4) {
                 shown.cpu_over_4ms += 1;
