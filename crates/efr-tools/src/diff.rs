@@ -179,7 +179,7 @@ pub const MAX_WRITTEN_BYTES: usize = 256 * 1024;
 
 /// The diff of a write from `old` (`None` for a new file) to `new` for the file at
 /// `path`, as the rows under a finished call show it: one line of context around each
-/// change ([`Around::Written`]), cut after `max_lines` lines or
+/// change, cut after `max_lines` lines or
 /// [`MAX_WRITTEN_BYTES`] bytes with a last line `... N more lines`, and the counts of
 /// all lines added and removed. `None` when the content does not change.
 pub fn written_diff(
