@@ -3101,7 +3101,8 @@ async fn e2e_cd_home_and_back_switches_and_says_so() {
     routed.drive(&steps).await;
 
     let screen = routed.screen("t1");
-    let new = screen.find("new conversation at home (from app)").expect(&screen);
+    // NOTE: the screen keeps the paint: the part in parentheses is muted apart.
+    let new = screen.find("new conversation at home").expect(&screen);
     let back = screen.find("back to \"fix the tests\" in app").expect(&screen);
     assert!(new < back, "{screen}");
     routed.daemon.stop().await.unwrap();
