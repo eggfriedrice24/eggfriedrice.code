@@ -30,14 +30,16 @@ shows `app · full`, with `full` in red. A turn that waits behind another one sh
 gauge and no model.
 
 The states include `waiting for the model`, `thinking`, `writing`, `preparing <tool>`,
-`reviewing` and `compacting context`. A note can follow the state, two spaces after it:
+`reviewing` and `compacting context`. What comes and goes stands after the scope, so
+the time, the context and the scope keep their place:
 
 - `no data for 25s`, in yellow, after 20 seconds with no data from the model.
 - `away`, in yellow, while efr counts you away.
-- What the reviewer checks, such as `reviewing  curl -LO https://example.com/x`.
+- What the reviewer checks, such as
+  `⠼ reviewing   40s   ctx 31%   app   curl -LO https://example.com/x`.
 
 On a narrow screen the row drops fields in this order: the detail at its end, the
-account and the effort of the model, the model, the gauge. They go before the words of
+account and the effort of the model, the model, the gauge, the notes. They go before the words of
 the state are cut, so `waiting for the model` stays whole at 60 columns. The state
 keeps at least 10 columns. The state, the time, the scope and `full` never go. A long directory is cut from the
 left, such as `⌂ …/nftables.d`.

@@ -4,17 +4,18 @@
 //! (TM-Live). The gauge (`format::context`) comes from the newest `context` draft or
 //! compaction, and it is in the colour of its level.
 //!
-//! The order is fixed (`DECISIONS.md` 2): the spinner, a space, the state with its note,
-//! then the time, the gauge, the model and the scope, three spaces apart, and last the
-//! detail. What changes all the time stands last: the title or the newest words of a
-//! reasoning, and the size and the newest words of a tool input that the model writes
-//! ([`State::detail`]). So the time, the gauge and the scope stand still while the model
-//! thinks or writes.
+//! The order is fixed (`DECISIONS.md` 2): the spinner, a space, the state, then the
+//! time, the gauge, the model and the scope, three spaces apart, then the notes and
+//! last the detail. What comes, goes or changes stands after the scope, so the time,
+//! the gauge and the scope stand still while the turn runs (TM-Live of the web search
+//! round, which the user chose on 2026-11-12).
 //!
-//! The note stands next to the state, two spaces after it: `no data for 25s` after 20 s
-//! of silence of the model and `away` while efr counts the user away from the
-//! conversation (`presence_changed`), both in the `warning` role without bold; what the
-//! reviewer reviews in the `text` role.
+//! The notes are `no data for 25s` after 20 s of silence of the model and `away`
+//! while efr counts the user away from the conversation (`presence_changed`), both in
+//! the `warning` role without bold. The detail is what the state works on: the title
+//! or the newest words of a reasoning, the size and the newest words of a tool input
+//! that the model writes ([`State::detail`]), or what the reviewer reviews, in the
+//! `text` role.
 //!
 //! The model is `account/model effort`, as `,model` takes it, such as
 //! `work/claude-opus-5-5 high`, from the settings of the turn ([`Model`]). The scope is
@@ -23,7 +24,7 @@
 //! one shows no gauge and no model.
 //!
 //! A narrow row drops, in this order: the detail, the account and the effort of the
-//! model, the model, the gauge. These go before the words of the state are cut; a state
+//! model, the model, the gauge, the notes. These go before the words of the state are cut; a state
 //! keeps at least [`MIN_WORDS`] columns, and the state, the time, the scope and `full`
 //! never go. A long directory of the scope is cut from the
 //! left (`⌂ …/nftables.d`) and keeps at least [`MIN_WORDS`] columns.
@@ -79,7 +80,7 @@ const CONNECT_AFTER: Duration = Duration::from_millis(500);
 /// Between the fields of the row.
 const GAP: &str = "   ";
 
-/// Between the state and its note, and inside the note.
+/// Inside the detail, between the size of a tool input and its newest words.
 const NOTE_GAP: &str = "  ";
 
 /// What the row says while efr counts the user away.
@@ -411,21 +412,25 @@ impl Status {
         since_then(started, now).saturating_sub(self.paused).saturating_sub(asked)
     }
 
-    /// The notes next to the state: the stall, what the reviewer reviews and `away`.
+    /// The notes after the scope: the stall and `away`.
     fn notes(&self, silence: Duration) -> Vec<(String, Tone)> {
         let mut notes = Vec::new();
         if self.state.stalled(silence) {
             notes.push((format!("no data for {}", format::elapsed(silence)), Tone::Attention));
         }
-        if let State::Reviewing(words) = &self.state
-            && let Some(subject) = reviewed(words)
-        {
-            notes.push((subject.to_owned(), Tone::Text));
-        }
         if self.away {
             notes.push((AWAY.to_owned(), Tone::Attention));
         }
         notes
+    }
+
+    /// The detail that ends the row, with its tone: what the reviewer reviews, or the
+    /// detail of the state.
+    fn detail(&self) -> Option<(String, Tone)> {
+        if let State::Reviewing(words) = &self.state {
+            return reviewed(words).map(|subject| (subject.to_owned(), Tone::Text));
+        }
+        self.state.detail().map(|detail| (detail, Tone::Dim))
     }
 
     /// The row at `now`, painted with `options` and cut to their width, with its
@@ -462,6 +467,12 @@ impl Status {
             }
             _ => false,
         };
+        // The notes are short and say that something is wrong, so they go last.
+        let notes: Vec<(String, Tone)> = self
+            .notes(silence)
+            .into_iter()
+            .filter(|(note, _)| take(gap + text_width(note, method)))
+            .collect();
         let gauge = self
             .context
             .as_ref()
@@ -475,13 +486,8 @@ impl Status {
             take(text_width(whole, method).saturating_sub(name))
         });
         let model = whole.clone().or_else(|| named.map(|model| model.name.clone()));
-        // The state with its notes, cut to what the row has left.
-        let mut state = vec![(words, Tone::Dim)];
-        for note in self.notes(silence) {
-            state.push((NOTE_GAP.to_owned(), Tone::Plain));
-            state.push(note);
-        }
-        let state = cut_pieces(&state, room, glyphs, method);
+        // The state, cut to what the row has left.
+        let state = cut_pieces(&[(words, Tone::Dim)], room, glyphs, method);
         room = room.saturating_sub(pieces_width(&state, method));
         // The scope grows into what is left; the detail takes the rest.
         let scope = scope.map(|scope| scope.fit(&mut room, glyphs, method));
@@ -490,9 +496,9 @@ impl Status {
         let gauged = self.context.as_ref().and_then(Gauge::of).is_some();
         let dropped =
             !queued && ((gauged && gauge.is_none()) || (self.model.is_some() && whole.is_none()));
-        let detail = self.state.detail().filter(|_| !dropped).and_then(|detail| {
+        let detail = self.detail().filter(|_| !dropped).and_then(|(detail, tone)| {
             let left = room.checked_sub(gap)?;
-            (left >= MIN_DETAIL).then(|| cut(&detail, left, glyphs, method))
+            (left >= MIN_DETAIL).then(|| (cut(&detail, left, glyphs, method), tone))
         });
         let mut row = options.paint(Role::Accent, &spinner.to_string());
         row.push(' ');
@@ -522,8 +528,11 @@ impl Status {
             row.push_str(GAP);
             row.push_str(&scope.paint(self.full, options));
         }
-        if let Some(detail) = &detail {
-            field(&mut row, detail, Tone::Dim);
+        for (note, tone) in &notes {
+            field(&mut row, note, *tone);
+        }
+        if let Some((detail, tone)) = &detail {
+            field(&mut row, detail, *tone);
         }
         row.push('\n');
         row

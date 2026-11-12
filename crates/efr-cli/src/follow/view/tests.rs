@@ -2273,7 +2273,7 @@ fn twenty_seconds_without_data_says_so() {
     view.frame(wide, at(0));
     let stalled = view.tick(wide, at(41_000));
     assert!(
-        crate::testing::bare(&stalled).contains("waiting for the model  no data for 41s   41s"),
+        crate::testing::bare(&stalled).contains("   41s   no data for 41s"),
         "{}",
         readable(&stalled)
     );
@@ -2299,7 +2299,7 @@ fn status_row_shows_reviewing() {
     // place of the call's line, and model text cannot turn the row around.
     let frame = crate::testing::bare(&view.frame(wide, at(10)));
     assert!(
-        frame.contains("reviewing  curl -LO https://example.com/tool.tar.gz\u{fffd}"),
+        frame.contains("reviewing   curl -LO https://example.com/tool.tar.gz\u{fffd}"),
         "{frame}"
     );
     assert!(!frame.contains("$ curl"), "{frame}");
@@ -2319,7 +2319,8 @@ fn status_row_shows_away() {
         view.envelope(&sent(12, 0, presence(Presence::Away, PresenceSource::Timeout)), SIZE, true);
     assert_eq!(step, Step::default(), "the status row says it; no note");
     let frame = readable(&view.frame(SIZE, at(2_000)));
-    assert!(frame.contains("model\\e[0m  \\e[33maway\\e[0m   \\e[2m2s\\e[0m"), "{frame}");
+    // The note stands after the time, so the time keeps its place.
+    assert!(frame.contains("model\\e[0m   \\e[2m2s\\e[0m   \\e[33maway\\e[0m"), "{frame}");
     // A question while away says that it does not wait long.
     view.envelope(&sent(13, 2_000, approval(None)), SIZE, true);
     let asked = crate::testing::bare(&view.frame(SIZE, at(2_000)));

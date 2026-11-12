@@ -14,6 +14,15 @@ fn the_detail_of_a_status_row_moves_to_its_end() {
     let text: String =
         row["segs"].as_array().unwrap().iter().map(|seg| seg["t"].as_str().unwrap()).collect();
     assert_eq!(text, "\u{283c} thinking   9s   app   planning");
+    // A note in one piece with its spaces moves too, and the time keeps its gap.
+    let mut row = json!({"segs": [
+        {"t": "\u{283c}"}, {"t": " "}, {"t": "reviewing"}, {"t": "  write ~/x   "}, {"t": "40s"},
+        {"t": "   "}, {"t": "app"}
+    ]});
+    move_detail_last(&mut row);
+    let text: String =
+        row["segs"].as_array().unwrap().iter().map(|seg| seg["t"].as_str().unwrap()).collect();
+    assert_eq!(text, "\u{283c} reviewing   40s   app   write ~/x");
     // A row that is not a status row stays.
     let mut prompt = json!({"segs": [{"t": "~"}, {"t": "  "}, {"t": "x"}]});
     let before = prompt.clone();

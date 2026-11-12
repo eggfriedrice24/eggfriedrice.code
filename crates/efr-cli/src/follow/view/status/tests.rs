@@ -164,7 +164,8 @@ fn twenty_seconds_without_data_while_waiting_or_writing_is_a_stall() {
     status.set(State::Writing);
     status.at(at(41_000), false);
     let row = bare(&status.row(at(41_000), &RenderOptions::new(80).with_terminal(true)));
-    assert!(row.contains("waiting for the model  no data for 41s   41s"), "{row:?}");
+    // The note stands after the fields that stand still.
+    assert_eq!(row, "\u{2022} waiting for the model   41s   no data for 41s\n");
     status.stir();
     status.at(at(42_000), false);
     assert!(status.row(at(42_000), &options()).contains("writing"));
@@ -182,7 +183,7 @@ fn a_connect_that_gets_no_answer_for_twenty_seconds_is_a_stall() {
     assert!(status.row(at(5_000), &options()).contains("connecting"));
     status.at(at(60_000), false);
     let row = bare(&status.row(at(60_000), &options()));
-    assert!(row.contains("waiting for the model  no data for 1m 00s"), "{row:?}");
+    assert!(row.contains("waiting for the model   1m 00s   no data for 1m 00s"), "{row:?}");
 }
 
 #[test]
@@ -220,7 +221,7 @@ fn a_long_state_is_cut_so_the_row_fits_one_row() {
 }
 
 #[test]
-fn away_is_a_note_of_the_state_and_full_follows_the_scope() {
+fn away_is_a_note_after_the_scope_and_full_follows_the_scope() {
     let palette = Palette::new()
         .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75))
         .with(Role::Warning, Colour::Palette(5));
@@ -231,21 +232,21 @@ fn away_is_a_note_of_the_state_and_full_follows_the_scope() {
     status.set_scope(Some("app".to_owned()));
     status.at(at(2_000), false);
     let row = status.row(at(2_000), &options);
-    let away = "model\x1b[0m  \x1b[35maway\x1b[0m   ";
-    let full = "app\x1b[0m\x1b[2m \u{b7} \x1b[0m\x1b[38;2;224;108;117mfull\x1b[0m\n";
-    assert!(row.contains(away) && row.ends_with(full), "{}", readable(&row));
+    let full = "app\x1b[0m\x1b[2m \u{b7} \x1b[0m\x1b[38;2;224;108;117mfull\x1b[0m";
+    let away = "   \x1b[35maway\x1b[0m\n";
+    assert!(row.ends_with(&format!("{full}{away}")), "{}", readable(&row));
     // Without colour the tags stay, as the other roles do, and a turn that is not full
     // has none.
     let plain = RenderOptions::new(60).with_colour(ColourMode::None);
     let row = bare(&status.row(at(2_000), &plain));
-    assert_eq!(row, "\u{2022} waiting for the model  away   2s   app \u{b7} full\n");
+    assert_eq!(row, "\u{2022} waiting for the model   2s   app \u{b7} full   away\n");
     status.set_full(false);
     status.set_scope(None);
     let row = bare(&status.row(at(2_000), &plain));
-    assert_eq!(row, "\u{2022} waiting for the model  away   2s\n");
+    assert_eq!(row, "\u{2022} waiting for the model   2s   away\n");
     // Full mode with no scope is `full` alone.
     status.set_full(true);
-    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s   full\n"));
+    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s   full   away\n"));
 }
 
 #[test]
@@ -255,14 +256,17 @@ fn the_full_tag_counts_in_the_width_of_the_row() {
     status.set_away(true);
     status.set(State::Thinking(Some("x".repeat(100))));
     status.at(at(12_000), false);
-    let row = status.row(at(12_000), &RenderOptions::new(40).with_colour(ColourMode::None));
+    let row = status.row(at(12_000), &RenderOptions::new(44).with_colour(ColourMode::None));
     assert_eq!(
         efr_render::display_width(row.trim_end(), efr_render::WidthMethod::CodePoint),
-        40,
+        44,
         "{row:?}"
     );
-    // The detail of the state comes last, after `full`.
-    assert!(bare(&row).contains("thinking  away   12s   full   xx"), "{row:?}");
+    // The note stands after `full`, and the detail of the state comes last.
+    assert!(bare(&row).contains("thinking   12s   full   away   xx"), "{row:?}");
+    // Four columns less leave no room for a detail: the note stays.
+    let row = status.row(at(12_000), &RenderOptions::new(40).with_colour(ColourMode::None));
+    assert_eq!(bare(&row), "\u{2022} thinking   12s   full   away\n");
 }
 
 /// A row at 4 s into the turn, thinking, with the context 43% full and `scope` at its

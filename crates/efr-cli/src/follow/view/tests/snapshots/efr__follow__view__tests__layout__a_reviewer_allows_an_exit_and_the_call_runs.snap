@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 ---
 === 40 columns, colour
 [reviewing]
-\e[33m•\e[0m \e[2mreviewing\e[0m  ./scripts/gen.sh
+\e[33m•\e[0m \e[2mreviewing\e[0m   ./scripts/gen.sh
 
 [allowed]
 \e[2mreviewer allowed: write\e[0m
@@ -22,7 +22,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 40 columns, NO_COLOR
 [reviewing]
-\e[1m•\e[0m \e[2mreviewing\e[0m  ./scripts/gen.sh
+\e[1m•\e[0m \e[2mreviewing\e[0m   ./scripts/gen.sh
 
 [allowed]
 \e[2mreviewer allowed: write\e[0m
@@ -40,7 +40,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 80 columns, colour
 [reviewing]
-\e[33m•\e[0m \e[2mreviewing\e[0m  ./scripts/gen.sh
+\e[33m•\e[0m \e[2mreviewing\e[0m   ./scripts/gen.sh
 
 [allowed]
 \e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to\e[0m
@@ -56,7 +56,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 80 columns, NO_COLOR
 [reviewing]
-\e[1m•\e[0m \e[2mreviewing\e[0m  ./scripts/gen.sh
+\e[1m•\e[0m \e[2mreviewing\e[0m   ./scripts/gen.sh
 
 [allowed]
 \e[2mreviewer allowed: write ~/.local/share/app for this call (low risk; you asked to\e[0m

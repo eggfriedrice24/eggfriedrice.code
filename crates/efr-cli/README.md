@@ -236,18 +236,18 @@ Replies:
   until the next draft or event; a later wait adds `try 3`), `running <tool>` (a call
   of the running turn that a queued prompt waits behind), `waiting for an answer` (an
   approval that another client must answer), `reviewing` with what the reviewer
-  reviews as its note in the `text` role (from `exit_review_started` until the
+  reviews as its detail at the end of the row, in the `text` role (from `exit_review_started` until the
   reviewer's `exit_judged`: the line of the call from its `exit_requested` record, or
   for a file tool what it opens; the call's own row hides meanwhile), and `compacting
   context` (a `compacting` draft, until the turn's `conversation_compacted`, the next
-  `context` draft or the end of the turn). The notes, in the `warning` role without
-  bold: `no data for 25s` after 20 s without an event or a draft while it waits for the
+  `context` draft or the end of the turn). The notes stand after the scope and before
+  the detail, in the `warning` role without bold: `no data for 25s` after 20 s without an event or a draft while it waits for the
   model or writes (the state then says `waiting for the model`), and `away` while efr
   counts the user away from the conversation (`presence_changed`, from `efr away`,
   `,away` or no input for a while), until the next `presence_changed` says present.
   While a call runs and the status row hides, the call's own row shows `full` after its
   time. A narrow row drops, in this order: the detail, the account and the effort of
-  the model, the model, the gauge; the state keeps 10 columns (`MIN_WORDS`), and the
+  the model, the model, the gauge, the notes; the state keeps 10 columns (`MIN_WORDS`), and the
   state, the time, the scope and `full` never go. A directory of the scope keeps 10
   columns too and is cut from the left, at a `/` when it can (`⌂ …/nftables.d`). A
   band of three characters in the

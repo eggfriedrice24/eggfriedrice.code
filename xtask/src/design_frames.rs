@@ -226,8 +226,14 @@ pub(crate) fn correct(board: &str, frame: u64, json: &mut Json) -> anyhow::Resul
         }
         _ => {}
     }
-    // The detail of the status row stands last (DECISIONS.md), after three spaces.
-    if matches!((board, frame), ("TM-Live", 3 | 5 | 12 | 14 | 25 | 26) | ("TM-Sequence", 3)) {
+    // The detail of the status row stands last (DECISIONS.md), after three spaces, and
+    // so does a note (`no data for 25s`, `away`, `on the phone`, what the reviewer
+    // reviews): the boards of the web search round draw both after the scope, and the
+    // user chose that order on 2026-11-12.
+    if matches!(
+        (board, frame),
+        ("TM-Live", 2 | 3 | 5 | 6 | 9 | 10 | 12 | 14 | 25 | 26) | ("TM-Sequence", 2 | 3)
+    ) {
         for row in rows.iter_mut() {
             move_detail_last(row);
         }
@@ -307,8 +313,8 @@ fn segs_mut(row: &mut Json) -> impl Iterator<Item = &mut Json> {
     row["segs"].as_array_mut().into_iter().flatten()
 }
 
-/// Moves the detail after the state (two spaces, then the detail) to the end of a
-/// status row, after three spaces.
+/// Moves the detail or the note after the state (two spaces, then the text) to the end
+/// of a status row, after three spaces.
 pub(crate) fn move_detail_last(row: &mut Json) {
     let Some(segs) = row["segs"].as_array_mut() else { return };
     // Only a status row: it starts with the spinner, or the still dot without motion.
@@ -319,12 +325,28 @@ pub(crate) fn move_detail_last(row: &mut Json) {
     if !spinner {
         return;
     }
-    let Some(at) = segs.iter().position(|seg| seg["t"] == "  ") else { return };
-    if at + 1 >= segs.len() {
+    if let Some(at) = segs.iter().position(|seg| seg["t"] == "  ") {
+        if at + 1 >= segs.len() {
+            return;
+        }
+        let detail = segs.remove(at + 1);
+        segs.remove(at);
+        segs.push(json!({"t": "   "}));
+        segs.push(detail);
         return;
     }
-    let detail = segs.remove(at + 1);
-    segs.remove(at);
+    // The text stands in one piece with its spaces, such as `  write ~/x   `: the
+    // piece keeps the three spaces before the time, and the text goes to the end.
+    let padded = |seg: &Json| {
+        seg["t"].as_str().is_some_and(|text| {
+            text.starts_with("  ") && text.ends_with("   ") && !text.trim().is_empty()
+        })
+    };
+    let Some(at) = segs.iter().position(padded) else { return };
+    let mut detail = segs[at].clone();
+    let text = detail["t"].as_str().unwrap_or_default().trim().to_owned();
+    detail["t"] = json!(text);
+    segs[at]["t"] = json!("   ");
     segs.push(json!({"t": "   "}));
     segs.push(detail);
 }
