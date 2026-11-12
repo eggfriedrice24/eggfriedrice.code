@@ -9,7 +9,9 @@
 //! of [`MAX_WORK`], and otherwise shows as one replacement, which is still a correct
 //! diff. All gaps share the budget, so the work stays linear in the size of the file:
 //! the diff runs on the async executor. Hunks carry [`CONTEXT`] lines of context, and
-//! the preview stops after [`MAX_LINES`] lines or [`MAX_BYTES`] bytes with a line that
+//! a hunk header names where the hunk stands when a line before it says so, as git's
+//! function context does (`@@ -88,7 +88,11 @@ impl Turn {`, see [`Named`]). The
+//! preview stops after [`MAX_LINES`] lines or [`MAX_BYTES`] bytes with a line that
 //! says how much is left out. Only the lines that show become strings.
 
 use std::collections::HashMap;
@@ -31,6 +33,55 @@ const MAX_BYTES: usize = 16 * 1024;
 /// all its tables (old lines times new lines of a gap) and the lines it scans for
 /// anchors, together. The largest table is about 4 MiB of `u32`.
 const MAX_WORK: usize = 1 << 20;
+
+/// How far before a hunk its header looks for the line that names where it stands.
+const NAME_BACK: usize = 4000;
+
+/// The most characters of that line that a hunk header keeps.
+const NAME_CHARS: usize = 60;
+
+/// Which line before a hunk names where the hunk stands, by the kind of the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Named {
+    /// A line that starts with a letter, `_` or `$`, as git takes it by default: the
+    /// start of a function, an `impl`, a class.
+    Code,
+    /// A heading of Markdown: a line that starts with `#`.
+    Heading,
+    /// The header of a table of TOML or of a section of an INI file: a line that
+    /// starts with `[`.
+    Table,
+    /// No line: a file of plain text or data, or a file with no name ending.
+    Nothing,
+}
+
+impl Named {
+    /// The rule for the file at `path`, by the ending of its name.
+    fn of(path: &Path) -> Named {
+        let ending = path.extension().and_then(|ending| ending.to_str());
+        match ending.map(str::to_ascii_lowercase).as_deref() {
+            Some("md" | "markdown" | "mdx") => Named::Heading,
+            Some("toml" | "ini" | "cfg") => Named::Table,
+            Some("txt" | "json" | "jsonl" | "csv" | "tsv" | "log" | "lock") | None => {
+                Named::Nothing
+            }
+            Some(_) => Named::Code,
+        }
+    }
+
+    /// True when `line` names what follows it.
+    fn takes(self, line: &str) -> bool {
+        let Some(first) = line.chars().next() else {
+            return false;
+        };
+        match self {
+            Named::Code => first.is_alphabetic() || first == '_' || first == '$',
+            Named::Heading => first == '#',
+            Named::Table => first == '[',
+            Named::Nothing => false,
+        }
+    }
+}
 
 /// The line that follows a last line without a line end.
 const NO_NEWLINE: &str = "\\ No newline at end of file";
@@ -63,7 +114,7 @@ pub fn unified_diff(path: &Path, old: Option<&str>, new: &str) -> String {
     if old == Some(new) {
         return UNCHANGED.to_owned();
     }
-    let lines = Lines::new(old, new);
+    let lines = Lines::new(old, new).named(Named::of(path));
     let mut out = header(path, old.is_some());
     let mut bytes = 0;
     for (shown, line) in lines.iter().enumerate() {
@@ -140,7 +191,10 @@ pub(crate) fn change_diff(
     let from =
         old.map_or_else(|| "/dev/null".to_owned(), |(path, _)| format!("a{}", path.display()));
     let to = new.map_or_else(|| "/dev/null".to_owned(), |(path, _)| format!("b{}", path.display()));
-    let lines = Lines::new(old.map(|(_, text)| text), new.map_or("", |(_, text)| text));
+    // The file keeps its kind when a call moves it: the new path names it.
+    let named = new.or(old).map_or(Named::Nothing, |(path, _)| Named::of(path));
+    let lines =
+        Lines::new(old.map(|(_, text)| text), new.map_or("", |(_, text)| text)).named(named);
     let mut text = format!("--- {from}\n+++ {to}\n");
     let mut bytes = 0;
     let total = lines.len();
@@ -171,6 +225,10 @@ struct Lines<'a> {
     hunks: Vec<(usize, usize)>,
     added: usize,
     removed: usize,
+    /// The lines of the old text, for the line that names a hunk.
+    old: Vec<&'a str>,
+    /// Which of them names a hunk.
+    named: Named,
 }
 
 impl<'a> Lines<'a> {
@@ -188,7 +246,25 @@ impl<'a> Lines<'a> {
         let added = steps.iter().filter(|step| step.op == Op::Insert).count();
         let removed = steps.iter().filter(|step| step.op == Op::Delete).count();
         let hunks = hunks(&steps);
-        Lines { steps, hunks, added, removed }
+        Lines { steps, hunks, added, removed, old: old_lines, named: Named::Nothing }
+    }
+
+    /// The same lines with hunk headers that name where each hunk stands by `named`.
+    fn named(self, named: Named) -> Lines<'a> {
+        Lines { named, ..self }
+    }
+
+    /// The line that names where `hunk` stands: the nearest line before its first line,
+    /// at most [`NAME_BACK`] lines back, that the rule of the file takes, without the
+    /// spaces at its end and cut to [`NAME_CHARS`] characters.
+    fn name_of(&self, hunk: &[Step<'_>]) -> Option<String> {
+        if self.named == Named::Nothing {
+            return None;
+        }
+        let first = hunk.first()?.old_at.min(self.old.len());
+        let from = first.saturating_sub(NAME_BACK);
+        let line = self.old[from..first].iter().rev().find(|line| self.named.takes(line))?;
+        Some(line.trim_end().chars().take(NAME_CHARS).collect())
     }
 
     /// The number of lines: a header for each hunk, each of its steps, and the note
@@ -207,7 +283,12 @@ impl<'a> Lines<'a> {
     fn iter(&self) -> impl Iterator<Item = String> + '_ {
         self.hunks.iter().flat_map(|&(start, end)| {
             let hunk = &self.steps[start..end];
-            std::iter::once(hunk_header(hunk)).chain(hunk.iter().flat_map(|step| {
+            let mut header = hunk_header(hunk);
+            if let Some(name) = self.name_of(hunk) {
+                header.push(' ');
+                header.push_str(&name);
+            }
+            std::iter::once(header).chain(hunk.iter().flat_map(|step| {
                 let mark = match step.op {
                     Op::Keep => ' ',
                     Op::Delete => '-',

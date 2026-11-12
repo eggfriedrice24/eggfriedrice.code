@@ -23,6 +23,48 @@ fn a_changed_line_shows_with_its_context() {
     );
 }
 
+/// The header lines of the hunks of the diff from `old` to `new` of the file `name`.
+fn hunk_headers(name: &str, old: &str, new: &str) -> Vec<String> {
+    unified_diff(Path::new(name), Some(old), new)
+        .lines()
+        .filter(|line| line.starts_with("@@"))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn a_hunk_of_code_names_the_line_that_it_stands_under() {
+    let old = "use std::fmt;\n\nimpl Turn {\n    fn start(&self) {\n        one();\n        two();\n        three();\n        four();\n        five();\n    }\n}\n";
+    let new = old.replace("four();", "4();");
+    // The nearest line before the hunk that starts with a letter, with its `{`: the
+    // client cuts that. A line with an indent, such as `fn start`, names nothing.
+    assert_eq!(hunk_headers("/p/app/src/turn.rs", old, &new), ["@@ -5,7 +5,7 @@ impl Turn {"]);
+    // A hunk at the start of the file has no line before it.
+    let first = old.replace("use std::fmt;", "use std::io;");
+    assert_eq!(hunk_headers("/p/app/src/turn.rs", old, &first), ["@@ -1,4 +1,4 @@"]);
+    // A long line is cut to 60 characters.
+    let long = format!("fn {}() {{\n a\n b\n c\n d\n e\n", "x".repeat(100));
+    let headers = hunk_headers("/p/app/src/long.rs", &long, &long.replace(" e\n", " E\n"));
+    assert_eq!(headers, [format!("@@ -3,4 +3,4 @@ fn {}", "x".repeat(57))]);
+}
+
+#[test]
+fn the_kind_of_the_file_says_which_line_names_a_hunk() {
+    let text = "# Notes\n\nfirst\n\n## Later\n\none\ntwo\nthree\nfour\nfive\nsix\n";
+    let changed = text.replace("six", "6");
+    // Markdown: the heading, not the prose before the hunk.
+    assert_eq!(hunk_headers("/p/app/NOTES.md", text, &changed), ["@@ -9,4 +9,4 @@ ## Later"]);
+    // Plain text and a file with no name ending: no line.
+    assert_eq!(hunk_headers("/p/app/notes.txt", text, &changed), ["@@ -9,4 +9,4 @@"]);
+    assert_eq!(hunk_headers("/p/app/NOTES", text, &changed), ["@@ -9,4 +9,4 @@"]);
+    // TOML: the table, not the keys.
+    let toml = "top = 1\n\n[render]\na = 1\nb = 2\nc = 3\nd = 4\ne = 5\n";
+    assert_eq!(
+        hunk_headers("/p/app/config.toml", toml, &toml.replace("e = 5", "e = 6")),
+        ["@@ -5,4 +5,4 @@ [render]"]
+    );
+}
+
 #[test]
 fn distant_changes_get_hunks_of_their_own() {
     let line = |n: u32| match n {
@@ -135,8 +177,10 @@ fn two_far_changes_in_a_large_file_show_as_two_small_hunks() {
     assert_eq!((written.added, written.removed), (2, 2));
     let lines: Vec<&str> = written.text.lines().collect();
     assert_eq!(lines.len(), 2 + 2 * 9, "{}", written.text);
-    assert_eq!(lines[2], "@@ -2,7 +2,7 @@");
-    assert_eq!(lines[11], "@@ -2993,7 +2993,7 @@");
+    // Each line of this file starts with a letter, so each header names the line
+    // before its hunk.
+    assert_eq!(lines[2], format!("@@ -2,7 +2,7 @@ {}", line(0).trim_end()));
+    assert_eq!(lines[11], format!("@@ -2993,7 +2993,7 @@ {}", line(2991).trim_end()));
     assert!(lines.contains(&"+changed 2995"), "{}", written.text);
 }
 

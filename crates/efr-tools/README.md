@@ -44,7 +44,12 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   to it (`WrittenKind`: created, changed, deleted, or moved with the path it came
   from) and `written_diff`'s diff of the change (at most `MAX_CALL_DIFF_LINES` lines
   and 256 KiB, then `... N more lines`) with the counts of added and removed lines; a
-  file that held bytes that are not UTF-8 text is `binary` and gets no diff.
+  file that held bytes that are not UTF-8 text is `binary` and gets no diff. A hunk
+  header of both diffs names where the hunk stands, as git's function context does
+  (`@@ -88,7 +88,11 @@ impl Turn {`): the nearest line before the hunk, at most 4000
+  lines back and cut to 60 characters, that starts with a letter, `_` or `$` in code,
+  with `#` in Markdown, or with `[` in TOML and INI files. Plain text, data files and
+  files with no name ending get no name.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH` (which the shell tool
   puts on the run, so the hidden shell exports it as `SCRATCH`), the scope, the origin,
