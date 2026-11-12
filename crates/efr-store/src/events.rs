@@ -211,6 +211,22 @@ pub fn read_turn_range(
     )
 }
 
+/// The newest event of one conversation of the kind `kind`, such as `turn_started`,
+/// however many events of other kinds came after it.
+pub fn newest_of_kind(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    kind: &str,
+) -> Result<Option<EventEnvelope>, StoreError> {
+    let mut page = query(
+        conn,
+        "SELECT seq, conversation_id, created_at, payload FROM events \
+         WHERE conversation_id = ?1 AND kind = ?2 ORDER BY seq DESC LIMIT 1",
+        params![conversation_id.to_string(), kind],
+    )?;
+    Ok(page.pop())
+}
+
 /// The sequence number of the newest event, or [`Seq::ZERO`] for an empty log: the
 /// high-water mark a subscriber reads after it subscribes.
 pub fn last_seq(conn: &Connection) -> Result<Seq, StoreError> {

@@ -330,13 +330,15 @@ impl Models {
 
     /// Fetches the list now, for the warm-up of the next prompt's connection
     /// (`warmup.rs`): the fetch goes over the shared HTTP pool, so it opens the
-    /// connection that the prompt's request then takes. Its answer counts as any fetch
-    /// does. The task's own fetches keep their times. Nothing happens for a catalog that
-    /// is never fetched.
+    /// connection that the prompt's request then takes. A list that it gets counts as
+    /// any fetch's; a failure only shows in the debug log and does not count towards the
+    /// waits of the task, because a warm-up can run before the network is up. The
+    /// task's own fetches keep their times. Nothing happens for a catalog that is never
+    /// fetched.
     pub(crate) async fn warm(&self) {
         if let Some(refresh) = &self.refresh {
             efr_stdx::mark::hit("catalog.warm");
-            self.fetch(refresh).await;
+            self.fetch_as(refresh, Counted::No).await;
         }
     }
 
@@ -367,6 +369,11 @@ impl Models {
 
     /// One fetch, and the wait until the next one.
     async fn fetch(&self, refresh: &Refresh) -> Duration {
+        self.fetch_as(refresh, Counted::Yes).await
+    }
+
+    /// One fetch, whose failure counts towards the next wait when `counted` says so.
+    async fn fetch_as(&self, refresh: &Refresh, counted: Counted) -> Duration {
         let logouts = self.logouts.load(Ordering::Acquire);
         let logins = self.logins.load(Ordering::Acquire);
         let used = self
@@ -394,6 +401,11 @@ impl Models {
                 refresh.failures.store(0, Ordering::Relaxed);
                 (REFRESH_INTERVAL, NoList::NotLoggedIn)
             }
+            Err(error) if counted == Counted::No => {
+                tracing::debug!(error = %efr_stdx::with_causes(&error), provider = %self.provider, "the model list of a warm-up could not be fetched");
+                let failures = refresh.failures.load(Ordering::Relaxed);
+                (retry_wait(failures.max(1)), NoList::Failed(Arc::new(error)))
+            }
             Err(error) => {
                 let failures = refresh.failures.fetch_add(1, Ordering::Relaxed).saturating_add(1);
                 let wait = retry_wait(failures);
@@ -420,6 +432,13 @@ impl Models {
         self.ended.send_modify(|ended| *ended = ended.wrapping_add(1));
         wait
     }
+}
+
+/// Whether the failure of a fetch counts towards the waits of the catalog's task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Counted {
+    Yes,
+    No,
 }
 
 /// One fetch of an OpenAI catalog: a new or confirmed list becomes current and goes to

@@ -391,6 +391,25 @@ async fn failed_fetches_wait_longer_each_time_and_a_good_one_starts_over() {
 }
 
 #[tokio::test]
+async fn a_failed_fetch_of_a_warm_up_does_not_make_the_task_wait_longer() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(MODELS_PATH))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    let setup = fetching(&server, cached_catalog(), token());
+    let refresh = setup.models.refresh.as_ref().unwrap();
+
+    setup.models.warm().await;
+    setup.models.warm().await;
+    let wait = setup.models.fetch(refresh).await;
+
+    assert_eq!(wait, Duration::from_secs(15), "the task's first failure");
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+}
+
+#[tokio::test]
 async fn without_a_login_nothing_is_asked_until_the_next_round() {
     let server = MockServer::start().await;
     let setup = fetching(&server, builtin(), Arc::new(NoLogin));

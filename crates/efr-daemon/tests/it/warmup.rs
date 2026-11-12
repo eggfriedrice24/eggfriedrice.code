@@ -213,3 +213,73 @@ async fn a_warm_up_takes_the_provider_of_the_conversations_pick_or_of_the_asked_
     assert_eq!(asked.provider.as_deref(), Some("openai-subscription"));
     daemon.stop().await.unwrap();
 }
+
+/// Waits until the warm-up that a prompt started ends.
+async fn warm_done() {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !efr_stdx::mark::drain().iter().any(|mark| mark.name == "warm.done") {
+        assert!(Instant::now() < deadline, "the warm-up did not end");
+        SystemClock.sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_without_a_model_opens_no_socket_of_the_default_for_a_conversation_on_its_pick() {
+    efr_stdx::mark::enable();
+    let clock = TestClock::new();
+    let _follower = Follower::start(&clock);
+    let server = ProviderServer::start().await.unwrap();
+    server.set(|knobs| knobs.claude = vec!["claude-opus-5-5".to_owned()]);
+    let dirs = tree();
+    let cwd = dirs.create_dir("home/project").unwrap();
+    let daemon = Box::pin(
+        builder(&dirs, &clock)
+            .subscription_at(&server.base_url("sub"), &server.issuer())
+            .also_messages_at(&server.base_url("anthropic"))
+            .start(),
+    )
+    .await
+    .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let mut picked = prompt(TTY, &cwd, "use claude", None);
+    picked.settings.model = Some("claude-opus-5-5".to_owned());
+    let run = run_turn(&client, picked).await;
+    assert_eq!(run.end_kind(), "turn_completed", "{:#?}", run.events);
+    SystemClock.sleep(Duration::from_millis(50)).await;
+    server.drain();
+    efr_stdx::mark::drain();
+
+    // The next prompt names no model, so its turn runs on the pick, Claude.
+    one(&daemon, &cwd).await;
+    warm_done().await;
+    let prompted = server.drain();
+
+    assert_eq!(count(&prompted, Saw::Upgrade), 0, "{prompted:?}");
+    assert_eq!(count(&prompted, Saw::Create), 0, "{prompted:?}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_for_a_conversation_that_does_not_exist_warms_nothing() {
+    efr_stdx::mark::enable();
+    let clock = TestClock::new();
+    let _follower = Follower::start(&clock);
+    let server = ProviderServer::start().await.unwrap();
+    let (daemon, cwd) = daemon(Route::Ws, &server, &clock).await;
+    server.drain();
+    efr_stdx::mark::drain();
+
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let mut unknown = prompt(TTY, &cwd, "hello?", None);
+    unknown.conversation_id = Some("019a9b1c-3d00-7a10-8b20-0000000000ee".parse().unwrap());
+    unknown.settings.model = Some("gpt-5.5".to_owned());
+    let refused = client.call::<efr_protocol::PromptSendResult>(Method::PromptSend(unknown)).await;
+    assert!(refused.is_err(), "{refused:?}");
+    // NOTE: a warm-up on loopback opens its socket within milliseconds.
+    SystemClock.sleep(Duration::from_millis(300)).await;
+
+    let seen = server.drain();
+    assert_eq!(count(&seen, Saw::Upgrade), 0, "{seen:?}");
+    assert!(!efr_stdx::mark::drain().iter().any(|mark| mark.name == "warm.begin"));
+    daemon.stop().await.unwrap();
+}

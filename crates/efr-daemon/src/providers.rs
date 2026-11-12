@@ -55,7 +55,7 @@ use tokio_util::sync::CancellationToken;
 use crate::DaemonError;
 use crate::catalog::{self, Fetcher, Models, NoList, ProviderCatalog, backend};
 use crate::catalogs::Catalogs;
-use crate::warmup::Warmups;
+use crate::warmup::{Noted, Warmups};
 
 mod api_key;
 mod refusals;
@@ -188,6 +188,7 @@ impl Providers {
         let anthropic = anthropic_config(&config.anthropic)?;
         let checks = KeyChecks::new(http.clone(), api.clone(), anthropic.clone());
         let refusals = Arc::new(KeyRefusals::new(Arc::clone(&clock)));
+        let warmups = Arc::new(Warmups::new(Arc::clone(&clock)));
         let provider = config.model.provider.as_str();
         let injected = factory.is_some();
         let credential = Arc::new(CredentialProviders {
@@ -243,6 +244,8 @@ impl Providers {
             if takes_key(id) {
                 provider = Arc::new(Watched::new(provider, id, Arc::clone(&refusals)));
             }
+            let provider: Arc<dyn Provider> =
+                Arc::new(Noted::new(provider, id, Arc::clone(&warmups)));
             Ok((id.to_owned(), provider))
         };
         let active = route(provider)?;
@@ -279,7 +282,7 @@ impl Providers {
             stop: OnceLock::new(),
             catalogs,
             refusals,
-            warmups: Arc::new(Warmups::new(clock)),
+            warmups,
         })
     }
 
@@ -312,6 +315,8 @@ impl Providers {
         if takes_key(id) {
             provider = Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
         }
+        let provider: Arc<dyn Provider> =
+            Arc::new(Noted::new(provider, id, Arc::clone(&self.warmups)));
         let models = match credential.fetcher(id, &catalog)? {
             Some(fetcher) => {
                 let models = Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock));

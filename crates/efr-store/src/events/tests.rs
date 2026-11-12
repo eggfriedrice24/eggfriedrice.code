@@ -373,3 +373,33 @@ async fn a_bound_beyond_the_largest_sqlite_integer_reads_nothing() {
 
     assert_eq!(read, []);
 }
+
+#[tokio::test]
+async fn the_newest_event_of_a_kind_is_found_behind_any_number_of_others() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    let other = testing::conversation(2);
+    let mut batch = Batch::new().event(id, testing::created(None)).event(id, prompt(1, "first"));
+    batch = batch.event(id, prompt(2, "second"));
+    for _ in 0..300 {
+        let away = Event::PresenceChanged {
+            conversation_id: id,
+            presence: efr_protocol::Presence::Away,
+            source: efr_protocol::PresenceSource::Timeout,
+        };
+        batch = batch.event(id, away);
+    }
+    batch = batch.event(other, testing::created(None)).event(other, prompt(3, "elsewhere"));
+    writer.append(batch).await.unwrap();
+
+    let newest =
+        on_writer(&writer, move |conn| newest_of_kind(conn, id, "prompt_queued")).await.unwrap();
+    let none =
+        on_writer(&writer, move |conn| newest_of_kind(conn, id, "turn_started")).await.unwrap();
+
+    let Some(EventEnvelope { event: Event::PromptQueued { text, .. }, .. }) = newest else {
+        panic!("no prompt: {newest:?}");
+    };
+    assert_eq!(text, "second");
+    assert_eq!(none, None);
+}

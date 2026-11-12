@@ -7,7 +7,9 @@
 //! token that ends soon happen while the user types. `prompt.send` starts the same
 //! warm-up when it arrives, so a pasted prompt gains the few milliseconds of efrd's own
 //! work before its request; it takes the prompt's model or the default, and does not
-//! read the conversation's pick, so it adds no read of the store to the prompt's.
+//! read the conversation's pick, so it adds no read of the store to the prompt's. So a
+//! prompt that names no model in a known conversation, whose turn runs on that pick,
+//! warms only the token there: a socket of the default provider could be the wrong one.
 //!
 //! efrd picks what the next prompt of the terminal would use ([`Target`]): the
 //! terminal's conversation of the scope of `pwd` while it continues (not one that was
@@ -36,9 +38,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use efr_protocol::{ConversationId, Event, RouteScope};
-use efr_provider::{Provider, Warmup};
+use efr_provider::{
+    CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError, ProviderId,
+    ProviderStream, Request, Warmup,
+};
 use efr_stdx::time::Clock;
+use futures::StreamExt as _;
 use jiff::{SignedDuration, Timestamp};
 
 use crate::catalog::Models;
@@ -49,11 +56,6 @@ use crate::state::State;
 /// The shortest time between two fetches of a provider's model list for a warm-up, and
 /// between a prompt of a provider and such a fetch.
 pub(crate) const HTTP_WARM_GAP: Duration = Duration::from_secs(60);
-
-/// How many of a conversation's newest events efrd reads to find its newest turn's
-/// settings. A turn's start is rarely further back; when it is, the warm-up takes the
-/// config's default.
-const SETTINGS_PAGE: u32 = 200;
 
 /// When each provider last had a prompt or an HTTP warm-up.
 #[derive(Debug)]
@@ -67,8 +69,8 @@ impl Warmups {
         Warmups { clock, last: Mutex::new(HashMap::new()) }
     }
 
-    /// A prompt goes to `provider` now: its request opens or takes the pooled
-    /// connection.
+    /// A prompt goes to `provider` now, or a model call of `provider` starts or ends:
+    /// its request opens or takes the pooled connection, which then stays in the pool.
     pub(crate) fn used(&self, provider: &str) {
         let now = self.clock.now();
         self.lock().insert(provider.to_owned(), now);
@@ -88,6 +90,72 @@ impl Warmups {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Timestamp>> {
         self.last.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A provider whose model calls note [`Warmups::used`] when each starts and when its
+/// answer ends, so a warm-up after a long turn does not fetch the model list while the
+/// turn's pooled connection is fresh. The rest passes on as it is.
+#[derive(Debug)]
+pub(crate) struct Noted {
+    inner: Arc<dyn Provider>,
+    /// The provider id, such as `anthropic-api`.
+    provider: String,
+    warmups: Arc<Warmups>,
+}
+
+impl Noted {
+    /// `inner`, the provider `provider`, noting its calls in `warmups`.
+    pub(crate) fn new(inner: Arc<dyn Provider>, provider: &str, warmups: Arc<Warmups>) -> Self {
+        Noted { inner, provider: provider.to_owned(), warmups }
+    }
+}
+
+/// Notes the end of a model call's answer when the answer's stream drops.
+struct AnswerEnd {
+    provider: String,
+    warmups: Arc<Warmups>,
+}
+
+impl Drop for AnswerEnd {
+    fn drop(&mut self) {
+        self.warmups.used(&self.provider);
+    }
+}
+
+#[async_trait]
+impl Provider for Noted {
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+
+    fn models(&self) -> Vec<ModelInfo> {
+        self.inner.models()
+    }
+
+    fn default_edit_tool(&self) -> EditTool {
+        self.inner.default_edit_tool()
+    }
+
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        self.stream_with_notices(request, &NoNotices).await
+    }
+
+    async fn stream_with_notices(
+        &self,
+        request: Request,
+        notices: &dyn CallNotices,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.warmups.used(&self.provider);
+        let stream = self.inner.stream_with_notices(request, notices).await?;
+        let end = AnswerEnd { provider: self.provider.clone(), warmups: Arc::clone(&self.warmups) };
+        Ok(Box::pin(stream.inspect(move |_| {
+            let _ = &end;
+        })))
+    }
+
+    async fn warm(&self, warmup: &Warmup) -> bool {
+        self.inner.warm(warmup).await
     }
 }
 
@@ -230,17 +298,15 @@ async fn newest_pick(
     state: &State,
     conversation_id: ConversationId,
 ) -> Option<(String, Option<String>)> {
-    let page = state
+    // NOTE: by kind, so a long turn with many events after its start still counts.
+    let newest = state
         .readers
-        .with(move |conn| {
-            efr_store::events::read_conversation_before(conn, conversation_id, None, SETTINGS_PAGE)
-        })
+        .with(move |conn| efr_store::events::newest_of_kind(conn, conversation_id, "turn_started"))
         .await
-        .ok()?;
-    let settings = page.iter().rev().find_map(|envelope| match &envelope.event {
-        Event::TurnStarted { settings, .. } => Some(settings.clone()),
-        _ => None,
-    })??;
+        .ok()??;
+    let Event::TurnStarted { settings: Some(settings), .. } = newest.event else {
+        return None;
+    };
     settings.overridden.model.then_some((settings.model, settings.provider))
 }
 

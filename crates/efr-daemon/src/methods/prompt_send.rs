@@ -183,10 +183,13 @@ async fn send(
         _ => None,
     };
     efr_stdx::mark::hit("ps.routed");
+    // NOTE: a prompt for a conversation that does not exist warms nothing.
+    if let Some(conversation_id) = params.conversation_id {
+        ensure_exists(state, conversation_id).await?;
+    }
     warm(state, &params, &provider, routing.as_ref().and_then(|routing| routing.target));
     let sent = match (routing, params.conversation_id) {
         (_, Some(conversation_id)) => {
-            ensure_exists(state, conversation_id).await?;
             keep_desktop(state, conversation_id, &params);
             let sent = state.conversations.open(conversation_id).send_prompt(params, origin).await;
             if let (Ok(result), Some(tty)) = (&sent, &context_tty) {
@@ -221,15 +224,18 @@ async fn send(
 /// Starts the warm-up of the connection of the prompt `params` on `provider`, in the
 /// conversation `routed` that routing picked or the one that the prompt names. A
 /// prompt for a new conversation warms only the token: a socket needs the
-/// conversation's id. The resolution of the conversation's pick runs in the task, so
-/// the prompt waits for no read.
+/// conversation's id. So does a prompt that names no model in a known conversation:
+/// its turn runs on the conversation's pick, which only the turn reads, and a socket
+/// of the default provider could be the wrong one. The rest runs in a task, so the
+/// prompt waits for no read.
 fn warm(state: &Arc<State>, params: &PromptSend, provider: &str, routed: Option<ConversationId>) {
     state.providers.warmups().used(provider);
+    let socket = params.conversation_id.or(routed).filter(|_| params.settings.model.is_some());
     let next = warmup::Next {
         model: params.settings.model.clone(),
         provider: params.settings.provider.clone(),
-        conversation: params.conversation_id.or(routed),
-        new_conversation: params.conversation_id.or(routed).is_none(),
+        conversation: socket,
+        new_conversation: socket.is_none(),
         ..warmup::Next::default()
     };
     let state = Arc::clone(state);
