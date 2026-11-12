@@ -159,7 +159,7 @@ use efr_protocol::{
     Launch, Mode, Origin, Presence, QuestionId, Risk, Scope, Seq, ShellCommandEnd, SurfaceChange,
     TurnId, TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
 };
-use efr_render::{RenderOptions, render_trace};
+use efr_render::{RenderOptions, WidthMethod, render_trace};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
@@ -168,7 +168,7 @@ use crate::format::changes::HomeChange;
 use crate::format::context::{self as gauge, GaugedLine};
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
-use crate::live::{LiveZone, Measured, effective_width, fits, rows_of};
+use crate::live::{LiveZone, effective_width, fits, rows_of};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
@@ -718,7 +718,7 @@ impl TurnView {
     pub(crate) fn new(turn: TurnId, options: RenderOptions) -> TurnView {
         TurnView {
             turn,
-            live: LiveZone::new(options.width_method()),
+            live: live_zone(options.width_method()),
             options,
             message: None,
             next_index: 0,
@@ -777,6 +777,13 @@ impl TurnView {
             interrupting: false,
             resent_note: false,
         }
+    }
+
+    /// The same view with frames that write only what changed, as outside the tests.
+    #[cfg(test)]
+    pub(crate) fn writing_changes(mut self) -> TurnView {
+        self.live = LiveZone::new(self.options.width_method());
+        self
     }
 
     /// The same view with `look`.
@@ -1214,7 +1221,7 @@ impl TurnView {
         {
             status.set(State::Thinking(Some(words)));
         }
-        let (body, measured) = self.live_body(size, now);
+        let body = self.live_body(size, now);
         // A running call's line carries the spinner instead of the row.
         let row = match &self.status {
             Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
@@ -1245,7 +1252,7 @@ impl TurnView {
             out.push_str(if paste { PASTE_ON } else { PASTE_OFF });
             input.paste = paste;
         }
-        out.push_str(&self.live.draw(&committed, &body, measured, &row, &tail, size));
+        out.push_str(&self.live.draw(&committed, &body, &row, &tail, size));
         if !hide && self.cursor_hidden {
             out.push_str(SHOW_CURSOR);
             self.cursor_hidden = false;
@@ -1361,7 +1368,7 @@ impl TurnView {
         if !self.question.as_ref().is_some_and(|shown| !shown.committed) {
             return;
         }
-        let (body, _) = self.live_body(size, now);
+        let body = self.live_body(size, now);
         // One row more for a status row under it.
         let rows = rows_of(&body, effective_width(size), self.options.width_method()) + 1;
         if !fits(rows, size) {
@@ -3762,16 +3769,10 @@ impl TurnView {
     /// The live zone above the status row at `now`: the current message's live text,
     /// the running call's line, the last lines of its output
     /// and the input it waits for, then the question when one is pending.
-    fn live_body(&self, size: Size, now: Timestamp) -> (String, Option<Measured>) {
-        let (mut live, mut measured) = match &self.message {
-            Some(message) => {
-                let (live, measured) = message.live();
-                (live.to_owned(), measured)
-            }
-            None => (String::new(), None),
-        };
+    fn live_body(&self, size: Size, now: Timestamp) -> String {
+        let mut live =
+            self.message.as_ref().map(|message| message.live().to_owned()).unwrap_or_default();
         let options = self.options_at(size);
-        let before = live.len();
         if self.call_shown()
             && let Some(call) = &self.call
         {
@@ -3814,11 +3815,24 @@ impl TurnView {
         if let Some(input) = self.input.as_ref().filter(|_| !self.ended) {
             live.push_str(&input.pending(&options, effective_width(size)));
         }
-        if live.len() != before {
-            measured = None;
-        }
-        (live, measured)
+        live
     }
+}
+
+/// The live zone of a view: its frames write only what changed.
+#[cfg(not(test))]
+fn live_zone(method: WidthMethod) -> LiveZone {
+    LiveZone::new(method)
+}
+
+/// The live zone of a view in the tests: its frames erase the whole live zone and write
+/// it again. NOTE: the view tests read the text of a frame or play it on screens that
+/// know only such frames. The frames that write only what changed leave the same screen
+/// (`live::tests`, `tests/changes.rs`), and [`TurnView::writing_changes`] gives a test
+/// those.
+#[cfg(test)]
+fn live_zone(method: WidthMethod) -> LiveZone {
+    LiveZone::whole(method)
 }
 
 /// What turns the echo `shown` into `text` on a line that a terminal shows: each

@@ -8,6 +8,7 @@
 //! bytes on the wire.
 
 pub(crate) mod probe;
+pub(crate) mod screen;
 
 use std::collections::VecDeque;
 use std::future::{pending, ready};

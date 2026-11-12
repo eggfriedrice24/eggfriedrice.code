@@ -8,8 +8,6 @@
 
 use efr_render::{RenderOptions, Renderer};
 
-use crate::live::Measured;
-
 /// One assistant message while it streams.
 #[derive(Debug)]
 pub(crate) struct Message {
@@ -21,9 +19,8 @@ pub(crate) struct Message {
     received: String,
     /// How many bytes of `received` went into the renderer.
     pushed: usize,
-    /// The renderer's live zone after the last push, and its height.
+    /// The renderer's live zone after the last push.
     live: String,
-    measured: Option<Measured>,
 }
 
 impl Message {
@@ -34,7 +31,6 @@ impl Message {
             received: String::new(),
             pushed: 0,
             live: String::new(),
-            measured: None,
         }
     }
 
@@ -43,10 +39,9 @@ impl Message {
         &self.received
     }
 
-    /// The renderer's live zone after the last push, and its height when the renderer
-    /// counted it.
-    pub(crate) fn live(&self) -> (&str, Option<Measured>) {
-        (&self.live, self.measured)
+    /// The renderer's live zone after the last push.
+    pub(crate) fn live(&self) -> &str {
+        &self.live
     }
 
     /// True while text that arrived waits to go into the renderer.
@@ -87,8 +82,6 @@ impl Message {
         let update = self.renderer.push(delta);
         let committed = update.committed().to_owned();
         update.live().clone_into(&mut self.live);
-        let width = self.renderer.options().width();
-        self.measured = Some(Measured { rows: update.live_rows(), width });
         self.pushed = self.received.len();
         committed
     }

@@ -1704,19 +1704,21 @@ async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
 async fn a_tick_moves_the_spinner_and_writes_only_the_status_row() {
     let env = TestEnv::new();
     let (clock, ctx) = test_clock(&env);
+    // NOTE: on a screen of unknown height each frame writes the whole live zone.
+    let size = Size { cols: 80, rows: 24 };
+    let ctx = Context { screen: Arc::new(ResizableScreen(std::sync::Mutex::new(size))), ..ctx };
     let timing = clock.clone();
-    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+    let view = started_view().writing_changes();
+    let (result, _, _) = run_view(&env, &ctx, view, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         timing.wait_for_sleeps(1).await;
         let before = seen.stdout().len();
         timing.advance(super::TICK);
         shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
         let tick = seen.stdout()[before..].to_owned();
-        assert!(
-            tick.starts_with("\x1b[?2026h\r\x1b[1A\x1b[2K\x1b[33m\u{2819}"),
-            "{}",
-            readable(&tick)
-        );
+        // Up to the status row, which changed from its spinner, and nothing erased.
+        assert!(tick.starts_with("\x1b[?2026h\r\x1b[1A\x1b[33m\u{2819}"), "{}", readable(&tick));
+        assert!(!tick.contains("\x1b[J"), "{}", readable(&tick));
         assert!(tick.ends_with(progress::RUNNING), "the bar goes again: {}", readable(&tick));
         conn.item(sub, &item(11, turn_completed())).await;
         conn.until_closed().await;

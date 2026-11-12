@@ -6,13 +6,19 @@
 //! (`efr history | head`), and a write returns the error, which ends the command
 //! quietly instead.
 //!
+//! Stdout is written without the line buffer of `io::stdout`, which writes a text with
+//! a newline in two calls: up to its last newline, then the rest at the flush. A frame
+//! of the live zone is one write call, so the terminal gets it whole.
+//!
 //! While a turn runs, the view hides the cursor and may show a progress bar in the
 //! terminal's tab. [`set_restore`] keeps the bytes that undo that, and
 //! [`restore_terminal`] writes them on a way out that skips the view: a panic (the hook
 //! of [`install_panic_hook`]) or the default action of SIGQUIT.
 
 use std::fmt;
+use std::fs::File;
 use std::io::{self, Write};
+use std::os::fd::{AsFd as _, BorrowedFd};
 use std::sync::{Mutex, PoisonError};
 
 use crate::error::CliError;
@@ -32,7 +38,8 @@ impl fmt::Debug for Output {
 impl Output {
     /// The process's stdout and stderr.
     pub(crate) fn process() -> Output {
-        Output { stdout: Box::new(io::stdout()), stderr: Box::new(io::stderr()) }
+        let stdout = unbuffered(io::stdout().as_fd()).unwrap_or_else(|| Box::new(io::stdout()));
+        Output { stdout, stderr: Box::new(io::stderr()) }
     }
 
     /// Other writers in place of stdout and stderr.
@@ -44,8 +51,8 @@ impl Output {
         Output { stdout, stderr }
     }
 
-    /// Writes `text` to stdout and flushes it, so a redraw of the live zone reaches the
-    /// terminal at once instead of waiting in a line buffer.
+    /// Writes `text` to stdout in one call and flushes it, so a frame of the live zone
+    /// reaches the terminal at once and whole.
     pub(crate) fn out(&mut self, text: &str) -> Result<(), CliError> {
         if text.is_empty() {
             return Ok(());
@@ -70,6 +77,14 @@ impl Output {
         let written = self.stderr.write_all(text.as_bytes()).and_then(|()| self.stderr.flush());
         drop(written);
     }
+}
+
+/// A writer of `fd` with no buffer, so each `write_all` of a text is one write call (or
+/// more only when the terminal takes part of it). It writes to a copy of the file
+/// descriptor, which closes on exec; `None` when no copy can be made.
+fn unbuffered(fd: BorrowedFd<'_>) -> Option<Box<dyn Write + Send>> {
+    let copy = fd.try_clone_to_owned().ok()?;
+    Some(Box::new(File::from(copy)))
 }
 
 /// What [`restore_terminal`] writes: the bytes that undo what the view did to the

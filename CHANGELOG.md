@@ -73,6 +73,11 @@ into the GitHub release notes, and it stops when the section is missing.
   in the background, and the data of a language when the line that opens its block
   comes. Only when the first line of code comes together with that line does the
   screen still wait for the rest of the load.
+- A frame of a streaming answer now writes only what changed, in one write. Text that
+  streams at the end of a line writes only its new characters, and a tick of the
+  status row writes only that row. Before, each frame erased the whole live zone and
+  wrote it again, in two writes. A long paragraph now sends the terminal about a tenth
+  of the bytes.
 
 ### Fixed
 

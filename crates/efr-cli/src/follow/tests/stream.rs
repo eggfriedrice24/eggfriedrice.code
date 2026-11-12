@@ -6,9 +6,9 @@
 //! The cases: one paragraph of 5,000 characters at 80x24, 120x40 and 200x60 and two of
 //! 1,500 at 80x12 (a long source line, slice 2 of `research/streaming/plan.md`); a
 //! table whose source passes 4 KiB, a fenced block in a list item and a fenced block
-//! of 200 lines (blocks that land whole, slice 9); a mixed answer at 60 tokens a
-//! second, in bursts of 15 tokens each 250 ms, and in drafts 17 ms apart (the two
-//! gates, slice 8). The cases of one group run at the same time, each in a thread of
+//! of 200 lines (blocks that land whole, slice 9); six paragraphs of prose at 120x40
+//! (the bytes of a frame, slice 10); a mixed answer at 60 tokens a second, in bursts of
+//! 15 tokens each 250 ms, and in drafts 17 ms apart (the two gates, slice 8). The cases of one group run at the same time, each in a thread of
 //! its own. `EFR_STREAM_SHAPES`, `EFR_STREAM_PATTERN` (`tok60`) and `EFR_STREAM_SIZES`
 //! (`80x24,120x40,200x60`) run other cases by hand, and `EFR_STREAM_DUMP` names a
 //! directory for each frame and draft of a run.
@@ -17,7 +17,7 @@
 //! word on the screen names its place in the source.
 
 use std::fmt::Write as _;
-use std::io::{self, LineWriter, Write};
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
@@ -431,12 +431,12 @@ fn run(doc: &Doc, pattern: &str, size: Size) -> (Probe, WriteLog) {
                 diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
             };
             let options = ctx.render_options(effective_width(size));
-            let mut view = TurnView::new(turn(), options).with_look(look).with_input();
+            let mut view =
+                TurnView::new(turn(), options).with_look(look).with_input().writing_changes();
             view.start();
-            let mut out = Output::from_writers(
-                Box::new(LineWriter::new(Recorder(Arc::clone(&log)))),
-                Box::new(io::sink()),
-            );
+            // NOTE: no line buffer, as the process's stdout (`output.rs`).
+            let mut out =
+                Output::from_writers(Box::new(Recorder(Arc::clone(&log))), Box::new(io::sink()));
             let reader = keys.keep().unwrap();
             let client = ctx.connect(Origin::Shell, None).await.unwrap();
             let row = Row { compose: compose(), reader, origin: Origin::Shell };
@@ -697,7 +697,7 @@ fn analyse(doc: &Doc, size: Size, probe: &Probe, log: &WriteLog) -> Shown {
         }
     }
 
-    // The write calls of each frame, as a line-buffered stdout makes them.
+    // The write calls of each frame.
     shown.write_calls = log
         .groups
         .iter()
@@ -775,6 +775,7 @@ const GROUPS: [&[Case]; 3] = [
         ("code_200", "tok60", size(80, 24)),
     ],
     &[
+        ("paragraphs", "tok60", size(120, 40)),
         ("mix", "tok60", size(120, 40)),
         ("mix", "burst", size(120, 40)),
         ("mix", "d17", size(120, 40)),
@@ -819,6 +820,7 @@ fn bench_perf_stream_matrix() {
     };
     let mut budget = Vec::new();
     let mut code = Vec::new();
+    let mut writes = Vec::new();
     for group in groups {
         let shown: Vec<(String, Shown)> = std::thread::scope(|scope| {
             let runs: Vec<_> = group
@@ -847,6 +849,9 @@ fn bench_perf_stream_matrix() {
                     [shown.frames_with_hidden_live, shown.cpu_over_4ms],
                 ));
             }
+            let per = shown.total_bytes as f64 / shown.source_bytes.max(1) as f64;
+            let calls = quantile(&shown.write_calls, 1.0);
+            writes.push((case.clone(), per, calls));
         }
     }
     report.finish();
@@ -865,5 +870,17 @@ fn bench_perf_stream_matrix() {
         assert_eq!(late, 0, "{case}: chars more than 100 ms late");
         assert_eq!(hidden, 0, "{case}: frames with live rows off the screen");
         assert_eq!(slow, 0, "{case}: text frames over 4 ms of CPU");
+    }
+    // Each frame is one write call, and a frame writes only what changed: a long
+    // paragraph and some paragraphs of prose stay below these bytes for each source byte
+    // (before: 454 and 108, when each frame wrote the whole live zone).
+    for (case, per, calls) in writes {
+        assert!(calls <= 1.0, "{case}: {calls} write calls in a frame");
+        let most = match case.as_str() {
+            "para_5000|tok60|120x40" => 60.0,
+            "paragraphs|tok60|120x40" => 20.0,
+            _ => continue,
+        };
+        assert!(per <= most, "{case}: {per:.1} bytes out for each source byte, budget {most}");
     }
 }

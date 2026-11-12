@@ -113,22 +113,33 @@ Replies:
   `prompt.send` result, so it shows before the first event. Settings that the config
   gave are left out, and a daemon that sends no settings gets no note.
 - When stdout is a terminal (and `TERM` is not `dumb`), each assistant message streams
-  through an `efr_render::Renderer`. Committed output is written once; the live zone is
-  redrawn in place: carriage return, cursor up over the old live zone's rows (counted
-  again at the current width when the terminal was resized), erase to the end of the
-  screen, then the new committed output and live zone, all inside synchronized output
-  (`CSI ? 2026 h` and `l`). The live zone is clipped to one row less than the screen,
+  through an `efr_render::Renderer`. Committed output is written once; the live zone
+  changes in place, and a frame writes only what changed, in one write call, inside
+  synchronized output (`CSI ? 2026 h` and `l`). The live zone keeps where each row of
+  its lines starts (`live/layout.rs`). A line that stays the same on the same rows is
+  not written. A line that changed only in its last row is written from its first
+  cell that changed, after its colours and its link are opened again, and the rest of
+  the row is erased when the old row was longer. So text that streams at the end of a
+  line writes only its new characters, and a tick writes only the status row. At the
+  first line that changed in another way, the frame moves to its first cell that
+  changed, erases to the end of the screen and writes from there to the end. Committed
+  output takes the place of the top lines of the live zone, so a block that commits as
+  it stands writes nothing. The live zone is clipped to one row less than the screen,
   by rows: the last lines that fit whole, and above them the last rows of the line
-  before them (`efr_render::last_rows`, which opens the colours and the link of the
-  line again). So a paragraph line that is taller than the screen shows its newest
-  rows. The rows are counted as the terminal wraps: a wide character that does not
-  fit at the end of a row starts the next row. A known limit: a live zone that fills
-  the screen cannot be erased whole after a resize. When the screen gets narrower,
-  the terminal can wrap its rows into more rows than the screen has. When it gets
-  lower, the old rows are more than the new screen has. The cursor-up stops at the
-  top row, the rows above it stay in the scrollback, and the text is written again
-  below them when it commits. Since the clip by rows, each long paragraph line can
-  fill the screen, not only a tall list or table.
+  before them, with the colours and the link of the line opened again. So a paragraph
+  line that is taller than the screen shows its newest rows. When it grows by rows,
+  the frame deletes as many rows at the top of the live zone (`CSI M`), and nothing
+  above the live zone moves. The rows are counted as the terminal wraps: a wide
+  character that does not fit at the end of a row starts the next row. After a resize
+  a frame erases the whole live zone and writes it again: cursor up over the old live
+  zone's rows, counted again at the new width, and erase to the end of the screen. A
+  known limit: a live zone that fills the screen cannot be erased whole after a
+  resize. When the screen gets narrower, the terminal can wrap its rows into more rows
+  than the screen has. When it gets lower, the old rows are more than the new screen
+  has. The terminal pushes the top rows into the scrollback, where no cursor move
+  reaches them, so they stay there, and the text is written again below them when it
+  commits. Since the clip by rows, each long paragraph line can fill the screen, not
+  only a tall list or table.
 - Events change the view; they write nothing themselves. The follow loop writes frames:
   a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
   so the screen gets at most 60 frames a second. A question, an answer, a key, the end
@@ -1359,7 +1370,16 @@ width tests count the rows of ZWJ emoji, flags and variation selectors by code p
 and by grapheme cluster, and redraw a live zone of such text both ways. The clip tests
 show the last rows of a line taller than the screen on a test grid, with its colours
 and link opened again, and cut a line of wide characters or clusters where the
-terminal starts a row. The end-to-end tests run whole commands against a fake
+terminal starts a row. The frame tests of `live/tests.rs` play random answers (words,
+styles, links, wide characters, clusters, long words) in random pieces, with a status
+row and an input row, through a live zone that writes only what changed and one that
+writes the whole live zone each frame, onto a strict screen (`testing/screen.rs`:
+cells with colours and links, wide characters, the wrap at the end of a row, the
+scrollback, the erases and `CSI M`), and check after each frame that both screens are
+the same; `follow/view/tests/changes.rs` does the same with whole turns of the view.
+The other view tests use frames that write the whole live zone, because they read
+the text of a frame. `output/tests.rs` checks on a datagram socket that a frame with
+newlines is one write call. The end-to-end tests run whole commands against a fake
 daemon on a socket in a temporary directory, with a fixed screen, scripted keys and a
 Ctrl+C the test triggers; the input tests check the `input.respond` params and that no
 byte written to the fake terminal holds a hidden answer. The silence tests use a clock
@@ -1527,16 +1547,18 @@ that takes more than 10 s stops its ladder.
   bytes, what the live zone erased and hid) and into a `vt100` screen, so the bench
   sees when each character first stands on a visible row. The cases: a paragraph of
   5,000 characters at 80x24, 120x40 and 200x60, two of 1,500 at 80x12, a table whose
-  source passes 4 KiB, a fenced block in a list item, a fenced block of 200 lines, and
-  a mixed answer at 60 tokens a second, in bursts and in drafts 17 ms apart. It
-  reports the reveal latency, the late characters and the ones that never stand on a
-  visible row, the largest jump, the CPU, bytes and write calls of a frame, the rows
-  that a frame erases, and the wait from a draft to the next draw. Budget: each
-  character of a long paragraph or a wide table stands on a visible row, none more
-  than 100 ms late. In each code case, the fenced block in a list item too, no frame
-  adds more than 3 rows, no live row is off the screen, no character is more than
-  100 ms late, and no frame takes more than 4 ms of CPU, the first code block's
-  included.
+  source passes 4 KiB, a fenced block in a list item, a fenced block of 200 lines, six
+  paragraphs of prose at 120x40, and a mixed answer at 60 tokens a second, in bursts
+  and in drafts 17 ms apart. It reports the reveal latency, the late characters and
+  the ones that never stand on a visible row, the largest jump, the CPU, bytes and
+  write calls of a frame, the rows that a frame erases, and the wait from a draft to
+  the next draw. Budget: each character of a long paragraph or a wide table stands on
+  a visible row, none more than 100 ms late. In each code case, the fenced block in a
+  list item too, no frame adds more than 3 rows, no live row is off the screen, no
+  character is more than 100 ms late, and no frame takes more than 4 ms of CPU, the
+  first code block's included. Each frame is one write call, and the long paragraph
+  at 120x40 sends at most 60 bytes for each source byte, the six paragraphs at most
+  20.
 - `bench_perf_stream_ladder` (`src/follow/view/tests/stream.rs`): the CPU time and the
   bytes of one frame of the view while the open last block holds 256 bytes to 64 KiB,
   for ten kinds of block (also a closed fenced block in a list item) at 80x24 and

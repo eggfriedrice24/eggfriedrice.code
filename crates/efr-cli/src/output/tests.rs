@@ -1,8 +1,10 @@
-use std::io::{self, Write};
+use std::io::{self, LineWriter, Write};
+use std::os::fd::AsFd as _;
+use std::os::unix::net::UnixDatagram;
 
 use pretty_assertions::assert_eq;
 
-use super::{Output, set_restore, take_restore};
+use super::{Output, set_restore, take_restore, unbuffered};
 use crate::error::CliError;
 use crate::testing::capture;
 
@@ -59,4 +61,32 @@ fn the_restore_bytes_are_the_newest_and_are_taken_once() {
     set_restore("\x1b[?25h\x1b]9;4;0\x1b\\");
     assert_eq!(take_restore(), "\x1b[?25h\x1b]9;4;0\x1b\\");
     assert_eq!(take_restore(), "");
+}
+
+/// The write calls that reach `socket`: a datagram socket keeps each one apart.
+fn calls(socket: &UnixDatagram) -> Vec<String> {
+    socket.set_nonblocking(true).unwrap();
+    let mut calls = Vec::new();
+    let mut buf = [0_u8; 4096];
+    while let Ok(len) = socket.recv(&mut buf) {
+        calls.push(String::from_utf8_lossy(&buf[..len]).into_owned());
+    }
+    calls
+}
+
+#[test]
+fn a_frame_with_newlines_is_one_write_call() {
+    let frame = "\x1b[?2026h\r\x1b[2Aone\ntwo\n\x1b[1A\r\x1b[5C\x1b[?2026l";
+    let (writer, reader) = UnixDatagram::pair().unwrap();
+    let mut out = Output::from_writers(unbuffered(writer.as_fd()).unwrap(), Box::new(io::sink()));
+    out.out(frame).unwrap();
+    out.out("next\n").unwrap();
+    assert_eq!(calls(&reader), [frame, "next\n"]);
+    // The line buffer of `io::stdout` makes two calls of the same frame.
+    let (writer, reader) = UnixDatagram::pair().unwrap();
+    let mut buffered =
+        LineWriter::new(std::fs::File::from(writer.as_fd().try_clone_to_owned().unwrap()));
+    buffered.write_all(frame.as_bytes()).unwrap();
+    buffered.flush().unwrap();
+    assert_eq!(calls(&reader).len(), 2);
 }

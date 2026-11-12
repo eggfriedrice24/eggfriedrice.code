@@ -2183,24 +2183,25 @@ fn the_status_row_shows_from_the_first_frame_and_hides_the_cursor() {
 
 #[test]
 fn a_tick_that_changes_only_the_status_row_writes_only_that_row() {
-    let mut view = started_view(Look { motion: true, ..Look::default() });
+    let mut view = started_view(Look { motion: true, ..Look::default() }).writing_changes();
     view.event(&turn_started(), SIZE, false);
     view.event(&updated(0, "I will run the test first"), SIZE, false);
     view.frame(SIZE, at(0));
     let tick = view.tick(SIZE, at(100));
+    // Up to the status row, which changed from its first cell, and down again.
     assert_eq!(
         readable(&tick),
-        "\\e[?2026h\\r\\e[1A\\e[2K\\e[33m\u{2819}\\e[0m \\e[2m\\e[0mw\\e[0;2mriting\\e[0m\n\\e[?2026l"
+        "\\e[?2026h\\r\\e[1A\\e[33m\u{2819}\\e[0m \\e[2m\\e[0mw\\e[0;2mriting\\e[0m\n\\e[?2026l"
     );
     // A row that does not change writes nothing.
-    let mut still = started_view(Look::default());
+    let mut still = started_view(Look::default()).writing_changes();
     still.frame(SIZE, at(0));
     assert_eq!(still.tick(SIZE, at(100)), "");
 }
 
 #[test]
 fn the_frames_of_a_turn_at_its_ticks() {
-    let mut view = started_view(Look { motion: true, ..Look::default() });
+    let mut view = started_view(Look { motion: true, ..Look::default() }).writing_changes();
     let mut frames = vec![view.frame(SIZE, at(0))];
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);
     frames.push(view.frame(SIZE, at(10)));
@@ -2774,6 +2775,7 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
 }
 
 mod always;
+mod changes;
 mod context;
 mod full;
 mod input;
