@@ -131,7 +131,8 @@ turns.
   network access.`), what the `auto` sandbox holds back, a rule of the user or of the
   conversation, a remote turn, or a floor of every mode, in the words of the engine's
   reasons. A guarded delete is named once, as in the first line of a full question.
-  The terminal does not show it; the phone does.
+  The phone shows it below the command; the terminal shows it on the `why` row of a
+  question that has no exit and no other `why`.
 - The `auto` mode (`exit.rs`, `questions.rs`, `judge.rs`, `turn/review.rs`). The check
   point runs a shell call that the engine contains (`Effect::Contain`) at once with
   `Launch::Contained` in `CallContext::launch`, and `tool_call_started` names the

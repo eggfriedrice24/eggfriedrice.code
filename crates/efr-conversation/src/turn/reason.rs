@@ -3,8 +3,8 @@
 //!
 //! The line comes from the reasons of the engine's decision that ask, and from the
 //! turn's mode. It uses the words of the engine's own reasons where they exist. The
-//! terminal does not show it: its question shows the summary and the exit facts, as
-//! before. A phone shows it below the command.
+//! terminal shows it on the `why` row of a question that has no exit and no other
+//! `why`. A phone shows it below the command.
 
 use efr_permissions::{Access, Cause, Decision, Effect, Layer, PathClass, Policy, Subject};
 use efr_protocol::{ExitKind, Mode, Origin};
