@@ -10,7 +10,7 @@ Commands:
   send          Send a prompt to this terminal's conversation and follow the reply
   new           Start a new conversation for this terminal with its first prompt
   status        Show whether the daemon runs, and its health
-  history       List recent conversations, or show the events of one
+  history       Show a conversation as the view showed it: this terminal's newest by default
   resume        Find a recent conversation, or make one this terminal's conversation again
   conversation  Delete a conversation and everything that efr keeps of it
   search        Find the conversations whose titles or text match some words, best first

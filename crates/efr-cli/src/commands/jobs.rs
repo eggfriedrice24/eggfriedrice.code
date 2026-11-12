@@ -65,9 +65,10 @@ async fn conversation(
     }
 }
 
-/// Writes the muted line on stderr that says which conversation the command picked.
+/// Writes the muted line on stderr that says which conversation the command picked,
+/// when it is not this terminal's ([`Picked::said`]).
 fn picked_line(ctx: &Context, out: &mut Output, picked: Option<Picked>, another: &str) {
-    if let Some(picked) = picked {
+    if let Some(picked) = Picked::said(picked) {
         let options = ctx.render_options(effective_width(ctx.screen.size()));
         let line = format!("{}; {another}", picked.words());
         out.err(&format!("{}\n", format::paint(&line, Tone::Dim, &options)));

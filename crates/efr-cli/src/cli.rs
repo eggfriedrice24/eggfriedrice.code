@@ -53,7 +53,7 @@ pub(crate) enum Command {
     New(NewArgs),
     /// Show whether the daemon runs, and its health.
     Status,
-    /// List recent conversations, or show the events of one.
+    /// Show a conversation as the view showed it: this terminal's newest by default.
     History(HistoryArgs),
     /// Find a recent conversation, or make one this terminal's conversation again.
     ///
@@ -385,11 +385,14 @@ impl FromStr for LastCommand {
 /// The arguments of `efr history`.
 #[derive(Debug, Args)]
 pub(crate) struct HistoryArgs {
-    /// The conversation to show: its id, or the start of it. Without one, the recent
-    /// conversations are listed; with --verbose, the newest conversation of this
-    /// terminal shows, else the newest of all.
+    /// The conversation to show: its id, or the start of it. Without one, the newest
+    /// conversation of this terminal shows, else the newest of all.
     #[arg(value_name = "CONVERSATION")]
     pub(crate) conversation: Option<String>,
+
+    /// List the recent conversations with their ids, in place of a transcript.
+    #[arg(long, conflicts_with_all = ["conversation", "verbose"])]
+    pub(crate) list: bool,
 
     /// The most conversations or events to show.
     #[arg(long, value_name = "N")]

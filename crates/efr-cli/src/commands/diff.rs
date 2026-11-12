@@ -74,7 +74,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &DiffArgs) -> Res
         }
         Err(error) => return Err(error.into()),
     };
-    if let Some(picked) = picked {
+    if let Some(picked) = Picked::said(picked) {
         let line =
             format!("the last turn of {}; efr diff --turn <id> shows another", picked.words());
         out.err(&format!("{}\n", format::paint(&line, Tone::Dim, &options)));

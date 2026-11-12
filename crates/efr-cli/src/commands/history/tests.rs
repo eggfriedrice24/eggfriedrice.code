@@ -202,7 +202,7 @@ async fn history_without_a_conversation_lists_them() {
         conn.reply(id, &list).await;
         conn.until_closed().await;
     };
-    let line = command(&["history", "--limit", "5"]);
+    let line = command(&["history", "--list", "--limit", "5"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     let expected = format!("{CONVERSATION}  {:<17}  {:>11}  check nginx\n", "idle", "just now");
@@ -993,10 +993,9 @@ async fn history_verbose_without_a_conversation_shows_the_newest_of_this_termina
     assert_eq!(exit, Exit::Success);
     assert_eq!(shown, Some(conversation()));
     assert!(
-        stdout.starts_with(
-            "the newest conversation of this terminal; efr history lists them all\n\
-             (no title) - 019a9b1c - 1 turn\n"
-        ),
+        // NOTE: the terminal's own conversation needs no line about the pick
+        // (TM-Commands 4 starts with the head).
+        stdout.starts_with("(no title) - 019a9b1c - 1 turn\n"),
         "{stdout}"
     );
     assert!(stdout.contains("exit requested: privilege (predicted from the line)"), "{stdout}");
@@ -1011,7 +1010,7 @@ async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
     assert_eq!(shown, Some(newest.parse().unwrap()));
     assert!(
         stdout.starts_with(
-            "the newest conversation; efr history lists them all\n(no title) - 019a9b1c - 1 \
+            "the newest conversation; efr history --list lists them all\n(no title) - 019a9b1c - 1 \
              turn\n"
         ),
         "{stdout}"
@@ -1736,7 +1735,7 @@ fn history_shows_job_port_forwards() {
 }
 
 #[test]
-fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
+fn a_turn_that_undo_cannot_take_back_shows_the_count_of_its_files() {
     let file = |path: &str, added: u32, removed: u32| efr_protocol::FileChange {
         path: path.to_owned(),
         kind: efr_protocol::ChangeKind::Modified,
@@ -1763,8 +1762,8 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
 
     let text = show(&page, &options);
 
-    // NOTE: the line names the files, not their groups (the calls slice).
-    assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
+    // NOTE: the line counts the files; the rows of the calls name them (TM-Commands 4).
+    assert!(text.contains("2 files changed  +10 -1\n"), "{text}");
     let groups = DiffGroups::new(vec![("checks".to_owned(), vec!["tests/".to_owned()])]);
     let shown = Shown {
         options: &options,
@@ -1775,7 +1774,7 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
         head: None,
     };
     let text = transcript(conversation(), &page, &shown);
-    assert!(text.contains("2 files changed  +10 -1  src/a.rs, tests/a.rs\n"), "{text}");
+    assert!(text.contains("2 files changed  +10 -1\n"), "{text}");
     // A turn that changed no file shows no line.
     let none = ConversationHistoryResult {
         events: vec![envelope(
@@ -2263,12 +2262,152 @@ fn the_calls_and_the_end_lines_of_a_transcript_are_the_design() {
         let id = "019a9b11-3d00-7a10-8b20-000000000001".parse().unwrap();
         let text = transcript(id, &first_turn_with_calls(), &shown);
         let rows: Vec<String> = text.lines().map(|row| format!("{row}\n")).collect();
-        assert_rows(&frame, 3..=9, &rows[2..9].concat(), depth);
-        // NOTE: the board draws the changes line of a turn without the names of its
-        // files; TM-Legend 34, TM-BeforeAfter 4 and TM-Endings 15 name them, as the
-        // view does, so the line is compared up to its counts.
-        let changed = crate::testing::bare(&rows[9]);
-        assert!(changed.starts_with(frame.rows[10].text.trim_end()), "{changed:?}");
-        assert_rows(&frame, 11..=11, &rows[10], depth);
+        assert_rows(&frame, 3..=11, &rows[2..11].concat(), depth);
+    }
+}
+
+/// TM-Commands frame 4 whole: [`first_turn_with_calls`], then a turn on another model
+/// that sent no effort, whose start compacted the context, and three reads.
+fn commands_4() -> ConversationHistoryResult {
+    let mut page = first_turn_with_calls();
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c2".parse().unwrap();
+    let turn_id: efr_protocol::TurnId = "019a9b1c-3d00-7a10-8b20-000000000003".parse().unwrap();
+    let at = |time: &str| format!("2026-10-04T{time}Z").parse::<jiff::Timestamp>().unwrap();
+    let call = |n: u8| -> efr_protocol::CallId {
+        format!("019a9b1c-3d00-7a10-8b20-0000000002{n:02x}").parse().unwrap()
+    };
+    let read = |n: u8, path: &str| Event::ToolCallStarted {
+        turn_id,
+        call_id: call(n),
+        tool: "read_file".to_owned(),
+        input: json!({ "path": path }),
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    };
+    let ended = |n: u8| Event::ToolCallCompleted {
+        turn_id,
+        call_id: call(n),
+        output: String::new(),
+        truncated: false,
+        is_error: false,
+        exit_code: None,
+        sandbox: None,
+        refusal: None,
+        changes: None,
+        diff: None,
+        left_running: false,
+    };
+    let side = |provider: &str, model: &str, effort: Option<&str>, default: Option<&str>| {
+        efr_protocol::SwitchedModel {
+            provider: Some(provider.to_owned()),
+            model: model.to_owned(),
+            effort: effort.map(str::to_owned),
+            default_effort: default.map(str::to_owned),
+        }
+    };
+    let mut compacted = compaction(CompactionTrigger::Auto, 6_050);
+    compacted.tokens_before = 86_400;
+    compacted.turn_id = Some(turn_id);
+    let events = [
+        (
+            "14:40:00",
+            Event::PromptQueued {
+                turn_id,
+                command_id,
+                text: "review the fix as a second pair of eyes".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+                steers: Vec::new(),
+            },
+        ),
+        (
+            "14:40:00",
+            Event::TurnStarted {
+                turn_id,
+                cwd: "/home/u/p/app".into(),
+                scope: Scope::Machine,
+                settings: Some(EffectiveSettings {
+                    mode: Mode::Cautious,
+                    model: "gpt-5.5".to_owned(),
+                    effort: None,
+                    default_effort: Some("medium".to_owned()),
+                    provider: Some("openai-subscription.b".to_owned()),
+                    overridden: OverriddenSettings::default(),
+                    fallback: None,
+                }),
+            },
+        ),
+        (
+            "14:40:00",
+            Event::ModelSwitched {
+                turn_id,
+                from: side("anthropic-api.work", "claude-opus-5-5", Some("high"), None),
+                to: side("openai-subscription.b", "gpt-5.5", None, Some("medium")),
+            },
+        ),
+        ("14:40:01", Event::ConversationCompacted(compacted)),
+        ("14:40:02", read(1, "/home/u/p/app/crates/efr-daemon/src/turn.rs")),
+        ("14:40:03", ended(1)),
+        ("14:40:04", read(2, "crates/efr-daemon/src/rpc.rs")),
+        ("14:40:05", ended(2)),
+        ("14:40:06", read(3, "crates/efr-daemon/tests/steer.rs")),
+        ("14:40:07", ended(3)),
+        (
+            "14:40:22",
+            Event::TurnCompleted {
+                turn_id,
+                // NOTE: an input below 2,048 tokens shows no cache share (TM-Endings note);
+                // the board's line has none.
+                usage: Some(efr_protocol::Usage::new(1_900, 1_400)),
+                changes: None,
+                context: Some(efr_protocol::ContextUse {
+                    tokens: 6_000,
+                    limit: 100_000,
+                    window: 272_000,
+                }),
+                stop: None,
+                undo: None,
+            },
+        ),
+    ];
+    let first = page.events.len() as u64 + 1;
+    page.events.extend(
+        events
+            .into_iter()
+            .zip(first..)
+            .map(|((time, event), seq)| EventEnvelope { at: at(time), ..envelope(seq, event) }),
+    );
+    page
+}
+
+/// TM-Commands frame 4, every row from the head to the last line, in the three depths:
+/// the `⇄` line stands between the turns, before the prompt of its turn, with the
+/// compaction that came with the switch; the changes line counts the files that the
+/// rows above name; each read is a row of its own (DECISIONS.md).
+#[test]
+fn a_transcript_of_two_turns_is_the_design() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    let frame = Frame::load("TM-Commands", 4).unwrap();
+    let head = super::Head {
+        title: Some("fix steer race in turn loop".to_owned()),
+        place: "app".to_owned(),
+        turns: 3,
+    };
+    for depth in Depth::ALL {
+        let options = crate::testing::design_options(depth, 100);
+        let shown = Shown {
+            options: &options,
+            verbose: false,
+            home: Some(Path::new("/home/u")),
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: Some(&head),
+        };
+        let id = "019a9b11-3d00-7a10-8b20-000000000001".parse().unwrap();
+        let text = transcript(id, &commands_4(), &shown);
+        assert_rows(&frame, 1..=22, &text, depth);
     }
 }

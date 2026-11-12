@@ -267,6 +267,16 @@ pub(crate) fn turn_line(changes: &FileChanges, options: &RenderOptions) -> Vec<P
     pieces
 }
 
+/// [`turn_line`] without the names of the files: `1 file changed  +5 -3`, for
+/// `efr history`, whose rows of the calls name the files above it (TM-Commands 4).
+pub(crate) fn count_line(changes: &FileChanges) -> Vec<Piece> {
+    let count = file_count(changes);
+    if count == 0 {
+        return Vec::new();
+    }
+    total_pieces(&files_changed(count), changes.added, changes.removed)
+}
+
 /// [`turn_line`] as plain text, for a caller that prints it as one line.
 pub(crate) fn plain(pieces: &[Piece]) -> String {
     pieces.iter().map(|(text, _)| text.as_str()).collect()

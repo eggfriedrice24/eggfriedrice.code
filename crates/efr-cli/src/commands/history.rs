@@ -74,23 +74,20 @@ pub(crate) async fn run(
 ) -> Result<(), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
     let cursor = args.cursor.as_deref().map(PageCursor::new);
-    let (conversation_id, picked) = match (&args.conversation, args.verbose) {
-        (Some(query), _) => (resolve(&client, query).await?, None),
-        // NOTE: the records of the exits are what `--verbose` is for, and the list has
-        // none, so it shows the conversation that the user most likely means.
-        (None, true) => match pick(&client, ctx.tty.as_deref()).await? {
+    if args.list {
+        let method =
+            Method::ConversationsList(ConversationsList { cursor, limit: args.limit, tty: None });
+        let list: ConversationsListResult = client.call(method).await?;
+        return out.out(&format::conversations(&list, ctx.clock.now()));
+    }
+    // NOTE: the bare command shows the conversation that the user most likely means
+    // (TM-Commands 4); `--list` lists them.
+    let (conversation_id, picked) = match &args.conversation {
+        Some(query) => (resolve(&client, query).await?, None),
+        None => match pick(&client, ctx.tty.as_deref()).await? {
             Some((id, picked)) => (id, Some(picked)),
             None => return out.out("no conversations yet\n"),
         },
-        (None, false) => {
-            let method = Method::ConversationsList(ConversationsList {
-                cursor,
-                limit: args.limit,
-                tty: None,
-            });
-            let list: ConversationsListResult = client.call(method).await?;
-            return out.out(&format::conversations(&list, ctx.clock.now()));
-        }
     };
     let method = Method::ConversationHistory(ConversationHistory {
         conversation_id,
@@ -110,8 +107,8 @@ pub(crate) async fn run(
         head: head.as_ref(),
     };
     let mut text = String::new();
-    if let Some(picked) = picked {
-        let line = format!("{}; efr history lists them all", picked.words());
+    if let Some(picked) = Picked::said(picked) {
+        let line = format!("{}; efr history --list lists them all", picked.words());
         let _ = writeln!(text, "{}", format::paint(&line, Tone::Dim, &options));
     }
     text.push_str(&transcript(conversation_id, &page, &shown));
@@ -169,6 +166,13 @@ pub(crate) enum Picked {
 }
 
 impl Picked {
+    /// The pick that a command says on a line of its own: one that is not this
+    /// terminal's conversation. The terminal's own conversation is what the user means,
+    /// so its output starts with the table or the transcript (TM-Commands 3 to 5).
+    pub(crate) fn said(picked: Option<Picked>) -> Option<Picked> {
+        picked.filter(|picked| *picked == Picked::Newest)
+    }
+
     pub(crate) fn words(self) -> &'static str {
         match self {
             Picked::Terminal => "the newest conversation of this terminal",
@@ -429,6 +433,12 @@ struct Transcript<'a> {
     effort: Option<String>,
     /// The turns that started on the page.
     turns: usize,
+    /// The prompt that was written last: its turn and where its lines start in `out`.
+    /// The `⇄` line of its turn goes before it.
+    prompt_at: Option<(TurnId, usize)>,
+    /// The switch of model of a turn, until the event after it: a compaction right after
+    /// it puts its counts on the `⇄` line. The turn, both sides and when it was recorded.
+    switch: Option<Box<(TurnId, SwitchedModel, SwitchedModel, Option<Timestamp>)>>,
     /// The user's directory of the turn that started last: the path of a file tool's
     /// call below it shows relative to it.
     cwd: Option<PathBuf>,
@@ -478,6 +488,8 @@ impl<'a> Transcript<'a> {
             at: None,
             effort: None,
             turns: 0,
+            prompt_at: None,
+            switch: None,
             cwd: None,
             started: None,
             calls: HashMap::new(),
@@ -499,6 +511,9 @@ impl<'a> Transcript<'a> {
     }
 
     fn event(&mut self, envelope: &EventEnvelope) {
+        if !matches!(envelope.event, Event::ConversationCompacted(_)) {
+            self.release_switch(None);
+        }
         self.at = Some(envelope.at);
         match &envelope.event {
             Event::AssistantMessageUpdated { turn_id, index, offset, delta } => {
@@ -535,7 +550,10 @@ impl<'a> Transcript<'a> {
 
     fn other(&mut self, event: &Event) {
         match event {
-            Event::PromptQueued { text, .. } => self.prompt(text),
+            Event::PromptQueued { text, turn_id, .. } => {
+                self.prompt_at = Some((*turn_id, self.out.len()));
+                self.prompt(text);
+            }
             // NOTE: a turn recorded before turn settings names none.
             Event::TurnStarted { settings: Some(settings), cwd, .. } => {
                 self.turns += 1;
@@ -552,7 +570,11 @@ impl<'a> Transcript<'a> {
                 self.started = self.at;
                 self.cwd = Some(cwd.clone());
             }
-            Event::ModelSwitched { from, to, .. } => self.switched(from, to),
+            // NOTE: the line waits for a compaction that comes right after it, whose
+            // counts it carries (TM-Commands 4), as the view's line does.
+            Event::ModelSwitched { from, to, turn_id } => {
+                self.switch = Some(Box::new((*turn_id, from.clone(), to.clone(), self.at)));
+            }
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 if let Some(command) = format::command_of(input) {
@@ -903,6 +925,12 @@ impl<'a> Transcript<'a> {
             Event::TurnSteered { text, .. } => {
                 self.note(&format!("steered: {}", format::one_line(text)));
             }
+            Event::ConversationCompacted(compaction) if self.switch.is_some() => {
+                self.release_switch(Some((compaction.tokens_before, compaction.tokens_after)));
+                if self.verbose {
+                    self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
+                }
+            }
             Event::ConversationCompacted(compaction) => {
                 self.out.push_str(self.spacing.before(Block::Row));
                 let rows = context::compacted_rows(compaction, &self.inner);
@@ -998,12 +1026,13 @@ impl<'a> Transcript<'a> {
     }
 
     /// The lines of a turn's end: for a turn that `efr undo` could take back, what it
-    /// changed and what no snapshot covers; for another turn, the line of the files that
-    /// it changed, such as `3 files changed, +24 -7`, as the turn showed it.
+    /// changed and what no snapshot covers; for another turn, the count of the files that
+    /// it changed, such as `3 files changed  +24 -7`.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
         let Some(undo) = undo.filter(|undo| undo.undoable) else {
+            // NOTE: the rows of the calls above name the files (TM-Commands 4).
             if let Some(changes) = changes {
-                self.pieces(&changes::turn_line(changes, self.options));
+                self.pieces(&changes::count_line(changes));
             }
             return;
         };
@@ -1111,26 +1140,46 @@ impl<'a> Transcript<'a> {
         let _ = writeln!(self.out, "{INDENT}{}", format::paint(&line, Tone::Dim, self.options));
     }
 
-    /// The line of a switch of model between two turns (TM-Commands frame 4): the
-    /// pieces of the view's `⇄` line, then the time of the switch, apart by a blank line.
-    fn switched(&mut self, from: &SwitchedModel, to: &SwitchedModel) {
+    /// The line of a switch of model between two turns (TM-Commands frame 4) that waits,
+    /// with the counts of a compaction that came right after it: the pieces of the
+    /// view's `⇄` line, then the time of the switch. It stands before the prompt of its
+    /// turn, apart by a blank line on each side, as the board draws it.
+    fn release_switch(&mut self, compacted: Option<(u64, u64)>) {
+        let Some(switch) = self.switch.take() else {
+            return;
+        };
+        let (turn, from, to, at) = *switch;
         // NOTE: an older efrd records no effort of the new side; the turn's settings
         // name it.
-        let mut to = to.clone();
-        if to.effort.is_none() {
+        let mut to = to;
+        if to.effort.is_none() && to.default_effort.is_none() {
             to.effort.clone_from(&self.effort);
         }
-        let pieces = format::route::model_line(from, &to, None, self.options.glyphs());
-        self.out.push_str(self.spacing.before(Block::Prompt));
-        for (text, tone) in &pieces {
-            self.out.push_str(&format::paint(text, *tone, self.options));
+        let mut line = String::new();
+        for (text, tone) in &format::route::model_line(&from, &to, compacted, self.options.glyphs())
+        {
+            line.push_str(&format::paint(text, *tone, self.options));
         }
-        if let Some(at) = self.at {
+        if let Some(at) = at {
             let time =
                 format!("{}{}", format::status::separator(self.options), short_time(at, self.zone));
-            self.out.push_str(&format::paint(&time, Tone::Dim, self.options));
+            line.push_str(&format::paint(&time, Tone::Dim, self.options));
         }
-        self.out.push('\n');
+        line.push('\n');
+        match self.prompt_at {
+            // NOTE: after the blank line before the prompt; the prompt keeps a blank line
+            // of its own after the switch.
+            Some((prompted, offset)) if prompted == turn => {
+                let blank =
+                    self.out[offset..].len() - self.out[offset..].trim_start_matches('\n').len();
+                line.push('\n');
+                self.out.insert_str(offset + blank, &line);
+            }
+            _ => {
+                self.out.push_str(self.spacing.before(Block::Prompt));
+                self.out.push_str(&line);
+            }
+        }
     }
 
     fn message(&mut self, text: &str) {
@@ -1165,6 +1214,7 @@ impl<'a> Transcript<'a> {
     }
 
     fn finish(mut self) -> String {
+        self.release_switch(None);
         self.flush_calls();
         self.flush();
         self.out

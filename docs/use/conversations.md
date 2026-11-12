@@ -321,8 +321,9 @@ delete.
 
 ## See a conversation
 
-`efr history` lists your recent conversations. `efr history <id>` shows one, as the
-view showed it. The id can be the start of an id, from 4 characters.
+`efr history` shows the newest conversation of this terminal, as the view showed it.
+`efr history <id>` shows another one. The id can be the start of an id, from 4
+characters. `efr history --list` lists your recent conversations with their ids.
 
 ```text
 fix steer race in turn loop · app · 019a9b11 · 3 turns
@@ -334,8 +335,17 @@ fix steer race in turn loop · app · 019a9b11 · 3 turns
   ✓ edit crates/efr-daemon/src/turn.rs  +5 -3
   ✓ allowed · network (github.com)
   ✓ $ git push -u origin fix/steer-race  3.1s
-  1 file changed  +5 -3  crates/efr-daemon/src/turn.rs
+  1 file changed  +5 -3
   ✓ done  1m 42s · ctx 43% · 4.2k out · cache 91%
+
+⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high · context compacted 86k → 6k · 14:40
+
+› review the fix as a second pair of eyes  14:40
+  b/gpt-5.5 medium · cautious
+  ✓ read crates/efr-daemon/src/turn.rs
+  ✓ read crates/efr-daemon/src/rpc.rs
+  ✓ read crates/efr-daemon/tests/steer.rs
+  ✓ done  22s · ctx 6% · 1.4k out
 
 efr history --verbose adds the output tails and the tokens of each turn
 ```
@@ -344,12 +354,16 @@ The first line names the conversation, its place (`⌂ home` outside every proje
 start of its id and its turns. Each prompt shows its time, and the line under it the
 model, as `,model` takes it, the effort and the mode. The rows of the turn stand 2
 columns in. They are the rows that the turn showed: one row for each call, the line
-of each answer in place of its question, and the end lines. Each read has a row of
-its own, and a diff does not show: `efr diff` shows it.
+of each answer in place of its question, and the end lines. The changes line counts
+the files, because the rows above name them. Each read has a row of its own, and a
+diff does not show: `efr diff` shows it. A switch of model stands between the turns,
+before the prompt of the turn on the new model, with the compaction that came with
+it.
 
 - `--verbose` adds the records of each exit from the sandbox, the last lines of each
-  job's output, and the tokens of each turn. Without an id, it shows the newest
-  conversation of this terminal.
+  job's output, and the tokens of each turn.
+- Without an id, and when this terminal has no conversation, it shows the newest of
+  all, after a muted line that says so.
 - `--limit N` and `--cursor` page through a long conversation.
 
 `efr history` only shows a conversation. It never moves it to this terminal.

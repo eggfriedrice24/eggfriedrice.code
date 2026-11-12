@@ -282,6 +282,16 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- `efr history` with no id shows the newest conversation of this terminal, as the
+  view showed it, else the newest of all. Before, it listed the recent conversations;
+  `efr history --list` does that now. A switch of model stands between the turns,
+  before the prompt of the turn on the new model, and carries the compaction that came
+  with it, such as `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high · context
+  compacted 86k → 6k · 14:40`. The changes line of a turn counts the files, such as
+  `1 file changed  +5 -3`, because the rows above name them.
+- `efr history`, `efr jobs` and `efr diff` start with their output when they show the
+  conversation of this terminal. The muted line that says which conversation they
+  picked now comes only when the terminal has none, so they picked the newest of all.
 - A turn that sends no effort shows the model's default effort, as `,model` does: the
   status row says `gpt-5.5 medium`, the `⇄` line `⇄ gpt-5.5 medium  was
   claude-opus-5-5 high`, and `efr history` `gpt-5.5 medium · cautious`. Before, these
