@@ -177,10 +177,23 @@ impl OpenFence {
         let Continuation::Nested { block, .. } = &flow.continuation else { return None };
         let head = &pending[..self.head];
         let partial = &pending[scanned..];
+        // NOTE: without colour the block ends with its closing fence, which a
+        // rendering of the pending text writes after the lines of code.
+        let fence = || {
+            let mut out = String::new();
+            if let Some(end) = block.end() {
+                let mut line = prefix.clone();
+                line.extend(end);
+                ctx.painter.paint(&mut out, &line);
+            }
+            out
+        };
         if partial.is_empty() && held.is_empty() {
-            return Some((String::new(), 0));
+            let painted = fence();
+            let rows = rows_of_text(&painted, ctx);
+            return Some((painted, rows));
         }
-        let painted = match &self.closed {
+        let mut painted = match &self.closed {
             Some(after)
                 if held.is_empty() && self.adds_nothing(head, &format!("{after}{partial}")) =>
             {
@@ -202,6 +215,7 @@ impl OpenFence {
                 }
             },
         };
+        painted.push_str(&fence());
         let rows = rows_of_text(&painted, ctx);
         Some((painted, rows))
     }

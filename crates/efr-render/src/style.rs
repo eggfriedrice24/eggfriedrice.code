@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::options::ColourMode;
+use crate::width::{WidthMethod, text_width};
 
 /// A colour: an entry of the terminal's palette or 24-bit RGB.
 ///
@@ -147,9 +148,9 @@ impl Style {
     }
 
     /// Trailing spaces in this style can be dropped at the end of a line without a
-    /// visible change.
-    fn space_is_invisible(self) -> bool {
-        self.bg.is_none() && !self.underline && !self.strike && !self.reverse
+    /// visible change, on a row with no fill or filled with `fill`.
+    fn space_is_invisible(self, fill: Option<Colour>) -> bool {
+        (self.bg.is_none() || self.bg == fill) && !self.underline && !self.strike && !self.reverse
     }
 }
 
@@ -192,6 +193,17 @@ pub(crate) fn line_text(spans: &[Span]) -> String {
     spans.iter().map(|span| span.text.as_str()).collect()
 }
 
+/// `line` with `fill` behind each span that has no background of its own.
+pub(crate) fn on_fill(line: Line, fill: Option<Colour>) -> Line {
+    let Some(fill) = fill else { return line };
+    line.into_iter()
+        .map(|span| Span {
+            style: Style { bg: span.style.bg.or(Some(fill)), ..span.style },
+            ..span
+        })
+        .collect()
+}
+
 /// Appends `span` to `line`, merging it into the last span when both look the same.
 pub(crate) fn push_span(line: &mut Line, span: Span) {
     if span.text.is_empty() {
@@ -209,6 +221,8 @@ pub(crate) fn push_span(line: &mut Line, span: Span) {
 
 const OSC8_CLOSE: &str = "\x1b]8;;\x1b\\";
 const RESET: &str = "\x1b[0m";
+/// Erase to the end of the row: with a background set, it fills the rest of the row.
+const ERASE_TO_END: &str = "\x1b[K";
 
 /// Turns lines of spans into ANSI text for one colour mode.
 #[derive(Clone, Copy, Debug)]
@@ -218,11 +232,14 @@ pub(crate) struct Painter {
     /// The colour of the `text` role: every span without a colour of its own gets it.
     /// `None` leaves such spans in the terminal's default colour.
     text: Option<Colour>,
+    /// The columns of the terminal and how it counts them, for a filled row.
+    columns: usize,
+    method: WidthMethod,
 }
 
 impl Painter {
     pub(crate) fn new(colour: ColourMode, hyperlinks: bool) -> Painter {
-        Painter { colour, hyperlinks, text: None }
+        Painter { colour, hyperlinks, text: None, columns: 0, method: WidthMethod::default() }
     }
 
     /// The painter with `text` as the colour of spans that have none of their own.
@@ -230,14 +247,85 @@ impl Painter {
         Painter { text, ..self }
     }
 
+    /// The painter for a terminal `columns` wide that counts widths by `method`.
+    pub(crate) fn with_width(self, columns: usize, method: WidthMethod) -> Painter {
+        Painter { columns, method, ..self }
+    }
+
     /// Writes one line and its newline. The line starts with no SGR state and no open
     /// hyperlink and ends the same way.
     pub(crate) fn paint(&self, out: &mut String, spans: &[Span]) {
-        let end = visible_end(spans);
+        self.paint_row(out, &[], spans, None);
+    }
+
+    /// Writes `prefix` and `content` as one line and its newline, `content` on the
+    /// background `fill` to the end of the row: each span of it on that background
+    /// (a reset between spans does not drop it), then an erase to the end of the row
+    /// (`ESC [ K`) while the background is set, then a reset before the newline, or a
+    /// terminal fills the next row too. The prefix (the indent of a list item, the mark
+    /// of a quote) stays off the fill. Spaces at the end of the content are dropped:
+    /// the fill shows the same. A row whose width is a whole number of rows of the
+    /// terminal gets no erase: its cursor waits at the last column, where an erase
+    /// would take the last character, and the row is full anyway. Without a fill that
+    /// the mode shows, the line is painted as [`paint`](Self::paint) paints it.
+    pub(crate) fn paint_row(
+        &self,
+        out: &mut String,
+        prefix: &[Span],
+        content: &[Span],
+        fill: Option<Colour>,
+    ) {
+        let Some(fill) =
+            reduce_colour(fill, self.colour).filter(|_| self.colour == ColourMode::TrueColor)
+        else {
+            let line: Line = prefix.iter().chain(content).cloned().collect();
+            let end = visible_end(&line, None);
+            let (current, link) = self.write_spans(out, &line, end);
+            finish_line(out, current, link.is_some());
+            return;
+        };
+        let (count, last) = visible_end(content, Some(fill));
+        let mut line: Line = prefix.to_vec();
+        for (index, span) in content.iter().enumerate().take(count) {
+            let text = if index + 1 == count { &span.text[..last] } else { span.text.as_str() };
+            let style = Style { bg: span.style.bg.or(Some(fill)), ..span.style };
+            line.push(Span { text: text.to_owned(), style, link: span.link.clone() });
+        }
+        let (mut current, link) = self.write_spans(out, &line, (line.len(), usize::MAX));
+        if link.is_some() {
+            out.push_str(OSC8_CLOSE);
+        }
+        let width: usize = line.iter().map(|span| text_width(&span.text, self.method)).sum();
+        let full = self.columns > 0 && width > 0 && width.is_multiple_of(self.columns);
+        if !full {
+            if current.bg != Some(fill) {
+                if current != Style::PLAIN {
+                    out.push_str(RESET);
+                }
+                current = Style::PLAIN.on(fill);
+                write_sgr(out, current);
+            }
+            out.push_str(ERASE_TO_END);
+        }
+        finish_line(out, current, false);
+    }
+
+    /// Writes the first `end.0` spans of `spans`, the last of them cut to `end.1`
+    /// bytes. Returns the SGR state and the hyperlink open at the end.
+    fn write_spans<'a>(
+        &self,
+        out: &mut String,
+        spans: &'a [Span],
+        end: (usize, usize),
+    ) -> (Style, Option<&'a str>) {
         let mut current = Style::PLAIN;
         let mut link: Option<&str> = None;
         for (index, span) in spans.iter().enumerate().take(end.0) {
-            let text = if index + 1 == end.0 { &span.text[..end.1] } else { span.text.as_str() };
+            let text = if index + 1 == end.0 {
+                &span.text[..end.1.min(span.text.len())]
+            } else {
+                span.text.as_str()
+            };
             if text.is_empty() {
                 continue;
             }
@@ -261,13 +349,7 @@ impl Painter {
             }
             out.push_str(text);
         }
-        if current != Style::PLAIN {
-            out.push_str(RESET);
-        }
-        if link.is_some() {
-            out.push_str(OSC8_CLOSE);
-        }
-        out.push('\n');
+        (current, link)
     }
 
     /// The style with the text colour where it has no colour, and its colours reduced
@@ -276,6 +358,18 @@ impl Painter {
         let colour = |c: Option<Colour>| reduce_colour(c, self.colour);
         Style { fg: colour(style.fg.or(self.text)), bg: colour(style.bg), ..style }
     }
+}
+
+/// Ends a line: a reset of the SGR state `current`, the close of an open hyperlink and
+/// the newline.
+fn finish_line(out: &mut String, current: Style, link_open: bool) {
+    if current != Style::PLAIN {
+        out.push_str(RESET);
+    }
+    if link_open {
+        out.push_str(OSC8_CLOSE);
+    }
+    out.push('\n');
 }
 
 /// `colour` as the mode allows it: none without colour, one of the 16 palette entries
@@ -310,10 +404,11 @@ pub(crate) fn sgr_parameters(style: Style) -> Option<String> {
 }
 
 /// Where a line's visible content ends: the number of spans to write and the byte
-/// length of the last one, after dropping trailing spaces nobody can see.
-fn visible_end(spans: &[Span]) -> (usize, usize) {
+/// length of the last one, after dropping trailing spaces nobody can see on a row with
+/// the fill `fill`.
+fn visible_end(spans: &[Span], fill: Option<Colour>) -> (usize, usize) {
     for (index, span) in spans.iter().enumerate().rev() {
-        let kept = if span.style.space_is_invisible() {
+        let kept = if span.style.space_is_invisible(fill) {
             span.text.trim_end_matches(' ').len()
         } else {
             span.text.len()

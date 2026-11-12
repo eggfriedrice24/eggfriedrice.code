@@ -15,6 +15,22 @@ fn options() -> RenderOptions {
     RenderOptions::new(80)
 }
 
+/// A fence of a code block without colour, dim: the opening fence with the word
+/// `word`, or the closing fence.
+fn fence(word: &str) -> String {
+    format!("\x1b[2m```{word}\x1b[0m")
+}
+
+/// The closing fence of a code block in a container with the prefix `indent` (`> `
+/// for a quote), as the live zone shows it without colour; nothing in colour.
+fn closing_fence(indent: &str, options: &RenderOptions) -> String {
+    if options.colour() != ColourMode::None {
+        return String::new();
+    }
+    let prefix = if indent == "> " { "\x1b[2m>\x1b[0m " } else { indent };
+    format!("{prefix}{}\n", fence(""))
+}
+
 /// Pushes `markdown` cut at `cuts` (byte offsets, moved back to character boundaries)
 /// and returns everything committed, finish included.
 fn chunked(markdown: &str, cuts: &[usize], options: &RenderOptions) -> String {
@@ -185,14 +201,16 @@ fn after_a_long_fence_more_text_in_its_item_shows_at_once() {
     let head = &markdown[..markdown.find("2. Run").unwrap()];
     let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
     renderer.push(head);
-    // The text is a paragraph of the first item, after its committed code.
+    // The text is a paragraph of the first item, after its committed code and its
+    // closing fence.
+    let fence = closing_fence("   ", &options().with_colour(ColourMode::None));
     let update = renderer.push("   More");
-    assert_eq!(update.live(), "   More\n");
+    assert_eq!(update.live(), format!("{fence}   More\n"));
     let update = renderer.push(" text\n");
-    assert_eq!(update.live(), "   More text\n");
+    assert_eq!(update.live(), format!("{fence}   More text\n"));
     assert_eq!(update.committed(), "");
     let update = renderer.push("2. Next\n");
-    assert_eq!(update.committed(), "   More text\n");
+    assert_eq!(update.committed(), format!("{fence}   More text\n"));
     assert_eq!(update.live(), "\x1b[2m2.\x1b[0m Next\n");
 }
 
@@ -216,14 +234,17 @@ fn each_line_of_a_fence_in_a_list_item_or_a_quote_commits_when_it_ends() {
             for at in 0..60 {
                 let line = format!("{indent}let value_{at} = parse(&input[{at}..])?;\n");
                 let (start, end) = line.split_at(12);
+                let fence = closing_fence(indent, &options);
+                let fence_rows = fence.lines().count();
                 let update = renderer.push(start);
                 if at > 0 {
-                    assert_eq!(update.live_rows(), 1, "{opening:?}: the partial line");
+                    let rows = 1 + fence_rows;
+                    assert_eq!(update.live_rows(), rows, "{opening:?}: the partial line");
                 }
                 out.push_str(update.committed());
                 let update = renderer.push(end);
                 assert!(update.committed().contains(&format!("value_{at}")), "{opening:?}");
-                assert_eq!(update.live(), "", "{opening:?}");
+                assert_eq!(update.live(), fence, "{opening:?}");
                 // The pending text keeps the text up to the opening line only.
                 assert_eq!(renderer.stream.pending.len(), pending, "{opening:?}");
                 out.push_str(update.committed());
@@ -265,20 +286,23 @@ fn an_open_fence_shows_its_partial_line_at_once() {
     let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
     let update = renderer.push("1. Step:\n\n   ```\n   one\n");
     assert!(renderer.follows_fence());
-    assert_eq!(update.committed(), "\x1b[2m1.\x1b[0m Step:\n   one\n");
+    let opening = fence("");
+    assert_eq!(update.committed(), format!("\x1b[2m1.\x1b[0m Step:\n   {opening}\n   one\n"));
+    // Without colour the closing fence of the open block shows under its lines.
+    let closing = closing_fence("   ", renderer.options());
     let update = renderer.push("   tw");
     assert_eq!(update.committed(), "");
-    assert_eq!(update.live(), "   tw\n");
-    assert_eq!(update.live_rows(), 1);
+    assert_eq!(update.live(), format!("   tw\n{closing}"));
+    assert_eq!(update.live_rows(), 2);
     // The fence closes on a partial line, and the next item ends the first one.
     let update = renderer.push("o\n   ``");
     assert_eq!(update.committed(), "   two\n");
-    assert_eq!(update.live(), "   ``\n");
-    assert_eq!(renderer.push("`").live(), "");
+    assert_eq!(update.live(), format!("   ``\n{closing}"));
+    assert_eq!(renderer.push("`").live(), closing);
     assert!(renderer.follows_fence());
     let update = renderer.push("\n2. Next\n");
     assert!(!renderer.follows_fence());
-    assert_eq!(update.committed(), "");
+    assert_eq!(update.committed(), closing);
     assert_eq!(update.live(), "\x1b[2m2.\x1b[0m Next\n");
 }
 
@@ -288,11 +312,12 @@ fn a_blank_line_in_a_fence_in_a_list_item_commits_with_the_next_line_of_code() {
     let mut renderer = Renderer::new(options.clone());
     assert_eq!(
         renderer.push("1. Step:\n   ```\n   one\n").committed(),
-        "\x1b[2m1.\x1b[0m Step:\n   one\n"
+        format!("\x1b[2m1.\x1b[0m Step:\n   {}\n   one\n", fence(""))
     );
     assert_eq!(renderer.push("\n").committed(), "");
     let update = renderer.push("   two\n");
     assert_eq!(update.committed().lines().count(), 2);
+    assert_eq!(update.live(), closing_fence("   ", &options));
     assert!(update.committed().ends_with("   two\n"));
     // At the end of the item, the blank line is not code.
     for markdown in
@@ -406,13 +431,17 @@ fn a_growing_paragraph_commits_its_earlier_lines() {
 #[test]
 fn code_blocks_commit_line_by_line() {
     let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
-    assert_eq!(renderer.push("```rust\n").committed(), "\x1b[2mrust\x1b[0m\n");
+    assert_eq!(renderer.push("```rust\n").committed(), format!("{}\n", fence("rust")));
     let update = renderer.push("fn a() {}\nfn b");
     assert_eq!(update.committed(), "fn a() {}\n");
-    assert_eq!(update.live(), "fn b\n");
+    // Without colour the closing fence of the open block shows under its lines.
+    assert_eq!(update.live(), format!("fn b\n{}\n", fence("")));
     assert_eq!(renderer.push("() {}\n").committed(), "fn b() {}\n");
-    assert_eq!(renderer.push("```\n").committed(), "");
-    assert_eq!(renderer.push("after\n").committed(), "");
+    // A code block ends when the next block starts; the closing fence commits then.
+    let update = renderer.push("```\n");
+    assert_eq!(update.committed(), "");
+    assert_eq!(update.live(), format!("{}\n", fence("")));
+    assert_eq!(renderer.push("after\n").committed(), format!("{}\n", fence("")));
     assert_eq!(renderer.finish(), "\nafter\n");
 }
 
@@ -420,7 +449,11 @@ fn code_blocks_commit_line_by_line() {
 fn a_streamed_code_block_still_ends_at_its_fence() {
     let options = options().with_colour(ColourMode::None);
     let markdown = "```\none\ntwo\n```\nafter\n\n```\nthree\n";
-    assert_eq!(render(markdown, &options), "one\ntwo\n\nafter\n\nthree\n");
+    let fence = fence("");
+    assert_eq!(
+        render(markdown, &options),
+        format!("{fence}\none\ntwo\n{fence}\n\nafter\n\n{fence}\nthree\n{fence}\n")
+    );
     assert_eq!(
         chunked(markdown, &(0..markdown.len()).collect::<Vec<_>>(), &options),
         render(markdown, &options)
@@ -539,14 +572,19 @@ fn no_colour_mode_writes_no_colour_codes() {
 }
 
 #[test]
-fn preload_loads_the_grammars_and_the_theme_only_for_colour_on_a_terminal() {
+fn preload_loads_the_grammars_on_a_terminal_and_the_theme_only_for_colour() {
     let none: &'static Assets = Box::leak(Box::new(Assets::new()));
-    for options in [options().with_colour(ColourMode::None), options().with_terminal(false)] {
-        let mut preload = Preload::with_assets(&options, none);
-        preload.load();
-        preload.text("```rust\nfn a() {}\n");
-    }
+    let mut preload = Preload::with_assets(&options().with_terminal(false), none);
+    preload.load();
+    preload.text("```rust\nfn a() {}\n");
     assert!(!none.grammars_loaded());
+    // Without colour the grammars load, for the italic of comments, but no theme.
+    let no_colour: &'static Assets = Box::leak(Box::new(Assets::new()));
+    let mut preload = Preload::with_assets(&options().with_colour(ColourMode::None), no_colour);
+    preload.load();
+    preload.text("```rust\nfn a() {}\n");
+    assert!(no_colour.grammars_loaded());
+    assert!(!no_colour.highlighter_loaded(Theme::default()));
     let assets: &'static Assets = Box::leak(Box::new(Assets::new()));
     Preload::with_assets(&options(), assets).load();
     assert!(assets.grammars_loaded());

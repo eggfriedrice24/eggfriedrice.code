@@ -199,11 +199,11 @@ fn code_blocks_have_a_muted_label_and_are_never_wrapped() {
 }
 
 #[test]
-fn a_plain_code_block_has_no_label_and_a_file_name_is_one() {
+fn a_plain_code_block_has_no_label_and_a_file_name_joins_the_language() {
     assert_eq!(visible("```text\nsome log line\n```\n", 80), "some log line\n");
     assert_eq!(
         visible("```rust src/parse.rs\nfn parse() {}\n```\n", 80),
-        "src/parse.rs\nfn parse() {}\n"
+        "rust \u{b7} src/parse.rs\nfn parse() {}\n"
     );
 }
 

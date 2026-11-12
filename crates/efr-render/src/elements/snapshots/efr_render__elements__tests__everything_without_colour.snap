@@ -46,29 +46,35 @@ line six
 \e[2m>\e[0m
 \e[2m>\e[0m \e[2m-\e[0m \e[3ma list inside the quote\e[0m
 
-\e[2mrust\e[0m
+\e[2m```rust\e[0m
 fn main() {
-    let greeting = "hello"; // a comment
+    let greeting = "hello"; \e[3m// a comment\e[0m
     println!("{greeting}, from a line that is wider than forty columns");
 }
+\e[2m```\e[0m
 
+\e[2m```\e[0m
 plain text
     after a tab
+\e[2m```\e[0m
 
 \e[2m1.\e[0m Build it:
-   \e[2msh\e[0m
+   \e[2m```sh\e[0m
    cargo build --release
+   \e[2m```\e[0m
 \e[2m2.\e[0m Done.
 
+\e[2m```diff\e[0m
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
 \e[1mindex 1111111..2222222 100644\e[0m
 \e[1m--- a/src/main.rs\e[0m
 \e[1m+++ b/src/main.rs\e[0m
-\e[2m@@ -1,3 +1,3 @@\e[0m fn main() {
+\e[2m@@ -1,3 +1,3 @@ fn main() {\e[0m
  fn main() {
-\e[1m-\e[0m    println!("old");
+\e[1m-\e[0m\e[2m    println!("old");\e[0m
 \e[1m+\e[0m    println!("new");
  }
+\e[2m```\e[0m
 
 \e[1mName\e[0m           \e[1mKind\e[0m   \e[1mSize\e[0m
 \e[2m──────────────────────────\e[0m

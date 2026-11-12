@@ -3,14 +3,21 @@
 //! at a time, so the streaming renderer commits each line as soon as it is complete,
 //! and a block streamed in pieces renders exactly as the same block rendered at once.
 //!
-//! The label is the file name when the fence names one (`rust src/parse.rs`,
-//! `title="x"`, `file=x`), none for plain text and diffs (`text`, `txt`, `plain`,
-//! `plaintext`, `diff`, `patch`, `udiff` or no info), else the language. No frame, no
-//! background and no indent: the user copies code with the mouse.
+//! The label is the language and the file when the fence names both
+//! (`rust · src/parse.rs`), the language alone, or the file alone (`title="x"`,
+//! `file=x`). A short table names a language by its common word (`ts` gives
+//! `typescript`). Plain text and diffs (`text`, `txt`, `plain`, `plaintext`, `diff`,
+//! `patch`, `udiff` or no info) show no label. No frame and no indent: the user copies
+//! code with the mouse. In truecolor each row of code is on the `code.bg` role (an
+//! added or a removed row of a diff on `diff.add.bg` or `diff.remove.bg`), which the
+//! caller paints to the end of the row with `ESC [ K` ([`CodeBlock::fill`]). Without
+//! colour the fences come back, dim (` ```rust ` and ` ``` `), so the block still reads
+//! as code and a copy is Markdown; a comment stays italic (TM-Code).
 
 mod diff;
 
 use crate::code_theme::CodeTheme;
+use crate::glyph::Glyphs;
 use crate::highlight::{ASSETS, Assets, Highlight, ThemeRef};
 use crate::options::{ColourMode, RenderOptions, Theme};
 use crate::palette::Role;
@@ -24,6 +31,23 @@ const DIFF_LABELS: &[&str] = &["diff", "patch", "udiff"];
 
 /// Fence labels that say nothing a reader needs: plain text and diffs show no label.
 const SILENT_LABELS: &[&str] = &["text", "txt", "plain", "plaintext", "diff", "patch", "udiff"];
+
+/// The fence of a code block, as it comes back without colour.
+const FENCE: &str = "```";
+
+/// Short fence words and the language that the label names for them.
+const LANGUAGE_NAMES: &[(&str, &str)] = &[
+    ("js", "javascript"),
+    ("jsx", "javascript"),
+    ("kt", "kotlin"),
+    ("md", "markdown"),
+    ("py", "python"),
+    ("rb", "ruby"),
+    ("rs", "rust"),
+    ("ts", "typescript"),
+    ("tsx", "typescript"),
+    ("yml", "yaml"),
+];
 
 /// What a code block needs from the options.
 #[derive(Clone, Debug)]
@@ -42,6 +66,10 @@ pub(crate) struct CodeStyle {
     /// (`diff.add.bg`, `diff.remove.bg`), in truecolor only.
     pub(crate) added_bg: Option<Colour>,
     pub(crate) removed_bg: Option<Colour>,
+    /// The background of every other row of code (`code.bg`), in truecolor only.
+    pub(crate) code_bg: Option<Colour>,
+    /// The separator between the language and the file of a label.
+    pub(crate) glyphs: &'static Glyphs,
 }
 
 impl CodeStyle {
@@ -64,15 +92,24 @@ impl CodeStyle {
             hunk: options.role_style(Role::DiffHunk),
             added_bg: palette.background(Role::DiffAddBg, options.colour()),
             removed_bg: palette.background(Role::DiffRemoveBg, options.colour()),
+            code_bg: palette.background(Role::CodeBg, options.colour()),
+            glyphs: options.glyphs(),
         }
     }
 
     /// The theme of highlighted code: the user's code theme, else the embedded one.
+    /// Without colour, a theme that makes comments italic and nothing else.
     pub(crate) fn theme_ref(&self) -> ThemeRef {
         match &self.code_theme {
+            _ if self.colour == ColourMode::None => self.assets.no_colour_theme(),
             Some(theme) => theme.theme_ref(),
             None => self.assets.theme_ref(self.theme),
         }
+    }
+
+    /// The embedded theme to load ahead for this style, when it uses one.
+    pub(crate) fn embedded_theme(&self) -> Option<Theme> {
+        (self.code_theme.is_none() && self.colour != ColourMode::None).then_some(self.theme)
     }
 
     /// True when the code theme encodes terminal palette entries, so it has no
@@ -85,8 +122,12 @@ impl CodeStyle {
 #[derive(Clone, Debug)]
 pub(crate) struct CodeBlock {
     label: Option<Line>,
+    /// The closing fence, without colour; written once at the end of the block.
+    end: Option<Line>,
     body: Body,
     started: bool,
+    /// The background of a row of code (`code.bg`).
+    fill: Option<Colour>,
 }
 
 #[derive(Clone, Debug)]
@@ -126,14 +167,29 @@ impl Info {
         Info { language, file }
     }
 
-    /// The label to show: the file name, else the language unless it is plain text or
-    /// a diff.
-    pub(crate) fn label(&self) -> Option<&str> {
-        if let Some(file) = &self.file {
-            return Some(file);
+    /// The label to show: the language and the file, apart by `separator`; the
+    /// language alone or the file alone; nothing for a diff, and no language for plain
+    /// text. The language is the name that [`LANGUAGE_NAMES`] gives its word, else the
+    /// word as the fence has it.
+    pub(crate) fn label(&self, separator: &str) -> Option<String> {
+        let word = self.language.as_deref();
+        if word.is_some_and(is_diff) {
+            return None;
         }
-        self.language.as_deref().filter(|language| !is_silent(language))
+        let language = word.filter(|word| !is_silent(word)).map(|word| {
+            let lower = word.to_ascii_lowercase();
+            LANGUAGE_NAMES.iter().find(|(short, _)| *short == lower).map_or(word, |(_, name)| name)
+        });
+        match (language, self.file.as_deref()) {
+            (Some(language), Some(file)) => Some(format!("{language} {separator} {file}")),
+            (Some(label), None) | (None, Some(label)) => Some(label.to_owned()),
+            (None, None) => None,
+        }
     }
+}
+
+fn is_diff(language: &str) -> bool {
+    DIFF_LABELS.contains(&language.to_ascii_lowercase().as_str())
 }
 
 fn is_silent(language: &str) -> bool {
@@ -175,13 +231,18 @@ impl CodeBlock {
     /// only here, and only for a block with a known language or file in a colour mode.
     pub(crate) fn new(info: &str, style: &CodeStyle) -> CodeBlock {
         let info = Info::parse(info);
-        let label = info.label().map(|label| vec![Span::new(label, style.label)]);
+        let fences = style.colour == ColourMode::None;
+        let label = if fences {
+            let word = info.language.as_deref().unwrap_or_default();
+            Some(format!("{FENCE}{word}"))
+        } else {
+            info.label(style.glyphs.separator)
+        };
+        let label = label.map(|label| vec![Span::new(label, style.label)]);
+        let end = fences.then(|| vec![Span::new(FENCE, style.label)]);
         let language = info.language.as_deref();
         let body = match language {
-            Some(language) if DIFF_LABELS.contains(&language.to_ascii_lowercase().as_str()) => {
-                Body::Diff(Box::new(Diff::new(style.clone())))
-            }
-            _ if style.colour == ColourMode::None => Body::Plain,
+            Some(language) if is_diff(language) => Body::Diff(Box::new(Diff::new(style.clone()))),
             Some(language) if is_silent(language) => Body::Plain,
             None if info.file.is_none() => Body::Sniff(Box::new(style.clone())),
             _ => {
@@ -194,7 +255,7 @@ impl CodeBlock {
                 })
             }
         };
-        CodeBlock { label, body, started: false }
+        CodeBlock { label, end, body, started: false, fill: style.code_bg }
     }
 
     /// The label line, the first time it is asked for; `None` afterwards, and for a
@@ -205,6 +266,32 @@ impl CodeBlock {
         }
         self.started = true;
         self.label.clone()
+    }
+
+    /// The closing fence, which ends a block without colour; `None` in colour, where
+    /// a block has no fences.
+    pub(crate) fn end(&self) -> Option<Line> {
+        self.end.clone()
+    }
+
+    /// The background of the row of the line that [`line`](Self::line) rendered last,
+    /// to fill to the end of the row: `code.bg`, or for an added or a removed line of a
+    /// diff its own. `None` outside truecolor and without a colour for it.
+    pub(crate) fn fill(&self) -> Option<Colour> {
+        match &self.body {
+            Body::Diff(diff) => diff.fill().or(self.fill),
+            _ => self.fill,
+        }
+    }
+
+    /// The background of the row of the line that [`line`](Self::line) rendered last
+    /// when it is an added or a removed line of a diff, without the `code.bg` of the
+    /// other rows: for a diff that the caller lays out apart from a code block.
+    pub(crate) fn changed_fill(&self) -> Option<Colour> {
+        match &self.body {
+            Body::Diff(diff) => diff.fill(),
+            _ => None,
+        }
     }
 
     /// The kind of the line that [`line`](Self::line) rendered last, for a diff;
@@ -254,8 +341,8 @@ impl CodeBlock {
 /// the text of a reply as it comes, and readies the grammar of each fenced block that
 /// opens in it, which the first line of the block otherwise pays: 1 to 125 ms the
 /// first time, by the language. The block's label line does not need the grammar, so
-/// the work starts while the label shows. Without a terminal or without colour,
-/// nothing loads.
+/// the work starts while the label shows. Without a terminal, nothing loads; without
+/// colour, the grammars still load, for the italic of comments.
 #[derive(Debug)]
 pub struct Preload {
     style: Option<CodeStyle>,
@@ -275,8 +362,7 @@ impl Preload {
     }
 
     pub(crate) fn with_assets(options: &RenderOptions, assets: &'static Assets) -> Preload {
-        let colour = options.is_terminal() && options.colour() != ColourMode::None;
-        let style = colour.then(|| CodeStyle::new(options, assets));
+        let style = options.is_terminal().then(|| CodeStyle::new(options, assets));
         Preload { style, line: String::new(), ready: Vec::new() }
     }
 
@@ -284,8 +370,7 @@ impl Preload {
     /// theme of the user's own replaces it. A second call costs nothing.
     pub fn load(&self) {
         let Some(style) = &self.style else { return };
-        let theme = style.code_theme.is_none().then_some(style.theme);
-        style.assets.load(theme);
+        style.assets.load(style.embedded_theme());
     }
 
     /// The info strings whose grammars this preload readied.

@@ -25,7 +25,7 @@ use crate::link::{code_target, link_target};
 use crate::options::{ColourMode, MIN_TEXT_WIDTH, RenderOptions};
 use crate::outline::parser_options;
 use crate::palette::Role;
-use crate::style::{Line, Painter, Span, Style, line_width, sanitize};
+use crate::style::{Colour, Line, Painter, Span, Style, line_width, sanitize};
 use crate::table::Table;
 use crate::wrap::wrap;
 
@@ -54,7 +54,8 @@ pub(crate) struct Ctx {
 impl Ctx {
     pub(crate) fn new(options: RenderOptions, assets: &'static Assets) -> Ctx {
         let painter = Painter::new(options.colour(), options.hyperlinks())
-            .with_text(options.palette().colour(Role::Text));
+            .with_text(options.palette().colour(Role::Text))
+            .with_width(options.columns(), options.width_method());
         let code = CodeStyle::new(&options, assets);
         Ctx { options, painter, code }
     }
@@ -110,10 +111,24 @@ impl Flow {
 
     /// Paints one line, after the blank line a new block owes.
     pub(crate) fn write(&mut self, ctx: &Ctx, out: &mut String, line: &[Span]) {
+        self.write_row(ctx, out, &[], line, None);
+    }
+
+    /// Paints one line of `prefix` and `content`, `content` on the background `fill` to
+    /// the end of the row ([`Painter::paint_row`]), after the blank line a new block
+    /// owes.
+    pub(crate) fn write_row(
+        &mut self,
+        ctx: &Ctx,
+        out: &mut String,
+        prefix: &[Span],
+        content: &[Span],
+        fill: Option<Colour>,
+    ) {
         if mem::take(&mut self.separator) {
             out.push('\n');
         }
-        ctx.painter.paint(out, line);
+        ctx.painter.paint_row(out, prefix, content, fill);
         self.written = true;
     }
 }
@@ -146,9 +161,15 @@ pub(crate) struct OpenCode {
 /// a next line of the block would not be painted as `prefix` and the line alone: an
 /// item marker or a blank line between blocks is still owed.
 pub(crate) fn render_open_code(ctx: &Ctx, flow: &mut Flow, text: &str) -> Option<OpenCode> {
-    let writer = write_slice(ctx, flow, text, true);
-    let (block, prefix, end) = writer.open_code?;
-    (end == writer.out.len()).then_some(OpenCode { out: writer.out, block, prefix })
+    let mut writer = write_slice(ctx, flow, text, true);
+    let (block, prefix, end, after) = writer.open_code?;
+    // NOTE: the closing fence of a block without colour follows its lines; the block
+    // is open, so its fence is not written yet.
+    if after != writer.out.len() {
+        return None;
+    }
+    writer.out.truncate(end);
+    Some(OpenCode { out: writer.out, block, prefix })
 }
 
 /// Paints the next source line of an open code block under `prefix`, as
@@ -159,10 +180,9 @@ pub(crate) fn paint_code_line(
     block: &mut CodeBlock,
     source: &str,
 ) -> String {
-    let mut line = prefix.to_vec();
-    line.extend(block.line(source));
+    let line = block.line(source);
     let mut out = String::new();
-    ctx.painter.paint(&mut out, &line);
+    ctx.painter.paint_row(&mut out, prefix, &line, block.fill());
     out
 }
 
@@ -279,9 +299,9 @@ struct Writer<'a> {
     tail: Option<ListTail>,
     /// Keep the state of the last code block for [`render_open_code`].
     capture: bool,
-    /// That state: the block after its last line, the prefix of its next line, and
-    /// the length of the output after the block.
-    open_code: Option<(CodeBlock, Line, usize)>,
+    /// That state: the block after its last line, the prefix of its next line, the
+    /// length of the output after the block's lines, and after its closing fence.
+    open_code: Option<(CodeBlock, Line, usize, usize)>,
 }
 
 impl Writer<'_> {
@@ -437,11 +457,16 @@ impl Writer<'_> {
                     }
                     for line in source_lines(&text).into_iter().skip(skip) {
                         let rendered = block.line(line);
-                        self.emit(&rendered, false);
+                        let fill = block.fill();
+                        self.emit_code(&rendered, fill);
                     }
-                    if self.capture {
-                        let end = self.out.len();
-                        self.open_code = self.next_line_prefix().map(|prefix| (block, prefix, end));
+                    let end = self.out.len();
+                    let prefix = if self.capture { self.next_line_prefix() } else { None };
+                    if let Some(fence) = block.end() {
+                        self.emit(&fence, false);
+                    }
+                    if let Some(prefix) = prefix {
+                        self.open_code = Some((block, prefix, end, self.out.len()));
                     }
                 }
             }
@@ -738,6 +763,13 @@ impl Writer<'_> {
             full.extend(line);
             self.flow.write(self.ctx, &mut self.out, &full);
         }
+    }
+
+    /// Writes one line of code under the current containers, on the background
+    /// `fill` from the start of the code to the end of the row.
+    fn emit_code(&mut self, content: &[Span], fill: Option<Colour>) {
+        let (first, _) = self.prefixes();
+        self.flow.write_row(self.ctx, &mut self.out, &first, content, fill);
     }
 
     /// The prefixes for the next line and for its continuation lines. The first line

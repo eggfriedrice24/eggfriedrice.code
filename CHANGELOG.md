@@ -75,6 +75,16 @@ into the GitHub release notes, and it stops when the section is missing.
   under its header as wide as the table. A table that is too wide for the terminal
   shows each row as lines of a header in a column of its own and a value, with the
   first value in bold, not as `header: value` lines.
+- A code block names its language and its file in one muted label, such as
+  `rust · src/turn.rs`, and `ts` shows as `typescript`. In truecolor, with
+  `render.colors.code_bg` set, each row of code is on that background to the end of the
+  row, with no spaces written. With `NO_COLOR` the fences of a code block come back,
+  dim, so it still reads as code and a copy is Markdown, and a comment stays italic.
+- A diff in a reply shows its hunk header whole in the `diff.hunk` colour. In
+  truecolor the row of an added or a removed line is filled to the end of the row with
+  `render.colors.diff.add_bg` or `render.colors.diff.remove_bg`, or with the tint of a
+  truecolor code theme. In 16 colours an added or a removed line is whole in green or
+  red, with no syntax colours. With `NO_COLOR` a removed line is dim.
 - An effort from `config.toml` that a model does not take no longer fails the turn.
   The turn uses the model's own default effort, so a switch to a model of the other
   company works. An effort that you choose with `,effort` must still be one that the

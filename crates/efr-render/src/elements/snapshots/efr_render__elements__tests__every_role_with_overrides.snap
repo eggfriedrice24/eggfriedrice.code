@@ -23,7 +23,7 @@ Prose with \e[33mcode\e[0m, a \e]8;;https://example.com\e\\e[4;94mlink\e]8;;\e\\
 \e[1;31m-\e[0m\e[31mold\e[0m
 \e[1;92m+\e[0m\e[92mnew\e[0m
 
-\e[90msrc/main.rs\e[0m
+\e[90mrust · src/main.rs\e[0m
 \e[35mfn\e[0m \e[34mmain\e[0m() { \e[35mlet\e[0m s \e[35m=\e[0m \e[32m"hi"\e[0m; } \e[32m// note\e[0m
 
 text

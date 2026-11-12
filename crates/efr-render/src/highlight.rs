@@ -8,8 +8,11 @@ use std::fmt;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use std::str::FromStr as _;
+
 use syntect::highlighting::{
-    Color, FontStyle, HighlightIterator, HighlightState, Highlighter, Theme as SyntectTheme,
+    Color, FontStyle, HighlightIterator, HighlightState, Highlighter, ScopeSelectors,
+    StyleModifier, Theme as SyntectTheme, ThemeItem,
 };
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use two_face::theme::EmbeddedLazyThemeSet;
@@ -24,6 +27,9 @@ pub(crate) struct Assets {
     syntaxes: OnceLock<SyntaxSet>,
     themes: OnceLock<EmbeddedLazyThemeSet>,
     highlighters: [OnceLock<Highlighter<'static>>; Theme::COUNT],
+    /// The theme of code without colour, and its highlighter.
+    no_colour: OnceLock<SyntectTheme>,
+    no_colour_highlighter: OnceLock<Highlighter<'static>>,
 }
 
 /// The process-wide assets every renderer shares.
@@ -49,6 +55,8 @@ impl Assets {
             syntaxes: OnceLock::new(),
             themes: OnceLock::new(),
             highlighters: [const { OnceLock::new() }; Theme::COUNT],
+            no_colour: OnceLock::new(),
+            no_colour_highlighter: OnceLock::new(),
         }
     }
 
@@ -66,6 +74,14 @@ impl Assets {
         let highlighter =
             self.highlighters[theme.index()].get_or_init(|| Highlighter::new(syntect));
         ThemeRef { theme: syntect, highlighter }
+    }
+
+    /// The theme of code without colour (`NO_COLOR`): comments in italic, as the code
+    /// table of the design has them, and nothing else, because italic is no colour.
+    pub(crate) fn no_colour_theme(&'static self) -> ThemeRef {
+        let theme = self.no_colour.get_or_init(no_colour_theme);
+        let highlighter = self.no_colour_highlighter.get_or_init(|| Highlighter::new(theme));
+        ThemeRef { theme, highlighter }
     }
 
     /// The grammar for a fence label such as `rust`, `rs` or `shell`.
@@ -192,6 +208,19 @@ impl Highlight {
         }
         Some(tokens)
     }
+}
+
+/// The theme of [`Assets::no_colour_theme`]: the terminal's own colour (bat's alpha
+/// of 1) and one rule, comments in italic.
+fn no_colour_theme() -> SyntectTheme {
+    let mut theme = SyntectTheme::default();
+    theme.settings.foreground = Some(Color { r: 0, g: 0, b: 0, a: 1 });
+    if let Ok(scope) = ScopeSelectors::from_str("comment") {
+        let style =
+            StyleModifier { font_style: Some(FontStyle::ITALIC), ..StyleModifier::default() };
+        theme.scopes.push(ThemeItem { scope, style });
+    }
+    theme
 }
 
 /// A theme style as a [`Style`]. The theme's background is ignored, so code sits on

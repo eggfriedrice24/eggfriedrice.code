@@ -64,6 +64,27 @@ fn a_fill_comes_only_from_a_background_role_in_truecolor() {
 }
 
 #[test]
+fn the_sign_is_one_cell_apart_from_the_text_that_shares_its_span() {
+    for mode in [ColourMode::Ansi16, ColourMode::None] {
+        let lines = diff_lines(DIFF, &RenderOptions::new(80).with_colour(mode));
+        assert_eq!(lines[3].sign, " ", "{mode:?}");
+        assert_eq!(strip(&lines[3].rows[0]), "fn main() {", "{mode:?}");
+        assert_eq!(strip(&lines[5].rows[0]), "    new();", "{mode:?}");
+    }
+}
+
+#[test]
+fn the_sign_and_the_rows_carry_the_fill_and_a_theme_blend_fills_without_the_roles() {
+    let mocha = crate::Theme::from_name("catppuccin-mocha").unwrap();
+    let options = RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_theme(mocha);
+    let lines = diff_lines(DIFF, &options);
+    let fill = lines[5].fill.clone().unwrap();
+    assert!(lines[5].sign.contains(&fill), "{:?}", lines[5].sign);
+    assert!(lines[5].rows[0].contains(&fill), "{:?}", lines[5].rows[0]);
+    assert_eq!(lines[3].fill, None);
+}
+
+#[test]
 fn a_long_line_is_cut_into_rows_of_the_width() {
     let options = RenderOptions::new(10).with_colour(ColourMode::None);
     let lines = diff_lines("@@ -1 +1 @@\n+abcdefghijklmnopqrstuvwxyz\n", &options);

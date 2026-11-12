@@ -86,34 +86,63 @@ fn without_a_known_language_changed_lines_are_wholly_green_or_red() {
         diff.line("-old"),
         [Span::new("-", Style::fg(RED).bold()), Span::new("old", Style::fg(RED))]
     );
-    assert_eq!(
-        diff.line("@@ -1 +1 @@ ctx"),
-        [Span::new("@@ -1 +1 @@", Style::fg(CYAN)), Span::plain(" ctx")]
-    );
+    assert_eq!(diff.line("@@ -1 +1 @@ ctx"), [Span::new("@@ -1 +1 @@ ctx", Style::fg(CYAN))]);
 }
 
 #[test]
-fn with_a_known_language_changed_lines_carry_syntax_colours() {
-    let mut diff = Diff::new(style(ColourMode::Ansi16, Theme::ANSI));
+fn with_a_known_language_changed_lines_carry_syntax_colours_in_truecolor() {
+    let mocha = Theme::from_name("catppuccin-mocha").unwrap();
+    let mut diff = Diff::new(style(ColourMode::TrueColor, mocha));
     diff.line("+++ b/src/main.rs");
     let line = diff.line("+fn main() {}");
-    assert_eq!(line[0], Span::new("+", Style::fg(GREEN).bold()));
+    assert_eq!(line[0].text, "+");
+    assert!(line[0].style.bold);
     let text: String = line.iter().map(|span| span.text.as_str()).collect();
     assert_eq!(text, "+fn main() {}");
-    assert!(line[1..].iter().any(|span| span.style.fg.is_some() && span.style.fg != Some(GREEN)));
+    let fg: Vec<_> = line[1..].iter().map(|span| span.style.fg).collect();
+    assert!(fg.windows(2).any(|pair| pair[0] != pair[1]), "more than one colour: {fg:?}");
 }
 
 #[test]
-fn truecolor_themes_tint_changed_lines_and_palette_themes_do_not() {
+fn in_sixteen_colours_a_changed_line_is_whole_in_its_role() {
+    // TM-Diffs 2: no syntax, no background.
+    let mut diff = Diff::new(style(ColourMode::Ansi16, Theme::ANSI));
+    diff.line("+++ b/src/main.rs");
+    assert_eq!(
+        diff.line("+fn main() {}"),
+        [Span::new("+", Style::fg(GREEN).bold()), Span::new("fn main() {}", Style::fg(GREEN))]
+    );
+    assert_eq!(diff.line(" fn x() {}"), [Span::plain(" fn x() {}")]);
+    assert_eq!(diff.fill(), None);
+}
+
+#[test]
+fn without_colour_a_removed_line_is_dim_and_its_sign_bold() {
+    // TM-Diffs 3 and TM-Legend 21.
+    let mut diff = Diff::new(style(ColourMode::None, Theme::ANSI));
+    assert_eq!(
+        diff.line("-old"),
+        [Span::new("-", Style::PLAIN.bold()), Span::new("old", Style::PLAIN.dim())]
+    );
+    assert_eq!(diff.line("+new"), [Span::new("+", Style::PLAIN.bold()), Span::plain("new")]);
+    assert_eq!(diff.line("@@ -1 +1 @@ f"), [Span::new("@@ -1 +1 @@ f", Style::PLAIN.dim())]);
+}
+
+#[test]
+fn truecolor_themes_tint_the_rows_of_changed_lines_and_palette_themes_do_not() {
     let mocha = Theme::from_name("catppuccin-mocha").unwrap();
     let mut tinted = Diff::new(style(ColourMode::TrueColor, mocha));
-    let line = tinted.line("+x");
-    assert!(line.iter().all(|span| matches!(span.style.bg, Some(Colour::Rgb(..)))));
+    tinted.line("+x");
+    assert!(matches!(tinted.fill(), Some(Colour::Rgb(..))));
+    tinted.line("@@ -1 +1 @@");
+    assert_eq!(tinted.fill(), None, "only a changed line has a tint");
 
     let mut plain = Diff::new(style(ColourMode::TrueColor, Theme::ANSI));
-    assert!(plain.line("+x").iter().all(|span| span.style.bg.is_none()));
+    plain.line("+x");
+    assert_eq!(plain.fill(), None);
     let mut sixteen = Diff::new(style(ColourMode::Ansi16, mocha));
-    assert!(sixteen.line("+x").iter().all(|span| span.style.bg.is_none()));
+    sixteen.line("+x");
+    assert_eq!(sixteen.fill(), None);
 }
 
 #[test]
@@ -122,9 +151,22 @@ fn a_code_theme_from_a_file_tints_changed_lines_in_truecolor() {
     let options =
         RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_code_theme(Some(theme));
     let mut diff = Diff::new(CodeStyle::new(&options, &ASSETS));
-    let line = diff.line("+x");
+    diff.line("+x");
     // A quarter of the green tint over the theme's background #1c1b19.
-    assert!(line.iter().all(|span| span.style.bg == Some(Colour::Rgb(32, 60, 35))));
+    assert_eq!(diff.fill(), Some(Colour::Rgb(32, 60, 35)));
+}
+
+#[test]
+fn the_background_roles_of_the_palette_tint_the_rows() {
+    let palette = crate::Palette::new()
+        .with(crate::Role::DiffAddBg, Colour::Rgb(0x19, 0x2c, 0x17))
+        .with(crate::Role::DiffRemoveBg, Colour::Rgb(0x39, 0x1d, 0x1e));
+    let options = RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(palette);
+    let mut diff = Diff::new(CodeStyle::new(&options, &ASSETS));
+    diff.line("+x");
+    assert_eq!(diff.fill(), Some(Colour::Rgb(0x19, 0x2c, 0x17)));
+    diff.line("-x");
+    assert_eq!(diff.fill(), Some(Colour::Rgb(0x39, 0x1d, 0x1e)));
 }
 
 #[test]

@@ -225,3 +225,5 @@ runs.
 `[render.colors]`, `palette` and `theme` set the colours.
 [Settings](../configure/settings.md) and the
 [config.toml reference](../config.md#render) tell how. `NO_COLOR` turns colours off.
+Then the fences of a code block come back, dim, and a removed line of a diff is dim,
+so the reply still reads as Markdown.

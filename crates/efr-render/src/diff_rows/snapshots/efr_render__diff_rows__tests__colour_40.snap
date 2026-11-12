@@ -8,11 +8,11 @@ expression: shown(&rows)
 
 \e[36m@@ -1,3 +1,3 @@\e[0m
 
- \e[35mfn\e[0m \e[34mmain\e[0m() {
+ fn main() {
 
-\e[1;31m-\e[0m    println!(\e[32m"old"\e[0m);
+\e[1;31m-\e[0m\e[31m    println!("old");\e[0m
 
-\e[1;32m+\e[0m    println!(\e[32m"a new line that is much l\e[0m
-\e[32monger than forty columns"\e[0m);
+\e[1;32m+\e[0m\e[32m    println!("a new line that is much l\e[0m
+\e[32monger than forty columns");\e[0m
 
  }

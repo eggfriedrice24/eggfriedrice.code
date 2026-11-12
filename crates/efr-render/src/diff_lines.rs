@@ -4,17 +4,20 @@
 //! colours of each depth), the CLI lays them out (the indent, the sign column, the
 //! cut, the `… N more lines` row).
 //!
-//! The first form keeps the colours of [`diff_rows`](crate::diff_rows): the sign bold
-//! in its role and the diffed file's syntax colours inside, with the blended tint of
-//! a truecolor theme behind the text. Only the place of the sign is new: it is apart
-//! from the content, so a caller can put it in a column of its own.
+//! The colours of each depth (TM-Diffs 1 to 3, TM-Legend 20, 21): the sign bold in
+//! `diff.add` or `diff.remove`; in truecolor the diffed file's syntax colours inside
+//! and the row of an added or a removed line on `diff.add.bg` or `diff.remove.bg` (the
+//! blend of a truecolor code theme when the palette sets neither); in 16 colours the
+//! whole line in the role's colour, with no syntax and no background; without colour a
+//! removed line dim. A context line has no fill and, outside truecolor, no colour. A
+//! hunk header is whole in `diff.hunk`.
 
 use crate::code::{CodeBlock, CodeStyle, DiffKind, source_lines};
 use crate::diff_rows::split;
 use crate::highlight::ASSETS;
 use crate::options::RenderOptions;
 use crate::palette::Role;
-use crate::style::{Line, Painter, expand_tabs, sanitize};
+use crate::style::{Line, Painter, Span, Style, expand_tabs, on_fill, sanitize, sgr_parameters};
 use crate::width::{WidthMethod, display_width, text_width};
 
 /// What a line of a unified diff is.
@@ -50,10 +53,12 @@ pub struct DiffLine {
     /// least one row, which may be empty.
     pub rows: Vec<String>,
     /// The SGR parameters of the background of the line's rows, for a caller that
-    /// fills each row to the edge with `ESC [ K` and resets the background before the
-    /// newline: [`RenderOptions::fill`] of `diff.add.bg` or `diff.remove.bg`. `None`
-    /// for other kinds, and where the palette sets no background or the colour mode is
-    /// not truecolor.
+    /// fills each row to the edge: the background of `diff.add.bg` or
+    /// `diff.remove.bg`, or the blend of a truecolor code theme when the palette sets
+    /// neither. The sign and each span of the rows are on it already, so a reset inside
+    /// them does not drop it; the caller writes `ESC [ <fill> m` before its indent and
+    /// again before the `ESC [ K` that ends a row, then resets before the newline.
+    /// `None` for other kinds, and outside truecolor.
     pub fill: Option<String>,
 }
 
@@ -77,13 +82,22 @@ pub fn diff_lines(diff: &str, options: &RenderOptions) -> Vec<DiffLine> {
     lines
         .into_iter()
         .map(|source| {
-            let mut spans = block.line(source);
+            let line = block.line(source);
+            let colour = block.changed_fill();
+            let mut spans = on_fill(line, colour);
             let kind = kind_of(block.diff_kind());
             let sign = match kind {
                 DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
                     if !spans.is_empty() =>
                 {
-                    let first = spans.remove(0);
+                    // NOTE: the sign can share its span with the text after it, as a
+                    // context line's space does with the plain text that follows.
+                    let mut first = spans.remove(0);
+                    let at = first.text.chars().next().map_or(0, char::len_utf8);
+                    let rest = first.text.split_off(at);
+                    if !rest.is_empty() {
+                        spans.insert(0, Span { text: rest, ..first.clone() });
+                    }
                     let mut out = String::new();
                     painter.paint(&mut out, std::slice::from_ref(&first));
                     out.pop();
@@ -94,11 +108,7 @@ pub fn diff_lines(diff: &str, options: &RenderOptions) -> Vec<DiffLine> {
                 _ => String::new(),
             };
             let rows = paint_rows(&painter, &spans, width, method);
-            let fill = match kind {
-                DiffLineKind::Added => options.fill(Role::DiffAddBg),
-                DiffLineKind::Removed => options.fill(Role::DiffRemoveBg),
-                _ => None,
-            };
+            let fill = colour.and_then(|colour| sgr_parameters(Style::PLAIN.on(colour)));
             DiffLine { kind, sign, rows, fill }
         })
         .collect()

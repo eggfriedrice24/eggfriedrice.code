@@ -28,6 +28,58 @@ fn the_label_is_the_language_once_and_muted() {
 }
 
 #[test]
+fn a_short_fence_word_names_its_language() {
+    assert_eq!(label("ts").as_deref(), Some("typescript"));
+    assert_eq!(label("TS").as_deref(), Some("typescript"));
+    assert_eq!(label("py app.py").as_deref(), Some("python \u{b7} app.py"));
+    assert_eq!(label("Rust").as_deref(), Some("Rust"));
+    let ascii = RenderOptions::new(80).with_glyphs(&crate::Glyphs::ASCII);
+    let mut block = CodeBlock::new("rs a.rs", &CodeStyle::new(&ascii, &ASSETS));
+    assert_eq!(block.start().map(|line| line_text(&line)).as_deref(), Some("rust - a.rs"));
+}
+
+#[test]
+fn without_colour_the_fences_come_back_dim() {
+    // TM-Code 3: the word of the fence as typed, no file.
+    let none = style(ColourMode::None);
+    let dim = Style::PLAIN.dim();
+    for (info, fence) in
+        [("rust src/a.rs", "```rust"), ("ts", "```ts"), ("", "```"), ("diff", "```diff")]
+    {
+        let mut block = CodeBlock::new(info, &none);
+        assert_eq!(block.start(), Some(vec![Span::new(fence, dim)]), "{info:?}");
+        assert_eq!(block.end(), Some(vec![Span::new("```", dim)]), "{info:?}");
+    }
+    assert_eq!(CodeBlock::new("rust", &style(ColourMode::Ansi16)).end(), None);
+}
+
+#[test]
+fn without_colour_a_comment_is_italic() {
+    let mut block = CodeBlock::new("rust", &style(ColourMode::None));
+    assert_eq!(
+        block.line("let x = 1; // one"),
+        [Span::plain("let x = 1; "), Span::new("// one", Style::PLAIN.italic())]
+    );
+}
+
+#[test]
+fn a_row_of_code_is_on_code_bg_in_truecolor_only() {
+    let background = crate::Colour::Rgb(0x12, 0x17, 0x22);
+    let palette = crate::Palette::new().with(crate::Role::CodeBg, background);
+    let options = RenderOptions::new(80).with_palette(palette);
+    for (colour, fill) in [
+        (ColourMode::TrueColor, Some(background)),
+        (ColourMode::Ansi16, None),
+        (ColourMode::None, None),
+    ] {
+        let style = CodeStyle::new(&options.clone().with_colour(colour), &ASSETS);
+        let mut block = CodeBlock::new("", &style);
+        block.line("plain");
+        assert_eq!(block.fill(), fill, "{colour:?}");
+    }
+}
+
+#[test]
 fn plain_text_and_diffs_have_no_label() {
     for info in ["", "text", "txt", "plain", "plaintext", "TEXT", "diff", "patch", "udiff"] {
         assert_eq!(label(info), None, "{info:?}");
@@ -35,12 +87,17 @@ fn plain_text_and_diffs_have_no_label() {
 }
 
 #[test]
-fn a_file_name_in_the_info_is_the_label() {
-    assert_eq!(label("rust src/parse.rs").as_deref(), Some("src/parse.rs"));
-    assert_eq!(label("rust title=\"src/my file.rs\"").as_deref(), Some("src/my file.rs"));
-    assert_eq!(label("python {title='app.py'}").as_deref(), Some("app.py"));
-    assert_eq!(label("toml file=Cargo.toml").as_deref(), Some("Cargo.toml"));
-    assert_eq!(label("diff src/lib.rs").as_deref(), Some("src/lib.rs"));
+fn the_label_is_the_language_and_the_file() {
+    assert_eq!(label("rust src/parse.rs").as_deref(), Some("rust \u{b7} src/parse.rs"));
+    assert_eq!(
+        label("rust title=\"src/my file.rs\"").as_deref(),
+        Some("rust \u{b7} src/my file.rs")
+    );
+    assert_eq!(label("python {title='app.py'}").as_deref(), Some("python \u{b7} app.py"));
+    assert_eq!(label("toml file=Cargo.toml").as_deref(), Some("toml \u{b7} Cargo.toml"));
+    assert_eq!(label("title=\"main.rs\"").as_deref(), Some("main.rs"));
+    // A diff has no label; plain text shows the file alone.
+    assert_eq!(label("diff src/lib.rs"), None);
     assert_eq!(label("text notes.txt").as_deref(), Some("notes.txt"));
     // A second word without a slash or a dot is no file name.
     assert_eq!(label("rust ignore").as_deref(), Some("rust"));
@@ -118,7 +175,7 @@ fn an_unlabelled_block_starting_with_a_git_diff_header_is_a_diff() {
 }
 
 #[test]
-fn grammars_load_only_for_a_labelled_block_with_colour() {
+fn grammars_load_only_for_a_labelled_block() {
     let (code_style, assets) = fresh(ColourMode::Ansi16);
     let mut block = CodeBlock::new("", &code_style);
     block.line("plain text");
@@ -128,10 +185,12 @@ fn grammars_load_only_for_a_labelled_block_with_colour() {
     CodeBlock::new("rust", &code_style);
     assert!(assets.grammars_loaded());
 
+    // Without colour the grammar finds the comments, which stay italic.
     let (no_colour, assets) = fresh(ColourMode::None);
     let mut block = CodeBlock::new("rust", &no_colour);
     assert_eq!(block.line("fn x() {}"), [Span::plain("fn x() {}")]);
-    assert!(!assets.grammars_loaded());
+    assert!(assets.grammars_loaded());
+    assert!(!assets.highlighter_loaded(crate::Theme::ANSI));
 }
 
 #[test]

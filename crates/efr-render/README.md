@@ -21,15 +21,18 @@ renders: the event log keeps raw markdown and the phone app renders natively.
   otherwise pays (1 to 125 ms the first time, by the language: about 14 ms for Rust,
   125 ms for TypeScript).
 - `diff_rows`: a unified diff as painted rows, for a caller that lays a diff out
-  itself (the CLI under a file write): the colours of a diff in a code block, each
-  line cut at the width into rows that read back as the line (never at a space,
-  because a diff shows code), the spaces before a cut kept. Without a terminal, each
-  line is one plain row.
+  itself (the CLI under a file write): the colours of a diff in a code block, with the
+  tint of a changed line behind its text, each line cut at the width into rows that
+  read back as the line (never at a space, because a diff shows code), the spaces
+  before a cut kept. Without a terminal, each line is one plain row.
 - `diff_lines`: a unified diff as one `DiffLine` for each line: its kind (added,
   removed, context, hunk, other), its painted sign apart from the content, the content
   cut into rows of the width, and the fill of its rows (the SGR parameters of
-  `diff.add.bg` or `diff.remove.bg`). The seam of the terminal look: this crate paints
-  the lines, the CLI lays them out. `diff_rows` stays for the callers of today.
+  `diff.add.bg` or `diff.remove.bg`, or of the blended tint). The sign and each span
+  of the rows are on the fill already; the caller writes the fill before its indent and
+  again before the `ESC [ K` that ends a row. The seam of the terminal look: this crate
+  paints the lines in the colours of each depth (TM-Diffs), the CLI lays them out.
+  `diff_rows` stays for the callers of today.
 - `RenderOptions`: the width, the `ColourMode` (none, 16 colours, truecolor), the
   `Palette`, the `Theme` for code or a `CodeTheme` from a `.tmTheme` file (and one in
   bat's ANSI encoding for 16 colours, `with_code_theme_ansi`), OSC 8 hyperlinks on or
@@ -144,12 +147,27 @@ columns further in; an ordered item starts with its number and a dot; a task ite
 starts with its box, `[x]` in `success` and `[ ]` in `muted`, and no `-`. A quote
 line starts with `>` and a space, and its text is in the `quote` role (italic).
 Bold, italic and strikethrough are SGR; inline code is in the `code` role (with its
-backticks when there is no colour). Code blocks are never wrapped, with a muted label
-line: the file name when the fence names one (`rust src/main.rs`, `title="x"`,
-`file=x`), no label for plain text and diffs (`text`, `txt`, `plain`, `plaintext`,
-`diff`, `patch`, `udiff` or no info), else the language; unified diffs in the
-`diff.*` roles with the diffed file's syntax colours inside (tinted backgrounds with a
-truecolor theme). A table that fits is a grid: the columns apart by three spaces, the
+backticks when there is no colour). Code blocks are never wrapped, and have no frame
+and no indent, so a copy is the code (TM-Code). A muted label line names the
+language and the file when the fence names both (`rust · src/main.rs` from
+`rust src/main.rs`, `title="x"` or `file=x`), else the one it names; a short table
+gives the language of a short fence word (`ts` gives `typescript`); plain text
+(`text`, `txt`, `plain`, `plaintext` or no info) and diffs (`diff`, `patch`, `udiff`)
+show no label. In truecolor each row of code is on `code.bg` to the end of the row:
+each span on the background, then `ESC [ K` with the background set, then a reset
+before the newline; the label and the blank line after the block are not. A row as
+wide as a whole number of terminal rows gets no `ESC [ K`, which would erase its last
+character there. In 16 colours and without colour a code block has no background.
+Without colour the fences come back, dim: the opening fence with the fence word as
+typed and no file (` ```rust `), and the closing fence, also while the block streams,
+under its lines in the live zone. A comment stays italic without colour (a theme of
+one rule; the grammars load for it). Unified diffs have the `diff.*` roles: the sign
+of a changed line bold in its role, a hunk header whole in `diff.hunk`, file headers
+bold. In truecolor a changed line has the diffed file's syntax colours inside and its
+row on `diff.add.bg` or `diff.remove.bg` (else, with a truecolor theme, a tint that
+efr blends from the theme's background); in 16 colours a changed line is whole in its
+role's colour, with no syntax and no background; without colour a removed line is
+dim. A table that fits is a grid: the columns apart by three spaces, the
 header in bold, one `muted` rule under the header as wide as the table, and no row
 ends in padding. A table wider than the terminal is one record for each row: one line
 for each column with the header in `muted` in a column of its own, two spaces and the
@@ -245,13 +263,19 @@ tests check the background roles (an RGB colour in truecolor only), `paint_with`
 each mode, the code points and the ASCII forms of `Glyphs`, and that `diff_lines`
 gives each line its kind, its sign apart and the rows that `diff_rows` paints. The
 test `design` of the test binary compares the output with a frame of the terminal
-design (`efr_test_support::design`, TM-Legend frame 6) in truecolor and in 16
-colours: the pattern of each test of the terminal look. The test `theme` renders the
-code blocks of TM-Code with the code themes of the design system
-(`efr_test_support::design::DESIGN_THEME`) and compares the colour and the attributes
-of each cell of code with frame 1 (truecolor) and frame 2 (16 colours, the ANSI code
-theme). It lists the cells where the grammars give no scope that a theme can use, and
-it fails when one of them closes. A unit test checks that the shared highlighter colours each line as
+design (`efr_test_support::design`) in the depths that each board draws: TM-Markdown
+1 to 5, TM-Code 1 to 6, the diff rows of TM-Diffs 1 to 3, TM-Depths 4, 8 and 12, and
+TM-Legend 6, 20, 21, 37 and 38. Each module of it says where a board and the output
+differ and which rule wins: the column gaps of a hand-drawn table, a shebang that the
+grammar scopes as a comment, the syntax inside a diff in 16 colours, and the tokens
+that no theme rule can colour. Its code themes are `fixtures/design.tmTheme` and
+`fixtures/design_ansi.tmTheme`, small themes with the rules of the code table of
+TM-Code. The test `theme` renders the code blocks of TM-Code with the code themes of
+the design system (`efr_test_support::design::DESIGN_THEME`) and compares the colour
+and the attributes of each cell of code with frame 1 (truecolor) and frame 2 (16
+colours, the ANSI code theme). It lists the cells where the grammars give no scope
+that a theme can use, and it fails when one of them closes. A unit test checks that
+the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.
 

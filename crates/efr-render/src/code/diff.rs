@@ -1,7 +1,15 @@
 //! Unified diffs: added lines in the `diff.add` role (green), removed lines in
-//! `diff.remove` (red), hunk headers in `diff.hunk` (cyan), file headers bold, and the
-//! diffed file's syntax colours inside the changed lines. The
-//! old and new sides keep separate highlighting state, as delta does, so a line
+//! `diff.remove` (red), hunk headers whole in `diff.hunk` (cyan), file headers bold.
+//! The sign of a changed line is bold in its role. How the rest of a changed line looks
+//! goes with the depth (TM-Diffs, TM-Legend):
+//!
+//! - truecolor: the diffed file's syntax colours inside (the role's colour where no
+//!   grammar knows the file), and the row on `diff.add.bg` or `diff.remove.bg`
+//!   ([`Diff::fill`]);
+//! - 16 colours: the whole line in the role's colour, no syntax and no background;
+//! - no colour: a removed line dim, an added line plain.
+//!
+//! The old and new sides keep separate highlighting state, as delta does, so a line
 //! removed inside a string does not confuse the colours of the lines added after it.
 
 use crate::highlight::{Highlight, theme_background};
@@ -40,10 +48,10 @@ pub(crate) struct Diff {
     hunk: Option<Hunk>,
     old: Option<Highlight>,
     new: Option<Highlight>,
-    /// Backgrounds for added and removed lines: the palette's `diff.add.bg` and
-    /// `diff.remove.bg` when it sets both, else a blend of a truecolor theme's
-    /// background in truecolor mode; a palette theme has no background colour to blend
-    /// with.
+    /// Backgrounds of the rows of added and removed lines: the palette's
+    /// `diff.add.bg` and `diff.remove.bg` when it sets both, else a blend of a truecolor
+    /// theme's background in truecolor mode; a palette theme has no background colour
+    /// to blend with.
     tint: Option<(Colour, Colour)>,
     /// The kind of the line rendered last.
     last: Kind,
@@ -69,6 +77,16 @@ impl Diff {
     /// The kind of the line that [`line`](Self::line) rendered last.
     pub(crate) fn last_kind(&self) -> Kind {
         self.last
+    }
+
+    /// The background of the row of the line that [`line`](Self::line) rendered last:
+    /// the tint of an added or a removed line, else none.
+    pub(crate) fn fill(&self) -> Option<Colour> {
+        match self.last {
+            Kind::Added => self.tint.map(|(added, _)| added),
+            Kind::Removed => self.tint.map(|(_, removed)| removed),
+            _ => None,
+        }
     }
 
     pub(crate) fn line(&mut self, text: &str) -> Line {
@@ -159,10 +177,11 @@ impl Diff {
         }
     }
 
-    /// Starts fresh highlighting for the file a header names. Grammars are not
-    /// loaded when the output has no colour.
+    /// Starts fresh highlighting for the file a header names. Only in truecolor: in
+    /// 16 colours a changed line is in its role's colour alone, and without colour
+    /// nothing is coloured.
     fn set_syntax(&mut self, path: &str) {
-        if self.style.colour == ColourMode::None {
+        if self.style.colour != ColourMode::TrueColor {
             return;
         }
         let path = path.split('\t').next().unwrap_or(path).trim();
@@ -177,22 +196,20 @@ impl Diff {
     }
 
     fn changed(&mut self, text: &str, added: bool) -> Line {
-        let (role, tint) = if added {
-            (self.style.added, self.tint.map(|(added, _)| added))
-        } else {
-            (self.style.removed, self.tint.map(|(_, removed)| removed))
-        };
-        let base = tint.map_or(Style::PLAIN, |tint| Style::PLAIN.on(tint));
+        let role = if added { self.style.added } else { self.style.removed };
         let (sign, content) = text.split_at(1);
-        let mut line = vec![Span::new(sign, base.patch(role.bold()))];
+        let mut line = vec![Span::new(sign, role.bold())];
         let side = if added { &mut self.new } else { &mut self.old };
         match side.as_mut().and_then(|highlight| highlight.line(content)) {
             Some(tokens) => {
                 for (style, piece) in tokens {
-                    push_span(&mut line, Span::new(piece, base.patch(style)));
+                    push_span(&mut line, Span::new(piece, style));
                 }
             }
-            None => push_span(&mut line, Span::new(content, base.patch(role))),
+            None if !added && self.style.colour == ColourMode::None => {
+                push_span(&mut line, Span::new(content, role.dim()));
+            }
+            None => push_span(&mut line, Span::new(content, role)),
         }
         line
     }
@@ -237,10 +254,10 @@ fn hunk_counts(header: &str) -> Option<(u32, u32)> {
     Some((old, new))
 }
 
+/// A hunk header, whole in `diff.hunk`: the ranges and the function context after
+/// them (TM-Code 1).
 fn hunk_header(text: &str, style: Style) -> Line {
-    let end = text[2..].find("@@").map_or(text.len(), |at| at + 4);
-    let (header, rest) = text.split_at(end);
-    vec![Span::new(header, style), Span::plain(rest)]
+    vec![Span::new(text, style)]
 }
 
 /// Three parts background to one part tint.

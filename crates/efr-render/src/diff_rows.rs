@@ -9,13 +9,14 @@ use crate::code::{CodeBlock, CodeStyle, source_lines};
 use crate::highlight::ASSETS;
 use crate::options::RenderOptions;
 use crate::palette::Role;
-use crate::style::{Line, Painter, Span, expand_tabs, push_span, sanitize};
+use crate::style::{Line, Painter, Span, expand_tabs, on_fill, push_span, sanitize};
 use crate::width::{WidthMethod, display_width, text_width};
 
 /// The rows of each line of the unified diff `diff`, at most the options' width each:
 /// one entry per line, in order. Added lines are in the `diff.add` role, removed lines
 /// in `diff.remove`, hunk headers in `diff.hunk`, with the diffed file's syntax colours
-/// inside, as [`render`](crate::render) shows a fenced `diff` block. A line wider than
+/// inside, as [`render`](crate::render) shows a fenced `diff` block, and the tint of
+/// an added or a removed line behind its text. A line wider than
 /// the width is cut into rows at the width, never at a space, because a diff shows
 /// code: the rows of a line read back as the line. Every row opens and closes its own
 /// SGR state, and a row that a cut ends keeps its trailing spaces. When the output is
@@ -40,7 +41,8 @@ pub fn diff_rows(diff: &str, options: &RenderOptions) -> Vec<Vec<String>> {
     lines
         .into_iter()
         .map(|source| {
-            let rows = split(&block.line(source), width, method);
+            let line = block.line(source);
+            let rows = split(&on_fill(line, block.changed_fill()), width, method);
             let last = rows.len().saturating_sub(1);
             rows.iter()
                 .enumerate()

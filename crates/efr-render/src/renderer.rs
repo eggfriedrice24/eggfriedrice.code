@@ -401,7 +401,7 @@ impl Stream {
         let lines = source_lines(&code.text);
         for line in lines.iter().skip(skip) {
             let rendered = block.line(line);
-            self.flow.write(ctx, out, &rendered);
+            self.flow.write_row(ctx, out, &[], &rendered, block.fill());
         }
         let skip = if code.fenced {
             // Each line of a top-level fenced block is one source line after the

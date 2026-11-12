@@ -6,9 +6,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
 [end]
 \e[33m·\e[0m \e[32mwrite notes.md\e[0m
 \e[2m  │ \e[0m\e[36m@@ -0,0 +1,2000 @@\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m# Notes\e[0m
 \e[2m  │ \e[0m\e[1;32m+\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m- one
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m- one\e[0m
 \e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
@@ -28,9 +28,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
 [end]
 \e[33m·\e[0m \e[32mwrite notes.md\e[0m
 \e[2m  │ \e[0m\e[36m@@ -0,0 +1,2000 @@\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m# Notes\e[0m
 \e[2m  │ \e[0m\e[1;32m+\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m- one
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32m- one\e[0m
 \e[2m  │ \e[0m\e[2m… 1997 more lines\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m

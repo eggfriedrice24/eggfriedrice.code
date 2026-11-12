@@ -15,9 +15,12 @@ total 0
 None:
 Run this:
 
-\e[2msh\e[0m
+\e[2m```sh\e[0m
 ls -la
+\e[2m```\e[0m
 
 It prints:
 
+\e[2m```text\e[0m
 total 0
+\e[2m```\e[0m

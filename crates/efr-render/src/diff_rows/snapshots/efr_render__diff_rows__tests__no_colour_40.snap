@@ -10,7 +10,7 @@ expression: shown(&plain)
 
  fn main() {
 
-\e[1m-\e[0m    println!("old");
+\e[1m-\e[0m\e[2m    println!("old");\e[0m
 
 \e[1m+\e[0m    println!("a new line that is much l
 onger than forty columns");

@@ -23,7 +23,7 @@ expression: every_role(&options)
 \e[1;38;2;224;93;79m-\e[0m\e[38;2;224;93;79mold\e[0m
 \e[1;38;2;143;191;106m+\e[0m\e[38;2;143;191;106mnew\e[0m
 
-\e[38;2;122;114;102msrc/main.rs\e[0m
+\e[38;2;122;114;102mrust · src/main.rs\e[0m
 \e[35mfn\e[0m\e[38;2;232;226;212m \e[0m\e[34mmain\e[0m\e[38;2;232;226;212m() { \e[0m\e[35mlet\e[0m\e[38;2;232;226;212m s \e[0m\e[35m=\e[0m\e[38;2;232;226;212m \e[0m\e[32m"hi"\e[0m\e[38;2;232;226;212m; } \e[0m\e[32m// note\e[0m
 
 \e[38;2;232;226;212mtext\e[0m

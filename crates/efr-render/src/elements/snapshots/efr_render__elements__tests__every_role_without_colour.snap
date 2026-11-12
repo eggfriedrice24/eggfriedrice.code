@@ -19,12 +19,15 @@ Prose with `code`, a \e]8;;https://example.com\e\\e[4mlink\e]8;;\e\\e[0m and \e[
 
 \e[2m────────────────────────────────────────\e[0m
 
+\e[2m```diff\e[0m
 \e[2m@@ -1 +1 @@\e[0m
-\e[1m-\e[0mold
+\e[1m-\e[0m\e[2mold\e[0m
 \e[1m+\e[0mnew
+\e[2m```\e[0m
 
-\e[2msrc/main.rs\e[0m
-fn main() { let s = "hi"; } // note
+\e[2m```rust\e[0m
+fn main() { let s = "hi"; } \e[3m// note\e[0m
+\e[2m```\e[0m
 
 text
 \e[2mmuted\e[0m

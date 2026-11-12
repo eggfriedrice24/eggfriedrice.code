@@ -8,18 +8,18 @@ expression: shown
 \e[2m│ \e[0mwrite ~/.zshrc (user config)
 \e[2m│ \e[0m~/.zshrc
 \e[2m│ \e[0m\e[36m@@ -1,2 +1,2 @@\e[0m
-\e[2m│ \e[0m \e[35mexport\e[0m EDITOR\e[35m=\e[0m\e[32mnvim\e[0m
-\e[2m│ \e[0m\e[1;31m-\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -l'\e[0m
-\e[2m│ \e[0m\e[1;32m+\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -la'\e[0m
+\e[2m│ \e[0m export EDITOR=nvim
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[31malias ll='ls -l'\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[32malias ll='ls -la'\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[32m✓ allowed\e[0m
 \e[33m·\e[0m \e[32medit ~/.zshrc\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,2 +1,2 @@\e[0m
-\e[2m  │ \e[0m \e[35mexport\e[0m EDITOR\e[35m=\e[0m\e[32mnvim\e[0m
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -l'\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -la'\e[0m
+\e[2m  │ \e[0m export EDITOR=nvim
+\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31malias ll='ls -l'\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32malias ll='ls -la'\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
 
@@ -30,7 +30,7 @@ expression: shown
 \e[2m│ \e[0m~/.zshrc
 \e[2m│ \e[0m\e[2m@@ -1,2 +1,2 @@\e[0m
 \e[2m│ \e[0m export EDITOR=nvim
-\e[2m│ \e[0m\e[1m-\e[0malias ll='ls -l'
+\e[2m│ \e[0m\e[1m-\e[0m\e[2malias ll='ls -l'\e[0m
 \e[2m│ \e[0m\e[1m+\e[0malias ll='ls -la'
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -39,7 +39,7 @@ expression: shown
 \e[1m·\e[0m edit ~/.zshrc
 \e[2m  │ \e[0m\e[2m@@ -1,2 +1,2 @@\e[0m
 \e[2m  │ \e[0m export EDITOR=nvim
-\e[2m  │ \e[0m\e[1m-\e[0malias ll='ls -l'
+\e[2m  │ \e[0m\e[1m-\e[0m\e[2malias ll='ls -l'\e[0m
 \e[2m  │ \e[0m\e[1m+\e[0malias ll='ls -la'
   ✓
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
@@ -50,18 +50,18 @@ expression: shown
 \e[2m│ \e[0mwrite ~/.zshrc (user config)
 \e[2m│ \e[0m~/.zshrc
 \e[2m│ \e[0m\e[36m@@ -1,2 +1,2 @@\e[0m
-\e[2m│ \e[0m \e[35mexport\e[0m EDITOR\e[35m=\e[0m\e[32mnvim\e[0m
-\e[2m│ \e[0m\e[1;31m-\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -l'\e[0m
-\e[2m│ \e[0m\e[1;32m+\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -la'\e[0m
+\e[2m│ \e[0m export EDITOR=nvim
+\e[2m│ \e[0m\e[1;31m-\e[0m\e[31malias ll='ls -l'\e[0m
+\e[2m│ \e[0m\e[1;32m+\e[0m\e[32malias ll='ls -la'\e[0m
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
 [end]
 \e[32m✓ allowed\e[0m
 \e[33m·\e[0m \e[32medit ~/.zshrc\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,2 +1,2 @@\e[0m
-\e[2m  │ \e[0m \e[35mexport\e[0m EDITOR\e[35m=\e[0m\e[32mnvim\e[0m
-\e[2m  │ \e[0m\e[1;31m-\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -l'\e[0m
-\e[2m  │ \e[0m\e[1;32m+\e[0m\e[36malias\e[0m \e[34mll\e[0m\e[35m=\e[0m\e[32m'ls -la'\e[0m
+\e[2m  │ \e[0m export EDITOR=nvim
+\e[2m  │ \e[0m\e[1;31m-\e[0m\e[31malias ll='ls -l'\e[0m
+\e[2m  │ \e[0m\e[1;32m+\e[0m\e[32malias ll='ls -la'\e[0m
   \e[32m✓\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
 
@@ -72,7 +72,7 @@ expression: shown
 \e[2m│ \e[0m~/.zshrc
 \e[2m│ \e[0m\e[2m@@ -1,2 +1,2 @@\e[0m
 \e[2m│ \e[0m export EDITOR=nvim
-\e[2m│ \e[0m\e[1m-\e[0malias ll='ls -l'
+\e[2m│ \e[0m\e[1m-\e[0m\e[2malias ll='ls -l'\e[0m
 \e[2m│ \e[0m\e[1m+\e[0malias ll='ls -la'
 \e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
 
@@ -81,7 +81,7 @@ expression: shown
 \e[1m·\e[0m edit ~/.zshrc
 \e[2m  │ \e[0m\e[2m@@ -1,2 +1,2 @@\e[0m
 \e[2m  │ \e[0m export EDITOR=nvim
-\e[2m  │ \e[0m\e[1m-\e[0malias ll='ls -l'
+\e[2m  │ \e[0m\e[1m-\e[0m\e[2malias ll='ls -l'\e[0m
 \e[2m  │ \e[0m\e[1m+\e[0malias ll='ls -la'
   ✓
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m1s\e[0m
