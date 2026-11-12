@@ -123,3 +123,17 @@ fn strip(text: &str) -> String {
     }
     out
 }
+
+#[test]
+fn the_sign_is_one_column_however_the_text_after_it_is_painted() {
+    // A line that stays, whose sign is in one span with the spaces and the word after
+    // it: the sign is the space alone, and no space of the text goes.
+    let diff =
+        "--- a/a.rs\n+++ b/a.rs\n@@ -1,1 +1,1 @@\n             self.state = State::Draining;\n";
+    for mode in [ColourMode::TrueColor, ColourMode::Ansi16, ColourMode::None] {
+        let options = RenderOptions::new(200).with_colour(mode);
+        let line = diff_lines(diff, &options).pop().unwrap();
+        let text = crate::width::display_width(&line.rows.concat(), options.width_method());
+        assert_eq!(crate::width::display_width(&line.sign, options.width_method()) + text, 42);
+    }
+}

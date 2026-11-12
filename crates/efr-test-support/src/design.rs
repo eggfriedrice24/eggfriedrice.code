@@ -547,6 +547,20 @@ pub fn check_rows(
     real: &str,
     depth: Depth,
 ) -> Result<(), String> {
+    check_rows_where(frame, range, real, depth, |_, _| false)
+}
+
+/// [`check_rows`], but a cell for which `text_only(row, column)` is true compares by its
+/// text and its background only, as a space does: for a part of a row whose colours
+/// another part of efr paints, such as the syntax colours inside the rows of a diff.
+/// `row` counts from the first row of `range`.
+pub fn check_rows_where(
+    frame: &Frame,
+    range: impl RangeBounds<usize>,
+    real: &str,
+    depth: Depth,
+    text_only: impl Fn(usize, usize) -> bool,
+) -> Result<(), String> {
     let expected = expect(frame, depth).map_err(|error| error.to_string())?;
     let rows: Vec<&Row> = expected
         .rows
@@ -585,7 +599,7 @@ pub fn check_rows(
             }
             let w = on_fill(want.get(column).copied().unwrap_or(blank), row.fill);
             let r = on_fill(real.cells.get(column).copied().unwrap_or(blank), real.fill);
-            let space = w.text == ' ' && r.text == ' ';
+            let space = (w.text == ' ' && r.text == ' ') || text_only(index, column);
             let matches = w.text == r.text
                 && same(w.look.bg, r.look.bg)
                 && (space

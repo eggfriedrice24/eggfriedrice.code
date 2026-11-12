@@ -1,6 +1,9 @@
 use pretty_assertions::assert_eq;
 
-use super::{DESIGN_ROLES, Depth, Frame, Ink, Look, assert_rows, cells, check_rows, expect, rgb};
+use super::{
+    DESIGN_ROLES, Depth, Frame, Ink, Look, assert_rows, cells, check_rows, check_rows_where,
+    expect, rgb,
+};
 
 const YELLOW: Ink = Ink::Rgb(0xff, 0xc9, 0x40);
 const MUTED: Ink = Ink::Rgb(0x86, 0x95, 0xb7);
@@ -164,4 +167,25 @@ fn a_cell_on_the_fill_of_its_row_compares_as_a_cell_on_no_background() {
     // No fill at all differs too.
     let bare = format!("{text}\n");
     assert!(check_rows(&frame, 87..88, &bare, Depth::TrueColor).unwrap_err().contains("fill"));
+}
+
+#[test]
+fn a_cell_on_the_fill_of_its_row_is_the_row_and_a_part_can_be_text_only() {
+    // TM-Legend 21: an added row on `diff.add.bg`. efr writes each cell on the fill
+    // and erases the rest of the row with it; the board draws the fill behind the row.
+    let frame = Frame::load("Legend", 21).unwrap();
+    let fill = "\x1b[48;2;25;44;23m";
+    let sign = "\x1b[1;38;2;96;230;84;48;2;25;44;23m+\x1b[0m";
+    let code = format!("\x1b[38;2;192;132;252mlet\x1b[0m{fill} x = 1;");
+    let row = format!("{fill}  {sign}{fill} {code}\x1b[K\x1b[0m\n");
+    // The colours of the code are not the board's: the check fails on them, and passes
+    // when they compare by their text.
+    let problem = check_rows(&frame, .., &row, Depth::TrueColor).unwrap_err();
+    assert!(problem.contains("column 8"), "{problem}");
+    check_rows_where(&frame, .., &row, Depth::TrueColor, |_, column| column >= 4).unwrap();
+    // The text still counts.
+    let other = row.replace("x = 1", "y = 1");
+    assert!(
+        check_rows_where(&frame, .., &other, Depth::TrueColor, |_, column| column >= 4).is_err()
+    );
 }
