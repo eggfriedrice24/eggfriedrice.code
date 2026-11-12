@@ -4,6 +4,7 @@ use efr_render::{Colour, Role, Theme};
 use pretty_assertions::assert_eq;
 
 use efr_config::{COLOR_ROLES, CONFIG_FILE};
+use efr_test_support::design::{DESIGN_ROLES, DESIGN_THEME, rgb};
 
 use super::{Settings, Source, Warning, problem};
 use crate::terminal::Background;
@@ -201,6 +202,28 @@ async fn the_theme_file_gives_the_backgrounds_and_a_code_theme_for_sixteen_colou
     assert_eq!(settings.code_theme_ansi_path, Some(dir.path().join("ansi.tmTheme")));
     let options = crate::testing::terminal_facts().render_options(80, &settings);
     assert_eq!(options.code_theme_ansi(), settings.code_theme_ansi.as_ref());
+}
+
+/// The theme file of the design system is the table of the 13 roles of TM-Legend and
+/// the three backgrounds of the design: each role takes the colour of the design, and
+/// both code themes load from the paths that the file names.
+#[tokio::test]
+async fn the_theme_file_of_the_design_system_is_the_legend() {
+    let theme = Path::new(DESIGN_THEME).join("efr/eggfriedrice.toml");
+    let config = format!("[render]\npalette = \"{}\"\n", theme.display());
+    let dir = root(&config, &[]);
+    let settings = Settings::load(dir.path(), None, dir.path()).await;
+    assert!(settings.warnings.is_empty(), "{:?}", settings.warnings);
+    for (name, hex) in DESIGN_ROLES {
+        let (Some(role), Some((r, g, b))) = (Role::from_name(name), rgb(hex)) else {
+            panic!("{name} {hex} is no role of efr-render");
+        };
+        assert_eq!(settings.palette.get(role), Some(Colour::Rgb(r, g, b)), "the role {name}");
+    }
+    let code_theme = settings.code_theme.as_ref().and_then(|theme| theme.name());
+    assert_eq!(code_theme, Some("eggfriedrice"));
+    let code_theme_ansi = settings.code_theme_ansi.as_ref().and_then(|theme| theme.name());
+    assert_eq!(code_theme_ansi, Some("eggfriedrice-ansi"));
 }
 
 #[tokio::test]

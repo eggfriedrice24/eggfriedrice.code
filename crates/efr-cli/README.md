@@ -1420,7 +1420,9 @@ colour tests run the status row, a call and a question in 16 colours, in truecol
 under `NO_COLOR` with a palette of the user's, and check that `COLOR_ROLES` equals the
 roles of `efr-render`; the settings tests lay `[render.colors]` over a theme file, read
 a code theme by a path relative to the theme file, warn about a theme file or a code
-theme that cannot be used, and pick the theme of `auto` by `EFR_TERMINAL_BG`. The
+theme that cannot be used, pick the theme of `auto` by `EFR_TERMINAL_BG`, and load
+the theme file of the design system (`efr_test_support::design::DESIGN_THEME`): each
+role takes the colour of the TM-Legend roles table, and both code themes load. The
 width tests count the rows of ZWJ emoji, flags and variation selectors by code point
 and by grapheme cluster, and redraw a live zone of such text both ways. The clip tests
 show the last rows of a line taller than the screen on a test grid, with its colours

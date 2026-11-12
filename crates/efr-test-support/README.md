@@ -50,7 +50,10 @@ directories, a store and provider traffic from one place and never from the mach
   it from the truecolor frame through one table; `assert_rows(frame, range, real,
   depth)` compares text, colour and attributes cell by cell and names the first row
   that differs. `DESIGN_ROLES` gives the 16 roles of efr's palette with the colours of
-  the design. The module does not depend on `efr-render`.
+  the design. `DESIGN_THEME` is the folder of the theme of the design system
+  (eggfriedrice): copies of its generated files `efr/eggfriedrice.toml`,
+  `bat/eggfriedrice.tmTheme` and `bat/eggfriedrice-ansi.tmTheme`, which a change in
+  the design system copies here again. The module does not depend on `efr-render`.
 - `fixtures`: `fixtures::path(file!(), "case.ndjson")` is the file in the `fixtures/`
   directory of the crate that holds the calling test, found from `file!()` and never
   from the current directory. `crate_dir` and `dir` give the crate and its fixture

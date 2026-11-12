@@ -234,7 +234,12 @@ each mode, the code points and the ASCII forms of `Glyphs`, and that `diff_lines
 gives each line its kind, its sign apart and the rows that `diff_rows` paints. The
 test `design` of the test binary compares the output with a frame of the terminal
 design (`efr_test_support::design`, TM-Legend frame 6) in truecolor and in 16
-colours: the pattern of each test of the terminal look. A unit test checks that the shared highlighter colours each line as
+colours: the pattern of each test of the terminal look. The test `theme` renders the
+code blocks of TM-Code with the code themes of the design system
+(`efr_test_support::design::DESIGN_THEME`) and compares the colour and the attributes
+of each cell of code with frame 1 (truecolor) and frame 2 (16 colours, the ANSI code
+theme). It lists the cells where the grammars give no scope that a theme can use, and
+it fails when one of them closes. A unit test checks that the shared highlighter colours each line as
 a new highlighter for each line did. Nothing touches the network, the terminal or the
 home directory.
 

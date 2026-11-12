@@ -46,6 +46,13 @@ use crate::TestSupportError;
 /// The fixtures of the design, in this crate.
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/design");
 
+/// The theme of the design system (eggfriedrice), as its generator writes it: the theme
+/// file `efr/eggfriedrice.toml`, which names the code themes
+/// `bat/eggfriedrice.tmTheme` (truecolor) and `bat/eggfriedrice-ansi.tmTheme` (16
+/// colours, bat's ANSI encoding) by relative paths. Each file is a copy of the file of
+/// the same path under `extras/` of the design system; a change there is copied here.
+pub const DESIGN_THEME: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/design/theme");
+
 /// Each of the 16 roles of efr's palette (`efr_render::Role`, by its name) with the
 /// colour that the design gives it (TM-Legend, the table of the 13 roles, and the three
 /// backgrounds of DECISIONS.md). A test in [`Depth::TrueColor`] builds its palette from
