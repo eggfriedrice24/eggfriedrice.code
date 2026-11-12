@@ -116,7 +116,8 @@
 # same prompts again.
 #
 # The plugin only observes and relays. The daemon derives git root, scope and
-# permissions, so nothing here runs git or forks per prompt.
+# permissions, so nothing here runs git. The one fork is the warm-up of a prompt line
+# (`efr warm` in the background, at most once for each line, see _efr_warm_line).
 #
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND, the terminal's
@@ -1214,6 +1215,9 @@ _efr_accept_line() {
     _efr_saved_options=($options[interactivecomments] $options[banghist])
     unsetopt interactive_comments
   fi
+  # NOTE: zsh redraws the line once more after accept-line, and the rewrite above can
+  # make a prompt line of it only now. The prompt warms its connection itself.
+  _efr_warmed=1
   zle _efr_orig_accept_line
 }
 

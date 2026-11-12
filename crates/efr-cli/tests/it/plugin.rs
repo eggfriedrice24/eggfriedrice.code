@@ -3282,8 +3282,8 @@ fn e2e_a_prompt_of_several_lines_with_a_blank_in_front_keeps_out_of_history() {
 }
 
 /// As [`DRIVER`], but `$EFR_KEYS` comes in parts split at `<pause>`, with a pause of
-/// 0.4 s after each part, as a person types: ZLE redraws, and runs its redraw hooks,
-/// only when no key waits.
+/// 0.4 s after each part, as a person types, so ZLE redraws the line, and runs its
+/// redraw hooks, after each part.
 const PAUSING_DRIVER: &str = r#"
 zmodload zsh/zpty || exit 90
 zmodload zsh/zselect || exit 92
@@ -3376,6 +3376,25 @@ fn e2e_a_prompt_line_warms_the_connection_once_while_it_is_typed() {
         assert!(!call.cmdline.contains("build") && !call.cmdline.contains("explain"));
         assert_eq!((call.prompt.as_deref(), call.context.as_deref()), (None, None));
     }
+}
+
+#[test]
+fn e2e_a_line_that_enter_makes_a_prompt_starts_no_warm_up() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let runtime = home.path().join("efr");
+    std::fs::create_dir(&runtime).unwrap();
+    let _socket = std::os::unix::net::UnixListener::bind(runtime.join("daemon.sock")).unwrap();
+
+    // Enter makes `, fix the bug` of the line; the redraw after it must not warm.
+    type_slowly(&home, &[",fix the bug", "\r", ", go", " on", "\r"]);
+
+    let all: Vec<Vec<String>> = home.calls().into_iter().map(|call| call.args).collect();
+    assert_eq!(warms(&home).len(), 1, "only `, go on` warms: {all:?}");
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert!(prompts.contains(&Some("fix the bug".to_owned())), "{all:?} {prompts:?}");
 }
 
 #[test]
