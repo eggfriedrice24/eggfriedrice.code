@@ -1,4 +1,6 @@
-//! The live search picker of `,resume`: fzf, inline below the command line.
+//! The live search picker of `,resume`: fzf, inline below the command line
+//! (TM-Commands frame 6): the prompt line `> <query>` with the count of the rows at its
+//! right end, the rows, and the muted key line; the preview as before.
 //!
 //! efr starts fzf as a child, writes the first rows to its stdin, and reads the key and
 //! the chosen row from its stdout. fzf draws on the terminal itself, in 40% of its
@@ -32,10 +34,11 @@ pub(crate) use fzf::ProcessFzf;
 
 /// The oldest fzf that has every option of [`fzf_args`] and exports `FZF_QUERY` to the
 /// commands of the picker. fzf's `CHANGELOG.md` names 0.46.0 for `FZF_QUERY`; every
-/// other option is older (`reload-sync` 0.36.0, the `<N(...)` preview layout 0.31.0,
-/// `--disabled` 0.25.0). Since 0.41.1 a reload with `--disabled` runs the preview again,
-/// also when the same row keeps the focus, so its marks follow the query with no bind of
-/// our own; a `load:refresh-preview` bind ran it twice for each key.
+/// other option is older (`--info=inline-right` 0.42.0, `--no-separator` 0.36.0,
+/// `reload-sync` 0.36.0, the `<N(...)` preview layout 0.31.0, `--disabled` 0.25.0).
+/// Since 0.41.1 a reload with `--disabled` runs the preview again, also when the same
+/// row keeps the focus, so its marks follow the query with no bind of our own; a
+/// `load:refresh-preview` bind ran it twice for each key.
 pub(crate) const FZF_FLOOR: Version = Version { major: 0, minor: 46, patch: 0 };
 
 /// The name of the program on the `PATH`.
@@ -219,7 +222,11 @@ pub(crate) fn fzf_args(look: &PickerLook) -> Vec<OsString> {
         "--delimiter=\t".to_owned(),
         "--with-nth=2..".to_owned(),
         "--header-lines=1".to_owned(),
-        "--prompt=resume> ".to_owned(),
+        // NOTE: the count of the rows stands at the right end of the prompt line, so the
+        // picker is the prompt line and the rows (TM-Commands frame 6).
+        "--info=inline-right".to_owned(),
+        "--no-separator".to_owned(),
+        "--prompt=> ".to_owned(),
         "--expect=ctrl-o,ctrl-d,esc".to_owned(),
         // NOTE: the query comes back first, so the picker opens again with it after a
         // delete.
@@ -265,8 +272,9 @@ pub(crate) fn fzf_query_opts(words: &str) -> OsString {
 /// efr role with the same palette key in the eggfriedrice design system (its `fzf` and
 /// `efr` extras). The base is `bw` without colour (`NO_COLOR`), `16` with the
 /// terminal's 16 colours, and `dark` or `light` (`light`) in 24-bit colour. A role
-/// with no colour writes `-1`, the terminal's own. The parts with no efr role
-/// (`bg+`, `border`, `separator`, `label`, `scrollbar`) keep the base scheme's.
+/// with no colour writes `-1`, the terminal's own, with `:dim` when efr writes it dim.
+/// The parts with no efr role (`bg+`, `gutter`, `border`, `separator`, `label`,
+/// `scrollbar`) keep the base scheme's.
 pub(crate) fn fzf_colours(options: &RenderOptions, light: bool) -> String {
     let base = match options.colour() {
         ColourMode::None => "bw",
@@ -283,11 +291,11 @@ pub(crate) fn fzf_colours(options: &RenderOptions, light: bool) -> String {
         ("prompt", Some(Role::Accent)),
         ("pointer", Some(Role::Accent)),
         ("marker", Some(Role::Success)),
-        ("info", Some(Role::Quote)),
+        ("info", Some(Role::Muted)),
         ("spinner", Some(Role::DiffHunk)),
+        // NOTE: efr paints the key line and the notes of the header itself, `muted`.
         ("header", Some(Role::DiffHunk)),
         ("bg", None),
-        ("gutter", None),
     ];
     let mut out = base.to_owned();
     for (name, role) in parts {
@@ -296,8 +304,18 @@ pub(crate) fn fzf_colours(options: &RenderOptions, light: bool) -> String {
         out.push_str(name);
         out.push(':');
         out.push_str(colour.as_deref().unwrap_or("-1"));
+        // NOTE: `muted` with no colour is dim, as on efr's own lines (the count and the
+        // key line of TM-Commands frame 6).
+        if colour.is_none() && role.is_some_and(|role| dim(options, role)) {
+            out.push_str(":dim");
+        }
     }
     out
+}
+
+/// True when efr writes `role` dim (SGR 2) in this colour mode.
+fn dim(options: &RenderOptions, role: Role) -> bool {
+    options.sgr(role).is_some_and(|params| params.split(';').any(|code| code == "2"))
 }
 
 /// The colour of `role` as fzf writes one: a palette number (`3`) or `#rrggbb`, from

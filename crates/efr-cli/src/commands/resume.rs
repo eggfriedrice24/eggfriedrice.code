@@ -8,8 +8,8 @@
 //! prints it as `efr history` does, Esc closes and changes nothing. Without the picker
 //! (no fzf, an older one, a pipe, `TERM=dumb`, `resume.picker = "list"`, an older efrd)
 //! it prints the list of `format/resume.rs`, inline, the conversations of the current
-//! scope first, byte for byte as before the picker; a reason that the user may not
-//! expect, such as an fzf that is too old, adds one muted line after it.
+//! scope first; a reason that the user may not expect, such as an fzf that is too old,
+//! adds one muted line after it.
 //!
 //! An argument of one or two digits is N in the list that efrd computes at that
 //! moment. A whole id, or at least 4 characters of hex digits and `-` that start
@@ -411,8 +411,9 @@ async fn resume_loop(
                     here,
                     continues_here,
                 };
-                let line = resume::resumed_line(&resumed, ctx.clock.now(), ctx.home.as_deref());
-                return out.out(&format!("{}\n", format::paint(&line, Tone::Dim, &options)));
+                let now = ctx.clock.now();
+                let line = resume::resumed_line(&resumed, now, ctx.home.as_deref(), &options);
+                return out.out(&format!("{line}\n"));
             }
             ConversationResumeResult::Held { tty, title } if !take => {
                 if !ctx.keys.available() {

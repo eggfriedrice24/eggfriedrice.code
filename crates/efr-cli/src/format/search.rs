@@ -18,9 +18,10 @@ use efr_render::{RenderOptions, WidthMethod, text_width};
 use jiff::Timestamp;
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use super::resume::{MIN_TITLE, Row, pad, pad_left};
+use super::resume::{MIN_TITLE, Row, WIDE_GAP, pad, pad_left};
 use super::route::age;
-use super::{Tone, columns, keys, one_line, paint};
+use super::status::separator;
+use super::{Tone, columns, one_line, paint};
 
 /// The widest title of a row of the picker.
 const PICKER_TITLE: usize = 48;
@@ -58,9 +59,8 @@ const CUT: &str = "\u{2026}";
 /// What stands for a conversation without a title.
 const NO_TITLE: &str = "(no title)";
 
-/// The keys of the picker, as its header shows them.
-const KEYS: [(&str, &str); 4] =
-    [("enter", "resume"), ("ctrl-o", "print"), ("ctrl-d", "delete"), ("esc", "close")];
+/// The keys of the picker and what each does, as its key line says them.
+const KEYS: [&str; 4] = ["enter resumes", "ctrl-o prints", "ctrl-d deletes", "esc closes"];
 
 /// The byte ranges in `text` of `ranges`, which count Unicode code points: each one cut
 /// to the text, an empty or reversed one dropped, sorted, and those that overlap or
@@ -265,10 +265,12 @@ fn note(partial: Option<SearchPartial>, index: Option<SearchIndexState>) -> Opti
 }
 
 /// The first line of each list that fzf shows, which `--header-lines=1` keeps as the
-/// header: an empty id, then the keys and, when there is one, a muted `note`, such as
-/// `indexing: 40%` or why the search failed.
+/// header: an empty id, then the muted key line, `enter resumes · ctrl-o prints ·
+/// ctrl-d deletes · esc closes` (TM-Commands frame 6), and, when there is one, a muted
+/// `note`, such as `indexing: 40%` or why the search failed.
 pub(crate) fn picker_header(note: Option<&str>, options: &RenderOptions) -> String {
-    let mut line = format!("\t{}", keys(&KEYS, options));
+    let keys = KEYS.join(&separator(options));
+    let mut line = format!("\t{}", paint(&keys, Tone::Dim, options));
     if let Some(note) = note.filter(|note| !note.trim().is_empty()) {
         let note = Marked::plain(note.trim()).window(
             PICKER_SNIPPET,
@@ -295,8 +297,9 @@ struct Cells {
 }
 
 impl Cells {
-    fn of(row: &SearchRow, now: Timestamp) -> Cells {
-        let Row { scope, age, turns, holder, .. } = Row::of(&row.conversation, now);
+    fn of(row: &SearchRow, now: Timestamp, options: &RenderOptions) -> Cells {
+        let Row { scope, age, turns, holder, .. } =
+            Row::of(&row.conversation, now, options.glyphs());
         let title = match &row.conversation.summary.title {
             Some(title) => Marked::new(title, &row.title_ranges),
             None => Marked::plain(NO_TITLE),
@@ -338,8 +341,10 @@ fn widest(cells: &[Cells], pick: impl Fn(&Cells) -> usize) -> usize {
 
 /// What `efr search --picker` prints for fzf: the header, then one row per
 /// conversation, best first: its id, a tab, then the title, the scope, the age, the
-/// turns, the terminal that holds it and the snippet of the best match, in columns.
-/// fzf shows the part after the tab. A row takes at most [`ROW_BYTES`].
+/// turns, the terminal that holds it and the snippet of the best match, in columns
+/// with three blanks after the title and the scope and two after the rest, as the
+/// list of `,resume` (TM-Commands frame 6). fzf shows the part after the tab. A row
+/// takes at most [`ROW_BYTES`].
 pub(crate) fn picker_rows(
     result: &ConversationsSearchResult,
     now: Timestamp,
@@ -348,7 +353,7 @@ pub(crate) fn picker_rows(
     let mut out = picker_header(note(result.partial, result.index).as_deref(), options);
     let method = options.width_method();
     let cells: Vec<Cells> =
-        result.rows.iter().map(|row| Cells::of(row, now).for_picker(method)).collect();
+        result.rows.iter().map(|row| Cells::of(row, now, options).for_picker(method)).collect();
     let title_w = widest(&cells, |cells| cells.title.width(method));
     let scope_w = widest(&cells, |cells| cells.scope.width(method));
     let age_w = widest(&cells, |cells| text_width(&cells.age, method));
@@ -360,7 +365,7 @@ pub(crate) fn picker_rows(
         line.push_str(&" ".repeat(title_w.saturating_sub(cells.title.width(method))));
         let _ = write!(
             line,
-            "  {}  {}  {}",
+            "{WIDE_GAP}{}{WIDE_GAP}{}  {}",
             pad(&cells.scope.text, scope_w, method),
             pad(&cells.age, age_w, method),
             pad_left(&cells.turns, turns_w, method),
@@ -402,7 +407,7 @@ pub(crate) fn list(
     if result.rows.is_empty() {
         out.push_str("no conversation matches\n");
     }
-    let cells: Vec<Cells> = result.rows.iter().map(|row| Cells::of(row, now)).collect();
+    let cells: Vec<Cells> = result.rows.iter().map(|row| Cells::of(row, now, options)).collect();
     let scope_w = widest(&cells, |cells| cells.scope.width(method));
     let age_w = widest(&cells, |cells| text_width(&cells.age, method));
     let turns_w = widest(&cells, |cells| text_width(&cells.turns, method));

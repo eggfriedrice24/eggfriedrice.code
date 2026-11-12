@@ -89,7 +89,7 @@ fn fzf_colours_follow_the_default_palette() {
     let options = RenderOptions::new(80);
     assert_eq!(
         fzf_colours(&options, false),
-        "16,fg:-1,fg+:-1,query:-1,hl:3,hl+:3,prompt:3,pointer:3,marker:2,info:-1,spinner:6,header:6,bg:-1,gutter:-1"
+        "16,fg:-1,fg+:-1,query:-1,hl:3,hl+:3,prompt:3,pointer:3,marker:2,info:-1:dim,spinner:6,header:6,bg:-1"
     );
 }
 
@@ -99,13 +99,15 @@ fn fzf_colours_of_the_eggfriedrice_theme_match_its_fzf_extra() {
         let byte = |at: usize| u8::from_str_radix(&text[at..at + 2], 16).unwrap();
         Colour::Rgb(byte(1), byte(3), byte(5))
     };
-    // The colours of `extras/efr/eggfriedrice.toml` of eggfriedrice.nvim.
+    // The colours of `extras/efr/eggfriedrice.toml` of eggfriedrice.nvim, with `muted`
+    // and `quote` as the terminal look sets them (text_subtle and text_muted): the count
+    // of the picker is `muted` (TM-Commands frame 6), the `info` of the fzf extra.
     let palette = Palette::new()
         .with(Role::Text, hex("#d8d3c3"))
-        .with(Role::Muted, hex("#a8a396"))
+        .with(Role::Muted, hex("#8695b7"))
         .with(Role::Accent, hex("#ffc940"))
         .with(Role::Success, hex("#60e654"))
-        .with(Role::Quote, hex("#8695b7"))
+        .with(Role::Quote, hex("#a8a396"))
         .with(Role::DiffHunk, hex("#78e2d6"));
     let options =
         RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(palette.clone());
@@ -113,7 +115,7 @@ fn fzf_colours_of_the_eggfriedrice_theme_match_its_fzf_extra() {
     // leaves to the terminal.
     assert_eq!(
         fzf_colours(&options, false),
-        "dark,fg:#d8d3c3,fg+:#d8d3c3,query:#d8d3c3,hl:#ffc940,hl+:#ffc940,prompt:#ffc940,pointer:#ffc940,marker:#60e654,info:#8695b7,spinner:#78e2d6,header:#78e2d6,bg:-1,gutter:-1"
+        "dark,fg:#d8d3c3,fg+:#d8d3c3,query:#d8d3c3,hl:#ffc940,hl+:#ffc940,prompt:#ffc940,pointer:#ffc940,marker:#60e654,info:#8695b7,spinner:#78e2d6,header:#78e2d6,bg:-1"
     );
     assert!(fzf_colours(&options, true).starts_with("light,fg:#d8d3c3,"));
     // In 16 colours, the nearest of the terminal's colours, as efr's own lines show.
@@ -128,7 +130,7 @@ fn fzf_colours_without_colour_are_black_and_white() {
     let options = RenderOptions::new(80).with_colour(ColourMode::None);
     assert_eq!(
         fzf_colours(&options, false),
-        "bw,fg:-1,fg+:-1,query:-1,hl:-1,hl+:-1,prompt:-1,pointer:-1,marker:-1,info:-1,spinner:-1,header:-1,bg:-1,gutter:-1"
+        "bw,fg:-1,fg+:-1,query:-1,hl:-1,hl+:-1,prompt:-1,pointer:-1,marker:-1,info:-1:dim,spinner:-1:dim,header:-1:dim,bg:-1"
     );
 }
 

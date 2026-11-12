@@ -1536,9 +1536,8 @@ format characters. A notice never enters a running turn. It waits until the turn
 - When the conversation is idle, the notice starts a short turn of its own, a wake
   turn, marked `↪ a job notice started this turn (not your input)`. This occurs in
   every mode. The wake turn runs in the mode of your newest prompt, or in the mode of
-  the job's turn when
-  you sent no prompt since. Outside `auto`, its commands ask you as in any turn of
-  that mode.
+  the job's turn when you sent no prompt since. Outside `auto`, its commands ask you
+  as in any turn of that mode.
 - At most `jobs.max_wakes_per_hour` (6) wake turns start in a conversation in an hour,
   and `jobs.max_wakes_per_hour_daemon` (12) in all. efr counts them over restarts. 0
   means that notices never start a turn.

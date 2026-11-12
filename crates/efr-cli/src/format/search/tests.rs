@@ -12,6 +12,7 @@ use super::{
     Marked, ROW_BYTES, clamp_ranges, list, picker_header, picker_rows, preview, preview_failure,
 };
 use crate::testing::{bare, readable};
+use efr_test_support::design::{Depth, Frame, assert_rows};
 
 fn now() -> Timestamp {
     "2026-10-20T12:00:00Z".parse().unwrap()
@@ -122,6 +123,57 @@ fn ranges_are_clamped_sorted_and_merged() {
     assert_eq!(clamp_ranges("", &ranges(&[(0, 4)])), none);
 }
 
+/// The rows of TM-Commands frame 6: three conversations of `app`, for `steer`.
+fn steer() -> ConversationsSearchResult {
+    let of_app = |n, title, minutes, turns| {
+        let mut row = row(n, Some(title), minutes, turns);
+        row.conversation.route = app();
+        row.conversation.project = Some("app".to_owned());
+        row
+    };
+    let mut first = of_app(1, "fix steer race in turn loop", 25, 6);
+    first.conversation.here = true;
+    let second = of_app(2, "why steer lands after finish", 2 * 1_440 + 5, 2);
+    let mut third = of_app(3, "steer and queue frames", 5 * 1_440 + 5, 4);
+    third.conversation.open_in = Some("/dev/pts/4".to_owned());
+    ConversationsSearchResult { rows: vec![first, second, third], ..Default::default() }
+}
+
+/// TM-Commands frame 6, rows 3 to 5: the rows that fzf shows and the key line, each
+/// after the two columns of fzf's pointer. fzf draws the prompt line, the count and the
+/// pointer of the current row (row 2), and the bold of the current row.
+#[test]
+fn the_rows_of_the_picker_are_the_design() {
+    let frame = Frame::load("TM-Commands", 6).unwrap();
+    for depth in Depth::ALL {
+        let options = crate::testing::design_options(depth, frame.cols);
+        let text = picker_rows(&steer(), now(), &options);
+        let shown: String =
+            text.lines().map(|line| format!("  {}\n", line.split_once('\t').unwrap().1)).collect();
+        let (keys, rows) = shown.split_once('\n').unwrap();
+        let rows: Vec<&str> = rows.lines().collect();
+        // NOTE: the board puts `app` of rows 3 and 4 one column right of where three
+        // blanks after the widest title put it, and row 2 one column left of it; its
+        // note says that columns align by spaces, so each row has three blanks after
+        // the widest title.
+        let fixed = crate::testing::design_fixed(
+            &frame,
+            depth,
+            &[
+                (3, "finish    app", "finish   app"),
+                (4, "frames          app", "frames         app"),
+            ],
+        );
+        assert_rows(&fixed, 3..=4, &format!("{}\n{}\n", rows[1], rows[2]), depth);
+        assert_rows(&frame, 5..=5, &format!("{keys}\n"), depth);
+        let first = bare(rows[0]);
+        assert_eq!(
+            first,
+            "  fix steer race in turn loop    app   25 min ago  6 turns  this terminal"
+        );
+    }
+}
+
 #[test]
 fn picker_rows_with_matches() {
     let text = picker_rows(&found(), now(), &terminal());
@@ -155,21 +207,21 @@ fn picker_header_says_how_far_the_index_is_and_why_the_search_stopped() {
     };
     insta::assert_snapshot!(
         picker_rows(&result, now(), &pipe()),
-        @"\tenter resume · ctrl-o print · ctrl-d delete · esc close   indexing: 40% · partial: time cap"
+        @"\tenter resumes · ctrl-o prints · ctrl-d deletes · esc closes   indexing: 40% · partial: time cap"
     );
     let result =
         ConversationsSearchResult { partial: Some(SearchPartial::RowCap), ..Default::default() };
     insta::assert_snapshot!(
         picker_rows(&result, now(), &pipe()),
-        @"\tenter resume · ctrl-o print · ctrl-d delete · esc close   partial: row cap"
+        @"\tenter resumes · ctrl-o prints · ctrl-d deletes · esc closes   partial: row cap"
     );
     assert_eq!(
         picker_header(None, &pipe()),
-        "\tenter resume · ctrl-o print · ctrl-d delete · esc close\n"
+        "\tenter resumes · ctrl-o prints · ctrl-d deletes · esc closes\n"
     );
     insta::assert_snapshot!(
         readable(&picker_header(Some("efrd does not answer"), &terminal())).replace('\t', "\\t"),
-        @r"\t\e[1menter\e[0m\e[2m resume\e[0m\e[2m · \e[0m\e[1mctrl-o\e[0m\e[2m print\e[0m\e[2m · \e[0m\e[1mctrl-d\e[0m\e[2m delete\e[0m\e[2m · \e[0m\e[1mesc\e[0m\e[2m close\e[0m   \e[2mefrd does not answer\e[0m"
+        @r"\t\e[2menter resumes · ctrl-o prints · ctrl-d deletes · esc closes\e[0m   \e[2mefrd does not answer\e[0m"
     );
 }
 

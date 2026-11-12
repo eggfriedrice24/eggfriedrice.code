@@ -401,7 +401,7 @@ fn enter_resumes_the_row_and_fzf_gets_only_what_it_needs() {
     );
 
     assert!(ran.status.success(), "{ran:?}", ran = (&ran.status, &ran.screen, &ran.stderr));
-    assert!(ran.screen.contains("↪ resumed \"docker compose for the blog\""), "{}", ran.screen);
+    assert!(ran.screen.contains("resumed \"docker compose for the blog\""), "{}", ran.screen);
     // The first connection searched with the empty query and resumed; the reload of
     // fzf searched for the query of fzf on a connection of its own.
     assert_eq!(
@@ -726,7 +726,7 @@ fn titles_in(shown: &Shown) -> Vec<&'static str> {
 fn shows(shown: &Shown, query: &str, titles: &[&str]) -> bool {
     let contents = shown.parser.screen().contents();
     contents.matches("enter resume").count() == 1
-        && contents.contains(&format!("resume> {query}"))
+        && contents.contains(&format!("> {query}"))
         && titles_in(shown) == titles
 }
 
@@ -897,7 +897,15 @@ impl Picking {
         assert!(modes.contains(cooked), "the terminal is not cooked again: {modes:?}");
         let alternate = bytes.windows(8).any(|window| window == b"\x1b[?1049h");
         assert!(!alternate, "fzf drew on the alternate screen");
-        assert!(!screen.contains("resume>"), "the prompt of the picker stays:\n{screen}");
+        // NOTE: the prompt line of the picker ends with the count of its rows, `3/3`.
+        let count = |row: &str| {
+            let last = row.trim_end().rsplit(' ').next().unwrap_or_default();
+            last.split_once('/').is_some_and(|(a, b)| {
+                [a, b].iter().all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+        };
+        let prompt = screen.lines().any(|row| row.starts_with("> ") && count(row));
+        assert!(!prompt, "the prompt of the picker stays:\n{screen}");
         assert!(!screen.contains("enter resume"), "the header stays:\n{screen}");
         (status, screen)
     }
@@ -913,6 +921,40 @@ async fn pick<T: Send + 'static>(
 ) -> T {
     let picking = Picking::start(daemon, fzf, vars);
     tokio::task::spawn_blocking(move || steps(picking)).await.unwrap()
+}
+
+/// The picker as fzf draws it (TM-Commands frame 6): the prompt line `> ` with the count
+/// of the rows at its right end and no line of its own for the count, the muted key
+/// line, then the rows. fzf puts the header under the prompt line in its reverse
+/// layout; the board draws the key line under the rows, which only fzf's footer (0.63
+/// and newer) can do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_the_picker_is_the_prompt_line_the_key_line_and_the_rows() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (shown, ended) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        let shown = picking.screen.wait("the picker", |shown| {
+            let rows: Vec<String> = shown.parser.screen().rows(0, PREVIEW_FROM).collect();
+            Some(rows)
+        });
+        picking.keys("\x1b");
+        (shown, picking.end())
+    })
+    .await;
+
+    let picker: Vec<&str> =
+        shown.iter().map(|row| row.trim_end()).skip_while(|row| !row.starts_with("> ")).collect();
+    let text = picker.join("\n");
+    assert!(picker.len() > 3, "{text}");
+    assert!(picker[0].ends_with(&format!("{n}/{n}", n = RECENT.len())), "the count: {text}");
+    assert!(picker[1].trim_start().starts_with("enter resumes - ctrl-o prints"), "{text}");
+    for (row, title) in picker[2..].iter().zip(RECENT) {
+        assert!(row.contains(title), "{text}");
+    }
+    assert!(ended.0.success(), "{ended:?}");
+    daemon.stop().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1196,7 +1238,7 @@ async fn e2e_fzf_ctrl_d_asks_deletes_and_opens_the_picker_again_with_its_query()
             move |shown: &Shown| {
                 let contents = shown.parser.screen().contents();
                 (contents.contains("deleted \"rsync the photos to the laptop\"")
-                    && contents.contains(&format!("resume> {query}"))
+                    && contents.contains(&format!("> {query}"))
                     && contents.contains(count))
                 .then_some(())
             }

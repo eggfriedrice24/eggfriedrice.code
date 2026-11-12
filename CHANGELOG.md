@@ -230,6 +230,11 @@ into the GitHub release notes, and it stops when the section is missing.
   started · output $SCRATCH/jobs/j3.out · ends in 60 min`, and a turn that a job
   notice started is marked `↪ a job notice started this turn (not your input)`, with
   no emoji.
+- The list of `,resume` names the place outside every project `⌂ home` (`~ home` in a
+  locale that is not UTF-8), not `no project`. The line after a resume says `at home`
+  and `it continues at your next prompt`. The picker's prompt is `> ` with the count
+  of the rows at its right end, and its key line is dim: `enter resumes · ctrl-o
+  prints · ctrl-d deletes · esc closes`.
 
 ### Fixed
 

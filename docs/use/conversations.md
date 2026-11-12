@@ -101,8 +101,9 @@ the same by hand.
 ## Continue an older conversation
 
 `,resume` shows your recent conversations. The conversations of the current project
-come first. Each row has a title, the project, the age, the count of turns, and a mark
-when a terminal holds it.
+come first. Each row has a title, the place (the project, or `⌂ home` for a
+conversation outside every project), the age, the count of turns, and a mark when a
+terminal holds it.
 
 ### Without fzf
 
@@ -110,11 +111,14 @@ Without fzf, `,resume` prints a numbered list. On a terminal, efr cuts the title
 that each row fits:
 
 ```text
- 1  fix the proxy test     app              25 min ago   6 turns   this terminal
- 2  why is the build slow  app              2 h ago      3 turns   open in /dev/pts/4
- 3  (no title)             removed project  3 d ago       1 turn
+  1  fix steer race in turn loop   app      25 min ago  6 turns  this terminal
+  2  nftables rules                ⌂ home   2 h ago     5 turns  open in /dev/pts/4
+  3  why is the build slow         home     3 d ago     2 turns
 ,resume N continues one here
 ```
+
+The mark `⌂` stands for home, so a project named `home` stays a bare `home`. In a
+locale that is not UTF-8, the mark is `~`.
 
 `,resume 2` makes conversation 2 this terminal's conversation for its project again.
 You can also give a conversation id, or its first 4 characters or more.
@@ -122,10 +126,11 @@ You can also give a conversation id, or its first 4 characters or more.
 The next `,` prompt in that project continues the conversation, with its context. Its
 hidden shell starts in its last directory, and its background jobs report here. A
 project conversation stays in its project. When you resume it from another
-directory, the dim line says where it continues:
+directory, the line says where it continues:
 
 ```text
-↪ resumed "fix the tests" (app, 2 h ago); it continues when you prompt in ~/p/app
+↪ resumed "fix the tests" (app, 2 h ago); it continues at your next prompt in ~/p/app
+↪ resumed "nftables rules" (⌂ home, 2 h ago); it continues at your next prompt at home
 ```
 
 When another open terminal holds the conversation, efr asks first:
@@ -141,7 +146,10 @@ When another open terminal holds the conversation, efr asks first:
 
 With fzf 0.46 or newer on your `PATH`, `,resume` opens a live search picker. The
 picker opens below the command line, in 40% of the terminal's height. It never takes
-the full screen, and it clears its rows when it closes.
+the full screen, and it clears its rows when it closes. The first line is the prompt,
+`> `, with the count of the rows at its right end. A dim line under it names the keys:
+`enter resumes · ctrl-o prints · ctrl-d deletes · esc closes`. The rows follow, in the
+columns of the list.
 
 - Before you type, the picker shows the recent conversations, the ones of the current
   project first.
@@ -198,7 +206,7 @@ side. [ADR 0019](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/d
 start of the conversation's id, which `efr resume` takes:
 
 ```text
-rsync the photos to the laptop  app         25 min ago  6 turns   this terminal        019a9b11
+rsync the photos to the laptop  app     25 min ago  6 turns   this terminal        019a9b11
     please rsync ~/photos to the laptop and check its disk
 efr resume <id> continues one here
 ```

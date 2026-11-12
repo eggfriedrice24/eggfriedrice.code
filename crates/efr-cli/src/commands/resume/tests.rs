@@ -266,7 +266,8 @@ async fn resume_n_resumes_row_n_of_the_list_that_efrd_computes() {
     let [resume] = ran.resumes.try_into().unwrap();
     assert_eq!((resume.conversation_id, resume.take), (id(2), false));
     assert_eq!(resume.context.shell_pid, Some(4242));
-    assert_eq!(ran.stdout, "↪ resumed \"why is the build slow\" (no project, just now)\n");
+    // NOTE: the test's locale is not UTF-8, so the marks are the ASCII ones.
+    assert_eq!(ran.stdout, "=> resumed \"why is the build slow\" (~ home, just now)\n");
 }
 
 #[tokio::test]
@@ -275,7 +276,7 @@ async fn resume_lists_with_the_plugins_hint() {
     let ran = Box::pin(resume_with(terminal(&env), &env, &[], Vec::new(), Vec::new(), None)).await;
 
     assert_eq!(ran.exit, Exit::Success);
-    assert!(ran.stdout.starts_with(" 1  fix the tests"), "{}", ran.stdout);
+    assert!(ran.stdout.starts_with("  1  fix the tests"), "{}", ran.stdout);
     assert!(ran.stdout.ends_with(",resume N continues one here\n"), "{}", ran.stdout);
 }
 
@@ -350,7 +351,7 @@ async fn resume_held_asks_and_y_takes_it() {
     let [first, second] = ran.resumes.try_into().unwrap();
     assert!(!first.take && second.take);
     assert_ne!(first.command_id, second.command_id, "a new command, so no receipt answers it");
-    assert!(ran.stdout.ends_with("↪ resumed \"why is the build slow\" (no project, just now)\n"));
+    assert!(ran.stdout.ends_with("=> resumed \"why is the build slow\" (~ home, just now)\n"));
 }
 
 #[tokio::test]
@@ -500,7 +501,7 @@ async fn enter_in_the_picker_resumes_the_row() {
     let ran = Box::pin(resume_in(ctx, &env, &[], daemon)).await;
 
     assert_eq!(ran.exit, Exit::Success, "{}", ran.stderr);
-    assert_eq!(bare(&ran.stdout), "↪ resumed \"why is the build slow\" (no project, just now)\n");
+    assert_eq!(bare(&ran.stdout), "↪ resumed \"why is the build slow\" (⌂ home, just now)\n");
     let [resume] = ran.resumes.try_into().unwrap();
     assert_eq!((resume.conversation_id, resume.take), (id(2), false));
     assert_eq!(resume.context.shell_pid, Some(4242));
