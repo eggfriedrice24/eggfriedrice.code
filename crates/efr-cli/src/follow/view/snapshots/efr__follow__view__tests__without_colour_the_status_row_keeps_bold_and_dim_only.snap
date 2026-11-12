@@ -5,5 +5,5 @@ expression: readable(&frames)
 \e[?2026h\r\e[1A\e[J\e[1m⠹\e[0m \e[2m\e[0mwa\e[0;2miting for the model\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[J\e[1m⠸\e[0m \e[2mwaiting for the mode\e[0ml\e[0m  \e[2m2s\e[0m
+\e[?2026h\r\e[1A\e[J\e[1m⠸\e[0m \e[2mwaiting for the mode\e[0ml\e[0m   \e[2m2s\e[0m
 \e[?2026l

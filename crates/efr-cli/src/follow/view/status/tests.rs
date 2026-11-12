@@ -109,8 +109,9 @@ fn every_state_has_its_words() {
                 bytes: 3_250,
                 words: Some("print(len(s.split()))".to_owned()),
             },
-            "preparing write_file, 3.2 KB",
+            "preparing write_file",
         ),
+        (State::Reviewing("reviewing: ./scripts/gen.sh".to_owned()), "reviewing"),
         (State::Tool("shell".to_owned()), "running shell"),
         (State::Answer, "waiting for an answer"),
         (State::Connecting, "connecting"),
@@ -137,12 +138,33 @@ fn every_state_has_its_words() {
 }
 
 #[test]
+fn the_detail_is_the_reasoning_or_the_size_and_the_words_of_a_tool_input() {
+    let preparing = |bytes, words: Option<&str>| State::Preparing {
+        call: 1,
+        tool: "write_file".to_owned(),
+        bytes,
+        words: words.map(str::to_owned),
+    };
+    let cases = [
+        (State::Thinking(Some("Reading the logs".to_owned())), Some("Reading the logs")),
+        (State::Thinking(None), None),
+        (preparing(0, None), None),
+        (preparing(3_250, None), Some("3.2 KB")),
+        (preparing(3_250, Some("print(x)")), Some("3.2 KB  print(x)")),
+        (State::Writing, None),
+    ];
+    for (state, detail) in cases {
+        assert_eq!(state.detail().as_deref(), detail, "{state:?}");
+    }
+}
+
+#[test]
 fn twenty_seconds_without_data_while_waiting_or_writing_is_a_stall() {
     let mut status = started(false);
     status.set(State::Writing);
     status.at(at(41_000), false);
-    let row = status.row(at(41_000), &RenderOptions::new(80).with_terminal(true));
-    assert!(row.contains("waiting for the model, no data for 41s"), "{row:?}");
+    let row = bare(&status.row(at(41_000), &RenderOptions::new(80).with_terminal(true)));
+    assert!(row.contains("waiting for the model  no data for 41s   41s"), "{row:?}");
     status.stir();
     status.at(at(42_000), false);
     assert!(status.row(at(42_000), &options()).contains("writing"));
@@ -159,8 +181,8 @@ fn a_connect_that_gets_no_answer_for_twenty_seconds_is_a_stall() {
     status.at(at(5_000), false);
     assert!(status.row(at(5_000), &options()).contains("connecting"));
     status.at(at(60_000), false);
-    let row = status.row(at(60_000), &options());
-    assert!(row.contains("waiting for the model, no data for 1m 00s"), "{row:?}");
+    let row = bare(&status.row(at(60_000), &options()));
+    assert!(row.contains("waiting for the model  no data for 1m 00s"), "{row:?}");
 }
 
 #[test]
@@ -198,7 +220,7 @@ fn a_long_state_is_cut_so_the_row_fits_one_row() {
 }
 
 #[test]
-fn status_row_shows_full_before_away() {
+fn away_is_a_note_of_the_state_and_full_follows_the_scope() {
     let palette = Palette::new()
         .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75))
         .with(Role::Warning, Colour::Palette(5));
@@ -206,17 +228,24 @@ fn status_row_shows_full_before_away() {
     let mut status = started(false);
     status.set_full(true);
     status.set_away(true);
+    status.set_scope(Some("app".to_owned()));
     status.at(at(2_000), false);
     let row = status.row(at(2_000), &options);
-    let full = "  \x1b[38;2;224;108;117mfull\x1b[0m";
-    let away = "  \x1b[35maway\x1b[0m";
-    assert!(row.ends_with(&format!("{full}{away}\n")), "{}", readable(&row));
-    // Without colour the tag stays, as the other roles do, and a turn that is not full
+    let away = "model\x1b[0m  \x1b[35maway\x1b[0m   ";
+    let full = "app\x1b[0m\x1b[2m \u{b7} \x1b[0m\x1b[38;2;224;108;117mfull\x1b[0m\n";
+    assert!(row.contains(away) && row.ends_with(full), "{}", readable(&row));
+    // Without colour the tags stay, as the other roles do, and a turn that is not full
     // has none.
     let plain = RenderOptions::new(60).with_colour(ColourMode::None);
-    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s  full  away\n"));
+    let row = bare(&status.row(at(2_000), &plain));
+    assert_eq!(row, "\u{2022} waiting for the model  away   2s   app \u{b7} full\n");
     status.set_full(false);
-    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s  away\n"));
+    status.set_scope(None);
+    let row = bare(&status.row(at(2_000), &plain));
+    assert_eq!(row, "\u{2022} waiting for the model  away   2s\n");
+    // Full mode with no scope is `full` alone.
+    status.set_full(true);
+    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s   full\n"));
 }
 
 #[test]
@@ -232,8 +261,8 @@ fn the_full_tag_counts_in_the_width_of_the_row() {
         40,
         "{row:?}"
     );
-    // The detail of the state comes last, after the tags.
-    assert!(bare(&row).contains("12s  full  away  xx"), "{row:?}");
+    // The detail of the state comes last, after `full`.
+    assert!(bare(&row).contains("thinking  away   12s   full   xx"), "{row:?}");
 }
 
 /// A row at 4 s into the turn, thinking, with the context 43% full and `scope` at its
@@ -253,20 +282,26 @@ fn scoped(scope: &str, width: u16) -> String {
 
 #[test]
 fn status_row_names_the_project() {
-    insta::assert_snapshot!(scoped("app", 60), @"• thinking  4s  ctx 43%  app");
+    insta::assert_snapshot!(scoped("app", 60), @"• thinking   4s   ctx 43%   app");
 }
 
 #[test]
-fn status_row_names_no_project() {
-    insta::assert_snapshot!(scoped("○ ~/notes", 60), @"• thinking  4s  ctx 43%  ○ ~/notes");
+fn status_row_names_home_and_its_directory() {
+    insta::assert_snapshot!(scoped("\u{2302} ~/notes", 60), @"• thinking   4s   ctx 43%   ⌂ ~/notes");
 }
 
 #[test]
-fn status_row_drops_the_scope_first_when_narrow() {
-    // 32 columns hold the state, the time and the gauge, but not the scope too.
-    insta::assert_snapshot!(scoped("○ ~/notes", 32), @"• thinking  4s  ctx 43%");
-    // Narrower still, the gauge goes too, and what the turn does stays.
-    insta::assert_snapshot!(scoped("○ ~/notes", 20), @"• thinking  4s");
+fn the_scope_never_leaves_a_narrow_row_and_the_gauge_goes() {
+    // 40 columns hold the state with its 10 columns, the time, the gauge and the scope.
+    insta::assert_snapshot!(scoped("app", 40), @"• thinking   4s   ctx 43%   app");
+    // Narrower, the gauge goes, and the scope stays.
+    insta::assert_snapshot!(scoped("app", 30), @"• thinking   4s   app");
+    // A directory is cut from the left, at a `/` when it can, and keeps 10 columns.
+    insta::assert_snapshot!(
+        scoped("\u{2302} /etc/nftables.d/rules", 40),
+        @"• thinking   4s   ⌂ …/nftables.d/rules"
+    );
+    insta::assert_snapshot!(scoped("\u{2302} /etc/nftables.d", 30), @"• thinking   4s   ⌂ …ftables.d");
     // The scope is muted, as every routing line is.
     let palette = Palette::new().with(Role::Muted, Colour::Palette(8));
     let options = RenderOptions::new(60).with_colour(ColourMode::TrueColor).with_palette(palette);
@@ -275,5 +310,41 @@ fn status_row_drops_the_scope_first_when_narrow() {
     status.at(at(2_000), false);
     let row = status.row(at(2_000), &options);
     let muted = options.paint(Role::Muted, "app");
-    assert!(row.ends_with(&format!("  {muted}\n")), "{}", readable(&row));
+    assert!(row.ends_with(&format!("   {muted}\n")), "{}", readable(&row));
 }
+
+#[test]
+fn the_model_names_its_account_and_effort_and_the_ascii_glyphs_stand_in() {
+    use efr_protocol::EffectiveSettings;
+
+    let settings: EffectiveSettings = serde_json::from_value(serde_json::json!({
+        "mode": "auto",
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "provider": "anthropic-api.work",
+    }))
+    .unwrap();
+    let model = super::Model::of(&settings);
+    assert_eq!(model.whole(), "work/claude-opus-5-5 high");
+    let default: EffectiveSettings = serde_json::from_value(serde_json::json!({
+        "mode": "auto",
+        "model": "gpt-5.5",
+        "provider": "openai-subscription",
+    }))
+    .unwrap();
+    assert_eq!(super::Model::of(&default).whole(), "gpt-5.5");
+    let mut status = started(false);
+    status.set_model(Some(model));
+    status.set_scope(Some("~ /etc".to_owned()));
+    status.set_full(true);
+    status.at(at(2_000), false);
+    let ascii = RenderOptions::new(80)
+        .with_colour(ColourMode::None)
+        .with_glyphs(&efr_render::Glyphs::ASCII);
+    assert_eq!(
+        bare(&status.row(at(2_000), &ascii)),
+        "* waiting for the model   2s   work/claude-opus-5-5 high   ~ /etc - full\n"
+    );
+}
+
+mod design;

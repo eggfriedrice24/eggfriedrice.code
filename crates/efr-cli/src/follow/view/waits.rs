@@ -2,12 +2,20 @@
 //! silence, the manual input line, what the user types, and the texts of each wait. The
 //! live slice of the terminal look owns this file: an `impl TurnView` block next to
 //! `view.rs`.
+//!
+//! The answer line takes the place of the input row, under the last lines of the
+//! command's output (TM-Live 21-23): `?` in the `warning` role in bold, what the
+//! command waits for in `warning`, two spaces and the keys muted, such as `? the command
+//! waits for input  enter answers · ctrl+c stops the command`. Under it, `› ` and what
+//! the user types; nothing of a password shows, not even dots. After a silence of a
+//! command that takes a manual input, one muted row offers `Ctrl+\\` (TM-Live 24).
 
 use efr_protocol::{CallId, InputWait};
-use efr_render::render_trace;
+use efr_render::{Glyphs, RenderOptions, render_trace};
 
 use super::{About, AnswerKind, Ask, MOVE_WAITS, Step, TurnView, echo_edit};
-use crate::format::{self};
+use crate::follow::SILENCE;
+use crate::format::{self, Tone};
 use crate::terminal::Size;
 
 impl TurnView {
@@ -106,16 +114,19 @@ impl TurnView {
             self.commit(String::new())
         } else {
             let options = self.options_at(size);
+            let command = self.commands.get(&call_id).map(String::as_str);
             let mut err = String::new();
             if !prompt.is_empty() {
                 err.push_str(&render_trace(&prompt, &options));
             }
-            err.push_str(kind.line());
-            err.push('\n');
+            err.push_str(&piece_row(
+                &kind.line(command.and_then(program), options.glyphs()),
+                &options,
+            ));
             let mut err = self.raw_err(err);
             // A shown answer is echoed on the next line as it is typed.
             if kind.shown() {
-                err.push_str(ECHO_PREFIX);
+                err.push_str(&echo_prefix(options.glyphs()));
                 self.echo_line = true;
             }
             Step { err, ..Step::default() }
@@ -150,7 +161,7 @@ impl TurnView {
             return self.commit(String::new());
         }
         let header = self.due_header(size);
-        let step = self.note(SILENCE_HINT, size);
+        let step = self.note(&silence_hint(self.options.glyphs()), size);
         Step { err: format!("{header}{}", step.err), ..step }
     }
 
@@ -243,8 +254,11 @@ impl TurnView {
             return self.commit(String::new());
         }
         // A note since the last key ended the echo line; a new one starts empty.
-        let (mut err, shown) =
-            if echo_line { (String::new(), typed.as_str()) } else { (ECHO_PREFIX.to_owned(), "") };
+        let (mut err, shown) = if echo_line {
+            (String::new(), typed.as_str())
+        } else {
+            (echo_prefix(self.options.glyphs()), "")
+        };
         err.push_str(&echo_edit(shown, text));
         text.clone_into(typed);
         self.echo_line = true;
@@ -306,31 +320,109 @@ impl TurnView {
     }
 }
 
-/// The line under the prompt of a command that waits for hidden input. It promises no
-/// more than echo being off: the prompt text comes from the command, and the program
-/// that reads the answer can print it, so a fake password prompt would get it.
-pub(super) const HIDDEN_INPUT: &str = "type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it";
+/// What a command waits for, in the answer line of a visible wait.
+const VISIBLE: &str = "the command waits for input";
 
-/// The line under the prompt of a command that waits for visible input. It promises no
-/// more than this: on a plain terminal the echo puts the answer in the output that the
-/// model reads, but behind a relay such as `sudo`'s own pty the program on the inner
-/// terminal decides whether the answer is shown.
-pub(super) const VISIBLE_INPUT: &str =
-    "type the answer and press Enter; the agent sees it if the program shows it";
+/// The keys of the answer line of a visible wait.
+const VISIBLE_KEYS: &[&str] = &["enter answers", "ctrl+c stops the command"];
 
-/// The line under a visible prompt that looks like a password prompt behind a relay,
-/// such as `sudo`'s own pty: what is typed is not shown, and it goes as a visible
-/// answer, because the program on the inner terminal decides whether it is shown.
-pub(super) const SECRET_INPUT: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
+/// The keys of the answer line of a hidden wait: what is typed shows nowhere, so a fake
+/// password prompt gets nothing on the screen either.
+const HIDDEN_KEYS: &[&str] = &["typing is hidden", "enter answers"];
 
-/// The line under a call that has printed nothing for a while and reports no wait;
-/// the follow loop shows it after [`SILENCE`](crate::follow::SILENCE).
-pub(super) const SILENCE_HINT: &str =
-    "no output for 10 s; press Ctrl+\\ to type an input for the command";
+/// What a manual input line asks for: nothing reported a prompt.
+const MANUAL: &str = "an input for the command";
 
-/// The line under a manual answer, which is not shown: no prompt was reported, so it
-/// may be a password. The program's own echo, if any, shows in the output.
-pub(super) const MANUAL_INPUT: &str = "type the input and press Enter, or Ctrl+\\ to cancel; your typing is not shown here, and the agent sees it only if the program shows it";
+/// The keys of a manual input line, which is not shown: it may be a password.
+const MANUAL_KEYS: &[&str] = &["typing is not shown here", "ctrl+\\ cancels"];
+
+/// The answer line of a wait of `kind` for a command whose first program is `program`,
+/// as pieces: `?` in the `warning` role in bold, what it waits for in `warning`, two
+/// spaces, and the keys muted, apart by the separator of `glyphs`.
+pub(super) fn answer_line(
+    kind: AnswerKind,
+    program: Option<&str>,
+    glyphs: &Glyphs,
+) -> Vec<(String, Tone)> {
+    let program = program.unwrap_or("the command");
+    let separator = format!(" {} ", glyphs.separator);
+    let (what, keys) = match kind {
+        AnswerKind::Visible => (VISIBLE.to_owned(), VISIBLE_KEYS.join(&separator)),
+        AnswerKind::Hidden => (format!("password for {program}"), HIDDEN_KEYS.join(&separator)),
+        // NOTE: the program on the inner terminal decides whether the answer shows, and
+        // the agent sees it only if that program shows it.
+        AnswerKind::Masked => (
+            format!("looks like a password behind {program}"),
+            format!("typing is not shown here; {program} decides the rest"),
+        ),
+        AnswerKind::Manual => (MANUAL.to_owned(), MANUAL_KEYS.join(&separator)),
+    };
+    vec![
+        (glyphs.question.to_owned(), Tone::AttentionBold),
+        (" ".to_owned(), Tone::Plain),
+        (what, Tone::Attention),
+        ("  ".to_owned(), Tone::Plain),
+        (keys, Tone::Dim),
+    ]
+}
+
+/// The first program of `command`, such as `sudo` of `sudo pacman -Syu`, for the answer
+/// line; `None` for an empty command.
+pub(crate) fn program(command: &str) -> Option<&str> {
+    let word = command.split_whitespace().find(|word| !word.contains('='))?;
+    Some(word.rsplit('/').next().unwrap_or(word))
+}
+
+/// `pieces` as one row with its newline, cut to the width on a terminal.
+pub(crate) fn piece_row(pieces: &[(String, Tone)], options: &RenderOptions) -> String {
+    let mut out = String::new();
+    let mut left = format::columns(options).map(|(width, _)| width);
+    for (text, tone) in pieces {
+        let text = match (left, format::columns(options)) {
+            (Some(room), Some((_, method))) => {
+                let width = efr_render::text_width(text, method);
+                if width > room {
+                    let cut = format::cut(text, room, method);
+                    out.push_str(&format::paint(&cut, *tone, options));
+                    break;
+                }
+                left = Some(room - width);
+                text.clone()
+            }
+            _ => text.clone(),
+        };
+        out.push_str(&format::paint(&text, *tone, options));
+    }
+    out.push('\n');
+    out
+}
+
+/// The row under an answer line: `› ` in the `accent` role and what the user typed,
+/// when it is shown; the mark alone when it is not.
+pub(crate) fn echo_row(typed: Option<&str>, options: &RenderOptions) -> String {
+    let mut out = format::paint(options.glyphs().prompt, Tone::Accent, options);
+    out.push(' ');
+    if let Some(typed) = typed {
+        out.push_str(&format::one_line(typed));
+    }
+    out.push('\n');
+    out
+}
+
+/// What the echo of a visible answer starts with when the output is not a terminal.
+pub(crate) fn echo_prefix(glyphs: &Glyphs) -> String {
+    format!("{} ", glyphs.prompt)
+}
+
+/// The row under a call that has printed nothing for [`SILENCE`] and reports no wait:
+/// `no output for 10s · ctrl+\\ types an input for the command`.
+pub(crate) fn silence_hint(glyphs: &Glyphs) -> String {
+    format!(
+        "no output for {} {} ctrl+\\ types an input for the command",
+        format::elapsed(SILENCE),
+        glyphs.separator
+    )
+}
 
 /// The note when the user closed a manual answer line unsent.
 pub(super) const MANUAL_CANCELLED: &str = "the input was not sent";
@@ -355,6 +447,3 @@ pub(super) const ANSWER_SENT: &str = "answer sent";
 /// The note when the daemon refused an answer because the wait was over.
 pub(super) const ANSWER_REFUSED: &str =
     "the command no longer waits for that input; nothing was sent";
-
-/// What the echo of a visible answer starts with.
-pub(super) const ECHO_PREFIX: &str = "> ";

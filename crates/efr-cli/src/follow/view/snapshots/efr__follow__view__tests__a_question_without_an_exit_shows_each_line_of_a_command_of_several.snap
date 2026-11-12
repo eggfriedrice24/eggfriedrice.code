@@ -2,9 +2,9 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-? allow this command
-│ cd src
-│ export RUST_LOG=debug
-│ cargo test -p efr-cli
-│ unset RUST_LOG
-│ y allow · n deny
+ ?  allow this command
+    cd src
+    export RUST_LOG=debug
+    cargo test -p efr-cli
+    unset RUST_LOG
+    y allow   n deny

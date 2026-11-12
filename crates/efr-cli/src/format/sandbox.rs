@@ -696,14 +696,14 @@ pub(crate) fn exit_card(
         }
     }
     if !parts.is_empty() {
-        rows.push(Row::text(format!("why: {}", parts.join("; ")), Tone::Dim));
+        rows.push(Row::labelled(card::WHY, parts.join("; ")));
     }
     if unsandboxed && let Some(record) = record.filter(|record| !record.facts.programs.is_empty()) {
-        let mut pieces = vec![("programs: ".to_owned(), Tone::Dim)];
+        let mut pieces = vec![("programs".to_owned(), Tone::Dim), ("  ".to_owned(), Tone::Plain)];
         for (at, fact) in record.facts.programs.iter().enumerate() {
             let separator = if at == 0 { "" } else { ", " };
             let (text, mark) = program_name(fact, home);
-            pieces.push((format!("{separator}{text}"), Tone::Dim));
+            pieces.push((format!("{separator}{text}"), Tone::Text));
             pieces.extend(mark.map(|mark| (mark, Tone::Attention)));
         }
         rows.push(Row::Text(pieces));
@@ -717,10 +717,10 @@ pub(crate) fn exit_card(
         facts.push("only you can allow this".to_owned());
     }
     if !facts.is_empty() {
-        rows.push(Row::text(format!("efr: {}", facts.join("; ")), Tone::Dim));
+        rows.push(Row::labelled("efr", facts.join("; ")));
     }
     if let Some(reason) = &info.model_reason {
-        rows.push(Row::text(format!("the model says: \"{}\"", one_line(reason)), Tone::Dim));
+        rows.push(Row::labelled("the model says", format!("\"{}\"", one_line(reason))));
     }
     Card { title, rows }
 }

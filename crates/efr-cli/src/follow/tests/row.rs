@@ -269,13 +269,13 @@ async fn enter_steers_and_the_steer_waits_until_a_model_call_reads_it() {
         assert_eq!(settings.mode, Some(Mode::Auto));
         conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(11), queued: false })
             .await;
-        shows(&seen, "\u{21b3} steer: use the release build").await;
+        shows(&seen, "\u{21b3} steer  use the release build").await;
         let steered =
             Event::TurnSteered { turn_id: turn(), text: "use the release build".to_owned() };
         conn.item(sub, &item(11, steered)).await;
         let delivered = Event::SteeringDelivered { turn_id: turn(), steers: vec![Seq::new(11)] };
         conn.item(sub, &item(12, delivered)).await;
-        shows(&seen, "> use the release build").await;
+        shows(&seen, "\u{203a} use the release build").await;
         conn.item(sub, &item(13, completed("Built in release."))).await;
         conn.item(sub, &item(14, turn_completed())).await;
         conn.until_closed().await;
@@ -283,7 +283,7 @@ async fn enter_steers_and_the_steer_waits_until_a_model_call_reads_it() {
     .await;
     result.unwrap();
     assert!(!out.contains("steered:"), "a steer of this view is no note: {}", readable(&out));
-    let tail = after(&out, "> use the release build");
+    let tail = after(&out, "\u{203a} use the release build");
     assert!(!tail.contains("\u{21b3} steer"), "a steer that was read leaves the list");
     assert_eq!(setup.handed_back(), None, "nothing was left in the row");
 }
@@ -313,20 +313,20 @@ async fn tab_queues_a_prompt_and_the_view_follows_it_after_the_turn() {
             route: None,
         };
         conn.reply(id, &queued).await;
-        shows(&seen, "\u{21b3} queued: then update the docs").await;
+        shows(&seen, "\u{21b3} queued  then update the docs").await;
         conn.item(sub, &item(12, completed("First answer."))).await;
         conn.item(sub, &item(13, turn_completed())).await;
         // The command goes on: the queued prompt runs next.
         shows(&seen, "waiting for the running turn").await;
         conn.item(sub, &item(14, started(turn_2()))).await;
-        shows(&seen, "> then update the docs").await;
+        shows(&seen, "\u{203a} then update the docs").await;
         conn.item(sub, &item(15, answer(turn_2(), "Docs updated."))).await;
         conn.item(sub, &item(16, ended(turn_2()))).await;
         conn.until_closed().await;
     })
     .await;
     result.unwrap();
-    let second = after(&out, "> then update the docs");
+    let second = after(&out, "\u{203a} then update the docs");
     assert!(second.contains("Docs updated."), "{}", readable(&out));
 }
 
@@ -341,7 +341,7 @@ async fn a_steer_that_comes_too_late_waits_in_the_queue_with_a_note() {
         let (id, _) = steer_request(&mut conn).await;
         conn.reply(id, &TurnSteerResult { turn_id: turn_2(), seq: Seq::new(12), queued: true })
             .await;
-        shows(&seen, "\u{21b3} queued: and run it again (too late to steer").await;
+        shows(&seen, "\u{21b3} queued  and run it again \u{b7} too late to steer").await;
         conn.item(sub, &item(13, turn_completed())).await;
         conn.item(sub, &item(14, started(turn_2()))).await;
         conn.item(sub, &item(15, ended(turn_2()))).await;
@@ -419,7 +419,7 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         shows(&seen, RESENT).await;
         // The steer runs as its own prompt now, which the view follows.
         conn.item(sub, &item(19, started(turn_3()))).await;
-        shows(&seen, "> look at the logs first").await;
+        shows(&seen, "\u{203a} look at the logs first").await;
         conn.item(sub, &item(20, ended(turn_3()))).await;
         conn.until_closed().await;
     })
@@ -431,7 +431,11 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
     let note_at = out.find(RESENT).unwrap();
     assert!(call_at < end_at && end_at < note_at, "{}", readable(&out));
     assert_eq!(out.matches(RESENT).count(), 1, "{}", readable(&out));
-    assert!(!after(&out, "> look at the logs first").contains("\u{21b3}"), "{}", readable(&out));
+    assert!(
+        !after(&out, "\u{203a} look at the logs first").contains("\u{21b3}"),
+        "{}",
+        readable(&out)
+    );
     assert!(!out.contains("interrupt requested"), "its own request needs no note: {out}");
     assert_eq!(setup.handed_back().as_deref(), Some("half typed\nthen fix the bug"));
 }
@@ -929,7 +933,7 @@ async fn after_a_password_the_keys_go_back_to_the_row_without_what_followed_it()
         conn.item(sub, &item(11, shell_started("sudo true"))).await;
         conn.item(sub, &item(12, shell_output("[sudo] password for egg: "))).await;
         conn.item(sub, &item(13, input_changed(InputWait::Hidden))).await;
-        shows(&seen, "it is not shown").await;
+        shows(&seen, "typing is hidden").await;
         keys.type_bytes(b"hunter2\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "hunter2");
@@ -1347,7 +1351,7 @@ async fn a_steer_whose_answer_was_lost_goes_again_with_the_same_command_id() {
     })
     .await;
     result.unwrap();
-    assert!(out.contains("> use tabs"), "{out}");
+    assert!(out.contains("\u{203a} use tabs"), "{out}");
     assert_eq!(setup.handed_back(), None, "nothing goes back: efrd took the steer");
 }
 
@@ -1939,7 +1943,7 @@ async fn ctrl_b_moves_a_call_that_keeps_its_keys_and_n_gives_them_back_to_it() {
         keys.type_bytes(b"Y").await;
         conn.item(sub, &item(15, shell_output("Continue? [Y/n] "))).await;
         conn.item(sub, &item(16, input_changed(InputWait::Visible))).await;
-        shows(&seen, "> Y").await;
+        shows(&seen, "\u{203a} Y").await;
         keys.type_bytes(b"es\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "Yes");
@@ -1955,7 +1959,10 @@ async fn ctrl_b_moves_a_call_that_keeps_its_keys_and_n_gives_them_back_to_it() {
     })
     .await;
     result.unwrap();
-    assert!(!out.contains("\u{203a} Y"), "the row never held the answer: {}", readable(&out));
+    // NOTE: the answer line's echo starts with the same mark as the row.
+    let asked = out.find("the command waits for input").unwrap_or(out.len());
+    let before = bare(&out[..asked]);
+    assert!(!before.contains("\u{203a} Y"), "the row never held the answer: {}", readable(&out));
     assert_eq!(setup.handed_back(), None, "no text goes back to the shell");
 }
 
@@ -2006,9 +2013,10 @@ async fn ctrl_b_at_the_answer_line_says_the_call_waits_and_sends_nothing() {
         conn.item(sub, &item(11, shell_call("printf 'name: '; read -r x", true))).await;
         conn.item(sub, &item(12, shell_output("name: "))).await;
         conn.item(sub, &item(13, input_changed(InputWait::Visible))).await;
-        shows(&seen, "> ").await;
+        // NOTE: the answer line, not the input row, which starts with the same mark.
+        shows(&seen, "enter answers").await;
         keys.type_bytes(b"a").await;
-        shows(&seen, "> a").await;
+        shows(&seen, "\u{203a} a").await;
         keys.press(CTRL_B).await;
         shows(&seen, "the command was not moved: the command waits for input").await;
         // The key went into no answer: the line holds only what was typed.

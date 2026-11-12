@@ -13,15 +13,15 @@ expression: "frames.join(\"\\n---\\n\")"
 \e[?2026h\r\e[1A\e[JReading the logs.
 
 The disk
-\e[33m⠴\e[0m \e[2mwriting\e[0m  \e[2m1s\e[0m
+\e[33m⠴\e[0m \e[2mwriting\e[0m   \e[2m1s\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[33m⠦\e[0m \e[2mwriting\e[0m  \e[2m1s\e[0m
+\e[?2026h\r\e[1A\e[33m⠦\e[0m \e[2mwriting\e[0m   \e[2m1s\e[0m
 \e[?2026l
 ---
 \e[?2026h\r\e[2A\e[7Ck is full.
-\e[33m⠋\e[0m \e[2mwaiting for the m\e[0mode\e[0;2ml\e[0m  \e[2m2s\e[0m
+\e[33m⠋\e[0m \e[2mwaiting for the m\e[0mode\e[0;2ml\e[0m   \e[2m2s\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[1A\e[33m⠙\e[0m \e[2mwaiting for the mo\e[0mdel\e[0m  \e[2m2s\e[0m
+\e[?2026h\r\e[1A\e[33m⠙\e[0m \e[2mwaiting for the mo\e[0mdel\e[0m   \e[2m2s\e[0m
 \e[?2026l

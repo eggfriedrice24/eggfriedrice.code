@@ -225,8 +225,8 @@ fn stop_key_question_needs_yes() {
     let step = framed(view.stop_question(&job(3, "npm run dev"), SIZE), &mut view);
     assert_eq!(step.ask, Some(Ask::StopJob));
     let shown = bare(&step.out);
-    assert!(shown.contains("? stop job j3 (npm run dev)"), "{shown:?}");
-    assert!(shown.contains("y yes \u{b7} n no"), "{shown:?}");
+    assert!(shown.contains(" ?  stop job j3 (npm run dev)"), "{shown:?}");
+    assert!(shown.contains("y yes   n no"), "{shown:?}");
 
     let (step, stopped) = view.stop_answered(false, SIZE);
     assert_eq!(stopped, None, "n stops nothing");
@@ -349,11 +349,11 @@ fn move_question_needs_yes() {
     let step = framed(view.move_question(call(), &preview, SIZE), &mut view);
     assert_eq!(step.ask, Some(Ask::Move { call_id: call(), token: 7 }));
     let shown = bare(&step.out);
-    assert!(shown.contains("? move this command to the background"), "{shown:?}");
+    assert!(shown.contains(" ?  move this command to the background"), "{shown:?}");
     assert!(shown.contains("make deploy"), "{shown:?}");
-    assert!(shown.contains("it keeps running with your full rights"), "{shown:?}");
+    assert!(shown.contains("it keeps running with your full"), "{shown:?}");
     assert!(shown.contains("as a job: write; efr: a job asks in"), "{shown:?}");
-    assert!(shown.contains("y move \u{b7} n no"), "{shown:?}");
+    assert!(shown.contains("y move   n no"), "{shown:?}");
 
     let (step, moved) = view.move_answered(false, SIZE);
     assert_eq!(moved, None, "n moves nothing");

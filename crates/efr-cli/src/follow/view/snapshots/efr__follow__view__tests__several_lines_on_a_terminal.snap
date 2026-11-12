@@ -2,9 +2,9 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: "readable(&framed(view.event(&approval, WIDE, true), &mut view).out)"
 ---
-\e[?2026h\e[33m? allow the system bus for this call\e[0m
-\e[2m│ \e[0m\e[32msystemctl --failed --no-pager\e[0m
-\e[2m│ \e[0m\e[32mjournalctl -b -n 20 --no-pager\e[0m
-\e[2m│ \e[0m\e[2mwhy: the system bus\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[?2026h\e[1;7;33m ? \e[0m \e[1;33mallow the system bus for this call\e[0m
+    systemctl --failed --no-pager
+    journalctl -b -n 20 --no-pager
+    \e[2mwhy\e[0m  the system bus
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 \e[?2026l

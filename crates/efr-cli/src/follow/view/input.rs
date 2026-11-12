@@ -2,17 +2,20 @@
 //! steers that no model call read yet, and the prompts that this view queued.
 //!
 //! The row is the last part of the live zone, below the status row: `› ` and the text,
-//! or, while it is empty, a blank cell for the cursor and then a muted hint. While a
-//! shell call of the turn has run for a moment, the hint also names Ctrl+B
-//! ([`BACKGROUND_HINT`]). A long
-//! text goes on in the next row, at most [`MAX_ROWS`] rows show, and the rows around
-//! the cursor are the ones that show. Above the status row, each unread steer shows as
-//! `↳ steer: <first line>` and each queued prompt as `↳ queued: <first line>`, muted. A
-//! steer that a model call read goes to the scrollback as the user's message, as
-//! `efr history` shows a prompt.
+//! or, while it is empty, a blank cell for the cursor and then a muted hint. The mark is
+//! in the `accent` role. While a shell call of the turn has run for a moment, the hint
+//! also names Ctrl+B ([`BACKGROUND_HINT`]). A long text goes on in the next row, at most
+//! [`MAX_ROWS`] rows show, and the rows around the cursor are the ones that show
+//! (TM-Live 15-18, 29).
+//!
+//! Above the status row, each unread steer shows as `↳ steer  <first line> · not read
+//! yet` and each queued prompt as `↳ queued  <first line>`, muted, at most
+//! [`MAX_WAITING`] rows, then `↳ 2 more queued` (TM-Live 19). A steer that a model call
+//! read goes to the scrollback as `› <text>`, the mark in the `accent` role and the text
+//! in bold, with one blank line above it and one below (TM-Legend 27, TM-Sequence 12).
 
 use efr_protocol::{Seq, TurnId};
-use efr_render::RenderOptions;
+use efr_render::{Glyphs, RenderOptions};
 
 use crate::format::{self, Tone};
 use crate::live::{Cursor, Tail};
@@ -21,24 +24,28 @@ use crate::row::RowLine;
 /// The most rows of text that the input row shows.
 pub(crate) const MAX_ROWS: usize = 5;
 
-/// What starts the input row.
-const MARK: &str = "\u{203a}";
-
-/// The hint in an empty input row.
-pub(crate) const HINT: &str = "enter steer \u{b7} tab queue \u{b7} esc interrupt";
+/// The keys of the hint in an empty input row, with what they do.
+pub(crate) const HINT: &[&str] = &["enter steer", "tab queue", "esc interrupt"];
 
 /// What the hint starts with while a shell call of the turn runs that Ctrl+B can move:
 /// first, so a narrow screen still shows it.
-pub(crate) const BACKGROUND_HINT: &str = "ctrl+b background \u{b7} ";
+pub(crate) const BACKGROUND_HINT: &str = "ctrl+b background";
 
-/// What starts the line of an unread steer.
-const STEER: &str = "\u{21b3} steer: ";
+/// The most rows of unread steers and queued prompts; more make one row that counts
+/// them.
+pub(crate) const MAX_WAITING: usize = 3;
 
-/// What starts the line of a queued prompt.
-const QUEUED: &str = "\u{21b3} queued: ";
+/// The word of the row of an unread steer.
+const STEER: &str = "steer";
+
+/// The word of the row of a queued prompt.
+const QUEUED: &str = "queued";
+
+/// The note after an unread steer.
+const UNREAD: &str = "not read yet";
 
 /// The note after a queued prompt that was sent as a steer too late.
-const LATE: &str = " (too late to steer, so it waits in the queue)";
+const LATE: &str = "too late to steer, waits in the queue";
 
 /// A steer of this view that no model call read yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,25 +154,39 @@ impl Input {
     }
 
     /// The unread steers and the queued prompts, one muted line each, cut to `width`:
-    /// what waits for the turn. Empty when nothing does.
+    /// what waits for the turn, at most [`MAX_WAITING`] rows and then one that counts the
+    /// rest. Empty when nothing waits.
     pub(crate) fn pending(&self, options: &RenderOptions, width: u16) -> String {
         let columns = usize::from(width);
         let method = options.width_method();
-        let mut out = String::new();
-        let mut line = |text: String| {
-            let text = format::cut(&text, columns, method);
-            out.push_str(&format::paint(&text, Tone::Dim, options));
-            out.push('\n');
+        let glyphs = options.glyphs();
+        let mut rows: Vec<String> = Vec::new();
+        let row = |word: &str, text: &str, note: Option<&str>| {
+            let mut row = format!("{} {word}  {}", glyphs.waiting, first_line(text, glyphs));
+            if let Some(note) = note {
+                row.push_str(&format!(" {} {note}", glyphs.separator));
+            }
+            row
         };
         if let Some(prompt) = &self.prompt {
-            line(format!("{QUEUED}{}", first_line(prompt)));
+            rows.push(row(QUEUED, prompt, None));
         }
         for steer in &self.steers {
-            line(format!("{STEER}{}", first_line(&steer.text)));
+            rows.push(row(STEER, &steer.text, Some(UNREAD)));
         }
         for queued in &self.queued {
-            let note = if queued.late { LATE } else { "" };
-            line(format!("{QUEUED}{}{note}", first_line(&queued.text)));
+            rows.push(row(QUEUED, &queued.text, queued.late.then_some(LATE)));
+        }
+        if rows.len() > MAX_WAITING {
+            let more = rows.len() - MAX_WAITING;
+            rows.truncate(MAX_WAITING);
+            rows.push(format!("{} {more} more {QUEUED}", glyphs.waiting));
+        }
+        let mut out = String::new();
+        for row in rows {
+            let row = format::cut(&row, columns, method);
+            out.push_str(&format::paint(&row, Tone::Dim, options));
+            out.push('\n');
         }
         out
     }
@@ -177,15 +198,15 @@ impl Input {
         // character of a full row.
         let columns = usize::from(width).saturating_sub(3).max(1);
         let method = options.width_method();
-        let mark = format!("{} ", format::paint(MARK, Tone::Accent, options));
+        let glyphs = options.glyphs();
+        let mark = format!("{} ", format::paint(glyphs.prompt, Tone::Accent, options));
         if self.line.is_empty() {
-            // NOTE: the hint starts one column after the cursor. A block cursor on the
-            // first letter of the hint looks like it covers that letter, and the user
-            // keeps the cursor shape that they chose.
-            let hint =
-                if self.background { format!("{BACKGROUND_HINT}{HINT}") } else { HINT.to_owned() };
-            let hint = format::cut(&hint, columns.saturating_sub(1).max(1), method);
-            let text = format!("{mark} {}\n", format::paint(&hint, Tone::Dim, options));
+            // NOTE: one blank column stands between the cursor and the hint (TM-Live
+            // 15). A block cursor next to the first letter of the hint looks like it
+            // covers that letter, and the user keeps the cursor shape that they chose.
+            let hint = hint(self.background, glyphs);
+            let hint = format::cut(&hint, columns.saturating_sub(2).max(1), method);
+            let text = format!("{mark}  {}\n", format::paint(&hint, Tone::Dim, options));
             return Tail { text, cursor: Some(Cursor { line: 0, column: 2 }) };
         }
         let layout = self.line.layout(columns, method);
@@ -201,20 +222,36 @@ impl Input {
     }
 }
 
-/// The first line of `text` with text in it, safe to print, with ` …` when more lines
-/// follow.
-fn first_line(text: &str) -> String {
-    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
-    let first = format::one_line(lines.next().unwrap_or(""));
-    if lines.next().is_some() { format!("{first} \u{2026}") } else { first }
+/// The hint of an empty input row, with Ctrl+B first when `background`: the keys apart
+/// by the separator of `glyphs`.
+pub(crate) fn hint(background: bool, glyphs: &Glyphs) -> String {
+    let separator = format!(" {} ", glyphs.separator);
+    let keys = background.then_some(BACKGROUND_HINT).into_iter().chain(HINT.iter().copied());
+    keys.collect::<Vec<_>>().join(&separator)
 }
 
-/// `text` as the user's message, as `efr history` shows a prompt: each line after
-/// `> `, in bold.
+/// The first line of `text` with text in it, safe to print, with ` …` when more lines
+/// follow.
+fn first_line(text: &str, glyphs: &Glyphs) -> String {
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let first = format::one_line(lines.next().unwrap_or(""));
+    if lines.next().is_some() { format!("{first} {}", glyphs.more) } else { first }
+}
+
+/// `text` as the user's steer in the scrollback: `› ` and the first line, the mark in
+/// the `accent` role and the text in bold, and each later line two columns in, as the
+/// input row shows them.
 pub(crate) fn user_message(text: &str, options: &RenderOptions) -> String {
+    let mark = format::paint(options.glyphs().prompt, Tone::Accent, options);
     let mut out = String::new();
-    for line in format::lines(text.trim_end()).lines() {
-        out.push_str(&format::paint(&format!("> {line}"), Tone::Bold, options));
+    for (at, line) in format::lines(text.trim_end()).lines().enumerate() {
+        if at == 0 {
+            out.push_str(&mark);
+            out.push(' ');
+        } else {
+            out.push_str("  ");
+        }
+        out.push_str(&format::paint(line, Tone::TextBold, options));
         out.push('\n');
     }
     out

@@ -53,6 +53,11 @@ impl TurnView {
         if let Some(status) = &mut self.status {
             status.turn_started();
             status.set_full(full);
+            // NOTE: the model of a turn that waited behind another one shows from its
+            // start (the live slice).
+            if let Some(settings) = settings {
+                status.set_model(Some(super::status::Model::of(settings)));
+            }
         }
         // A prompt that this view queued is the user's message of its turn.
         if let Some(prompt) = self.input.as_mut().and_then(|input| input.prompt.take()) {

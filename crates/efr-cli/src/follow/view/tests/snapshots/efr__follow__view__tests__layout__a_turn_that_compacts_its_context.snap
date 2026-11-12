@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 ---
 === 40 columns, colour
 [counted]
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[32mctx 47%\e[0m
 
 [running]
 \e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
@@ -12,7 +12,7 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 [compacting]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
-\e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
+\e[33m•\e[0m \e[2mcompacting context\e[0m   \e[2m1s\e[0m   \e[31mctx 99%\e[0m
 
 [full]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
@@ -25,7 +25,7 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 \e[2mcontext full: compaction did not free\e[0m
   \e[2menough room (still 240k); run ,compact\e[0m
   \e[2mor efr new\e[0m
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m12s\e[0m   \e[31mctx 116%\e[0m
 
 [end]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
@@ -46,7 +46,7 @@ The tests pass.
 
 === 40 columns, NO_COLOR
 [counted]
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  ctx 47%
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   ctx 47%
 
 [running]
 \e[1m•\e[0m $ cargo test --workspace  ctx 47%
@@ -54,7 +54,7 @@ The tests pass.
 [compacting]
 \e[1m·\e[0m $ cargo test --workspace
   ✓ 1.3s
-\e[1m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[1mctx 99%\e[0m
+\e[1m•\e[0m \e[2mcompacting context\e[0m   \e[2m1s\e[0m   \e[1mctx 99%\e[0m
 
 [full]
 \e[1m·\e[0m $ cargo test --workspace
@@ -67,7 +67,7 @@ The tests pass.
 \e[2mcontext full: compaction did not free\e[0m
   \e[2menough room (still 240k); run ,compact\e[0m
   \e[2mor efr new\e[0m
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[1mctx 116%\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m12s\e[0m   \e[1mctx 116%\e[0m
 
 [end]
 \e[1m·\e[0m $ cargo test --workspace
@@ -88,7 +88,7 @@ The tests pass.
 
 === 80 columns, colour
 [counted]
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[32mctx 47%\e[0m
 
 [running]
 \e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
@@ -96,7 +96,7 @@ The tests pass.
 [compacting]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
   \e[32m✓ 1.3s\e[0m
-\e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
+\e[33m•\e[0m \e[2mcompacting context\e[0m   \e[2m1s\e[0m   \e[31mctx 99%\e[0m
 
 [full]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
@@ -106,7 +106,7 @@ The tests pass.
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m12s\e[0m   \e[31mctx 116%\e[0m
 
 [end]
 \e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
@@ -123,7 +123,7 @@ The tests pass.
 
 === 80 columns, NO_COLOR
 [counted]
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  ctx 47%
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   ctx 47%
 
 [running]
 \e[1m•\e[0m $ cargo test --workspace  ctx 47%
@@ -131,7 +131,7 @@ The tests pass.
 [compacting]
 \e[1m·\e[0m $ cargo test --workspace
   ✓ 1.3s
-\e[1m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[1mctx 99%\e[0m
+\e[1m•\e[0m \e[2mcompacting context\e[0m   \e[2m1s\e[0m   \e[1mctx 99%\e[0m
 
 [full]
 \e[1m·\e[0m $ cargo test --workspace
@@ -141,7 +141,7 @@ The tests pass.
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[1mctx 116%\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m12s\e[0m   \e[1mctx 116%\e[0m
 
 [end]
 \e[1m·\e[0m $ cargo test --workspace

@@ -107,7 +107,7 @@ fn command_of(shown: &str) -> String {
     let mut command = String::new();
     let mut indented = false;
     for row in bare(shown).lines().skip(1).filter(|row| !row.contains(" allow ")) {
-        let mut row = row.strip_prefix("\u{2502} ").unwrap();
+        let mut row = row.strip_prefix("    ").unwrap();
         if indented {
             row = row.strip_prefix("    ").unwrap();
         }
@@ -143,8 +143,7 @@ fn a_cut_inside_a_word_shows_no_space_that_the_command_does_not_have() {
             // The row after a cut inside a word starts at the column of the word.
             if let Some(before) = row.strip_suffix(WORD_MARK) {
                 let column = |row: &str| row.len() - row.trim_start_matches(' ').len();
-                let (this, next) =
-                    (&before["\u{2502} ".len()..], &rows[at + 1]["\u{2502} ".len()..]);
+                let (this, next) = (&before["    ".len()..], &rows[at + 1]["    ".len()..]);
                 assert_eq!(column(this), column(next), "{columns}: {shown}");
                 assert!(!before.ends_with(' '), "{columns}: {shown}");
             }
@@ -158,7 +157,7 @@ fn a_cut_inside_a_word_shows_no_space_that_the_command_does_not_have() {
 #[test]
 fn text_goes_on_at_spaces_and_keeps_its_tones() {
     let spans = vec![
-        ("programs: cd, ".to_owned(), Tone::Dim),
+        ("programs  cd, ".to_owned(), Tone::Dim),
         ("./setup.sh".to_owned(), Tone::Dim),
         (" (untrusted: written in the sandbox)".to_owned(), Tone::Attention),
     ];
@@ -166,7 +165,7 @@ fn text_goes_on_at_spaces_and_keeps_its_tones() {
     assert_eq!(
         rows,
         [
-            vec![("programs: cd, ./setup.sh".to_owned(), Tone::Dim)],
+            vec![("programs  cd, ./setup.sh".to_owned(), Tone::Dim)],
             vec![("(untrusted: written in the".to_owned(), Tone::Attention)],
             vec![("sandbox)".to_owned(), Tone::Attention)],
         ]
@@ -187,10 +186,7 @@ fn a_word_wider_than_the_first_row_starts_in_it() {
     let card = Card { title: "allow this call".to_owned(), rows: vec![Row::text(url, Tone::Dim)] };
     let shown = bare(&card.render(None, &plain(24)));
     assert!(shown.lines().all(|row| row.trim_end() != "\u{2502}"), "{shown}");
-    assert!(
-        shown.lines().nth(1).is_some_and(|row| row.starts_with("\u{2502} https://")),
-        "{shown}"
-    );
+    assert!(shown.lines().nth(1).is_some_and(|row| row.starts_with("    https://")), "{shown}");
 }
 
 fn command_card() -> Card {
@@ -263,8 +259,8 @@ fn a_summary_that_does_not_quote_the_command_shows_as_one_row() {
         [
             Row::Command("cd src".to_owned()),
             Row::Command("ls".to_owned()),
-            Row::text("why: read ~ (home)", Tone::Dim),
-            Row::text("asks for: ls", Tone::Dim),
+            Row::labelled("why", "read ~ (home)"),
+            Row::labelled("asks for", "ls"),
         ]
     );
 }
@@ -284,8 +280,8 @@ fn a_wake_question_keeps_its_command_rows() {
         [
             Row::Command("cd src".to_owned()),
             Row::Command("make check".to_owned()),
-            Row::text("why: read ~ (home)", Tone::Dim),
-            Row::text("asks for: make", Tone::Dim),
+            Row::labelled("why", "read ~ (home)"),
+            Row::labelled("asks for", "make"),
         ]
     );
     // A question that full mode still asks keeps its guard row first.
@@ -316,23 +312,20 @@ fn a_command_keeps_its_control_and_format_characters_as_stand_ins() {
 }
 
 #[test]
-fn the_always_key_and_its_confirm_follow_the_keys_and_wrap_after_the_bar() {
+fn the_always_key_and_its_confirm_follow_the_keys_and_wrap_at_the_indent() {
     let always = Footer::Always("write under ~/notes".to_owned());
-    assert_eq!(
-        bare(&footer_row(&always, &plain(80))),
-        "\u{2502} y allow \u{b7} n deny \u{b7} a always: write under ~/notes\n"
-    );
+    assert_eq!(bare(&footer_row(&always, &plain(80))), "    y allow   n deny   a always\u{2026}\n");
     let confirm = Footer::Confirm("write under ~/notes".to_owned());
     assert_eq!(
         bare(&footer_row(&confirm, &plain(80))),
-        "\u{2502} save rule \"write under ~/notes\"? y/n\n"
+        "    always saves the rule  write under ~/notes\n    y save the rule and allow   n back\n"
     );
-    // A long rule goes on in the next row after the bar, indented, never past the screen.
-    let long = Footer::Always("write under ~/projects/a-rather-long-name/notes".to_owned());
+    // A long rule goes on in the next row, two columns further in, never past the screen.
+    let long = Footer::Confirm("write under ~/projects/a-rather-long-name/notes".to_owned());
     let rows = bare(&footer_row(&long, &plain(30)));
-    assert!(rows.lines().count() > 1, "{rows}");
+    assert!(rows.lines().count() > 2, "{rows}");
     for line in rows.lines() {
-        assert!(line.starts_with('\u{2502}'), "{rows}");
+        assert!(line.starts_with("    "), "{rows}");
         assert!(display_width(line, WidthMethod::Grapheme) <= 30, "{rows}");
     }
     // Without a rule, the keys paint as they always did.
@@ -340,5 +333,7 @@ fn the_always_key_and_its_confirm_follow_the_keys_and_wrap_after_the_bar() {
     let card = Card { title: "t".to_owned(), rows: Vec::new() };
     let whole = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &RenderOptions::new(40));
     assert!(whole.ends_with(&painted), "{whole:?}");
-    assert_eq!(bare(&painted), "\u{2502} y allow \u{b7} n deny\n");
+    assert_eq!(bare(&painted), "    y allow   n deny\n");
 }
+
+mod design;

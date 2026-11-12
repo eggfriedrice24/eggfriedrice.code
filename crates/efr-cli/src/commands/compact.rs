@@ -139,7 +139,8 @@ fn row(
     let time = (elapsed >= SHOW_TIME).then(|| format::elapsed(elapsed));
     let columns = usize::from(options.width());
     let room = columns.saturating_sub(2 + time.as_ref().map_or(0, |time| time.len() + 2));
-    let mut row = options.paint(Role::Accent, &spinner(motion, ticks).to_string());
+    let mut row =
+        options.paint(Role::Accent, &spinner(motion, ticks, options.glyphs()).to_string());
     let words = format::cut(WORDS, room, options.width_method());
     if !words.is_empty() {
         row.push(' ');

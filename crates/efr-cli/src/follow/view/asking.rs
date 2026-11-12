@@ -10,7 +10,7 @@ use efr_protocol::{
 use jiff::Timestamp;
 
 use super::status::State;
-use super::{About, Ask, BLOCKING, NO, Preview, Request, Shown, Step, TurnView, YES, rows};
+use super::{About, Ask, BLOCKING, GOES_ON, Preview, Request, Shown, Step, TurnView, rows};
 use crate::format::card::{self, Card, Footer};
 use crate::format::{self, Block, Tone, jobs, sandbox};
 use crate::live::{effective_width, fits, rows_of};
@@ -132,6 +132,7 @@ impl TurnView {
         if about != About::Move {
             self.jobs.moving = None;
         }
+        self.kept.asked = Some((about, card.subject(), self.event_at));
         if self.terminal() {
             let before = std::mem::take(&mut step.out);
             self.stage(&before);
@@ -178,17 +179,54 @@ impl TurnView {
         self.stage(&committed);
     }
 
+    /// An `a` answer to the question about `about`: on a terminal the card goes, and its
+    /// line `line` waits for the line of what the rule became, so the two make one line,
+    /// such as `✓ allowed always · saved as sandbox.allow[2]: network index.crates.io for
+    /// cargo` (TM-Questions 7). `None` elsewhere, where the line goes at once.
+    pub(super) fn hold_answer(&mut self, about: About, line: &str) -> Option<Step> {
+        let About::Approval(call) = about else {
+            return None;
+        };
+        if !self.terminal() {
+            return None;
+        }
+        if self.question.as_ref().is_some_and(|shown| shown.about == about) {
+            self.question = None;
+            self.dirty = true;
+        }
+        self.kept.held = Some((call, line.to_owned()));
+        Some(Step::default())
+    }
+
+    /// The held line of an `a` answer, with `saved` after it when the line of what the
+    /// rule became came, as one line; `None` when no line waits.
+    pub(super) fn release_answer(&mut self, saved: Option<&str>, size: Size) -> Option<Step> {
+        let (call, line) = self.kept.held.take()?;
+        let line = match saved {
+            Some(saved) => format!("{line}{}{saved}", options_separator(self)),
+            None => line,
+        };
+        Some(self.answer_line(About::Approval(call), true, &line, size))
+    }
+
+    /// What the question about `about` on the screen asked about, such as `network
+    /// (github.com)`, for the line that takes its place.
+    pub(super) fn asked_about(&self, about: About) -> Option<String> {
+        let (asked, subject, _) = self.kept.asked.as_ref()?;
+        if *asked == about { subject.clone() } else { None }
+    }
+
     /// The question about `about` is settled: on a terminal its card gives its place to
-    /// one line, such as `✓ allowed` (`good`) or `✗ denied`. A call of this turn follows
-    /// the line at once; anything else comes after a blank line.
+    /// one line, such as `✓ allowed · network (github.com)` (`good`) or `✗ denied ·
+    /// network (github.com)`: the mark in the `success` or the `error` role, the rest
+    /// muted (TM-Questions 7). A call of this turn follows the line at once; anything
+    /// else comes after a blank line.
     pub(super) fn answer_line(&mut self, about: About, good: bool, line: &str, size: Size) -> Step {
         if self.question.as_ref().is_some_and(|shown| shown.about == about) {
             self.question = None;
             self.dirty = true;
         }
-        let options = self.options_at(size);
-        let (mark, tone) = if good { (YES, Tone::Success) } else { (NO, Tone::Failure) };
-        let text = rows(&format!("{mark}{}", format::one_line(line)), tone, &options);
+        let text = answer_text(good, line, &self.options_at(size));
         let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
         let block = if ours { Block::Settled } else { Block::Answer };
         if !self.terminal() {
@@ -225,10 +263,15 @@ impl TurnView {
             return Step::default();
         }
         let settled = self.settle(call_id);
-        let line = format!("{} from {}", format::decision(decision), format::origin(origin));
+        let separator = options_separator(self);
+        let line =
+            format!("{}{separator}from {}", format::decision(decision), format::origin(origin));
         let good = format::allows(decision);
         if decision == ApprovalDecision::AllowAlways {
             self.saving = Some(call_id);
+            if let Some(step) = self.hold_answer(About::Approval(call_id), &line) {
+                return Step { settled, ..step };
+            }
         }
         Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
     }
@@ -325,8 +368,25 @@ impl TurnView {
     pub(super) fn expired(&mut self, call_id: CallId, away: bool, size: Size) -> Step {
         self.refused.insert(call_id);
         let settled = self.settle(call_id);
-        let line = if away { sandbox::AWAY_EXPIRED } else { "the approval expired" };
-        let step = self.answer_line(About::Approval(call_id), false, line, size);
+        let separator = options_separator(self);
+        // NOTE: the event names no time; the card knows when it showed, on the daemon's
+        // clock.
+        let waited = self
+            .kept
+            .asked
+            .as_ref()
+            .filter(|(asked, _, _)| *asked == About::Approval(call_id))
+            .and_then(|(_, _, at)| *at)
+            .zip(self.event_at)
+            .and_then(|(asked, now)| std::time::Duration::try_from(now.duration_since(asked)).ok());
+        let line = match (away, waited) {
+            (true, _) => format!("{EXPIRED_AWAY}{separator}{NOT_RUN}"),
+            (false, Some(waited)) => {
+                format!("{EXPIRED}{separator}nobody answered in {}; {NOT_RUN}", minutes(waited))
+            }
+            (false, None) => format!("{EXPIRED}{separator}nobody answered; {NOT_RUN}"),
+        };
+        let step = self.answer_line(About::Approval(call_id), false, &line, size);
         Step { settled, ..step }
     }
 
@@ -505,11 +565,20 @@ impl TurnView {
             call.approved(None);
         }
         let good = format::allows(decision);
+        let mut line = format::decision(decision).to_owned();
         if decision == ApprovalDecision::AllowAlways {
             self.saving = Some(call_id);
         }
-        let step =
-            self.answer_line(About::Approval(call_id), good, format::decision(decision), size);
+        let held = (decision == ApprovalDecision::AllowAlways)
+            .then(|| self.hold_answer(About::Approval(call_id), &line))
+            .flatten();
+        if let Some(subject) = self.asked_about(About::Approval(call_id)) {
+            line = format!("{line}{}{subject}", options_separator(self));
+        }
+        let step = match held {
+            Some(step) => step,
+            None => self.answer_line(About::Approval(call_id), good, &line, size),
+        };
         if good && self.interactive.contains(&call_id) {
             self.retained = Some(call_id);
             return Step { ask: Some(Ask::Retain(call_id)), ..step };
@@ -566,4 +635,62 @@ impl TurnView {
         let text = card::footer_row(&footer, &self.options_at(size));
         Step { err: self.raw_err(text), ..Step::default() }
     }
+}
+
+/// What the line of an approval that expired starts with.
+const EXPIRED: &str = "the approval expired";
+
+/// What the line of an approval that expired while the user was away starts with.
+const EXPIRED_AWAY: &str = "expired while you were away";
+
+/// What the line of an approval that expired ends with.
+const NOT_RUN: &str = "the call did not run";
+
+/// ` · `, between the parts of an answer line.
+fn options_separator(view: &TurnView) -> String {
+    format!(" {} ", view.options.glyphs().separator)
+}
+
+/// `time` as the line of an expired approval says it: whole minutes from a minute on,
+/// such as `10 min`, else seconds.
+fn minutes(time: std::time::Duration) -> String {
+    let secs = time.as_secs();
+    if secs >= 60 { format!("{} min", secs / 60) } else { format::elapsed(time) }
+}
+
+/// The line that takes the place of a question: the mark of `good` or not in the
+/// `success` or the `error` role, a space, and `line` muted, with its newline; a row
+/// wider than the screen goes on in the next one.
+pub(super) fn answer_text(good: bool, line: &str, options: &efr_render::RenderOptions) -> String {
+    let glyphs = options.glyphs();
+    let (mark, tone) =
+        if good { (glyphs.ok, Tone::Success) } else { (glyphs.failed, Tone::Failure) };
+    let pieces = [
+        (mark.to_owned(), tone),
+        (" ".to_owned(), Tone::Plain),
+        (format::one_line(line), Tone::Dim),
+    ];
+    piece_rows(&pieces, options)
+}
+
+/// `pieces` as rows with their newlines: on a terminal, a row wider than the screen goes
+/// on in the next one, indented [`GOES_ON`] columns more, as `view::rows` does.
+fn piece_rows(pieces: &[(String, Tone)], options: &efr_render::RenderOptions) -> String {
+    let rows = match format::columns(options) {
+        Some((width, method)) => {
+            format::wrap_spans(pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
+        }
+        None => vec![pieces.to_vec()],
+    };
+    let mut out = String::new();
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            out.push_str(&" ".repeat(GOES_ON));
+        }
+        for (text, tone) in row {
+            out.push_str(&format::paint(text, *tone, options));
+        }
+        out.push('\n');
+    }
+    out
 }

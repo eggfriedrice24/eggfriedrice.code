@@ -130,6 +130,8 @@ async fn on_a_terminal_keys_typed_ahead_go_to_the_input_row_and_back_to_the_shel
         .env_clear()
         .env("HOME", daemon.dirs().home())
         .env("TERM", "xterm-256color")
+        // NOTE: a UTF-8 locale, so the row's mark is `›`; without one it is `>`.
+        .env("LANG", "C.UTF-8")
         .env("EFR_CONFIG_DIR", dirs.config())
         .env("EFR_DATA_DIR", dirs.data())
         .env("EFR_STATE_DIR", dirs.state())

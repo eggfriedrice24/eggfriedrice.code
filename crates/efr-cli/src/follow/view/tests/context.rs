@@ -111,7 +111,7 @@ fn a_compaction_says_so_in_the_status_row_until_its_event_and_leaves_one_line() 
     grid.write(&view.frame(SIZE, at(0)));
     view.draft(&draft(11, DraftPart::Compacting { trigger: CompactionTrigger::Auto }), SIZE);
     grid.write(&view.frame(SIZE, at(1_200)));
-    assert_eq!(grid.lines(), ["\u{2022} compacting context  1s  ctx 99%"]);
+    assert_eq!(grid.lines(), ["\u{2022} compacting context   1s   ctx 99%"]);
     let event = Event::ConversationCompacted(compaction(CompactionTrigger::Auto, 24_100));
     view.envelope(&sent(12, 6_000, event), SIZE, false);
     let frame = view.frame(SIZE, at(6_000));
@@ -120,7 +120,7 @@ fn a_compaction_says_so_in_the_status_row_until_its_event_and_leaves_one_line() 
         grid.lines(),
         [
             "context compacted (auto): 231k \u{2192} 24k tokens \u{b7} kept 3 turns \u{b7} summary 3.2k",
-            "\u{2022} waiting for the model  6s  ctx 11%",
+            "\u{2022} waiting for the model   6s   ctx 11%",
         ]
     );
     // The line is muted, the gauge is in the colour of its level.
@@ -136,7 +136,7 @@ fn the_next_count_ends_a_compaction_that_shows_and_the_end_of_the_turn_does_too(
     let compacting = DraftPart::Compacting { trigger: CompactionTrigger::Overflow };
     assert!(row_after(&mut view, compacting.clone(), 100).contains("compacting context"));
     let counted = row_after(&mut view, DraftPart::Context(context(30_000)), 200);
-    assert!(bare(&counted).ends_with("waiting for the model  ctx 14%"), "{counted}");
+    assert!(bare(&counted).ends_with("waiting for the model   ctx 14%"), "{counted}");
     assert!(row_after(&mut view, compacting, 300).contains("compacting context"));
     view.envelope(&sent(12, 2_000, completed(30_000)), SIZE, false);
     let end = readable(&view.frame(SIZE, at(2_000)));

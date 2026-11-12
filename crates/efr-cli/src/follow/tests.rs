@@ -313,7 +313,7 @@ async fn a_key_answers_the_approval() {
     assert_eq!(keys.starts(), 1);
     assert_eq!(
         err,
-        "? allow this call\n\u{2502} run rm -rf build\n\u{2502} y allow \u{b7} n deny\n\u{2717} denied\n"
+        " ?  allow this call\n    run rm -rf build\n    y allow   n deny\n\u{2717} denied\n"
     );
 }
 
@@ -364,10 +364,9 @@ async fn a_key_answers_the_quarantine_question_with_its_own_id() {
     assert_eq!(keys.starts(), 1);
     assert_eq!(
         err,
-        "\
-? keep the git settings that the last command changed
-\u{2502} /p/app/.git/commondir (core.fsmonitor); moved to quarantine
-\u{2502} y keep \u{b7} n leave in quarantine
+        " ?  keep the git settings that the last command changed
+    /p/app/.git/commondir (core.fsmonitor); moved to quarantine
+    y keep   n leave in quarantine
 \u{2713} kept
 "
     );
@@ -500,8 +499,8 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
     assert_eq!(keys.starts(), 1);
     assert_eq!(
         err,
-        "? the running turn asks: allow this call\n\u{2502} write ~/.zshrc\n\
-         \u{2502} y allow \u{b7} n deny\n\u{2713} allowed\n"
+        " ?  the running turn asks: allow this call\n    write ~/.zshrc\n    \
+             y allow   n deny\n\u{2713} allowed\n"
     );
 }
 
@@ -688,7 +687,7 @@ async fn a_hidden_answer_is_sent_and_never_written_to_the_terminal() {
     result.unwrap();
     assert_eq!(keys.starts(), 1);
     assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
-    assert!(out.contains("the agent sees it only if the program prints it"), "{out}");
+    assert!(crate::testing::bare(&out).contains("password for sudo  typing is hidden"), "{out}");
     // A password gets no note when it is sent.
     assert!(!out.contains("answer sent"), "{out}");
     // Not the answer, not a piece of it, in any frame or note.
@@ -721,9 +720,10 @@ async fn a_visible_answer_is_echoed_and_sent_as_typed() {
     })
     .await;
     result.unwrap();
-    assert!(out.contains("the agent sees it if the program shows it"), "{out}");
-    assert!(out.contains("> n\u{e4}"), "the echo grows as the user types: {out}");
-    assert!(out.contains("> yes"), "{out}");
+    let shown = crate::testing::bare(&out);
+    assert!(shown.contains("the command waits for input"), "{out}");
+    assert!(shown.contains("\u{203a} n\u{e4}"), "the echo grows as the user types: {out}");
+    assert!(shown.contains("\u{203a} yes"), "{out}");
     assert!(out.contains("answer sent"), "{out}");
 }
 
@@ -780,7 +780,7 @@ async fn keys_typed_ahead_for_an_allowed_interactive_call_start_its_visible_answ
         presser.type_bytes(b"Y\r").await;
         conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
-        shows(&seen, "> Y").await;
+        shows(&seen, "\u{203a} Y").await;
         presser.type_bytes(b"es\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "Yes", "one answer, sent by the last Enter");
@@ -811,7 +811,7 @@ async fn keys_typed_ahead_never_join_a_hidden_answer_and_never_show() {
         presser.type_bytes(b"ahead\r").await;
         conn.item(sub, &item(14, shell_output("[sudo] password for egg: "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Hidden))).await;
-        shows(&seen, "it is not shown").await;
+        shows(&seen, "typing is hidden").await;
         presser.type_bytes(b"pw\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "pw");
@@ -846,7 +846,7 @@ async fn keys_typed_ahead_start_a_secret_looking_answer_without_showing() {
             looks_secret: true,
         };
         conn.item(sub, &item(15, secret)).await;
-        shows(&seen, "your typing is not shown here").await;
+        shows(&seen, "typing is not shown here").await;
         shows(&seen, "the answer starts with 7 characters typed ahead; Ctrl+U clears them").await;
         presser.press(b'\r').await;
         let (id, params) = input_respond(&mut conn).await;
@@ -913,7 +913,7 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
         conn.reply(id, &InputRespondResult {}).await;
         conn.item(sub, &item(14, shell_output(":: Proceed with installation? [Y/n] "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
-        shows_on(&seen, Stream::Stderr, |text| text.ends_with("> ")).await;
+        shows_on(&seen, Stream::Stderr, |text| text.ends_with("\u{203a} ")).await;
         presser.type_bytes(b"yo\x7fes\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "yes");
@@ -926,7 +926,7 @@ async fn without_a_terminal_on_stdout_a_visible_answer_is_echoed_on_stderr_and_a
     .await;
     result.unwrap();
     assert_eq!(out, "");
-    assert!(err.contains("> yo\u{8} \u{8}es\nanswer sent\n"), "{err:?}");
+    assert!(err.contains("\u{203a} yo\u{8} \u{8}es\nanswer sent\n"), "{err:?}");
     assert_eq!(err.matches("answer sent").count(), 1, "only the visible answer: {err:?}");
     assert!(!err.contains("hunter") && !err.contains("ter2"), "{err:?}");
 }
@@ -958,7 +958,7 @@ async fn an_answer_the_daemon_refuses_is_a_note_and_completion_stops_the_keys() 
     assert!(out.contains("the command no longer waits for that input; nothing was sent"), "{out}");
     assert!(!out.contains("secret"), "{out}");
     let last_frame = out.rsplit("\x1b[?2026h").next().unwrap_or_default();
-    assert!(!last_frame.contains("type the answer"), "the question is gone: {last_frame:?}");
+    assert!(!last_frame.contains("enter answers"), "the question is gone: {last_frame:?}");
 }
 
 #[tokio::test]
@@ -1196,7 +1196,7 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
     })
     .await;
     result.unwrap();
-    assert!(out.contains("your typing is not shown here"), "{out}");
+    assert!(out.contains("typing is not shown here"), "{out}");
     assert!(keys.discarded(), "the rest of what was typed never reaches the shell");
     for written in [&out, &err] {
         assert!(!written.contains("hunter"), "{written}");
@@ -1204,11 +1204,14 @@ async fn a_secret_looking_visible_answer_is_not_shown_and_goes_as_a_visible_one(
     }
 }
 
-const HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+const HINT: &str = "no output for 10s \u{b7} ctrl+\\ types an input for the command";
 
 /// Waits until stdout holds `text`.
 async fn shows(seen: &Captured, text: &str) {
-    shows_on(seen, Stream::Stdout, |shown| shown.contains(text)).await;
+    shows_on(seen, Stream::Stdout, |shown| {
+        shown.contains(text) || crate::testing::bare(shown).contains(text)
+    })
+    .await;
 }
 
 /// Where a view writes.
@@ -1297,7 +1300,7 @@ async fn keys_typed_after_a_manual_answer_of_an_allowed_interactive_call_never_s
         pressing.until_armed(1).await;
         pressing.trigger();
         // The reader already runs, so the line must be open before the keys come.
-        shows(&seen, "or Ctrl+\\ to cancel").await;
+        shows(&seen, "ctrl+\\ cancels").await;
         presser.type_bytes(b"hunter2\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert!(params.manual);
@@ -1308,7 +1311,7 @@ async fn keys_typed_after_a_manual_answer_of_an_allowed_interactive_call_never_s
         presser.type_bytes(b"hunter2").await;
         conn.item(sub, &item(14, shell_output("Proceed? [y/n] "))).await;
         conn.item(sub, &item(15, input_changed(InputWait::Visible))).await;
-        shows(&seen, "the agent sees it if the program shows it").await;
+        shows(&seen, "the command waits for input").await;
         presser.type_bytes(b"y\r").await;
         let (id, params) = input_respond(&mut conn).await;
         assert_eq!(params.text.expose_secret(), "y", "nothing typed before the question");
@@ -1697,7 +1700,7 @@ async fn a_question_and_the_end_of_the_turn_never_wait_for_the_frame_time() {
             reason: None,
         };
         conn.item(sub, &item(12, request)).await;
-        shows(&seen, "\x1b[1my\x1b[0m\x1b[2m allow").await;
+        shows(&seen, "\x1b[1;33my\x1b[0m \x1b[2mallow").await;
         assert!(seen.stdout().contains("Writing to"), "the question brings what came before it");
         presser.press(b'y').await;
         let (id, _) = conn.request().await;

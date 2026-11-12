@@ -1,10 +1,11 @@
 ---
 source: crates/efr-cli/src/follow/view/status/tests.rs
+assertion_line: 37
 expression: "rows.join(\"\")"
 ---
 \e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
 \e[33m⠙\e[0m \e[2m\e[0mw\e[0;2maiting for the model\e[0m
 \e[33m⠹\e[0m \e[2m\e[0mwa\e[0;2miting for the model\e[0m
 \e[33m⠏\e[0m \e[2mwaitin\e[0mg f\e[0;2mor the model\e[0m
-\e[33m⠋\e[0m \e[2mwaiting\e[0m fo\e[0;2mr the model\e[0m  \e[2m1s\e[0m
-\e[33m⠼\e[0m \e[2mwaiting for the mod\e[0mel\e[0m  \e[2m12s\e[0m
+\e[33m⠋\e[0m \e[2mwaiting\e[0m fo\e[0;2mr the model\e[0m   \e[2m1s\e[0m
+\e[33m⠼\e[0m \e[2mwaiting for the mod\e[0mel\e[0m   \e[2m12s\e[0m

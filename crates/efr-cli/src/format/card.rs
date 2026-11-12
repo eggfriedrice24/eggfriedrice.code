@@ -1,46 +1,60 @@
-//! A question as a card: a title after `? `, then rows after a thin bar, then the keys.
+//! A question as a card (TM-Questions): a badge and a title, then rows four columns in,
+//! then the keys. No frame and no bar, so nothing of the card ends up in a copy.
 //!
 //! ```text
-//! ? allow outside the sandbox
-//! │ cd ~/p/app && find target/debug/build \
-//! │     -path '*ghostty*' -type f
-//! │ runs with your full rights: files, secrets, network
-//! │ programs: cd, find
-//! │ y allow · n deny
+//!  ?  allow outside the sandbox
+//!     cd ~/p/app && find target/debug/build \
+//!         -path '*ghostty*' -type f
+//!     runs with your full rights: files, secrets, network
+//!     programs  cd, find
+//!     y allow   n deny
 //! ```
 //!
-//! An exit question for which the daemon offers a rule (`ExitInfo::always`, phase E)
-//! gets the key `a` in its last row, with the rule: `y allow · n deny · a always: write
-//! under ~/notes`. After an `a`, the last row is the confirm, `save rule "write under
-//! ~/notes"? y/n`, until the next key.
+//! The badge ` ? ` is the `warning` role in reverse video and bold, and the title is the
+//! `warning` role in bold: the loudest element of the turn. Without colour the badge is a
+//! bold `?`. The rows say what runs (in the `text` role), what it touches (the risk in
+//! `warning`, then labels such as `why`, `programs` and `host`, muted, two spaces, and
+//! the value in `text`), and what the model says. The keys are in `warning` bold, what
+//! they do muted, three spaces between pairs.
 //!
-//! The title and what needs the user's care are in the `warning` role, the bar and the
-//! secondary facts are muted, and what runs is in the `code` role. Every line of a
-//! command shows, each on its own, and nothing of what runs is cut: a line wider than
-//! the screen goes on in the next row. A cut after a space ends in a muted `\` and the
-//! rows from there are indented; a space cuts only a row that is then at least half
-//! full. Else a word is cut, with a muted `↩`, and goes on in the next row at the same
-//! column, so the rows show no space that the command does not have. Text rows go on
-//! in the next row, indented. When the output is not a terminal, nothing wraps and
-//! nothing is painted.
+//! An exit question for which the daemon offers a rule (`ExitInfo::always`, phase E)
+//! gets the key `a` in its last row: `y allow   n deny   a always…`. After an `a`, two
+//! rows confirm it: `always saves the rule  write under ~/notes`, then `y save the rule
+//! and allow   n back`, until the next key. A question that another client must answer
+//! ends with a muted row that says so, with no keys.
+//!
+//! Every line of a command shows, each on its own, and nothing of what runs is cut: a
+//! line wider than the screen goes on in the next row. A cut after a space ends in a
+//! muted `\` and the rows from there are four columns further in; a space cuts only a row
+//! that is then at least half full. Else a word is cut, with a muted `↩`, and goes on in
+//! the next row at the same column, so the rows show no space that the command does not
+//! have. A line that ends in a shell's own `\` goes on in the next line, so its `\` is
+//! muted too. Text rows go on in the next row, two columns further in. A diff stands at
+//! the card's indent: a row with the file and its counts, the short hunk header, and the
+//! lines with their sign. When the output is not a terminal, nothing wraps and nothing is
+//! painted.
 
-use efr_render::{RenderOptions, render};
-
-use super::{
-    CommandRow, RowEnd, Tone, code_block, columns, lines, paint, wrap_command, wrap_spans,
+use efr_render::{
+    Attrs, ColourMode, DiffLineKind, Glyphs, RenderOptions, Role, diff_lines, text_width,
 };
 
-/// The mark before a question's title.
-const MARK: &str = "? ";
+use super::{CommandRow, RowEnd, Tone, columns, lines, paint, wrap_command, wrap_spans};
 
-/// What starts each row of a card.
-pub(crate) const BAR: &str = "\u{2502} ";
+/// How far each row of a card stands in: under the title's text.
+const INDENT: &str = "    ";
 
-/// How far a row of a command that goes on after a space is indented after the bar.
+/// How far a row of a command that goes on after a space is indented after the card's
+/// indent.
 const COMMAND_INDENT: &str = "    ";
 
-/// How far a row of text that goes on is indented after the bar.
+/// How far a row of text that goes on is indented after the card's indent.
 const TEXT_INDENT: &str = "  ";
+
+/// Between a label and its value.
+const LABEL_GAP: &str = "  ";
+
+/// Between the pairs of a row of keys.
+const KEY_GAP: &str = "   ";
 
 /// The keys of an approval.
 pub(crate) const ALLOW_KEYS: &[(&str, &str)] = &[("y", "allow"), ("n", "deny")];
@@ -48,6 +62,15 @@ pub(crate) const ALLOW_KEYS: &[(&str, &str)] = &[("y", "allow"), ("n", "deny")];
 /// The key that saves the rule that an exit question offers (phase E). It asks for a
 /// confirm first.
 pub(crate) const ALWAYS_KEY: &str = "a";
+
+/// The word of the key `a`, before the mark of more.
+const ALWAYS_WORD: &str = "always";
+
+/// The label of the rule that an `a` answer saves.
+const ALWAYS_SAVES: &str = "always saves the rule";
+
+/// The keys of the confirm of an `a` answer.
+const CONFIRM_KEYS: &[(&str, &str)] = &[("y", "save the rule and allow"), ("n", "back")];
 
 /// The keys of the quarantine question.
 pub(crate) const KEEP_KEYS: &[(&str, &str)] = &[("y", "keep"), ("n", "leave in quarantine")];
@@ -58,7 +81,7 @@ const WAITING: &str = "waiting for another client to answer";
 /// One row of a card, before it is cut into the rows of a screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Row {
-    /// One line of a command, safe to print: what runs, in the `code` role.
+    /// One line of a command, safe to print: what runs, in the `text` role.
     Command(String),
     /// Text in pieces with their tone, safe to print.
     Text(Vec<(String, Tone)>),
@@ -73,6 +96,30 @@ impl Row {
     /// A row of one piece of text in `tone`.
     pub(crate) fn text(text: impl Into<String>, tone: Tone) -> Row {
         Row::Text(vec![(text.into(), tone)])
+    }
+
+    /// A row of a muted `label`, two spaces and `value` in the `text` role, such as
+    /// `why  network (github.com)`. Both are safe to print.
+    pub(crate) fn labelled(label: impl Into<String>, value: impl Into<String>) -> Row {
+        Row::Text(vec![
+            (label.into(), Tone::Dim),
+            (LABEL_GAP.to_owned(), Tone::Plain),
+            (value.into(), Tone::Text),
+        ])
+    }
+
+    /// The value of the row when it is a row of `label`, such as `network (github.com)`
+    /// of the row `why  network (github.com)`.
+    pub(crate) fn value_of(&self, label: &str) -> Option<String> {
+        let Row::Text(pieces) = self else {
+            return None;
+        };
+        match pieces.as_slice() {
+            [(first, Tone::Dim), (gap, _), rest @ ..] if first == label && gap == LABEL_GAP => {
+                Some(rest.iter().map(|(text, _)| text.as_str()).collect())
+            }
+            _ => None,
+        }
     }
 }
 
@@ -94,10 +141,10 @@ pub(crate) enum Footer {
     /// The keys that answer it here.
     Keys(&'static [(&'static str, &'static str)]),
     /// The keys of an approval and `a`, which saves the rule that the question offers:
-    /// `y allow · n deny · a always: write under ~/notes`. The rule is safe to print.
+    /// `y allow   n deny   a always…`. The rule is safe to print.
     Always(String),
-    /// The confirm of an `a` answer: `save rule "write under ~/notes"? y/n`. The rule is
-    /// safe to print.
+    /// The confirm of an `a` answer: `always saves the rule  write under ~/notes`, then
+    /// `y save the rule and allow   n back`. The rule is safe to print.
     Confirm(String),
     /// Another client must answer it.
     Waiting,
@@ -124,11 +171,16 @@ impl Card {
         #[cfg(test)]
         RENDERS.with(|renders| renders.set(renders.get() + 1));
         let columns = columns(options);
+        let glyphs = options.glyphs();
         let mut out = String::new();
-        let title = vec![(format!("{MARK}{}", self.title), Tone::Attention)];
-        for (at, row) in spans(&title, columns, 0, TEXT_INDENT.len()).into_iter().enumerate() {
+        let title = vec![
+            (format!(" {} ", glyphs.question), Tone::Badge),
+            (" ".to_owned(), Tone::Plain),
+            (self.title.clone(), Tone::AttentionBold),
+        ];
+        for (at, row) in spans(&title, columns, 0, INDENT.len()).into_iter().enumerate() {
             if at > 0 {
-                out.push_str(TEXT_INDENT);
+                out.push_str(INDENT);
             }
             push_pieces(&mut out, &row, options);
             out.push('\n');
@@ -141,115 +193,291 @@ impl Card {
         }
         out
     }
+
+    /// What the question asked about, for the line that takes its place, such as
+    /// `network (github.com)` or `outside the sandbox`: the value of its `why` row, else
+    /// its title after `allow ` when that is not `this …`.
+    pub(crate) fn subject(&self) -> Option<String> {
+        self.rows
+            .iter()
+            .find_map(|row| row.value_of(WHY))
+            .or_else(|| {
+                // NOTE: `allow this command` names no subject of its own.
+                let rest = self.title.strip_prefix("allow ")?;
+                (!rest.starts_with("this ")).then(|| rest.to_owned())
+            })
+            .filter(|subject| !subject.trim().is_empty())
+    }
 }
 
+/// The label of the row that says why a question asks.
+pub(crate) const WHY: &str = "why";
+
 /// The last row of a card, with its newline: the keys, the confirm of an `a` answer,
-/// or that another client must answer. A row with a rule that is wider than the screen
-/// goes on in the next row, indented, as a text row does.
+/// or that another client must answer. A row wider than the screen goes on in the next
+/// row, indented, as a text row does.
 pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
-    let bar = paint(BAR, Tone::Dim, options);
+    let glyphs = options.glyphs();
+    let mut out = String::new();
     let pieces = match footer {
-        Footer::Keys(keys) => return format!("{bar}{}\n", super::keys(keys, options)),
-        Footer::Waiting => return format!("{bar}{}\n", paint(WAITING, Tone::Dim, options)),
-        Footer::Always(rule) => {
+        Footer::Keys(keys) => key_pieces(keys),
+        Footer::Waiting => vec![(WAITING.to_owned(), Tone::Dim)],
+        Footer::Always(_) => {
             let mut pieces = key_pieces(ALLOW_KEYS);
-            pieces.push((" \u{b7} ".to_owned(), Tone::Dim));
-            pieces.push((ALWAYS_KEY.to_owned(), Tone::Bold));
-            pieces.push((format!(" always: {rule}"), Tone::Dim));
+            pieces.push((KEY_GAP.to_owned(), Tone::Plain));
+            let word = format!("{ALWAYS_WORD}{}", glyphs.more);
+            pieces.extend(key_pieces(&[(ALWAYS_KEY, word.as_str())]));
             pieces
         }
-        Footer::Confirm(rule) => vec![
-            (format!("save rule \"{rule}\"? "), Tone::Attention),
-            ("y".to_owned(), Tone::Bold),
-            ("/".to_owned(), Tone::Dim),
-            ("n".to_owned(), Tone::Bold),
-        ],
-    };
-    let mut out = String::new();
-    let rows = spans(&pieces, columns(options), BAR.chars().count(), TEXT_INDENT.len());
-    for (at, row) in rows.into_iter().enumerate() {
-        out.push_str(&bar);
-        if at > 0 {
-            out.push_str(TEXT_INDENT);
+        Footer::Confirm(rule) => {
+            push_row(&mut out, &Row::labelled(ALWAYS_SAVES, rule.clone()), options);
+            key_pieces(CONFIRM_KEYS)
         }
-        push_pieces(&mut out, &row, options);
-        out.push('\n');
-    }
+    };
+    push_text(&mut out, &pieces, options);
     out
 }
 
-/// `keys` as pieces of a row: each key in bold, what it does muted, a muted dot between
-/// them, as [`super::keys`] paints them.
+/// `keys` as pieces of a row: each key in the `warning` role in bold, a space, what it
+/// does muted, three spaces between the pairs.
 fn key_pieces(keys: &[(&str, &str)]) -> Vec<(String, Tone)> {
     let mut pieces = Vec::new();
     for (at, (key, what)) in keys.iter().enumerate() {
         if at > 0 {
-            pieces.push((" \u{b7} ".to_owned(), Tone::Dim));
+            pieces.push((KEY_GAP.to_owned(), Tone::Plain));
         }
-        pieces.push(((*key).to_owned(), Tone::Bold));
-        pieces.push((format!(" {what}"), Tone::Dim));
+        pieces.push(((*key).to_owned(), Tone::AttentionBold));
+        pieces.push((" ".to_owned(), Tone::Plain));
+        pieces.push(((*what).to_owned(), Tone::Dim));
     }
     pieces
 }
 
-/// Adds the screen rows of `row`, each after the bar, with their newlines.
+/// Adds the screen rows of the text `pieces` at the card's indent, the rows after the
+/// first two columns further in, with their newlines.
+fn push_text(out: &mut String, pieces: &[(String, Tone)], options: &RenderOptions) {
+    for (at, row) in
+        spans(pieces, columns(options), INDENT.len(), TEXT_INDENT.len()).into_iter().enumerate()
+    {
+        out.push_str(INDENT);
+        if at > 0 {
+            out.push_str(TEXT_INDENT);
+        }
+        push_pieces(out, &row, options);
+        out.push('\n');
+    }
+}
+
+/// Adds the screen rows of `row`, each at the card's indent, with their newlines.
 fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
-    let columns = columns(options);
-    let bar = paint(BAR, Tone::Dim, options);
-    let bar_width = BAR.chars().count();
+    let glyphs = options.glyphs();
     match row {
         Row::Command(line) => {
-            let rows = match columns {
+            // NOTE: a line that ends in the shell's own `\` goes on in the next line;
+            // its mark is the one of a cut after a space (TM-Questions 1).
+            let (body, continued) = match line.strip_suffix(glyphs.wrap) {
+                Some(body) if body.is_empty() || body.ends_with(' ') => (body, true),
+                _ => (line.as_str(), false),
+            };
+            let rows = match columns(options) {
                 Some((width, method)) => {
-                    let room = width.saturating_sub(bar_width).max(1);
-                    wrap_command(line, room, COMMAND_INDENT.len(), method)
+                    let mark = if continued { text_width(glyphs.wrap, method) } else { 0 };
+                    let room = width.saturating_sub(INDENT.len() + mark).max(1);
+                    wrap_command(body, room, COMMAND_INDENT.len(), method)
                 }
                 None => {
-                    vec![CommandRow { text: line.clone(), indented: false, end: RowEnd::Last }]
+                    vec![CommandRow { text: body.to_owned(), indented: false, end: RowEnd::Last }]
                 }
             };
-            for row in &rows {
-                out.push_str(&bar);
+            let last = rows.len().saturating_sub(1);
+            for (at, row) in rows.iter().enumerate() {
+                out.push_str(INDENT);
                 if row.indented {
                     out.push_str(COMMAND_INDENT);
                 }
-                out.push_str(&paint(&row.text, Tone::Code, options));
-                if let Some(mark) = row.mark() {
+                out.push_str(&paint(&row.text, Tone::Text, options));
+                let mark = match row.end {
+                    RowEnd::Last if at == last && continued => Some(glyphs.wrap),
+                    RowEnd::Last => None,
+                    RowEnd::Space => Some(glyphs.wrap),
+                    RowEnd::Word => Some(glyphs.word_cut),
+                };
+                if let Some(mark) = mark {
                     out.push_str(&paint(mark, Tone::Dim, options));
                 }
                 out.push('\n');
             }
         }
-        Row::Text(pieces) => {
-            for (at, row) in
-                spans(pieces, columns, bar_width, TEXT_INDENT.len()).into_iter().enumerate()
-            {
-                out.push_str(&bar);
-                if at > 0 {
-                    out.push_str(TEXT_INDENT);
+        Row::Text(pieces) => push_text(out, pieces, options),
+        Row::Diff(diff) => push_diff(out, diff, true, options),
+        Row::FileDiff(diff) => push_diff(out, diff, false, options),
+    }
+}
+
+/// Adds the rows of `diff` at the card's indent: with `heading`, a row with the file of
+/// its headers and its counts (`hyprland.conf  +1 -1`), then each hunk header in its
+/// short form (`@@ 41 input`) and each line with its sign, one space and the code, the
+/// row's background to its end, then the lines that the daemon cut.
+fn push_diff(out: &mut String, diff: &str, heading: bool, options: &RenderOptions) {
+    let glyphs = options.glyphs();
+    let parts = super::changes::diff_parts(diff);
+    if heading {
+        let path = parts
+            .head
+            .iter()
+            .find_map(|line| line.strip_prefix("+++ "))
+            .map(|path| path.strip_prefix("b/").unwrap_or(path))
+            .filter(|path| *path != "/dev/null");
+        let mut pieces: Vec<(String, Tone)> = Vec::new();
+        if let Some(path) = path {
+            pieces.push((super::one_line(path), Tone::Text));
+            pieces.push((LABEL_GAP.to_owned(), Tone::Plain));
+        }
+        pieces.extend(counts(&parts.body));
+        push_text(out, &pieces, options);
+    }
+    if !options.is_terminal() {
+        for line in lines(&parts.body.join("\n")).lines() {
+            out.push_str(INDENT);
+            out.push_str(line);
+            out.push('\n');
+        }
+    } else {
+        // NOTE: the file headers give the lines their syntax colours; they show as the
+        // row of the file, not as rows of their own.
+        let source: Vec<&str> = parts.head.iter().chain(&parts.body).copied().collect();
+        let mut text = source.join("\n");
+        text.push('\n');
+        let inner = usize::from(options.width()).saturating_sub(INDENT.len() + 3).max(10);
+        let narrow = options.clone().with_width(u16::try_from(inner).unwrap_or(u16::MAX));
+        let lines = diff_lines(&text, &narrow).into_iter().zip(&source).skip(parts.head.len());
+        for (line, source) in lines {
+            match line.kind {
+                DiffLineKind::Hunk => {
+                    let header = short_hunk(&super::one_line(source), glyphs);
+                    out.push_str(INDENT);
+                    out.push_str(&options.paint(Role::DiffHunk, &header));
+                    out.push('\n');
                 }
-                push_pieces(out, &row, options);
-                out.push('\n');
+                DiffLineKind::Other => {
+                    for row in &line.rows {
+                        out.push_str(INDENT);
+                        out.push_str(row);
+                        out.push('\n');
+                    }
+                }
+                // NOTE: without colour the lines have no syntax, so the sign comes from
+                // the source line: bold for `+` and `-`, and a removed line dim (TM-Legend
+                // 21).
+                kind if options.colour() == ColourMode::None => {
+                    let (sign, code) = source.split_at(source.len().min(1));
+                    let rows = chunks(&super::one_line(code), inner, options);
+                    let last = rows.len().saturating_sub(1);
+                    for (at, row) in rows.iter().enumerate() {
+                        out.push_str(INDENT);
+                        match kind {
+                            DiffLineKind::Added | DiffLineKind::Removed if at == 0 => {
+                                out.push_str(&paint(sign, Tone::Bold, options));
+                                out.push(' ');
+                            }
+                            _ => out.push_str("  "),
+                        }
+                        if kind == DiffLineKind::Removed {
+                            out.push_str(&options.paint_with(Role::Text, Attrs::DIM, row));
+                        } else {
+                            out.push_str(row);
+                        }
+                        if at < last {
+                            out.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
+                        }
+                        out.push('\n');
+                    }
+                }
+                _ => {
+                    let last = line.rows.len().saturating_sub(1);
+                    for (at, row) in line.rows.iter().enumerate() {
+                        out.push_str(INDENT);
+                        out.push_str(if at == 0 { &line.sign } else { " " });
+                        out.push(' ');
+                        out.push_str(row);
+                        // A row cut inside the line ends in a muted mark; the next row
+                        // goes on at the column of the code.
+                        if at < last {
+                            out.push_str(&paint(glyphs.word_cut, Tone::Dim, options));
+                        }
+                        if let Some(fill) = &line.fill {
+                            out.push_str(&format!("\x1b[{fill}m\x1b[K\x1b[0m"));
+                        }
+                        out.push('\n');
+                    }
+                }
             }
-        }
-        Row::Diff(diff) => {
-            let shown = if options.is_terminal() {
-                let inner = options.width().saturating_sub(2).max(10);
-                render(&code_block("diff", diff), &options.clone().with_width(inner))
-            } else {
-                lines(diff).into_owned()
-            };
-            for line in shown.lines() {
-                out.push_str(&bar);
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
-        Row::FileDiff(diff) => {
-            let parts = super::changes::diff_parts(diff);
-            out.push_str(&super::patch::rows(&parts, None, usize::MAX, BAR, options));
         }
     }
+    if parts.cut > 0 {
+        let more = format!("{} {} more lines", glyphs.more, parts.cut);
+        out.push_str(INDENT);
+        out.push_str(&paint(&more, Tone::Dim, options));
+        out.push('\n');
+    }
+}
+
+/// `text` in rows of at most `columns` columns, cut anywhere, as a diff line is.
+fn chunks(text: &str, columns: usize, options: &RenderOptions) -> Vec<String> {
+    let method = options.width_method();
+    let mut rows = vec![String::new()];
+    let mut used = 0;
+    for c in text.chars() {
+        let width = text_width(&c.to_string(), method);
+        if used + width > columns.max(1) && used > 0 {
+            rows.push(String::new());
+            used = 0;
+        }
+        used += width;
+        if let Some(row) = rows.last_mut() {
+            row.push(c);
+        }
+    }
+    rows
+}
+
+/// The counts of the lines of a diff `body` that it adds and removes: `+1` in the
+/// `success` role and `-1` in the `error` role.
+fn counts(body: &[&str]) -> Vec<(String, Tone)> {
+    let added = body.iter().filter(|line| line.starts_with('+')).count();
+    let removed = body.iter().filter(|line| line.starts_with('-')).count();
+    let mut pieces = Vec::new();
+    if added > 0 {
+        pieces.push((format!("+{added}"), Tone::Success));
+    }
+    if removed > 0 {
+        if added > 0 {
+            pieces.push((" ".to_owned(), Tone::Plain));
+        }
+        pieces.push((format!("-{removed}"), Tone::Failure));
+    }
+    pieces
+}
+
+/// The short form of the hunk header `line`, `@@ -41,1 +41,1 @@ input`: `@@ 41 input`,
+/// the first line of the new side and what git names after the header.
+fn short_hunk(line: &str, glyphs: &Glyphs) -> String {
+    let rest = line.trim_end().strip_prefix(glyphs.hunk).unwrap_or(line).trim_start();
+    let (ranges, context) = rest.split_once(glyphs.hunk).unwrap_or((rest, ""));
+    let start = ranges
+        .split_whitespace()
+        .find_map(|range| range.strip_prefix('+'))
+        .map(|range| range.split(',').next().unwrap_or(range))
+        .unwrap_or_default();
+    let context = context.trim().trim_end_matches('{').trim_end();
+    let mut short = glyphs.hunk.to_owned();
+    for part in [start, context] {
+        if !part.is_empty() {
+            short.push(' ');
+            short.push_str(part);
+        }
+    }
+    short
 }
 
 /// The rows of the preview of an `apply_patch` or `edit` call: for each file of the
@@ -259,8 +487,13 @@ fn push_row(out: &mut String, row: &Row, options: &RenderOptions) {
 pub(crate) fn patch_rows(diff: &str) -> Vec<Row> {
     let mut rows = Vec::new();
     for file in super::patch::file_diffs(diff) {
-        let heading = file.file.heading(true);
+        let mut heading = file.file.heading(true);
         if !heading.is_empty() {
+            let counted = counts(&file.parts.body);
+            if !counted.is_empty() {
+                heading.push((LABEL_GAP.to_owned(), Tone::Plain));
+                heading.extend(counted);
+            }
             rows.push(Row::Text(heading));
         }
         rows.push(Row::FileDiff(file.text()));
@@ -311,7 +544,7 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
         let mut card = if rest.is_empty() || rest.starts_with(ASKS) {
             let mut rows = command.map(command_rows).unwrap_or_default();
             if !rest.is_empty() {
-                rows.push(Row::text(super::one_line(rest), Tone::Dim));
+                rows.push(asks_row(&super::one_line(rest)));
             }
             Card { title: title(tool).to_owned(), rows }
         } else {
@@ -336,16 +569,13 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
                 .filter(|part| !part.is_empty())
                 .collect();
             if !rest.is_empty() {
-                rows.push(Row::text(
-                    format!("why: {}", super::one_line(&rest.join("; "))),
-                    Tone::Dim,
-                ));
+                rows.push(Row::labelled(WHY, super::one_line(&rest.join("; "))));
             }
         }
         None => rows.push(Row::text(super::one_line(subjects.unwrap_or(first)), Tone::Plain)),
     }
     if let Some(asking) = asking {
-        rows.push(Row::text(asking, Tone::Dim));
+        rows.push(asks_row(&asking));
     }
     Card { title: title.to_owned(), rows }
 }
@@ -364,6 +594,15 @@ pub(crate) fn mark_wake(card: &mut Card) {
 
 /// What the line after a summary that names the parts that ask starts with.
 const ASKS: &str = "asks for: ";
+
+/// The row of the line that names the parts of a command line that ask, `asks for:
+/// curl, ssh`, as a label and its value.
+fn asks_row(line: &str) -> Row {
+    match line.strip_prefix(ASKS) {
+        Some(parts) => Row::labelled(ASKS.trim_end_matches([':', ' ']), parts.to_owned()),
+        None => Row::text(line.to_owned(), Tone::Dim),
+    }
+}
 
 /// The title of an approval of a call of `tool`.
 fn title(tool: Option<&str>) -> &'static str {

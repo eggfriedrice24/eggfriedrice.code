@@ -2,9 +2,10 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: readable(&step.out)
 ---
-\e[?2026h\e[33m? allow this call\e[0m
-\e[2m│ \e[0mwrite ~/.zshrc
-\e[2m│ \e[0m\e[1;31m-\e[0m\e[31ma\e[0m
-\e[2m│ \e[0m\e[1;32m+\e[0m\e[32mb\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[?2026h\e[1;7;33m ? \e[0m \e[1;33mallow this call\e[0m
+    write ~/.zshrc
+    \e[32m+1\e[0m \e[31m-1\e[0m
+    \e[1;31m-\e[0m \e[31ma\e[0m
+    \e[1;32m+\e[0m \e[32mb\e[0m
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 \e[?2026l

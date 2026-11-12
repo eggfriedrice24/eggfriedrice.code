@@ -2,11 +2,11 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-? allow outside the sandbox
-│ echo 'alias k=kubectl' >> ~/.zshrc
-│ runs with your full rights: files, secrets, network
-│ why: write ~/.zshrc
-│ programs: echo
-│ efr: the file exists; persistence; only you can allow this
-│ the model says: "you asked me to add the alias"
-│ y allow · n deny
+ ?  allow outside the sandbox
+    echo 'alias k=kubectl' >> ~/.zshrc
+    runs with your full rights: files, secrets, network
+    why  write ~/.zshrc
+    programs  echo
+    efr  the file exists; persistence; only you can allow this
+    the model says  "you asked me to add the alias"
+    y allow   n deny

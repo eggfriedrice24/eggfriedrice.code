@@ -2,8 +2,8 @@
 source: crates/efr-cli/src/follow/view/tests.rs
 expression: err
 ---
-? allow the system bus for this call
-│ systemctl --failed --no-pager
-│ journalctl -b -n 20 --no-pager
-│ why: the system bus
-│ y allow · n deny
+ ?  allow the system bus for this call
+    systemctl --failed --no-pager
+    journalctl -b -n 20 --no-pager
+    why  the system bus
+    y allow   n deny

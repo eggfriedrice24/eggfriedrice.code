@@ -4,137 +4,131 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(900, message(0, \"I will
 ---
 === 40 columns, colour
 [asked]
-I will look for the \e[1mlibghostty\e[0m build
-first.
+I will look for the \e[1mlibghostty\e[0m build first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
+  \e[32m✓\e[0m
 
-It is there. Now I copy it out of the
-sandbox.
+It is there. Now I copy it out of the sandbox.
 
-\e[33m? allow this command\e[0m
-\e[2m│ \e[0m\e[32mcp target/debug/build/libghostty-vt-1\e[0m\e[2m↩\e[0m
-\e[2m│ \e[0m\e[32ma2b3c/out/libghostty.so ~/lib/\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow this command\e[0m
+    cp target/debug/build/libghostty-vt\e[2m↩\e[0m
+    -1a2b3c/out/libghostty.so ~/lib/
+    \e[2mwhy\e[0m  write ~/lib (user data)
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [end]
-I will look for the \e[1mlibghostty\e[0m build
-first.
+I will look for the \e[1mlibghostty\e[0m build first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
+  \e[32m✓\e[0m
 
-It is there. Now I copy it out of the
-sandbox.
+It is there. Now I copy it out of the sandbox.
 
-\e[32m✓ allowed\e[0m
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcp target/debug/build/libghos\e[0m\e[2m↩\e[0m
-    \e[2mtty-vt-1a2b3c/out/libghostty.\e[0m\e[2m↩\e[0m
-    \e[2mso ~/lib/\e[0m  \e[2m0.3s\e[0m
+\e[32m✓\e[0m \e[2mallowed · write ~/lib (user data)\e[0m
+\e[33m·\e[0m \e[32m$ cp target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
+    \e[32m-1a2b3c/out/libghostty.so ~/lib/\e[0m
+  \e[32m✓\e[0m
 
 Done: \e[32m~/lib/libghostty.so\e[0m is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-
-\e[32m✓\e[0m done  \e[2m5s · 1.1k out · cache 0%\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
 [asked]
-I will look for the \e[1mlibghostty\e[0m build
-first.
+I will look for the \e[1mlibghostty\e[0m build first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[1m·\e[0m $ ls target/debug/build | grep ghostty
+  ✓
 
-It is there. Now I copy it out of the
-sandbox.
+It is there. Now I copy it out of the sandbox.
 
-\e[1m? allow this command\e[0m
-\e[2m│ \e[0mcp target/debug/build/libghostty-vt-1\e[2m↩\e[0m
-\e[2m│ \e[0ma2b3c/out/libghostty.so ~/lib/
-\e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1m ? \e[0m \e[1mallow this command\e[0m
+    cp target/debug/build/libghostty-vt\e[2m↩\e[0m
+    -1a2b3c/out/libghostty.so ~/lib/
+    \e[2mwhy\e[0m  write ~/lib (user data)
+    \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [end]
-I will look for the \e[1mlibghostty\e[0m build
-first.
+I will look for the \e[1mlibghostty\e[0m build first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[1m·\e[0m $ ls target/debug/build | grep ghostty
+  ✓
 
-It is there. Now I copy it out of the
-sandbox.
+It is there. Now I copy it out of the sandbox.
 
-✓ allowed
-✓ \e[2m$\e[0m \e[2mcp target/debug/build/libghos\e[0m\e[2m↩\e[0m
-    \e[2mtty-vt-1a2b3c/out/libghostty.\e[0m\e[2m↩\e[0m
-    \e[2mso ~/lib/\e[0m  \e[2m0.3s\e[0m
+✓ \e[2mallowed · write ~/lib (user data)\e[0m
+\e[1m·\e[0m $ cp target/debug/build/libghostty-vt\e[2m↩\e[0m
+    -1a2b3c/out/libghostty.so ~/lib/
+  ✓
 
 Done: `~/lib/libghostty.so` is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-
-✓ done  \e[2m5s · 1.1k out · cache 0%\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
 [asked]
 I will look for the \e[1mlibghostty\e[0m build first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep ghostty\e[0m  \e[2m0.3s\e[0m
+\e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
+  \e[32m✓\e[0m
 
 It is there. Now I copy it out of the sandbox.
 
-\e[33m? allow this command\e[0m
-\e[2m│ \e[0m\e[32mcp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow this command\e[0m
+    cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+    \e[2mwhy\e[0m  write ~/lib (user data)
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [end]
 I will look for the \e[1mlibghostty\e[0m build first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep ghostty\e[0m  \e[2m0.3s\e[0m
+\e[33m·\e[0m \e[32m$ ls target/debug/build | grep ghostty\e[0m
+  \e[32m✓\e[0m
 
 It is there. Now I copy it out of the sandbox.
 
-\e[32m✓ allowed\e[0m
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/\e[0m  \e[2m0.3s\e[0m
+\e[32m✓\e[0m \e[2mallowed · write ~/lib (user data)\e[0m
+\e[33m·\e[0m \e[32m$ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/\e[0m
+  \e[32m✓\e[0m
 
 Done: \e[32m~/lib/libghostty.so\e[0m is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-
-\e[32m✓\e[0m done  \e[2m5s · 1.1k out · cache 0%\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [asked]
 I will look for the \e[1mlibghostty\e[0m build first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep ghostty\e[0m  \e[2m0.3s\e[0m
+\e[1m·\e[0m $ ls target/debug/build | grep ghostty
+  ✓
 
 It is there. Now I copy it out of the sandbox.
 
-\e[1m? allow this command\e[0m
-\e[2m│ \e[0mcp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
-\e[2m│ \e[0m\e[2mwhy: write ~/lib (user data)\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1m ? \e[0m \e[1mallow this command\e[0m
+    cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+    \e[2mwhy\e[0m  write ~/lib (user data)
+    \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [end]
 I will look for the \e[1mlibghostty\e[0m build first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep ghostty\e[0m  \e[2m0.3s\e[0m
+\e[1m·\e[0m $ ls target/debug/build | grep ghostty
+  ✓
 
 It is there. Now I copy it out of the sandbox.
 
-✓ allowed
-✓ \e[2m$\e[0m \e[2mcp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/\e[0m  \e[2m0.3s\e[0m
+✓ \e[2mallowed · write ~/lib (user data)\e[0m
+\e[1m·\e[0m $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+  ✓
 
 Done: `~/lib/libghostty.so` is in place.
 
 \e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
-
-✓ done  \e[2m5s · 1.1k out · cache 0%\e[0m
+\e[2mdone in 5.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
 [asked]
@@ -143,12 +137,13 @@ I will look for the **libghostty** build first.
 
 It is there. Now I copy it out of the sandbox.
 stderr:
-✓ $ ls target/debug/build | grep ghostty  0.3s
+· $ ls target/debug/build | grep ghostty
+  ✓
 
-? allow this command
-│ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
-│ why: write ~/lib (user data)
-│ y allow · n deny
+ ?  allow this command
+    cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+    why  write ~/lib (user data)
+    y allow   n deny
 
 [end]
 stdout:
@@ -158,12 +153,15 @@ It is there. Now I copy it out of the sandbox.
 
 Done: `~/lib/libghostty.so` is in place.
 stderr:
-✓ $ ls target/debug/build | grep ghostty  0.3s
+· $ ls target/debug/build | grep ghostty
+  ✓
 
-? allow this command
-│ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
-│ why: write ~/lib (user data)
-│ y allow · n deny
-✓ allowed
-✓ $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/  0.3s
+ ?  allow this command
+    cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+    why  write ~/lib (user data)
+    y allow   n deny
+✓ allowed · write ~/lib (user data)
+· $ cp target/debug/build/libghostty-vt-1a2b3c/out/libghostty.so ~/lib/
+  ✓
+
 sandbox: writes in the project, $SCRATCH, private /tmp; no network

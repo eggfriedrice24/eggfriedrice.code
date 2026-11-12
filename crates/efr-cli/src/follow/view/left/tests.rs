@@ -38,15 +38,15 @@ fn only_a_visible_wait_can_look_secret() {
 #[test]
 fn the_end_line_says_password_only_outside_the_sandbox() {
     assert_eq!(
-        left(false, InputWait::Hidden, false).end_line(true),
+        left(false, InputWait::Hidden, false).end_line(true, &efr_render::Glyphs::UNICODE),
         "the hidden shell still runs: rsync -a u@h:x . (it waits for a password)"
     );
     assert_eq!(
-        left(true, InputWait::Hidden, false).end_line(false),
+        left(true, InputWait::Hidden, false).end_line(false, &efr_render::Glyphs::UNICODE),
         "the hidden shell still runs: rsync -a u@h:x . (it waits for input) \u{b7} ,shell answers or stops it"
     );
     assert_eq!(
-        left(false, InputWait::None, false).end_line(false),
+        left(false, InputWait::None, false).end_line(false, &efr_render::Glyphs::UNICODE),
         "the hidden shell still runs: rsync -a u@h:x . \u{b7} ,shell answers or stops it"
     );
 }
@@ -75,7 +75,7 @@ fn the_command_and_the_prompt_never_carry_a_control_character() {
     let mut shown = Left::new(call(), "printf '\x1b]52;c;aGk=\x07'\nrm x", false, None);
     shown.waits(InputWait::Visible, false, "\x1b[2Jok?\r");
     shown.asking = shown.kind();
-    let raw = shown.raw();
+    let raw = shown.raw(&efr_render::RenderOptions::new(80));
     assert!(!raw.chars().any(|c| c.is_control() && c != '\n'), "{raw:?}");
-    assert_eq!(raw.lines().count(), 4, "{raw:?}");
+    assert_eq!(raw.lines().count(), 3, "{raw:?}");
 }

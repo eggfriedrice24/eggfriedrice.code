@@ -12,7 +12,10 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{AnswerKind, Ask, ECHO_PREFIX, Look, Step, TurnEnd, TurnView, last_line};
+use super::{AnswerKind, Ask, Look, Step, TurnEnd, TurnView, last_line};
+
+/// What the echo of a visible answer starts with.
+const ECHO_PREFIX: &str = "\u{203a} ";
 use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
@@ -247,7 +250,7 @@ fn a_denied_call_is_not_reported_as_failed_too() {
     };
     assert!(
         readable(&framed(view.event(&denied, SIZE, false), &mut view).out)
-            .contains("denied from the phone")
+            .contains("denied \u{b7} from the phone")
     );
     only_the_command(framed(view.event(&refused_call_completed(), SIZE, false), &mut view));
 
@@ -319,7 +322,7 @@ fn without_keys_an_approval_waits_for_another_client() {
     assert!(readable(&step.out).contains("waiting for another client to answer"));
     let step = framed(view.event(&resolved(Origin::Phone), SIZE, false), &mut view);
     assert!(!step.settled);
-    assert!(readable(&step.out).contains("allowed from the phone"));
+    assert!(readable(&step.out).contains("allowed \u{b7} from the phone"));
 }
 
 #[test]
@@ -329,7 +332,10 @@ fn an_answer_from_elsewhere_settles_the_question() {
     let step = framed(view.event(&resolved(Origin::Phone), SIZE, true), &mut view);
     assert!(step.settled);
     let out = readable(&step.out);
-    assert!(out.contains("\u{2713} allowed from the phone"), "{out}");
+    assert!(
+        crate::testing::bare(&step.out).contains("\u{2713} allowed \u{b7} from the phone"),
+        "{out}"
+    );
     assert!(!out.contains(" deny"), "the question is gone: {out}");
 }
 
@@ -356,7 +362,7 @@ fn a_raw_approval_goes_to_stderr_with_the_question() {
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
-        "? allow this call\n\u{2502} write ~/.zshrc\n\u{2502} -a\n\u{2502} +b\n\u{2502} y allow \u{b7} n deny\n"
+        " ?  allow this call\n    write ~/.zshrc\n    +1 -1\n    -a\n    +b\n    y allow   n deny\n"
     );
     assert_eq!(step.ask, Some(Ask::Approval(call())));
 }
@@ -391,9 +397,9 @@ fn a_raw_approval_names_the_parts_that_ask_on_a_line_of_their_own() {
     let step = framed(view.event(&approval_of_parts(), SIZE, true), &mut view);
     assert_eq!(
         step.err,
-        "? allow this call\n\
-         \u{2502} shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n\
-         \u{2502} asks for: hostnamectl, systemctl --failed\n\u{2502} y allow \u{b7} n deny\n"
+        " ?  allow this call\n    \
+             shell: run \"printf x; hostnamectl; uptime; systemctl --failed\"\n    \
+             asks for  hostnamectl, systemctl --failed\n    y allow   n deny\n"
     );
 }
 
@@ -414,8 +420,8 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
     let step = framed(view.event(&event, SIZE, true), &mut view);
     assert_eq!(
         step.err,
-        "? allow this call\n\u{2502} write_file: write /home/u/a asks for: ls (user data)\n\
-         \u{2502} y allow \u{b7} n deny\n"
+        " ?  allow this call\n    write_file: write /home/u/a asks for: ls (user data)\n    \
+             y allow   n deny\n"
     );
 }
 
@@ -602,7 +608,7 @@ fn an_approval_completes_the_message_before_it() {
     let mut view = raw_view();
     let (out, err, _) = feed(&mut view, &[updated(0, "I will edit it."), approval(None)], false);
     assert_eq!(out, "I will edit it.\n");
-    assert!(err.starts_with("? allow this call\n\u{2502} write ~/.zshrc\n"), "{err}");
+    assert!(err.starts_with(" ?  allow this call\n    write ~/.zshrc\n"), "{err}");
 }
 
 fn output(tail: &str) -> Event {
@@ -784,7 +790,7 @@ fn a_raw_question_comes_before_the_rows_of_its_call_as_on_a_terminal() {
     err.push_str(&rest);
     assert_eq!(
         err,
-        "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} y allow \u{b7} n deny\n\
+        " ?  allow this command\n    write ~/.zshrc\n    y allow   n deny\n\
          \u{2713} allowed\n\u{2713} $ touch note.txt\n"
     );
 
@@ -803,8 +809,8 @@ fn a_raw_question_comes_before_the_rows_of_its_call_as_on_a_terminal() {
     );
     assert_eq!(
         err,
-        "? allow this command\n\u{2502} write ~/.zshrc\n\u{2502} waiting for another client to \
-         answer\n\u{2717} denied from the phone\n\u{b7} $ touch note.txt  did not run\n"
+        " ?  allow this command\n    write ~/.zshrc\n    waiting for another client to \
+         answer\n\u{2717} denied \u{b7} from the phone\n\u{b7} $ touch note.txt  did not run\n"
     );
 }
 
@@ -918,8 +924,7 @@ fn a_raw_view_asks_on_stderr() {
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
-        "Password:\ntype the answer and press Enter; it is not shown, and the agent sees it only if the \
-         program prints it\n"
+        "Password:\n? password for the command  typing is hidden \u{b7} enter answers\n"
     );
     assert_eq!(framed(view.typed("visible?"), &mut view), Step::default());
 }
@@ -933,8 +938,8 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     assert_eq!(step.out, "");
     assert_eq!(
         step.err,
-        "Proceed? [Y/n]\ntype the answer and press Enter; the agent sees it if the program shows \
-         it\n> "
+        "Proceed? [Y/n]\n? the command waits for input  enter answers \u{b7} ctrl+c stops the \
+         command\n\u{203a} "
     );
     assert_eq!(framed(view.typed("y"), &mut view).err, "y");
     assert_eq!(framed(view.typed("ye"), &mut view).err, "e");
@@ -946,7 +951,7 @@ fn a_raw_view_echoes_a_visible_answer_on_stderr_where_backspace_erases() {
     let sent = framed(view.answer_sent(AnswerKind::Visible, SIZE), &mut view);
     assert_eq!((sent.out.as_str(), sent.err.as_str()), ("", "\nanswer sent\n"));
     // Another answer to the same question starts a line of its own.
-    assert_eq!(framed(view.typed("y"), &mut view).err, "> y");
+    assert_eq!(framed(view.typed("y"), &mut view).err, "\u{203a} y");
     // And a line left unsent ends before anything that comes after the view.
     assert_eq!(framed(view.event(&turn_completed(), SIZE, true), &mut view).err, "\n");
 }
@@ -1020,7 +1025,7 @@ fn secret_input() -> Event {
     }
 }
 
-const SECRET_NOTE: &str = "this looks like a password prompt behind another program: your typing is not shown here, and the agent sees it only if that program shows it";
+const SECRET_NOTE: &str = "typing is not shown here;";
 
 #[test]
 fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
@@ -1032,8 +1037,8 @@ fn a_visible_wait_that_looks_secret_hides_what_is_typed_and_says_why() {
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
     let shown = readable(&step.out);
     assert!(shown.contains("Current password:"), "{shown}");
-    assert!(shown.contains(SECRET_NOTE), "{shown}");
-    assert!(!shown.contains("> "), "no echo line: {shown}");
+    assert!(shown.contains("looks like a password behind sudo"), "{shown}");
+    assert!(shown.contains("\u{203a}\\e[0m \n"), "the mark alone, no echo: {shown}");
     // Text handed to the view by mistake is dropped, never drawn.
     assert_eq!(framed(view.typed("hunter2"), &mut view), Step::default());
 
@@ -1068,7 +1073,7 @@ fn a_raw_view_of_a_secret_looking_wait_opens_no_echo_line() {
     let step = framed(view.event(&secret_input(), size, true), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Masked }));
     assert!(step.err.contains(SECRET_NOTE), "{:?}", step.err);
-    assert!(!step.err.contains("> "), "{:?}", step.err);
+    assert!(!step.err.contains("\u{203a} "), "no echo line: {:?}", step.err);
 }
 
 #[test]
@@ -1079,7 +1084,10 @@ fn an_answer_kind_says_whether_it_is_shown_and_how_it_is_sent() {
     assert!(!AnswerKind::Masked.shown() && !AnswerKind::Masked.hidden());
 }
 
-const HINT: &str = "no output for 10 s; press Ctrl+\\ to type an input for the command";
+const HINT: &str = "no output for 10s \u{b7} ctrl+\\ types an input for the command";
+
+/// The start of [`HINT`], which a row of 40 columns shows.
+const HINT_START: &str = "no output for 10s \u{b7} ctrl+\\ types an";
 
 fn shell_started() -> Event {
     Event::ToolCallStarted {
@@ -1156,12 +1164,12 @@ fn a_silent_call_offers_ctrl_backslash_on_one_dim_line_until_it_prints() {
     let (mut view, size) = silent_shell();
     let step = framed(view.silent(call(), size), &mut view);
     assert_eq!(step.ask, None, "no key is read for the hint");
-    assert!(readable(&step.out).contains(HINT), "{}", readable(&step.out));
+    assert!(readable(&step.out).contains(HINT_START), "{}", readable(&step.out));
     assert_eq!(view.manual_offer(), Some(call()));
     assert_eq!(view.silence(), None, "the hint shows once");
 
     let step = framed(view.event(&output("deploying"), size, true), &mut view);
-    assert!(!readable(&step.out).contains(HINT), "{}", readable(&step.out));
+    assert!(!readable(&step.out).contains(HINT_START), "{}", readable(&step.out));
     assert_eq!(view.manual_offer(), None);
     assert!(view.silence().is_some(), "a new silence starts");
 }
@@ -1173,8 +1181,8 @@ fn ctrl_backslash_asks_for_a_manual_line_that_is_not_shown_and_one_answer_ends_i
     let step = framed(view.manual(call(), size), &mut view);
     assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Manual }));
     let shown = readable(&step.out);
-    assert!(shown.contains("your typing is not shown here"), "{shown}");
-    assert!(!shown.contains(HINT), "{shown}");
+    assert!(shown.contains("an input for the command"), "{shown}");
+    assert!(!shown.contains(HINT_START), "{shown}");
     assert!(!shown.contains(ECHO_PREFIX), "{shown}");
     assert_eq!(framed(view.typed("yes"), &mut view), Step::default(), "nothing typed is shown");
     assert_eq!(view.manual_offer(), None);
@@ -1214,7 +1222,7 @@ fn ctrl_backslash_again_closes_the_manual_line_and_offers_it_again() {
     assert_eq!(step.ask, None);
     let shown = readable(&step.out);
     assert!(shown.contains("the input was not sent"), "{shown}");
-    assert!(shown.contains(HINT), "the offer comes back: {shown}");
+    assert!(shown.contains(HINT_START), "the offer comes back: {shown}");
     assert!(!view.manual_open());
     assert_eq!(view.manual_offer(), Some(call()));
 }
@@ -1259,8 +1267,10 @@ fn without_a_terminal_the_offer_is_a_note_on_stderr() {
 
 #[test]
 fn the_hint_names_the_silence_that_the_follow_loop_waits_for() {
-    let seconds = format!("no output for {} s;", crate::follow::SILENCE.as_secs());
-    assert!(super::SILENCE_HINT.starts_with(&seconds), "{}", super::SILENCE_HINT);
+    let seconds = format!("no output for {}s ", crate::follow::SILENCE.as_secs());
+    let hint = super::waits::silence_hint(&efr_render::Glyphs::UNICODE);
+    assert!(hint.starts_with(&seconds), "{hint}");
+    assert_eq!(hint, HINT);
 }
 
 /// An approval of the shell call that says whether it may wait for input.
@@ -1887,11 +1897,10 @@ fn a_network_exit_question_runs_in_the_sandbox_with_full_network() {
     let (_, err, _) = feed(&mut view, &exit_events("npm ci", ExitFacts::default(), info), true);
     assert_eq!(
         err,
-        "\
-? allow full network for this call
-\u{2502} npm ci
-\u{2502} why: network
-\u{2502} y allow \u{b7} n deny
+        " ?  allow full network for this call
+    npm ci
+    why  network
+    y allow   n deny
 "
     );
 }
@@ -1911,7 +1920,7 @@ fn a_question_for_an_rsync_over_ssh_outside_the_sandbox_names_the_password() {
     let info = exit_info(&[ExitKind::Upload], Launch::Unsandboxed);
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &interactive_exit_events(line, info), true);
-    assert!(err.contains("\u{2502} you may need to type your password\n"), "{err}");
+    assert!(err.contains("    you may need to type your password\n"), "{err}");
     assert_eq!(err.matches("type your password").count(), 1, "{err}");
 }
 
@@ -1947,7 +1956,7 @@ fn an_exit_without_its_record_keeps_the_summary() {
     let (_, err, _) = feed(&mut view, &[approval], false);
     assert!(
         err.starts_with(
-            "? allow full network for this call\n\u{2502} run `npm ci`\n\u{2502} why: network\n"
+            " ?  allow full network for this call\n    run `npm ci`\n    why  network\n"
         ),
         "{err}"
     );
@@ -1971,8 +1980,8 @@ fn an_exit_without_its_record_says_why_once() {
     let (_, err, _) = feed(&mut view, &[contained_started("npm ci"), approval], false);
     assert_eq!(
         err,
-        "? allow full network for this call\n\u{2502} npm ci\n\u{2502} why: network\n\
-         \u{2502} waiting for another client to answer\n"
+        " ?  allow full network for this call\n    npm ci\n    why  network\n    \
+             waiting for another client to answer\n"
     );
 }
 
@@ -2029,7 +2038,7 @@ fn a_question_without_an_exit_shows_each_line_of_a_command_of_several() {
     // line with its newlines escaped.
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[approval], true);
-    assert!(err.starts_with("? allow this call\n\u{2502} shell: run \"cd src\\nexport"), "{err}");
+    assert!(err.starts_with(" ?  allow this call\n    shell: run \"cd src\\nexport"), "{err}");
 }
 
 fn question_id() -> QuestionId {
@@ -2076,10 +2085,9 @@ fn a_quarantine_question_answered_elsewhere_or_expired_settles_with_a_note() {
     let (_, err, _) = feed(&mut view, &[surface_requested()], true);
     assert_eq!(
         err,
-        "\
-? keep the git settings that the last command changed
-\u{2502} ~/project/.git/commondir (core.fsmonitor); moved to quarantine
-\u{2502} y keep \u{b7} n leave in quarantine
+        " ?  keep the git settings that the last command changed
+    ~/project/.git/commondir (core.fsmonitor); moved to quarantine
+    y keep   n leave in quarantine
 "
     );
     let step =
@@ -2250,9 +2258,9 @@ fn a_question_writes_without_the_status_row_shows_the_cursor_and_stops_the_time(
     // Five seconds before the question and none of the minute it waited. The model
     // could send nothing while the user was asked, so that is no stall either.
     let back = readable(&back);
-    assert!(back.contains("for the model\\e[0m  \\e[2m5s\\e[0m\n"), "{back}");
+    assert!(back.contains("for the model\\e[0m   \\e[2m5s\\e[0m\n"), "{back}");
     let tick = readable(&view.tick(SIZE, at(66_000)));
-    assert!(tick.ends_with("model\\e[0m  \\e[2m6s\\e[0m\n\\e[?2026l\\e]9;4;3\\e\\"), "{tick}");
+    assert!(tick.ends_with("model\\e[0m   \\e[2m6s\\e[0m\n\\e[?2026l\\e]9;4;3\\e\\"), "{tick}");
     assert!(!back.contains("1m") && !tick.contains("1m"), "{back} {tick}");
 }
 
@@ -2264,7 +2272,7 @@ fn twenty_seconds_without_data_says_so() {
     view.frame(wide, at(0));
     let stalled = view.tick(wide, at(41_000));
     assert!(
-        readable(&stalled).contains("waiting for the model, no data for 41s"),
+        crate::testing::bare(&stalled).contains("waiting for the model  no data for 41s   41s"),
         "{}",
         readable(&stalled)
     );
@@ -2290,7 +2298,7 @@ fn status_row_shows_reviewing() {
     // place of the call's line, and model text cannot turn the row around.
     let frame = crate::testing::bare(&view.frame(wide, at(10)));
     assert!(
-        frame.contains("reviewing: curl -LO https://example.com/tool.tar.gz\u{fffd}"),
+        frame.contains("reviewing  curl -LO https://example.com/tool.tar.gz\u{fffd}"),
         "{frame}"
     );
     assert!(!frame.contains("$ curl"), "{frame}");
@@ -2310,7 +2318,7 @@ fn status_row_shows_away() {
         view.envelope(&sent(12, 0, presence(Presence::Away, PresenceSource::Timeout)), SIZE, true);
     assert_eq!(step, Step::default(), "the status row says it; no note");
     let frame = readable(&view.frame(SIZE, at(2_000)));
-    assert!(frame.contains("\\e[2m2s\\e[0m  \\e[33maway\\e[0m"), "{frame}");
+    assert!(frame.contains("model\\e[0m  \\e[33maway\\e[0m   \\e[2m2s\\e[0m"), "{frame}");
     // A question while away says that it does not wait long.
     view.envelope(&sent(13, 2_000, approval(None)), SIZE, true);
     let asked = crate::testing::bare(&view.frame(SIZE, at(2_000)));
@@ -2398,7 +2406,9 @@ fn drafts_after_a_steer_still_show() {
         title: Some("Reading the docs".to_owned()),
     };
     view.draft(&draft(11, thinking), SIZE);
-    assert!(crate::testing::bare(&view.frame(SIZE, at(10))).contains("thinking  Reading the docs"));
+    assert!(
+        crate::testing::bare(&view.frame(SIZE, at(10))).contains("thinking   Reading the docs")
+    );
     view.draft(&text_draft(11, 0, "Hello"), SIZE);
     assert!(view.frame(SIZE, at(20)).contains("Hello"));
 }
@@ -2418,7 +2428,7 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     view.draft(&draft(11, reasoning(Some("Reading the \x1b[2Jtest output"))), SIZE);
     let titled = view.frame(SIZE, at(20));
     assert!(
-        crate::testing::bare(&titled).contains("thinking  Reading the \u{241b}[2Jtest output"),
+        crate::testing::bare(&titled).contains("thinking   Reading the \u{241b}[2Jtest output"),
         "{}",
         readable(&titled)
     );
@@ -2431,7 +2441,8 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
     view.draft(&draft(11, input(1, 3_250)), SIZE);
     view.draft(&draft(11, input(0, 9_000)), SIZE);
     let preparing = view.frame(SIZE, at(30));
-    assert!(preparing.contains("preparing write_file, 3.2 KB"), "{}", readable(&preparing));
+    let shown = crate::testing::bare(&preparing);
+    assert!(shown.contains("preparing write_file   3.2 KB"), "{shown}");
     view.envelope(&sent(12, 40, tool_started("ls")), SIZE, false);
     // The call's line carries the spinner, so the status row hides while it runs.
     let running = view.frame(SIZE, at(40));
@@ -2468,7 +2479,8 @@ fn a_patch_that_the_model_writes_shows_its_size_then_its_files() {
         DraftPart::ToolInput { call: 0, tool: "apply_patch".to_owned(), bytes: 3_277, tail: None };
     view.draft(&draft(11, input), SIZE);
     let preparing = view.frame(SIZE, at(10));
-    assert!(preparing.contains("preparing apply_patch, 3.2 KB"), "{}", readable(&preparing));
+    let shown = crate::testing::bare(&preparing);
+    assert!(shown.contains("preparing apply_patch   3.2 KB"), "{shown}");
     let patch = "*** Begin Patch\n*** Update File: src/a.rs\n@@\n-a\n+b\n+c\n*** Delete File: old.rs\n*** End Patch\n";
     let started = Event::ToolCallStarted {
         turn_id: turn(),
@@ -2494,7 +2506,7 @@ fn a_persisted_update_of_text_that_drafts_showed_keeps_the_newer_state() {
     assert!(view.frame(SIZE, at(10)).contains("writing"));
     let input = DraftPart::ToolInput { call: 0, tool: "shell".to_owned(), bytes: 48, tail: None };
     view.draft(&draft(11, input), SIZE);
-    assert!(view.frame(SIZE, at(20)).contains("preparing shell, 48 B"));
+    assert!(crate::testing::bare(&view.frame(SIZE, at(20))).contains("preparing shell   48 B"));
     // The persisted update and the completion come after the drafts of the call's input.
     view.envelope(&sent(12, 200, updated(0, "I will run the build")), SIZE, false);
     let kept = view.frame(SIZE, at(200));

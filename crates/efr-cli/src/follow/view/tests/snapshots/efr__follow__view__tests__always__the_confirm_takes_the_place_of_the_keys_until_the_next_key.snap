@@ -2,31 +2,32 @@
 source: crates/efr-cli/src/follow/view/tests/always.rs
 expression: "frames.join(\"\\n---\\n\")"
 ---
-\e[?2026h\e[33m? allow ~/notes writable for this call\e[0m
-\e[2m│ \e[0m\e[32mecho hi > ~/notes/x\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/notes\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow · \e[0m\e[1mn\e[0m\e[2m deny · \e[0m\e[1ma\e[0m\e[2m always: write\e[0m
-\e[2m│ \e[0m  \e[2munder ~/notes\e[0m
+\e[?2026h\e[1;7;33m ? \e[0m \e[1;33mallow ~/notes writable for this call\e[0m
+    echo hi > ~/notes/x
+    \e[2mwhy\e[0m  write ~/notes
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m   \e[1;33ma\e[0m \e[2malways…\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[5A\e[J\e[33m? allow ~/notes writable for this call\e[0m
-\e[2m│ \e[0m\e[32mecho hi > ~/notes/x\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/notes\e[0m
-\e[2m│ \e[0m\e[33msave rule "write under ~/notes"? \e[0m\e[1my\e[0m\e[2m/\e[0m\e[1mn\e[0m
+\e[?2026h\r\e[4A\e[J\e[1;7;33m ? \e[0m \e[1;33mallow ~/notes writable for this call\e[0m
+    echo hi > ~/notes/x
+    \e[2mwhy\e[0m  write ~/notes
+    \e[2malways saves the rule\e[0m  write under
+      ~/notes
+    \e[1;33my\e[0m \e[2msave the rule and allow\e[0m   \e[1;33mn\e[0m \e[2mback\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[4A\e[J\e[33m? allow ~/notes writable for this call\e[0m
-\e[2m│ \e[0m\e[32mecho hi > ~/notes/x\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/notes\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow · \e[0m\e[1mn\e[0m\e[2m deny · \e[0m\e[1ma\e[0m\e[2m always: write\e[0m
-\e[2m│ \e[0m  \e[2munder ~/notes\e[0m
+\e[?2026h\r\e[6A\e[J\e[1;7;33m ? \e[0m \e[1;33mallow ~/notes writable for this call\e[0m
+    echo hi > ~/notes/x
+    \e[2mwhy\e[0m  write ~/notes
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m   \e[1;33ma\e[0m \e[2malways…\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[5A\e[J\e[33m? allow ~/notes writable for this call\e[0m
-\e[2m│ \e[0m\e[32mecho hi > ~/notes/x\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/notes\e[0m
-\e[2m│ \e[0m\e[33msave rule "write under ~/notes"? \e[0m\e[1my\e[0m\e[2m/\e[0m\e[1mn\e[0m
+\e[?2026h\r\e[4A\e[J\e[1;7;33m ? \e[0m \e[1;33mallow ~/notes writable for this call\e[0m
+    echo hi > ~/notes/x
+    \e[2mwhy\e[0m  write ~/notes
+    \e[2malways saves the rule\e[0m  write under
+      ~/notes
+    \e[1;33my\e[0m \e[2msave the rule and allow\e[0m   \e[1;33mn\e[0m \e[2mback\e[0m
 \e[?2026l
 ---
-\e[?2026h\r\e[4A\e[J\e[32m✓ allowed always\e[0m
-\e[?2026l
+\e[?2026h\r\e[6A\e[J\e[?2026l

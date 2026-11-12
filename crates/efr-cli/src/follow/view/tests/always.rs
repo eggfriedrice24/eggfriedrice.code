@@ -72,20 +72,26 @@ fn card_offers_always_only_when_set() {
     // An older daemon fills no rule: the card keeps its two keys.
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &write_events(None), true);
-    assert!(err.ends_with("\u{2502} y allow \u{b7} n deny\n"), "{err}");
+    assert!(err.ends_with("    y allow   n deny\n"), "{err}");
     assert!(!view.offers_always(call()));
     // A question that another client must answer offers nothing here.
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &write_events(Some(RULE)), false);
-    assert!(err.ends_with("\u{2502} waiting for another client to answer\n"), "{err}");
+    assert!(err.ends_with("    waiting for another client to answer\n"), "{err}");
     assert!(!view.offers_always(call()));
 }
 
 #[test]
 fn the_rule_from_the_daemon_cannot_drive_the_terminal() {
     let mut view = sandbox_view(false);
-    let (_, err, _) = feed(&mut view, &write_events(Some("write under ~/a\x1b[2J\nb")), true);
-    assert!(err.ends_with("a always: write under ~/a\u{241b}[2J b\n"), "{err:?}");
+    feed(&mut view, &write_events(Some("write under ~/a\x1b[2J\nb")), true);
+    // The rule shows in the confirm after `a` (TM-Questions 4).
+    let step = view.confirm_always(call(), WIDE);
+    assert!(
+        step.err.starts_with("    always saves the rule  write under ~/a\u{241b}[2J b\n"),
+        "{:?}",
+        step.err
+    );
 }
 
 #[test]
@@ -118,7 +124,7 @@ fn a_card_renders_again_only_when_its_footer_or_the_width_changes() {
     assert_eq!(renders(), start, "ticks with no change");
     view.confirm_always(call(), WIDE);
     let confirm = view.frame(WIDE, now());
-    assert!(confirm.contains("save rule"), "{}", readable(&confirm));
+    assert!(confirm.contains("always saves the rule"), "{}", readable(&confirm));
     assert_eq!(renders(), start + 1, "a frame with a new footer");
     view.tick(Size { cols: 80, ..WIDE }, now());
     assert_eq!(renders(), start + 2, "a tick at a new width");
@@ -129,17 +135,20 @@ fn a_refused_always_answer_asks_again_without_the_a() {
     let mut view = sandbox_view(false);
     feed(&mut view, &write_events(Some(RULE)), true);
     let step = view.confirm_always(call(), WIDE);
-    assert_eq!(step.err, "\u{2502} save rule \"write under ~/notes\"? y/n\n");
+    assert_eq!(
+        step.err,
+        "    always saves the rule  write under ~/notes\n    y save the rule and allow   n back\n"
+    );
     let step = view.always_refused(call(), "the question of the call offers no always rule", WIDE);
     assert_eq!(
         step.err,
-        "\nthe answer was not taken: the question of the call offers no always rule\n\
-         \u{2502} y allow \u{b7} n deny\n"
+        "\nthe answer was not taken: the question of the call offers no always rule\n    \
+             y allow   n deny\n"
     );
     assert!(!view.offers_always(call()));
     // The question is open still: `y` answers it.
     let step = view.answered(call(), ApprovalDecision::Allow, WIDE);
-    assert!(step.err.contains("\u{2713} allowed\n"), "{:?}", step.err);
+    assert!(step.err.contains("\u{2713} allowed \u{b7} write ~/notes\n"), "{:?}", step.err);
 }
 
 #[test]
@@ -185,7 +194,7 @@ fn an_always_answer_from_another_client_shows_as_one() {
     let mut view = sandbox_view(false);
     feed(&mut view, &write_events(Some(RULE)), false);
     let (_, err, _) = feed(&mut view, &[resolved(ApprovalDecision::AllowAlways)], false);
-    assert!(err.contains("\u{2713} allowed always from efr\n"), "{err}");
+    assert!(err.contains("\u{2713} allowed always \u{b7} from efr\n"), "{err}");
 }
 
 #[test]
@@ -218,4 +227,123 @@ fn a_view_without_a_question_offers_no_always() {
     let mut view = TurnView::new(turn(), efr_render::RenderOptions::new(40));
     assert!(!view.offers_always(call()));
     assert_eq!(view.confirm_always(call(), WIDE), super::super::Step::default());
+}
+
+mod design {
+    //! The line that takes the place of a question against the frames of the design
+    //! (TM-Questions 7, 8, TM-Legend 26, TM-Sequence 10), and the words of each of its
+    //! forms from the events that settle a question.
+
+    use efr_protocol::{AlwaysSaved, ApprovalDecision, Event, Origin};
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    use super::super::super::asking::answer_text;
+    use super::super::{WIDE, framed, sandbox_view, sent};
+    use super::{RULE, saved, write_events};
+    use crate::testing::{bare, call, design_options, turn};
+
+    /// The forms of TM-Questions 7, each with whether it is good.
+    const FORMS: [(bool, &str); 6] = [
+        (true, "allowed \u{b7} outside the sandbox"),
+        (true, "allowed \u{b7} from the phone"),
+        (
+            true,
+            "allowed always \u{b7} saved as sandbox.allow[2]: network index.crates.io for cargo",
+        ),
+        (false, "denied \u{b7} network (index.crates.io)"),
+        (false, "the approval expired \u{b7} nobody answered in 10 min; the call did not run"),
+        (false, "expired while you were away \u{b7} the call did not run"),
+    ];
+
+    #[test]
+    fn the_mark_is_in_its_role_and_the_rest_muted_questions_7_8_legend_26_sequence_10() {
+        let frame = Frame::load("Questions", 7).unwrap();
+        for depth in Depth::ALL {
+            let options = design_options(depth, frame.cols);
+            let lines: String =
+                FORMS.iter().map(|(good, line)| answer_text(*good, line, &options)).collect();
+            assert_rows(&frame, .., &lines, depth);
+            let network = answer_text(true, "allowed \u{b7} network (github.com)", &options);
+            assert_rows(&Frame::load("Questions", 8).unwrap(), 2..3, &network, depth);
+            assert_rows(&Frame::load("Legend", 26).unwrap(), .., &network, depth);
+            assert_rows(&Frame::load("Sequence", 10).unwrap(), 4..5, &network, depth);
+        }
+    }
+
+    /// The scrollback that a terminal view writes for `events` after the question of
+    /// `write_events`, as plain text.
+    fn settled(answer: impl FnOnce(&mut super::super::super::TurnView) -> String) -> String {
+        let mut view = sandbox_view(true);
+        for (seq, event) in write_events(Some(RULE)).into_iter().enumerate() {
+            framed(view.envelope(&sent(11 + seq as u64, 0, event), WIDE, true), &mut view);
+        }
+        view.frame(WIDE, super::now());
+        bare(&answer(&mut view))
+    }
+
+    #[test]
+    fn each_form_names_what_was_asked() {
+        // A key here: the `why` of the card follows the answer.
+        let shown =
+            settled(|view| framed(view.answered(call(), ApprovalDecision::Deny, WIDE), view).out);
+        assert!(shown.contains("\u{2717} denied \u{b7} write ~/notes\n"), "{shown}");
+        // An answer from elsewhere names where it came from.
+        let shown = settled(|view| {
+            let resolved = Event::ApprovalResolved {
+                turn_id: turn(),
+                call_id: call(),
+                decision: ApprovalDecision::Allow,
+                origin: Origin::Phone,
+            };
+            framed(view.envelope(&sent(13, 0, resolved), WIDE, true), view).out
+        });
+        assert!(shown.contains("\u{2713} allowed \u{b7} from the phone\n"), "{shown}");
+        // An `a` answer and what it saved make one line.
+        let shown = settled(|view| {
+            let held = framed(view.answered(call(), ApprovalDecision::AllowAlways, WIDE), view);
+            let saved = saved(AlwaysSaved::Saved { index: 2, rule: RULE.to_owned() });
+            let line = framed(view.envelope(&sent(13, 0, saved), WIDE, true), view);
+            format!("{}{}", held.out, line.out)
+        });
+        let line =
+            "\u{2713} allowed always \u{b7} saved as sandbox.allow[2]: write under ~/notes\n";
+        assert!(shown.contains(line), "{shown}");
+        assert_eq!(shown.matches("allowed always").count(), 1, "{shown}");
+        // An expiry says how long the question waited, on the daemon's clock.
+        let shown = settled(|view| {
+            let expired = Event::ApprovalExpired { turn_id: turn(), call_id: call(), away: false };
+            framed(view.envelope(&sent(13, 600_000, expired), WIDE, true), view).out
+        });
+        let line = "\u{2717} the approval expired \u{b7} nobody answered in 10 min; the call did \
+                    not run\n";
+        assert!(shown.contains(line), "{shown}");
+        let shown = settled(|view| {
+            let expired = Event::ApprovalExpired { turn_id: turn(), call_id: call(), away: true };
+            framed(view.envelope(&sent(13, 60_000, expired), WIDE, true), view).out
+        });
+        let line = "\u{2717} expired while you were away \u{b7} the call did not run\n";
+        assert!(shown.contains(line), "{shown}");
+    }
+}
+
+#[test]
+fn the_bell_rings_once_with_the_frame_that_first_shows_a_card() {
+    use super::super::Look;
+
+    let bell = |on: bool| {
+        let look = Look { bell: on, ..Look::default() };
+        let mut view = sandbox_view(true).with_look(look);
+        let [record, approval] = write_events(Some(RULE));
+        framed(view.event(&record, WIDE, true), &mut view);
+        let first = framed(view.event(&approval, WIDE, true), &mut view).out;
+        let later = view.tick(WIDE, now());
+        let confirm = framed(view.confirm_always(call(), WIDE), &mut view).out;
+        (first, format!("{later}{confirm}"))
+    };
+    let (first, later) = bell(true);
+    assert_eq!(first.matches('\x07').count(), 1, "{}", readable(&first));
+    assert!(!later.contains('\x07'), "{}", readable(&later));
+    // `render.bell` is off by default.
+    let (first, later) = bell(false);
+    assert!(!first.contains('\x07') && !later.contains('\x07'), "{}", readable(&first));
 }

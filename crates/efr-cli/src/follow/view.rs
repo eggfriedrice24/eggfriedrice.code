@@ -162,9 +162,9 @@ use std::time::Duration;
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    ApprovedBy, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope, ExitInfo,
-    FileChanges, Grant, InputWait, JobId, JudgeKind, Launch, Presence, QuestionId, Seq,
-    ShellCommandEnd, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict,
+    ApprovedBy, CallId, ContextUse, Draft, DraftPart, EffectiveSettings, ErrorBody, Event,
+    EventEnvelope, ExitInfo, FileChanges, Grant, InputWait, JobId, JudgeKind, Launch, Presence,
+    QuestionId, Seq, ShellCommandEnd, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict,
 };
 use efr_render::{RenderOptions, WidthMethod, render_trace};
 use jiff::Timestamp;
@@ -186,11 +186,8 @@ use left::Left;
 use message::Message;
 use newest::ToolInput;
 use reasoning::Reasoning;
-use status::{State, Status};
-use waits::{
-    ECHO_PREFIX, HIDDEN_INPUT, HIDDEN_INPUT_SANDBOXED, MANUAL_INPUT, SECRET_INPUT, SILENCE_HINT,
-    VISIBLE_INPUT,
-};
+use status::{Model, State, Status};
+use waits::{HIDDEN_INPUT_SANDBOXED, echo_prefix, program, silence_hint};
 
 pub(crate) use status::{TICK, spinner};
 
@@ -199,6 +196,9 @@ const HIDE_CURSOR: &str = "\x1b[?25l";
 
 /// Shows the cursor again.
 const SHOW_CURSOR: &str = "\x1b[?25h";
+
+/// The bell, once when a question card shows (`render.bell`).
+const BELL: char = '\x07';
 
 /// Turns bracketed paste on while the input row shows: a pasted newline never sends.
 const PASTE_ON: &str = "\x1b[?2004h";
@@ -218,9 +218,6 @@ const WITHDRAWN: &str = "the prompt was taken back before it ran";
 /// What starts the title of an approval of the turn that the followed one waits
 /// behind.
 const BLOCKING: &str = "the running turn asks: ";
-
-/// The mark of a good answer.
-const YES: &str = "\u{2713} ";
 
 /// The mark of a refusal or of a failure.
 const NO: &str = "\u{2717} ";
@@ -311,14 +308,11 @@ impl AnswerKind {
         matches!(self, AnswerKind::Hidden | AnswerKind::Masked)
     }
 
-    /// The line under the prompt.
-    fn line(self) -> &'static str {
-        match self {
-            AnswerKind::Hidden => HIDDEN_INPUT,
-            AnswerKind::Visible => VISIBLE_INPUT,
-            AnswerKind::Masked => SECRET_INPUT,
-            AnswerKind::Manual => MANUAL_INPUT,
-        }
+    /// The answer line under the prompt of a command whose first program is `program`,
+    /// as pieces: `? the command waits for input  enter answers · ctrl+c stops the
+    /// command` (TM-Live 21-23).
+    fn line(self, program: Option<&str>, glyphs: &efr_render::Glyphs) -> Vec<(String, Tone)> {
+        waits::answer_line(self, program, glyphs)
     }
 }
 
@@ -368,6 +362,8 @@ struct Shown {
     card: Card,
     about: About,
     footer: Footer,
+    /// A frame showed the card, with its bell when `render.bell` is on.
+    rung: bool,
     /// The card is in the scrollback, because it did not fit on the screen; only its
     /// keys stay in the live zone.
     committed: bool,
@@ -379,7 +375,7 @@ struct Shown {
 
 impl Shown {
     fn new(card: Card, about: About, footer: Footer) -> Shown {
-        Shown { card, about, footer, committed: false, rendered: RefCell::new(None) }
+        Shown { card, about, footer, rung: false, committed: false, rendered: RefCell::new(None) }
     }
 
     /// Adds the card with its footer at `options` to `out`. It is rendered again only
@@ -397,6 +393,19 @@ impl Shown {
             }
         }
     }
+}
+
+/// What the live slice keeps beside the view's own fields.
+#[derive(Debug, Default)]
+struct Kept {
+    /// The model of the turn, for the status row.
+    model: Option<Model>,
+    /// What the question shown last asked about, with what it asked about and when it
+    /// showed on the daemon's clock, for the line that takes its place.
+    asked: Option<(About, Option<String>, Option<Timestamp>)>,
+    /// The line of an `a` answer to the approval of a call, on a terminal, while it waits
+    /// for the line of what the rule became: the two make one line.
+    held: Option<(CallId, String)>,
 }
 
 /// The tool call whose output is arriving now.
@@ -484,8 +493,7 @@ pub(crate) struct Look {
     /// The lines of a file write's diff from the 6th call of a turn on, in place of
     /// `diff_lines` (`render.diff_lines_long`). The calls slice reads it.
     pub(crate) diff_lines_long: usize,
-    /// One BEL with the frame that first shows a question card (`render.bell`). The
-    /// live slice reads it.
+    /// One BEL with the frame that first shows a question card (`render.bell`).
     pub(crate) bell: bool,
 }
 
@@ -588,6 +596,10 @@ pub(crate) struct TurnView {
     saving: Option<CallId>,
     /// The approval that this client answered, whose resolution needs no second note.
     answered: Option<CallId>,
+    /// What the live slice keeps of the model, the question shown last and an answer
+    /// that waits.
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    kept: Box<Kept>,
     /// The turn waits behind another one and has not started.
     queued: bool,
     /// The other turn's approvals shown while this one waited.
@@ -726,6 +738,7 @@ impl TurnView {
             offered: None,
             saving: None,
             answered: None,
+            kept: Box::default(),
             queued: false,
             blocking: HashSet::new(),
             refused: HashSet::new(),
@@ -1016,6 +1029,7 @@ impl TurnView {
             }
             status.set_away(self.away);
             status.set_scope(self.scope.clone());
+            status.set_model(self.kept.model.clone());
             self.status = Some(status);
             self.dirty = true;
         }
@@ -1025,6 +1039,13 @@ impl TurnView {
     /// or `○ ~/notes`.
     pub(crate) fn with_scope(mut self, scope: Option<String>) -> TurnView {
         self.scope = scope;
+        self
+    }
+
+    /// The same view, whose status row names the model of the turn's `settings`, such
+    /// as `work/claude-opus-5-5 high`.
+    pub(crate) fn with_model(mut self, settings: Option<&EffectiveSettings>) -> TurnView {
+        self.kept.model = settings.map(Model::of);
         self
     }
 
@@ -1260,13 +1281,16 @@ impl TurnView {
         if let Some(input) = &mut self.tool_input {
             input.at(now);
             if let Some(status) = &mut self.status {
-                status.set_input_words(input.call(), input.words(options.width_method()));
+                status.set_input_words(
+                    input.call(),
+                    input.words(options.glyphs().more, options.width_method()),
+                );
             }
         }
         // NOTE: a reasoning without a title puts its newest words in the place of the
         // title. The state is set at each frame, because the words come with the
         // frames: a phase shows none in its first second.
-        if let Some(words) = self.reasoning.words(options.width_method())
+        if let Some(words) = self.reasoning.words(options.glyphs().more, options.width_method())
             && let Some(status) = &mut self.status
             && matches!(status.state(), State::Thinking(_))
         {
@@ -1304,6 +1328,14 @@ impl TurnView {
             input.paste = paste;
         }
         out.push_str(&self.live.draw(&committed, &body, &row, &tail, size));
+        // NOTE: one BEL with the frame that first shows a card, so most terminals mark
+        // the tab (`render.bell`, off by default).
+        if let Some(shown) = self.question.as_mut().filter(|shown| !shown.rung) {
+            shown.rung = true;
+            if self.look.bell {
+                out.push(BELL);
+            }
+        }
         if !hide && self.cursor_hidden {
             out.push_str(SHOW_CURSOR);
             self.cursor_hidden = false;
@@ -1476,8 +1508,14 @@ impl TurnView {
             _ => false,
         };
         let header = if question { String::new() } else { self.due_header(size) };
+        // NOTE: the line of an `a` answer waits only for the line of what it saved.
+        let held = match event {
+            Event::AlwaysRuleSaved { .. } => None,
+            _ => self.release_answer(None, size),
+        };
+        let held = held.map(|step| step.err).unwrap_or_default();
         let step = self.turn_event(event, size, can_ask);
-        Step { err: format!("{header}{}", step.err), ..step }
+        Step { err: format!("{held}{header}{}", step.err), ..step }
     }
 
     /// The first rows of the call of this turn, for stderr, when stdout is not a
@@ -1587,6 +1625,9 @@ impl TurnView {
                 }
                 let ours = self.call.as_ref().is_some_and(|call| call.call_id == *call_id);
                 let line = format::always::saved(outcome);
+                if self.kept.held.as_ref().is_some_and(|(held, _)| held == call_id) {
+                    return self.release_answer(Some(&line), size).unwrap_or_default();
+                }
                 self.verdict_line(ours.then_some(*call_id), &line, size)
             }
             Event::ApprovalRequested {
@@ -1690,8 +1731,13 @@ impl TurnView {
                 let options = self.options_at(size);
                 let mut committed = String::new();
                 for text in texts.unwrap_or_default() {
-                    committed.push_str(self.spacing.before(Block::Prompt));
+                    committed.push_str(self.spacing.before(Block::Steer));
                     committed.push_str(&user_message(&text, &options));
+                    // NOTE: the blank line below a steer is written with it, so the live
+                    // zone stands one row below it at once (TM-Sequence 12); the block
+                    // after it then needs no blank line of its own.
+                    committed.push('\n');
+                    self.spacing = Spacing::default();
                 }
                 self.dirty = true;
                 self.commit(committed)
@@ -2150,14 +2196,14 @@ impl TurnView {
             return Step::default();
         };
         let shown = left.asking.is_some_and(AnswerKind::shown);
-        let raw = left.raw();
+        let raw = left.raw(&self.options);
         let mut step = if self.terminal() {
             self.commit(String::new())
         } else {
             let spacing = self.err_spacing.before(Block::Note);
             let mut err = self.raw_err(format!("{spacing}{raw}"));
             if shown {
-                err.push_str(ECHO_PREFIX);
+                err.push_str(&echo_prefix(self.options.glyphs()));
                 self.echo_line = true;
             }
             Step { err, ..Step::default() }
@@ -2175,7 +2221,7 @@ impl TurnView {
             return Step::default();
         };
         let kind = left.kind().filter(|_| left.can_ask);
-        let line = left.end_line(kind.is_some());
+        let line = left.end_line(kind.is_some(), self.options.glyphs());
         left.held = false;
         left.holding = false;
         left.guarding = false;
@@ -2495,8 +2541,8 @@ impl TurnView {
         {
             live.push_str(self.spacing.peek(Block::Call));
             let spinner = match &self.status {
-                Some(status) => status.spinner(now),
-                None => spinner(self.look.motion, 0),
+                Some(status) => status.spinner(now, options.glyphs()),
+                None => spinner(self.look.motion, 0, options.glyphs()),
             };
             let context = self.status.as_ref().and_then(Status::context);
             let full = self.status.as_ref().is_some_and(Status::full);
@@ -2505,16 +2551,18 @@ impl TurnView {
         if let Some(running) = &self.running {
             live.push_str(&call::tail(&running.lines, running.asking.is_some(), &options));
             if let Some(kind) = running.asking {
-                live.push_str(&format::paint(kind.line(), Tone::Plain, &options));
-                live.push('\n');
-                if kind.shown() {
-                    live.push_str(ECHO_PREFIX);
-                    live.push_str(&format::one_line(&running.typed));
-                    live.push('\n');
-                }
+                let command = self.commands.get(&running.call_id).map(String::as_str);
+                let line = kind.line(command.and_then(program), options.glyphs());
+                live.push_str(&waits::piece_row(&line, &options));
+                live.push_str(&waits::echo_row(
+                    kind.shown().then_some(running.typed.as_str()),
+                    &options,
+                ));
             } else if running.hinted && !self.question_pending() {
-                live.push_str(&format::paint(SILENCE_HINT, Tone::Dim, &options));
-                live.push('\n');
+                live.push_str(&waits::piece_row(
+                    &[(silence_hint(options.glyphs()), Tone::Dim)],
+                    &options,
+                ));
             }
         }
         // NOTE: also after the end of the turn, while `efr` stays open for it.

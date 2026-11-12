@@ -65,17 +65,17 @@ async fn a_key_needs_confirm() {
     let (result, _, err) = run(&env, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         conn.item(sub, &item(11, write_question(Some(RULE)))).await;
-        shown(&seen, "a always: write under ~/notes", 1).await;
+        shown(&seen, "a always\u{2026}", 1).await;
         // `a` asks first. The keys typed before the confirm showed answer nothing.
         presser.press(b'a').await;
-        shown(&seen, "save rule", 1).await;
+        shown(&seen, "always saves the rule", 1).await;
         presser.press(b'y').await;
         presser.marked().await;
         // Any other key goes back to the question, with no answer.
         presser.press(b'x').await;
-        shown(&seen, "a always: write under ~/notes", 2).await;
+        shown(&seen, "a always\u{2026}", 2).await;
         presser.press(b'a').await;
-        shown(&seen, "save rule", 2).await;
+        shown(&seen, "always saves the rule", 2).await;
         presser.marked().await;
         presser.press(b'y').await;
         let (id, decision) = respond(&mut conn).await;
@@ -114,7 +114,7 @@ async fn an_always_answer_the_daemon_refuses_asks_the_question_again() {
         conn.item(sub, &item(11, write_question(Some(RULE)))).await;
         shown(&seen, "a always", 1).await;
         presser.press(b'a').await;
-        shown(&seen, "save rule", 1).await;
+        shown(&seen, "always saves the rule", 1).await;
         presser.marked().await;
         presser.press(b'y').await;
         let (id, decision) = respond(&mut conn).await;
@@ -133,11 +133,11 @@ async fn an_always_answer_the_daemon_refuses_asks_the_question_again() {
     })
     .await;
     result.unwrap();
-    assert_eq!(err.matches("save rule").count(), 1, "{err}");
+    assert_eq!(err.matches("always saves the rule").count(), 1, "{err}");
     assert!(
         err.contains(
-            "\nthe answer was not taken: only your own terminal saves a rule\n\
-             \u{2502} y allow \u{b7} n deny\n\n\u{2713} allowed\n"
+            "\nthe answer was not taken: only your own terminal saves a rule\n    \
+                 y allow   n deny\n\n\u{2713} allowed \u{b7} write /home/user/notes\n"
         ),
         "{err:?}"
     );
@@ -163,8 +163,11 @@ async fn a_key_ignored_without_offer() {
     .await;
     result.unwrap();
     assert!(!err.contains("always"), "{err}");
-    assert!(!err.contains("save rule"), "{err}");
-    assert!(err.ends_with("\u{2502} y allow \u{b7} n deny\n\u{2713} allowed\n"), "{err}");
+    assert!(!err.contains("always saves the rule"), "{err}");
+    assert!(
+        err.ends_with("    y allow   n deny\n\u{2713} allowed \u{b7} write /home/user/notes\n"),
+        "{err}"
+    );
 }
 
 #[tokio::test]
@@ -203,11 +206,9 @@ async fn a_key_ignored_at_quarantine_question() {
     })
     .await;
     result.unwrap();
-    assert!(!err.contains("save rule"), "{err}");
+    assert!(!err.contains("always saves the rule"), "{err}");
     assert!(
-        err.ends_with(
-            "\u{2502} y keep \u{b7} n leave in quarantine\n\u{2717} left in quarantine\n"
-        ),
+        err.ends_with("    y keep   n leave in quarantine\n\u{2717} left in quarantine\n"),
         "{err}"
     );
 }

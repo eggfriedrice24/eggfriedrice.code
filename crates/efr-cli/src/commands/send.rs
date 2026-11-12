@@ -259,7 +259,8 @@ async fn send_and_follow(
         .with_look(look)
         .with_groups(ctx.settings.diff.groups.clone())
         .with_scope(scope)
-        .with_settings(result.settings.clone());
+        .with_settings(result.settings.clone())
+        .with_model(result.settings.as_ref());
     if reader.is_some() {
         view = view.with_input();
     }

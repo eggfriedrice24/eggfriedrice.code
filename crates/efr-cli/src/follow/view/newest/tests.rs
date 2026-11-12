@@ -7,6 +7,9 @@ use crate::testing::now;
 
 const METHOD: WidthMethod = WidthMethod::Grapheme;
 
+/// The mark of more text.
+const MORE: &str = efr_render::Glyphs::UNICODE.more;
+
 #[test]
 fn the_words_of_a_tool_input_are_one_line_without_the_escapes_of_json() {
     assert_eq!(
@@ -41,13 +44,16 @@ fn a_tool_input_shows_its_newest_words_once_it_has_grown_for_a_second() {
     let mut input = ToolInput::new(0);
     input.take(30, r#"{"command":"cat notes.txt | wc"#);
     input.at(now());
-    assert_eq!(input.words(METHOD), None, "no words before the first second");
+    assert_eq!(input.words(MORE, METHOD), None, "no words before the first second");
     // The next tail overlaps the one before it: only its new bytes count.
     input.take(35, r#"txt | wc -l"}"#);
     input.at(now() + SignedDuration::from_millis(999));
-    assert_eq!(input.words(METHOD), None);
+    assert_eq!(input.words(MORE, METHOD), None);
     input.at(now() + SignedDuration::from_millis(1_000));
-    assert_eq!(input.words(METHOD).as_deref(), Some(r#"{"command":"cat notes.txt | wc -l"}"#));
+    assert_eq!(
+        input.words(MORE, METHOD).as_deref(),
+        Some(r#"{"command":"cat notes.txt | wc -l"}"#)
+    );
 }
 
 #[test]
@@ -61,7 +67,7 @@ fn the_newest_words_of_a_long_input_fit_in_50_columns_and_move_in_steps() {
         let tail = &written[written.len().saturating_sub(16)..];
         input.take(written.len() as u64, tail);
         input.at(now() + SignedDuration::from_millis(100 * word));
-        if let Some(words) = input.words(METHOD) {
+        if let Some(words) = input.words(MORE, METHOD) {
             assert!(efr_render::text_width(&words, METHOD) <= 50, "{words:?}");
             shown.push(words);
         }

@@ -186,7 +186,7 @@ fn the_full_question_card_shows_the_summary_and_expires() {
     let (_, err, _) = wide(&mut view, &[started(Mode::Full), question], true);
     insta::assert_snapshot!(err);
     assert!(err.contains("full mode still asks for this: delete of ~ (your home directory)"));
-    assert!(err.contains("\u{2502} expires in 2 min\n"), "{err}");
+    assert!(err.contains("    expires in 2 min\n"), "{err}");
     // A question with no fixed limit has no such row.
     let mut view = sandbox_view(false);
     let question = Event::ApprovalRequested {
@@ -227,15 +227,15 @@ fn a_guard_question_with_an_exit_keeps_its_line_first() {
         },
     ];
     let (_, err, _) = wide(&mut view, &events, true);
-    let card = &err[err.find("? ").unwrap()..];
+    let card = &err[err.find(" ?  ").unwrap()..];
     let rows: Vec<&str> = card.lines().collect();
     assert_eq!(
-        rows[1], "\u{2502} full mode still asks for this: delete of ~ (your home directory)",
+        rows[1], "    full mode still asks for this: delete of ~ (your home directory)",
         "{card}"
     );
     assert_eq!(card.matches("full mode still asks").count(), 1, "{card}");
     assert!(card.contains(line), "{card}");
-    assert!(card.contains("\u{2502} expires in 2 min\n"), "{card}");
+    assert!(card.contains("    expires in 2 min\n"), "{card}");
 }
 
 #[test]

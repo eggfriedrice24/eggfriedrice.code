@@ -8,11 +8,12 @@
 //! still while they grow. No row of the live zone holds the reasoning:
 //! a row that comes and goes moves the status row. When a phase of reasoning ends
 //! and it took [`ROW_AFTER`] or more, one row stays in the scrollback, at column 0:
-//! `▸ <title>  thought 6s`, the bold title of the reasoning in the `text` role and the
-//! rest muted. Without a title, the first words of the reasoning stand in its place,
-//! muted and in italic, cut with `…` at about [`FIRST_WORDS`] columns; with no words,
-//! the row is `▸ thought 3s`. A shorter phase leaves nothing. Bold and italic are no
-//! colour, so they stay with `NO_COLOR`.
+//! `▸ <title>  thought 6s`, the mark in the `accent` role, the bold title of the
+//! reasoning in the `text` role and the time muted. Without a title, the first words of
+//! the reasoning stand in its place, in the `text` role and in italic, cut with `…`
+//! after [`FIRST_WORDS`] columns; with no words, the row is `▸ thought 3s`
+//! (TM-LongTurn 3, 4). A shorter phase leaves nothing. Bold and italic are no colour, so
+//! they stay with `NO_COLOR`.
 //!
 //! The view only draws the reasoning: it keeps the start and the end of the phase that
 //! runs, and nothing of it goes to the model or to the store from here.
@@ -24,24 +25,22 @@
 
 use std::time::Duration;
 
-use efr_render::{RenderOptions, Role, WidthMethod, text_width};
+use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 use jiff::Timestamp;
 
 use super::newest::{Growing, floor};
-use crate::format;
+use crate::format::{self, Tone};
 
 /// The shortest phase of reasoning that leaves a row in the scrollback.
 pub(crate) const ROW_AFTER: Duration = Duration::from_secs(2);
 
-/// The columns of the first words of a reasoning without a title, with the `…`.
-const FIRST_WORDS: usize = 58;
+/// The columns of the first words of a reasoning without a title, with the `…`: the
+/// cut falls inside a word (TM-LongTurn 4).
+const FIRST_WORDS: usize = 59;
 
 /// The columns that the title or the first words keep at least; on a narrower screen
 /// the row is only the mark and the time.
 const MIN_LABEL: usize = 8;
-
-/// The mark at the start of the row.
-const MARK: &str = "\u{25b8}";
 
 /// The first bytes of a phase that the row looks at for its first words.
 const HEAD: usize = 512;
@@ -102,12 +101,12 @@ impl Reasoning {
     /// The newest words of the phase that runs, for the status row. `None` for a phase
     /// with a title, which the status row shows in their place, before the first words,
     /// and before the phase has run for [`WORDS_AFTER`](super::newest::WORDS_AFTER).
-    pub(crate) fn words(&self, method: WidthMethod) -> Option<String> {
+    pub(crate) fn words(&self, more: &str, method: WidthMethod) -> Option<String> {
         let phase = self.phase.as_ref()?;
         if phase.title.is_some() {
             return None;
         }
-        phase.text.words(|tail| plain(tail, true), method)
+        phase.text.words(|tail| plain(tail, true), more, method)
     }
 
     /// Ends the phase that runs. The row it leaves, with its newline, when it took
@@ -131,50 +130,36 @@ impl Phase {
     /// The row of a phase that took `took`, at the width of `options`, with its newline.
     fn row(&self, took: Duration, options: &RenderOptions) -> String {
         let method = options.width_method();
+        let glyphs = options.glyphs();
         let columns = usize::from(options.width());
         let time = format!("thought {}", format::elapsed(took));
         // The mark and a space, the label, two spaces and the time.
-        let room = columns.saturating_sub(2 + 2 + text_width(&time, method));
+        let mark_width = text_width(glyphs.thought, method);
+        let room = columns.saturating_sub(mark_width + 1 + 2 + text_width(&time, method));
         let label = if room < MIN_LABEL {
             None
         } else if let Some(title) = &self.title {
-            Some(styled(Role::Text, BOLD, &cut(title, room, method), options))
+            Some(format::paint(&cut(title, room, glyphs, method), Tone::TextBold, options))
         } else {
-            let words = first_words(&plain(&self.head, false), method);
-            (!words.is_empty())
-                .then(|| styled(Role::Muted, ITALIC, &cut(&words, room, method), options))
+            let words = cut(&plain(&self.head, false), room.min(FIRST_WORDS), glyphs, method);
+            (!words.is_empty()).then(|| format::paint(&words, Tone::TextItalic, options))
         };
-        let mut row = match label {
+        let mut row = format::paint(glyphs.thought, Tone::Accent, options);
+        row.push(' ');
+        match label {
             Some(label) => {
-                let mut row = options.paint(Role::Muted, &format!("{MARK} "));
                 row.push_str(&label);
-                row.push_str(&options.paint(Role::Muted, &format!("  {time}")));
-                row
+                row.push_str("  ");
+                row.push_str(&format::paint(&time, Tone::Dim, options));
             }
             None => {
-                let row = format::cut(&format!("{MARK} {time}"), columns.max(1), method);
-                options.paint(Role::Muted, &row)
+                let room = columns.saturating_sub(mark_width + 1).max(1);
+                row.push_str(&format::paint(&format::cut(&time, room, method), Tone::Dim, options));
             }
-        };
+        }
         row.push('\n');
         row
     }
-}
-
-/// The SGR parameter of bold.
-const BOLD: &str = "1";
-
-/// The SGR parameter of italic.
-const ITALIC: &str = "3";
-
-/// `text` in `role` and with the attribute `extra` (an SGR parameter), then a reset.
-/// The attribute stays without colour, as `NO_COLOR` asks.
-fn styled(role: Role, extra: &str, text: &str, options: &RenderOptions) -> String {
-    if !options.is_terminal() || text.is_empty() {
-        return text.to_owned();
-    }
-    let sgr = options.sgr(role).map_or_else(|| extra.to_owned(), |sgr| format!("{sgr};{extra}"));
-    format!("\x1b[{sgr}m{text}\x1b[0m")
 }
 
 /// The words of reasoning `text` on one line and safe to print, without the lines of
@@ -225,38 +210,26 @@ fn unmarked(line: &str) -> &str {
     }
 }
 
-/// The first words of `text` in [`FIRST_WORDS`] columns: whole words before a `…`
-/// when they go on, or the text cut at the width when its first word is longer.
-fn first_words(text: &str, method: WidthMethod) -> String {
-    if text_width(text, method) <= FIRST_WORDS {
+/// `text` cut to `columns` with the mark of more text of `glyphs` at the cut, without a
+/// space before it.
+fn cut(text: &str, columns: usize, glyphs: &Glyphs, method: WidthMethod) -> String {
+    if text_width(text, method) <= columns {
         return text.to_owned();
     }
-    let mut out = String::new();
+    let more = glyphs.more;
+    let room = columns.saturating_sub(text_width(more, method));
+    let mut kept = String::new();
     let mut used = 0;
-    for word in text.split(' ') {
-        let more = usize::from(!out.is_empty()) + text_width(word, method);
-        if used + more + 1 > FIRST_WORDS {
+    for c in text.chars() {
+        let width = text_width(&c.to_string(), method);
+        if used + width > room {
             break;
         }
-        used += more;
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(word);
+        used += width;
+        kept.push(c);
     }
-    if out.is_empty() {
-        return format::cut(text, FIRST_WORDS, method);
-    }
-    out.push('\u{2026}');
-    out
+    format!("{}{more}", kept.trim_end())
 }
 
-/// `text` cut to `columns` with `…` at the cut, as `format::cut` does, without a space
-/// before the `…`.
-fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
-    let cut = format::cut(text, columns, method);
-    match cut.strip_suffix('\u{2026}') {
-        Some(kept) if kept.ends_with(char::is_whitespace) => format!("{}\u{2026}", kept.trim_end()),
-        _ => cut,
-    }
-}
+#[cfg(test)]
+mod tests;

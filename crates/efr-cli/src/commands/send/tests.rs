@@ -1184,7 +1184,7 @@ async fn with_the_input_row_the_queued_prompts_wait_behind_the_first_and_the_vie
     let shown = bare(&captured.stdout());
     let at = |text: &str| shown.find(text).unwrap_or_else(|| panic!("no {text}: {shown}"));
     assert!(at("One.") < at("Two.") && at("Two.") < at("Three."), "{shown}");
-    assert!(shown.contains("queued: third"), "{shown}");
+    assert!(shown.contains("queued  third"), "{shown}");
     assert!(!dir.path().join("draft").exists(), "nothing goes back to the shell");
 }
 

@@ -210,7 +210,7 @@ impl Screen {
         let mut out = String::new();
         for row in &self.rows {
             let width = display_width(&bare(row), WidthMethod::CodePoint);
-            let own = ["\u{b7} ", "  ", "\u{2502} ", "? ", "\u{2713} ", "\u{2717} "]
+            let own = ["\u{b7} ", "  ", "    ", " ?  ", "\u{2713} ", "\u{2717} "]
                 .iter()
                 .any(|start| bare(row).starts_with(start));
             assert!(!own || width <= self.cols, "wider than {} columns: {row:?}", self.cols);
@@ -536,14 +536,14 @@ fn a_wake_question_with_an_exit_marks_its_title_and_keeps_its_guard_first() {
     );
     let shown =
         ["\\e[0m", "\\e[1m", "\\e[2m"].iter().fold(shown, |text, sgr| text.replace(sgr, ""));
-    let card = &shown[shown.find("? ").unwrap()..];
+    let card = &shown[shown.find(" ?  ").unwrap()..];
     let rows: Vec<&str> = card.lines().collect();
-    assert_eq!(rows[0], "? allow outside the sandbox (job notice turn)", "{card}");
+    assert_eq!(rows[0], " ?  allow outside the sandbox (job notice turn)", "{card}");
     assert_eq!(
-        rows[1], "\u{2502} full mode still asks for this: delete of ~ (your home directory)",
+        rows[1], "    full mode still asks for this: delete of ~ (your home directory)",
         "{card}"
     );
-    assert!(card.contains(&format!("\u{2502} {line}\n")), "{card}");
+    assert!(card.contains(&format!("    {line}\n")), "{card}");
 }
 
 #[test]
@@ -1011,7 +1011,7 @@ fn an_edit_names_its_file_and_its_question_shows_the_diff() {
         Sent(1_000, resolved),
         Sent(1_100, changed(1, changes, Some(ZSHRC_EDIT))),
     ]);
-    assert!(shown.contains("? allow this edit"), "{shown}");
+    assert!(shown.contains(" ?  allow this edit"), "{shown}");
     assert!(shown.contains("edit ~/.zshrc"), "{shown}");
     insta::assert_snapshot!(shown);
 }

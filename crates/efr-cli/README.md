@@ -203,46 +203,54 @@ Replies:
   compaction draft, a text update, the end of a message, a call's start or the end of
   the turn. A phase of 2 s or more
   (its time from the frames that drew it) leaves one row at column 0 in the
-  scrollback: `▸ <title>  thought 6s`, the newest bold title in the `text` role and
-  bold, the rest muted; without a title, the first words in italic, cut with `…` at
-  58 columns; with no words, `▸ thought 3s`. The row sticks to what follows it, so
+  scrollback: `▸ <title>  thought 6s`, the mark in the `accent` role, the newest
+  title in the `text` role and bold, the time muted; without a title, the first words
+  in the `text` role and italic, cut with `…` after 59 columns, also inside a word
+  (TM-LongTurn 4); with no words, `▸ thought 3s`. The row sticks to what follows it, so
   the blank line goes above it. No row inside a message
   that streams. Bold and italic stay with `NO_COLOR`; a pipe gets none of it. The
   reasoning goes nowhere else from the client.
-- While a turn runs on a terminal, the last row of the live zone is the status row:
-  a braille spinner (one frame each 100 ms) in the `accent` role, the state in the
-  `muted` role, and from 1 s on the time since `turn_started` (`12s`, `1m 05s`,
-  `1h 02m 05s`). The states: `waiting for the running turn` (a queued prompt),
+- While a turn runs on a terminal, the last row of the live zone is the status row
+  (TM-Live): `⠼ thinking   9s   ctx 12%   work/claude-opus-5-5 high   app   <detail>`.
+  The fields stand three spaces apart in a fixed order: a braille spinner (one frame
+  each 100 ms) in the `accent` role and a space, the state in the `muted` role with its
+  note two spaces after it, from 1 s on the time since `turn_started` (`12s`, `1m 05s`,
+  `1h 02m 05s`), the gauge of the model's context (see "Context" below), the model as
+  `,model` takes it (`account/model effort`, from the result's `settings` and then from
+  `turn_started`; the account is the part after the `.` of the provider), the scope of
+  the prompt from the result's `route` (the project's name, or the home mark and the
+  directory, `format::route::scope_mark`) with ` · full` in a turn in full mode
+  (`turn_started` with `mode: full`, `full` in the `error` role), and last the detail,
+  what changes all the time (`State::detail` in `status.rs`). A queued turn shows no
+  gauge and no model. The states: `waiting for the running turn` (a queued prompt),
   `waiting for the model`, `thinking` (a reasoning draft; the newest bold title of the
-  reasoning, or its newest words, ends the row), `writing`, `preparing <tool>, 3.2 KB` (a
-  tool input draft, the newest call of the answer; from the `tail` of its drafts, the
-  newest words of an input that the model has written for 1 s end the row by the same
-  rules as the words of a reasoning, with the escapes `\n`, `\r` and `\t` of its JSON
-  and each newline as a space, such as `preparing shell, 3.8 KB  39s  ctx 2%  app  …
-  print(len(s.split()))`; the JSON is not parsed), `connecting` (a `connecting` draft:
-  the model call connects or sends, shown only from 0.5 s on, `CONNECT_AFTER`, so a
-  fast connect does not flash; `connected` ends it), `trying again in 2s (the provider
-  answered 503)` (a `retrying` draft: its wait counts down in whole seconds, then
-  `trying again (...)` until the next draft or event; a later wait adds `try 3`),
-  `running <tool>` (a call of the
-  running turn that a queued prompt waits behind), `waiting for an answer` (an approval
-  that another client must answer), `reviewing: <line>` (from `exit_review_started`
-  until the reviewer's `exit_judged`: the line of the call from its `exit_requested`
-  record, or for a file tool what it opens, such as `reviewing: write
-  ~/Documents/notes.md`; the call's own row hides meanwhile), `compacting context` (a `compacting` draft, until
-  the turn's `conversation_compacted`, the next `context` draft or the end of the
-  turn), and, after 20 s without an event or a draft while it waits for the model or
-  writes, `waiting for the model, no data for 25s`. While efr counts the user away
-  from the conversation (`presence_changed`, from `efr away`, `,away` or no input for
-  a while), `away` follows the time in the `warning` role, until the next
-  `presence_changed` says present. A turn in full mode (`turn_started` with `mode:
-  full`) shows `full` in the `error` role before `away`, and the row counts it in its
-  width. While a call runs and the status row hides, the call's own row shows `full`
-  after its time in the same way. After the time comes the gauge of
-  the model's context (see "Context" below), such as `⠼ writing  12s  ctx 43%`, and
-  then, muted, the scope of the prompt from the result's `route`: the project's name,
-  or `○` and the directory outside projects (`format::route::scope_mark`). On a
-  narrow screen the scope leaves the row first, then the gauge. A band of three characters in the
+  reasoning, or its newest words, is the detail), `writing`, `preparing <tool>` (a
+  tool input draft, the newest call of the answer; its size is the detail, such as
+  `3.2 KB`, and from the `tail` of its drafts the newest words of an input that the
+  model has written for 1 s follow the size by the same rules as the words of a
+  reasoning, with the escapes `\n`, `\r` and `\t` of its JSON and each newline as a
+  space; the JSON is not parsed), `connecting` (a `connecting` draft: the model call
+  connects or sends, shown only from 0.5 s on, `CONNECT_AFTER`, so a fast connect does
+  not flash; `connected` ends it), `trying again in 2s (the provider answered 503)` (a
+  `retrying` draft: its wait counts down in whole seconds, then `trying again (...)`
+  until the next draft or event; a later wait adds `try 3`), `running <tool>` (a call
+  of the running turn that a queued prompt waits behind), `waiting for an answer` (an
+  approval that another client must answer), `reviewing` with what the reviewer
+  reviews as its note in the `text` role (from `exit_review_started` until the
+  reviewer's `exit_judged`: the line of the call from its `exit_requested` record, or
+  for a file tool what it opens; the call's own row hides meanwhile), and `compacting
+  context` (a `compacting` draft, until the turn's `conversation_compacted`, the next
+  `context` draft or the end of the turn). The notes, in the `warning` role without
+  bold: `no data for 25s` after 20 s without an event or a draft while it waits for the
+  model or writes (the state then says `waiting for the model`), and `away` while efr
+  counts the user away from the conversation (`presence_changed`, from `efr away`,
+  `,away` or no input for a while), until the next `presence_changed` says present.
+  While a call runs and the status row hides, the call's own row shows `full` after its
+  time. A narrow row drops, in this order: the detail, the account and the effort of
+  the model, the model, the gauge; the state keeps 10 columns (`MIN_WORDS`), and the
+  state, the time, the scope and `full` never go. A directory of the scope keeps 10
+  columns too and is cut from the left, at a `/` when it can (`⌂ …/nftables.d`). A
+  band of three characters in the
   `text` role moves over the state one character per tick, then rests for a second. The
   band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with
   a colour. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
@@ -451,30 +459,39 @@ Replies:
   the row of the call when it ends (with the last lines of a failure's output). The
   row says how the call ended, so nothing of it shows before its end. Nothing wraps
   there, because no screen sets a width.
-- A question is a card in the live zone, below the rest:
+- A question is a card in the live zone, below the rest, after one empty row
+  (TM-Questions, `format/card.rs`):
 
   ```text
-  ? allow outside the sandbox
-  │ cd ~/p/app && find target/debug/build \
-  │     -path '*ghostty*' -type f | awk '{print $1}'
-  │ runs with your full rights: files, secrets, network
-  │ programs: cd, find, awk
-  │ y allow · n deny
+   ?  allow outside the sandbox
+      cd ~/p/app && find target/debug/build \
+          -path '*ghostty*' -type f | awk '{print $1}'
+      runs with your full rights: files, secrets, network
+      programs  cd, find, awk
+      y allow   n deny
   ```
 
-  The title (`? ` and what the user decides) is in the `warning` role, the bar `│ ` is
-  muted, what runs is in the `code` role, one row for each line of a command, wrapped
-  as in a call's block. Secondary facts are muted: why the call asks (`why: ...`), the
-  parts of a long line that ask (`asks for: hostnamectl, systemctl --failed`), the
-  programs, efr's own facts after `efr:` and the model's reason as `the model says:
-  "..."`. The last row gives the keys, muted with the keys in bold, or `waiting for
-  another client to answer`. A text row wider than the screen goes on in the next
-  row, indented 2 more columns. The title of an approval says what a "yes" allows:
-  `allow this command`, `allow this write`, `allow this read`, or for an exit `allow
-  outside the sandbox`, `allow ~/notes writable for this call` and the like. An
-  approval of the turn that the followed one waits behind starts `the running turn
-  asks:`. A diff preview shows after the bar, rendered as a diff at the width less the
-  bar.
+  The badge ` ? ` is the `warning` role in reverse video and bold (bold `?` without
+  colour), then a space and the title in the `warning` role and bold. Each row stands
+  four columns in, with no frame and no bar. What runs is in the `text` role, one row
+  for each line of a command, wrapped as in a call's block, its next rows four columns
+  further in; a line that ends in the shell's own `\` gets the muted mark of a cut.
+  A label is muted, two spaces, then its value in the `text` role: `why`, `asks for`
+  (the parts of a long line that ask), `programs`, `efr` (efr's own facts) and `the
+  model says`. The risk row and the expiry are in the `warning` role. The last row
+  gives the keys in the `warning` role and bold with what they do muted, three spaces
+  between pairs, or the muted row `waiting for another client to answer`. A text row
+  wider than the screen goes on in the next row, two more columns in. The title of an
+  approval says what a "yes" allows: `allow this command`, `allow this write`, `allow
+  this read`, or for an exit `allow outside the sandbox`, `allow ~/notes writable for
+  this call` and the like. An approval of the turn that the followed one waits behind
+  starts `the running turn asks:`. A diff stands at the card's indent: a row with the
+  file of its headers and its counts (`hyprland.conf  +1 -1`, the counts in the
+  `success` and the `error` role), the short hunk header (`@@ 41 input`, in the
+  `diff.hunk` role), and each line from `efr_render::diff_lines` with its sign, one
+  space and the code, its background to the end of the row (`ESC [ K`), a cut row
+  with a muted `↩`. Without colour a removed line is dim and the signs are bold.
+  `render.bell = true` writes one BEL with the frame that first shows a card.
 - The approval of an `edit` call has the title `allow this edit`, and its preview shows
   as that of a patch of one file: a row that names the file, then its diff. Under the
   call that ran, its diff shows as a write's does.
@@ -495,11 +512,17 @@ Replies:
   (`efr_protocol::WAKE_QUESTION`): the card puts it at the end of the title, such as
   `? allow this command (job notice turn)`, and reads the rest as any summary, so the
   command keeps its rows.
-- When the question is answered, its card gives its place to one line: `✓ allowed` in
-  the `success` role, `✗ denied` in the `error` role, `✓ allowed from the phone` for
-  an answer from another client, `✗ the approval expired`, and for a question that
-  nobody answered while the user was away (`approval_expired` with `away`) `✗ approval
-  expired: nobody answered while you were away; the call did not run`. While efr counts
+- When the question is answered, its card gives its place to one line (TM-Questions
+  7): the mark in the `success` or the `error` role, the rest muted, with what was
+  asked after ` · ` (the value of the `why` row, else the title after `allow ` when that
+  is not `this …`): `✓ allowed · network (github.com)`, `✗ denied · outside the
+  sandbox`, `✓ allowed · from the phone` for an answer from another client, `✗ the
+  approval expired · nobody answered in 10 min; the call did not run` (the time from
+  the daemon's clock of the request and of the expiry), and for a question that nobody
+  answered while the user was away (`approval_expired` with `away`) `✗ expired while
+  you were away · the call did not run`. On a terminal the line of an `a` answer waits
+  for `always_rule_saved`, and the two make one line: `✓ allowed always · saved as
+  sandbox.allow[2]: …`; any other event of the turn writes it alone. While efr counts
   the user away, the card of a question has the muted row `efr counts you away: this
   question waits only a short time, then the call does not run`. A line of efr's own
   wider than the screen goes on in the next row, indented 2 columns. The command is written
@@ -651,7 +674,7 @@ your input)` once, the mark in `accent`;
   `reviewer: unsure; <rationale>`, from the question's `judged`, else from the
   verdict. The rationale is the reviewer model's text, so it passes through
   `format::one_line`. A verdict from the turn's cache has no `exit_review_started`, so
-  the status row never says `reviewing:` for it.
+  the status row never says `reviewing` for it.
 - When the reviewer stops for the rest of a turn (`classifier_paused`), one muted note
   says so: `reviewer paused for this turn: it refused 3 actions in a row; efr asks you
   for the rest`, or `it refused 10 actions` for the limit of the turn. When efrd deleted
@@ -660,9 +683,9 @@ your input)` once, the mark in `accent`;
   ~/.cache/go-build (12 paths)`, with the dir that holds every path. Both show whole,
   in rows of the screen, where a note is cut.
 - The quarantine question (`surface_question_requested`) is not an approval: its card
-  (`? keep the git settings that the last command changed`) names the git settings
+  (` ?  keep the git settings that the last command changed`) names the git settings
   that the last call changed and the launcher moved to quarantine, and its keys are
-  `y keep · n leave in quarantine`. Its answer line is `✓ kept` or `✗ left in
+  `y keep   n leave in quarantine`. Its answer line is `✓ kept` or `✗ left in
   quarantine`. The answer goes with `sandbox.surface_respond` and the question's own
   `QuestionId`; nobody answering leaves the change in quarantine. At the end of an
   `auto` turn, the files that run code later outside the sandbox
@@ -837,12 +860,14 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   steers and the queued prompts of this view all go back to the shell, with a note
   that efrd may still run them. A late `steering_withdrawn` would otherwise keep a
   steer from every model call and from the shell.
-- Above the status row, each unread steer of this view shows as `↳ steer: <first
-  line>` and each queued prompt as `↳ queued: <first line>`, muted; a steer that came
-  too late is a queued prompt with `(too late to steer, so it waits in the queue)`.
-  When `steering_delivered` names a steer, it goes to the scrollback as the user's
-  message (`> ` and each line in bold, as `efr history` shows a prompt), and this
-  view's own `turn_steered` gets no note. A queued prompt goes to the scrollback the
+- Above the status row, each unread steer of this view shows as `↳ steer  <first
+  line> · not read yet` and each queued prompt as `↳ queued  <first line>`, muted, at
+  most 3 rows, then one row `↳ 2 more queued` (TM-Live 19); a steer that came too late
+  is a queued prompt with ` · too late to steer, waits in the queue`. When
+  `steering_delivered` names a steer, it goes to the scrollback as `› <text>`, the mark
+  in the `accent` role and the text in the `text` role and bold, later lines two
+  columns in, with one blank line above and below it (TM-Legend 27, TM-Sequence 12),
+  and this view's own `turn_steered` gets no note. A queued prompt goes to the scrollback the
   same way when its turn starts.
 - The view follows each prompt that it queued after the turn before it: the turn's end
   line, then the status row says `waiting for the running turn` until the next one
@@ -928,20 +953,22 @@ typed before the question, and restores the terminal before the command goes on 
 exits. Without a terminal on stdin, the question waits for another client (the phone).
 
 An exit question whose daemon offers an always rule (`ExitInfo.always`, phase E) also
-takes `a`: its keys row is `y allow · n deny · a always: write under ~/notes`, with the
-rule through `format::one_line`. `a` does not answer at once. The keys row becomes the
-confirm `save rule "write under ~/notes"? y/n`, and the reader takes a new mark
+takes `a`: its keys row is `y allow   n deny   a always…`. `a` does not answer at once.
+The keys row becomes the confirm, two rows with the rule through `format::one_line`:
+`always saves the rule  write under ~/notes`, then `y save the rule and allow   n back`
+(TM-Questions 4), and the reader takes a new mark
 (`KeyReader::mark`): a key typed before the confirm showed answers nothing and goes
 nowhere. Then `y` sends `allow_always`, and any other key, Esc too, shows the question
 again with no answer. The answer goes before the card gives its place: when efrd
 refuses it (`forbidden`, `invalid`), the question stays open, a note says why, and the
-keys row is `y allow · n deny` again. A question that offers no rule, and the
-quarantine question, ignore `a`. The answer line is `✓ allowed always`. Then one dim
-line says what came of the rule (`always_rule_saved`): `saved as sandbox.allow[2]:
-write under ~/notes`, `rule not saved: config.toml is read-only; the command ran once`,
-or, when efrd wrote the rule but did not read the file again in time, that a later
-command can ask once more. When stdout is not a terminal, the first rows of the call
-wait for that line. A call that an always rule covers asks nothing: one dim line,
+keys row is `y allow   n deny` again. A question that offers no rule, and the
+quarantine question, ignore `a`. On a terminal the answer line waits for what came of
+the rule (`always_rule_saved`), and the two make one line: `✓ allowed always · saved as
+sandbox.allow[2]: write under ~/notes`, `✓ allowed always · rule not saved: config.toml
+is read-only; the command ran once`, or, when efrd wrote the rule but did not read the
+file again in time, that a later command can ask once more. When stdout is not a
+terminal, the answer line `✓ allowed always` comes first, then one line of the rule,
+and the first rows of the call wait for that line. A call that an always rule covers asks nothing: one dim line,
 `allowed by your rule sandbox.allow[2]: write under ~/notes`, comes before its rows, as
 a reviewer's allow does, and `efr history` shows the same line.
 
@@ -949,23 +976,26 @@ Answers to a running command work the same way. `conversation.subscribe` sends
 `answers_input: true` exactly when stdin is a terminal, so the daemon knows that a
 person here can type. When `tool_call_input_changed` says that the running call waits
 for input, the key thread starts (and discards typeahead), and the live zone shows the
-command's prompt (its last output line) and how to answer:
+command's prompt (its last output line), then the answer line in place of the input
+row (TM-Live 21-23, `follow/view/waits.rs`): `?` in the `warning` role and bold, what
+the command waits for in the `warning` role, two spaces and the keys muted, then `› `
+in the `accent` role and what is typed. The program that the line names is the first
+word of the call's command, such as `sudo`:
 
-- `hidden` (echo off: `sudo`, `ssh`, `passwd`): nothing typed is shown, and the note
-  says that the agent sees it only if the program prints it. Echo being off is all
+- `hidden` (echo off: `sudo`, `ssh`, `passwd`): `? password for sudo  typing is hidden ·
+  enter answers`, and nothing typed is shown, not even dots. Echo being off is all
   that is checked: the prompt text comes from the command, so a program that fakes a
   `sudo` prompt would read the answer and could print it.
-- `visible` (a `[Y/n]` question): the CLI echoes what is typed, and says that the agent
-  sees it if the program shows it. On a plain terminal the echo puts it in the output;
-  behind a relay such as `sudo`'s own pty, the program on the inner terminal decides
-  whether it is shown, and a password prompt of a program there counts as `visible`
-  too.
+- `visible` (a `[Y/n]` question): `? the command waits for input  enter answers · ctrl+c
+  stops the command`, and the CLI echoes what is typed. On a plain terminal the echo
+  puts it in the output; behind a relay such as `sudo`'s own pty, the program on the
+  inner terminal decides whether it is shown, and a password prompt of a program there
+  counts as `visible` too.
 - `visible` with `looks_secret` (a password prompt behind a relay, such as `ssh` or a
-  `sudo -u` that runs `passwd`): the CLI shows nothing of what is typed and says "this
-  looks like a password prompt behind another program: your typing is not shown here,
-  and the agent sees it only if that program shows it". The answer still goes as a
-  visible one, and keys typed while the call asks nothing more are thrown away until it
-  completes, as for a hidden answer.
+  `sudo -u` that runs `passwd`): `? looks like a password behind ssh  typing is not
+  shown here; ssh decides the rest`, and the CLI shows nothing of what is typed. The
+  answer still goes as a visible one, and keys typed while the call asks nothing more
+  are thrown away until it completes, as for a hidden answer.
 - A call in the sandbox (`launch` is `contained` in its `tool_call_started`) never gets
   an answer that may be a secret, because a prompt there can be a fake: a `hidden` wait
   and a `visible` wait that `looks_secret` show one note, `sandbox: the command asked
@@ -996,7 +1026,7 @@ thread's one-byte read buffer and in the key queue, the pieces of the frame that
 JSON encoder's growing buffer leaves in freed memory, and the frame's copy in the
 connection's write buffer, until later frames overwrite it or the connection ends. When
 stdout is not a terminal, the prompt and how to answer go to stderr once, and a visible
-answer is echoed there on a line of its own after `> ` as it is typed (Backspace and
+answer is echoed there on a line of its own after `› ` as it is typed (Backspace and
 Ctrl+U erase what they remove); a hidden one never is. A prompt that waits behind
 another turn counts as a person who can answer, so until its own turn starts it shows
 the running turn's last output line and asks for the input that turn's command waits
@@ -1031,10 +1061,11 @@ command just because it is silent: text typed then goes to the input row, or wit
 it stays typeahead for the user's shell. So
 while a shell call of the followed turn runs, reports no wait, no key is read for it
 and keys can be read here, ten seconds without output (`follow::SILENCE`, timed on the
-injected clock from the call's last output, wait or answer) bring one dim line: "no
-output for 10 s; press `Ctrl+\` to type an input for the command". Only while that line
+injected clock from the call's last output, wait or answer) bring one dim line: `no
+output for 10s · ctrl+\ types an input for the command` (TM-Live 24). Only while that line
 is shown does `efr` take SIGQUIT (`quit.rs`): `Ctrl+\` opens an answer line, which goes
-with `input.respond` `manual: true`; after one answer the keys stop and the silence
+with `input.respond` `manual: true` (`? an input for the command  typing is not shown
+here · ctrl+\ cancels`); after one answer the keys stop and the silence
 starts again. The line is never shown as it is typed: no prompt was reported, so
 nothing tells whether the command asks for a password (behind `ssh`, a remote `sudo`
 prompt reports no wait), and the program's own echo still shows in its output tail.
@@ -1063,10 +1094,11 @@ other call until the command ends. The view shows it so:
 - `shell_command_detached` and `shell_command_input_changed` belong to the conversation,
   so they show while the view follows any turn of it. They and the call's completion
   come in either order; the view links them by the call id. While the command waits for
-  input and keys can be read, an answer line asks for it as for a running call: the
-  label `the hidden shell: <command>` with who approved the call (`you approved it`,
-  `your rule allowed it`), the prompt row that the daemon read from the screen, how the
-  answer goes, and `enter answers · ctrl+c stops the command, not the turn`. The answer
+  input and keys can be read, an answer line asks for it as for a running call: a muted
+  row `the hidden shell: <command>` with who approved the call (`you approved it`,
+  `your rule allowed it`), the prompt row that the daemon read from the screen, muted
+  and four columns in, and the answer line with its own keys, `enter answers · ctrl+c
+  stops the command, not the turn`, then `› ` and what is typed. The answer
   goes with `input.respond` and the call's id. Ctrl+C there sends `shell.interrupt` for
   that call; a refusal, such as `the shell itself holds the terminal`, is a note. A
   command in the sandbox never gets a hidden answer, an answer to a wait that looks

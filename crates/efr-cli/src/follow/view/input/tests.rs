@@ -5,7 +5,9 @@ use efr_render::RenderOptions;
 use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 
-use super::{BACKGROUND_HINT, HINT, Input, MAX_ROWS, first_line, user_message};
+use efr_render::Glyphs;
+
+use super::{Input, MAX_ROWS, first_line, hint, user_message};
 use crate::keys::Key;
 use crate::live::Cursor;
 use crate::testing::readable;
@@ -30,10 +32,13 @@ fn typed(text: &str) -> Input {
 fn the_hint_names_ctrl_b_only_while_a_call_can_move_and_the_row_is_empty() {
     let mut input = Input { background: true, ..Input::default() };
     let tail = input.row(&plain(), 80);
-    assert_eq!(tail.text, format!("\u{203a}  {BACKGROUND_HINT}{HINT}\n"));
-    assert!(tail.text.starts_with("\u{203a}  ctrl+b background \u{b7} enter"), "{}", tail.text);
+    assert_eq!(tail.text, format!("\u{203a}   {}\n", hint(true, &Glyphs::UNICODE)));
+    assert!(tail.text.starts_with("\u{203a}   ctrl+b background \u{b7} enter"), "{}", tail.text);
     input.background = false;
-    assert_eq!(input.row(&plain(), 60).text, format!("\u{203a}  {HINT}\n"));
+    assert_eq!(
+        input.row(&plain(), 60).text,
+        format!("\u{203a}   {}\n", hint(false, &Glyphs::UNICODE))
+    );
     // With text in the row, no hint shows, but Ctrl+B still moves the call.
     let mut typed = typed("a");
     typed.background = true;
@@ -43,21 +48,22 @@ fn the_hint_names_ctrl_b_only_while_a_call_can_move_and_the_row_is_empty() {
 #[test]
 fn an_empty_row_shows_the_hint_and_waits_after_the_mark() {
     let tail = Input::default().row(&plain(), 60);
-    // The cursor waits on a blank cell and the hint starts after it, so a block cursor
-    // covers no letter of the hint. Typed text starts at the cursor.
-    assert_eq!(tail.text, format!("\u{203a}  {HINT}\n"));
+    // The cursor waits on a blank cell and the hint starts one column after it, so a
+    // block cursor covers no letter of the hint. Typed text starts at the cursor.
+    assert_eq!(tail.text, format!("\u{203a}   {}\n", hint(false, &Glyphs::UNICODE)));
     assert_eq!(tail.cursor, Some(Cursor { line: 0, column: 2 }));
     assert_eq!(tail.text.chars().nth(2), Some(' '), "the cell under the cursor is blank");
     assert_eq!(typed("a").row(&plain(), 60).text, "\u{203a} a\n");
     // In colour, the mark is in the accent role and the hint muted.
     let painted = Input::default().row(&RenderOptions::new(60), 60);
-    assert_eq!(readable(&painted.text), format!("\\e[33m\u{203a}\\e[0m  \\e[2m{HINT}\\e[0m\n"));
+    let hint = hint(false, &Glyphs::UNICODE);
+    assert_eq!(readable(&painted.text), format!("\\e[33m\u{203a}\\e[0m   \\e[2m{hint}\\e[0m\n"));
 }
 
 #[test]
 fn the_hint_is_cut_to_a_narrow_screen() {
     let tail = Input::default().row(&plain(), 20);
-    assert_eq!(tail.text, "\u{203a}  enter steer \u{b7} t\u{2026}\n");
+    assert_eq!(tail.text, "\u{203a}   enter steer \u{b7} \u{2026}\n");
 }
 
 #[test]
@@ -101,9 +107,9 @@ fn unread_steers_and_queued_prompts_wait_above_the_status_row() {
     input.queued(turn(2), "the same turn twice".to_owned(), false);
     assert_eq!(
         input.pending(&plain(), 80),
-        "\u{21b3} steer: use the release build \u{2026}\n\
-         \u{21b3} queued: then update the changelog\n\
-         \u{21b3} queued: and the docs (too late to steer, so it waits in the queue)\n"
+        "\u{21b3} steer  use the release build \u{2026} \u{b7} not read yet\n\
+         \u{21b3} queued  then update the changelog\n\
+         \u{21b3} queued  and the docs \u{b7} too late to steer, waits in the queue\n"
     );
     assert_eq!(input.queued_turns(), [turn(1), turn(2)]);
     assert_eq!(input.newest(), Some(turn(2)));
@@ -132,20 +138,43 @@ fn a_delivered_steer_leaves_the_list_and_a_resent_one_runs_first() {
 #[test]
 fn the_followed_prompt_shows_as_queued_until_it_starts() {
     let input = Input { prompt: Some("from the row".to_owned()), ..Input::default() };
-    assert_eq!(input.pending(&plain(), 40), "\u{21b3} queued: from the row\n");
+    assert_eq!(input.pending(&plain(), 40), "\u{21b3} queued  from the row\n");
 }
 
 #[test]
 fn the_first_line_is_safe_to_print() {
-    assert_eq!(first_line("\n  first \x1b[2J\nsecond"), "first \u{241b}[2J \u{2026}");
-    assert_eq!(first_line(""), "");
+    let glyphs = &Glyphs::UNICODE;
+    assert_eq!(first_line("\n  first \x1b[2J\nsecond", glyphs), "first \u{241b}[2J \u{2026}");
+    assert_eq!(first_line("", glyphs), "");
+    assert_eq!(first_line("one\ntwo", &Glyphs::ASCII), "one ...");
 }
 
 #[test]
 fn a_steer_reads_back_as_the_users_message() {
-    assert_eq!(user_message("check the logs\nfirst\n", &plain()), "> check the logs\n> first\n");
-    let bold = user_message("x", &RenderOptions::new(40));
-    assert_eq!(readable(&bold), "\\e[1m> x\\e[0m\n");
+    assert_eq!(
+        user_message("check the logs\nfirst\n", &plain()),
+        "\u{203a} check the logs\n  first\n"
+    );
+    let painted = user_message("x", &RenderOptions::new(40));
+    assert_eq!(readable(&painted), "\\e[33m\u{203a}\\e[0m \\e[1mx\\e[0m\n");
+    let ascii = user_message("x", &plain().with_glyphs(&Glyphs::ASCII));
+    assert_eq!(ascii, "> x\n");
+}
+
+#[test]
+fn more_than_three_waiting_rows_end_in_a_count() {
+    let mut input = Input::default();
+    input.steered(Seq::new(20), "one".to_owned());
+    for n in 1..=4 {
+        input.queued(turn(n), format!("queued {n}"), false);
+    }
+    assert_eq!(
+        input.pending(&plain(), 80),
+        "\u{21b3} steer  one \u{b7} not read yet\n\
+         \u{21b3} queued  queued 1\n\
+         \u{21b3} queued  queued 2\n\
+         \u{21b3} 2 more queued\n"
+    );
 }
 
 #[test]
@@ -187,3 +216,5 @@ fn bench_perf_input_row() {
     report.slope("total slope over bytes", &points);
     report.finish();
 }
+
+mod design;

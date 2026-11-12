@@ -9,28 +9,35 @@
 //! keys from the input row at once, so nothing typed for it is sent as a steer. A
 //! command in the sandbox never gets an answer that may be a secret. Every text that
 //! holds the command or its prompt row goes through `format::one_line`.
+//!
+//! Its rows speak the language of a running call (TM-Live 21-23): one muted row that
+//! names it, its prompt row four columns in and muted, the answer line with `?` and its
+//! keys, and `› ` with what the user types. While the keys wait for its first wait, one
+//! muted row says why.
 
 use efr_protocol::{ApprovedBy, CallId, InputWait};
-use efr_render::RenderOptions;
+use efr_render::{Glyphs, RenderOptions};
 
-use super::{AnswerKind, ECHO_PREFIX};
+use super::AnswerKind;
+use super::waits::{answer_line, echo_row, piece_row, program};
 use crate::format::hidden_shell::{self, ELSEWHERE};
 use crate::format::{self, Tone};
 
 /// What the label of the answer line starts with.
 const LABEL: &str = "the hidden shell";
 
-/// The line under the answer line while the turn runs: Ctrl+C there stops the command,
+/// The keys of its answer line while the turn runs: Ctrl+C there stops the command,
 /// not the turn.
-pub(super) const ANSWER_HINT: &str = "enter answers \u{b7} ctrl+c stops the command, not the turn";
+pub(super) const ANSWER_HINT: &[&str] =
+    &["enter answers", "ctrl+c stops the command, not the turn"];
 
-/// The line under the answer line after the turn ended, while `efr` stays open for it.
-pub(super) const KEPT_HINT: &str = "enter answers \u{b7} ctrl+c stops it \u{b7} esc leaves it";
+/// The keys of its answer line after the turn ended, while `efr` stays open for it.
+pub(super) const KEPT_HINT: &[&str] = &["enter answers", "ctrl+c stops it", "esc leaves it"];
 
-/// The line while the keys wait for the command's first wait: it may ask for a
-/// password, which must never reach the input row.
-pub(super) const HOLD_HINT: &str =
-    "it may ask for a password: your keys wait here until efr knows \u{b7} ctrl+c stops it";
+/// The row while the keys wait for the command's first wait: it may ask for a password,
+/// which must never reach the input row.
+pub(super) const HOLD_HINT: &[&str] =
+    &["it may ask for a password: your keys wait here until efr knows", "ctrl+c stops it"];
 
 /// The note when the user leaves a command that waits, with Esc after the turn.
 pub(super) const LEFT_WAITING: &str = "efr leaves the command waiting; ,shell answers or stops it";
@@ -161,13 +168,13 @@ impl Left {
 
     /// The line at the end of the followed turn while it still runs. Without `kept`,
     /// `efr` ends, and the line says where to answer or stop it.
-    pub(super) fn end_line(&self, kept: bool) -> String {
+    pub(super) fn end_line(&self, kept: bool, glyphs: &Glyphs) -> String {
         let mut line = format!("the hidden shell still runs: {}", self.command());
         if let Some(what) = self.waits_for() {
             line.push_str(&format!(" (it waits for {what})"));
         }
         if !kept {
-            line.push_str(" \u{b7} ");
+            line.push_str(&format!(" {} ", glyphs.separator));
             line.push_str(ELSEWHERE);
         }
         line
@@ -182,64 +189,79 @@ impl Left {
         )
     }
 
-    /// The hint under its line now.
-    fn hint(&self) -> &'static str {
-        if self.asking.is_none() {
+    /// The keys of its answer line now, apart by the separator of `glyphs`; while it
+    /// asks nothing, why the keys wait here.
+    fn hint(&self, glyphs: &Glyphs) -> String {
+        let keys = if self.asking.is_none() {
             HOLD_HINT
         } else if self.lingering {
             KEPT_HINT
         } else {
             ANSWER_HINT
-        }
+        };
+        keys.join(&format!(" {} ", glyphs.separator))
     }
 
-    /// The rows of the live zone while keys are read for it: the label, the prompt row,
-    /// how the answer goes, the echo of a shown answer and the hint. Each row is cut to
-    /// the width on a terminal.
+    /// The answer line of its wait of `kind` with its keys, as pieces.
+    fn answer(&self, kind: AnswerKind, glyphs: &Glyphs) -> Vec<(String, Tone)> {
+        let mut pieces = answer_line(kind, program(&self.command), glyphs);
+        // NOTE: Ctrl+C stops the command here, not the turn, and Esc leaves it after the
+        // turn: its own keys take the place of a running call's.
+        if let Some((keys, _)) = pieces.last_mut() {
+            *keys = self.hint(glyphs);
+        }
+        pieces
+    }
+
+    /// The rows of the live zone while keys are read for it: the row that names it, the
+    /// prompt row, the answer line and the echo, or why the keys wait. Each row is cut
+    /// to the width on a terminal.
     pub(super) fn live(&self, options: &RenderOptions) -> String {
         if !self.reads_keys() {
             return String::new();
         }
-        let mut out = String::new();
-        let mut row = |text: &str, tone: Tone| {
-            let text = match format::columns(options) {
-                Some((width, method)) => format::cut(text, width, method),
-                None => text.to_owned(),
-            };
-            out.push_str(&format::paint(&text, tone, options));
-            out.push('\n');
+        let glyphs = options.glyphs();
+        let mut out = piece_row(&[(self.label(), Tone::Dim)], options);
+        let Some(kind) = self.asking else {
+            out.push_str(&piece_row(&[(self.hint(glyphs), Tone::Dim)], options));
+            return out;
         };
-        row(&self.label(), Tone::Attention);
-        if let Some(kind) = self.asking {
-            if !self.prompt.trim().is_empty() {
-                row(&format::one_line(&self.prompt), Tone::Plain);
-            }
-            row(kind.line(), Tone::Plain);
-            if kind.shown() {
-                row(&format!("{ECHO_PREFIX}{}", format::one_line(&self.typed)), Tone::Plain);
-            }
+        if !self.prompt.trim().is_empty() {
+            let prompt = format::one_line(&self.prompt);
+            out.push_str(&piece_row(
+                &[(PROMPT_INDENT.to_owned(), Tone::Plain), (prompt, Tone::Dim)],
+                options,
+            ));
         }
-        row(self.hint(), Tone::Dim);
+        out.push_str(&piece_row(&self.answer(kind, glyphs), options));
+        out.push_str(&echo_row(kind.shown().then_some(self.typed.as_str()), options));
         out
     }
 
     /// The same rows for stderr when stdout is not a terminal, without the echo, which
     /// goes on a line of its own as it is typed.
-    pub(super) fn raw(&self) -> String {
+    pub(super) fn raw(&self, options: &RenderOptions) -> String {
+        let glyphs = options.glyphs();
         let mut out = format!("{}\n", self.label());
-        if let Some(kind) = self.asking {
-            if !self.prompt.trim().is_empty() {
-                out.push_str(&format::one_line(&self.prompt));
-                out.push('\n');
-            }
-            out.push_str(kind.line());
+        let Some(kind) = self.asking else {
+            out.push_str(&self.hint(glyphs));
+            out.push('\n');
+            return out;
+        };
+        if !self.prompt.trim().is_empty() {
+            out.push_str(PROMPT_INDENT);
+            out.push_str(&format::one_line(&self.prompt));
             out.push('\n');
         }
-        out.push_str(self.hint());
+        let line: String = self.answer(kind, glyphs).into_iter().map(|(text, _)| text).collect();
+        out.push_str(&line);
         out.push('\n');
         out
     }
 }
+
+/// How far its prompt row stands in, as the last lines of a running call's output.
+const PROMPT_INDENT: &str = "    ";
 
 #[cfg(test)]
 mod tests;

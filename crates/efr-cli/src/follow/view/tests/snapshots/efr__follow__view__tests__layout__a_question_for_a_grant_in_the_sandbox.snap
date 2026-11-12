@@ -4,103 +4,109 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 ---
 === 40 columns, colour
 [asked]
-\e[33m? allow ~/Documents writable for this\e[0m
-  \e[33mcall\e[0m
-\e[2m│ \e[0m\e[32mcp report.pdf ~/Documents/\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
-\e[2m│ \e[0m\e[2mthe model says: "you asked for the\e[0m
-\e[2m│ \e[0m  \e[2mreport in Documents"\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow ~/Documents writable for this\e[0m
+    \e[1;33mcall\e[0m
+    cp report.pdf ~/Documents/
+    \e[2mwhy\e[0m  write ~/Documents
+    \e[2mthe model says\e[0m  "you asked for the
+      report in Documents"
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [allowed]
-\e[32m✓ allowed\e[0m
-\e[33m•\e[0m \e[2m$\e[0m cp report.pdf ~/Documents/
+\e[32m✓\e[0m \e[2mallowed · write ~/Documents\e[0m
+\e[33m•\e[0m \e[32m$ cp report.pdf ~/Documents/\e[0m
 
 [end]
-\e[32m✓ allowed\e[0m
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcp report.pdf ~/Documents/\e[0m  \e[2m0.2s\e[0m
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+\e[32m✓\e[0m \e[2mallowed · write ~/Documents\e[0m
+\e[33m·\e[0m \e[32m$ cp report.pdf ~/Documents/\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 40 columns, NO_COLOR
 [asked]
-\e[1m? allow ~/Documents writable for this\e[0m
-  \e[1mcall\e[0m
-\e[2m│ \e[0mcp report.pdf ~/Documents/
-\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
-\e[2m│ \e[0m\e[2mthe model says: "you asked for the\e[0m
-\e[2m│ \e[0m  \e[2mreport in Documents"\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1m ? \e[0m \e[1mallow ~/Documents writable for this\e[0m
+    \e[1mcall\e[0m
+    cp report.pdf ~/Documents/
+    \e[2mwhy\e[0m  write ~/Documents
+    \e[2mthe model says\e[0m  "you asked for the
+      report in Documents"
+    \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [allowed]
-✓ allowed
-\e[1m•\e[0m \e[2m$\e[0m cp report.pdf ~/Documents/
+✓ \e[2mallowed · write ~/Documents\e[0m
+\e[1m•\e[0m $ cp report.pdf ~/Documents/
 
 [end]
-✓ allowed
-✓ \e[2m$\e[0m \e[2mcp report.pdf ~/Documents/\e[0m  \e[2m0.2s\e[0m
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+✓ \e[2mallowed · write ~/Documents\e[0m
+\e[1m·\e[0m $ cp report.pdf ~/Documents/
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 80 columns, colour
 [asked]
-\e[33m? allow ~/Documents writable for this call\e[0m
-\e[2m│ \e[0m\e[32mcp report.pdf ~/Documents/\e[0m
-\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
-\e[2m│ \e[0m\e[2mthe model says: "you asked for the report in Documents"\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow ~/Documents writable for this call\e[0m
+    cp report.pdf ~/Documents/
+    \e[2mwhy\e[0m  write ~/Documents
+    \e[2mthe model says\e[0m  "you asked for the report in Documents"
+    \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 [allowed]
-\e[32m✓ allowed\e[0m
-\e[33m•\e[0m \e[2m$\e[0m cp report.pdf ~/Documents/
+\e[32m✓\e[0m \e[2mallowed · write ~/Documents\e[0m
+\e[33m•\e[0m \e[32m$ cp report.pdf ~/Documents/\e[0m
 
 [end]
-\e[32m✓ allowed\e[0m
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcp report.pdf ~/Documents/\e[0m  \e[2m0.2s\e[0m
-\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+\e[32m✓\e[0m \e[2mallowed · write ~/Documents\e[0m
+\e[33m·\e[0m \e[32m$ cp report.pdf ~/Documents/\e[0m
+  \e[32m✓\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 80 columns, NO_COLOR
 [asked]
-\e[1m? allow ~/Documents writable for this call\e[0m
-\e[2m│ \e[0mcp report.pdf ~/Documents/
-\e[2m│ \e[0m\e[2mwhy: write ~/Documents\e[0m
-\e[2m│ \e[0m\e[2mthe model says: "you asked for the report in Documents"\e[0m
-\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+\e[1m ? \e[0m \e[1mallow ~/Documents writable for this call\e[0m
+    cp report.pdf ~/Documents/
+    \e[2mwhy\e[0m  write ~/Documents
+    \e[2mthe model says\e[0m  "you asked for the report in Documents"
+    \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 [allowed]
-✓ allowed
-\e[1m•\e[0m \e[2m$\e[0m cp report.pdf ~/Documents/
+✓ \e[2mallowed · write ~/Documents\e[0m
+\e[1m•\e[0m $ cp report.pdf ~/Documents/
 
 [end]
-✓ allowed
-✓ \e[2m$\e[0m \e[2mcp report.pdf ~/Documents/\e[0m  \e[2m0.2s\e[0m
-\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m3s\e[0m
+✓ \e[2mallowed · write ~/Documents\e[0m
+\e[1m·\e[0m $ cp report.pdf ~/Documents/
+  ✓
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === not a terminal
 [asked]
 stdout:
 stderr:
-? allow ~/Documents writable for this call
-│ cp report.pdf ~/Documents/
-│ why: write ~/Documents
-│ the model says: "you asked for the report in Documents"
-│ y allow · n deny
+ ?  allow ~/Documents writable for this call
+    cp report.pdf ~/Documents/
+    why  write ~/Documents
+    the model says  "you asked for the report in Documents"
+    y allow   n deny
 
 [allowed]
 stdout:
 stderr:
-? allow ~/Documents writable for this call
-│ cp report.pdf ~/Documents/
-│ why: write ~/Documents
-│ the model says: "you asked for the report in Documents"
-│ y allow · n deny
-✓ allowed
+ ?  allow ~/Documents writable for this call
+    cp report.pdf ~/Documents/
+    why  write ~/Documents
+    the model says  "you asked for the report in Documents"
+    y allow   n deny
+✓ allowed · write ~/Documents
+· $ cp report.pdf ~/Documents/
 
 [end]
 stdout:
 stderr:
-? allow ~/Documents writable for this call
-│ cp report.pdf ~/Documents/
-│ why: write ~/Documents
-│ the model says: "you asked for the report in Documents"
-│ y allow · n deny
-✓ allowed
-✓ $ cp report.pdf ~/Documents/  0.2s
+ ?  allow ~/Documents writable for this call
+    cp report.pdf ~/Documents/
+    why  write ~/Documents
+    the model says  "you asked for the report in Documents"
+    y allow   n deny
+✓ allowed · write ~/Documents
+· $ cp report.pdf ~/Documents/
+  ✓

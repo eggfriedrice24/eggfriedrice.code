@@ -92,13 +92,14 @@ impl Growing {
     pub(super) fn words(
         &self,
         plain: impl FnOnce(&str) -> String,
+        more: &str,
         method: WidthMethod,
     ) -> Option<String> {
         if self.ran()? < WORDS_AFTER {
             return None;
         }
         let words = plain(&self.tail);
-        (!words.is_empty()).then(|| newest(&words, WORDS_COLUMNS, method))
+        (!words.is_empty()).then(|| newest(&words, WORDS_COLUMNS, more, method))
     }
 }
 
@@ -137,8 +138,8 @@ impl ToolInput {
 
     /// The newest words of the input, for the detail of the status row: `None` until
     /// it has grown for [`WORDS_AFTER`].
-    pub(super) fn words(&self, method: WidthMethod) -> Option<String> {
-        self.input.words(input_words, method)
+    pub(super) fn words(&self, more: &str, method: WidthMethod) -> Option<String> {
+        self.input.words(input_words, more, method)
     }
 }
 
@@ -175,16 +176,16 @@ fn input_words(text: &str) -> String {
 }
 
 /// The newest words of `text`, whose words one space parts, that fit in `columns`,
-/// after a `…` when the start is cut off. The cut is at a word, and the start moves
+/// after `more`, the mark of more text (`…`), when the start is cut off. The cut is at a word, and the start moves
 /// [`WORDS_STEP`] words at a time: while words come, the text grows at its end and
 /// stands still, and when it is full its start jumps on. A word wider than the room is
 /// cut at its start.
-fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
+fn newest(text: &str, columns: usize, more: &str, method: WidthMethod) -> String {
     if text_width(text, method) <= columns {
         return text.to_owned();
     }
-    // The `…` and the space after it.
-    let room = columns.saturating_sub(2);
+    // The mark and the space after it.
+    let room = columns.saturating_sub(text_width(more, method) + 1);
     let words: Vec<&str> = text.split(' ').collect();
     // The first word from which the rest fits.
     let mut fits = words.len();
@@ -199,18 +200,18 @@ fn newest(text: &str, columns: usize, method: WidthMethod) -> String {
     }
     let start = fits.div_ceil(WORDS_STEP) * WORDS_STEP;
     if start < words.len() {
-        return format!("\u{2026} {}", words[start..].join(" "));
+        return format!("{more} {}", words[start..].join(" "));
     }
     if fits < words.len() {
-        return format!("\u{2026} {}", words[fits..].join(" "));
+        return format!("{more} {}", words[fits..].join(" "));
     }
-    newest_cells(text, columns, method)
+    newest_cells(text, columns, more, method)
 }
 
 /// The end of `text` that fits in `columns` cells, after a `…`: for a last word that
 /// is wider than the room.
-fn newest_cells(text: &str, columns: usize, method: WidthMethod) -> String {
-    let room = columns.saturating_sub(1);
+fn newest_cells(text: &str, columns: usize, more: &str, method: WidthMethod) -> String {
+    let room = columns.saturating_sub(text_width(more, method));
     let pieces: Vec<(usize, &str)> = match method {
         WidthMethod::Grapheme => text.grapheme_indices(true).collect(),
         _ => text.char_indices().map(|(at, c)| (at, &text[at..at + c.len_utf8()])).collect(),
@@ -225,7 +226,7 @@ fn newest_cells(text: &str, columns: usize, method: WidthMethod) -> String {
         used += width;
         start = at;
     }
-    format!("\u{2026}{}", &text[start..])
+    format!("{more}{}", &text[start..])
 }
 
 /// The largest index of `text` at or below `at` that starts a character.

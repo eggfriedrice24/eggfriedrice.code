@@ -4,7 +4,7 @@ expression: "shots.join(\"\\n\\n\")"
 ---
 [empty]
 • waiting for the model
-› ▏ enter steer · tab queue · esc interrupt
+› ▏  enter steer · tab queue · esc interrupt
 
 [typed]
 • waiting for the model
@@ -12,17 +12,17 @@ expression: "shots.join(\"\\n\\n\")"
   and then the config▏
 
 [pending]
-↳ steer: use the release build
-↳ queued: then update the docs
+↳ steer  use the release build · not read yet
+↳ queued  then update the docs
 • waiting for the model
 › check the logs
   ▏
 
 [read]
-> use the release build
+› use the release build
 
 The release build passes.
-↳ queued: then update the docs
+↳ queued  then update the docs
 • waiting for the model
 › check the logs
   ▏
