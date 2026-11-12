@@ -82,7 +82,7 @@ impl TurnView {
         self.state(State::Model);
         let lines = match &self.running {
             Some(running) if running.call_id == *call_id && !running.lines.is_empty() => {
-                running.lines.clone()
+                call::settled_lines(&running.lines, output)
             }
             _ => call::output_lines(output),
         };

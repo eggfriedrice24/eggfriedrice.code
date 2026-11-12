@@ -263,6 +263,26 @@ fn the_output_for_the_model_loses_the_notes_of_efr_at_its_end() {
 }
 
 #[test]
+fn a_finished_call_shows_whole_lines_when_its_last_update_stopped_in_a_line() {
+    let shown = |lines: &[&str]| -> Vec<String> { lines.iter().map(|l| (*l).to_owned()).collect() };
+    // The last update stopped in the middle of the line: the output has it whole.
+    let output =
+        "ls: cannot access '/no-such-dir': No such file or directory\n[exit code 2, cwd /]";
+    assert_eq!(
+        super::settled_lines(&shown(&["ls: cannot access '/no-such-dir'"]), output),
+        ["ls: cannot access '/no-such-dir': No such file or directory"]
+    );
+    // The updates missed the last lines: the output has them.
+    let output = "one\ntwo\nthree\nfour\n[exit code 1, cwd /]";
+    assert_eq!(super::settled_lines(&shown(&["one", "two"]), output), ["two", "three", "four"]);
+    // The output is efr's own text about the call: the lines that showed stay.
+    let output = "the command still runs in the hidden shell";
+    assert_eq!(super::settled_lines(&shown(&["u@h's password:"]), output), ["u@h's password:"]);
+    // An output of only efr's notes: the lines that showed stay.
+    assert_eq!(super::settled_lines(&shown(&["partial"]), "[exit code 1, cwd /]"), ["partial"]);
+}
+
+#[test]
 fn a_blocked_connection_names_its_host_in_the_warning_role() {
     let options = RenderOptions::new(100);
     let blocked = Blocked {

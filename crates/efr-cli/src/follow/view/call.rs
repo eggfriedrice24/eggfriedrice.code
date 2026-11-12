@@ -999,5 +999,21 @@ pub(crate) fn output_lines(output: &str) -> Vec<String> {
     last_lines(&lines.join("\n"))
 }
 
+/// The last lines that a finished call shows, when `shown` are the lines that its
+/// updates brought while it ran and `output` is its output as the model got it.
+///
+/// An update can lag behind the command: its last line can stop in the middle, such as
+/// `ls: cannot access '/x'` without the reason after it, and lines can still be missing.
+/// So when `output` holds the last shown line, whole or as the start of a line, the
+/// last lines of `output` are the truth. When it does not, `output` is efr's own text
+/// about the call, such as the note of a command that timed out, and `shown` stays.
+pub(crate) fn settled_lines(shown: &[String], output: &str) -> Vec<String> {
+    let whole = output_lines(output);
+    let held = shown.last().is_some_and(|last| {
+        output.lines().any(|line| format::one_line(line.trim_end()).starts_with(last.as_str()))
+    });
+    if held && !whole.is_empty() { whole } else { shown.to_vec() }
+}
+
 #[cfg(test)]
 mod tests;

@@ -3,4 +3,5 @@ source: crates/efr-cli/src/follow/view/tests/left.rs
 expression: err
 ---
 → $ rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack  still runs in the hidden shell
+    receiving file list ...
     u@h's password:
