@@ -247,7 +247,8 @@ impl Term {
 /// What the driver prints after each step, between the bytes of the terminal.
 const STEP_MARK: &str = "\u{0}efr-step\u{0}";
 
-/// Drives `zsh -i` (it reads `$ZDOTDIR/.zshrc`) on a pseudo-terminal of `$EFR_COLS`
+/// Drives `zsh -i` (it reads `$ZDOTDIR/.zshrc` and no file of the system, such as the
+/// `compinit` of Debian's `/etc/zsh/zshrc`) on a pseudo-terminal of `$EFR_COLS`
 /// columns from zsh's zpty module, one step of `$EFR_STEPS` after the other: `L<line>`
 /// types the line with its Enter and waits for the next prompt, `T<text>` types the
 /// text and waits until the terminal shows nothing more for a moment. `<C-Space>` in a step stands for the NUL byte
@@ -276,7 +277,7 @@ read_until() {
     exit 95
   fi
 }
-zpty user "stty cols $EFR_COLS rows 60 2>/dev/null; TERM=xterm-256color exec zsh -i" || exit 91
+zpty user "stty cols $EFR_COLS rows 60 2>/dev/null; TERM=xterm-256color exec zsh -o no_global_rcs -i" || exit 91
 screen=
 read_until $ready
 read_until
