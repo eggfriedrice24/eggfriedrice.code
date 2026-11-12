@@ -151,8 +151,9 @@ pub struct RenderSettings {
     pub theme_light: String,
     /// A theme file: a `[colors]` table with a colour for each role and, as
     /// `code_theme`, the path of a `.tmTheme` file for code (absolute, `~/...` or
-    /// relative to the theme file). `palette` must be an absolute path or start with
-    /// `~/`. Unset: no theme file.
+    /// relative to the theme file). As `code_theme_ansi`, it can name a `.tmTheme`
+    /// file in bat's ANSI encoding, which efr uses in 16 colours. `palette` must be an
+    /// absolute path or start with `~/`. Unset: no theme file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub palette: Option<PathBuf>,
     /// Motion in the status row of a running turn: the spinner turns and a band in
