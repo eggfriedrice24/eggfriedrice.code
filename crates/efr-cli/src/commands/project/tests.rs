@@ -7,11 +7,13 @@ use efr_protocol::{
 };
 use pretty_assertions::assert_eq;
 
-use super::listing;
+use efr_test_support::design::{Depth, Frame, assert_rows};
+
+use super::{changed_line, listing};
 use crate::context::Context;
 use crate::error::Exit;
 use crate::run;
-use crate::testing::{TestEnv, capture, command};
+use crate::testing::{TestEnv, capture, command, design_options};
 
 fn app() -> ProjectInfo {
     ProjectInfo {
@@ -111,7 +113,7 @@ async fn add_without_a_path_asks_for_the_work_tree_of_the_current_directory() {
         against(&ctx, &env, &["project", "add"], expected, Ok(answer)).await;
 
     assert_eq!(exit, Exit::Success, "{stderr}");
-    assert_eq!(stdout, "registered the project project (/home/user/project)\n");
+    assert_eq!(stdout, "added the project project  ~/project\n");
     assert_eq!(stderr, "");
 }
 
@@ -144,7 +146,7 @@ async fn add_with_a_path_registers_it_against_the_current_directory_with_its_nam
     let (exit, stdout, stderr) = against(&ctx, &env, &args, expected, Ok(answer)).await;
 
     assert_eq!(exit, Exit::Success, "the registry was written: {stderr}");
-    assert_eq!(stdout, "registered the project site (/home/user/site)\n");
+    assert_eq!(stdout, "added the project site  ~/site\n");
     assert!(
         stderr.starts_with("efr: config.toml has an error, so the permissions keep the old projects until a reload succeeds: unknown field `idle_minuets`"),
         "{stderr}"
@@ -167,7 +169,7 @@ async fn remove_names_the_project_it_took_out() {
         against(&ctx, &env, &["project", "remove", "sub"], expected, Ok(answer)).await;
 
     assert_eq!(exit, Exit::Success, "{stderr}");
-    assert_eq!(stdout, "removed the project at /home/user/project\n");
+    assert_eq!(stdout, "removed the project at ~/project\n");
 }
 
 #[tokio::test]
@@ -216,4 +218,19 @@ fn an_absolute_path_is_sent_as_given() {
         super::absolute(&ctx, std::path::Path::new("/etc/nixos")).unwrap(),
         PathBuf::from("/etc/nixos")
     );
+}
+
+/// TM-Scope 21: `efr project add .` says `added the project tool  ~/src/tool`, the name
+/// bold in the text role, the root muted with `~`, in each depth.
+#[test]
+fn the_line_of_an_added_project_is_the_board() {
+    let frame = Frame::load("TM-Scope", 21).unwrap();
+    let row = frame.rows.iter().position(|row| row.text.starts_with("added the project")).unwrap();
+    let project =
+        ProjectInfo { root: "/home/user/src/tool".into(), name: Some("tool".to_owned()), ..app() };
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        let line = changed_line("added", &project, Some("/home/user".as_ref()), &options);
+        assert_rows(&frame, row..=row, &line, depth);
+    }
 }

@@ -306,7 +306,12 @@ async fn project_add_list_and_remove_change_the_registry_through_the_daemon() {
 
     let added = run(efr_with(&["project", "add", app_arg])).await;
     assert!(added.status.success(), "{}", text(&added.stderr));
-    assert_eq!(text(&added.stdout), format!("registered the project app ({})\n", real.display()));
+    // The root with `~` for the HOME that efr runs with, as TM-Scope 21 writes it.
+    let shown = match real.strip_prefix(daemon.dirs().home()) {
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => real.display().to_string(),
+    };
+    assert_eq!(text(&added.stdout), format!("added the project app  {shown}\n"));
     let file = std::fs::read_to_string(&registry).unwrap();
     assert!(file.contains(&format!("root = \"{}\"", real.display())), "{file}");
 
@@ -320,7 +325,7 @@ async fn project_add_list_and_remove_change_the_registry_through_the_daemon() {
 
     let removed = run(efr_with(&["project", "remove", app_arg])).await;
     assert!(removed.status.success(), "{}", text(&removed.stderr));
-    assert_eq!(text(&removed.stdout), format!("removed the project app ({})\n", real.display()));
+    assert_eq!(text(&removed.stdout), format!("removed the project app  {shown}\n"));
     let empty = run(efr_with(&["project", "list"])).await;
     assert!(text(&empty.stdout).starts_with("no project is registered"), "{}", text(&empty.stdout));
     daemon.stop().await.unwrap();

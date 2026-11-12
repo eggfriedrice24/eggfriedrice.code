@@ -262,7 +262,7 @@ pub(crate) fn explain(result: &SandboxExplainResult, home: Option<&Path>) -> Str
     let path = tilde(&result.path, home);
     let place = match &result.project {
         Some(project) => format!("from {}", tilde(project, home)),
-        None => "outside a project".to_owned(),
+        None => "at home".to_owned(),
     };
     let reason = one_line(&result.reason);
     let mut out = format!("{path}, {place} in {}:\n", result.mode);

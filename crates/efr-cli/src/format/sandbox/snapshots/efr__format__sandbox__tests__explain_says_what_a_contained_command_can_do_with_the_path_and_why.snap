@@ -10,7 +10,7 @@ expression: "format!(\"{floor}---\\n{root}---\\n{masked}---\\n{secret}\")"
   read   yes
   write  yes: in the turn's project (write root)
 ---
-~/p/app/.env, outside a project in auto:
+~/p/app/.env, at home in auto:
   read   no: a project .env file (mask)
   write  no; a write is a masked read exit, user only
 ---

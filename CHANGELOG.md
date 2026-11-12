@@ -279,6 +279,10 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- `efr project add` and `efr project remove` say `added the project tool  ~/src/tool`,
+  with the name in bold and the root muted, with `~` for your home directory. Before,
+  they said `registered the project tool (/home/you/src/tool)`. `efr sandbox explain`
+  says `at home` for a path outside the projects, in place of `outside a project`.
 
 ### Removed
 

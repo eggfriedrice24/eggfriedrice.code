@@ -21,12 +21,15 @@ use efr_protocol::{
     AdminConfigReloadResult, AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove,
     AdminProjectRemoveResult, Method, Origin, ProjectInfo, ProjectsList, ProjectsListResult,
 };
+use efr_render::RenderOptions;
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::cli::ProjectCommand;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format;
+use crate::format::sandbox::tilde;
+use crate::format::{self, Tone};
+use crate::live::effective_width;
 use crate::output::Output;
 
 /// What `list` shows for a project without a name.
@@ -52,7 +55,8 @@ pub(crate) async fn run(
             let client = ctx.connect(Origin::Cli, None).await?;
             let params = AdminProjectAdd { path, name: name.clone(), git_root };
             let added: AdminProjectAddResult = client.call(Method::AdminProjectAdd(params)).await?;
-            out.out(&format!("registered {}\n", project_text(&added.project)))?;
+            let options = ctx.render_options(effective_width(ctx.screen.size()));
+            out.out(&changed_line("added", &added.project, ctx.home.as_deref(), &options))?;
             reload_outcome(out, &added.reload);
             Ok(())
         }
@@ -61,7 +65,8 @@ pub(crate) async fn run(
             let client = ctx.connect(Origin::Cli, None).await?;
             let removed: AdminProjectRemoveResult =
                 client.call(Method::AdminProjectRemove(AdminProjectRemove { path })).await?;
-            out.out(&format!("removed {}\n", project_text(&removed.project)))?;
+            let options = ctx.render_options(effective_width(ctx.screen.size()));
+            out.out(&changed_line("removed", &removed.project, ctx.home.as_deref(), &options))?;
             reload_outcome(out, &removed.reload);
             Ok(())
         }
@@ -78,12 +83,22 @@ fn absolute(ctx: &Context, path: &Path) -> Result<PathBuf, CliError> {
     Ok(cwd.join(path))
 }
 
-/// `the project app (/home/u/p/app)`, or `the project at /etc/nixos` without a name.
-fn project_text(project: &ProjectInfo) -> String {
-    let root = format::one_line(&project.root.display().to_string());
+/// The line after a change of the registry, such as `added the project tool  ~/src/tool`
+/// (TM-Scope 21): the name bold in the `text` role, then the root muted, with `~` for
+/// the home directory. A project without a name is `added the project at ~/src/tool`.
+pub(crate) fn changed_line(
+    verb: &str,
+    project: &ProjectInfo,
+    home: Option<&Path>,
+    options: &RenderOptions,
+) -> String {
+    let root = format::paint(&tilde(&project.root, home), Tone::Dim, options);
     match &project.name {
-        Some(name) => format!("the project {} ({root})", format::one_line(name)),
-        None => format!("the project at {root}"),
+        Some(name) => {
+            let name = format::paint(&format::one_line(name), Tone::TextBold, options);
+            format!("{verb} the project {name}  {root}\n")
+        }
+        None => format!("{verb} the project at {root}\n"),
     }
 }
 

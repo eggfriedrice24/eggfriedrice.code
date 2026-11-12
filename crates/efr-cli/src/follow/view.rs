@@ -636,7 +636,7 @@ pub(crate) struct TurnView {
     left: Option<Box<Left>>,
     /// The home directory, which the sandbox's lines print as `~`.
     home: Option<PathBuf>,
-    /// The scope of the prompt, such as `app` or `○ ~/notes`, at the end of the status
+    /// The scope of the prompt, such as `app` or `⌂ ~/notes`, at the end of the status
     /// row (DV52).
     scope: Option<String>,
     /// The turn runs in a registered project, which its sandbox can write.
@@ -1034,7 +1034,7 @@ impl TurnView {
     }
 
     /// The same view, whose status row ends with the scope of the prompt, such as `app`
-    /// or `○ ~/notes`.
+    /// or `⌂ ~/notes`.
     pub(crate) fn with_scope(mut self, scope: Option<String>) -> TurnView {
         self.scope = scope;
         self
