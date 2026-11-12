@@ -63,7 +63,7 @@ fn a_space_early_in_the_row_does_not_leave_a_short_word_alone() {
     assert!(rows.iter().all(|row| !row.indented), "{rows:?}");
     assert_eq!(rows.last().unwrap().end, RowEnd::Last);
     for row in &rows {
-        let mark = usize::from(row.mark().is_some());
+        let mark = usize::from(row.mark_in(&efr_render::Glyphs::UNICODE).is_some());
         assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 20, "{rows:?}");
     }
     let joined: String = rows.iter().map(|row| row.text.as_str()).collect();
@@ -90,7 +90,7 @@ fn a_word_wider_than_a_row_is_cut_inside_it_and_nothing_is_lost() {
     assert_eq!(joined, word);
     // No row is indented after a cut inside a word: each has the whole room.
     for row in &rows {
-        let mark = usize::from(row.mark().is_some());
+        let mark = usize::from(row.mark_in(&efr_render::Glyphs::UNICODE).is_some());
         assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 10, "{rows:?}");
         assert!(!row.indented, "{rows:?}");
     }

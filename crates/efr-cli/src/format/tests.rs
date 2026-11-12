@@ -10,9 +10,9 @@ use proptest::prelude::{prop, proptest};
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, cut, elapsed, keys,
-    lines, local_time, one_line, paint, run_heading, size, tokens, took, tool_call, tool_result,
-    until, usage_line, wrap_command, wrap_spans,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, cut, elapsed, lines,
+    local_time, one_line, paint, run_heading, size, tokens, took, tool_call, tool_result, until,
+    usage_line, wrap_command, wrap_spans,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, now};
 
@@ -90,17 +90,6 @@ fn tones_take_the_colours_of_their_roles_from_the_palette() {
     let none = RenderOptions::new(80).with_colour(ColourMode::None).with_palette(palette);
     assert_eq!(paint("wait", Tone::Attention, &none), "\x1b[1mwait\x1b[0m");
     assert_eq!(paint("note", Tone::Dim, &none), "\x1b[2mnote\x1b[0m");
-}
-
-#[test]
-fn the_keys_of_a_question_are_bold_in_a_muted_line() {
-    let terminal = RenderOptions::new(80);
-    assert_eq!(
-        keys(&[("y", "allow"), ("n", "deny")], &terminal),
-        "\x1b[1my\x1b[0m\x1b[2m allow\x1b[0m\x1b[2m \u{b7} \x1b[0m\x1b[1mn\x1b[0m\x1b[2m deny\x1b[0m"
-    );
-    let pipe = RenderOptions::new(80).with_terminal(false);
-    assert_eq!(keys(&[("y", "keep"), ("n", "leave")], &pipe), "y keep \u{b7} n leave");
 }
 
 #[test]

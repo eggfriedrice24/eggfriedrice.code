@@ -395,9 +395,15 @@ impl Shown {
     }
 }
 
-/// What the live slice keeps beside the view's own fields.
+/// What the slices of the terminal look keep beside the view's own fields. NOTE: in one
+/// box, so a view that follows a turn keeps the future of `efr send` small.
 #[derive(Debug, Default)]
 struct Kept {
+    /// The reads that fold into one row (`fold`).
+    fold: Fold,
+    /// The tool calls of the turn so far: from the 6th on, a diff shows
+    /// `render.diff_lines_long` lines.
+    calls: usize,
     /// The model of the turn, for the status row.
     model: Option<Model>,
     /// What the question shown last asked about, with what it asked about and when it
@@ -656,12 +662,6 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
-    /// The reads that fold into one row (`fold`).
-    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
-    fold: Box<Fold>,
-    /// The tool calls of the turn so far: from the 6th on, a diff shows
-    /// `render.diff_lines_long` lines.
-    calls: usize,
     /// What the lines at the end of the turn name, gathered while it runs.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
     ending: Box<Ending>,
@@ -760,8 +760,6 @@ impl TurnView {
             reviewed: HashMap::new(),
             commands: HashMap::new(),
             away: false,
-            fold: Box::default(),
-            calls: 0,
             ending: Box::default(),
             ended_undo: None,
             surface: None,
@@ -2449,7 +2447,7 @@ impl TurnView {
         self.draft_boundary = None;
         self.interrupting = false;
         self.resent_note = false;
-        self.calls = 0;
+        self.kept.calls = 0;
         self.ending.home_changes.clear();
         self.ending.full_exits.clear();
         if let Some(input) = &mut self.input {
@@ -2535,7 +2533,7 @@ impl TurnView {
         let options = self.options_at(size);
         let mut live = self.switch_live(&options);
         live.push_str(self.message.as_ref().map_or("", |message| message.live()));
-        live.push_str(&self.fold.live(&options));
+        live.push_str(&self.kept.fold.live(&options));
         if self.call_shown()
             && let Some(call) = &self.call
         {

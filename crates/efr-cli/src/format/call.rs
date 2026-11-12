@@ -176,11 +176,6 @@ pub(crate) struct CommandRow {
 }
 
 impl CommandRow {
-    /// The mark after the row in the Unicode glyphs, if any.
-    pub(crate) fn mark(&self) -> Option<&'static str> {
-        self.mark_in(&Glyphs::UNICODE)
-    }
-
     /// The mark after the row in `glyphs`, if any.
     pub(crate) fn mark_in(&self, glyphs: &Glyphs) -> Option<&'static str> {
         match self.end {

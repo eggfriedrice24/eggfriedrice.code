@@ -407,18 +407,6 @@ pub(crate) fn count_parts(parts: &DiffParts<'_>) -> (u32, u32) {
     counts
 }
 
-/// The rows of one file's diff after `indent`, as a question's card shows them: as
-/// [`layout`], with no hint after the count of the lines left out.
-pub(crate) fn rows(
-    parts: &DiffParts<'_>,
-    path: Option<&str>,
-    limit: usize,
-    indent: &str,
-    options: &RenderOptions,
-) -> String {
-    layout(parts, path, limit, indent, false, options)
-}
-
 /// The rows of one file's diff, each after `indent`: at most `limit` lines from its
 /// first hunk on, then a muted `… N more lines` for the lines left out and the lines
 /// that the daemon cut, with ` · efr diff` after it when `hint`. The file headers stay

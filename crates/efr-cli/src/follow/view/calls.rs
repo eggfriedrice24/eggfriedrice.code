@@ -24,7 +24,7 @@ impl TurnView {
             return Step::default();
         };
         self.state(State::Tool(format::one_line(tool)));
-        self.calls = self.calls.saturating_add(1);
+        self.kept.calls = self.kept.calls.saturating_add(1);
         self.tools.insert(*call_id, tool.clone());
         if let Some(command) = format::command_of(input) {
             self.commands.insert(*call_id, command.to_owned());
@@ -198,16 +198,19 @@ impl TurnView {
         let options = self.options_at(size);
         if self.terminal() && call.reads() && outcome == Outcome::Ran && notes.is_empty() {
             let subject = call.subject().unwrap_or_default().to_owned();
-            if self.fold.takes(call::READ) {
+            if self.kept.fold.takes(call::READ) {
                 let spacing = &mut self.spacing;
-                self.fold.push(call::READ, subject, || spacing.before(Block::Row));
+                self.kept.fold.push(call::READ, subject, || spacing.before(Block::Row));
                 self.dirty = true;
                 return Step::default();
             }
         }
         // NOTE: the limit of a long turn counts this call too (`render.diff_lines_long`).
-        let limit =
-            if self.calls > LONG_TURN { self.look.diff_lines_long } else { self.look.diff_lines };
+        let limit = if self.kept.calls > LONG_TURN {
+            self.look.diff_lines_long
+        } else {
+            self.look.diff_lines
+        };
         let diff = changed.diff.filter(|diff| limit > 0 && !diff.trim().is_empty());
         let edit = call.edit(changed.changes, changed.diff);
         let mut block = call.row(self.event_at, outcome, edit.as_ref(), &options);
@@ -263,11 +266,11 @@ impl TurnView {
     /// Writes the fold of reads, when it holds any, ahead of what is written next: its
     /// place in the spacing is taken already.
     pub(super) fn flush_fold(&mut self) {
-        if self.fold.is_empty() {
+        if self.kept.fold.is_empty() {
             return;
         }
         let options = self.options_now();
-        let written = self.fold.take(&options);
+        let written = self.kept.fold.take(&options);
         self.pending.push_str(&written);
         self.dirty = true;
     }

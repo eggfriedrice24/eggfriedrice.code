@@ -3,8 +3,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    DiffFile, Op, PatchFile, count, cut_rows, file_diffs, files, layout, rows, short_hunk,
-    split_painted, summary, text,
+    DiffFile, Op, PatchFile, count, cut_rows, file_diffs, files, layout, short_hunk, split_painted,
+    summary, text,
 };
 use crate::format::{Tone, call_text, tool_call};
 use crate::testing::readable;
@@ -218,7 +218,7 @@ fn the_heading_of_a_file_marks_a_delete_and_a_move_in_a_question() {
 fn each_file_keeps_its_limit_and_counts_what_it_leaves_out() {
     let diffs = file_diffs(DIFF);
     let options = RenderOptions::new(40).with_colour(ColourMode::None).with_terminal(false);
-    let first = rows(&diffs[0].parts, None, 2, "  ", &options);
+    let first = layout(&diffs[0].parts, None, 2, "  ", false, &options);
     assert_eq!(first, "  @@ 1\n    fn main() {\n  \u{2026} 4 more lines\n");
     let last = layout(&diffs[4].parts, None, 20, "  ", true, &options);
     assert!(last.ends_with("  \u{2026} 12 more lines \u{b7} efr diff\n"), "{}", readable(&last));

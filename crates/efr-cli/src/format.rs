@@ -54,9 +54,6 @@ use call::{push_span, runs};
 /// ([`Tone::look`]), so the palette decides its colour; [`paint`] paints it through
 /// `RenderOptions::paint_with`. The tones after `Accent` are the ones of the design's
 /// legend (`TM-Legend`): a slice paints a mark, a badge or a value with them.
-// NOTE: the slices of the terminal look paint with the tones of the legend; the last
-// one to use them removes this.
-#[cfg_attr(not(test), expect(dead_code, reason = "the tones of the design wait for the slices"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tone {
     /// As it is: plain fact lines.
@@ -125,9 +122,6 @@ impl Tone {
 /// notice, a thought row and an event line become `Row`, a steer in scrollback becomes
 /// `Steer`, the stop reason, the changes line and the outcome line become `End`, and an
 /// assistant message is `Message` in both rules.
-// NOTE: the slices of the terminal look move their blocks to the design's kinds; the
-// last one to do so removes this.
-#[cfg_attr(not(test), expect(dead_code, reason = "the kinds of the design wait for the slices"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Block {
     /// The user's prompt.
@@ -268,20 +262,6 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
         None if tone == Tone::Bold => format!("\x1b[1m{text}\x1b[0m"),
         None => text.to_owned(),
     }
-}
-
-/// The line under a question that says which key does what, such as `y allow · n
-/// deny`: muted, with each key in bold.
-pub(crate) fn keys(pairs: &[(&str, &str)], options: &RenderOptions) -> String {
-    let mut out = String::new();
-    for (at, (key, what)) in pairs.iter().enumerate() {
-        if at > 0 {
-            out.push_str(&paint(" \u{b7} ", Tone::Dim, options));
-        }
-        out.push_str(&paint(key, Tone::Bold, options));
-        out.push_str(&paint(&format!(" {what}"), Tone::Dim, options));
-    }
-    out
 }
 
 /// `text` on one line and safe to print: newlines and tabs become spaces, other control
