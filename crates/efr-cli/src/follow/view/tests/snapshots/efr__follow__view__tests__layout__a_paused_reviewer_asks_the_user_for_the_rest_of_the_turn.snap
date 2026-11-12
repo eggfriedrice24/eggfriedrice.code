@@ -14,6 +14,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"curl http
 \e[2mreviewer paused for this turn: it\e[0m
   \e[2mrefused 10 actions; efr asks you for\e[0m
   \e[2mthe rest\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -28,6 +29,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"curl http
 \e[2mreviewer paused for this turn: it\e[0m
   \e[2mrefused 10 actions; efr asks you for\e[0m
   \e[2mthe rest\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
@@ -37,6 +39,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"curl http
 \e[2mreviewer paused for this turn: it refused 3 actions in a row; efr asks you for\e[0m
   \e[2mthe rest\e[0m
 \e[2mreviewer paused for this turn: it refused 10 actions; efr asks you for the rest\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
@@ -46,6 +49,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"curl http
 \e[2mreviewer paused for this turn: it refused 3 actions in a row; efr asks you for\e[0m
   \e[2mthe rest\e[0m
 \e[2mreviewer paused for this turn: it refused 10 actions; efr asks you for the rest\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === not a terminal

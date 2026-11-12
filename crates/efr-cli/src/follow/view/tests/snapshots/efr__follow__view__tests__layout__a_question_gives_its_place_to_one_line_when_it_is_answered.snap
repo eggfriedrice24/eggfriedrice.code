@@ -14,6 +14,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   \e[2min 4s; the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user \e[0m\e[2m\\e[0m
       \e[2mrestart app\e[0m  \e[2mdid not run\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 40 columns, NO_COLOR
@@ -28,6 +29,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
   \e[2min 4s; the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user \e[0m\e[2m\\e[0m
       \e[2mrestart app\e[0m  \e[2mdid not run\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 80 columns, colour
@@ -40,6 +42,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[31m✗\e[0m \e[2mthe approval expired · nobody answered in 4s; the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user restart app\e[0m  \e[2mdid not run\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === 80 columns, NO_COLOR
@@ -52,6 +55,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make insta
 ✓ \e[2m$\e[0m \e[2mgit push\e[0m  \e[2m0.4s\e[0m
 \e[1m✗\e[0m \e[2mthe approval expired · nobody answered in 4s; the call did not run\e[0m
 \e[2m·\e[0m \e[2m$\e[0m \e[2msystemctl --user restart app\e[0m  \e[2mdid not run\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m3s\e[0m
 
 === not a terminal

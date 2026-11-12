@@ -875,23 +875,8 @@ fn timeless(row: &str) -> String {
 /// 5 starts after 21 s), so the time of a status row is not compared.
 fn moment(play: &mut Play, number: u32, from: usize, depth: Depth) {
     play.frame();
-    let mut frame =
+    let frame =
         efr_test_support::design::expect(&Frame::load("Sequence", number).unwrap(), depth).unwrap();
-    // NOTE: frames 6, 7 and 8 draw a blank row between a call and the status row;
-    // TM-Scope (the `↪` line, then the status row) draws none. DECISIONS.md: no row is
-    // added to the live zone for status-like information. The status row stands right
-    // under the scrollback, and the blank row comes with the prose that follows it, so
-    // it is left out of these three.
-    if let Some(at) = frame.rows.iter().position(|row| row.live)
-        && matches!(number, 6..=8)
-        && at > from
-        && frame.rows[at - 1].text.trim().is_empty()
-        && frame.rows[at].text.starts_with("\u{283c} ")
-        && !frame.rows[at].text.starts_with("\u{283c} $ ")
-    {
-        frame.rows.remove(at - 1);
-    }
-    let frame = frame;
     let wanted = &frame.rows[from..];
     let screen = play.shown();
     let all: Vec<&str> = screen.split_inclusive('\n').collect();
@@ -919,12 +904,6 @@ fn moment(play: &mut Play, number: u32, from: usize, depth: Depth) {
             text = text.replace(glyph, "\u{283c}");
         }
         let mut want = want.text.clone();
-        // NOTE: frame 8 says `writing`, but no text of the model follows the edit
-        // (frame 9 shows the next call first, then the prose): with no text, the
-        // status row says that it waits for the model.
-        if number == 8 {
-            want = want.replace("\u{283c} writing", "\u{283c} waiting for the model");
-        }
         if running {
             want = want.replace(
                 "\u{203a}   enter steer",
@@ -990,6 +969,8 @@ fn sequence_start(depth: Depth) -> Play {
     moment(&mut play, 7, 0, depth);
     let edit = "@@ -95,4 +95,2 @@ impl Turn {\n             self.state = State::Draining;\n-        } else {\n-            self.pending.clear();\n         }\n";
     edited(&mut play, 5, turn_rs, 0, 2, edit, 73_500);
+    // The model starts its next text: `writing`, with no text yet.
+    play.draft(73_600, DraftPart::Text { index: 1, offset: 0, delta: String::new() });
     // NOTE: frame 8 shows the last row of the failed call's tail only, under its row.
     moment(&mut play, 8, 1, depth);
     ran(&mut play, 6, "cargo clippy -p efr-daemon -- -D warnings", 73_700, 7_800);

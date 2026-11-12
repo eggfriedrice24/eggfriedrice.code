@@ -9,6 +9,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
     make: *** No rule to make target 'a…
 \e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
       2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 40 columns, NO_COLOR
@@ -18,6 +19,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
     make: *** No rule to make target 'a…
 \e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so \e[2m\\e[0m
       2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 80 columns, colour
@@ -26,6 +28,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
     cc -c a.c
     make: *** No rule to make target 'all'.  Stop.
 \e[1;31m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[31mexit 1\e[0m \e[2m· 3.7s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === 80 columns, NO_COLOR
@@ -34,6 +37,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"make\")),\
     cc -c a.c
     make: *** No rule to make target 'all'.  Stop.
 \e[1m✗\e[0m \e[2m$\e[0m find / -name libghostty.so 2>/dev/null  \e[1mexit 1\e[0m \e[2m· 3.7s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m4s\e[0m
 
 === not a terminal

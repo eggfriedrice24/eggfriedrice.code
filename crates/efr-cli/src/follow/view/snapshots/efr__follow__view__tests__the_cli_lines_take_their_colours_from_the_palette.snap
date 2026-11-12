@@ -19,6 +19,7 @@ expression: "shown.join(\"\\n===\\n\")"
 \e[?2026l\e[?25h
 ---
 \e[?25l\e[?2026h\r\e[4A\e[J\e[32m✓\e[0m \e[2mallowed\e[0m
+
 \e[33m⠴\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -39,6 +40,7 @@ expression: "shown.join(\"\\n===\\n\")"
 \e[?2026l\e[?25h
 ---
 \e[?25l\e[?2026h\r\e[4A\e[J\e[92m✓\e[0m \e[90mallowed\e[0m
+
 \e[33m⠴\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -59,6 +61,7 @@ truecolor, palette:
 \e[?2026l\e[?25h
 ---
 \e[?25l\e[?2026h\r\e[4A\e[J\e[92m✓\e[0m \e[90mallowed\e[0m
+
 \e[38;2;242;193;78m⠴\e[0m \e[90mwaiting for the model\e[0m
 \e[?2026l
 ===
@@ -79,5 +82,6 @@ NO_COLOR, palette:
 \e[?2026l\e[?25h
 ---
 \e[?25l\e[?2026h\r\e[4A\e[J✓ \e[2mallowed\e[0m
+
 \e[1m⠴\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l

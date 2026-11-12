@@ -19,6 +19,7 @@ expression: shown
     export EDITOR=nvim
   \e[1;31m-\e[0m \e[31malias ll='ls -l'\e[0m
   \e[1;32m+\e[0m \e[32malias ll='ls -la'\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 40 columns, NO_COLOR
@@ -38,6 +39,7 @@ expression: shown
     export EDITOR=nvim
   \e[1m-\e[0m \e[2malias ll='ls -l'\e[0m
   \e[1m+\e[0m alias ll='ls -la'
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, colour
@@ -57,6 +59,7 @@ expression: shown
     export EDITOR=nvim
   \e[1;31m-\e[0m \e[31malias ll='ls -l'\e[0m
   \e[1;32m+\e[0m \e[32malias ll='ls -la'\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, NO_COLOR
@@ -76,6 +79,7 @@ expression: shown
     export EDITOR=nvim
   \e[1m-\e[0m \e[2malias ll='ls -l'\e[0m
   \e[1m+\e[0m alias ll='ls -la'
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === not a terminal

@@ -10,6 +10,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
   \e[2mrisk; you asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2\e[0m
   \e[2mpaths)\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 40 columns, NO_COLOR
@@ -20,6 +21,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
   \e[2mrisk; you asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2\e[0m
   \e[2mpaths)\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, colour
@@ -28,6 +30,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 \e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
   \e[2myou asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, NO_COLOR
@@ -36,6 +39,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, \"go clean -
 \e[2mreviewer allowed: delete 2 paths in ~/.cache/go-build for this call (low risk;\e[0m
   \e[2myou asked to free disk space)\e[0m
 \e[2mfreed 1.2 GB in ~/.cache/go-build (2 paths)\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === not a terminal

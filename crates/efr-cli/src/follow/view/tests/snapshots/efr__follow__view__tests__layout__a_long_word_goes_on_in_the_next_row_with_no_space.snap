@@ -17,6 +17,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
     \e[2mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
     \e[2m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
     \e[2m.so"\e[0m  \e[2m0.8s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -34,6 +35,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
     \e[2mde/target/debug/build/libghostty-vt\e[0m\e[2m↩\e[0m
     \e[2m-1a2b3c4d5e6f/out/lib/libghostty-vt\e[0m\e[2m↩\e[0m
     \e[2m.so"\e[0m  \e[2m0.8s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
@@ -47,6 +49,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 \e[32m✓\e[0m \e[2mallowed\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
     \e[2m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m  \e[2m0.8s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
@@ -60,6 +63,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 ✓ \e[2mallowed\e[0m
 ✓ \e[2m$\e[0m \e[2mecho "built $HOME/p/eggfriedrice.code/target/debug/build/libghostty-vt-1a2b\e[0m\e[2m↩\e[0m
     \e[2m3c4d5e6f/out/lib/libghostty-vt.so"\e[0m  \e[2m0.8s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === not a terminal

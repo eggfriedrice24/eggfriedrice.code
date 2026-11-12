@@ -9,6 +9,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
   \e[2mjob j3 started · output\e[0m
     \e[2m$SCRATCH/jobs/j3.out · ends in 180\e[0m
     \e[2mmin\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
@@ -38,6 +39,7 @@ The dev server runs as job j3.
   \e[2mjob j3 started · output\e[0m
     \e[2m$SCRATCH/jobs/j3.out · ends in 180\e[0m
     \e[2mmin\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
@@ -64,6 +66,7 @@ The dev server runs as job j3.
 [started]
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mnpm run dev -- --port 3000\e[0m  \e[2m(background)\e[0m
   \e[2mjob j3 started · output $SCRATCH/jobs/j3.out · ends in 180 min\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]
@@ -85,6 +88,7 @@ The dev server runs as job j3.
 [started]
 ✓ \e[2m$\e[0m \e[2mnpm run dev -- --port 3000\e[0m  \e[2m(background)\e[0m
   \e[2mjob j3 started · output $SCRATCH/jobs/j3.out · ends in 180 min\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 [end]

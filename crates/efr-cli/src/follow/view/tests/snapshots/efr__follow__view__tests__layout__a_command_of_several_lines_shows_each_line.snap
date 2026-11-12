@@ -14,6 +14,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
     \e[2mexport RUST_LOG=debug\e[0m
     \e[2mcargo test -p efr-cli\e[0m
     \e[2munset RUST_LOG\e[0m  \e[2m2.5s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 40 columns, NO_COLOR
@@ -28,6 +29,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
     \e[2mexport RUST_LOG=debug\e[0m
     \e[2mcargo test -p efr-cli\e[0m
     \e[2munset RUST_LOG\e[0m  \e[2m2.5s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 80 columns, colour
@@ -42,6 +44,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
     \e[2mexport RUST_LOG=debug\e[0m
     \e[2mcargo test -p efr-cli\e[0m
     \e[2munset RUST_LOG\e[0m  \e[2m2.5s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === 80 columns, NO_COLOR
@@ -56,6 +59,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, FROM_SRC)),\
     \e[2mexport RUST_LOG=debug\e[0m
     \e[2mcargo test -p efr-cli\e[0m
     \e[2munset RUST_LOG\e[0m  \e[2m2.5s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m2s\e[0m
 
 === not a terminal

@@ -282,6 +282,9 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- Under the rows of the calls, one blank row stands above the status row, the blank
+  row that the next prose gets, so the rows do not touch the status row. A text of the
+  model that starts with no characters no longer leaves a blank row.
 - The card of a question that asks for network alone says `allow network` and names
   each host on a row of its own, such as `host  index.crates.io:443 · not on the allow
   list`. The card of a write outside the project says `allow this write`, shows the

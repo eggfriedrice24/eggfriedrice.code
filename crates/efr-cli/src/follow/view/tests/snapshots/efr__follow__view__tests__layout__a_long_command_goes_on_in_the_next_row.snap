@@ -12,6 +12,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
       \e[2m-path '*libghostty*' -type \e[0m\e[2m\\e[0m
       \e[2mf | awk -F/ '{print $4}' | \e[0m\e[2m\\e[0m
       \e[2msort -u\e[0m  \e[2m0.6s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -24,6 +25,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
       \e[2m-path '*libghostty*' -type \e[0m\e[2m\\e[0m
       \e[2mf | awk -F/ '{print $4}' | \e[0m\e[2m\\e[0m
       \e[2msort -u\e[0m  \e[2m0.6s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
@@ -33,6 +35,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 [end]
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mcd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
       \e[2m-type f | awk -F/ '{print $4}' | sort -u\e[0m  \e[2m0.6s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
@@ -42,6 +45,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, shell(1, command)),\n
 [end]
 ✓ \e[2m$\e[0m \e[2mcd ~/p/eggfriedrice.code && find target/debug/build -path '*libghostty*' \e[0m\e[2m\\e[0m
       \e[2m-type f | awk -F/ '{print $4}' | sort -u\e[0m  \e[2m0.6s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === not a terminal

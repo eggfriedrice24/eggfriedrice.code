@@ -9,6 +9,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
   \e[1;32m+\e[0m
   \e[1;32m+\e[0m \e[32m- one\e[0m
   \e[2m… 1997 more lines · efr diff\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 40 columns, NO_COLOR
@@ -18,6 +19,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
   \e[1m+\e[0m
   \e[1m+\e[0m - one
   \e[2m… 1997 more lines · efr diff\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, colour
@@ -27,6 +29,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
   \e[1;32m+\e[0m
   \e[1;32m+\e[0m \e[32m- one\e[0m
   \e[2m… 1997 more lines · efr diff\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
 
 === 80 columns, NO_COLOR
@@ -36,6 +39,7 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, write_file(1, \"notes
   \e[1m+\e[0m
   \e[1m+\e[0m - one
   \e[2m… 1997 more lines · efr diff\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
 
 === not a terminal

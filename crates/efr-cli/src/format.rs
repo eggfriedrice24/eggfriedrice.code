@@ -191,6 +191,17 @@ impl Spacing {
         separator
     }
 
+    /// True when the last block is a row of the design (a call row with what stands
+    /// under it, an answer line, a notice) that sticks to nothing: prose after it gets a
+    /// blank line.
+    pub(crate) fn after_row(&self) -> bool {
+        !self.stuck
+            && matches!(
+                self.last,
+                Some(Block::Note | Block::Call | Block::Settled | Block::Answer | Block::Row)
+            )
+    }
+
     /// What [`before`](Self::before) would write before a block of `kind`, for a block
     /// that shows in the live zone before it is written.
     pub(crate) fn peek(&self, kind: Block) -> &'static str {

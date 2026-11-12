@@ -14,6 +14,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
     \e[2msrc/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m\e[2m ·\e[0m
     \e[2mchanged assets/logo.png (binary)\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test\e[0m  \e[2m0.1s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 40 columns, NO_COLOR
@@ -28,6 +29,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
     \e[2msrc/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m\e[2m ·\e[0m
     \e[2mchanged assets/logo.png (binary)\e[0m
 ✓ \e[2m$\e[0m \e[2mcargo test\e[0m  \e[2m0.1s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, colour
@@ -38,6 +40,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
   \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m\e[2m · changed\e[0m
     \e[2massets/logo.png (binary)\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test\e[0m  \e[2m0.1s\e[0m
+
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === 80 columns, NO_COLOR
@@ -48,6 +51,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
   \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m\e[2m · changed\e[0m
     \e[2massets/logo.png (binary)\e[0m
 ✓ \e[2m$\e[0m \e[2mcargo test\e[0m  \e[2m0.1s\e[0m
+
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m1s\e[0m
 
 === not a terminal

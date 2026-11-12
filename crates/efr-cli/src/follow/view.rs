@@ -1113,6 +1113,13 @@ impl TurnView {
                 }
                 self.end_reasoning(Block::Message);
                 self.state(State::Writing);
+                // NOTE: a text that starts with no characters says only that the model
+                // writes: a message with nothing in it would leave a blank row.
+                if delta.is_empty()
+                    && self.message.as_ref().is_none_or(|message| message.index != *index)
+                {
+                    return Step::default();
+                }
                 self.message_delta(*index, *offset, delta, size)
             }
             DraftPart::Reasoning { offset, delta, title } => {
@@ -1298,7 +1305,7 @@ impl TurnView {
         {
             status.set(State::Thinking(Some(words)));
         }
-        let body = self.live_body(size, now);
+        let mut body = self.live_body(size, now);
         // NOTE: a card is the last thing on the screen: the status row and the input row
         // hide while it shows, also when another client answers it (TM-Questions note,
         // frame 6).
@@ -1310,6 +1317,12 @@ impl TurnView {
             }
             _ => String::new(),
         };
+        // NOTE: under the rows of the calls the status row keeps the blank row that the
+        // next prose gets, so the rows do not touch it (TM-Sequence 6 to 8). Under the
+        // event line of the turn's start it has none (TM-Scope 21).
+        if !row.is_empty() && body.is_empty() && self.kept.calls > 0 && self.spacing.after_row() {
+            body.push('\n');
+        }
         // NOTE: the hint names Ctrl+B only once the call has run for a moment, so a
         // short call does not make it flash.
         let background = call_shown
