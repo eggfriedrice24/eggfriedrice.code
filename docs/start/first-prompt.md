@@ -42,18 +42,20 @@ conversation changes, a line tells you, such as `↪ back to "fix the tests" in 
 (2 h ago)` (see [Conversations](#conversations)). When the turn runs on another
 model, a `⇄` line tells you.
 
-While the turn runs, the last row shows a spinner, what the turn does, its time and how
-full the model's context is:
+While the turn runs, the last row shows a spinner, what the turn does, its time, how
+full the model's context is, the model and the scope:
 
 ```text
-⠴ writing  12s  ctx 43%
+⠴ writing   12s   ctx 43%   claude-opus-5-5 high   app
 ```
 
 A command of the agent shows on one line with its time, and its last three output lines
-below it. When the command ends, one line stays:
+below it. When the command ends, one line stays. A `✓` marks a command that went well,
+a `✗` one that failed, with its exit code:
 
 ```text
-$ cargo test -p app  exit 101  6.2s
+✓ $ cargo build -p app  2.1s
+✗ $ cargo test -p app  exit 101 · 6.2s
 ```
 
 The turn ends with one line that tells how it ended, with its cost muted after it:
