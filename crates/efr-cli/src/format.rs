@@ -33,7 +33,7 @@ pub(crate) mod resume;
 pub(crate) mod route;
 pub(crate) mod sandbox;
 pub(crate) mod search;
-mod status;
+pub(crate) mod status;
 
 pub(crate) use call::{
     CallText, CommandRow, EDIT_TOOL, RowEnd, call_text, columns, command_line, command_lines,
@@ -41,7 +41,7 @@ pub(crate) use call::{
 };
 pub(crate) use ending::{CACHE_SHOWN_FROM, turn_settings, turn_stop, usage_line};
 pub(crate) use status::{
-    catalog, config_error, config_error_place, conversations, reloaded, status,
+    StatusView, config_error, config_error_place, conversations, reloaded, status,
 };
 // NOTE: only tests name these from outside their files.
 #[cfg(test)]
@@ -551,7 +551,7 @@ pub(crate) fn until(then: Timestamp, now: Timestamp) -> String {
 }
 
 /// A duration in its two largest units: `45s`, `5m 3s`, `2h 5m`, `3d 4h`.
-fn span(seconds: u64) -> String {
+pub(crate) fn span(seconds: u64) -> String {
     let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
     let secs = seconds % 60;
     match (days, hours, minutes) {

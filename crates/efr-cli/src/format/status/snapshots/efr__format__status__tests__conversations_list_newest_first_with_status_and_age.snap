@@ -1,5 +1,5 @@
 ---
-source: crates/efr-cli/src/format/tests.rs
+source: crates/efr-cli/src/format/status/tests.rs
 expression: "conversations(&list, now())"
 ---
 019a9b1c-3d00-7a10-8b20-000000000001  running                30s ago  fix the nginx config

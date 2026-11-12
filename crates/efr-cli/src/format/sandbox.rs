@@ -120,25 +120,6 @@ pub(crate) fn tilde(path: &Path, home: Option<&Path>) -> String {
     one_line(&shown)
 }
 
-/// The value of the `sandbox` row of `efr status`: `ready (Landlock ABI 10, ...)` or
-/// `unavailable: <reason>; auto runs as cautious`.
-pub(crate) fn status_line(status: &SandboxStatus) -> String {
-    if !status.available {
-        let reason = status.reason.as_deref().unwrap_or("the probe gave no reason");
-        return format!("unavailable: {}; auto runs as cautious", one_line(reason));
-    }
-    let mut parts = Vec::new();
-    if let Some(abi) = status.landlock_abi {
-        parts.push(format!("Landlock ABI {abi}"));
-    }
-    if let Some(version) = &status.bwrap_version {
-        parts.push(format!("bubblewrap {}", one_line(version)));
-    }
-    parts.push(format!("caches {}", status.cache_mode.as_str()));
-    parts.push(format!("network {}", network_words(status)));
-    format!("ready ({})", parts.join(", "))
-}
-
 /// The start of efrd's warning when `network.mode = "proxy"` but the probe's proxy
 /// self-test failed.
 const PROXY_WARNING: &str = "efr's network proxy is off";

@@ -883,6 +883,26 @@ pub(crate) fn design_options(depth: Depth, cols: u16) -> RenderOptions {
     }
 }
 
+/// The frame that output in `depth` must match ([`efr_test_support::design::expect`]),
+/// with each of `fixes` applied: in row `row`, the text `from` becomes `to`, in the
+/// segment that holds it. Only for a place where the board is wrong or a rule beats it;
+/// the caller names the rule in a comment.
+pub(crate) fn design_fixed(
+    frame: &efr_test_support::design::Frame,
+    depth: Depth,
+    fixes: &[(usize, &str, &str)],
+) -> efr_test_support::design::Frame {
+    let mut fixed = efr_test_support::design::expect(frame, depth).unwrap();
+    for &(row, from, to) in fixes {
+        let row = &mut fixed.rows[row];
+        let segment = row.segments.iter_mut().find(|segment| segment.text.contains(from));
+        let segment = segment.unwrap_or_else(|| panic!("{from:?} is not in {:?}", row.text));
+        segment.text = segment.text.replacen(from, to, 1);
+        row.text = row.segments.iter().map(|segment| segment.text.as_str()).collect();
+    }
+    fixed
+}
+
 /// Facts for a terminal on all three streams, with 16 colours.
 pub(crate) fn terminal_facts() -> TermFacts {
     TermFacts {

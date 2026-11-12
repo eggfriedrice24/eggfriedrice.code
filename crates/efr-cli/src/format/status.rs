@@ -8,14 +8,15 @@ use std::path::Path;
 
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, CatalogOrigin, CatalogStatus, ConfigFileError,
-    ConversationStatus, ConversationsListResult, FullModeStatus, HeldConfig, LoginKind, Mode,
-    ProviderStatus,
+    ConfigStatus, ConversationStatus, ConversationsListResult, FullModeStatus, HeldConfig,
+    LoginKind, Mode, ProviderStatus, SandboxStatus,
 };
 use efr_render::RenderOptions;
 use jiff::Timestamp;
-use jiff::tz::TimeZone;
+use unicode_width::UnicodeWidthStr as _;
 
-use super::{Tone, ago, local_time, one_line, paint, sandbox, until};
+use super::sandbox::{self, tilde};
+use super::{Tone, ago, one_line, paint, span};
 
 /// A conversation's status in the words of the listing.
 fn status_word(status: ConversationStatus) -> &'static str {
@@ -27,109 +28,327 @@ fn status_word(status: ConversationStatus) -> &'static str {
     }
 }
 
-/// `efr status`: the daemon's identity and health, one fact per line, with its times in
-/// `zone`. `file_mode` is the default mode that `config.toml` sets, as `efr` reads the
-/// file; the daemon does not report it, and a row shows it only when it is `full`.
-pub(crate) fn status(
-    status: &AdminStatusResult,
-    socket: &Path,
-    now: Timestamp,
-    zone: &TimeZone,
-    file_mode: Option<Mode>,
-) -> String {
-    let mut out = String::new();
-    let mut row = |key: &str, value: &str| {
-        let _ = writeln!(out, "{key:<14} {value}");
-    };
-    row(
-        "daemon",
-        &format!(
-            "efrd {}, protocol {}, pid {}",
+/// What `efr status` shows: the daemon's answer and the facts around it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StatusView<'a> {
+    pub(crate) status: &'a AdminStatusResult,
+    /// Where the model list of each account with a login came from (`models.list`).
+    /// Empty from a daemon that lists one provider: the status's own catalog shows.
+    pub(crate) catalogs: &'a [CatalogStatus],
+    /// The socket that `efr` reached the daemon on.
+    pub(crate) socket: &'a Path,
+    pub(crate) now: Timestamp,
+    /// The default mode that `config.toml` sets, as `efr` reads the file; the daemon
+    /// does not report it, and a row shows it only when it is `full`.
+    pub(crate) file_mode: Option<Mode>,
+    /// The home directory, which the path of the config file starts with as `~`.
+    pub(crate) home: Option<&'a Path>,
+}
+
+/// The narrowest column of labels: the longest label of most listings, `bus filter`,
+/// and two blanks. A rare longer label, such as `restart needed`, widens it.
+const LABEL: usize = 12;
+
+/// The pieces of a value, each with its tone.
+type Pieces = Vec<(String, Tone)>;
+
+/// Rows with a muted label in a left column and the value after it; `None` is a blank
+/// row between groups.
+struct Labelled<'o> {
+    rows: Vec<Option<(&'static str, Pieces)>>,
+    options: &'o RenderOptions,
+}
+
+impl Labelled<'_> {
+    /// A row of `label` and `value`.
+    fn row(&mut self, label: &'static str, value: Pieces) {
+        self.rows.push(Some((label, value)));
+    }
+
+    /// A row of a label with one value in `text`.
+    fn text(&mut self, label: &'static str, value: String) {
+        self.row(label, vec![(value, Tone::Text)]);
+    }
+
+    fn blank(&mut self) {
+        self.rows.push(None);
+    }
+
+    /// The rows: each label muted and padded to the column, then its value.
+    fn finish(self) -> String {
+        let longest = self.rows.iter().flatten().map(|(label, _)| label.width()).max();
+        let column = longest.map_or(LABEL, |longest| (longest + 2).max(LABEL));
+        let mut out = String::new();
+        for row in &self.rows {
+            if let Some((label, value)) = row {
+                let pad = " ".repeat(column - label.width());
+                let _ = write!(out, "{}{pad}", paint(label, Tone::Dim, self.options));
+                for (text, tone) in value {
+                    out.push_str(&paint(text, *tone, self.options));
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+}
+
+/// `efr status` (TM-Commands frame 1): a muted label in a left column, the value in
+/// `text`, and a colour only where something is wrong or needs care. Three groups,
+/// apart by a blank line: the daemon and its config; the accounts and where their
+/// model lists came from; the sandbox and full mode.
+pub(crate) fn status(view: &StatusView<'_>, options: &RenderOptions) -> String {
+    let StatusView { status, now, .. } = *view;
+    let dot = separator(options);
+    let mut rows = Labelled { rows: Vec::new(), options };
+    let up = u64::try_from(now.duration_since(status.started_at).as_secs()).unwrap_or(0);
+    let up = short_span(up);
+    rows.text(
+        "efrd",
+        format!(
+            "{}{dot}protocol {}{dot}up {up}{dot}{}",
             one_line(&status.version),
             status.protocol,
-            status.pid
+            one_line(&view.socket.display().to_string())
         ),
     );
-    row("daemon id", &status.daemon_id.to_string());
-    // Whole seconds: the nanoseconds of a start time say nothing to a person.
-    let started = local_time(status.started_at, zone);
-    row("started", &format!("{started} ({})", ago(status.started_at, now)));
-    row("socket", &one_line(&socket.display().to_string()));
-    row("screen", &one_line(&status.screen_backend));
-    row("conversations", &status.conversations.to_string());
-    row("shells", &status.shells.to_string());
-    if status.providers.is_empty() {
-        row("providers", "none configured");
-    }
-    for provider in &status.providers {
-        let mut state = match (provider.logged_in, provider.expires_at) {
-            (false, _) => "not logged in".to_owned(),
-            (true, None) => "logged in".to_owned(),
-            (true, Some(expires)) => {
-                let at = local_time(expires, zone);
-                format!("logged in, token expires {at} ({})", until(expires, now))
-            }
-        };
-        if let Some(hint) = &provider.key_hint {
-            let _ = write!(state, ", key {}", one_line(hint));
-        }
-        let what = if provider.key_hint.is_some() { "" } else { ", key" };
-        if let Some(refused) = provider.key_refused_at {
-            let at = local_time(refused, zone);
-            let _ = write!(state, "{what} refused at {at} ({})", ago(refused, now));
-        } else if key_unchecked(provider) {
-            let _ = write!(state, "{what} {KEY_UNCHECKED}");
-        }
-        if provider.active {
-            state.push_str(" (active)");
-        }
-        row("provider", &format!("{}: {state}", one_line(&provider.provider)));
-    }
-    if let Some(models) = &status.catalog {
-        row("models", &catalog(models, now));
-    }
     if let Some(config) = &status.config {
-        let file = match (&config.symlink_target, config.exists) {
-            (Some(target), _) => format!("{} -> {}", config.path.display(), target.display()),
-            (None, true) => config.path.display().to_string(),
-            (None, false) => format!("{} (absent)", config.path.display()),
-        };
-        row("config", &one_line(&file));
-        if let Some(error) = &config.reload_error {
-            row("config error", &config_error(error));
-        }
-        if !config.restart_needed.is_empty() {
-            row("restart needed", &one_line(&config.restart_needed.join(", ")));
-        }
-        if let Some(held) = &config.held {
-            row("config held", &held_text(held));
-        }
+        config_rows(&mut rows, config, view.home);
+    }
+    rows.blank();
+    account_rows(&mut rows, view);
+    let own: Vec<CatalogStatus> = status.catalog.iter().cloned().collect();
+    let catalogs = if view.catalogs.is_empty() { &own[..] } else { view.catalogs };
+    if !catalogs.is_empty() {
+        let words: Vec<String> = catalogs
+            .iter()
+            .map(|catalog| match &catalog.provider {
+                Some(provider) => format!("{}: {}", account_of(provider).0, origin(catalog, now)),
+                None => origin(catalog, now),
+            })
+            .collect();
+        rows.text("models", words.join(&dot));
+    }
+    rows.blank();
+    // NOTE: a daemon from before the sandbox reports none, so there is nothing to show.
+    if let Some(sandbox) = &status.sandbox {
+        sandbox_rows(&mut rows, sandbox, &dot);
     }
     // NOTE: a daemon from before full mode reports none, so there is nothing to show.
     if let Some(full) = &status.full_mode {
-        row("full mode", &full_mode_words(full));
+        let tone =
+            if full.allowed && full.refused.is_some() { Tone::Attention } else { Tone::Text };
+        rows.row("full mode", vec![(full_mode_words(full), tone)]);
     }
-    if file_mode == Some(Mode::Full) {
+    if view.file_mode == Some(Mode::Full) {
         let refused = status.full_mode.as_ref().is_some_and(|full| full.refused.is_some());
-        let words = if refused {
-            "full; efrd cannot run it, so a turn that names no mode runs as auto"
-        } else {
-            "full"
-        };
-        row("default mode", words);
-    }
-    // NOTE: a daemon from before the sandbox reports none, so there is nothing to show.
-    if let Some(sandbox) = &status.sandbox {
-        row("sandbox", &sandbox::status_line(sandbox));
-        if let Some(fix) = sandbox.fix.as_deref().filter(|_| !sandbox.available) {
-            row("sandbox fix", &one_line(fix));
+        let mut value = vec![("full".to_owned(), Tone::Failure)];
+        if refused {
+            let why = "efrd cannot run it, so a turn that names no mode runs as auto";
+            value.push((format!("{dot}{why}"), Tone::Text));
         }
-        if sandbox.available {
-            row("netview", &sandbox::netview_words(sandbox));
-            row("bus filter", &sandbox::bus_filter_words(sandbox));
+        rows.row("default mode", value);
+    }
+    rows.finish()
+}
+
+/// The rows of the config file: its path (and where its link points), then an error of
+/// its last reload, the keys that need a restart and a change that efrd holds.
+fn config_rows(rows: &mut Labelled<'_>, config: &ConfigStatus, home: Option<&Path>) {
+    let arrow = rows.options.glyphs().arrow;
+    let mut value = vec![(tilde(&config.path, home), Tone::Text)];
+    match (&config.symlink_target, config.exists) {
+        (Some(target), _) => value.push((format!(" {arrow} {}", tilde(target, home)), Tone::Text)),
+        (None, true) => {}
+        (None, false) => value.push((" (absent)".to_owned(), Tone::Dim)),
+    }
+    rows.row("config", value);
+    if let Some(error) = &config.reload_error {
+        rows.row("config error", vec![(config_error(error), Tone::Failure)]);
+    }
+    if !config.restart_needed.is_empty() {
+        let keys = one_line(&config.restart_needed.join(", "));
+        let words = format!("{keys} (systemctl --user restart efrd)");
+        rows.row("restart needed", vec![(words, Tone::Attention)]);
+    }
+    if let Some(held) = &config.held {
+        rows.row("config held", vec![(held_text(held), Tone::Attention)]);
+    }
+}
+
+/// The name that `,model` takes for the provider `id`, and its kind:
+/// `anthropic-api.work` is `work` of `anthropic-api`. A provider with no account is
+/// named by its short name, `anthropic` or `openai`, else by its id.
+pub(crate) fn account_of(id: &str) -> (String, String) {
+    match id.split_once('.') {
+        Some((kind, account)) => (one_line(account), one_line(kind)),
+        None => {
+            let name = match id {
+                "anthropic-api" => "anthropic",
+                "openai-subscription" => "openai",
+                other => other,
+            };
+            (one_line(name), one_line(id))
         }
     }
-    out
+}
+
+/// The command that logs in to an account of `kind` again: `efr login anthropic-api
+/// --account personal`.
+pub(crate) fn login_command(kind: &str, account: &str) -> String {
+    let kind = match kind {
+        "openai-subscription" => "openai".to_owned(),
+        other => one_line(other),
+    };
+    format!("efr login {kind} --account {}", one_line(account))
+}
+
+/// The rows of the accounts: one for each provider and account that efrd knows, the
+/// account of new conversations first, then the named accounts; the name, the kind and
+/// the state in columns.
+fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
+    let providers = &view.status.providers;
+    if providers.is_empty() {
+        rows.row("accounts", vec![("none configured".to_owned(), Tone::Dim)]);
+        return;
+    }
+    // NOTE: the account of new conversations, then the named accounts, then the
+    // providers with no account, each group in efrd's order.
+    let rank = |provider: &ProviderStatus| match provider.active {
+        true => 0,
+        false if provider.provider.contains('.') => 1,
+        false => 2,
+    };
+    let mut ordered: Vec<&ProviderStatus> = providers.iter().collect();
+    ordered.sort_by_key(|provider| rank(provider));
+    let named: Vec<(String, String)> =
+        ordered.iter().map(|provider| account_of(&provider.provider)).collect();
+    let name_w = named.iter().map(|(name, _)| name.width()).max().unwrap_or(0);
+    let kind_w = named.iter().map(|(_, kind)| kind.width()).max().unwrap_or(0);
+    for (at, (provider, (name, kind))) in ordered.iter().zip(&named).enumerate() {
+        let label = if at == 0 { "accounts" } else { "" };
+        let cells = format!(
+            "{name}{}  {kind}{}  ",
+            " ".repeat(name_w - name.width()),
+            " ".repeat(kind_w - kind.width())
+        );
+        let mut value = vec![(cells, Tone::Text)];
+        value.extend(account_state(provider, view.now, rows.options));
+        rows.row(label, value);
+    }
+}
+
+/// The state of one account: `logged in` with its token or its key, `signed out` with
+/// the command that logs in again, or `not logged in`; then `active` for the account of
+/// new conversations.
+fn account_state(provider: &ProviderStatus, now: Timestamp, options: &RenderOptions) -> Pieces {
+    let dot = separator(options);
+    let mut pieces: Pieces = Vec::new();
+    if provider.logged_in {
+        pieces.push(("logged in".to_owned(), Tone::Success));
+        if let Some(expires) = provider.expires_at {
+            let when = if expires < now {
+                format!("token expired {}", short_ago(expires, now))
+            } else {
+                format!("token expires {}", short_until(expires, now))
+            };
+            pieces.push((format!("{dot}{when}"), Tone::Text));
+        }
+        // NOTE: efrd writes the cut of a key as `...`; efr shows the mark of the locale.
+        let hint = provider
+            .key_hint
+            .as_deref()
+            .map(|hint| one_line(hint).replace("...", options.glyphs().more));
+        if let Some(hint) = &hint {
+            pieces.push((format!("{dot}key {hint}"), Tone::Text));
+        }
+        let key = if hint.is_some() { "" } else { "key " };
+        if let Some(refused) = provider.key_refused_at {
+            pieces.push((dot.clone(), Tone::Text));
+            pieces.push((format!("{key}refused {}", short_ago(refused, now)), Tone::Attention));
+        } else if key_unchecked(provider) {
+            pieces.push((dot.clone(), Tone::Text));
+            pieces.push((format!("{key}{KEY_UNCHECKED}"), Tone::Dim));
+        }
+    } else {
+        match provider.provider.split_once('.') {
+            // NOTE: efrd lists an account only while it runs, so an account with no
+            // login logged out.
+            Some((kind, account)) => {
+                pieces.push(("signed out".to_owned(), Tone::Attention));
+                pieces.push((dot.clone(), Tone::Text));
+                pieces.push((login_command(kind, account), Tone::Code));
+            }
+            None => pieces.push(("not logged in".to_owned(), Tone::Dim)),
+        }
+    }
+    if provider.active {
+        pieces.push((dot, Tone::Text));
+        pieces.push(("active".to_owned(), Tone::TextBold));
+    }
+    pieces
+}
+
+/// The rows of the sandbox: `ready` with what it runs on, or `unavailable` with why and
+/// its fix; then the network view and the bus filter of a ready one.
+fn sandbox_rows(rows: &mut Labelled<'_>, sandbox: &SandboxStatus, dot: &str) {
+    if sandbox.available {
+        let mut parts = Vec::new();
+        if let Some(abi) = sandbox.landlock_abi {
+            parts.push(format!("Landlock ABI {abi}"));
+        }
+        if let Some(version) = &sandbox.bwrap_version {
+            parts.push(format!("bubblewrap {}", one_line(version)));
+        }
+        parts.push(format!("network {}", sandbox::network_words(sandbox)));
+        let rest: String = parts.iter().map(|part| format!("{dot}{part}")).collect();
+        rows.row("sandbox", vec![("ready".to_owned(), Tone::Success), (rest, Tone::Text)]);
+        rows.text("netview", sandbox::netview_words(sandbox));
+        rows.text("bus filter", sandbox::bus_filter_words(sandbox));
+        return;
+    }
+    let reason = sandbox.reason.as_deref().unwrap_or("the probe gave no reason");
+    let rest = format!("{dot}{}{dot}auto runs as cautious", one_line(reason));
+    rows.row("sandbox", vec![("unavailable".to_owned(), Tone::Attention), (rest, Tone::Text)]);
+    if let Some(fix) = sandbox.fix.as_deref() {
+        rows.text("sandbox fix", one_line(fix));
+    }
+}
+
+/// A duration in its two largest units, with no second unit of zero, as the listings
+/// outside a turn say it: `45s`, `5m`, `5m 3s`, `1h`, `2h 5m`, `3d 4h`.
+pub(crate) fn short_span(seconds: u64) -> String {
+    let span = span(seconds);
+    match [" 0s", " 0m", " 0h"].iter().find_map(|zero| span.strip_suffix(zero)) {
+        Some(short) => short.to_owned(),
+        None => span,
+    }
+}
+
+/// How long ago `then` was at `now`, in [`short_span`]: `5m ago`; `just now` under a
+/// second.
+pub(crate) fn short_ago(then: Timestamp, now: Timestamp) -> String {
+    let seconds = now.duration_since(then).as_secs();
+    if seconds < 1 {
+        return "just now".to_owned();
+    }
+    format!("{} ago", short_span(seconds.unsigned_abs()))
+}
+
+/// How long until `then` from `now`, in [`short_span`]: `in 52m 3s`, or how long ago it
+/// passed.
+pub(crate) fn short_until(then: Timestamp, now: Timestamp) -> String {
+    let seconds = then.duration_since(now).as_secs();
+    if seconds < 0 {
+        short_ago(then, now)
+    } else {
+        format!("in {}", short_span(seconds.unsigned_abs()))
+    }
+}
+
+/// ` · ` between the parts of a value, with the separator of the locale.
+pub(crate) fn separator(options: &RenderOptions) -> String {
+    format!(" {} ", options.glyphs().separator)
 }
 
 /// What `efr status` says of a stored API key that efrd has not checked since it
@@ -145,25 +364,20 @@ fn key_unchecked(provider: &ProviderStatus) -> bool {
         && provider.key_checked_at.is_none()
 }
 
-/// Which provider's model catalog the daemon has and where it came from, at `now`:
-/// `anthropic-api, from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m
-/// ago` (the backend did not answer yet), `built into efr`, or `no list yet; efrd
-/// fetches it in the background`. An older daemon names no provider.
-pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
+/// Where a model list came from, at `now`: `from the backend, fetched 5m ago`, `from
+/// the cache, fetched 2h 5m ago` (the backend did not answer yet), `built into efr`, or
+/// `no list yet; efrd fetches it in the background`.
+pub(crate) fn origin(catalog: &CatalogStatus, now: Timestamp) -> String {
     let fetched = |place: &str| match catalog.fetched_at {
-        Some(at) => format!("from {place}, fetched {}", ago(at, now)),
+        Some(at) => format!("from {place}, fetched {}", short_ago(at, now)),
         None => format!("from {place}"),
     };
-    let origin = match catalog.origin {
+    match catalog.origin {
         CatalogOrigin::Backend => fetched("the backend"),
         CatalogOrigin::Cache => fetched("the cache"),
         CatalogOrigin::Builtin => "built into efr".to_owned(),
         CatalogOrigin::Missing => "no list yet; efrd fetches it in the background".to_owned(),
         _ => "from elsewhere".to_owned(),
-    };
-    match &catalog.provider {
-        Some(provider) => format!("{}, {origin}", one_line(provider)),
-        None => origin,
     }
 }
 
@@ -273,3 +487,6 @@ pub(crate) fn conversations(list: &ConversationsListResult, now: Timestamp) -> S
     }
     out
 }
+
+#[cfg(test)]
+mod tests;

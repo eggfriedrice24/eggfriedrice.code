@@ -195,8 +195,8 @@ There is no partial sandbox, and efr never runs a contained call outside the san
   Landlock ABI 6 found; auto needs 9 (Linux 7.1). efr sandbox check shows more.`
 - Each turn that asked for `auto` starts with a dim line, such as `auto is not
   available here; this turn runs as cautious: Landlock ABI 6 found`.
-- `efr status` shows the `sandbox` line, such as `unavailable: bubblewrap is not
-  installed; auto runs as cautious`.
+- `efr status` shows the `sandbox` row, such as `unavailable · bubblewrap is not
+  installed · auto runs as cautious`.
 
 Common causes and fixes:
 

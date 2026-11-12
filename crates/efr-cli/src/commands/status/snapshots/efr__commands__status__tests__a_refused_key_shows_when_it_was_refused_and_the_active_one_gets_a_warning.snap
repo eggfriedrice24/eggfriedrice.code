@@ -1,9 +1,0 @@
----
-source: crates/efr-cli/src/commands/status/tests.rs
-expression: "format!(\"{}\\n---\\n{}\", rows.join(\"\\n\"), captured.stderr())"
----
-provider       openai-subscription: logged in, token expires 2026-10-10 18:00:00 UTC (in 6d 6h)
-provider       openai-api: not logged in
-provider       anthropic-api: logged in, key sk-ant-...a1b2 refused at 2026-10-04 11:55:00 UTC (5m 0s ago) (active)
----
-efr: the provider refused the key of anthropic-api; its turns fail until a request with the key works or a new login; log in with: efr login anthropic

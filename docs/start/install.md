@@ -149,8 +149,8 @@ efr status
 efr sandbox check
 ```
 
-- `efr status` shows the daemon, its screen backend and the providers that you logged
-  in to.
+- `efr status` shows the daemon, your accounts with their logins, the sandbox and full
+  mode.
 - `efr sandbox check` runs every check of the `auto` sandbox. For each check that
   fails, it prints the fix, such as `pacman -S bubblewrap`.
 

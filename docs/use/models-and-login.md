@@ -91,7 +91,7 @@ efr login anthropic --account work
 ```
 
 The account runs at once as a provider of its own, `anthropic-api.work`, with its own
-model list. `efr status` shows each account on a line of its own. efr refuses a key
+model list. `efr status` shows each account on a row of its own. efr refuses a key
 that another account of the provider has already. To make the account the provider of
 new conversations:
 
@@ -124,18 +124,25 @@ new provider, or clear the choice with `,model default`.
 
 ## Check the login
 
-`efr status` shows each provider with its login. `(active)` marks the provider of new
-conversations:
+`efr status` shows each account with its login. An account has the name that `,model`
+takes: the name of the account, such as `work`, or `anthropic` and `openai` for the
+default account of a provider. `active` marks the account of new conversations, and it
+comes first:
 
 ```text
-provider       openai-subscription: logged in, token expires 2026-10-10 18:00:00 UTC (in 6d 6h)
-provider       openai-api: not logged in
-provider       anthropic-api: logged in, key sk-ant-...a1b2 refused at 2026-10-04 11:55:00 UTC (5m 0s ago) (active)
+accounts    work      anthropic-api        logged in · key sk-ant-…a1b2 · active
+            personal  anthropic-api        signed out · efr login anthropic-api --account personal
+            b         openai-subscription  logged in · token expires in 6d 6h
+            openai    openai-subscription  not logged in
+models      work: from the backend, fetched 5m ago · b: from the cache, fetched 2h 5m ago
 ```
 
-When the provider refused a key, the line says when. The mark goes away when a request
-with the key works again, or after a new login. When the active provider has no login,
-`efr status` also says how to log in, such as `log in with: efr login anthropic`.
+Only what needs your care has a colour. `signed out` marks an account that logged out
+while efrd ran, with the command that logs in again. When the provider refused a key,
+the row says when, such as `refused 5m ago`. The mark goes away when a request with the
+key works again, or after a new login. When the active provider has no login,
+`efr status` also says how to log in, such as `log in with: efr login anthropic`. The
+`models` row says where the model list of each account came from.
 
 ## Log out
 
@@ -190,16 +197,24 @@ with `,effort` must be one that the model takes.
 
 ### List the models
 
-`efr models` lists the models of the active provider. `*` marks the default. Each line
-shows the context window and the efforts of the model:
+`efr models` lists the models by account, in the form that `,model` takes them. The
+head of each account names its provider and where its list came from. `*` marks the
+default. Each row shows the context window and the efforts of the model, with the
+default effort of the model underlined:
 
 ```text
-* gpt-5.5   272k (up to 872k)  efforts: low, medium, high, xhigh; default medium
-  gpt-5.4   128k               efforts: low, medium, high
+work · anthropic-api · from the backend, fetched 5m ago
+* claude-opus-5-5    200k            efforts low medium high
+  claude-sonnet-5    200k            efforts low medium high
+  claude-haiku-4-5   200k            no efforts
+
+b · openai-subscription · from the cache, fetched 2h 5m ago
+  gpt-5.5            272k (up to 872k)  efforts minimal low medium high xhigh
+
+* the default · underlined: the default effort · ,model work/claude-sonnet-5 picks one
 ```
 
-The last line names the provider and where the list came from, such as
-`models: openai-subscription, from the backend, fetched 5m 0s ago`.
+An account that logged out keeps its head with `signed out`, and its rows are dim.
 `efr models --names` prints only the ids, one on each line.
 
 ### Where the list comes from

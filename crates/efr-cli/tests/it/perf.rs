@@ -282,6 +282,17 @@ fn bench_perf_cli_first_write() {
                 let (id, method) = conn.request();
                 assert!(matches!(method, Method::AdminStatus(_)), "got {}", method.name());
                 conn.reply(id, &status_result());
+                // NOTE: the `models` row of `efr status` asks for the list of each account.
+                let (id, method) = conn.request();
+                assert!(matches!(method, Method::ModelsList(_)), "got {}", method.name());
+                conn.reply(
+                    id,
+                    &efr_protocol::ModelsListResult {
+                        models: Vec::new(),
+                        catalog: None,
+                        catalogs: Vec::new(),
+                    },
+                );
             });
             let mut first = Vec::new();
             let mut exit = Vec::new();

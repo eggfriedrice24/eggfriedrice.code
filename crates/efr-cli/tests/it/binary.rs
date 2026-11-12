@@ -225,14 +225,22 @@ fn status_prints_the_daemons_health() {
                 full_mode: None,
             },
         );
+        // NOTE: the `models` row asks for the list of each account.
+        let (id, method) = conn.request();
+        assert!(matches!(method, Method::ModelsList(_)));
+        conn.reply(
+            id,
+            &ModelsListResult { models: Vec::new(), catalog: None, catalogs: Vec::new() },
+        );
         conn.drain();
     });
     let output = roots.efr().arg("status").output().unwrap();
     daemon.join().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     let stdout = stdout_of(&output);
-    assert!(stdout.starts_with("daemon         efrd 0.1.0, protocol "), "{stdout}");
-    assert!(stdout.contains(&format!("socket         {}\n", roots.socket().display())));
+    let first = format!("efrd        0.1.0 - protocol {PROTOCOL_VERSION} - up ");
+    assert!(stdout.starts_with(&first), "{stdout}");
+    assert!(stdout.contains(&format!(" - {}\n", roots.socket().display())), "{stdout}");
 }
 
 /// A daemon that takes one `admin.login_api_key`, answers that the key is stored and

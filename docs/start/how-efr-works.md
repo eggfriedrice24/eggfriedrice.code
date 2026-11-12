@@ -79,7 +79,7 @@ asks also when you send the prompt from inside the project.
 Each conversation has its own hidden zsh. It is a real zsh with a terminal engine
 behind it, so the agent sees a rendered screen, not raw escape codes. efrd uses the
 engine of Ghostty (libghostty-vt) when the build has it. If not, it uses the vt100
-engine. The [`screen`](../config.md#top-level) key of `config.toml` can choose vt100. `efr status` shows which one runs.
+engine. The [`screen`](../config.md#top-level) key of `config.toml` can choose vt100. The log of efrd names the one that runs: `journalctl --user -u efrd | grep "screen backend"`.
 
 The hidden shell stays between calls, so a `cd` of one call holds for the next call.
 When a command asks for input, efr shows the question below the reply, and you answer

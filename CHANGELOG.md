@@ -215,6 +215,16 @@ into the GitHub release notes, and it stops when the section is missing.
   once a minute. A pasted prompt starts the same work when it arrives. efrd also keeps
   an idle HTTP connection for 5 minutes, not 90 seconds, so a prompt after a short
   pause needs no new one.
+- `efr status` has the new look of the terminal: a dim label in a left column, the
+  value after it, and a colour only where something needs care. One row for each
+  account, with the name that `,model` takes, such as `work`. An account that logged
+  out says `signed out` and shows the command that logs in again. The `models` row
+  names the list of each account. The rows of the daemon id, the process, the start
+  time, the screen backend, the conversations and the shells are gone; the `efrd` row
+  says how long efrd is up.
+- `efr models` groups the models by account, with a head such as `work ·
+  anthropic-api · from the backend, fetched 5m ago`. The default effort of a model is
+  underlined, and a last line says what the marks mean and how `,model` picks a model.
 
 ### Fixed
 

@@ -15,9 +15,9 @@ use super::{
     AWAY_EXPIRED, Requested, TraceNetwork, background_stopped, blocked, blocked_joined,
     blocked_lines, bus_refused_lines, cache_freed, check, contained_trace, exit_card, exit_heading,
     exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
-    full_let_through, home_changed, judge_details, no_answer_row, paused, presence_changed,
-    reviewed, reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
-    surface_changed, surface_report, survivors, tilde,
+    full_let_through, home_changed, judge_details, network_words, no_answer_row, paused,
+    presence_changed, reviewed, reviewer_row, reviewing, setup_failed, surface_answered,
+    surface_change, surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -161,25 +161,9 @@ fn paths_below_home_start_with_a_tilde_and_never_drive_the_terminal() {
 }
 
 #[test]
-fn the_status_line_says_ready_with_the_facts_or_unavailable_with_the_reason() {
-    assert_eq!(
-        status_line(&ready()),
-        "ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)"
-    );
-    let down = SandboxStatus::unavailable("Landlock ABI 6 found; auto needs 9 (Linux 7.1)");
-    assert_eq!(
-        status_line(&down),
-        "unavailable: Landlock ABI 6 found; auto needs 9 (Linux 7.1); auto runs as cautious"
-    );
-}
-
-#[test]
 fn status_shows_network_proxy() {
     let proxy = SandboxStatus { network_mode: NetworkMode::Proxy, proxy: true, ..ready() };
-    assert_eq!(
-        status_line(&proxy),
-        "ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network proxy)"
-    );
+    assert_eq!(network_words(&proxy), "proxy");
     // efrd fell back: network.mode is proxy, but the proxy self-test failed.
     let fell_back = SandboxStatus {
         warnings: vec![
@@ -188,11 +172,7 @@ fn status_shows_network_proxy() {
         ],
         ..ready()
     };
-    assert!(
-        status_line(&fell_back).ends_with("network none (proxy self-test failed))"),
-        "{}",
-        status_line(&fell_back)
-    );
+    assert_eq!(network_words(&fell_back), "none (proxy self-test failed)");
     let checked = check(&AdminSandboxCheckResult { status: proxy, ..check_result() });
     assert!(checked.contains("\nnetwork proxy\nbus filter off\nauto: ready\n"), "{checked}");
     let checked = check(&check_result());

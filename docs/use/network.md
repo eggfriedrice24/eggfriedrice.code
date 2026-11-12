@@ -134,8 +134,8 @@ With `network.mode = "none"`, a command in the sandbox has no network. Loopback 
 works. Each network need then goes to the reviewer, and an allow opens the whole
 network for one call.
 
-`efr status` shows the network in its `sandbox` line, such as `ready (Landlock ABI 10,
-bubblewrap 0.13.0, caches tmp, network proxy)`. `network none` means no network, and
+`efr status` shows the network in its `sandbox` row, such as `ready · Landlock ABI 10 ·
+bubblewrap 0.13.0 · network proxy`. `network none` means no network, and
 `network none (proxy self-test failed)` means that the proxy is off because its check
 at start failed.
 

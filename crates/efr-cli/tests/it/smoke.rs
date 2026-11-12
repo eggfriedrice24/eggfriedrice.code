@@ -68,8 +68,8 @@ async fn status_reports_the_running_daemon() {
 
     assert!(output.status.success(), "{}", text(&output.stderr));
     let stdout = text(&output.stdout);
-    assert!(stdout.contains(&daemon.daemon_id().to_string()), "{stdout}");
-    assert!(stdout.contains("vt100"), "{stdout}");
+    assert!(stdout.starts_with("efrd "), "{stdout}");
+    assert!(stdout.contains("\naccounts "), "{stdout}");
     daemon.stop().await.unwrap();
 }
 
