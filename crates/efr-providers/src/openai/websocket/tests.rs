@@ -798,6 +798,7 @@ async fn a_second_connection_for_one_conversation_does_not_cut_the_answer_of_the
             opened.await.unwrap();
             connect().await
         },
+        &efr_provider::NoNotices,
         crate::openai::timing::Timing::start(),
         tracing::Span::none(),
     );
@@ -810,6 +811,7 @@ async fn a_second_connection_for_one_conversation_does_not_cut_the_answer_of_the
                 KEY,
                 &body,
                 connect,
+                &efr_provider::NoNotices,
                 crate::openai::timing::Timing::start(),
                 tracing::Span::none(),
             )
@@ -900,6 +902,28 @@ async fn a_call_waits_for_the_handshake_of_its_warm_up_and_opens_no_second_socke
     assert_eq!(first.unwrap().message.text(), "Hello.");
     assert_eq!(setup.server.sockets().len(), 1);
     assert!(setup.server.posts().is_empty());
+}
+
+#[tokio::test]
+async fn a_call_that_waits_for_the_handshake_of_its_warm_up_tells_its_connect() {
+    use efr_provider::CallNotice;
+    let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+
+    let warmup = warmup();
+    let heard = Heard::default();
+    let call = async {
+        // NOTE: the warm-up starts its handshake first.
+        eventually(|| setup.provider.sockets().is_opening(KEY)).await;
+        let stream = setup.provider.stream_with_notices(request("gpt-5.5", "hi"), &heard).await;
+        collect(stream.unwrap()).await
+    };
+    let (warmed, answer) = tokio::join!(setup.provider.warm(&warmup), call);
+
+    assert!(warmed);
+    assert!(answer.last().unwrap().is_ok(), "{answer:?}");
+    assert_eq!(heard.0.into_inner().unwrap(), [CallNotice::Connecting, CallNotice::Connected]);
+    assert_eq!(setup.server.sockets().len(), 1);
 }
 
 #[tokio::test]

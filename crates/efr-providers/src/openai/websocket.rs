@@ -53,7 +53,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use efr_http::WebSocket;
-use efr_provider::{ProviderError, ProviderEvent, ProviderStream};
+use efr_provider::{CallNotice, CallNotices, ProviderError, ProviderEvent, ProviderStream};
 use efr_stdx::time::Clock;
 use futures::stream;
 use jiff::{SignedDuration, Timestamp};
@@ -231,11 +231,14 @@ impl Sockets {
 
     /// Sends `body` on the connection of the conversation `key`, opening it with
     /// `connect` when there is none. `timing` measures the call; `span` is its span.
+    /// `notices` hears of a wait for the handshake of a warm-up as of a connect;
+    /// `connect` tells its own.
     pub(crate) async fn stream<F, Fut>(
         &self,
         key: &str,
         body: &ResponsesBody,
         connect: F,
+        notices: &dyn CallNotices,
         timing: Timing,
         span: tracing::Span,
     ) -> Attempt
@@ -244,9 +247,14 @@ impl Sockets {
         Fut: Future<Output = Result<WebSocket, ConnectError>>,
     {
         efr_stdx::mark::hit("ws.begin");
-        self.wait_opening(key).await;
+        let waited = self.wait_opening(key, notices).await;
         let mut taken = match self.take(key) {
-            Ok(Some(taken)) => taken,
+            Ok(Some(taken)) => {
+                if waited {
+                    notices.notice(CallNotice::Connected);
+                }
+                taken
+            }
             Ok(None) => match self.open(key, connect).await {
                 Ok(taken) => taken,
                 Err(reason) => {
@@ -480,9 +488,10 @@ impl Sockets {
     }
 
     /// Waits for the opening of the connection of `key` by a warm-up that runs now, at
-    /// most [`CONNECT_TIMEOUT`]. A call does not wait for another call's opening: that
-    /// connection serves only the other call.
-    async fn wait_opening(&self, key: &str) {
+    /// most [`CONNECT_TIMEOUT`], and tells `notices` that the call connects. A call does
+    /// not wait for another call's opening: that connection serves only the other
+    /// call. True when it waited.
+    async fn wait_opening(&self, key: &str, notices: &dyn CallNotices) -> bool {
         let waiting = self
             .state()
             .opening
@@ -490,16 +499,25 @@ impl Sockets {
             .filter(|noted| noted.warm)
             .map(|noted| noted.done.clone());
         let Some(mut done) = waiting else {
-            return;
+            return false;
         };
         efr_stdx::mark::hit("ws.wait_opening");
+        // NOTE: the warm-up connects with no notices, so the call tells its own wait.
+        notices.notice(CallNotice::Connecting);
         let _ = self.clock.timeout(CONNECT_TIMEOUT, done.wait_for(|done| *done)).await;
+        true
     }
 
     /// True while `key` has a connection that takes calls.
     #[cfg(test)]
     pub(crate) fn has(&self, key: &str) -> bool {
         self.state().connections.get(key).is_some_and(|connection| !connection.is_closed())
+    }
+
+    /// True while a call or a warm-up opens the connection of `key`.
+    #[cfg(test)]
+    pub(crate) fn is_opening(&self, key: &str) -> bool {
+        self.state().opening.contains_key(key)
     }
 
     /// True while the connection of `key` runs or drains a call.

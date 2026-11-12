@@ -429,7 +429,7 @@ impl Provider for OpenAiProvider {
             let connect = || self.connect(Some(key), notices);
             let attempt = self
                 .sockets
-                .stream(key, &body, connect, timing.clone(), span.clone())
+                .stream(key, &body, connect, notices, timing.clone(), span.clone())
                 .instrument(span.clone())
                 .await;
             match attempt {
