@@ -164,7 +164,9 @@ When the agent asks for approval, a card shows below the reply, after one empty 
 The ` ? ` badge is yellow in reverse video, and the title is bold yellow. The card has
 no frame and no bar: its rows stand four columns in, so a copy of a command holds
 nothing of the card. A label, such as `why` or `programs`, is dim, and its value
-follows after two spaces. The keys are bold yellow.
+follows after two spaces. The `why` row says why the mode asks, such as
+`why  cautious asks before a command that is not on its list of read-only commands`.
+The keys are bold yellow.
 
 `y` allows, and `n` denies. At some questions, `a always…` saves a rule, so the same
 action runs with no question next time. After `a`, the card shows the rule and asks

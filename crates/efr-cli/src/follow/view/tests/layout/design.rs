@@ -24,7 +24,7 @@ use super::super::super::{Look, TurnView};
 use super::super::at;
 use super::{Screen, id, message, shell, started, turn_started};
 use crate::terminal::Size;
-use crate::testing::{design_options, turn};
+use crate::testing::{design_fixed, design_options, turn};
 
 /// The look of the frames: no motion, 20 lines of a diff, 8 in a long turn.
 const LOOK: Look = Look {
@@ -1325,6 +1325,42 @@ fn a_question_that_another_client_answers_ends_the_screen_questions_6() {
             shown.iter().map(efr_test_support::design::CellRow::text).collect::<Vec<_>>()
         );
         assert_eq!(shown[5].text().trim_start(), "waiting for another client to answer");
+    }
+}
+
+/// TM-Questions 6 from real events, for a question whose summary names only the
+/// command: the `why` row says why the mode asks, in the daemon's words (`reason`).
+// NOTE: the command and the words of `why` are this test's: the board draws a question
+// about a host, whose summary names the host itself. The last row ends after `answer`
+// as in the test above.
+#[test]
+fn a_question_about_a_command_says_why_the_mode_asks_questions_6() {
+    let why = "cautious asks before a command that is not on its list of read-only commands";
+    for depth in Depth::ALL {
+        let mut play = Play::new(depth, 100);
+        play.event(5, message(0, "Pushing the branch so CI runs.\n"));
+        play.event(10, shell(1, "sleep 3"));
+        let approval = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: id(1),
+            summary: "shell: run \"sleep 3\"".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+            expires_in_secs: None,
+            local_only: false,
+            reason: Some(format!("{why}.")),
+        };
+        let envelope =
+            EventEnvelope { seq: Seq::new(40), conversation_id: None, at: at(20), event: approval };
+        play.view.envelope(&envelope, play.size, false);
+        play.frame();
+        let screen = play.screen.raw();
+        let frame = Frame::load("Questions", 6).unwrap();
+        let fixes =
+            [(3, "git push -u origin fix/steer-race", "sleep 3"), (4, "network (github.com)", why)];
+        let fixed = design_fixed(&frame, depth, &fixes);
+        check(&fixed, 2..5, &rows(&screen, 2..5), depth, all);
     }
 }
 

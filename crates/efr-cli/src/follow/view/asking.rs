@@ -61,6 +61,19 @@ impl TurnView {
                 card::mark_wake(&mut card);
             }
         }
+        // NOTE: a question with no exit and no `why` row of its summary says why the
+        // mode asks in the daemon's words, after what runs (TM-Questions 6, TM-Live 20:
+        // `why` in a plain approval).
+        if request.exit.is_none()
+            && !card.rows.iter().any(|row| row.value_of(card::WHY).is_some())
+            && let Some(reason) = request.reason.map(format::one_line)
+            && !reason.trim().is_empty()
+        {
+            let at = card.rows.iter().rposition(|row| matches!(row, card::Row::Command(_)));
+            let at = at.map_or(card.rows.len().min(1), |at| at + 1);
+            let reason = reason.trim().trim_end_matches('.').to_owned();
+            card.rows.insert(at, card::Row::labelled(card::WHY, reason));
+        }
         // NOTE: a call that may ask for a password says so, but never one in the sandbox,
         // where efr types no secret, and a privilege exit says it in its why row.
         let privilege = request.exit.is_some_and(|exit| exit.kinds.contains(&ExitKind::Privilege));

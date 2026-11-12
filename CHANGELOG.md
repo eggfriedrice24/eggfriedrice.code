@@ -302,7 +302,9 @@ into the GitHub release notes, and it stops when the section is missing.
   each host on a row of its own, such as `host  index.crates.io:443 · not on the allow
   list`. The card of a write outside the project says `allow this write`, shows the
   file with its counts and its diff first, then `why  write outside the project`. A
-  card is the last thing on the screen: the status row no longer stands under a card
+  question about a command now says why the mode asks on a `why` row, such as
+  `why  cautious asks before a command that is not on its list of read-only
+  commands`, as the phone does. A card is the last thing on the screen: the status row no longer stands under a card
   that another client answers. A long command in a card or a call row is cut after a
   pipe or another operator when that fills half the row, so the next command starts a
   row.

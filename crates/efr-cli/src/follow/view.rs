@@ -1664,6 +1664,7 @@ impl TurnView {
                 interactive,
                 exit,
                 expires_in_secs,
+                reason,
                 ..
             } => {
                 if *interactive {
@@ -1682,6 +1683,7 @@ impl TurnView {
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
                     expires_in_secs: *expires_in_secs,
+                    reason: reason.as_deref(),
                 };
                 self.approval(*call_id, &request, size, can_ask)
             }
@@ -1820,6 +1822,7 @@ impl TurnView {
                 interactive,
                 exit,
                 expires_in_secs,
+                reason,
                 ..
             } => {
                 self.blocking.insert(*call_id);
@@ -1833,6 +1836,7 @@ impl TurnView {
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
                     expires_in_secs: *expires_in_secs,
+                    reason: reason.as_deref(),
                 };
                 self.approval(*call_id, &request, size, can_ask)
             }
@@ -2720,6 +2724,9 @@ struct Request<'a> {
     /// How long the question waits before the call does not run, when it has a fixed
     /// limit, such as a delete that full mode guards.
     expires_in_secs: Option<u32>,
+    /// Why the turn's mode asks, in the daemon's words, for the `why` row of a question
+    /// that has no other.
+    reason: Option<&'a str>,
 }
 
 /// True for an event after which the drafts made before it show nothing new: the end
