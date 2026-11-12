@@ -83,6 +83,27 @@ fn a_change_past_the_last_cell_writes_the_last_cell_again() {
 }
 
 #[test]
+fn a_change_in_the_escapes_after_the_last_cell_is_written_from_the_first_of_them() {
+    // A row with no cell that gets a background: the erase that fills it is an escape
+    // sequence, so the write must start before it.
+    let fill = "\x1b[48;2;20;24;32m\x1b[K\x1b[0m";
+    let old = layout("", 10, CP);
+    let (new, spot) = relayout(fill, &old, 0, 10, CP);
+    assert_eq!((spot.row, spot.col, spot.at), (0, 0, 0));
+    assert_eq!(spot.pen, Pen::default());
+    assert_eq!((new.rows(), new.end), (1, 0));
+    // After a cell that stays, the write starts after the cell, with its colour open.
+    let old = layout("\x1b[32m}\x1b[0m", 10, CP);
+    let line = "\x1b[32m}\x1b[0;48;2;20;24;32m\x1b[K\x1b[0m";
+    let (_, spot) = relayout(line, &old, 8, 10, CP);
+    assert_eq!((spot.row, spot.col), (0, 0), "the last cell is written again");
+    // A line with nothing after its last cell has nothing more to write.
+    let old = layout("abc", 10, CP);
+    let (_, spot) = relayout("abc", &old, 3, 10, CP);
+    assert_eq!((spot.col, spot.at), (2, 2));
+}
+
+#[test]
 fn a_mark_after_an_escape_sequence_that_the_line_loses_is_written_over() {
     // The accent joined `o` across the end of the bold span.
     let old = layout("\x1b[1mbo\x1b[0m\u{301} x", 40, CP);

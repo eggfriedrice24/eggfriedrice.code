@@ -308,6 +308,23 @@ fn a_line_that_wraps_onto_a_new_row_writes_from_its_last_old_cell_to_the_end() {
 }
 
 #[test]
+fn a_blank_row_with_a_background_that_commits_over_a_blank_row_gets_its_fill() {
+    // A blank line of a code block commits where a blank row of the live zone stood.
+    // No cell of the row changes, only the erase that fills it with the background.
+    let fill = "\x1b[48;2;20;24;32m\x1b[K\x1b[0m\n";
+    let mut zone = LiveZone::default();
+    let first = zone.draw("", "\n", "status\n", &Tail::default(), size(40, 20));
+    assert!(first.contains("status"), "{}", readable(&first));
+    let out = zone.draw(fill, "", "status\n", &Tail::default(), size(40, 20));
+    assert!(out.contains(fill), "the fill is written: {}", readable(&out));
+    // The same when the row is the last of the live zone and nothing follows it.
+    let mut zone = LiveZone::default();
+    zone.draw("", "\n", "", &Tail::default(), size(40, 20));
+    let out = zone.draw(fill, "", "", &Tail::default(), size(40, 20));
+    assert!(out.contains(fill.trim_end()), "the fill is written: {}", readable(&out));
+}
+
+#[test]
 fn a_block_that_commits_as_it_stands_writes_nothing() {
     let mut zone = LiveZone::default();
     let mut screen = Screen::new(40, 20, CP);

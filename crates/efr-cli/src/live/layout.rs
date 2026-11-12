@@ -84,7 +84,8 @@ pub(crate) struct Spot {
     /// the end of the row before it: a write from there leaves no old cell in the gap.
     /// The end of a full row when no cell differs.
     pub(crate) col: usize,
-    /// The byte offset to write from.
+    /// The byte offset to write from. When no cell differs, the first escape sequence
+    /// after the last cell, or the end of the line when none stands there.
     pub(crate) at: usize,
     /// What must be open there.
     pub(crate) pen: Pen,
@@ -172,10 +173,11 @@ fn walk(
         col += cell.width;
     }
     if spot.is_none() && find.is_some() {
-        for (start, end) in &escapes[escape..] {
-            pen.apply(&line[*start..*end]);
-        }
-        spot = Some(Spot { row, col, at: line.len(), pen });
+        // NOTE: no cell differs, so the lines differ in the escape sequences after the
+        // last cell. One of them can show: the erase that fills the rest of a row with
+        // a background. So the write starts at the first of them, not after them.
+        let at = escapes.get(escape).map_or(line.len(), |(start, _)| *start);
+        spot = Some(Spot { row, col, at, pen });
     }
     (Layout { starts, end: col }, spot)
 }
