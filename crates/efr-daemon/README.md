@@ -493,7 +493,12 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   start and after the draft channel, so the drafts that follow go on past them. A
   replay has no place for them: a subscription with drafts gets them as its first
   drafts, so a phone that resumes in the middle of a message keeps the reasoning,
-  which the log never has.
+  which the log never has. The turns send each draft at once (the daemon sets
+  `ConversationConfig::draft_interval` to zero), and a subscriber on the Unix socket
+  gets each one as it comes: a terminal keeps its own frame time. A remote subscriber
+  (the phone) has a gate of `conversation.draft_interval_ms`, read when it subscribes:
+  the first draft goes at once, and later drafts wait in the subscription, merged as
+  for a full room, until the interval since the last send is over (`pending::Gate`).
 - `conversations.watch` (`methods/conversations_watch.rs`, scope `read`) is the feed of
   the lists of the phone. It subscribes to the store's commits, reads the rows of the
   recent conversations (as `conversations.recent` without a `tty` and a `pwd`, 20 by
@@ -2083,15 +2088,18 @@ The `drafts` module checks the drafts end to end with a model that streams text:
 a subscriber that asked gets them, each after the events that its `after_seq` names;
 the log is the same with and without them; with the test clock following real time,
 a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
-interval); a subscriber that attaches during a model call gets the turn's `context`
-draft first; and a subscriber on a raw socket that does not read while the model
+interval); with a test clock that never moves, a local subscriber still gets every
+byte as drafts; a subscriber that attaches during a model call gets the turn's
+`context` draft first; and a subscriber on a raw socket that does not read while the model
 streams gets merged drafts that hold every byte of the text once, keeps its
 subscription and gets every event. A client that joins in the middle of a message gets
 its text so far in the snapshot's `live`, and as the first text draft of a resume. The
 unit tests of `methods/conversation_subscribe` check the merge and the rebuild without
 a daemon: any split of a text, with any drafts lost and built again and any pace of the
 room, gives the whole text with no gap and no byte twice, and the drafts after a start
-that showed the live parts go on past them.
+that showed the live parts go on past them. With the gate of a remote subscriber on a
+test clock, the first draft goes at once and the drafts of the next 16 ms go as one;
+without a gate each draft goes at once.
 
 The `recordings` module records what a phone that subscribes with drafts gets during
 a scripted turn, for the replay tests of the phone app (`app/test/recordings/`, whose

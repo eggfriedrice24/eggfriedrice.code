@@ -103,7 +103,8 @@ pub(crate) fn conversation_config(
     config.away_wait = Duration::from_secs(u64::from(settings.presence.away_wait_secs));
     config.max_wakes_per_hour = settings.jobs.max_wakes_per_hour;
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
-    config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
+    // NOTE: the drafts of a turn go at once. `conversation.draft_interval_ms` is the
+    // gate of a remote subscriber, which `conversation.subscribe` applies.
     config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
     // NOTE: a default of another company goes to its provider when one with a login
     // lists it; it fails only without one.

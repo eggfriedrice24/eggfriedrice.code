@@ -2,8 +2,8 @@
 //!
 //! A turn sends a [`ConversationDraft`] on the broadcast channel of
 //! [`ConversationDeps::drafts`](crate::ConversationDeps::drafts) at most once per
-//! [`ConversationConfig::draft_interval`](crate::ConversationConfig::draft_interval).
-//! The daemon forwards it to the subscribers of the conversation that asked for drafts.
+//! [`ConversationConfig::draft_interval`](crate::ConversationConfig::draft_interval),
+//! which is zero by default: each change goes at once. The daemon forwards it to the subscribers of the conversation that asked for drafts.
 //! A draft never goes into the event log, so the log is the same with and without
 //! subscribers. The channel carries `efr-protocol` types only, because this crate
 //! must not know the transport.

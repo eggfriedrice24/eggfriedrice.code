@@ -272,6 +272,26 @@ async fn drafts_reach_a_subscriber_that_asked_and_no_other() {
 }
 
 #[tokio::test]
+async fn a_local_subscriber_gets_the_drafts_with_no_wait_for_the_draft_interval() {
+    // NOTE: the clock of the daemon never moves here, so a draft that waited for the
+    // interval of 16 ms would never come.
+    let model = Streamer::held(words(40));
+    let whole = model.text().len() as u64;
+    let (daemon, client, conversation_id) = prompted(&model, 16).await;
+    let (mut stream, hwm) = subscribe(&client, conversation_id, true).await;
+    model.go.notify_one();
+    let mut seen = Seen::after(hwm);
+    let holds_all =
+        |seen: &Seen| seen.texts.last().is_some_and(|(at, delta)| at + delta.len() as u64 == whole);
+    let read = SystemClock.timeout(Duration::from_secs(10), seen.read(&mut stream, holds_all));
+    assert!(read.await.is_ok(), "every byte came as drafts with the clock at rest");
+    model.end.notify_one();
+    seen.read(&mut stream, |_| false).await;
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn a_subscriber_that_attaches_during_a_model_call_gets_the_context_at_once() {
     let model = Streamer::held(words(4));
     let (daemon, client, conversation_id) = prompted(&model, 0).await;

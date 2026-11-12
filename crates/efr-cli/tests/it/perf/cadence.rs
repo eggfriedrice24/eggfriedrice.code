@@ -33,8 +33,8 @@
 //! The variables of a run, all optional (the bench reads them for research by hand):
 //!
 //! - `EFR_CADENCE_SCENARIOS`: a list with commas of `steady30`, `steady60`,
-//!   `steady120`, `burst`, `reason`, `long`, `flat`, `mixed`, `code` and `end`;
-//!   `steady60,steady120,burst,reason,end` by default.
+//!   `steady120`, `steady250`, `burst`, `reason`, `long`, `flat`, `mixed`, `code` and
+//!   `end`; `steady60,steady120,steady250,burst,reason,end` by default.
 //! - `EFR_CADENCE_RUNS`: the measured runs of each scenario but `end` (3).
 //! - `EFR_CADENCE_UPDATE_MS`, `EFR_CADENCE_DRAFT_MS`: `conversation.update_interval_ms`
 //!   and `conversation.draft_interval_ms` of the daemon.
@@ -86,6 +86,13 @@ const END_RUNS: usize = 12;
 
 /// A text frame whose oldest new token waited longer than this is a stall.
 const STALL: Duration = Duration::from_millis(50);
+
+/// The most text frames a second: one each 16 ms.
+const MAX_FRAMES_A_SECOND: u64 = 63;
+
+/// A token that waits longer than this from its arrival to its frame waited for more
+/// than one frame time and the turn's own work.
+const LATE: Duration = Duration::from_millis(25);
 
 /// The points of the way of a token, in order; `prov` and `pty` are the bench's own.
 const STAGES: [&str; 10] = [
@@ -202,6 +209,7 @@ fn scenario(name: &str, run: usize) -> Option<Vec<PacedDelta>> {
         "steady30" => steady(prefix, 0, 150, 30.0, MODEL_FIRST, 60),
         "steady60" => steady(prefix, 0, 300, 60.0, MODEL_FIRST, 60),
         "steady120" => steady(prefix, 0, 600, 120.0, MODEL_FIRST, 60),
+        "steady250" => steady(prefix, 0, 1250, 250.0, MODEL_FIRST, 60),
         "long" => steady(prefix, 0, 2000, 60.0, MODEL_FIRST, 60),
         "mixed" => mixed(prefix),
         "code" => code(prefix),
@@ -656,6 +664,16 @@ impl Pooled {
         }
     }
 
+    /// The tokens that waited longer than [`LATE`] for their frame.
+    fn late(&self) -> u64 {
+        self.latency.iter().filter(|latency| **latency > LATE).count() as u64
+    }
+
+    /// The text frames a second over the time from the first to the last of each run.
+    fn frame_rate(&self) -> Option<f64> {
+        (self.stream_ns > 0).then(|| self.text_frames as f64 / (self.stream_ns as f64 / 1e9))
+    }
+
     fn report(&self, report: &mut Report, scenario: &str) {
         let label = |what: &str| format!("{scenario}|{what}");
         report.count(&label("runs"), self.runs);
@@ -671,10 +689,10 @@ impl Pooled {
         }
         report.time(&label("arrival -> read of the terminal"), &self.latency_pty);
         report.time(&label("gap between text frames"), &self.frame_gaps);
-        if self.stream_ns > 0 {
-            let rate = self.text_frames as f64 / (self.stream_ns as f64 / 1e9);
+        if let Some(rate) = self.frame_rate() {
             report.count(&label("text frames a second"), rate.round() as u64);
         }
+        report.count(&label("tokens later than 25 ms"), self.late());
         report.count(&label("stalls over 50 ms inside the stream"), self.stalls);
         report.time(&label("longest stall inside the stream"), &[self.longest_stall]);
         for (stage, count) in &self.stall_stages {
@@ -703,6 +721,12 @@ impl Pooled {
         report
             .count(&label("cpu of efrd and the model, clock ticks a run"), median(&self.cpu_self));
         report.count(&label("cpu of efr, clock ticks a run"), median(&self.cpu_efr));
+        // NOTE: a clock tick is 10 ms, so the sum of all runs tells a small change.
+        report.count(
+            &label("cpu of efrd and the model, clock ticks in all runs"),
+            self.cpu_self.iter().sum(),
+        );
+        report.count(&label("cpu of efr, clock ticks in all runs"), self.cpu_efr.iter().sum());
         if self.reasoning > 0 {
             report.count(&label("reasoning: deltas"), self.reasoning);
             report.count(
@@ -722,7 +746,7 @@ impl Pooled {
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_stream_cadence() {
     let names = var("EFR_CADENCE_SCENARIOS")
-        .unwrap_or_else(|| "steady60,steady120,burst,reason,end".to_owned());
+        .unwrap_or_else(|| "steady60,steady120,steady250,burst,reason,end".to_owned());
     let runs = usize::try_from(number("EFR_CADENCE_RUNS").unwrap_or(3)).unwrap();
     let load = var("EFR_CADENCE_LOAD").unwrap_or_else(|| "none".to_owned());
     let update_ms = number("EFR_CADENCE_UPDATE_MS");
@@ -860,9 +884,20 @@ async fn bench_perf_stream_cadence() {
     // The budget, in counts that do not depend on the load of the machine: every run
     // shows its answer, the last token of a turn never waits for the key reader, and
     // the reasoning shows on the terminal. Its phase has a title, so the status row
-    // shows the title and not the words: one delta a run.
+    // shows the title and not the words: one delta a run. However fast the tokens
+    // come, `efr` writes at most one text frame each 16 ms. A steady stream waits at
+    // one gate only, the frame time of `efr`, so at most 2% of its tokens wait longer
+    // than 25 ms (with the gate of efrd too it was 6% at 60 and 16% at 120 tokens a
+    // second; now 0 to 0.1%).
     for (name, pooled) in &pooled {
         assert_eq!(pooled.failed, 0, "{name}: runs that failed");
+        if let Some(rate) = pooled.frame_rate() {
+            assert!(rate <= MAX_FRAMES_A_SECOND as f64, "{name}: {rate:.1} text frames a second");
+        }
+        if name.starts_with("steady") {
+            let late = pooled.late();
+            assert!(late * 50 <= pooled.tokens, "{name}: {late} of {} tokens late", pooled.tokens);
+        }
         if name == "end" {
             assert_eq!(pooled.end_stalls, 0, "end: runs whose last token waited over 50 ms");
         }

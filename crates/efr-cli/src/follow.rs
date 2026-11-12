@@ -27,11 +27,17 @@
 //! unsent, and does nothing while an approval or another answer is asked.
 //!
 //! The view collects what each event changes, and the loop writes it in frames
-//! (`TurnView::frame`): a change shows at once when the last frame is [`FRAME`] old,
-//! else when that time is up, so the screen gets at most 60 frames a second however
-//! fast drafts and events come. A question, an answer, a key and the end of the turn
-//! show at once. While the turn runs, a tick every [`TICK`] moves the status row on,
-//! and a resize of the window (SIGWINCH) draws the live zone again at the new width.
+//! (`TurnView::frame`): a change shows at once when the last frame that showed new text
+//! is [`FRAME`] old, else when that time is up, so the text gets at most 60 frames a
+//! second however fast drafts and events come. The time is a deadline: a frame that a
+//! late timer wrote counts from the time it was due, so the period stays [`FRAME`]. A
+//! frame that shows no new text, such as one for the persisted update of text that
+//! drafts showed, does not move this clock, so the next text does not wait for it. A
+//! question, an answer, a key and the end of the turn show at once. While the turn
+//! runs, a tick every [`TICK`] moves the status row on. A tick that finds no change
+//! does not move the clock of the frames either; a tick that finds a change waits for
+//! that change's frame and goes with it. A resize of the window (SIGWINCH) draws the
+//! live zone again at the new width.
 //! After a stop (Ctrl+Z, then `fg`, SIGCONT) the live zone starts again below the
 //! shell's lines, and the cursor hides again.
 //! Every way out writes a last frame, which shows the cursor again and clears the
@@ -306,7 +312,9 @@ pub(crate) async fn follow(
         quit: None,
         last_frame: None,
         frame: None,
+        frame_due: None,
         tick: None,
+        tick_waits: false,
         paste_until: None,
         stopping: None,
         lingering: None,
@@ -448,12 +456,18 @@ struct Follower<'a> {
     silence: Option<((CallId, u64), Sleep)>,
     /// Waits for `Ctrl+\` while the view offers it, and only then.
     quit: Option<Stop>,
-    /// The time of the last frame.
+    /// The time of the last frame that showed new text: the clock of the frames. A
+    /// tick, or an event that adds no text, such as the persisted update of text that
+    /// drafts showed, does not move it.
     last_frame: Option<Timestamp>,
     /// The time until the next frame, while a change waits for it.
     frame: Option<Sleep>,
+    /// When the frame that waits is due.
+    frame_due: Option<Timestamp>,
     /// The time until the next tick of the status row, while it runs.
     tick: Option<Sleep>,
+    /// A tick came while a change waited for its frame: it goes with that frame.
+    tick_waits: bool,
     /// A question took the keys while a paste into the row went on: until this time,
     /// the rest of the paste still goes into the row.
     paste_until: Option<Timestamp>,
@@ -645,41 +659,75 @@ impl Follower<'_> {
         Ok(())
     }
 
-    /// Writes a frame of `view` now; a tick's frame with `tick`.
+    /// Writes a frame of `view` now; a tick's frame with `tick`, or when a tick waits
+    /// for this frame.
     fn paint(&mut self, out: &mut Output, view: &mut TurnView, tick: bool) -> Result<(), CliError> {
         // The input row shows while its keys come to it, and hides while a question or
         // an answer line takes them.
         view.show_row(matches!(self.keys, Some((_, Asking::Row))));
         let now = self.ctx.clock.now();
         let size = self.ctx.screen.size();
+        let tick = tick || std::mem::take(&mut self.tick_waits);
+        let text = view.text_waits();
         #[cfg(test)]
         let probe = crate::testing::probe::frame_begin();
         let frame = if tick { view.tick(size, now) } else { view.frame(size, now) };
         #[cfg(test)]
         crate::testing::probe::frame_end(probe, &frame, tick);
-        self.last_frame = Some(now);
-        // Text that still waits to show asks for the next frame.
-        self.frame = view.wants_frame().then(|| self.ctx.clock.sleep(FRAME));
+        if text {
+            // NOTE: a frame at or after the time that the waiting frame was due counts
+            // from that time, so a timer that wakes late does not stretch the period.
+            let at = self.frame_due.filter(|due| *due <= now).unwrap_or(now);
+            self.last_frame = Some(at);
+        }
+        self.frame = None;
+        self.frame_due = None;
+        // Text that still waits to show asks for the next frame, never at once, so a
+        // view that stays changed cannot spin.
+        if view.wants_frame() {
+            let later = now.checked_add(FRAME).unwrap_or(now);
+            let due = self.next_frame().filter(|due| *due > now).unwrap_or(later);
+            self.wait_frame(now, due);
+        }
         // NOTE: set before the write, so a panic during it still shows the cursor.
         crate::output::set_restore(&view.restore());
         out.out(&frame)
     }
 
-    /// Writes a frame now when the last one is [`FRAME`] old, else when that time is
-    /// up, if the view has something to show.
+    /// Writes a frame now when the last frame that showed new text is [`FRAME`] old,
+    /// else when that time is up, if the view has something to show.
     fn schedule(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
         if !view.wants_frame() || self.frame.is_some() {
             return Ok(());
         }
         let now = self.ctx.clock.now();
-        let since = self.last_frame.map(|last| since_then(last, now));
-        match since {
-            Some(since) if since < FRAME => {
-                self.frame = Some(self.ctx.clock.sleep(FRAME - since));
-                Ok(())
-            }
-            _ => self.paint(out, view, false),
+        if let Some(due) = self.next_frame().filter(|due| *due > now) {
+            self.wait_frame(now, due);
+            return Ok(());
         }
+        self.paint(out, view, false)
+    }
+
+    /// When the next frame that shows new text may go; `None` before the first.
+    fn next_frame(&self) -> Option<Timestamp> {
+        self.last_frame.map(|last| last.checked_add(FRAME).unwrap_or(last))
+    }
+
+    /// Waits from `now` for the next frame, which is `due` then.
+    fn wait_frame(&mut self, now: Timestamp, due: Timestamp) {
+        self.frame = Some(self.ctx.clock.sleep(since_then(now, due)));
+        self.frame_due = Some(due);
+    }
+
+    /// The tick of the status row is due: it writes a frame now when the view has no
+    /// change; a change waits for its own frame, and the tick goes with it.
+    fn ticked(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        self.tick = None;
+        if !view.wants_frame() {
+            return self.paint(out, view, true);
+        }
+        self.tick_waits = true;
+        self.schedule(out, view)
     }
 
     /// Writes `step` and a frame of `view` at once.
@@ -747,8 +795,7 @@ impl Follower<'_> {
                             self.paint(out, view, false)?;
                         }
                         () = due(&mut self.tick) => {
-                            self.tick = None;
-                            self.paint(out, view, true)?;
+                            self.ticked(out, view)?;
                         }
                         Some(()) = resizes.next() => {
                             self.paint(out, view, false)?;

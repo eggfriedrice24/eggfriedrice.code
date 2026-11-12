@@ -1,18 +1,22 @@
 //! The live side of a subscription with drafts, without a daemon: a channel that left
-//! it behind and a room that is full.
+//! it behind, a room that is full, and the gate of a remote subscriber.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::time::Duration;
 
 use efr_conversation::{ConversationDraft, LiveToolInput, LiveTurn, draft_channel};
 use efr_protocol::{ConversationId, ConversationSubscribeItem, DraftPart, Seq, TurnId};
+use efr_stdx::time::{Clock, SystemClock};
 use efr_store::Committed;
+use efr_test_support::TestClock;
 use efr_transport::{Delivery, LOSSY_QUEUE_FRAMES, SubscriptionReceiver};
+use futures::FutureExt as _;
 use pretty_assertions::assert_eq;
 use tokio::sync::{broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::pending::{Boundary, PendingDrafts};
+use super::pending::{Boundary, Gate, PendingDrafts};
 use super::{DraftFeed, Live, LiveStart, Progress, Rebuild};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -38,6 +42,21 @@ fn start(
     broadcast::Sender<Committed>,
     CancellationToken,
 ) {
+    start_gated(drafts, rebuild, at_start, None, Arc::new(SystemClock))
+}
+
+/// [`start`] with the gate `gate` of a remote subscriber, on `clock`.
+fn start_gated(
+    drafts: broadcast::Receiver<ConversationDraft>,
+    rebuild: Rebuild,
+    at_start: LiveStart,
+    gate: Option<Gate>,
+    clock: Arc<dyn Clock>,
+) -> (
+    SubscriptionReceiver<ConversationSubscribeItem>,
+    broadcast::Sender<Committed>,
+    CancellationToken,
+) {
     let (commits, committed) = broadcast::channel(8);
     let (sender, receiver) = efr_transport::subscription();
     let live = Live {
@@ -52,6 +71,8 @@ fn start(
         boundary: Boundary::default(),
         pending: PendingDrafts::default(),
         rebuild: None,
+        gate,
+        clock,
     };
     let (feed, fed) = oneshot::channel();
     let _ = feed.send(DraftFeed { receiver: drafts, held: Vec::new(), rebuild, live: at_start });
@@ -217,5 +238,57 @@ async fn a_replay_start_gets_the_live_parts_as_its_first_drafts() {
     channel.send(text_draft(0, "Hëllo!")).unwrap();
     let rest = DraftPart::Text { index: 0, offset: 6, delta: "!".to_owned() };
     assert_eq!(next_draft(&mut receiver).await, rest);
+    cancelled.cancel();
+}
+
+#[tokio::test]
+async fn a_subscriber_without_a_gate_gets_each_draft_at_once() {
+    let channel = draft_channel();
+    let drafts = channel.subscribe();
+    let nothing = Rebuild(Box::new(|| (None, Vec::new())));
+    let clock = TestClock::new();
+    let (mut receiver, _commits, cancelled) =
+        start_gated(drafts, nothing, LiveStart::Nothing, None, clock.shared());
+    // NOTE: the clock never moves, and each draft goes before the next one comes.
+    for (offset, delta) in [(0, "one "), (4, "two "), (8, "three")] {
+        channel.send(text_draft(offset, delta)).unwrap();
+        let text = DraftPart::Text { index: 0, offset, delta: delta.to_owned() };
+        assert_eq!(next_draft(&mut receiver).await, text);
+    }
+    cancelled.cancel();
+}
+
+#[tokio::test]
+async fn a_remote_subscriber_gets_the_first_draft_at_once_and_then_one_merge_each_interval() {
+    let channel = draft_channel();
+    let drafts = channel.subscribe();
+    let nothing = Rebuild(Box::new(|| (None, Vec::new())));
+    let clock = TestClock::new();
+    let gate = Gate::new(Duration::from_millis(16));
+    assert!(gate.is_some(), "a gate of 16 ms");
+    assert!(Gate::new(Duration::ZERO).is_none(), "0 sends each draft at once");
+    let (mut receiver, _commits, cancelled) =
+        start_gated(drafts, nothing, LiveStart::Nothing, gate, clock.shared());
+
+    channel.send(text_draft(0, "one ")).unwrap();
+    let first = DraftPart::Text { index: 0, offset: 0, delta: "one ".to_owned() };
+    assert_eq!(next_draft(&mut receiver).await, first, "the first draft goes at once");
+    channel.send(text_draft(4, "two ")).unwrap();
+    channel.send(text_draft(8, "three")).unwrap();
+    // The two drafts wait for the gate: the live side took each one and sleeps until
+    // the gate opens.
+    while !channel.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    clock.wait_for_sleeps(1).await;
+    assert!(receiver.recv().now_or_never().is_none(), "nothing before the interval is up");
+    clock.advance(Duration::from_millis(16));
+    let merged = DraftPart::Text { index: 0, offset: 4, delta: "two three".to_owned() };
+    assert_eq!(next_draft(&mut receiver).await, merged, "one draft for the interval");
+    // After a quiet interval the next draft goes at once again.
+    clock.advance(Duration::from_millis(16));
+    channel.send(text_draft(13, "!")).unwrap();
+    let last = DraftPart::Text { index: 0, offset: 13, delta: "!".to_owned() };
+    assert_eq!(next_draft(&mut receiver).await, last);
     cancelled.cancel();
 }

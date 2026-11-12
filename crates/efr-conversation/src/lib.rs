@@ -30,7 +30,8 @@
 //!   tool caches ([`CacheDeleteOutcome`]).
 //! - Drafts ([`ConversationDraft`], [`draft_channel`]): the text, the reasoning and the
 //!   tool input of a running turn as they arrive from the model, sent at most once per
-//!   [`ConversationConfig::draft_interval`] to the daemon for live clients, never stored;
+//!   [`ConversationConfig::draft_interval`] (zero: each change) to the daemon for live
+//!   clients, never stored;
 //!   and what the current model call streamed so far ([`LiveTurn`]).
 //! - [`ScopeResolver`] ([`GitScopeResolver`]): the scope of each turn, derived again
 //!   from the shell's working directory through `efr-scope`.

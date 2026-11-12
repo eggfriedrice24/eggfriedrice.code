@@ -451,9 +451,11 @@ pub struct ConversationSettings {
     /// The shortest time between two streamed text updates in the log, in
     /// milliseconds. Live clients see the text sooner, through drafts.
     pub update_interval_ms: u64,
-    /// The shortest time between two drafts of a running turn, in milliseconds: the
-    /// text, the reasoning and the tool input that a terminal shows as they arrive.
-    /// Drafts go only to live clients and never into the log; 0 sends every change.
+    /// The shortest time between two drafts of a running turn to a remote client such
+    /// as the phone, in milliseconds: the text, the reasoning and the tool input as they
+    /// arrive. A terminal on this machine gets each draft at once and draws at most 60
+    /// frames a second itself. Drafts go only to live clients and never into the log;
+    /// 0 sends every change.
     pub draft_interval_ms: u64,
     /// Hours without activity after which a terminal's next `,` line in a scope starts
     /// a new conversation instead of continuing the terminal's conversation of that

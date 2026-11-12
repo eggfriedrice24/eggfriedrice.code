@@ -449,7 +449,7 @@
         },
         "draft_interval_ms": {
           "default": 16,
-          "description": "The shortest time between two drafts of a running turn, in milliseconds: the\ntext, the reasoning and the tool input that a terminal shows as they arrive.\nDrafts go only to live clients and never into the log; 0 sends every change.",
+          "description": "The shortest time between two drafts of a running turn to a remote client such\nas the phone, in milliseconds: the text, the reasoning and the tool input as they\narrive. A terminal on this machine gets each draft at once and draws at most 60\nframes a second itself. Drafts go only to live clients and never into the log;\n0 sends every change.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"

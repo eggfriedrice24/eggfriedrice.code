@@ -457,7 +457,9 @@ interval ends), each with only the text added since the previous one and its byt
 offset, then `assistant_message_completed` with the whole text. While text, reasoning and
 tool input arrive, the turn also sends drafts (`ConversationDraft`, through
 `ConversationDeps::drafts`, a broadcast that the daemon holds): at most one batch per
-`ConversationConfig::draft_interval` (16 ms by default, the first at once), each with
+`ConversationConfig::draft_interval` (0 by default, so each change goes at once; with
+an interval the first goes at once; the daemon keeps 0 and holds back the drafts of a
+remote subscriber itself), each with
 the sequence number of the last event the turn recorded before it. A text draft
 carries the same `index` and byte offsets as the updates; a reasoning draft carries
 the new reasoning at its offset in the reasoning of the whole turn, with the title of

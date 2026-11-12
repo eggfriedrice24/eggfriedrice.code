@@ -37,6 +37,13 @@
 //! (`ConversationHandle::live_turn`). So a slow subscriber gets fewer, larger drafts,
 //! and every byte of the text and the reasoning of the running message.
 //!
+//! A subscriber on the local socket gets each draft as soon as the live side takes it:
+//! the turn holds no draft back, so a terminal shows each token at once. A remote
+//! subscriber, such as the phone, gets the held drafts at most once each
+//! `conversation.draft_interval_ms` (the first at once), read when the subscription
+//! starts: its drafts wait in the live side between two sends, merged as for a full
+//! room ([`pending::Gate`]).
+//!
 //! A snapshot carries the live parts of the running turn (`live`): the text of the
 //! message that streams and the reasoning of the turn so far, which the log does not
 //! have yet. The handler reads them after the start, and after the draft channel when
@@ -48,12 +55,14 @@
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use efr_conversation::{ConversationDraft, LiveTurn};
 use efr_protocol::{
     ConversationId, ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft,
     Event, EventEnvelope, ScopeName, Seq,
 };
+use efr_stdx::time::Clock;
 use efr_store::Committed;
 use efr_transport::{
     ConnectionContext, LossyOffer, Offer, Responder, SubscriptionSender, TransportError,
@@ -64,7 +73,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use self::pending::{Boundary, PendingDrafts};
+use self::pending::{Boundary, Gate, PendingDrafts};
 use crate::DaemonError;
 use crate::methods::{cursor, granted, peer_side};
 use crate::state::State;
@@ -121,6 +130,12 @@ pub(crate) async fn handle(
     let (sender, mut receiver) = efr_transport::subscription();
     let progress = Arc::new(Progress { last: attached.reached(), lagged: AtomicBool::new(false) });
     let (feed, drafts) = oneshot::channel();
+    // NOTE: only a remote subscriber waits for the draft interval; a terminal on the
+    // local socket shows each draft at once and draws its frames on its own clock.
+    let gate = context.remote().and_then(|_| {
+        let interval = state.settings.borrow().conversation.draft_interval_ms;
+        Gate::new(Duration::from_millis(interval))
+    });
     let live = Live {
         committed,
         sender,
@@ -130,6 +145,8 @@ pub(crate) async fn handle(
         boundary: Boundary::default(),
         pending: PendingDrafts::default(),
         rebuild: None,
+        gate,
+        clock: Arc::clone(&state.clock),
     };
     let _producer = AbortOnDrop(tokio::spawn(live.produce(drafts, cancelled)));
     let after = params.after_seq;
@@ -315,6 +332,10 @@ struct Live {
     pending: PendingDrafts,
     /// Reads the live parts of the running turn, once the draft channel came.
     rebuild: Option<Rebuild>,
+    /// When the held drafts may go, for a remote subscriber; `None` sends them at once.
+    gate: Option<Gate>,
+    /// The time of the gate.
+    clock: Arc<dyn Clock>,
 }
 
 /// What the live side does next.
@@ -335,6 +356,9 @@ impl Live {
     ) {
         let mut feed_open = true;
         loop {
+            // NOTE: a held draft goes at the next free place in the room, or, while the
+            // gate of a remote subscriber is closed, when it opens.
+            let wait = self.gate_wait();
             // NOTE: biased, so a commit that waits goes before a draft that waits.
             let step = tokio::select! {
                 biased;
@@ -358,7 +382,10 @@ impl Live {
                     continue;
                 }
                 draft = next_draft(self.drafts.as_mut()) => Step::Draft(draft),
-                () = self.sender.lossy_room(), if !self.pending.is_empty() => Step::Room,
+                () = self.sender.lossy_room(), if !self.pending.is_empty() && wait.is_none() => {
+                    Step::Room
+                }
+                () = sleep_or_pending(&*self.clock, wait) => Step::Room,
             };
             let open = match step {
                 Step::Batch(batch) => self.forward(batch),
@@ -492,14 +519,27 @@ impl Live {
         }
     }
 
-    /// Offers the held drafts, oldest first, while the lossy room has a place; false
-    /// when the subscription ended.
+    /// How long the held drafts still wait for the gate; `None` when none is held or
+    /// they may go now.
+    fn gate_wait(&self) -> Option<Duration> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        self.gate.as_ref().and_then(|gate| gate.wait(self.clock.now()))
+    }
+
+    /// Offers the held drafts, oldest first, while the lossy room has a place and the
+    /// gate is open; false when the subscription ended.
     fn flush(&mut self) -> bool {
+        if self.pending.is_empty() || self.gate_wait().is_some() {
+            return true;
+        }
+        let mut sent = false;
         // NOTE: only this side offers lossy items, so a place that the check finds
         // stays free for the offer.
         while self.sender.lossy_room().now_or_never().is_some() {
             let Some(draft) = self.pending.pop() else {
-                return true;
+                break;
             };
             if self.boundary.ended(&draft) {
                 continue;
@@ -510,11 +550,23 @@ impl Live {
                 draft: draft.part,
             });
             match self.sender.offer_lossy(item) {
-                LossyOffer::Queued | LossyOffer::Dropped => {}
+                LossyOffer::Queued | LossyOffer::Dropped => sent = true,
                 LossyOffer::Closed => return false,
             }
         }
+        if sent && let Some(gate) = &mut self.gate {
+            gate.sent(self.clock.now());
+        }
         true
+    }
+}
+
+/// Sleeps for `after` on `clock`, or forever when there is nothing to wait for, so a
+/// `select!` branch can be switched off without a guard.
+async fn sleep_or_pending(clock: &dyn Clock, after: Option<Duration>) {
+    match after {
+        Some(after) => clock.sleep(after).await,
+        None => std::future::pending().await,
     }
 }
 

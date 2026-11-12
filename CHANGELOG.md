@@ -78,6 +78,11 @@ into the GitHub release notes, and it stops when the section is missing.
   status row writes only that row. Before, each frame erased the whole live zone and
   wrote it again, in two writes. A long paragraph now sends the terminal about a tenth
   of the bytes.
+- Each word of an answer shows sooner and at a steadier pace. Before, a word waited
+  at two clocks of 16 ms, one in efrd and one in `efr`, and the tick of the spinner
+  could hold the next words for one more frame. Now efrd sends each word to a terminal
+  on this machine at once, and `efr` alone keeps the screen at 60 frames a second.
+  `conversation.draft_interval_ms` now sets only the pace of the drafts to the phone.
 
 ### Fixed
 

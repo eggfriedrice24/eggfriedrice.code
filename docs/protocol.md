@@ -953,3 +953,7 @@ No protocol version has shipped yet.
   `invalid` with the providers that list the model as choices; `settings.provider`
   of the result names the id. A prompt that names no model takes the provider of the
   conversation's pick with its model. The fixtures with turn settings name `provider`.
+- Version 1, behaviour: efrd sends each draft at once to a subscriber on the Unix
+  socket. Only a remote subscriber, such as the phone, gets at most one draft of each
+  part per `conversation.draft_interval_ms`, the first one at once. No wire type
+  changed.

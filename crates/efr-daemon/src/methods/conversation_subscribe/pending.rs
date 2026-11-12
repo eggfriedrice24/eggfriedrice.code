@@ -13,12 +13,47 @@
 //! builds again from the turn's live parts after it lost some ([`rebuild`]) and the
 //! drafts of the channel that come after them never show a byte twice.
 //!
+//! A remote subscriber, such as the phone, also has a [`Gate`]: the held drafts go at
+//! most once each `conversation.draft_interval_ms`, so the drafts of the time between
+//! merge here. A subscriber on the local socket has no gate and gets each draft at once.
+//!
 //! [`rebuild`]: PendingDrafts::rebuild
 
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use efr_conversation::{ConversationDraft, LiveTurn};
 use efr_protocol::{DraftPart, Event, Seq, TurnId};
+use jiff::Timestamp;
+
+/// When the held drafts of a remote subscriber may go: at most once each interval,
+/// and the first at once.
+#[derive(Debug, Clone)]
+pub(super) struct Gate {
+    interval: Duration,
+    /// When the last drafts went; `None` before the first.
+    last: Option<Timestamp>,
+}
+
+impl Gate {
+    /// A gate of `interval`; `None` for zero, which sends each draft at once.
+    pub(super) fn new(interval: Duration) -> Option<Gate> {
+        (!interval.is_zero()).then_some(Gate { interval, last: None })
+    }
+
+    /// How long until the held drafts may go at `now`; `None` when they may go now.
+    pub(super) fn wait(&self, now: Timestamp) -> Option<Duration> {
+        let last = self.last?;
+        // A clock that went back counts as no time passed.
+        let since = Duration::try_from(now.duration_since(last)).unwrap_or_default();
+        self.interval.checked_sub(since).filter(|wait| !wait.is_zero())
+    }
+
+    /// Drafts went at `now`.
+    pub(super) fn sent(&mut self, now: Timestamp) {
+        self.last = Some(now);
+    }
+}
 
 /// How far the events that the subscriber has ended the drafts of the turn.
 #[derive(Debug, Clone, Copy, Default)]

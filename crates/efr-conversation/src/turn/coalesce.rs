@@ -4,9 +4,9 @@
 //! one, with its byte offset; a `tool_call_output_updated` event carries the output's
 //! bounded tail. One event per token would still fill the log with rows, so the turn
 //! sends at most one per `update_interval`. The drafts of a turn use the same rule with
-//! `draft_interval`. The first change is sent at once; later changes inside the
-//! interval are held, and the newest state is sent when the interval ends, measured on
-//! the injected clock.
+//! `draft_interval`, which is zero in the daemon. The first change is sent at once;
+//! later changes inside the interval are held, and the newest state is sent when the
+//! interval ends, measured on the injected clock.
 
 use std::time::Duration;
 

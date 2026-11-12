@@ -141,8 +141,13 @@ Replies:
   commits. Since the clip by rows, each long paragraph line can fill the screen, not
   only a tall list or table.
 - Events change the view; they write nothing themselves. The follow loop writes frames:
-  a change shows at once when the last frame is 16 ms old, else when the 16 ms are up,
-  so the screen gets at most 60 frames a second. A question, an answer, a key, the end
+  a change shows at once when the last frame that showed new text is 16 ms old, else
+  when the 16 ms are up, so the text gets at most 60 frames a second. A frame that a
+  late timer wrote counts from the time it was due, so the period stays 16 ms. A
+  frame with no new text (an event such as the persisted update of text that drafts
+  showed, or the tick of the status row every 100 ms) does not move this clock, so
+  the next text does not wait for it; when a change waits, the tick waits too and goes
+  with that frame. A question, an answer, a key, the end
   of the turn and an error show at once. At the end of a turn the last frame goes out
   first, and then the key thread stops. The thread waits in `poll` on the terminal and
   on a wake pipe (`keys.rs`), and a read never waits (`VMIN` 0, `VTIME` 0), so a stop
@@ -160,7 +165,8 @@ Replies:
   and a reply without code pays nothing on its frames. Nothing waits for the thread:
   the process can end while it runs. Without colour it loads nothing.
 - The subscription asks for drafts (`drafts: true`): the text, the reasoning and the
-  tool input of the running turn before the daemon records them, about every 16 ms.
+  tool input of the running turn before the daemon records them, each as it comes
+  (efrd holds back only the drafts of a remote client such as the phone).
   Draft text merges with the persisted updates of its message by byte offset: a
   persisted update that repeats text that drafts showed changes nothing, a draft that
   starts past the text held (an earlier one was dropped) waits for the next persisted
@@ -1169,7 +1175,8 @@ provider; no key shows in what efr prints. The `binary` tests run the built
 `efr` with a key on stdin and in `ANTHROPIC_API_KEY`. The frame tests drive the view and the follow loop with
 `efr-test-support`'s `TestClock`: snapshots of the frames and the status row at its
 ticks, a burst of 50 events inside one frame time that gives one frame, a question
-and the end that never wait, a tick that writes only the status row, a resize that
+and the end that never wait, a tick that writes only the status row, text right after
+a tick that shows at once, a tick while text waits that goes with its frame, a resize that
 SIGWINCH stands for, a new live zone after SIGCONT, the cursor and the progress bar on
 every way out, the allowlist
 of the progress bar, drafts that merge with persisted updates without a line twice

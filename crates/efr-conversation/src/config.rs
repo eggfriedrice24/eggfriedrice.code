@@ -73,7 +73,9 @@ pub struct ConversationConfig {
     pub update_interval: Duration,
     /// The shortest time between two drafts of a turn ([`ConversationDraft`]): the text,
     /// the reasoning and the tool input as they arrive from the model, for live clients
-    /// only. Zero sends a draft for every change. Read when the turn starts.
+    /// only. Zero, the default, sends a draft for every change: the daemon keeps it so,
+    /// and holds back the drafts of a remote subscriber itself. Read when the turn
+    /// starts.
     pub draft_interval: Duration,
     /// How long a parked approval waits before it expires; `None` waits until the user
     /// answers or interrupts.
@@ -167,7 +169,7 @@ impl ConversationConfig {
             history: HistoryLimits::default(),
             compaction: CompactionConfig::default(),
             update_interval: Duration::from_millis(200),
-            draft_interval: Duration::from_millis(16),
+            draft_interval: Duration::ZERO,
             approval_timeout: None,
             classifier_enabled: true,
             away_wait: Duration::from_secs(300),

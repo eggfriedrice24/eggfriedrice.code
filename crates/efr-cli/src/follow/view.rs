@@ -1152,6 +1152,12 @@ impl TurnView {
         self.dirty || self.message.as_ref().is_some_and(Message::waiting)
     }
 
+    /// True while text of the answer that arrived waits to show: the next frame shows
+    /// new text.
+    pub(crate) fn text_waits(&self) -> bool {
+        self.message.as_ref().is_some_and(Message::waiting)
+    }
+
     /// True while the status row runs and needs a tick.
     pub(crate) fn ticks(&self) -> bool {
         self.status.is_some() && !self.ended

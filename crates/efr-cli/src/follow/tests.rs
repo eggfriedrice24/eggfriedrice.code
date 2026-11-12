@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, CallId, ClientFrame, ConversationHistoryResult,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, Draft, DraftPart, ErrorBody, ErrorCode, Event, InputRespond,
-    InputRespondResult, InputWait, Method, Origin, QuestionId, RequestId,
+    InputRespondResult, InputWait, Method, Origin, Presence, PresenceSource, QuestionId, RequestId,
     SandboxSurfaceRespondResult, Seq, SurfaceChange, TurnId, TurnInterruptResult,
 };
 use efr_render::RenderOptions;
@@ -1588,8 +1589,8 @@ fn a_question_that_drops_the_queue_keeps_the_keys_from_before_the_mark_for_the_r
 #[test]
 fn the_time_since_a_moment_is_never_negative() {
     let later = now() + jiff::SignedDuration::from_millis(250);
-    assert_eq!(since_then(now(), later), std::time::Duration::from_millis(250));
-    assert_eq!(since_then(later, now()), std::time::Duration::ZERO);
+    assert_eq!(since_then(now(), later), Duration::from_millis(250));
+    assert_eq!(since_then(later, now()), Duration::ZERO);
 }
 
 /// A terminal view with every switch on, whose status row runs, as `efr send` makes it.
@@ -1645,11 +1646,14 @@ async fn a_burst_of_events_inside_one_frame_time_gives_one_frame() {
             live: None,
         };
         conn.item(sub, &ConversationSubscribeItem::Snapshot(snapshot)).await;
-        // The burst waits for the frame time.
-        timing.wait_for_sleeps(2).await;
-        assert_eq!(frames(&seen.stdout()), before, "nothing before the frame time is up");
-        timing.advance(super::FRAME);
+        // No text showed before, so the first event shows at once; the rest of the
+        // burst waits for the frame time.
         shows_on(&seen, Stream::Stdout, |text| frames(text) == before + 1).await;
+        timing.wait_for_sleeps(2).await;
+        assert_eq!(frames(&seen.stdout()), before + 1, "nothing before the frame time is up");
+        assert!(!seen.stdout().contains("xx"), "{}", readable(&seen.stdout()));
+        timing.advance(super::FRAME);
+        shows_on(&seen, Stream::Stdout, |text| frames(text) == before + 2).await;
         assert!(seen.stdout().contains(&"x".repeat(50)));
         conn.item(sub, &item(61, turn_completed())).await;
         conn.until_closed().await;
@@ -1721,6 +1725,92 @@ async fn a_tick_moves_the_spinner_and_writes_only_the_status_row() {
         assert!(!tick.contains("\x1b[J"), "{}", readable(&tick));
         assert!(tick.ends_with(progress::RUNNING), "the bar goes again: {}", readable(&tick));
         conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn text_right_after_a_tick_shows_at_once() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        let before = seen.stdout().len();
+        timing.advance(super::TICK);
+        shows_on(&seen, Stream::Stdout, |text| text.len() > before).await;
+        // The tick moved only the status row, so the text does not wait for the frame
+        // time after it. The clock does not move again.
+        conn.item(sub, &item(11, updated("Right after the tick."))).await;
+        shows(&seen, "Right after the tick.").await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn a_frame_with_no_new_text_does_not_hold_the_next_text() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        timing.advance(super::FRAME);
+        conn.item(sub, &item(11, updated("Shown once."))).await;
+        shows(&seen, "Shown once.").await;
+        timing.advance(super::FRAME);
+        // The status row says away: its frame shows no new text.
+        let before = frames(&seen.stdout());
+        let away = Event::PresenceChanged {
+            conversation_id: conversation(),
+            presence: Presence::Away,
+            source: PresenceSource::Timeout,
+        };
+        conn.item(sub, &item(12, away)).await;
+        shows_on(&seen, Stream::Stdout, |text| frames(text) > before).await;
+        // So the next text does not wait for the frame time after it.
+        conn.item(sub, &item(13, updated("Shown once. Then more."))).await;
+        shows(&seen, "Then more.").await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn a_tick_while_text_waits_goes_with_the_frame_of_the_text() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        let early = super::TICK - Duration::from_millis(5);
+        timing.advance(early);
+        conn.item(sub, &item(11, updated("First part."))).await;
+        shows(&seen, "First part.").await;
+        // The second part waits for the frame time, past the tick.
+        conn.item(sub, &item(12, updated("First part. Second part."))).await;
+        timing.wait_for_sleeps(2).await;
+        let before = frames(&seen.stdout());
+        timing.advance(Duration::from_millis(5));
+        // The tick is due now, but the text waits: so does the tick.
+        timing.wait_for_sleeps(2).await;
+        assert_eq!(frames(&seen.stdout()), before, "no frame at the tick: {}", seen.stdout());
+        let length = seen.stdout().len();
+        timing.advance(super::FRAME - Duration::from_millis(5));
+        shows(&seen, "Second part.").await;
+        let frame = seen.stdout()[length..].to_owned();
+        assert_eq!(frames(&frame), 1, "one frame: {}", readable(&frame));
+        assert!(frame.ends_with(progress::RUNNING), "the tick's bar: {}", readable(&frame));
+        conn.item(sub, &item(13, turn_completed())).await;
         conn.until_closed().await;
     })
     .await;

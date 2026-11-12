@@ -1,5 +1,5 @@
 //! The drafts of one turn: what the model sent since the last draft, at most once per
-//! draft interval.
+//! draft interval (zero in the daemon, so each change goes at once).
 //!
 //! The drafter sees every provider event before the turn records anything. It keeps
 //! the parts themselves in the conversation's [`LiveStatus`]: the text of the current

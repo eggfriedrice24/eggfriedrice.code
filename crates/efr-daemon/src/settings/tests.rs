@@ -41,7 +41,7 @@ fn the_conversation_settings_follow_the_config() {
     assert_eq!(settings.max_queued, 3);
     assert_eq!(settings.approval_timeout, Some(Duration::from_secs(90)));
     assert_eq!(settings.update_interval, Duration::from_millis(50));
-    assert_eq!(settings.draft_interval, Duration::from_millis(8));
+    assert_eq!(settings.draft_interval, Duration::ZERO, "the key gates remote subscribers");
     assert_eq!(settings.recent_commands, 3);
     assert_eq!(settings.host, host);
     assert_eq!(settings.mode, Mode::Auto);
