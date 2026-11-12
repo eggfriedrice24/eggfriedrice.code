@@ -7,8 +7,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(900, message(0, \"I will
 I will look for the \e[1mlibghostty\e[0m build
 first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | \e[0m\e[2m\\e[0m
+      \e[2mgrep ghostty\e[0m  \e[2m0.3s\e[0m
 
 It is there. Now I copy it out of the
 sandbox.
@@ -23,8 +23,8 @@ sandbox.
 I will look for the \e[1mlibghostty\e[0m build
 first.
 
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+\e[32m✓\e[0m \e[2m$\e[0m \e[2mls target/debug/build | \e[0m\e[2m\\e[0m
+      \e[2mgrep ghostty\e[0m  \e[2m0.3s\e[0m
 
 It is there. Now I copy it out of the
 sandbox.
@@ -45,8 +45,8 @@ Done: \e[32m~/lib/libghostty.so\e[0m is in place.
 I will look for the \e[1mlibghostty\e[0m build
 first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+✓ \e[2m$\e[0m \e[2mls target/debug/build | \e[0m\e[2m\\e[0m
+      \e[2mgrep ghostty\e[0m  \e[2m0.3s\e[0m
 
 It is there. Now I copy it out of the
 sandbox.
@@ -61,8 +61,8 @@ sandbox.
 I will look for the \e[1mlibghostty\e[0m build
 first.
 
-✓ \e[2m$\e[0m \e[2mls target/debug/build | grep \e[0m\e[2m\\e[0m
-      \e[2mghostty\e[0m  \e[2m0.3s\e[0m
+✓ \e[2m$\e[0m \e[2mls target/debug/build | \e[0m\e[2m\\e[0m
+      \e[2mgrep ghostty\e[0m  \e[2m0.3s\e[0m
 
 It is there. Now I copy it out of the
 sandbox.

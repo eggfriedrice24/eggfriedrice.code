@@ -662,3 +662,28 @@ fn push_filled(out: &mut String, body: &str, fill: Option<&str>) {
 
 #[cfg(test)]
 mod tests;
+
+/// `diff` with the whole paths of its `---` and `+++` lines as the user knows them
+/// ([`super::call::short_path`]): `~/.config/hypr/hyprland.conf` for the preview of a
+/// file tool, which names the whole path (TM-Questions 2).
+pub(crate) fn short_paths(
+    diff: &str,
+    cwd: Option<&std::path::Path>,
+    home: Option<&std::path::Path>,
+) -> String {
+    let mut out = String::with_capacity(diff.len());
+    for line in diff.split_inclusive('\n') {
+        let header = ["--- ", "+++ "].into_iter().find(|mark| line.starts_with(mark));
+        match header {
+            Some(mark) => {
+                let rest = &line[mark.len()..];
+                let path = rest.trim_end_matches(['\n', '\r']);
+                out.push_str(mark);
+                out.push_str(&super::call::short_path(path, cwd, home));
+                out.push_str(&rest[path.len()..]);
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}

@@ -390,7 +390,9 @@ Replies:
 - Each line of a command of several lines shows on its own row, under the first, so
   two commands never look like one with more arguments. A line wider than the screen
   goes on in the next row, and nothing of what runs is cut. A row is cut after the
-  last space that fits when the row is then at least half full: a muted `\` ends it,
+  last pipe or other operator (`|`, `||`, `|&`, `&&`, `;`) that fits when the row is
+  then at least half full, so the next command starts a row (TM-Questions 11), else
+  after the last space that fits when the row is then at least half full: a muted `\` ends it,
   and the rows after it start 4 columns after the column of the name (column 6), so
   the indent stands for that space. Otherwise (no space fits, or the cut would leave a
   short word such as `cp` alone in the row) the row is cut inside a word: a muted `↩`
@@ -484,7 +486,16 @@ Replies:
   wider than the screen goes on in the next row, two more columns in. The title of an
   approval says what a "yes" allows: `allow this command`, `allow this write`, `allow
   this read`, or for an exit `allow outside the sandbox`, `allow ~/notes writable for
-  this call` and the like. An approval of the turn that the followed one waits behind
+  this call` and the like. An exit that asks for network alone for this call is `allow
+  network`, with one muted `host` row for each host, such as `host  index.crates.io:443
+  · not on the allow list` (TM-Questions 3); its answer line names the hosts as
+  `network (index.crates.io)`. The exit of a file tool has the title of its tool
+  (`allow this write`), and in a project its `why` row says `write outside the project`
+  after the diff (TM-Questions 2). The diff of a file tool's question takes the place
+  of the row that names its file, right under the title, with the paths of its headers
+  from the turn's directory or with `~`. While a card shows, the status row and the
+  input row hide, so the card is the last thing on the screen, also when another client
+  answers it. An approval of the turn that the followed one waits behind
   starts `the running turn asks:`. A diff stands at the card's indent: a row with the
   file of its headers and its counts (`hyprland.conf  +1 -1`, the counts in the
   `success` and the `error` role), the short hunk header (`@@ 41 input`, in the

@@ -180,11 +180,16 @@ fn mark_width(method: WidthMethod) -> usize {
         .unwrap_or(1)
 }
 
+/// The operators of a shell line after which a cut starts the next command on a row of
+/// its own.
+const OPERATORS: &[&str] = &["|", "||", "|&", "&&", ";"];
+
 /// The rows of `line`, one line of a command that is safe to print, as a terminal that
 /// counts widths by `method` shows them. A row has `room` columns, less `indent` from
 /// the first cut at a space on, because the rows from there are indented. A row is cut
-/// after the last space that fits when that fills at least half of the row; else it is
-/// cut inside a word, and the next row goes on at the same column. Its text and its
+/// after the last pipe or other operator that fits when that fills at least half of the
+/// row, else after the last space that fits when that does; else it is cut inside a
+/// word, and the next row goes on at the same column. Its text and its
 /// mark fit the row. Nothing of the line is left out.
 pub(crate) fn wrap_command(
     line: &str,
@@ -204,8 +209,10 @@ pub(crate) fn wrap_command(
         }
         let budget = here.saturating_sub(mark);
         // `after_space` holds the end of the last space after a word, and the width up
-        // to it.
+        // to it; `after_operator` the same for the last space after a shell operator.
         let (mut end, mut used, mut after_space, mut word) = (0, 0, None, false);
+        let mut after_operator = None;
+        let mut previous = "";
         for piece in pieces(left, method) {
             let width = text_width(piece, method);
             // One piece at least, so every row takes something.
@@ -220,15 +227,23 @@ pub(crate) fn wrap_command(
                 if word {
                     after_space = Some((end, used));
                 }
+                if OPERATORS.contains(&previous) {
+                    after_operator = Some((end, used));
+                }
             } else {
                 word = true;
             }
+            previous = piece;
         }
         // NOTE: a cut at a space early in the row would leave a short first word alone,
         // such as `cp \`, with the rest of the row empty: a space cuts only a row that
-        // is at least half full, or one that the word after it cannot reach.
-        let (cut, kind) = match after_space {
-            Some((at, width)) if at == end || width * 2 >= here => (at, RowEnd::Space),
+        // is at least half full, or one that the word after it cannot reach. A cut after
+        // a pipe or another operator that fills half the row comes first, so the next
+        // command starts a row (TM-Questions 11: `-type f | \`, then `awk ...`).
+        let half = |width: usize| width * 2 >= here;
+        let (cut, kind) = match (after_operator, after_space) {
+            (Some((at, width)), _) if half(width) => (at, RowEnd::Space),
+            (_, Some((at, width))) if at == end || half(width) => (at, RowEnd::Space),
             _ => (end, RowEnd::Word),
         };
         if cut >= left.len() {

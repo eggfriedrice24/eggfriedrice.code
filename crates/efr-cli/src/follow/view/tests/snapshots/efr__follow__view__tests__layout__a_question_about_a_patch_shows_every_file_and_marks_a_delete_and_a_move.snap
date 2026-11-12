@@ -5,9 +5,6 @@ expression: shown
 === 40 columns, colour
 [asked]
 \e[1;7;33m ? \e[0m \e[1;33mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs,
-      notes.md; delete old.rs; move
-      src/expr.rs
     src/main.rs  \e[32m+22\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       fn main() {
@@ -59,9 +56,6 @@ expression: shown
 
 [end]
 \e[1;7;33m ? \e[0m \e[1;33mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs,
-      notes.md; delete old.rs; move
-      src/expr.rs
     src/main.rs  \e[32m+22\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       fn main() {
@@ -156,9 +150,6 @@ expression: shown
 === 40 columns, NO_COLOR
 [asked]
 \e[1m ? \e[0m \e[1mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs,
-      notes.md; delete old.rs; move
-      src/expr.rs
     src/main.rs  +22 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
@@ -210,9 +201,6 @@ expression: shown
 
 [end]
 \e[1m ? \e[0m \e[1mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs,
-      notes.md; delete old.rs; move
-      src/expr.rs
     src/main.rs  +22 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
@@ -307,7 +295,6 @@ expression: shown
 === 80 columns, colour
 [asked]
 \e[1;7;33m ? \e[0m \e[1;33mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  \e[32m+22\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       fn main() {
@@ -356,7 +343,6 @@ expression: shown
 
 [end]
 \e[1;7;33m ? \e[0m \e[1;33mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  \e[32m+22\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       fn main() {
@@ -445,7 +431,6 @@ expression: shown
 === 80 columns, NO_COLOR
 [asked]
 \e[1m ? \e[0m \e[1mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  +22 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
@@ -494,7 +479,6 @@ expression: shown
 
 [end]
 \e[1m ? \e[0m \e[1mallow this patch\e[0m
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  +22 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       fn main() {
@@ -585,7 +569,6 @@ expression: shown
 stdout:
 stderr:
  ?  allow this patch
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  +22 -1
     @@ -1,3 +1,24 @@
      fn main() {
@@ -636,7 +619,6 @@ stderr:
 stdout:
 stderr:
  ?  allow this patch
-    edit src/main.rs, src/lib.rs, notes.md; delete old.rs; move src/expr.rs
     src/main.rs  +22 -1
     @@ -1,3 +1,24 @@
      fn main() {

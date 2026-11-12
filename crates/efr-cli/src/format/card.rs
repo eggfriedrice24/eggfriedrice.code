@@ -196,11 +196,21 @@ impl Card {
 
     /// What the question asked about, for the line that takes its place, such as
     /// `network (github.com)` or `outside the sandbox`: the value of its `why` row, else
-    /// its title after `allow ` when that is not `this …`.
+    /// the hosts of its `host` rows as `network (index.crates.io)` (TM-Questions 7),
+    /// else its title after `allow ` when that is not `this …`.
     pub(crate) fn subject(&self) -> Option<String> {
         self.rows
             .iter()
             .find_map(|row| row.value_of(WHY))
+            .or_else(|| {
+                let hosts: Vec<String> = self
+                    .rows
+                    .iter()
+                    .filter_map(|row| row.value_of(HOST))
+                    .filter_map(|value| value.split(':').next().map(str::to_owned))
+                    .collect();
+                (!hosts.is_empty()).then(|| format!("network ({})", hosts.join(", ")))
+            })
             .or_else(|| {
                 // NOTE: `allow this command` names no subject of its own.
                 let rest = self.title.strip_prefix("allow ")?;
@@ -212,6 +222,9 @@ impl Card {
 
 /// The label of the row that says why a question asks.
 pub(crate) const WHY: &str = "why";
+
+/// The label of the row of a host that a question about network names.
+pub(crate) const HOST: &str = "host";
 
 /// The last row of a card, with its newline: the keys, the confirm of an `a` answer,
 /// or that another client must answer. A row wider than the screen goes on in the next
@@ -605,7 +618,7 @@ fn asks_row(line: &str) -> Row {
 }
 
 /// The title of an approval of a call of `tool`.
-fn title(tool: Option<&str>) -> &'static str {
+pub(crate) fn title(tool: Option<&str>) -> &'static str {
     match tool {
         Some("shell") => "allow this command",
         Some("write_file") => "allow this write",

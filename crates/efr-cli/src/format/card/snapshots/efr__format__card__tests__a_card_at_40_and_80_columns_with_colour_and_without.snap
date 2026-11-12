@@ -6,16 +6,16 @@ expression: "shown.join(\"\\n\")"
 \e[1;7;33m ? \e[0m \e[1;33mallow this command\e[0m
     cd ~/p/eggfriedrice.code && find \e[2m\\e[0m
         target/debug/build -path \e[2m\\e[0m
-        '*libghostty*' -type f | awk \e[2m\\e[0m
-        '{print $1}'
+        '*libghostty*' -type f | \e[2m\\e[0m
+        awk '{print $1}'
     \e[1;33my\e[0m \e[2mallow\e[0m   \e[1;33mn\e[0m \e[2mdeny\e[0m
 
 40 columns, NO_COLOR:
 \e[1m ? \e[0m \e[1mallow this command\e[0m
     cd ~/p/eggfriedrice.code && find \e[2m\\e[0m
         target/debug/build -path \e[2m\\e[0m
-        '*libghostty*' -type f | awk \e[2m\\e[0m
-        '{print $1}'
+        '*libghostty*' -type f | \e[2m\\e[0m
+        awk '{print $1}'
     \e[1my\e[0m \e[2mallow\e[0m   \e[1mn\e[0m \e[2mdeny\e[0m
 
 80 columns, colour:

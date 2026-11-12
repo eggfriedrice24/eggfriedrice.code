@@ -6,8 +6,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 [moved]
 \e[33m→\e[0m \e[2m$\e[0m \e[2mfor i in $(seq 1 \e[0m\e[2m\\e[0m
       \e[2m600); do echo \e[0m\e[2m\\e[0m
-      \e[2mtick $i; sleep \e[0m\e[2m\\e[0m
-      \e[2m1; done\e[0m  \e[2mmoved to job j1\e[0m
+      \e[2mtick $i; \e[0m\e[2m\\e[0m
+      \e[2msleep 1; done\e[0m  \e[2mmoved to job j1\e[0m
   \e[2mjob j1 · output $SCRATCH/jobs/j1.out ·\e[0m
     \e[2mends in 60 min\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m
@@ -15,8 +15,8 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 [end]
 \e[33m→\e[0m \e[2m$\e[0m \e[2mfor i in $(seq 1 \e[0m\e[2m\\e[0m
       \e[2m600); do echo \e[0m\e[2m\\e[0m
-      \e[2mtick $i; sleep \e[0m\e[2m\\e[0m
-      \e[2m1; done\e[0m  \e[2mmoved to job j1\e[0m
+      \e[2mtick $i; \e[0m\e[2m\\e[0m
+      \e[2msleep 1; done\e[0m  \e[2mmoved to job j1\e[0m
   \e[2mjob j1 · output $SCRATCH/jobs/j1.out ·\e[0m
     \e[2mends in 60 min\e[0m
 
@@ -30,8 +30,8 @@ The loop runs on as job j1.
 [moved]
 \e[1m→\e[0m \e[2m$\e[0m \e[2mfor i in $(seq 1 \e[0m\e[2m\\e[0m
       \e[2m600); do echo \e[0m\e[2m\\e[0m
-      \e[2mtick $i; sleep \e[0m\e[2m\\e[0m
-      \e[2m1; done\e[0m  \e[2mmoved to job j1\e[0m
+      \e[2mtick $i; \e[0m\e[2m\\e[0m
+      \e[2msleep 1; done\e[0m  \e[2mmoved to job j1\e[0m
   \e[2mjob j1 · output $SCRATCH/jobs/j1.out ·\e[0m
     \e[2mends in 60 min\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m
@@ -39,8 +39,8 @@ The loop runs on as job j1.
 [end]
 \e[1m→\e[0m \e[2m$\e[0m \e[2mfor i in $(seq 1 \e[0m\e[2m\\e[0m
       \e[2m600); do echo \e[0m\e[2m\\e[0m
-      \e[2mtick $i; sleep \e[0m\e[2m\\e[0m
-      \e[2m1; done\e[0m  \e[2mmoved to job j1\e[0m
+      \e[2mtick $i; \e[0m\e[2m\\e[0m
+      \e[2msleep 1; done\e[0m  \e[2mmoved to job j1\e[0m
   \e[2mjob j1 · output $SCRATCH/jobs/j1.out ·\e[0m
     \e[2mends in 60 min\e[0m
 

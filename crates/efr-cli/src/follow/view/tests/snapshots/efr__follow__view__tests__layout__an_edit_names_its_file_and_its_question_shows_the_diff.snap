@@ -5,7 +5,6 @@ expression: shown
 === 40 columns, colour
 [asked]
 \e[1;7;33m ? \e[0m \e[1;33mallow this edit\e[0m
-    write ~/.zshrc (user config)
     ~/.zshrc  \e[32m+1\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       export EDITOR=nvim
@@ -25,7 +24,6 @@ expression: shown
 === 40 columns, NO_COLOR
 [asked]
 \e[1m ? \e[0m \e[1mallow this edit\e[0m
-    write ~/.zshrc (user config)
     ~/.zshrc  +1 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       export EDITOR=nvim
@@ -45,7 +43,6 @@ expression: shown
 === 80 columns, colour
 [asked]
 \e[1;7;33m ? \e[0m \e[1;33mallow this edit\e[0m
-    write ~/.zshrc (user config)
     ~/.zshrc  \e[32m+1\e[0m \e[31m-1\e[0m
     \e[36m@@ 1\e[0m
       export EDITOR=nvim
@@ -65,7 +62,6 @@ expression: shown
 === 80 columns, NO_COLOR
 [asked]
 \e[1m ? \e[0m \e[1mallow this edit\e[0m
-    write ~/.zshrc (user config)
     ~/.zshrc  +1 \e[1m-1\e[0m
     \e[2m@@ 1\e[0m
       export EDITOR=nvim
@@ -87,7 +83,6 @@ expression: shown
 stdout:
 stderr:
  ?  allow this edit
-    write ~/.zshrc (user config)
     ~/.zshrc  +1 -1
     @@ -1,2 +1,2 @@
      export EDITOR=nvim
@@ -99,7 +94,6 @@ stderr:
 stdout:
 stderr:
  ?  allow this edit
-    write ~/.zshrc (user config)
     ~/.zshrc  +1 -1
     @@ -1,2 +1,2 @@
      export EDITOR=nvim

@@ -282,6 +282,14 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- The card of a question that asks for network alone says `allow network` and names
+  each host on a row of its own, such as `host  index.crates.io:443 · not on the allow
+  list`. The card of a write outside the project says `allow this write`, shows the
+  file with its counts and its diff first, then `why  write outside the project`. A
+  card is the last thing on the screen: the status row no longer stands under a card
+  that another client answers. A long command in a card or a call row is cut after a
+  pipe or another operator when that fills half the row, so the next command starts a
+  row.
 - While a command waits for input, its last output line stays muted and its row shows
   no `ctx` gauge, so the answer line under it is the one row in the warning colour.
   The unread steers and the queued prompts stand above the row of a running call, as

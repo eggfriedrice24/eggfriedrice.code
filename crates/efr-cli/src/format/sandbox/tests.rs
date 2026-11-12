@@ -713,7 +713,8 @@ fn a_full_mode_command_question_says_it_runs_with_no_sandbox() {
     record.facts.targets = vec![target("/home/u")];
     let mut info = info(&[ExitKind::AboveRoot], Launch::Direct);
     info.user_only = true;
-    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    let card =
+        exit_card(&info, Some(&record), home(), Vec::new(), None, &efr_render::Glyphs::UNICODE);
     assert_eq!(card.title, "allow this command, with no sandbox");
     let lines: Vec<String> =
         exit_lines(&info, Some(&record), home()).iter().map(|line| plain(line)).collect();
@@ -798,13 +799,15 @@ fn job_question_says_grants_last_whole_job() {
     record.facts.targets = vec![target("/home/u/backup")];
     record.action.background = true;
     record.action.max_minutes = Some(90);
-    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    let card =
+        exit_card(&info, Some(&record), home(), Vec::new(), None, &efr_render::Glyphs::UNICODE);
     let rendered = card.render(None, &RenderOptions::new(80).with_terminal(false));
     let text = format!("{}{rendered}", question(&info, &record));
     assert!(!text.contains("for this call"), "{text}");
     insta::assert_snapshot!(text);
     record.action.max_minutes = Some(1);
-    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    let card =
+        exit_card(&info, Some(&record), home(), Vec::new(), None, &efr_render::Glyphs::UNICODE);
     assert_eq!(card.title, "allow ~/backup writable for the whole job (up to 1 minute)");
 }
 

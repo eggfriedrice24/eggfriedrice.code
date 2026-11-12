@@ -46,6 +46,27 @@ fn a_command_outside_the_sandbox_is_questions_1_9_10() {
     check("Questions", 1, 2..9, &outside(), &Footer::Keys(ALLOW_KEYS));
 }
 
+/// TM-Questions 11 with the command as the model wrote it, on one line: the card cuts it
+/// itself, after the pipe, so `awk` starts a row.
+// NOTE: the board's caption says 60 columns, but its rows are cut as a screen of 44
+// columns cuts them (each row fits in 60, and the risk row is cut at 38); the test draws
+// the card at 44 columns.
+#[test]
+fn a_long_command_is_cut_after_its_pipe_questions_11() {
+    let mut rows = super::super::command_rows(
+        "cd ~/p/app && find target/debug/build -path '*ghostty*' -type f | awk '{print $1}'",
+    );
+    rows.push(Row::text("runs with your full rights: files, secrets, network", Tone::Attention));
+    rows.push(Row::labelled("programs", "cd, find, awk"));
+    let card = Card { title: "allow outside the sandbox".to_owned(), rows };
+    let frame = Frame::load("Questions", 11).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, 44);
+        let real = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &options);
+        assert_rows(&frame, 2..10, &real, depth);
+    }
+}
+
 #[test]
 fn at_a_narrow_screen_a_text_row_goes_on_two_columns_further_in_questions_11() {
     // NOTE: the board draws its "60 columns" frame with rows that fit in 60 columns cut

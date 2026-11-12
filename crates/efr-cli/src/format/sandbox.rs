@@ -14,9 +14,11 @@ use efr_protocol::{
     AdminSandboxCheckResult, BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, ChainStep,
     CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCodeFacts, Grant,
     JudgeKind, Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource,
-    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange,
+    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, Scope, SurfaceChange,
     TargetFact, Verdict,
 };
+
+use efr_render::Glyphs;
 
 use super::card::{self, Card, Row};
 use super::{Tone, command_line, numbered_lines, one_line, run_heading};
@@ -355,6 +357,68 @@ fn grants_last(record: Option<&ExitRecord>) -> String {
     }
 }
 
+/// The title of the question about network alone (TM-Questions 3).
+const NETWORK_TITLE: &str = "allow network";
+
+/// The why of a file tool's write outside the turn's project (TM-Questions 2).
+const OUTSIDE_PROJECT: &str = "write outside the project";
+
+/// The muted note of a host that the proxy's allow list does not hold.
+const NOT_LISTED: &str = "not on the allow list";
+
+/// The rows of the hosts of a question about network alone: an exit whose only kind is
+/// a host, contained, whose grants each open one host for this call. Each row is
+/// `host  index.crates.io:443`, then ` · not on the allow list` muted when the record
+/// says so. `None` for any other exit, whose title names its grants.
+fn network_only(info: &ExitInfo, record: Option<&ExitRecord>, glyphs: &Glyphs) -> Option<Vec<Row>> {
+    if !rows_name_hosts(info, record) {
+        return None;
+    }
+    let Launch::Contained { grants } = &info.launch else {
+        return None;
+    };
+    let rows = grants
+        .iter()
+        .filter_map(|grant| match grant {
+            Grant::Host { host, port } => Some((host, port)),
+            _ => None,
+        })
+        .map(|(host, port)| {
+            let listed = record
+                .and_then(|record| record.facts.hosts.iter().find(|fact| fact.host == *host))
+                .map(|fact| fact.on_allow_list);
+            let mut pieces = vec![
+                (card::HOST.to_owned(), Tone::Dim),
+                ("  ".to_owned(), Tone::Plain),
+                (format!("{}:{port}", one_line(host)), Tone::Text),
+            ];
+            if listed == Some(false) {
+                pieces.push((" ".to_owned(), Tone::Plain));
+                pieces.push((format!("{} {NOT_LISTED}", glyphs.separator), Tone::Dim));
+            }
+            Row::Text(pieces)
+        })
+        .collect();
+    Some(rows)
+}
+
+/// True for an exit that asks for network alone, for this call: its only kind is a
+/// host, and it runs contained with only host grants.
+fn rows_name_hosts(info: &ExitInfo, record: Option<&ExitRecord>) -> bool {
+    let only_hosts =
+        !info.kinds.is_empty() && info.kinds.iter().all(|kind| *kind == ExitKind::Host);
+    let for_call = !record.is_some_and(|record| record.action.background);
+    match &info.launch {
+        Launch::Contained { grants } => {
+            only_hosts
+                && for_call
+                && !grants.is_empty()
+                && grants.iter().all(|grant| matches!(grant, Grant::Host { .. }))
+        }
+        _ => false,
+    }
+}
+
 /// The title of the question about a command that full mode still asks for.
 const FULL_TITLE: &str = "allow this command, with no sandbox";
 
@@ -645,17 +709,25 @@ pub(crate) fn exit_card(
     home: Option<&Path>,
     subject: Vec<Row>,
     reviewed: Option<&str>,
+    glyphs: &Glyphs,
 ) -> Card {
     let unsandboxed = matches!(info.launch, Launch::Unsandboxed);
+    let hosts = network_only(info, record, glyphs);
+    // NOTE: a file tool runs direct; its question names the write (TM-Questions 2).
+    let file_tool = matches!(info.launch, Launch::Direct) && !full_shell(info, record);
     let title = match &info.launch {
         Launch::Unsandboxed => "allow outside the sandbox".to_owned(),
+        Launch::Contained { .. } if hosts.is_some() => NETWORK_TITLE.to_owned(),
         Launch::Contained { grants } if grants.is_empty() => "allow in the sandbox".to_owned(),
         Launch::Contained { grants } => {
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
             format!("allow {} {}", opened.join(", "), grants_last(record))
         }
         Launch::Direct if full_shell(info, record) => FULL_TITLE.to_owned(),
-        Launch::Direct => "allow the file tool outside the sandbox".to_owned(),
+        Launch::Direct => match record {
+            Some(record) => card::title(Some(&record.action.tool)).to_owned(),
+            None => "allow the file tool outside the sandbox".to_owned(),
+        },
         _ => "allow this call".to_owned(),
     };
     let mut rows = match record.map(|record| record.action.line.as_str()) {
@@ -665,13 +737,26 @@ pub(crate) fn exit_card(
     if unsandboxed {
         rows.push(Row::text(RISK, Tone::Attention));
     }
+    // NOTE: a question about network alone names each host on a row of its own, with
+    // whether the allow list has it (TM-Questions 3).
+    if let Some(hosts) = hosts {
+        rows.extend(hosts);
+    }
+    let in_project = record.is_some_and(|record| matches!(record.action.scope, Scope::Project(_)));
     let mut parts: Vec<String> = Vec::new();
     for kind in &info.kinds {
         // NOTE: an outside exit names only the first program, which the line shows.
-        if *kind == ExitKind::Outside {
+        if *kind == ExitKind::Outside || (*kind == ExitKind::Host && rows_name_hosts(info, record))
+        {
             continue;
         }
-        let part = kind_part(*kind, &info.grants, record, home);
+        // NOTE: the diff of a file tool's write names the file, so the why row says
+        // what the write leaves (TM-Questions 2).
+        let part = if file_tool && in_project && *kind == ExitKind::Write {
+            OUTSIDE_PROJECT.to_owned()
+        } else {
+            kind_part(*kind, &info.grants, record, home)
+        };
         if !parts.contains(&part) {
             parts.push(part);
         }

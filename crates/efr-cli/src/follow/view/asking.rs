@@ -28,12 +28,14 @@ impl TurnView {
         let tool = self.tools.get(&call_id).map(String::as_str);
         let command = self.commands.get(&call_id).map(String::as_str);
         let mut card = card::approval(request.summary, tool, command);
+        // A question that full mode still asks has the line that says why first.
+        let wake = card::strip_wake(request.summary);
+        let guarded = format::full_guard(wake.unwrap_or(request.summary)).is_some();
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
         if let Some(exit) = request.exit {
             let record = self.exits.get(&call_id).map(|exit| &exit.record);
             let reviewed = self.reviewed.get(&call_id).map(String::as_str);
             // A question that full mode still asks keeps the line that says why first.
-            let wake = card::strip_wake(request.summary);
             let guard = format::full_guard(wake.unwrap_or(request.summary)).map(|(guard, _)| guard);
             let skip = usize::from(guard.is_some());
             // NOTE: the exit's card says why on its own row, so the subject is only what
@@ -49,7 +51,9 @@ impl TurnView {
             } else {
                 commands
             };
-            card = sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed);
+            let glyphs = self.options.glyphs();
+            card =
+                sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed, glyphs);
             if let Some(guard) = guard {
                 card.rows.insert(0, card::guard_row(guard));
             }
@@ -68,12 +72,28 @@ impl TurnView {
         // NOTE: a patch shows the diff of each of its files after a row that names it,
         // so a delete or a move stands out before the user answers. An edit is a patch
         // of one file.
-        match (request.diff, tool) {
-            (Some(diff), Some(format::patch::TOOL | format::EDIT_TOOL)) => {
-                card.rows.extend(card::patch_rows(diff));
+        let diff = request.diff.map(|diff| {
+            format::patch::short_paths(diff, self.cwd.as_deref(), self.home.as_deref())
+        });
+        let diff_rows = match (diff.as_deref(), tool) {
+            (Some(diff), Some(format::patch::TOOL | format::EDIT_TOOL)) => card::patch_rows(diff),
+            (Some(diff), _) => vec![card::Row::Diff(diff.to_owned())],
+            (None, _) => Vec::new(),
+        };
+        // NOTE: the diff of a file tool's write names the file with its counts, so it
+        // takes the place of the row that names the file, right under the title and the
+        // line of full mode; why it asks follows it (TM-Questions 2).
+        let file_tool =
+            matches!(tool, Some("write_file" | format::patch::TOOL | format::EDIT_TOOL));
+        if file_tool && !diff_rows.is_empty() {
+            let first = usize::from(guarded);
+            if card.rows.len() > first {
+                card.rows.remove(first);
             }
-            (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
-            (None, _) => {}
+            let at = first.min(card.rows.len());
+            card.rows.splice(at..at, diff_rows);
+        } else {
+            card.rows.extend(diff_rows);
         }
         if let Some(secs) = request.expires_in_secs {
             card.rows.push(card::expires_row(secs));

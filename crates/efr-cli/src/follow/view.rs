@@ -1299,9 +1299,15 @@ impl TurnView {
             status.set(State::Thinking(Some(words)));
         }
         let body = self.live_body(size, now);
+        // NOTE: a card is the last thing on the screen: the status row and the input row
+        // hide while it shows, also when another client answers it (TM-Questions note,
+        // frame 6).
+        let card = self.question.as_ref().is_some_and(|shown| !shown.committed);
         // A running call's line carries the spinner instead of the row.
         let row = match &self.status {
-            Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
+            Some(status) if !self.ended && !asking && !call_shown && !card => {
+                status.row(now, &options)
+            }
             _ => String::new(),
         };
         // NOTE: the hint names Ctrl+B only once the call has run for a moment, so a
@@ -1313,7 +1319,7 @@ impl TurnView {
             input.background = background;
         }
         // The input row is the last part of the live zone, and the cursor waits in it.
-        let input = self.input.as_ref().filter(|input| input.shown && !self.ended);
+        let input = self.input.as_ref().filter(|input| input.shown && !self.ended && !card);
         let tail =
             input.map(|input| input.row(&options, effective_width(size))).unwrap_or_default();
         let hide = self.ticks() && !asking && input.is_none();

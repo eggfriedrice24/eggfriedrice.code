@@ -1137,3 +1137,181 @@ fn the_stat_of_efr_diff_is_the_board() {
         check(&Frame::load("Commands", 5).unwrap(), 1..10, &shown, depth, all);
     }
 }
+
+// --- the cards of questions, from real events --------------------------------------
+
+/// The events of an exit of call `n` that `info` describes, with `record`, and its
+/// question with `diff`.
+fn asked_exit(
+    n: u8,
+    info: efr_protocol::ExitInfo,
+    record: efr_protocol::ExitRecord,
+    diff: Option<&str>,
+) -> [Event; 2] {
+    [
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: id(n),
+            kinds: info.kinds.clone(),
+            grants: info.grants.clone(),
+            source: efr_protocol::ExitSource::Predicted,
+            record: Box::new(record),
+        },
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: id(n),
+            summary: "a summary that the exit's card replaces".to_owned(),
+            diff_preview: diff.map(str::to_owned),
+            interactive: false,
+            exit: Some(info),
+            expires_in_secs: None,
+            local_only: false,
+            reason: None,
+        },
+    ]
+}
+
+/// A play up to the question of TM-Questions 3: `cargo update -p rusqlite` in the
+/// sandbox needs `index.crates.io`, which the allow list does not hold, and the daemon
+/// offers a rule for it.
+fn network_question(depth: Depth) -> Play {
+    let grants = vec![efr_protocol::Grant::Host { host: "index.crates.io".to_owned(), port: 443 }];
+    let launch = efr_protocol::Launch::Contained { grants };
+    let info = efr_protocol::ExitInfo {
+        always: Some("network index.crates.io for cargo".to_owned()),
+        ..crate::testing::exit_info(&[efr_protocol::ExitKind::Host], launch.clone())
+    };
+    let facts = efr_protocol::ExitFacts {
+        hosts: vec![efr_protocol::HostFact {
+            host: "index.crates.io".to_owned(),
+            on_allow_list: false,
+            named_in_user_messages: false,
+            refused_by_proxy: true,
+            project_remote: false,
+        }],
+        ..efr_protocol::ExitFacts::default()
+    };
+    let record = crate::testing::exit_record("cargo update -p rusqlite", facts);
+    let mut play = Play::new(depth, 100);
+    play.event(5, message(0, "Pushing the branch so CI runs.\n"));
+    play.event(
+        10,
+        started(1, "shell", json!({ "command": "cargo update -p rusqlite" }), Some(launch)),
+    );
+    for event in asked_exit(1, info, record, None) {
+        play.event(20, event);
+    }
+    play
+}
+
+/// TM-Questions 3 and 4 from real events: a question about network alone is `allow
+/// network` with one row for its host and whether the allow list has it; after `a` the
+/// rule it saves and the keys of the confirm. TM-Questions 7: its answer line names the
+/// host.
+#[test]
+fn a_question_about_a_host_is_the_network_card_questions_3_4() {
+    for depth in Depth::ALL {
+        let mut play = network_question(depth);
+        let live = play.live(30);
+        check(&Frame::load("Questions", 3).unwrap(), 2..6, &rows(&live, 1..5), depth, all);
+        play.view.confirm_always(id(1), play.size);
+        let live = play.live(40);
+        check(&Frame::load("Questions", 4).unwrap(), 2..7, &rows(&live, 1..6), depth, all);
+    }
+    let mut play = network_question(Depth::NoColor);
+    play.view.answered(id(1), efr_protocol::ApprovalDecision::Deny, play.size);
+    let shown = cells(&play.committed())
+        .iter()
+        .map(efr_test_support::design::CellRow::text)
+        .collect::<Vec<_>>();
+    assert!(
+        shown.iter().any(|row| row == "\u{2717} denied \u{b7} network (index.crates.io)"),
+        "{shown:?}"
+    );
+}
+
+/// The diff of the write of TM-Questions 2, as the file tool's preview writes it.
+const HYPR_DIFF: &str = "\
+--- /home/user/.config/hypr/hyprland.conf
++++ /home/user/.config/hypr/hyprland.conf
+@@ -41,1 +41,1 @@ input
+-kb_options = caps:escape
++kb_options = caps:escape,compose:ralt
+";
+
+/// TM-Questions 2 from real events: the write of a file tool outside the project is
+/// `allow this write`, the file with its counts and its diff, then why it asks, then the
+/// keys with `a always…`.
+#[test]
+fn a_write_outside_the_project_is_the_write_card_questions_2() {
+    for depth in Depth::ALL {
+        let mut record = crate::testing::exit_record("", efr_protocol::ExitFacts::default());
+        record.action.tool = "write_file".to_owned();
+        record.action.scope =
+            efr_protocol::Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
+        let info = efr_protocol::ExitInfo {
+            always: Some("write under ~/.config/hypr".to_owned()),
+            ..crate::testing::exit_info(
+                &[efr_protocol::ExitKind::Write],
+                efr_protocol::Launch::Direct,
+            )
+        };
+        let path = "/home/user/.config/hypr/hyprland.conf";
+        let mut play = Play::new(depth, 100);
+        play.event(5, message(0, "Pushing the branch so CI runs.\n"));
+        play.event(10, tool(1, "write_file", json!({ "path": path, "content": "x" })));
+        for event in asked_exit(1, info, record, Some(HYPR_DIFF)) {
+            play.event(20, event);
+        }
+        let live = play.live(30);
+        // NOTE: the code of the diff rows is the render slice's; the rows, the signs and
+        // the fills compare here.
+        let frame = Frame::load("Questions", 2).unwrap();
+        let card = rows(&live, 1..8);
+        check(&frame, 2..9, &card, depth, |row, col| (3..5).contains(&row) && col >= 6);
+    }
+}
+
+/// TM-Questions 6 from real events: a question that another client answers. The card is
+/// the last thing on the screen: no status row stands under it.
+// NOTE: the board's last row says `· the phone has it too`; no event tells efr which
+// clients hold a question, so the row ends after `answer` (open, see repaired.md).
+#[test]
+fn a_question_that_another_client_answers_ends_the_screen_questions_6() {
+    for depth in Depth::ALL {
+        let mut play = Play::new(depth, 100);
+        play.event(5, message(0, "Pushing the branch so CI runs.\n"));
+        play.event(10, shell(1, "git push -u origin fix/steer-race"));
+        let approval = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: id(1),
+            summary: "shell: network (github.com); run \"git push -u origin fix/steer-race\""
+                .to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+            expires_in_secs: None,
+            local_only: false,
+            reason: None,
+        };
+        let envelope = EventEnvelope {
+            seq: Seq::new(40),
+            conversation_id: None,
+            at: super::super::at(20),
+            event: approval,
+        };
+        play.view.envelope(&envelope, play.size, false);
+        play.frame();
+        let screen = play.screen.raw();
+        let shown = cells(&screen);
+        let frame = Frame::load("Questions", 6).unwrap();
+        check(&frame, 2..5, &rows(&screen, 2..5), depth, all);
+        assert_eq!(
+            shown.len(),
+            6,
+            "nothing after the card: {:?}",
+            shown.iter().map(efr_test_support::design::CellRow::text).collect::<Vec<_>>()
+        );
+        assert_eq!(shown[5].text().trim_start(), "waiting for another client to answer");
+    }
+}
