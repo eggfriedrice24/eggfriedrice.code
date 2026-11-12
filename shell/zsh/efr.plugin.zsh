@@ -284,7 +284,9 @@ fi
 _efr_other_sticky_words=(${_efr_other_sticky_words:#$_efr_marker})
 # The longest scope that the corner shows, in columns; a longer name is cut and ends
 # with `…`.
-typeset -gi _efr_scope_cells=16
+# NOTE: 24 and not the 16 of the design notes: a name such as `eggfriedrice.code` (17
+# columns) lost its end to save one column.
+typeset -gi _efr_scope_cells=24
 # 1 once efr_corner ran: the prompt has the corner, so the marker of sticky mode
 # carries nothing else. 1 in _efr_corner_export when the corner goes to the exported
 # variables instead of RPROMPT.

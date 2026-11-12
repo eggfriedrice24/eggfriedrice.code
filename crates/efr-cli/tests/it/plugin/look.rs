@@ -672,9 +672,12 @@ fn e2e_look_the_corner_in_16_colours_and_without_colour() {
     }
 }
 
-/// The corner cuts a project name over 16 columns to 16, with `…` at the cut (the notes
-/// of TM-Scope 8), doubles each `%` so the prompt shows it as typed, and shows `⌂` as
-/// `~` and `·` as `-` in a locale that is not UTF-8.
+/// The corner cuts a project name over 24 columns to 24, with `…` at the cut, doubles
+/// each `%` so the prompt shows it as typed, and shows `⌂` as `~` and `·` as `-` in a
+/// locale that is not UTF-8.
+///
+/// NOTE: the notes of TM-Scope 8 say 16 columns. The user chose 24 on 2026-11-12: 16 cut
+/// the name of a real project by one column.
 #[test]
 fn e2e_look_the_corner_cuts_a_long_name_and_has_ascii_forms() {
     if !zsh_tests_enabled() {
@@ -687,7 +690,7 @@ fn e2e_look_the_corner_cuts_a_long_name_and_has_ascii_forms() {
     term.run("p/app", &[Step::Line("show 1"), Step::Line("cd ~/p/pct"), Step::Line("show 2")]);
     let read =
         |n: u8| std::fs::read_to_string(term.home.path().join(format!("corner.{n}"))).unwrap();
-    assert_eq!(read(1), "[the-name-of-a-l\u{2026}\x1b[2m \u{b7} auto\x1b[22m]\n");
+    assert_eq!(read(1), "[the-name-of-a-long-proj\u{2026}\x1b[2m \u{b7} auto\x1b[22m]\n");
     assert_eq!(read(2), "[50%~ off\x1b[2m \u{b7} auto\x1b[22m]\n");
 
     let mut ascii = Term::new(60, Depth::NoColor);
@@ -699,7 +702,7 @@ fn e2e_look_the_corner_cuts_a_long_name_and_has_ascii_forms() {
     ascii.run("p/app", &[Step::Line("show 1"), Step::Line("cd ~"), Step::Line("show 2")]);
     let read =
         |n: u8| std::fs::read_to_string(ascii.home.path().join(format!("corner.{n}"))).unwrap();
-    assert_eq!(read(1), "[the-name-of-a...\x1b[2m - auto\x1b[22m]\n");
+    assert_eq!(read(1), "[the-name-of-a-long-pr...\x1b[2m - auto\x1b[22m]\n");
     assert_eq!(read(2), "[~\x1b[2m - auto\x1b[22m]\n");
 }
 

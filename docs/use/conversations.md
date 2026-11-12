@@ -66,7 +66,7 @@ efr_corner
   The corner ends at the right edge.
 - `efr_corner` turns on `prompt_subst`. A `$` in a plain prompt string of your theme
   then expands.
-- A project name of more than 16 columns is cut, and ends with `…`.
+- A project name of more than 24 columns is cut, and ends with `…`.
 - Before efrd ever ran, the corner shows the mode alone, such as `auto`.
 - A long typed line hides the corner, as zsh hides any right prompt. Then the
   scrollback has no corner on that line.
