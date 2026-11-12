@@ -55,3 +55,10 @@ fn control_characters_are_made_visible() {
         "\x1b[2mx\u{241b}[2Jy\x1b[0m\n"
     );
 }
+
+#[test]
+fn an_ascii_locale_cuts_with_three_dots() {
+    let options =
+        RenderOptions::new(10).with_colour(ColourMode::None).with_glyphs(&crate::Glyphs::ASCII);
+    assert_eq!(render_trace("a trace line that is long", &options), "\x1b[2ma trace...\x1b[0m\n");
+}

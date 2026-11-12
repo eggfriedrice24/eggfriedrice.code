@@ -16,7 +16,7 @@ pub fn render_trace(text: &str, options: &RenderOptions) -> String {
         return format!("{collapsed}\n");
     }
     let clean = sanitize(&collapsed);
-    let line = cut(&clean, options.columns(), options.width_method());
+    let line = cut(&clean, options.columns(), options.width_method(), options.glyphs().more);
     let mut out = String::new();
     Painter::new(options.colour(), options.hyperlinks())
         .with_text(options.palette().colour(Role::Text))

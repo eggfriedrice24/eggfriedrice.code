@@ -236,13 +236,14 @@ fn sequence_len(text: &str) -> usize {
     text.len()
 }
 
-/// `text` cut to at most `width` columns with an ellipsis at the end, at a code point
-/// or a grapheme cluster as the terminal counts; `text` itself when it fits.
-pub(crate) fn cut(text: &str, width: usize, method: WidthMethod) -> String {
-    const ELLIPSIS: char = '\u{2026}';
+/// `text` cut to at most `width` columns with `more` (the `more` glyph: an ellipsis,
+/// or `...` in ASCII) at the end, at a code point or a grapheme cluster as the
+/// terminal counts; `text` itself when it fits.
+pub(crate) fn cut(text: &str, width: usize, method: WidthMethod, more: &str) -> String {
     if text_width(text, method) <= width {
         return text.to_owned();
     }
+    let more_width = text_width(more, method);
     let pieces: Vec<&str> = match method {
         WidthMethod::CodePoint => text.split_inclusive(|_| true).collect(),
         WidthMethod::Grapheme => text.graphemes(true).collect(),
@@ -251,13 +252,13 @@ pub(crate) fn cut(text: &str, width: usize, method: WidthMethod) -> String {
     let mut used = 0;
     for piece in pieces {
         let w = text_width(piece, method);
-        if used + w + 1 > width {
+        if used + w + more_width > width {
             break;
         }
         out.push_str(piece);
         used += w;
     }
-    out.push(ELLIPSIS);
+    out.push_str(more);
     out
 }
 

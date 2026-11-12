@@ -34,7 +34,6 @@ const NOT_YET: &[&str] = &[
     "crates/efr-cli/src/format/resume.rs",
     "crates/efr-cli/src/format/route.rs",
     "crates/efr-cli/src/format/search.rs",
-    "crates/efr-render/src/width.rs",
 ];
 
 /// The file that holds the table.
