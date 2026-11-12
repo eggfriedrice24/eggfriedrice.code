@@ -269,7 +269,8 @@ into the GitHub release notes, and it stops when the section is missing.
   own; the line of an answer, such as `✓ allowed · network (github.com)`, in place of
   the question; and the end lines, such as `1 file changed  +5 -3  src/turn.rs` and
   `✓ done  1m 42s · ctx 43% · 4.2k out · cache 91%`. Before, each call had a line at
-  its start and a line for its result.
+  its start and a line for its result. The text of an answer stands 2 columns in, as
+  the rows of its turn, so each turn is one block under its prompt.
 
 - Home is the name of every place that is in no registered project, with the mark
   `⌂` (`~` in a locale that is not UTF-8). It replaces `○`, "no project" and "outside

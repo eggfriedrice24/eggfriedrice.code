@@ -1182,12 +1182,16 @@ impl<'a> Transcript<'a> {
         }
     }
 
+    /// The text of an answer at 2 columns under its prompt, as the rows of the turn, so
+    /// a turn is one block and the prompts stand out at the left edge. The text is
+    /// rendered 2 columns narrower, so no row gets wider than the screen.
     fn message(&mut self, text: &str) {
         self.out.push_str(self.spacing.before(Block::Message));
-        self.out.push_str(&render(text, self.options));
-        if !self.options.is_terminal() && !text.ends_with('\n') {
-            self.out.push('\n');
+        let mut rows = render(text, &self.inner);
+        if !self.options.is_terminal() && !rows.ends_with('\n') {
+            rows.push('\n');
         }
+        self.out.push_str(&indented_rows(&rows));
     }
 
     /// A row of the turn at 2 columns under its prompt (TM-Commands frame 4), cut to the

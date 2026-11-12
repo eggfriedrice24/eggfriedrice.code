@@ -10,9 +10,9 @@ expression: "show(&page, &options)"
   healthy?
   ✓ allowed · from the phone
 
-It is **running** again.
+  It is **running** again.
 
-Cut off mid
+  Cut off mid
 
   · $ systemctl status nginx
   ■ interrupted

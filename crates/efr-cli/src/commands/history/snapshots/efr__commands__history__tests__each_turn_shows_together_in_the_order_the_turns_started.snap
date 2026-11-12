@@ -11,13 +11,13 @@ expression: text
 
 › look at the logs first  12:00
 
-The logs show a timeout.
+  The logs show a timeout.
 
   ✓ done
 
 › then update the docs  12:00
 
-Docs updated.
+  Docs updated.
 
   ✓ done
 
