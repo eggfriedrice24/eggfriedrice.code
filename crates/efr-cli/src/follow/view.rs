@@ -1107,7 +1107,7 @@ impl TurnView {
                 if *index < self.next_index {
                     return Step::default();
                 }
-                self.end_reasoning();
+                self.end_reasoning(Block::Message);
                 self.state(State::Writing);
                 self.message_delta(*index, *offset, delta, size)
             }
@@ -1121,7 +1121,7 @@ impl TurnView {
                 Step::default()
             }
             DraftPart::ToolInput { call, tool, bytes, tail } => {
-                self.end_reasoning();
+                self.end_reasoning(Block::Row);
                 // The calls of one answer come one after another: the newest one shows.
                 let shown = match self.status.as_ref().map(Status::state) {
                     Some(State::Preparing { call: shown, .. }) => Some(*shown),
@@ -1151,7 +1151,7 @@ impl TurnView {
                 Step::default()
             }
             DraftPart::Compacting { .. } => {
-                self.end_reasoning();
+                self.end_reasoning(Block::Message);
                 self.state(State::Compacting);
                 Step::default()
             }
@@ -1180,7 +1180,7 @@ impl TurnView {
                 Step::default()
             }
             DraftPart::Retrying { attempt, wait_ms, reason, .. } => {
-                self.end_reasoning();
+                self.end_reasoning(Block::Message);
                 let wait = Duration::from_millis(*wait_ms);
                 let reason = format::one_line(reason);
                 self.state(State::Retrying { attempt: *attempt, wait, reason });
@@ -1489,7 +1489,14 @@ impl TurnView {
             status.stir();
         }
         if ends_drafts(event) {
-            self.end_reasoning();
+            // NOTE: a call row follows the thought row with no blank line, as a row
+            // follows a row; prose and the end take their blank line above it.
+            let next = if matches!(event, Event::ToolCallStarted { .. }) {
+                Block::Row
+            } else {
+                Block::Message
+            };
+            self.end_reasoning(next);
         }
         // NOTE: the question of the call and its answer come before its first rows, as
         // on a terminal; anything else of the turn shows the call first.
@@ -1545,7 +1552,7 @@ impl TurnView {
                 // NOTE: drafts showed most of this text before it was recorded; an update
                 // that adds nothing must not take the row back from a newer draft state.
                 if *index >= self.next_index && self.adds_text(*index, *offset, delta) {
-                    self.end_reasoning();
+                    self.end_reasoning(Block::Message);
                     self.state(State::Writing);
                 }
                 self.message_delta(*index, *offset, delta, size)
@@ -2283,7 +2290,7 @@ impl TurnView {
     fn wrap_up(&mut self) -> Step {
         // The rows of a call that still wait show what ran.
         let header = self.due_header(self.size);
-        self.end_reasoning();
+        self.end_reasoning(Block::Message);
         self.asking = None;
         self.saving = None;
         self.surface = None;
@@ -2487,12 +2494,14 @@ impl TurnView {
     }
 
     /// Ends the phase of reasoning that runs: a phase that took long enough leaves its
-    /// row in the scrollback. The row sticks to the text or the
-    /// tool call that follows it, so the blank line before that goes above the row; any
-    /// other block, such as a question or the end line, keeps its blank line. Inside a
-    /// message that still streams there is no row, because it would cut the text of the
-    /// message in two.
-    fn end_reasoning(&mut self) {
+    /// row in the scrollback. The row sticks to the text or the tool call that follows
+    /// it, a block of kind `next`: the row stands where that block would stand, so the
+    /// blank line before prose goes above the row, and after a row, such as a call or
+    /// the `⇄` line, a row before a call has none (TM-LongTurn 3, 4). Any other block,
+    /// such as a question or the end line, keeps its blank line. Inside a message that
+    /// still streams there is no row, because it would cut the text of the message in
+    /// two.
+    fn end_reasoning(&mut self, next: Block) {
         if !self.reasoning.running() {
             return;
         }
@@ -2501,7 +2510,7 @@ impl TurnView {
         let Some(row) = self.reasoning.end(&options).filter(|_| self.message.is_none()) else {
             return;
         };
-        let mut committed = self.spacing.before(Block::Message).to_owned();
+        let mut committed = self.spacing.before(next).to_owned();
         committed.push_str(&row);
         self.spacing = Spacing::stuck();
         self.stage(&committed);

@@ -82,7 +82,9 @@ When the model thought for 2 seconds or more, one line stays in your scrollback:
 The mark is yellow and the title is bold. A reasoning with no title, such as the
 reasoning of a Claude model, shows its first words in italic, cut after 59 columns. A reasoning with no text shows only
 `▸ thought 3s`. A shorter reasoning leaves no line. The line stays with the text or
-the tool call that comes after it, with no blank line between them. The reasoning
+the tool call that comes after it, with no blank line between them. Before text, the
+blank line stands above the line. Between two tool calls, the line has no blank line
+above it. The reasoning
 shows only on a terminal: when stdout is not a terminal, efr does not write it.
 
 ### Tool calls
@@ -286,9 +288,9 @@ between them:
 ✓ done  42s · ctx 43% · 1.1k out · cache 91%
 ```
 
-- The first line tells which files the turn changed. When `efr undo` can take the turn
-  back, the line says so, and a file in your home directory that efr can revert has a
-  line of its own.
+- The first line tells which files the turn changed. It names at most three files,
+  then how many more. When `efr undo` can take the turn back, the line says so, and a
+  file in your home directory that efr can revert has a line of its own.
 - The last line tells how the turn ended: `✓ done`, `■ interrupted` or `✗ failed`. The
   muted part after it is the time, how full the context is, the tokens that the model
   wrote and the part of the turn's input that came from the provider's prompt cache

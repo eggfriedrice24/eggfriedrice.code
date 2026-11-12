@@ -129,7 +129,9 @@ into the GitHub release notes, and it stops when the section is missing.
   offer after 10 s of silence says `no output for 10s · ctrl+\ types an input for the
   command`.
 - The line of a reasoning of 2 s or more, `▸ <title>  thought 6s`, has a yellow mark,
-  and the first words of a reasoning without a title are no longer dim.
+  and the first words of a reasoning without a title are no longer dim. Between two
+  tool calls the line has no blank line above it, so the calls of a turn stay one
+  block.
 - The empty input row shows one more blank column between the cursor and the hint.
 - In a locale that is not UTF-8, the status row, the input row, the steers, the card
   and the answer lines use ASCII marks, such as `>` for `›`.
