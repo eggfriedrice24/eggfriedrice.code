@@ -391,8 +391,26 @@ fn undimmed(frame: &Frame, depth: Depth) -> Frame {
 }
 
 /// Asserts that row `row` of `shown` after step `step` is row `at` of `frame` in `depth`.
+/// With `EFR_LOOK_PRINT=1` it also prints both rows on stderr, the real one with its
+/// colours, so a person can read them next to each other (`--nocapture`).
 fn same(frame: &Frame, at: usize, shown: &Shown, step: usize, row: usize, depth: Depth) {
-    assert_rows(frame, at..=at, &shown.row(step, row), depth);
+    let real = shown.row(step, row);
+    print_rows(frame, at, &real, depth);
+    assert_rows(frame, at..=at, &real, depth);
+}
+
+#[expect(clippy::print_stderr, reason = "a person reads the rows next to the frame's")]
+fn print_rows(frame: &Frame, at: usize, real: &str, depth: Depth) {
+    if std::env::var_os("EFR_LOOK_PRINT").is_none() {
+        return;
+    }
+    let text = frame.rows.get(at).map_or("", |row| row.text.as_str());
+    eprintln!(
+        "{} {} row {} {depth:?}\n  board: {text}\n  efr:   {real}",
+        frame.board,
+        frame.number,
+        at + 1
+    );
 }
 
 fn frame(board: &str, number: u32) -> Frame {

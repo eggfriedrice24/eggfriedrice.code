@@ -940,8 +940,8 @@ _efr_said_setting() {
 # it: `full` (in the error colour) in full mode and the muted scope of the next prompt
 # (see _efr_update_scope), such as `full app › `. With the corner, the marker alone.
 # Without a projects file the scope is left out. With $1 `tag` only the part before
-# the marker stays, for a prompt line whose first word takes the marker's place; with
-# `hide` nothing shows. PREDISPLAY is not part of the buffer and leaves PROMPT alone,
+# the marker stays, for a prompt line whose first word $2 takes the marker's place and
+# keeps its look; with `hide` nothing shows. PREDISPLAY is not part of the buffer and leaves PROMPT alone,
 # so it works with any prompt theme, including one whose prompt starts with a newline,
 # and history never sees it. Only a command line gets it, never a continuation line or
 # a value that vared edits. Runs from the line-init hook, on every toggle and when a
