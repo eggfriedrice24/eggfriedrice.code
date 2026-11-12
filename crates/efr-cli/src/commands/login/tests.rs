@@ -313,9 +313,8 @@ async fn a_check_without_an_answer_offers_to_store_the_key_without_it() {
 
     assert_eq!(exit, Exit::DaemonError);
     assert!(
-        stderr.ends_with(
-            "efr: to store the key without the check: efr login openai-api --no-check\n"
-        ),
+        stderr
+            .ends_with("\n  to store the key without the check: efr login openai-api --no-check\n"),
         "{stderr}"
     );
 }

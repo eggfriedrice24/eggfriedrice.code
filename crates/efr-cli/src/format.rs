@@ -24,7 +24,7 @@ pub(crate) mod changes;
 pub(crate) mod context;
 pub(crate) mod context_report;
 pub(crate) mod delete;
-mod ending;
+pub(crate) mod ending;
 pub(crate) mod groups;
 pub(crate) mod hidden_shell;
 pub(crate) mod jobs;
@@ -39,9 +39,7 @@ pub(crate) use call::{
     CallText, CommandRow, EDIT_TOOL, RowEnd, call_text, columns, command_line, command_lines,
     numbered_lines, refused, run_heading, tool_call, tool_result, wrap_command, wrap_spans,
 };
-pub(crate) use ending::{
-    CACHE_SHOWN_FROM, turn_done, turn_interrupted, turn_settings, turn_stop, usage_line,
-};
+pub(crate) use ending::{CACHE_SHOWN_FROM, turn_settings, turn_stop, usage_line};
 pub(crate) use status::{
     catalog, config_error, config_error_place, conversations, reloaded, status,
 };

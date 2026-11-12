@@ -34,9 +34,12 @@ fn a_signal_that_ends_a_turn_exits_with_128_and_its_number_and_no_message() {
 fn a_missing_daemon_exits_with_three_and_a_hint() {
     let error = not_running();
     assert_eq!(error.exit(), Exit::NotRunning);
-    let hint = error.hint().unwrap();
-    assert!(hint.starts_with("start the daemon with: systemctl --user start efrd"), "{hint}");
-    assert!(hint.contains("`just run`"), "{hint}");
+    // TM-Endings 14: the command alone, so a double click copies it.
+    assert_eq!(error.hint().as_deref(), Some("systemctl --user start efrd"));
+    assert_eq!(
+        error.hint_for("openai-api"),
+        Some(super::Fix::Commands(vec!["systemctl --user start efrd".to_owned()]))
+    );
 }
 
 #[test]
@@ -44,7 +47,10 @@ fn a_socket_path_too_long_exits_with_three_and_names_the_variables() {
     let socket = PathBuf::from(format!("/tmp/{}/daemon.sock", "x".repeat(120)));
     let error = CliError::Client(ClientError::SocketPathTooLong { socket });
     assert_eq!(error.exit(), Exit::NotRunning);
-    assert_eq!(error.hint(), Some("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory"));
+    assert_eq!(
+        error.hint().as_deref(),
+        Some("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory")
+    );
 }
 
 #[test]
@@ -53,7 +59,52 @@ fn a_turn_without_usable_credentials_hints_at_the_login() {
         ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
     let error = CliError::TurnFailed { body };
     assert_eq!(error.exit(), Exit::DaemonError);
-    assert_eq!(error.hint(), Some("log in with: efr login openai"));
+    assert_eq!(error.hint().as_deref(), Some("efr login openai"));
+}
+
+#[test]
+fn the_login_fix_names_the_command_of_the_provider_and_its_account() {
+    let commands = ["openai-subscription", "openai-subscription.b", "openai-api", "anthropic-api"]
+        .into_iter()
+        .chain(["anthropic-api.work", "replay"])
+        .map(super::login_command)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        commands,
+        [
+            "efr login openai",
+            "efr login openai --account b",
+            "efr login openai-api",
+            "efr login anthropic-api",
+            "efr login anthropic-api --account work",
+            "efr login openai",
+        ]
+    );
+}
+
+#[test]
+fn a_full_context_names_the_reason_and_the_commands_that_make_room() {
+    let full = |way_out: &str| {
+        ErrorBody::new(
+            ErrorCode::Internal,
+            format!(
+                "the context is full: compaction did not free enough room (still 240k); {way_out}"
+            ),
+        )
+        .with_data(serde_json::json!({ "cause": "context_overflow", "tokens": 240_000 }))
+    };
+    let (reason, fix) =
+        super::turn_failure(&full("run ,compact or start a new conversation"), "openai-api");
+    assert_eq!(reason, "the context is full: compaction did not free enough room (still 240k)");
+    assert_eq!(fix.unwrap().text(), ",compact or efr new");
+    let (_, only_new) = super::turn_failure(&full("start a new conversation"), "openai-api");
+    assert_eq!(only_new.unwrap().text(), "efr new");
+    // Another internal failure keeps the daemon's whole message and has no fix.
+    let other = ErrorBody::new(ErrorCode::Internal, "the store failed; try again");
+    assert_eq!(
+        super::turn_failure(&other, "openai-api"),
+        ("the store failed; try again".to_owned(), None)
+    );
 }
 
 #[test]
@@ -81,7 +132,7 @@ fn a_turn_setting_that_no_longer_fits_hints_at_the_model_only_for_the_model() {
         CliError::TurnFailed { body }.hint()
     };
 
-    assert_eq!(setting("model"), Some(super::MODEL_HINT));
+    assert_eq!(setting("model").as_deref(), Some(super::MODEL_HINT));
     assert_eq!(setting("effort"), None, "the message names the efforts");
 }
 
@@ -94,7 +145,7 @@ fn a_daemon_that_does_not_answer_points_at_its_log() {
         CliError::Client(ClientError::ConnectTimedOut { socket, after }),
     ] {
         assert_eq!(
-            error.hint(),
+            error.hint().as_deref(),
             Some("the daemon is not answering; its log: journalctl --user -u efrd")
         );
     }
@@ -106,7 +157,7 @@ fn missing_directories_say_which_variable_to_set() {
     assert!(runtime.hint().unwrap().contains("EFR_RUNTIME_DIR"));
     assert!(runtime.hint().unwrap().contains("EFR_HOME"));
     let home = CliError::Dirs { source: efr_stdx::StdxError::HomeNotFound };
-    assert_eq!(home.hint(), Some("set HOME, or EFR_HOME"));
+    assert_eq!(home.hint().as_deref(), Some("set HOME, or EFR_HOME"));
 }
 
 #[test]
@@ -146,6 +197,14 @@ fn daemon_failures_exit_with_one() {
         assert_eq!(error.exit(), Exit::DaemonError, "{error}");
         assert_eq!(error.hint(), None);
     }
+}
+
+#[test]
+fn a_failed_or_interrupted_turn_has_no_message_because_the_view_showed_its_end() {
+    let body = ErrorBody::new(ErrorCode::Internal, "the provider is down");
+    assert!(CliError::TurnFailed { body }.is_silent());
+    assert!(CliError::TurnInterrupted.is_silent());
+    assert!(!CliError::TurnCancelled.is_silent(), "the view shows no end for it");
 }
 
 #[test]

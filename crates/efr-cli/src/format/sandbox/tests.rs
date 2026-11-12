@@ -1107,9 +1107,10 @@ fn a_changed_floor_file_names_its_backup_or_says_that_it_is_new() {
             zshrc,
             None,
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/1/.zshrc")),
-            home()
+            home(),
+            "\u{b7}"
         ),
-        "changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c/t/1/.zshrc"
+        "changed ~/.zshrc \u{b7} backup at ~/.local/share/efr/file-backups/c/t/1/.zshrc"
     );
     assert_eq!(
         home_changed(
@@ -1117,13 +1118,14 @@ fn a_changed_floor_file_names_its_backup_or_says_that_it_is_new() {
             None,
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/2/meta.json")),
             home(),
+            "\u{b7}",
         ),
-        "changed ~/.config/autostart/sync.desktop, which did not exist before; record at \
+        "changed ~/.config/autostart/sync.desktop, which did not exist before \u{b7} record at \
          ~/.local/share/efr/file-backups/c/t/2/meta.json"
     );
-    assert_eq!(home_changed(zshrc, None, None, home()), "changed ~/.zshrc");
+    assert_eq!(home_changed(zshrc, None, None, home(), "\u{b7}"), "changed ~/.zshrc");
     // A path is shown safely: it cannot move the cursor or turn the line around.
-    let hostile = home_changed(Path::new("/home/u/.zshrc\u{202e}\n"), None, None, home());
+    let hostile = home_changed(Path::new("/home/u/.zshrc\u{202e}\n"), None, None, home(), "\u{b7}");
     assert_eq!(hostile, "changed ~/.zshrc\u{fffd} ");
 }
 
@@ -1139,8 +1141,9 @@ fn backup_line_names_the_link_and_the_real_file() {
             Some(real),
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/1/x.conf")),
             home(),
+            "\u{b7}",
         ),
-        "changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf); backup at \
+        "changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf) \u{b7} backup at \
          ~/.local/share/efr/file-backups/c/t/1/x.conf"
     );
     assert_eq!(
@@ -1149,12 +1152,16 @@ fn backup_line_names_the_link_and_the_real_file() {
             Some(real),
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/2/meta.json")),
             home(),
+            "\u{b7}",
         ),
         "changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf), which did not \
-         exist before; record at ~/.local/share/efr/file-backups/c/t/2/meta.json"
+         exist before \u{b7} record at ~/.local/share/efr/file-backups/c/t/2/meta.json"
     );
     // A real file that is the path itself adds nothing.
-    assert_eq!(home_changed(real, Some(real), None, home()), "changed ~/dotfiles/hypr/x.conf");
+    assert_eq!(
+        home_changed(real, Some(real), None, home(), "\u{b7}"),
+        "changed ~/dotfiles/hypr/x.conf"
+    );
 }
 
 #[test]
@@ -1243,4 +1250,28 @@ fn the_verbose_record_names_the_writable_git_code() {
             "  git code: 1 part that the sandbox cannot write",
         ]
     );
+}
+
+/// TM-Endings frame 10, rows 1 and 2: the line of the reviewer's allow and the trace of
+/// the sandbox, each one muted row, in the three depths.
+#[test]
+fn the_reviewer_and_sandbox_notices_are_the_endings_board() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    use crate::format::ending::rows;
+    use crate::testing::design_options;
+
+    let write = Grant::Write { path: PathBuf::from("/home/u/.local/share/efr") };
+    let exit = requested("touch ~/.local/share/efr/x", &[ExitKind::Write], vec![write], &[]);
+    let reviewer = reviewed(Verdict::Allow, Some(Risk::Low), None, Some(&exit), home()).unwrap();
+    let trace = contained_trace(true, false, TraceNetwork::Proxy, &["app".to_owned()]);
+    let frame = Frame::load("TM-Endings", 10).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        let written: String = [&reviewer, &trace]
+            .iter()
+            .map(|line| rows(&[((*line).clone(), Tone::Dim)], 0, &options))
+            .collect();
+        assert_rows(&frame, 1..=2, &written, depth);
+    }
 }

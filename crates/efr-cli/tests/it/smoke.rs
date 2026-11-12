@@ -256,8 +256,9 @@ async fn a_turn_uses_its_prompts_settings_and_after_a_reload_the_new_defaults() 
         run(send(&["--mode", "manual", "--model", &other.id, "--effort", asked, "--", "one"]))
             .await;
     assert!(first.status.success(), "{}", text(&first.stderr));
-    let note = format!("mode manual, model {}, effort {asked}", other.id);
-    assert!(text(&first.stderr).contains(&note), "{}", text(&first.stderr));
+    // A reply has no first line for its settings: the prompt corner and the status row
+    // show them.
+    assert!(!text(&first.stderr).contains("mode manual"), "{}", text(&first.stderr));
 
     let file = daemon.dirs().dirs().config().join("config.toml");
     // NOTE: the provider stays in the file, or the reload goes back to the default.

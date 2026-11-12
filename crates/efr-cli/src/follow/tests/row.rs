@@ -34,7 +34,7 @@ use crate::testing::{
 };
 
 /// The note when Esc sent the unread steers again as a new prompt.
-const RESENT: &str = "interrupted to send your message";
+const RESENT: &str = "your steer";
 
 /// Waits until stdout, without its escape sequences, holds `text`.
 async fn shows(seen: &Captured, text: &str) {
@@ -1564,7 +1564,7 @@ async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
             };
             conn.reply(id, &page).await;
             let sub = subscribed(&mut conn, 10).await;
-            shows(&seen, "(job notice, not your input)").await;
+            shows(&seen, "a job notice started this turn (not your input)").await;
             conn.item(sub, &item(11, started(turn()))).await;
             conn.item(sub, &item(12, turn_completed())).await;
             conn.until_closed().await;
@@ -1572,7 +1572,7 @@ async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
         .await;
     result.unwrap();
     assert_eq!(
-        out.matches("\u{1f916} (job notice, not your input)").count(),
+        out.matches("a job notice started this turn (not your input)").count(),
         1,
         "{}",
         readable(&out)
@@ -1729,7 +1729,10 @@ async fn ctrl_b_moves_a_contained_call_at_once_whatever_the_row_holds() {
     let line = "moved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in";
     assert!(out.contains(line), "{}", readable(&out));
     assert!(!out.contains("this command to the background"), "no question: {}", readable(&out));
-    assert!(!out.contains("\u{2713}"), "no check mark for a moved call: {}", readable(&out));
+    // NOTE: the outcome line of the turn has its own mark.
+    let marked =
+        out.lines().filter(|line| !line.contains(" done")).any(|line| line.contains('\u{2713}'));
+    assert!(!marked, "no check mark for a moved call: {}", readable(&out));
     assert_eq!(setup.handed_back().as_deref(), Some("draft!"));
 }
 

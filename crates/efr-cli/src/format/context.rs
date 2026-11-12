@@ -1,6 +1,6 @@
 //! How full the model's context is, and the compactions that make room in it: the
-//! `ctx N%` gauge of the status row and the end-of-turn line, and the one muted line of
-//! each compaction. The rules are in the README of `efr-conversation`, section
+//! `ctx N%` gauge of the status row and of the end-of-turn line, and the one muted line
+//! of each compaction. The rules are in the README of `efr-conversation`, section
 //! "Context", "Display".
 //!
 //! N is the context's tokens as a percent of its limit, rounded down: the limit is the
@@ -9,10 +9,11 @@
 //! `success` below 50%, `warning` from 50% and `error` from 90%, each in the colour of
 //! the role only (`RenderOptions::tint`), so `warning` is not bold: the gauge stands in
 //! every status row and must not shout. Under `NO_COLOR` only the `error` level stands
-//! out, in bold, the attribute that `error` has in place of its colour.
+//! out, in bold, the attribute that `error` has in place of its colour. The end-of-turn
+//! line shows the gauge muted (TM-Endings 15): it says how full the context was.
 
 use efr_protocol::{Compaction, CompactionTrigger, ContextUse};
-use efr_render::{RenderOptions, Role, render_trace, text_width};
+use efr_render::{Glyphs, RenderOptions, Role};
 
 use super::{Tone, paint, wrap_spans};
 
@@ -56,69 +57,15 @@ impl Gauge {
 }
 
 /// A count of tokens as the context lines show it: as it is under 1000, `3.2k` under
-/// 10000, then whole thousands (`24k`, `207k`) and `1.2M`. The digits are cut, never
-/// rounded up.
+/// 10000 (`6k` with no tenths, as TM-Endings 5 writes it), then whole thousands
+/// (`24k`, `207k`) and `1.2M`. The digits are cut, never rounded up.
 pub(crate) fn count(tokens: u64) -> String {
     match tokens {
         0..1_000 => tokens.to_string(),
+        1_000..10_000 if (tokens / 100).is_multiple_of(10) => format!("{}k", tokens / 1_000),
         1_000..10_000 => format!("{}.{}k", tokens / 1_000, tokens / 100 % 10),
         10_000..1_000_000 => format!("{}k", tokens / 1_000),
         _ => format!("{}.{}M", tokens / 1_000_000, tokens / 100_000 % 10),
-    }
-}
-
-/// `ctx 43% (89k/207k)` for the end of a turn, as a gauge and the plain rest.
-pub(crate) fn end_part(context: &ContextUse) -> Option<(Gauge, String)> {
-    let gauge = Gauge::of(context)?;
-    Some((gauge, format!(" ({}/{})", count(context.tokens), count(context.limit))))
-}
-
-/// A muted line with the gauge in it, in the colour of its level: the end-of-turn line,
-/// such as `done in 42s, ctx 43% (89k/207k), 1.1k out`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GaugedLine {
-    before: String,
-    gauge: Option<Gauge>,
-    after: String,
-}
-
-impl GaugedLine {
-    /// The line `before`, the gauge, then `after`.
-    pub(crate) fn new(before: String, gauge: Option<Gauge>, after: String) -> GaugedLine {
-        GaugedLine { before, gauge, after }
-    }
-
-    /// The line as plain text.
-    pub(crate) fn plain(&self) -> String {
-        let gauge = self.gauge.map(Gauge::text).unwrap_or_default();
-        format!("{}{gauge}{}", self.before, self.after)
-    }
-
-    /// The line with its newline: muted, with the gauge in its colour, on a terminal
-    /// where it fits; otherwise as a trace line, which is plain off a terminal and
-    /// muted and cut to the width on one.
-    pub(crate) fn render(&self, options: &RenderOptions) -> String {
-        let plain = self.plain();
-        let fits = text_width(&plain, options.width_method()) <= usize::from(options.width());
-        let Some(gauge) = self.gauge.filter(|_| options.is_terminal() && fits) else {
-            return render_trace(&plain, options);
-        };
-        let mut out = String::new();
-        if !self.before.is_empty() {
-            out.push_str(&options.paint(Role::Muted, &self.before));
-        }
-        out.push_str(&gauge.paint(options));
-        if !self.after.is_empty() {
-            out.push_str(&options.paint(Role::Muted, &self.after));
-        }
-        out.push('\n');
-        out
-    }
-}
-
-impl From<String> for GaugedLine {
-    fn from(line: String) -> GaugedLine {
-        GaugedLine { before: line, gauge: None, after: String::new() }
     }
 }
 
@@ -132,9 +79,10 @@ pub(crate) fn after(compaction: &Compaction) -> ContextUse {
     }
 }
 
-/// The one muted line of a compaction, in the scrollback and in `efr history`:
+/// The one muted line of a compaction, in the scrollback and in `efr history`
+/// (TM-Endings 10, TM-Legend 32):
 ///
-/// - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`, with
+/// - `context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k`, with
 ///   `(efr compact)` for a manual one and `pruned 12 outputs` in place of the summary
 ///   when pruning alone made room, and `(left out 2 turns and 40 messages)` after the
 ///   summary for what it never saw, because it did not fit;
@@ -143,7 +91,9 @@ pub(crate) fn after(compaction: &Compaction) -> ContextUse {
 /// - `context full: compaction did not free enough room (still 240k); run ,compact or
 ///   efr new` when the context is still at or above its limit after it, a miss of the
 ///   breaker. After a manual compaction only `efr new` helps.
-pub(crate) fn compacted(compaction: &Compaction) -> String {
+///
+/// The arrow and the separator come from `glyphs`.
+pub(crate) fn compacted(compaction: &Compaction, glyphs: &Glyphs) -> String {
     let manual = compaction.trigger == CompactionTrigger::Manual;
     if compaction.limit > 0 && compaction.tokens_after >= compaction.limit {
         let way_out = if manual { "run efr new" } else { "run ,compact or efr new" };
@@ -161,15 +111,17 @@ pub(crate) fn compacted(compaction: &Compaction) -> String {
         );
     }
     let by = if manual { "efr compact" } else { "auto" };
+    let separator = format!(" {} ", glyphs.separator);
     let mut line = format!(
-        "context compacted ({by}): {} -> {} tokens",
+        "context compacted ({by}): {} {} {} tokens",
         count(compaction.tokens_before),
+        glyphs.arrow,
         count(compaction.tokens_after)
     );
     match compaction.kept_turns {
         0 => {}
-        1 => line.push_str(", kept 1 turn"),
-        turns => line.push_str(&format!(", kept {turns} turns")),
+        1 => line.push_str(&format!("{separator}kept 1 turn")),
+        turns => line.push_str(&format!("{separator}kept {turns} turns")),
     }
     match (&compaction.summary, compaction.pruned_outputs) {
         (Some(summary), _) => {
@@ -178,11 +130,11 @@ pub(crate) fn compacted(compaction: &Compaction) -> String {
                 .map(|usage| usage.output_tokens)
                 .filter(|tokens| *tokens > 0)
                 .unwrap_or_else(|| estimate(summary));
-            line.push_str(&format!(", summary {}", count(size)));
+            line.push_str(&format!("{separator}summary {}", count(size)));
         }
         (None, 0) => {}
-        (None, 1) => line.push_str(", pruned 1 output"),
-        (None, outputs) => line.push_str(&format!(", pruned {outputs} outputs")),
+        (None, 1) => line.push_str(&format!("{separator}pruned 1 output")),
+        (None, outputs) => line.push_str(&format!("{separator}pruned {outputs} outputs")),
     }
     line.push_str(&left_out(compaction));
     line
@@ -204,7 +156,7 @@ fn left_out(compaction: &Compaction) -> String {
 /// where a line wider than the screen goes on in the next row, indented 2 columns, so
 /// its way out is never cut off; plain elsewhere.
 pub(crate) fn compacted_rows(compaction: &Compaction, options: &RenderOptions) -> String {
-    let line = compacted(compaction);
+    let line = compacted(compaction, options.glyphs());
     if !options.is_terminal() {
         return format!("{line}\n");
     }

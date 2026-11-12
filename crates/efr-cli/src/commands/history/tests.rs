@@ -1169,7 +1169,7 @@ fn history_shows_reviewer_and_backup_lines() {
     // NOTE: the backup line stays whole at 60 columns: it names where the copy is.
     assert!(
         plain.contains(
-            "changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc\n"
+            "changed ~/.zshrc \u{b7} backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc\n"
         ),
         "{plain}"
     );
@@ -1404,11 +1404,14 @@ fn history_names_a_home_file_that_two_calls_changed_once() {
     };
     let covered = shown(page(true));
     assert_eq!(covered.matches("changed ~/.zshrc").count(), 1, "{covered}");
-    assert!(covered.contains("changed ~/.zshrc; efr undo reverts it\n"), "{covered}");
+    assert!(covered.contains("changed ~/.zshrc \u{b7} efr undo reverts it\n"), "{covered}");
     // The second change was not copied: undo cannot revert the file.
     let not_covered = shown(page(false));
     assert_eq!(not_covered.matches("changed ~/.zshrc").count(), 1, "{not_covered}");
-    assert!(not_covered.contains("changed ~/.zshrc; efr undo cannot revert it\n"), "{not_covered}");
+    assert!(
+        not_covered.contains("changed ~/.zshrc \u{b7} efr undo cannot revert it\n"),
+        "{not_covered}"
+    );
 }
 
 #[test]
@@ -1422,7 +1425,7 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
         &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
     );
     for line in [
-        "changed ~/.zshrc; efr undo reverts it\n",
+        "changed ~/.zshrc \u{b7} efr undo reverts it\n",
         "changed 1 file  in ~ \u{b7} efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
         &format!(
             "undid turn {}: 2 files restored, 1 moved to the undo trash, 1 skipped (changed \

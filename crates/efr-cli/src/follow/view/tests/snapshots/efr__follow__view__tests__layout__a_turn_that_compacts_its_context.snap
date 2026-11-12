@@ -7,16 +7,19 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
 
 [running]
-\e[33m•\e[0m \e[2m$\e[0m cargo test --workspace   \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
 
 [compacting]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
 
 [full]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
+
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of\e[0m
   \e[2m272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free\e[0m
@@ -25,9 +28,11 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
 
 [end]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
+
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of\e[0m
   \e[2m272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free\e[0m
@@ -36,23 +41,27 @@ expression: "every_way(&[Sent(0, turn_started()), Drafted(counted(98_400)),\nSho
 
 The tests pass.
 
-\e[2mdone in 42s, ctx 94% (196k/206k), 1.1k …\e[0m
+\e[32m✓\e[0m done  \e[2m42s · ctx 94% · 1.1k out · cache\e[0m
+  \e[2m0%\e[0m
 
 === 40 columns, NO_COLOR
 [counted]
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  ctx 47%
 
 [running]
-\e[1m•\e[0m \e[2m$\e[0m cargo test --workspace   ctx 47%
+\e[1m•\e[0m $ cargo test --workspace  ctx 47%
 
 [compacting]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
 \e[1m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[1mctx 99%\e[0m
 
 [full]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
+
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of\e[0m
   \e[2m272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free\e[0m
@@ -61,9 +70,11 @@ The tests pass.
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[1mctx 116%\e[0m
 
 [end]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
+
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of\e[0m
   \e[2m272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free\e[0m
@@ -72,67 +83,78 @@ The tests pass.
 
 The tests pass.
 
-\e[2mdone in 42s, ctx 94% (196k/206k), 1.1k …\e[0m
+✓ done  \e[2m42s · ctx 94% · 1.1k out · cache\e[0m
+  \e[2m0%\e[0m
 
 === 80 columns, colour
 [counted]
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[32mctx 47%\e[0m
 
 [running]
-\e[33m•\e[0m \e[2m$\e[0m cargo test --workspace   \e[32mctx 47%\e[0m
+\e[33m•\e[0m \e[32m$ cargo test --workspace\e[0m  \e[32mctx 47%\e[0m
 
 [compacting]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
 \e[33m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[31mctx 99%\e[0m
 
 [full]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
+
+\e[2mcontext compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[31mctx 116%\e[0m
 
 [end]
-\e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[33m·\e[0m \e[32m$ cargo test --workspace\e[0m
+  \e[32m✓ 1.3s\e[0m
+
+\e[2mcontext compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
 
 The tests pass.
 
-\e[2mdone in 42s, \e[0m\e[31mctx 94%\e[0m\e[2m (196k/206k), 1.1k out, cache 0%\e[0m
+\e[32m✓\e[0m done  \e[2m42s · ctx 94% · 1.1k out · cache 0%\e[0m
 
 === 80 columns, NO_COLOR
 [counted]
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  ctx 47%
 
 [running]
-\e[1m•\e[0m \e[2m$\e[0m cargo test --workspace   ctx 47%
+\e[1m•\e[0m $ cargo test --workspace  ctx 47%
 
 [compacting]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
 \e[1m•\e[0m \e[2mcompacting context\e[0m  \e[2m1s\e[0m  \e[1mctx 99%\e[0m
 
 [full]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
+
+\e[2mcontext compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m12s\e[0m  \e[1mctx 116%\e[0m
 
 [end]
-✓ \e[2m$\e[0m \e[2mcargo test --workspace\e[0m  \e[2m1.3s\e[0m
-\e[2mcontext compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[1m·\e[0m $ cargo test --workspace
+  ✓ 1.3s
+
+\e[2mcontext compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k\e[0m
 \e[2mcontext full: the request was 231k of 272k tokens; compacted and retried\e[0m
 \e[2mcontext full: compaction did not free enough room (still 240k); run ,compact or\e[0m
   \e[2mefr new\e[0m
 
 The tests pass.
 
-\e[2mdone in 42s, \e[0m\e[1mctx 94%\e[0m\e[2m (196k/206k), 1.1k out, cache 0%\e[0m
+✓ done  \e[2m42s · ctx 94% · 1.1k out · cache 0%\e[0m
 
 === not a terminal
 [counted]
@@ -146,13 +168,16 @@ stderr:
 [compacting]
 stdout:
 stderr:
-✓ $ cargo test --workspace  1.3s
+· $ cargo test --workspace
+  ✓ 1.3s
 
 [full]
 stdout:
 stderr:
-✓ $ cargo test --workspace  1.3s
-context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k
+· $ cargo test --workspace
+  ✓ 1.3s
+
+context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k
 context full: the request was 231k of 272k tokens; compacted and retried
 context full: compaction did not free enough room (still 240k); run ,compact or efr new
 
@@ -160,7 +185,9 @@ context full: compaction did not free enough room (still 240k); run ,compact or 
 stdout:
 The tests pass.
 stderr:
-✓ $ cargo test --workspace  1.3s
-context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k
+· $ cargo test --workspace
+  ✓ 1.3s
+
+context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k
 context full: the request was 231k of 272k tokens; compacted and retried
 context full: compaction did not free enough room (still 240k); run ,compact or efr new

@@ -1,4 +1,6 @@
-//! The one error type of the CLI, and the exit code each failure maps to.
+//! The one error type of the CLI, the exit code each failure maps to, and what fixes
+//! a failure (TM-Endings 14, 21, 22, TM-Legend 36): a command that the user can copy,
+//! alone on its row in the `code` role, or a sentence when no one command fixes it.
 
 use std::io;
 
@@ -8,10 +10,55 @@ use efr_stdx::StdxError;
 use efr_stdx::env::Var;
 use efr_transport::client::ClientError;
 
+use crate::format::Tone;
+use crate::format::route::Pieces;
 use crate::turn_settings::SettingSource;
 
+/// What fixes a failure, on a row of its own under it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Fix {
+    /// The commands that fix it, each one whole so a double click copies it; more than
+    /// one are choices, such as `,compact` or `efr new`.
+    Commands(Vec<String>),
+    /// What to do, in a sentence: no one command fixes it. It shows muted.
+    Sentence(&'static str),
+}
+
+impl Fix {
+    /// One command that fixes the failure.
+    fn command(command: impl Into<String>) -> Fix {
+        Fix::Commands(vec![command.into()])
+    }
+
+    /// The fix as pieces: each command in `code`, with a muted `or` between two; a
+    /// sentence muted.
+    pub(crate) fn pieces(&self) -> Pieces {
+        match self {
+            Fix::Commands(commands) => {
+                let mut pieces = Vec::new();
+                for (at, command) in commands.iter().enumerate() {
+                    if at > 0 {
+                        pieces.push((" ".to_owned(), Tone::Plain));
+                        pieces.push(("or".to_owned(), Tone::Dim));
+                        pieces.push((" ".to_owned(), Tone::Plain));
+                    }
+                    pieces.push((command.clone(), Tone::Code));
+                }
+                pieces
+            }
+            Fix::Sentence(sentence) => vec![((*sentence).to_owned(), Tone::Dim)],
+        }
+    }
+
+    /// The fix as plain text, such as `,compact or efr new`.
+    #[cfg(test)]
+    pub(crate) fn text(&self) -> String {
+        crate::format::ending::plain(&self.pieces())
+    }
+}
+
 /// The next step when the model provider `provider` (an id of `[model] provider`) has
-/// no usable credentials.
+/// no usable credentials, as a sentence, for `efr status` and `efr logout`.
 pub(crate) fn login_hint(provider: &str) -> &'static str {
     match provider {
         "openai-api" => "log in with: efr login openai-api",
@@ -20,9 +67,70 @@ pub(crate) fn login_hint(provider: &str) -> &'static str {
     }
 }
 
+/// The command that logs in to the model provider `provider` (an id of `[model]
+/// provider`, or the provider of a turn), such as `efr login anthropic-api`; an
+/// account's id, such as `anthropic-api.work`, gives `--account work`.
+pub(crate) fn login_command(provider: &str) -> String {
+    let (kind, account) = match provider.split_once('.') {
+        Some((kind, account)) if !account.is_empty() => (kind, Some(account)),
+        _ => (provider, None),
+    };
+    let name = match kind {
+        "openai-api" => "openai-api",
+        "anthropic-api" => "anthropic-api",
+        _ => "openai",
+    };
+    match account {
+        Some(account) => format!("efr login {name} --account {account}"),
+        None => format!("efr login {name}"),
+    }
+}
+
 /// The next step when the provider refuses the model. Which model ids the
 /// subscription serves to efr is unknown until it answers, so a first run may meet it.
 pub(crate) const MODEL_HINT: &str = "choose another model: ,model <model> for this terminal, or name = \"<model>\" under [model] in config.toml, which the daemon reloads without a restart";
+
+/// The cause that efrd names in the data of a turn that failed because its context is
+/// full (`efr-conversation` `context_full`).
+const CONTEXT_OVERFLOW: &str = "context_overflow";
+
+/// Why a turn failed and what fixes it, for the rows under `✗ failed` (TM-Endings 21,
+/// 22): the daemon's message, with its own way out left out where the fix names it, and
+/// the fix; a login fix names the login of `provider`, the provider that ran the turn.
+pub(crate) fn turn_failure(body: &ErrorBody, provider: &str) -> (String, Option<Fix>) {
+    let message = crate::format::one_line(&body.message);
+    let cause = body.data.as_ref().and_then(|data| data.get("cause"));
+    if cause.is_some_and(|cause| cause == CONTEXT_OVERFLOW) {
+        // NOTE: efrd ends the message with its way out after `; `: `run ,compact or
+        // start a new conversation`, or only the new conversation when the newest
+        // messages alone do not fit, which a compaction cannot help.
+        if let Some((reason, way_out)) = message.rsplit_once("; ") {
+            let commands = if way_out.contains(",compact") {
+                vec![",compact".to_owned(), "efr new".to_owned()]
+            } else {
+                vec!["efr new".to_owned()]
+            };
+            return (reason.to_owned(), Some(Fix::Commands(commands)));
+        }
+    }
+    let fix = match body.code {
+        // A turn fails as unauthorized when the provider has no usable credentials.
+        ErrorCode::Unauthorized => Some(Fix::command(login_command(provider))),
+        // The daemon names the refused model in the data of an `invalid` turn: the
+        // provider's refusal has a `model`, a turn setting that no longer fits has a
+        // `setting`, which names the model for an effort too.
+        ErrorCode::Invalid
+            if body.data.as_ref().is_some_and(|data| match data.get("setting") {
+                Some(setting) => setting == "model",
+                None => data.get("model").is_some(),
+            }) =>
+        {
+            Some(Fix::Sentence(MODEL_HINT))
+        }
+        _ => None,
+    };
+    (message, fix)
+}
 
 /// How `efr` exits. The zsh plugin and scripts tell the cases apart by the code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -478,80 +586,73 @@ impl CliError {
         }
     }
 
-    /// A next step for the user, printed on its own line after the error, with the
-    /// default provider in a login hint. See [`hint_for`](Self::hint_for).
+    /// What fixes the failure, as plain text, with the default provider in a login fix.
+    /// See [`hint_for`](Self::hint_for).
     #[cfg(test)]
-    pub(crate) fn hint(&self) -> Option<&'static str> {
-        self.hint_for(efr_config::DEFAULT_PROVIDER)
+    pub(crate) fn hint(&self) -> Option<String> {
+        self.hint_for(efr_config::DEFAULT_PROVIDER).as_ref().map(Fix::text)
     }
 
-    /// A next step for the user, printed on its own line after the error. The ones a
-    /// first run meets most (no daemon, no login) name the command that fixes them; a
-    /// login hint names the login of `provider`, the provider of the config.
-    pub(crate) fn hint_for(&self, provider: &str) -> Option<&'static str> {
+    /// What fixes the failure, on its own row after the error. The ones a first run
+    /// meets most (no daemon, no login) name the command that fixes them; a login fix
+    /// names the login of `provider`, the provider of the config.
+    pub(crate) fn hint_for(&self, provider: &str) -> Option<Fix> {
         match self {
-            CliError::Client(ClientError::DaemonNotRunning { .. }) => Some(
-                "start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one",
-            ),
+            CliError::Client(ClientError::DaemonNotRunning { .. }) => {
+                Some(Fix::command("systemctl --user start efrd"))
+            }
             CliError::Client(ClientError::SocketPathTooLong { .. }) => {
-                Some("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory")
+                Some(Fix::Sentence("set EFR_RUNTIME_DIR, or EFR_HOME, to a shorter directory"))
             }
             CliError::Client(
                 ClientError::ConnectTimedOut { .. } | ClientError::HelloTimedOut { .. },
-            ) => Some("the daemon is not answering; its log: journalctl --user -u efrd"),
-            CliError::Client(ClientError::ProtocolMismatch { .. }) => {
-                Some("efr and efrd come from different builds; install both from one build")
-            }
-            CliError::Dirs { source: StdxError::RuntimeDirUnset } => Some(
+            ) => Some(Fix::Sentence(
+                "the daemon is not answering; its log: journalctl --user -u efrd",
+            )),
+            CliError::Client(ClientError::ProtocolMismatch { .. }) => Some(Fix::Sentence(
+                "efr and efrd come from different builds; install both from one build",
+            )),
+            CliError::Dirs { source: StdxError::RuntimeDirUnset } => Some(Fix::Sentence(
                 "a systemd login sets XDG_RUNTIME_DIR; without one, set EFR_HOME or EFR_RUNTIME_DIR",
-            ),
-            CliError::Dirs { source: StdxError::HomeNotFound } => Some("set HOME, or EFR_HOME"),
-            // A turn fails as unauthorized when the provider has no usable credentials.
-            CliError::TurnFailed { body } if body.code == ErrorCode::Unauthorized => {
-                Some(login_hint(provider))
+            )),
+            CliError::Dirs { source: StdxError::HomeNotFound } => {
+                Some(Fix::Sentence("set HOME, or EFR_HOME"))
             }
-            CliError::KeyNotChecked { retry, .. } => Some(retry),
-            CliError::KeyVariableUnset { .. } | CliError::NoKey { .. } => Some(
+            CliError::TurnFailed { body } => turn_failure(body, provider).1,
+            CliError::KeyNotChecked { retry, .. } => Some(Fix::Sentence(retry)),
+            CliError::KeyVariableUnset { .. } | CliError::NoKey { .. } => Some(Fix::Sentence(
                 "give the key on a terminal, which does not show it, or on stdin, such as: printenv OPENAI_API_KEY | efr login openai-api",
-            ),
-            // The daemon names the refused model in the data of an `invalid` turn: the
-            // provider's refusal has a `model`, a turn setting that no longer fits has a
-            // `setting`, which names the model for an effort too.
-            CliError::TurnFailed { body }
-                if body.code == ErrorCode::Invalid
-                    && body.data.as_ref().is_some_and(|data| match data.get("setting") {
-                        Some(setting) => setting == "model",
-                        None => data.get("model").is_some(),
-                    }) =>
-            {
-                Some(MODEL_HINT)
-            }
+            )),
             CliError::UndoRefused { body } => match crate::commands::undo::refused_kind(body) {
-                Some("later_turns_not_undone") => {
-                    Some("undo the newer turn first, or add --force to undo this one anyway")
+                Some("later_turns_not_undone") => Some(Fix::Sentence(
+                    "undo the newer turn first, or add --force to undo this one anyway",
+                )),
+                Some("nothing_to_undo") => {
+                    Some(Fix::Sentence("efr undo --list shows the turns and their state"))
                 }
-                Some("nothing_to_undo") => Some("efr undo --list shows the turns and their state"),
-                Some("no_redo") => Some("efr undo --list shows which turns are undone"),
+                Some("no_redo") => {
+                    Some(Fix::Sentence("efr undo --list shows which turns are undone"))
+                }
                 _ => None,
             },
             CliError::SearchWithoutWords => {
-                Some(",resume in zsh, or efr resume, lists the recent conversations")
+                Some(Fix::Sentence(",resume in zsh, or efr resume, lists the recent conversations"))
             }
-            CliError::NewWithoutPrompt => {
-                Some("in zsh, a bare ,new makes the next , line start a new conversation")
-            }
+            CliError::NewWithoutPrompt => Some(Fix::Sentence(
+                "in zsh, a bare ,new makes the next , line start a new conversation",
+            )),
             CliError::NoAllowRule { .. } | CliError::AllowRuleMoved { .. } => {
-                Some("efr sandbox allow lists the rules with their numbers")
+                Some(Fix::Sentence("efr sandbox allow lists the rules with their numbers"))
             }
             // NOTE: efrd names a tailnet listener that is off or down in the error data.
             CliError::Client(ClientError::Server { body }) => {
                 match body.data.as_ref().and_then(|data| data.get("remote")) {
-                    Some(remote) if remote == "off" => Some(
+                    Some(remote) if remote == "off" => Some(Fix::Sentence(
                         "turn it on with: efr config set remote.enabled true, then restart efrd: systemctl --user restart efrd",
-                    ),
-                    Some(remote) if remote == "not_listening" => Some(
+                    )),
+                    Some(remote) if remote == "not_listening" => Some(Fix::Sentence(
                         "check that Tailscale runs and is logged in: tailscale status; efrd's log: journalctl --user -u efrd",
-                    ),
+                    )),
                     _ => None,
                 }
             }
@@ -559,11 +660,14 @@ impl CliError {
         }
     }
 
-    /// True when the failure needs no message: the reader of stdout went away, or the
-    /// user interrupted and already sees that.
+    /// True when the failure needs no message: the reader of stdout went away, the user
+    /// interrupted and already sees that, or the view of the turn showed how it ended.
     pub(crate) fn is_silent(&self) -> bool {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
+            // NOTE: the view of the turn showed a failed or interrupted turn already:
+            // `✗ failed` with its reason and its fix, or `■ interrupted`.
+            CliError::TurnFailed { .. } | CliError::TurnInterrupted => true,
             CliError::Interrupted
             | CliError::Escaped
             | CliError::Ended { .. }

@@ -2,8 +2,12 @@ use efr_protocol::{Compaction, CompactionTrigger, ContextUse};
 use efr_render::{ColourMode, RenderOptions, Role};
 use pretty_assertions::assert_eq;
 
-use super::{Gauge, compacted, count};
+use efr_render::Glyphs;
+
+use super::{Gauge, compacted, compacted_rows, count};
 use crate::testing::compaction;
+
+const G: &Glyphs = &Glyphs::UNICODE;
 
 fn context(tokens: u64, limit: u64) -> ContextUse {
     ContextUse { tokens, limit, window: 272_000 }
@@ -64,7 +68,7 @@ fn counts_are_short_and_cut() {
             .into_iter()
             .map(count)
             .collect();
-    assert_eq!(shown, ["0", "999", "1.0k", "3.2k", "9.9k", "10k", "24k", "206k", "999k", "1.2M"]);
+    assert_eq!(shown, ["0", "999", "1k", "3.2k", "9.9k", "10k", "24k", "206k", "999k", "1.2M"]);
 }
 
 #[test]
@@ -84,36 +88,39 @@ fn each_compaction_has_its_line() {
     let estimated =
         Compaction { usage: None, summary: Some("x".repeat(12_801)), ..compaction(Manual, 19_000) };
     let lines = [
-        compacted(&compaction(Auto, 24_100)),
-        compacted(&compaction(Manual, 19_000)),
-        compacted(&pruned),
-        compacted(&estimated),
-        compacted(&Compaction { tokens_before: 281_300, ..compaction(Overflow, 24_100) }),
-        compacted(&compaction(Auto, 240_000)),
-        compacted(&compaction(Overflow, 206_720)),
-        compacted(&compaction(Manual, 240_000)),
-        compacted(&Compaction { kept_turns: 0, ..compaction(Manual, 19_000) }),
-        compacted(&Compaction { omitted_messages: 40, ..compaction(Auto, 24_100) }),
-        compacted(&Compaction {
-            omitted_turns: 1,
-            omitted_messages: 1,
-            tokens_before: 281_300,
-            ..compaction(Overflow, 24_100)
-        }),
+        compacted(&compaction(Auto, 24_100), G),
+        compacted(&compaction(Manual, 19_000), G),
+        compacted(&pruned, G),
+        compacted(&estimated, G),
+        compacted(&Compaction { tokens_before: 281_300, ..compaction(Overflow, 24_100) }, G),
+        compacted(&compaction(Auto, 240_000), G),
+        compacted(&compaction(Overflow, 206_720), G),
+        compacted(&compaction(Manual, 240_000), G),
+        compacted(&Compaction { kept_turns: 0, ..compaction(Manual, 19_000) }, G),
+        compacted(&Compaction { omitted_messages: 40, ..compaction(Auto, 24_100) }, G),
+        compacted(
+            &Compaction {
+                omitted_turns: 1,
+                omitted_messages: 1,
+                tokens_before: 281_300,
+                ..compaction(Overflow, 24_100)
+            },
+            G,
+        ),
     ];
     assert_eq!(
         lines,
         [
-            "context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k",
-            "context compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k",
-            "context compacted (auto): 231k -> 180k tokens, kept 1 turn, pruned 12 outputs",
-            "context compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k",
+            "context compacted (auto): 231k \u{2192} 24k tokens \u{b7} kept 3 turns \u{b7} summary 3.2k",
+            "context compacted (efr compact): 231k \u{2192} 19k tokens \u{b7} kept 3 turns \u{b7} summary 3.2k",
+            "context compacted (auto): 231k \u{2192} 180k tokens \u{b7} kept 1 turn \u{b7} pruned 12 outputs",
+            "context compacted (efr compact): 231k \u{2192} 19k tokens \u{b7} kept 3 turns \u{b7} summary 3.2k",
             "context full: the request was 281k of 272k tokens; compacted and retried",
             "context full: compaction did not free enough room (still 240k); run ,compact or efr new",
             "context full: compaction did not free enough room (still 206k); run ,compact or efr new",
             "context full: compaction did not free enough room (still 240k); run efr new",
-            "context compacted (efr compact): 231k -> 19k tokens, summary 3.2k",
-            "context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k (left out 40 messages)",
+            "context compacted (efr compact): 231k \u{2192} 19k tokens \u{b7} summary 3.2k",
+            "context compacted (auto): 231k \u{2192} 24k tokens \u{b7} kept 3 turns \u{b7} summary 3.2k (left out 40 messages)",
             "context full: the request was 281k of 272k tokens; compacted and retried (left out 1 turn and 1 message)",
         ]
     );
@@ -139,4 +146,24 @@ fn the_gauge_is_the_legend() {
     let none = design_options(Depth::NoColor, frame.cols);
     assert_eq!(gauge(67, 100).paint(&none), "ctx 67%");
     assert_eq!(gauge(93, 100).paint(&none), "\x1b[1mctx 93%\x1b[0m");
+}
+
+/// TM-Endings frame 10, row 0: the compaction notice, one muted row with the arrow and
+/// the separator, in the three depths; and its ASCII form.
+#[test]
+fn the_compaction_notice_is_the_endings_board() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    use crate::testing::design_options;
+
+    let frame = Frame::load("TM-Endings", 10).unwrap();
+    let auto = compaction(CompactionTrigger::Auto, 24_100);
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 0..=0, &compacted_rows(&auto, &options), depth);
+    }
+    assert_eq!(
+        compacted(&auto, &Glyphs::ASCII),
+        "context compacted (auto): 231k -> 24k tokens - kept 3 turns - summary 3.2k"
+    );
 }

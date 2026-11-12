@@ -41,9 +41,33 @@ fn a_message_from_the_daemon_cannot_drive_the_terminal() {
 #[test]
 fn a_hint_follows_on_its_own_line() {
     let error = CliError::Client(ClientError::DaemonNotRunning { socket: PathBuf::from("/s") });
+    assert_eq!(message(&error), "efr: no daemon listens on /s\n  systemctl --user start efrd\n");
+}
+
+/// TM-Endings frame 14: an error outside a turn, `efr:` in `error` bold and the message
+/// in `text`, then the command that fixes it 2 columns in, in `code`, in the three
+/// depths.
+#[test]
+fn an_error_outside_a_turn_is_the_endings_board() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    use crate::testing::design_options;
+
+    let frame = Frame::load("TM-Endings", 14).unwrap();
+    let socket = PathBuf::from("/run/user/1000/efr/efrd.sock");
+    let error = CliError::Client(ClientError::DaemonNotRunning { socket });
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        let text = super::message_for(&error, "openai-api", &options);
+        assert_rows(&frame, 1..=2, &text, depth);
+    }
+    // A fix that is a sentence is muted.
+    let none = design_options(Depth::NoColor, 80);
+    let dirs = CliError::Dirs { source: efr_stdx::StdxError::HomeNotFound };
     assert_eq!(
-        message(&error),
-        "efr: no daemon is listening on /s\nefr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n"
+        super::message_for(&dirs, "openai-api", &none),
+        "\x1b[1mefr:\x1b[0m the efr directories could not be found: the home directory could not be found\n  \
+         \x1b[2mset HOME, or EFR_HOME\x1b[0m\n"
     );
 }
 

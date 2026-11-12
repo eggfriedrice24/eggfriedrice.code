@@ -1,6 +1,6 @@
-//! A turn in full mode: the line in the error role at its start, the question of a
-//! delete that full mode guards with its time limit, and the line at its end that says
-//! what full mode let through. The events are built by hand, as efrd sends them.
+//! A turn in full mode: no line at its start, the question of a delete that full mode
+//! guards with its time limit, and the line at its end that says what full mode let
+//! through. The events are built by hand, as efrd sends them.
 
 use std::path::PathBuf;
 
@@ -96,22 +96,19 @@ fn write_let_through(call_id: CallId, name: &str) -> [Event; 2] {
     ]
 }
 
+/// `DECISIONS.md`, "The frame of a turn": full mode has no line for each turn. `,mode
+/// full` said it once (TM-Endings 8), and the prompt corner and the status row keep
+/// `full` in the error role. A full turn starts as a turn in any other mode.
 #[test]
-fn a_full_turn_says_so_at_the_start_in_the_error_role() {
+fn a_full_turn_has_no_line_at_its_start() {
     let palette = Palette::new().with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75));
     let options = RenderOptions::new(100).with_colour(ColourMode::TrueColor).with_palette(palette);
-    let mut view = TurnView::new(turn(), options);
-    let (out, err, _) = wide(&mut view, &[started(Mode::Full)], true);
-    assert_eq!(err, "");
-    let line = "full mode: no sandbox, no questions; efr undo reverts the project and the \
-                files efr saw";
-    assert!(out.contains(&format!("{RED}{line}\x1b[0m\n")), "{}", readable(&out));
-    // Without a terminal the line goes to stderr, plain.
-    let mut view = sandbox_view(false);
-    let (out, err, _) = wide(&mut view, &[started(Mode::Full)], true);
-    assert_eq!((out.as_str(), err.as_str()), ("", format!("{line}\n").as_str()));
-    // Another mode has no such line.
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in [Mode::Full, Mode::Manual, Mode::Cautious, Mode::Auto] {
+        let mut view = TurnView::new(turn(), options.clone());
+        let (out, err, _) = wide(&mut view, &[started(mode)], true);
+        assert_eq!(err, "", "{mode}");
+        assert!(!out.contains(RED) && !out.contains("full mode"), "{mode}: {}", readable(&out));
+        // Without a terminal nothing goes to stderr either.
         let mut view = sandbox_view(false);
         let (out, err, _) = wide(&mut view, &[started(mode)], true);
         assert_eq!((out.as_str(), err.as_str()), ("", ""), "{mode}");

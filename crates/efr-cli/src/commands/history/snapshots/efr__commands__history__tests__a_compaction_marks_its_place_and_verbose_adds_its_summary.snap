@@ -6,27 +6,29 @@ expression: "shown.join(\"\\n\")"
 \e[2mconversation 019a9b1c-3d00-7a10-8b20-000000000001\e[0m
 \e[1m> run the tests\e[0m
 
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 
 The tests pass.
 
-\e[2mcontext compacted (efr compact): 231k ->\e[0m
-  \e[2m19k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[2mcontext compacted (efr compact): 231k →\e[0m
+  \e[2m19k tokens · kept 3 turns · summary\e[0m
+  \e[2m3.2k\e[0m
 
 === terminal, 40 columns, verbose true
 \e[2mconversation 019a9b1c-3d00-7a10-8b20-000000000001\e[0m
 \e[1m> run the tests\e[0m
 
-\e[2mcontext compacted (auto): 231k -> 24k\e[0m
-  \e[2mtokens, kept 3 turns, summary 3.2k\e[0m
+\e[2mcontext compacted (auto): 231k → 24k\e[0m
+  \e[2mtokens · kept 3 turns · summary 3.2k\e[0m
 \e[2m  summary:\e[0m
 \e[2m    ## Task and state\e[0m
 
 The tests pass.
 
-\e[2mcontext compacted (efr compact): 231k ->\e[0m
-  \e[2m19k tokens, kept 3 turns, summary 3.2k\e[0m
+\e[2mcontext compacted (efr compact): 231k →\e[0m
+  \e[2m19k tokens · kept 3 turns · summary\e[0m
+  \e[2m3.2k\e[0m
 \e[2m  focus: the failing test␛[2J\e[0m
 \e[2m  summary:\e[0m
 \e[2m    ## Task and state\e[0m
@@ -39,23 +41,23 @@ The tests pass.
 conversation 019a9b1c-3d00-7a10-8b20-000000000001
 > run the tests
 
-context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k
+context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k
 
 The tests pass.
 
-context compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k
+context compacted (efr compact): 231k → 19k tokens · kept 3 turns · summary 3.2k
 
 === pipe, verbose true
 conversation 019a9b1c-3d00-7a10-8b20-000000000001
 > run the tests
 
-context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k
+context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k
   summary:
     ## Task and state
 
 The tests pass.
 
-context compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k
+context compacted (efr compact): 231k → 19k tokens · kept 3 turns · summary 3.2k
   focus: the failing test␛[2J
   summary:
     ## Task and state

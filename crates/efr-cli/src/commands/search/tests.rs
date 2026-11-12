@@ -263,7 +263,7 @@ async fn search_without_words_is_a_usage_error_that_names_resume() {
     assert_eq!(ran.exit, Exit::Usage);
     assert_eq!(
         ran.stderr,
-        "efr: efr search needs the words to find\nefr: ,resume in zsh, or efr resume, lists the recent conversations\n"
+        "efr: efr search needs the words to find\n  ,resume in zsh, or efr resume, lists the recent conversations\n"
     );
 }
 

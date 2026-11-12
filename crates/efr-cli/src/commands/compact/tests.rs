@@ -101,7 +101,7 @@ async fn efr_compact_compacts_the_newest_conversation_and_says_what_came_of_it()
     assert_eq!((asked.conversation_id, asked.focus), (conversation(), None));
     assert_eq!(
         ran.stdout,
-        "context compacted (efr compact): 231k -> 19k tokens, kept 3 turns, summary 3.2k\n"
+        "context compacted (efr compact): 231k -> 19k tokens - kept 3 turns - summary 3.2k\n"
     );
     assert_eq!(
         ran.stderr,

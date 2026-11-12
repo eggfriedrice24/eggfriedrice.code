@@ -4,7 +4,7 @@ expression: "format!(\"{plain}---\\n{verbose}\")"
 ---
 conversation 019a9b1c-3d00-7a10-8b20-000000000001
 reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
-changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
+changed ~/.zshrc · backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
 reviewer refused: git push: no message of yours names a push
 reviewer paused for this turn: it refused 3 actions in a row; efr asks you for the rest
 approval expired: nobody answered while you were away; the call did not run
@@ -19,7 +19,7 @@ exit requested: persistence (predicted from the line); a yes opens ~/.zshrc writ
 reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
 exit allowed by the reviewer: file edit
   model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
-changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
+changed ~/.zshrc · backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
 exit requested: upload (predicted from the line)
   line: git push
   cwd: ~/project

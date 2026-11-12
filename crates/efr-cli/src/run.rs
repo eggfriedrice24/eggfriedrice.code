@@ -1,7 +1,9 @@
 //! Runs one parsed command line: gathers the context, dispatches to the command, and
-//! turns the outcome into an exit code and, on failure, a message on stderr.
+//! turns the outcome into an exit code and, on failure, a message on stderr
+//! (TM-Endings 14): `efr:` in `error` bold and the message in `text`, then, 2 columns
+//! in on a row of its own, what fixes it: a command in `code`, or a muted sentence.
 
-use std::fmt::Write as _;
+use efr_render::{Glyphs, RenderOptions};
 
 use crate::cli::{Cli, Command};
 use crate::commands::{
@@ -11,7 +13,7 @@ use crate::commands::{
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
-use crate::format;
+use crate::format::{self, Tone};
 use crate::output::Output;
 use crate::terminal::TermFacts;
 
@@ -25,13 +27,14 @@ pub(crate) fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
 /// Runs `cli` in this process.
 pub(crate) async fn main(cli: Cli, term: TermFacts) -> Exit {
     let mut out = Output::process();
+    let options = stderr_options(&term, None);
     match Context::from_process(term).await {
         Ok(ctx) => run(&cli.command, &ctx, &mut out).await,
         Err(error) => match &cli.command {
             Command::Search(args) if args.is_hidden() => {
                 search::without_context(args, &error, &mut out)
             }
-            _ => report(&error, &mut out, efr_config::DEFAULT_PROVIDER),
+            _ => report(&error, &mut out, efr_config::DEFAULT_PROVIDER, &options),
         },
     }
 }
@@ -75,33 +78,56 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
     match result {
         Ok(()) => Exit::Success,
         Err(error) if quiet => error.exit(),
-        Err(error) => report(&error, out, ctx.settings.provider()),
+        Err(error) => {
+            let options = stderr_options(&ctx.term, Some(&ctx.settings));
+            report(&error, out, ctx.settings.provider(), &options)
+        }
     }
 }
 
+/// The options for efr's own lines on stderr: the colours of the terminal and of
+/// `settings`, when stderr is a terminal; plain otherwise.
+fn stderr_options(term: &TermFacts, settings: Option<&crate::settings::Settings>) -> RenderOptions {
+    let options = match settings {
+        Some(settings) => term.render_options(80, settings),
+        None => RenderOptions::new(80)
+            .with_colour(term.colour())
+            .with_width_method(term.width_method())
+            .with_glyphs(Glyphs::for_locale(term.utf8)),
+    };
+    options.with_terminal(term.stderr_tty && term.term.as_deref() != Some("dumb"))
+}
+
 /// Writes the message for `error`, unless it needs none, and returns its exit code. A
-/// login hint names the login of `provider`.
-fn report(error: &CliError, out: &mut Output, provider: &str) -> Exit {
+/// login fix names the login of `provider`.
+fn report(error: &CliError, out: &mut Output, provider: &str, options: &RenderOptions) -> Exit {
     if !error.is_silent() {
-        out.err(&message_for(error, provider));
+        out.err(&message_for(error, provider, options));
     }
     error.exit()
 }
 
-/// `efr: ` and the error with its sources on one line, then the hint on a line of its
-/// own when there is one, with the default provider in a login hint.
+/// `efr: ` and the error with its sources on one line, then the fix 2 columns in on a
+/// line of its own when there is one, with the default provider in a login fix; plain.
 #[cfg(test)]
 pub(crate) fn message(error: &CliError) -> String {
-    message_for(error, efr_config::DEFAULT_PROVIDER)
+    message_for(error, efr_config::DEFAULT_PROVIDER, &RenderOptions::new(80).with_terminal(false))
 }
 
-/// `efr: ` and the error with its sources on one line, then the hint on a line of its
-/// own when there is one; a login hint names the login of `provider`.
-pub(crate) fn message_for(error: &CliError, provider: &str) -> String {
+/// `efr: ` and the error with its sources on one line, then the fix 2 columns in on a
+/// line of its own when there is one; a login fix names the login of `provider`. The
+/// rows are whole: a terminal wraps a long one, and a copy of the fix stays one line.
+pub(crate) fn message_for(error: &CliError, provider: &str, options: &RenderOptions) -> String {
     let text = efr_stdx::with_causes(error);
-    let mut out = format!("efr: {}\n", format::one_line(&text));
-    if let Some(hint) = error.hint_for(provider) {
-        let _ = writeln!(out, "efr: {hint}");
+    let mut out = format::paint("efr:", Tone::FailureBold, options);
+    out.push_str(&format::paint(&format!(" {}", format::one_line(&text)), Tone::Text, options));
+    out.push('\n');
+    if let Some(fix) = error.hint_for(provider) {
+        out.push_str("  ");
+        for (text, tone) in fix.pieces() {
+            out.push_str(&format::paint(&text, tone, options));
+        }
+        out.push('\n');
     }
     out
 }

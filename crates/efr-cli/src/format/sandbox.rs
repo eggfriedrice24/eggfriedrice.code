@@ -1038,16 +1038,17 @@ pub(crate) fn cache_freed(paths: &[std::path::PathBuf], freed: u64, home: Option
 const BACKUP_META: &str = "meta.json";
 
 /// The line at the end of a turn for a file outside the project that runs code later
-/// and that a call changed (`home_file_changed`): `changed ~/.zshrc; backup at <path>`.
-/// A file that did not exist before has no copy, only the record of efrd's backup
-/// store, so the line says so. A file changed through a link names the path that the
-/// user knows, then its `real` file: `changed ~/.config/hypr/x.conf (real file
-/// ~/dotfiles/hypr/x.conf); ...`.
+/// and that a call changed (`home_file_changed`): `changed ~/.zshrc · backup at
+/// <path>`, with `separator` (` · `) between its parts. A file that did not exist
+/// before has no copy, only the record of efrd's backup store, so the line says so. A
+/// file changed through a link names the path that the user knows, then its `real`
+/// file: `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf) · ...`.
 pub(crate) fn home_changed(
     path: &Path,
     real: Option<&Path>,
     backup: Option<&Path>,
     home: Option<&Path>,
+    separator: &str,
 ) -> String {
     let mut shown = tilde(path, home);
     if let Some(real) = real.filter(|real| *real != path) {
@@ -1059,18 +1060,19 @@ pub(crate) fn home_changed(
     let meta = Some(std::ffi::OsStr::new(BACKUP_META));
     if backup.file_name() == meta && path.file_name() != meta {
         return format!(
-            "changed {shown}, which did not exist before; record at {}",
+            "changed {shown}, which did not exist before {separator} record at {}",
             tilde(backup, home)
         );
     }
-    format!("changed {shown}; backup at {}", tilde(backup, home))
+    format!("changed {shown} {separator} backup at {}", tilde(backup, home))
 }
 
 /// The line at the end of a turn of a file outside the roots that efr's home store
-/// holds or could not copy (phase B): `changed ~/.zshrc; efr undo reverts it` for a
-/// file that runs code later, `changed ~/.aws/config; efr undo cannot revert it
-/// (masked)` for one that efr could not copy, with `why` when the turn's undo names it.
-/// `None` for a covered file that runs no code: the line of the turn counts it.
+/// holds or could not copy (phase B), with `separator` (` · `) between its parts
+/// (TM-Endings 17): `changed ~/.zshrc · efr undo reverts it` for a file that runs code
+/// later, `changed ~/.aws/config · efr undo cannot revert it (masked)` for one that
+/// efr could not copy, with `why` when the turn's undo names it. `None` for a covered
+/// file that runs no code: the line of the turn counts it.
 pub(crate) fn home_undo_line(
     path: &Path,
     real: Option<&Path>,
@@ -1078,18 +1080,20 @@ pub(crate) fn home_undo_line(
     covered: bool,
     why: Option<&str>,
     home: Option<&Path>,
+    separator: &str,
 ) -> Option<String> {
     let mut shown = tilde(path, home);
     if let Some(real) = real.filter(|real| *real != path) {
         let _ = write!(shown, " (real file {})", tilde(real, home));
     }
     match (covered, why) {
-        (true, _) if floor => Some(format!("changed {shown}; efr undo reverts it")),
+        (true, _) if floor => Some(format!("changed {shown} {separator} efr undo reverts it")),
         (true, _) => None,
-        (false, Some(why)) => {
-            Some(format!("changed {shown}; efr undo cannot revert it ({})", one_line(why)))
-        }
-        (false, None) => Some(format!("changed {shown}; efr undo cannot revert it")),
+        (false, Some(why)) => Some(format!(
+            "changed {shown} {separator} efr undo cannot revert it ({})",
+            one_line(why)
+        )),
+        (false, None) => Some(format!("changed {shown} {separator} efr undo cannot revert it")),
     }
 }
 

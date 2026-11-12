@@ -626,10 +626,11 @@ impl<'a> Transcript<'a> {
                 };
                 let change = self.home_changes.remove(at);
                 let real = change.real.as_deref();
+                let separator = self.options.glyphs().separator;
                 let line = match change.backup.as_deref() {
                     // NOTE: whole, not cut to the screen: the line names where the copy is.
                     Some(backup) => {
-                        Some(sandbox::home_changed(path, real, Some(backup), self.home))
+                        Some(sandbox::home_changed(path, real, Some(backup), self.home, separator))
                     }
                     None => sandbox::home_undo_line(
                         path,
@@ -638,6 +639,7 @@ impl<'a> Transcript<'a> {
                         change.covered,
                         None,
                         self.home,
+                        separator,
                     ),
                 };
                 if let Some(line) = line {

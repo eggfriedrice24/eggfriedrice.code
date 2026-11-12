@@ -171,7 +171,7 @@ fn wake_turn_marked_in_view() {
     view.queue();
     let (_, err, _) =
         feed(&mut view, &[notice(other_turn(), true), notice(other_turn(), true)], true);
-    assert_eq!(err, "\u{1f916} (job notice, not your input)\n");
+    assert_eq!(err, "\u{21aa} a job notice started this turn (not your input)\n");
 
     // A notice that rides in the followed turn is named, and is never the user's.
     let mut view = raw_view();

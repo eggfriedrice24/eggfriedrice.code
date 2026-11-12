@@ -291,7 +291,7 @@ async fn a_listener_that_is_off_gets_the_fix() {
     assert!(stderr.contains("the tailnet listener is off"), "{stderr}");
     assert!(
         stderr.ends_with(
-            "efr: turn it on with: efr config set remote.enabled true, then restart efrd: systemctl --user restart efrd\n"
+            "\n  turn it on with: efr config set remote.enabled true, then restart efrd: systemctl --user restart efrd\n"
         ),
         "{stderr}"
     );

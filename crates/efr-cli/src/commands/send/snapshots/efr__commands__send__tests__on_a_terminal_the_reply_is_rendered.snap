@@ -14,5 +14,5 @@ Restart nginx, then check \e[32mjournalctl\e[0m.
 Restart nginx, then check \e[32mjournalctl\e[0m.
 \e[33m⠋\e[0m \e[2mwaiting for the model\e[0m
 \e[?2026l\e[?2026h\r\e[1A\e[J
-\e[2mdone\e[0m
+\e[32m✓\e[0m done
 \e[?2026l\e[?25h

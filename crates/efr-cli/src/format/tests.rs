@@ -2,8 +2,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use efr_protocol::{
-    AdminStatusResult, ContextUse, ConversationStatus, ConversationSummary,
-    ConversationsListResult, PageCursor, ProviderStatus, Seq, Usage,
+    AdminStatusResult, ConversationStatus, ConversationSummary, ConversationsListResult,
+    PageCursor, ProviderStatus, Seq, Usage,
 };
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role, WidthMethod};
 use efr_test_support::bench::{self, Report};
@@ -14,10 +14,9 @@ use proptest::prelude::{prop, proptest};
 use serde_json::json;
 
 use super::{
-    Block, CACHE_SHOWN_FROM, Spacing, Tone, ago, approval_heading, approval_summary, catalog,
-    code_block, conversations, cut, elapsed, keys, lines, local_time, one_line, paint, run_heading,
-    size, status, tokens, took, tool_call, tool_result, turn_done, turn_interrupted, until,
-    usage_line, wrap_command, wrap_spans,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, catalog, code_block,
+    conversations, cut, elapsed, keys, lines, local_time, one_line, paint, run_heading, size,
+    status, tokens, took, tool_call, tool_result, until, usage_line, wrap_command, wrap_spans,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -637,84 +636,6 @@ fn sizes_count_in_thousands() {
     assert_eq!(size(3_250), "3.2 KB");
     assert_eq!(size(1_450_000), "1.4 MB");
     assert_eq!(size(2_180_000_000), "2.1 GB");
-}
-
-#[test]
-fn the_end_of_turn_line_leaves_out_what_is_not_known() {
-    let usage = Usage::new(18_250, 1_100);
-    let done = |took, usage, context| turn_done(took, usage, context).plain();
-    assert_eq!(
-        done(Some(Duration::from_secs(42)), Some(&usage), None),
-        "done in 42s, 18.2k tokens in, 1.1k out, cache 0%"
-    );
-    assert_eq!(done(None, Some(&usage), None), "done, 18.2k tokens in, 1.1k out, cache 0%");
-    assert_eq!(done(Some(Duration::from_millis(1_500)), None, None), "done in 1.5s");
-    assert_eq!(done(None, None, None), "done");
-}
-
-#[test]
-fn the_end_of_turn_line_shows_the_cache_share_from_a_large_enough_input() {
-    let usage = |input, cached| Usage { cached_input_tokens: cached, ..Usage::new(input, 1_100) };
-    let done = |usage: &Usage| turn_done(None, Some(usage), None).plain();
-    assert_eq!(done(&usage(18_250, 16_700)), "done, 18.2k tokens in, 1.1k out, cache 91%");
-    // Rounded down, never up to a full cache.
-    assert_eq!(done(&usage(10_000, 9_999)), "done, 10.0k tokens in, 1.1k out, cache 99%");
-    assert_eq!(done(&usage(10_000, 10_000)), "done, 10.0k tokens in, 1.1k out, cache 100%");
-    // A turn whose input went to the cache only as a write read nothing from it.
-    let written = Usage { cache_write_tokens: 18_000, ..usage(18_250, 0) };
-    assert_eq!(done(&written), "done, 18.2k tokens in, 1.1k out, cache 0%");
-    // From 2048 tokens on; below, no cache can form.
-    assert_eq!(done(&usage(CACHE_SHOWN_FROM, 1_024)), "done, 2.0k tokens in, 1.1k out, cache 50%");
-    assert_eq!(done(&usage(CACHE_SHOWN_FROM - 1, 1_024)), "done, 2.0k tokens in, 1.1k out");
-    // A count that says more was cached than sent stays at 100%.
-    assert_eq!(done(&usage(4_000, 9_000)), "done, 4.0k tokens in, 1.1k out, cache 100%");
-    // With the gauge it follows the output, in the muted rest of the line.
-    let context = ContextUse { tokens: 89_400, limit: 206_720, window: 272_000 };
-    let line = turn_done(None, Some(&usage(18_250, 16_700)), Some(&context));
-    assert_eq!(line.plain(), "done, ctx 43% (89k/206k), 1.1k out, cache 91%");
-    assert_eq!(
-        line.render(&RenderOptions::new(80)),
-        "\x1b[2mdone, \x1b[0m\x1b[32mctx 43%\x1b[0m\x1b[2m (89k/206k), 1.1k out, cache 91%\x1b[0m\n"
-    );
-    assert_eq!(
-        line.render(&RenderOptions::new(80).with_colour(ColourMode::None)),
-        "\x1b[2mdone, \x1b[0mctx 43%\x1b[2m (89k/206k), 1.1k out, cache 91%\x1b[0m\n"
-    );
-    assert_eq!(
-        line.render(&RenderOptions::new(80).with_terminal(false)),
-        "done, ctx 43% (89k/206k), 1.1k out, cache 91%\n"
-    );
-}
-
-#[test]
-fn with_the_context_the_end_of_turn_line_shows_it_in_place_of_the_input() {
-    let usage = Usage { cached_input_tokens: 900_000, ..Usage::new(918_250, 1_100) };
-    let context = ContextUse { tokens: 89_400, limit: 206_720, window: 272_000 };
-    let took = Some(Duration::from_secs(42));
-    assert_eq!(
-        turn_done(took, Some(&usage), Some(&context)).plain(),
-        "done in 42s, ctx 43% (89k/206k), 1.1k out, cache 98%"
-    );
-    assert_eq!(turn_done(None, None, Some(&context)).plain(), "done, ctx 43% (89k/206k)");
-    assert_eq!(
-        turn_interrupted(Some(Duration::from_millis(12_400)), Some(&context)).plain(),
-        "interrupted after 12s, ctx 43% (89k/206k)"
-    );
-    assert_eq!(turn_interrupted(None, None).plain(), "interrupted");
-    // The gauge is in the colour of its level, the rest is muted.
-    let options = RenderOptions::new(80);
-    assert_eq!(
-        turn_done(took, Some(&usage), Some(&context)).render(&options),
-        "\x1b[2mdone in 42s, \x1b[0m\x1b[32mctx 43%\x1b[0m\x1b[2m (89k/206k), 1.1k out, cache 98%\x1b[0m\n"
-    );
-    // Too wide for the screen: one muted trace line, cut, as before.
-    let narrow = turn_done(took, Some(&usage), Some(&context)).render(&RenderOptions::new(30));
-    assert!(!narrow.contains("\x1b[32m") && narrow.contains('\u{2026}'), "{narrow:?}");
-    let piped = RenderOptions::new(80).with_terminal(false);
-    assert_eq!(
-        turn_done(took, Some(&usage), Some(&context)).render(&piped),
-        "done in 42s, ctx 43% (89k/206k), 1.1k out, cache 98%\n"
-    );
 }
 
 #[test]

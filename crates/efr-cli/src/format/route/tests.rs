@@ -1,13 +1,16 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    AttachHow, NewReason, ProjectId, RepoHint, RouteLabel, RouteScope, Routed, Switch,
-    SwitchedModel,
+    AttachHow, NewReason, ProjectId, RepoHint, RouteLabel, RouteScope, Switch, SwitchedModel,
 };
+use efr_render::Glyphs;
+use efr_test_support::design::{Depth, Frame, assert_rows};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use super::{age, attached, hint_line, line, model_line, scope_mark};
+use super::{Pieces, age, attached, hint_line, model_line, scope_mark, switch_line, wake_line};
+use crate::format::ending::{plain, rows};
+use crate::testing::design_options;
 
 const HOME: &str = "/home/u";
 
@@ -19,104 +22,198 @@ fn ago(minutes: i64) -> Timestamp {
     now() - jiff::SignedDuration::from_mins(minutes)
 }
 
-fn app() -> RouteLabel {
+fn project(name: &str) -> RouteLabel {
     RouteLabel {
         scope: RouteScope::Project(
             "0192f0c1-7a00-7000-8000-0000000a4401".parse::<ProjectId>().unwrap(),
         ),
-        name: Some("app".to_owned()),
-        dir: PathBuf::from("/home/u/p/app"),
+        name: Some(name.to_owned()),
+        dir: PathBuf::from(format!("/home/u/p/{name}")),
     }
+}
+
+fn app() -> RouteLabel {
+    project("app")
 }
 
 fn outside(dir: &str) -> RouteLabel {
     RouteLabel { scope: RouteScope::Outside, name: None, dir: PathBuf::from(dir) }
 }
 
-fn routed(scope: RouteLabel, switch: Option<Switch>) -> Routed {
-    Routed { scope, switch, hint: None }
+fn line(switch: &Switch, scope: &RouteLabel) -> Pieces {
+    switch_line(switch, scope, now(), Some(Path::new(HOME)), &Glyphs::UNICODE)
 }
 
-fn shown(route: &Routed, note: Option<&str>) -> String {
-    line(route, note, now(), Some(Path::new(HOME)))
+fn shown(switch: &Switch, scope: &RouteLabel) -> String {
+    plain(&line(switch, scope))
 }
 
-#[test]
-fn switch_line_back() {
-    let back = Switch::Back { title: Some("fix the tests".to_owned()), updated_at: ago(125) };
-    insta::assert_snapshot!(shown(&routed(app(), Some(back)), None), @r#"↪ back to "fix the tests" in app (2 h ago)"#);
+fn side(provider: Option<&str>, model: &str, effort: Option<&str>) -> SwitchedModel {
+    SwitchedModel {
+        provider: provider.map(str::to_owned),
+        model: model.to_owned(),
+        effort: effort.map(str::to_owned),
+    }
 }
 
-#[test]
-fn switch_line_new_from_home() {
-    let new = Switch::New { from: Some(outside(HOME)), reason: NewReason::Scope };
-    insta::assert_snapshot!(shown(&routed(app(), Some(new)), None), @"↪ new conversation for app (from ~)");
-    let from_app = Switch::New { from: Some(app()), reason: NewReason::Scope };
-    insta::assert_snapshot!(
-        shown(&routed(outside("/etc"), Some(from_app)), None),
-        @"↪ new conversation outside projects (from app)"
-    );
+fn work() -> SwitchedModel {
+    side(Some("anthropic-api.work"), "claude-opus-5-5", Some("high"))
 }
 
-#[test]
-fn switch_line_picked_up() {
-    let picked =
-        Switch::PickedUp { title: Some("fix the proxy test".to_owned()), updated_at: ago(25) };
-    insta::assert_snapshot!(
-        shown(&routed(app(), Some(picked)), None),
-        @r#"↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh"#
-    );
+fn personal() -> SwitchedModel {
+    side(Some("anthropic-api.personal"), "claude-opus-5-5", Some("high"))
 }
 
-#[test]
-fn switch_line_new_after_idle() {
-    let idle = Switch::New { from: None, reason: NewReason::Idle { hours: 13 } };
-    insta::assert_snapshot!(
-        shown(&routed(app(), Some(idle)), None),
-        @"↪ new conversation for app (the last one was idle for 13 h)"
-    );
-    let moved = Switch::New {
+fn gpt_b() -> SwitchedModel {
+    side(Some("openai-subscription.b"), "gpt-5.5", Some("medium"))
+}
+
+fn back(title: &str, minutes: i64) -> Switch {
+    Switch::Back { title: Some(title.to_owned()), updated_at: ago(minutes) }
+}
+
+fn new_from(from: RouteLabel) -> Switch {
+    Switch::New { from: Some(from), reason: NewReason::Scope }
+}
+
+fn idle(hours: u64) -> Switch {
+    Switch::New { from: None, reason: NewReason::Idle { hours } }
+}
+
+fn moved(title: &str, tty: &str) -> Switch {
+    Switch::New {
         from: None,
-        reason: NewReason::Moved {
-            tty: "/dev/pts/7".to_owned(),
-            title: Some("fix the tests".to_owned()),
-        },
-    };
-    insta::assert_snapshot!(
-        shown(&routed(app(), Some(moved)), None),
-        @r#"↪ new conversation for app ("fix the tests" moved to /dev/pts/7)"#
-    );
+        reason: NewReason::Moved { tty: tty.to_owned(), title: Some(title.to_owned()) },
+    }
+}
+
+fn picked(title: &str, minutes: i64) -> Switch {
+    Switch::PickedUp { title: Some(title.to_owned()), updated_at: ago(minutes) }
+}
+
+/// The lines of TM-Scope frame 19 that the turn slice writes, by row: the `↪` lines,
+/// the `⇄` lines and the repo hint. Row 7 (`↪ resumed ...`) is the line of `,resume`,
+/// which `format/resume.rs` writes.
+fn scope_19() -> Vec<(usize, Pieces)> {
+    let glyphs = &Glyphs::UNICODE;
+    let tool = RepoHint { root: PathBuf::from("/home/u/src/tool") };
+    vec![
+        (0, line(&back("fix steer race", 125), &app())),
+        (1, line(&back("nftables rules", 125), &outside("/etc/nftables.d"))),
+        (2, line(&new_from(outside(HOME)), &app())),
+        (3, line(&new_from(app()), &outside(HOME))),
+        (4, line(&idle(13), &app())),
+        (5, line(&moved("fix the tests", "/dev/pts/7"), &app())),
+        (6, line(&picked("fix the proxy test", 25), &app())),
+        (8, model_line(&work(), &gpt_b(), Some((86_000, 6_000)), glyphs)),
+        (9, model_line(&work(), &personal(), None, glyphs)),
+        (10, hint_line(&tool, Some(Path::new(HOME)), glyphs)),
+    ]
+}
+
+/// TM-Scope frame 19: each event line in its roles (the mark in `accent`, the sentence
+/// in `text`, the rest muted, `,new` and the command of the hint in `code`), in the
+/// three depths.
+#[test]
+fn the_event_lines_are_the_scope_board() {
+    let frame = Frame::load("TM-Scope", 19).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        for (row, pieces) in scope_19() {
+            assert_rows(&frame, row..=row, &rows(&pieces, 0, &options), depth);
+        }
+    }
+}
+
+/// TM-Legend frame 4 at its 44 columns, and the `↪` and `⇄` rows of TM-Endings 2 to 7
+/// in the three depths.
+#[test]
+fn the_event_lines_are_the_legend_and_the_endings_board() {
+    let legend = Frame::load("TM-Legend", 4).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, legend.cols);
+        let home = line(&back("nftables rules", 125), &outside(HOME));
+        assert_rows(&legend, .., &rows(&home, 0, &options), depth);
+    }
+
+    let glyphs = &Glyphs::UNICODE;
+    let steer_race = line(&back("fix steer race", 125), &app());
+    let cases: [(u32, usize, Pieces); 6] = [
+        (2, 1, steer_race.clone()),
+        (3, 1, line(&new_from(app()), &outside(HOME))),
+        (4, 1, line(&picked("fix the proxy test", 25), &app())),
+        (5, 3, model_line(&work(), &gpt_b(), Some((86_400, 6_050)), glyphs)),
+        (6, 1, model_line(&work(), &personal(), None, glyphs)),
+        (7, 2, model_line(&work(), &personal(), None, glyphs)),
+    ];
+    for (number, row, pieces) in cases {
+        let frame = Frame::load("TM-Endings", number).unwrap();
+        for depth in Depth::ALL {
+            let options = design_options(depth, frame.cols);
+            assert_rows(&frame, row..=row, &rows(&pieces, 0, &options), depth);
+        }
+    }
 }
 
 #[test]
-fn head_line_project() {
-    insta::assert_snapshot!(shown(&routed(app(), None), None), @"app");
+fn switch_lines_say_what_changed_in_words() {
+    assert_eq!(
+        shown(&back("fix the tests", 125), &app()),
+        r#"↪ back to "fix the tests" in app (2 h ago)"#
+    );
+    assert_eq!(
+        shown(&Switch::Back { title: None, updated_at: ago(3) }, &outside(HOME)),
+        "↪ back to a conversation with no title at home (3 min ago)"
+    );
+    assert_eq!(shown(&new_from(outside(HOME)), &app()), "↪ new conversation for app (from home)");
+    assert_eq!(shown(&new_from(app()), &outside("/etc")), "↪ new conversation at home (from app)");
+    assert_eq!(
+        shown(&picked("fix the proxy test", 25), &app()),
+        r#"↪ picked up "fix the proxy test" in app (25 min ago) · ,new starts fresh"#
+    );
+    assert_eq!(
+        shown(&idle(13), &app()),
+        "↪ new conversation for app (the last one was idle for 13 h)"
+    );
+    assert_eq!(
+        shown(&moved("fix the tests", "/dev/pts/7"), &app()),
+        r#"↪ new conversation for app ("fix the tests" moved to /dev/pts/7)"#
+    );
+    // A project that is no longer registered.
+    let removed = RouteLabel { name: None, ..app() };
+    assert_eq!(shown(&back("x", 60), &removed), r#"↪ back to "x" in a removed project (1 h ago)"#);
+    assert_eq!(
+        shown(&new_from(removed), &outside(HOME)),
+        "↪ new conversation at home (from ~/p/app)"
+    );
+    // A kind of switch from a newer daemon still says that the conversation changed.
+    assert_eq!(shown(&Switch::Unknown, &app()), "↪ another conversation in app");
 }
 
 #[test]
-fn head_line_no_project() {
-    insta::assert_snapshot!(shown(&routed(outside("/home/u/notes"), None), None), @"○ no project · ~/notes");
-    insta::assert_snapshot!(shown(&routed(outside("/etc"), None), None), @"○ no project · /etc");
+fn switch_lines_have_an_ascii_form() {
+    let ascii = switch_line(&picked("t", 25), &app(), now(), Some(Path::new(HOME)), &Glyphs::ASCII);
+    assert_eq!(plain(&ascii), r#"=> picked up "t" in app (25 min ago) - ,new starts fresh"#);
+    let hint = hint_line(
+        &RepoHint { root: PathBuf::from("/home/u/p/tool") },
+        Some(Path::new(HOME)),
+        &Glyphs::ASCII,
+    );
+    assert!(plain(&hint).starts_with("~ ~/p/tool is a git repo"), "{}", plain(&hint));
 }
 
 #[test]
-fn head_line_joins_the_settings_note() {
-    insta::assert_snapshot!(
-        shown(&routed(app(), None), Some("mode auto, model gpt-5.4")),
-        @"app · mode auto, model gpt-5.4"
-    );
-    let back = Switch::Back { title: None, updated_at: ago(3) };
-    insta::assert_snapshot!(
-        shown(&routed(outside(HOME), Some(back)), Some("mode auto")),
-        @"↪ back to a conversation with no title outside projects (3 min ago) · mode auto"
-    );
+fn a_new_conversation_inside_a_project_from_home_says_from_home() {
+    // The prompts in ~/p/lib went to home while `follow_project` was off; when it is on
+    // again, the new lib conversation comes from home.
+    let new = new_from(outside("/home/u/p/lib/src"));
+    assert_eq!(shown(&new, &project("lib")), "↪ new conversation for lib (from home)");
 }
 
 #[test]
 fn a_title_cannot_drive_the_terminal() {
-    let back =
-        Switch::Back { title: Some("evil\u{1b}]52;c;x\u{7}\nline".to_owned()), updated_at: ago(1) };
-    let text = shown(&routed(app(), Some(back)), None);
+    let evil = back("evil\u{1b}]52;c;x\u{7}\nline", 1);
+    let text = shown(&evil, &app());
     assert!(!text.contains('\u{1b}') && !text.contains('\n'), "{text:?}");
 }
 
@@ -135,62 +232,70 @@ fn history_names_the_terminal_of_an_attach() {
 }
 
 #[test]
-fn switch_line_new_from_outside_inside_the_project() {
-    // The prompts in ~/p/lib went outside projects while `follow_project` was off; when
-    // it is on again, the new lib conversation comes from the outside one.
-    let lib = RouteLabel {
-        scope: RouteScope::Project(
-            "0192f0c1-7a00-7000-8000-0000000a4402".parse::<ProjectId>().unwrap(),
-        ),
-        name: Some("lib".to_owned()),
-        dir: PathBuf::from("/home/u/p/lib"),
-    };
-    let new = Switch::New { from: Some(outside("/home/u/p/lib/src")), reason: NewReason::Scope };
-    insta::assert_snapshot!(
-        shown(&routed(lib, Some(new)), None),
-        @"↪ new conversation for lib (from outside projects)"
-    );
-}
-
-#[test]
 fn repo_hint_line() {
     let home = Some(Path::new(HOME));
+    let glyphs = &Glyphs::UNICODE;
     let tool = RepoHint { root: PathBuf::from("/home/u/p/tool") };
-    insta::assert_snapshot!(
-        hint_line(&tool, home),
-        @"○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it."
+    assert_eq!(
+        plain(&hint_line(&tool, home, glyphs)),
+        "⌂ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool"
     );
     // A path that is no plain shell word shows in full and in quotes, so the command can
     // be pasted.
     let spaced = RepoHint { root: PathBuf::from("/home/u/my tool's") };
-    insta::assert_snapshot!(
-        hint_line(&spaced, home),
-        @r#"○ ~/my tool's is a git repo but not a project: writes there ask you. efr project add '/home/u/my tool'\''s' registers it."#
+    assert_eq!(
+        plain(&hint_line(&spaced, home, glyphs)),
+        r#"⌂ ~/my tool's is a git repo but not a project: writes there ask you. efr project add '/home/u/my tool'\''s'"#
     );
     let odd = RepoHint { root: PathBuf::from("/srv/evil\u{1b}]52;c;x\u{7}\nrepo") };
-    let text = hint_line(&odd, home);
+    let text = plain(&hint_line(&odd, home, glyphs));
     assert!(!text.contains('\u{1b}') && !text.contains('\n'), "{text:?}");
 }
 
 #[test]
 fn the_scope_mark_of_the_status_row() {
     let home = Some(Path::new(HOME));
-    assert_eq!(scope_mark(&app(), home), "app");
-    assert_eq!(scope_mark(&outside(HOME), home), "○ ~");
-    assert_eq!(scope_mark(&outside("/etc"), home), "○ /etc");
+    let glyphs = &Glyphs::UNICODE;
+    assert_eq!(scope_mark(&app(), home, glyphs), "app");
+    assert_eq!(scope_mark(&outside(HOME), home, glyphs), "⌂ ~");
+    assert_eq!(scope_mark(&outside("/etc"), home, glyphs), "⌂ /etc");
+    assert_eq!(scope_mark(&outside("/etc"), home, &Glyphs::ASCII), "~ /etc");
     let removed = RouteLabel { name: None, ..app() };
-    assert_eq!(scope_mark(&removed, home), "removed project");
+    assert_eq!(scope_mark(&removed, home, glyphs), "removed project");
 }
 
-/// The seam of the switch line keeps today's look until the turn slice builds it: no
-/// line for a switch.
 #[test]
-fn a_switch_of_model_has_no_line_yet() {
-    let side = |provider: &str, model: &str| SwitchedModel {
-        provider: Some(provider.to_owned()),
-        model: model.to_owned(),
-    };
-    let from = side("anthropic-api.work", "claude-opus-5-5");
-    let to = side("openai-api.b", "gpt-5.5");
-    assert_eq!(model_line(&from, &to, Some("medium")), []);
+fn a_switch_names_both_sides_as_model_takes_them() {
+    let glyphs = &Glyphs::UNICODE;
+    assert_eq!(
+        plain(&model_line(&work(), &gpt_b(), None, glyphs)),
+        "⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high"
+    );
+    // A provider with no account gives the model alone, and no effort is no word.
+    let api = side(Some("openai-api"), "gpt-5.5", None);
+    let old = side(None, "gpt-5.4", None);
+    assert_eq!(plain(&model_line(&old, &api, None, glyphs)), "⇄ gpt-5.5  was gpt-5.4");
+    // The same model on another provider starts with a cold cache.
+    let subscription = side(Some("openai-subscription"), "gpt-5.5", None);
+    assert_eq!(
+        plain(&model_line(&subscription, &api, None, &Glyphs::ASCII)),
+        "<> gpt-5.5  was gpt-5.5 - cache starts cold"
+    );
+    // A compaction that came first stands on the line, in place of the cold cache.
+    assert_eq!(
+        plain(&model_line(&subscription, &api, Some((231_000, 24_000)), glyphs)),
+        "⇄ gpt-5.5  was gpt-5.5 · context compacted 231k → 24k"
+    );
+}
+
+#[test]
+fn a_job_notice_marks_its_turn_without_an_emoji() {
+    assert_eq!(
+        plain(&wake_line(&Glyphs::UNICODE)),
+        "↪ a job notice started this turn (not your input)"
+    );
+    assert_eq!(
+        plain(&wake_line(&Glyphs::ASCII)),
+        "=> a job notice started this turn (not your input)"
+    );
 }

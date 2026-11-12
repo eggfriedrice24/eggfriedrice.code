@@ -1244,9 +1244,9 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
   takes the row's place. N is `tokens` times 100 divided by `limit`, rounded down. The
   colour roles are `Success` below 50, `Warning` (not bold) from 50 and `Error` from
   90. On a screen that is too narrow, the gauge goes first.
-- The end-of-turn line has `ctx N% (<tokens>/<limit>)` from the end event's `context`,
-  such as `done in 42s, ctx 43% (89k/207k), 1.1k out, cache 91%`. A turn without
-  `context` keeps today's line. `cache N%` comes from the event's `usage` (the README
+- The end-of-turn line has `ctx N%` from the end event's `context`, muted, such as
+  `✓ done  42s · ctx 43% · 1.1k out · cache 91%`. A turn without `context` has no
+  gauge on the line. `cache N%` comes from the event's `usage` (the README
   of `efr-cli`).
 - After a `compacting` draft the status row says `compacting context`, until the
   `conversation_compacted` event, the next `context` draft or the end of the turn.
@@ -1256,7 +1256,7 @@ A `ContextOverflow` that reaches the generic mapping of provider errors gets the
   next model call (`ConversationHandle::live_drafts`).
 - Each `conversation_compacted` prints one muted line, wrapped at the width so that
   its way out is never cut off:
-  - `context compacted (auto): 231k -> 24k tokens, kept 3 turns, summary 3.2k`
+  - `context compacted (auto): 231k → 24k tokens · kept 3 turns · summary 3.2k`
     (`(efr compact)` for a manual one; `pruned 12 outputs` in place of the summary
     for a prune-only one; `(left out 2 turns and 40 messages)` at the end when the
     summary never saw them, also on the overflow line);

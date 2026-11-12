@@ -160,8 +160,9 @@ pub struct RenderSettings {
     /// the `text` role moves over the state in the `muted` role. `false` shows a still
     /// dot and no band; the time still counts.
     pub motion: bool,
-    /// One muted line at the end of each turn: how long it took and the tokens it
-    /// used, such as `done in 42s, 18.2k tokens in, 1.1k out`.
+    /// The cost on the last line of each turn: how long it took, how full the context
+    /// is and the tokens that the model wrote, such as `✓ done  42s · ctx 43% · 1.1k
+    /// out`. `false` leaves out the time and the cost, and the line of a done turn.
     pub turn_summary: bool,
     /// The lines of a file tool's diff that a call shows after it ran, from 0 to 1000;
     /// a muted line then says how many more there are. 0 shows no diff. `efr diff`

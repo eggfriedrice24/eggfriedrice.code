@@ -1,142 +1,143 @@
-//! The line before a reply that names where a prompt went (DV4, DV52): the switch of
-//! the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`,
-//! or, when the conversation did not change, the scope of the prompt: `app`, or
-//! `○ no project · ~/notes`. The view writes it muted, as a note. A prompt outside
-//! projects in a git repository gets a second muted line at most once a day (DV53):
-//! `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
-//! ~/p/tool registers it.` The status row of a running turn ends with the scope, such
-//! as `app` or `○ ~/notes`. `efr history` shows a `terminal_attached` event as `picked
-//! up in /dev/pts/7`.
+//! The event lines at the start of a reply (DV4, DV52, `DECISIONS.md` "The frame of a
+//! turn"): a reply has no first line, and a line comes only when something changed.
+//! `↪` names a change of the terminal's conversation, such as `↪ back to "fix the
+//! tests" in app (2 h ago)`; `⇄` names a switch of model, provider or account, such as
+//! `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`. When both change, `↪` comes
+//! first. Each line is pieces with their tones (TM-Legend 4, 5; TM-Scope 19): the mark
+//! in `accent`, the sentence in `text`, the age and what follows it `muted`, a command
+//! such as `,new` in `code`.
 //!
-//! The glyphs `↪` and `○` come from the user's design and are still literals here; the
-//! turn slice of the terminal look moves them to `efr_render::Glyphs`, which has an
-//! ASCII form of each.
+//! The place outside projects is home: the mark `⌂` and the words "at home", "from
+//! home". A prompt at home in a git repository gets the repo hint at most once a day
+//! (DV53): `⌂ ~/p/tool is a git repo but not a project: writes there ask you.` muted,
+//! then `efr project add ~/p/tool` in `code`. The status row of a running turn ends with
+//! the scope, such as `app` or `⌂ ~/notes`. `efr history` shows a `terminal_attached`
+//! event as `picked up in /dev/pts/7`.
+//!
+//! Every glyph comes from `efr_render::Glyphs`, which has an ASCII form of each.
 
 use std::path::Path;
 
-use efr_protocol::{
-    AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch, SwitchedModel,
-};
+use efr_protocol::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Switch, SwitchedModel};
+use efr_render::Glyphs;
 use jiff::Timestamp;
 
+use super::context::count;
 use super::sandbox::tilde;
 use super::{Tone, one_line};
 
-/// The mark of a switch.
-const SWITCH: &str = "↪";
+/// A line of efr's own as pieces of text, each with its tone.
+pub(crate) type Pieces = Vec<(String, Tone)>;
 
-/// The mark of a scope outside registered projects.
-const OUTSIDE: &str = "○";
-
-/// The line before the reply for `route`, with the settings `note` of the prompt
-/// joined after ` · `, so a turn starts with one line.
-pub(crate) fn line(
-    route: &Routed,
-    note: Option<&str>,
-    now: Timestamp,
-    home: Option<&Path>,
-) -> String {
-    let head = match &route.switch {
-        Some(switch) => switch_line(switch, &route.scope, now, home),
-        None => head_line(&route.scope, home),
-    };
-    match note {
-        Some(note) => format!("{head} · {note}"),
-        None => head,
-    }
-}
-
-/// The scope of a prompt: the project's name, or `○ no project · <pwd>`.
-pub(crate) fn head_line(scope: &RouteLabel, home: Option<&Path>) -> String {
-    match (&scope.scope, &scope.name) {
-        (RouteScope::Project(_), Some(name)) => one_line(name),
-        (RouteScope::Project(_), None) => format!("removed project · {}", tilde(&scope.dir, home)),
-        _ => format!("{OUTSIDE} no project · {}", tilde(&scope.dir, home)),
-    }
-}
-
-/// How the terminal's conversation changed, for a prompt in `scope`.
+/// The `↪` line of a change of the terminal's conversation, for a prompt in `scope`
+/// (TM-Scope 19): the mark, the sentence, then the age or the reason in parentheses.
 pub(crate) fn switch_line(
     switch: &Switch,
     scope: &RouteLabel,
     now: Timestamp,
     home: Option<&Path>,
-) -> String {
-    match switch {
-        Switch::Back { title, updated_at } => format!(
-            "{SWITCH} back to {} {} ({})",
-            titled(title.as_deref()),
-            in_scope(scope),
-            age(*updated_at, now)
+    glyphs: &Glyphs,
+) -> Pieces {
+    let (sentence, rest) = match switch {
+        Switch::Back { title, updated_at } => (
+            format!("back to {} {}", titled(title.as_deref()), in_scope(scope)),
+            format!("({})", age(*updated_at, now)),
         ),
-        Switch::PickedUp { title, updated_at } => format!(
-            "{SWITCH} picked up {} {} ({}); ,new starts fresh",
-            titled(title.as_deref()),
-            in_scope(scope),
-            age(*updated_at, now)
-        ),
+        Switch::PickedUp { title, updated_at } => {
+            let mut line = event_line(
+                glyphs.conversation,
+                &format!("picked up {} {}", titled(title.as_deref()), in_scope(scope)),
+                &format!("({}) {} ", age(*updated_at, now), glyphs.separator),
+            );
+            line.push((",new".to_owned(), Tone::Code));
+            line.push((" starts fresh".to_owned(), Tone::Dim));
+            return line;
+        }
         Switch::New { from, reason } => {
             let why = match (reason, from) {
-                (NewReason::Scope, Some(from)) => {
-                    format!(" (from {})", from_label(from, scope, home))
-                }
+                (NewReason::Scope, Some(from)) => format!("(from {})", from_label(from, home)),
                 (NewReason::Idle { hours }, _) => {
-                    format!(" (the last one was idle for {hours} h)")
+                    format!("(the last one was idle for {hours} h)")
                 }
                 (NewReason::Moved { tty, title }, _) => {
-                    format!(" ({} moved to {})", titled(title.as_deref()), one_line(tty))
+                    format!("({} moved to {})", titled(title.as_deref()), one_line(tty))
                 }
                 _ => String::new(),
             };
-            format!("{SWITCH} new conversation {}{why}", for_scope(scope))
+            (format!("new conversation {}", for_scope(scope)), why)
         }
-        _ => format!("{SWITCH} {}", head_line(scope, home)),
-    }
+        // NOTE: a kind of switch from a newer daemon: the line still says that the
+        // conversation changed, with no reason that this efr cannot read.
+        _ => (format!("another conversation {}", in_scope(scope)), String::new()),
+    };
+    event_line(glyphs.conversation, &sentence, &rest)
 }
 
-/// `in app`, or `outside projects`.
+/// An event line: `mark` in `accent`, then ` sentence` in `text`, then ` rest` muted.
+fn event_line(mark: &str, sentence: &str, rest: &str) -> Pieces {
+    let mut line = vec![(mark.to_owned(), Tone::Accent), (format!(" {sentence}"), Tone::Text)];
+    if !rest.is_empty() {
+        line.push((format!(" {rest}"), Tone::Dim));
+    }
+    line
+}
+
+/// The `↪` line of a turn that a job notice started, not the user (spec 1.4): the mark
+/// in `accent` and the sentence muted, as a notice.
+pub(crate) fn wake_line(glyphs: &Glyphs) -> Pieces {
+    vec![
+        (glyphs.conversation.to_owned(), Tone::Accent),
+        (" a job notice started this turn (not your input)".to_owned(), Tone::Dim),
+    ]
+}
+
+/// `in app`, or `at home`.
 fn in_scope(scope: &RouteLabel) -> String {
     match (&scope.scope, &scope.name) {
         (RouteScope::Project(_), Some(name)) => format!("in {}", one_line(name)),
         (RouteScope::Project(_), None) => "in a removed project".to_owned(),
-        _ => "outside projects".to_owned(),
+        _ => "at home".to_owned(),
     }
 }
 
-/// `for app`, or `outside projects`.
+/// `for app`, or `at home`.
 fn for_scope(scope: &RouteLabel) -> String {
     match (&scope.scope, &scope.name) {
         (RouteScope::Project(_), Some(name)) => format!("for {}", one_line(name)),
         (RouteScope::Project(_), None) => "for a removed project".to_owned(),
-        _ => "outside projects".to_owned(),
+        _ => "at home".to_owned(),
     }
 }
 
-/// Where the terminal was before: the project's name, or the last directory of its
-/// conversation outside projects. That directory can be inside the project of the new
-/// conversation `to` (the prompts there went outside projects while
-/// `conversation.follow_project` was off); then `outside projects` names it.
-fn from_label(label: &RouteLabel, to: &RouteLabel, home: Option<&Path>) -> String {
+/// Where the terminal was before: the project's name, the root of a project that is no
+/// longer registered, or `home`.
+fn from_label(label: &RouteLabel, home: Option<&Path>) -> String {
     match (&label.scope, &label.name) {
         (RouteScope::Project(_), Some(name)) => one_line(name),
-        (_, _) if label.dir.as_os_str().is_empty() => "no project".to_owned(),
-        (RouteScope::Project(_), None) => tilde(&label.dir, home),
-        _ if to.scope.project().is_some() && label.dir.starts_with(&to.dir) => {
-            "outside projects".to_owned()
+        (RouteScope::Project(_), None) if !label.dir.as_os_str().is_empty() => {
+            tilde(&label.dir, home)
         }
-        _ => tilde(&label.dir, home),
+        _ => "home".to_owned(),
     }
 }
 
-/// The muted line of the hint in a git repository that is not a registered project
-/// (DV53). The command in it is one that the user can paste: a path that a shell word
-/// cannot hold as it is shows in single quotes, in full.
-pub(crate) fn hint_line(hint: &RepoHint, home: Option<&Path>) -> String {
+/// The line of the hint at home in a git repository that is not a registered project
+/// (DV53, TM-Scope 19): the sentence muted, then the command that registers it in
+/// `code`. The command is one that the user can paste: a path that a shell word cannot
+/// hold as it is shows in single quotes, in full.
+pub(crate) fn hint_line(hint: &RepoHint, home: Option<&Path>, glyphs: &Glyphs) -> Pieces {
     let shown = tilde(&hint.root, home);
-    format!(
-        "{OUTSIDE} {shown} is a git repo but not a project: writes there ask you. efr project add {} registers it.",
-        shell_word(&hint.root, &shown)
-    )
+    vec![
+        (
+            format!(
+                "{} {shown} is a git repo but not a project: writes there ask you.",
+                glyphs.home
+            ),
+            Tone::Dim,
+        ),
+        (" ".to_owned(), Tone::Plain),
+        (format!("efr project add {}", shell_word(&hint.root, &shown)), Tone::Code),
+    ]
 }
 
 /// `shown` when a shell reads it as one word for the path `path` (a `~` at its start
@@ -153,12 +154,12 @@ fn shell_word(path: &Path, shown: &str) -> String {
 }
 
 /// The scope at the end of the status row of a running turn: the project's name, or
-/// `○` and the prompt's directory outside projects.
-pub(crate) fn scope_mark(scope: &RouteLabel, home: Option<&Path>) -> String {
+/// the home mark and the prompt's directory.
+pub(crate) fn scope_mark(scope: &RouteLabel, home: Option<&Path>, glyphs: &Glyphs) -> String {
     match (&scope.scope, &scope.name) {
         (RouteScope::Project(_), Some(name)) => one_line(name),
         (RouteScope::Project(_), None) => "removed project".to_owned(),
-        _ => format!("{OUTSIDE} {}", tilde(&scope.dir, home)),
+        _ => format!("{} {}", glyphs.home, tilde(&scope.dir, home)),
     }
 }
 
@@ -192,23 +193,55 @@ pub(crate) fn attached(tty: &str, how: AttachHow) -> String {
     format!("{what} in {}", one_line(tty))
 }
 
-/// The line of a switch of model, provider or account (TM-Legend 5, TM-Endings 5 to 7),
-/// such as `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`, as pieces with their
-/// tones: the mark in `accent`, the new model and its effort in `text`, the rest
-/// `muted`. `from` and `to` are the sides of `model_switched`; `effort` is the effort of
-/// the new side, from the turn's settings.
-///
-/// A seam for the turn slice of the terminal look: it gives no piece yet, so the view
-/// writes no line for a switch, as today. The turn slice builds the line here and calls
-/// it from `follow/view/ending.rs`.
-#[cfg_attr(not(test), expect(dead_code, reason = "the turn slice builds the switch line"))]
+/// The line of a switch of model, provider or account (TM-Legend 5, TM-Endings 5 to 7,
+/// TM-Scope 19): `⇄ b/gpt-5.5 medium  was work/claude-opus-5-5 high`, the mark in
+/// `accent`, the new side in `text`, the rest `muted`. `from` and `to` are the sides of
+/// `model_switched`. Then, after the separator, `context compacted 86k → 6k` when a
+/// compaction of the turn came before anything else (`compacted`: the tokens before and
+/// after), else `cache starts cold` when only the provider or the account changed: the
+/// prompt cache of one provider does not serve another.
 pub(crate) fn model_line(
     from: &SwitchedModel,
     to: &SwitchedModel,
-    effort: Option<&str>,
-) -> Vec<(String, Tone)> {
-    let _ = (from, to, effort);
-    Vec::new()
+    compacted: Option<(u64, u64)>,
+    glyphs: &Glyphs,
+) -> Pieces {
+    let mut rest = format!("was {}", side(from));
+    if let Some((before, after)) = compacted {
+        rest.push_str(&format!(
+            " {} context compacted {} {} {}",
+            glyphs.separator,
+            count(before),
+            glyphs.arrow,
+            count(after)
+        ));
+    } else if from.model == to.model {
+        rest.push_str(&format!(" {} cache starts cold", glyphs.separator));
+    }
+    vec![
+        (glyphs.switch.to_owned(), Tone::Accent),
+        (format!(" {}  ", side(to)), Tone::Text),
+        (rest, Tone::Dim),
+    ]
+}
+
+/// One side of a switch as `,model` takes it: `work/claude-opus-5-5 high`, the account
+/// of the provider id (`anthropic-api.work` names `work`), the model and the effort.
+/// A provider id with no account gives the model alone, and a turn that sent no effort
+/// gives no effort.
+fn side(model: &SwitchedModel) -> String {
+    let account = model.provider.as_deref().and_then(|provider| provider.split_once('.'));
+    let mut text = match account {
+        Some((_, account)) if !account.is_empty() => {
+            format!("{}/{}", one_line(account), one_line(&model.model))
+        }
+        _ => one_line(&model.model),
+    };
+    if let Some(effort) = model.effort.as_deref().filter(|effort| !effort.is_empty()) {
+        text.push(' ');
+        text.push_str(&one_line(effort));
+    }
+    text
 }
 
 #[cfg(test)]

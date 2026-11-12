@@ -233,7 +233,7 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
     assert_eq!(view.turn(), turn_2());
     let shown = screen(&mut view, &mut grid, 400);
     let call_at = shown.find("$ sleep 60").expect(&shown);
-    let end_at = shown.find("interrupted after").expect(&shown);
+    let end_at = shown.find("\u{25a0} interrupted").expect(&shown);
     let note_at = shown.find(RESENT).expect(&shown);
     assert!(call_at < end_at && end_at < note_at, "{shown}");
     assert_eq!(shown.matches(RESENT).count(), 1, "{shown}");
@@ -286,7 +286,7 @@ fn the_note_of_a_resend_comes_at_once_when_the_turn_already_ended() {
     };
     view.interrupt_result(&result, SIZE);
     let shown = screen(&mut view, &mut grid, 200);
-    let end_at = shown.find("interrupted after").expect(&shown);
+    let end_at = shown.find("\u{25a0} interrupted").expect(&shown);
     let note_at = shown.find(RESENT).expect(&shown);
     assert!(end_at < note_at, "{shown}");
 }

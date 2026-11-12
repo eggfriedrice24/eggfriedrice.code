@@ -20,11 +20,10 @@ mod shell;
 use std::collections::VecDeque;
 
 use efr_protocol::{
-    ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
-    PromptSend, PromptSendResult, RecentCommand, ShellContext, TurnSettings, TurnSteer,
-    TurnSteerResult,
+    ConversationId, ConversationsList, ConversationsListResult, Method, Origin, PromptSend,
+    PromptSendResult, RecentCommand, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
 };
-use efr_render::render_trace;
+use efr_render::{Glyphs, render_trace};
 use efr_stdx::env::Var;
 use efr_transport::client::{Client, ClientError};
 
@@ -32,6 +31,7 @@ use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::follow::{self, Compose, Look, Row, Target, TurnView};
+use crate::format::route::{self, Pieces};
 use crate::keys::KeyReader;
 use crate::live::effective_width;
 use crate::output::Output;
@@ -249,31 +249,33 @@ async fn send_and_follow(
     let options = ctx.render_options(effective_width(size));
     let render = &ctx.settings.render;
     let look = Look::of(render, progress::wanted(render.progress, &ctx.term));
+    let glyphs = options.glyphs();
     let scope = result
         .route
         .as_ref()
-        .map(|route| crate::format::route::scope_mark(&route.scope, ctx.home.as_deref()));
+        .map(|route| route::scope_mark(&route.scope, ctx.home.as_deref(), glyphs));
     let mut view = TurnView::new(result.turn_id, options)
         .with_home(ctx.home.clone())
         .with_look(look)
         .with_groups(ctx.settings.diff.groups.clone())
-        .with_scope(scope);
+        .with_scope(scope)
+        .with_settings(result.settings.clone());
     if reader.is_some() {
         view = view.with_input();
     }
-    // NOTE: the line comes from the prompt.send result, so it is the reply's first line
-    // even before the first event arrives; the follow loop writes it in its first frame.
-    // It names where the prompt went (a switch, else the scope) with the settings note
-    // after ` · `, so a turn starts with one line (DV4, DV52).
-    if let Some(line) = first_line(ctx, &result) {
-        let step = view.note(&line, size);
+    // NOTE: a reply has no first line: the prompt corner showed the scope and the mode
+    // (`DECISIONS.md`). A line comes only when the terminal's conversation changed. It
+    // comes from the prompt.send result, so it stands before the first event; the
+    // follow loop writes it in its first frame (DV4, DV52).
+    if let Some(line) = first_line(ctx, &result, glyphs) {
+        let step = view.event_row(&line, size);
         out.err(&step.err);
         out.out(&step.out)?;
     }
     // NOTE: at most once a day for each repository; efrd decides (DV53).
     if let Some(hint) = result.route.as_ref().and_then(|route| route.hint.as_ref()) {
-        let line = crate::format::route::hint_line(hint, ctx.home.as_deref());
-        let step = view.note(&line, size);
+        let line = route::hint_line(hint, ctx.home.as_deref(), glyphs);
+        let step = view.event_row(&line, size);
         out.err(&step.err);
         out.out(&step.out)?;
     }
@@ -355,25 +357,13 @@ pub(crate) async fn send_prompt(
     Ok(client.call(method).await?)
 }
 
-/// The first line of a reply: where the prompt went, with the settings note; `None`
-/// for a prompt from no terminal whose settings came from the config.
-fn first_line(ctx: &Context, result: &PromptSendResult) -> Option<String> {
-    let note = result.settings.as_ref().and_then(overrides);
-    match &result.route {
-        Some(route) => Some(crate::format::route::line(
-            route,
-            note.as_deref(),
-            ctx.clock.now(),
-            ctx.home.as_deref(),
-        )),
-        None => note,
-    }
-}
-
-/// The values of `settings` that the prompt set, such as `mode auto, model gpt-5.4`;
-/// `None` when the config gave every one.
-pub(crate) fn overrides(settings: &EffectiveSettings) -> Option<String> {
-    crate::format::turn_settings(settings, false)
+/// The `↪` line of a reply whose prompt changed the terminal's conversation (TM-Scope
+/// 19); `None` when the conversation did not change, for a prompt from no terminal, and
+/// for a terminal's first prompt.
+fn first_line(ctx: &Context, result: &PromptSendResult, glyphs: &Glyphs) -> Option<Pieces> {
+    let route = result.route.as_ref()?;
+    let switch = route.switch.as_ref()?;
+    Some(route::switch_line(switch, &route.scope, ctx.clock.now(), ctx.home.as_deref(), glyphs))
 }
 
 /// Adds `text` to the running turn of the conversation, or of the terminal's active

@@ -478,7 +478,13 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
         &mut view,
     );
     assert_eq!(step.end, Some(TurnEnd::Failed(error)));
-    assert_eq!(readable(&step.out), "\\e[?2026h\\r\\e[1A\\e[JHalf a line\n\\e[?2026l");
+    // TM-Endings 21: the failure, then its reason 2 columns in; the command adds no
+    // message.
+    assert_eq!(
+        readable(&step.out),
+        "\\e[?2026h\\r\\e[1A\\e[JHalf a line\n\n\\e[1;31m\u{2717}\\e[0m \\e[1;31mfailed\\e[0m\n  the \
+         provider is down\n\\e[?2026l"
+    );
 }
 
 #[test]
@@ -499,7 +505,7 @@ fn an_interrupted_turn_says_so() {
         &mut view,
     );
     assert_eq!(step.end, Some(TurnEnd::Interrupted));
-    assert_eq!(step.err, "interrupted\n");
+    assert_eq!(step.err, "\u{25a0} interrupted\n");
 }
 
 #[test]
@@ -2539,7 +2545,7 @@ fn an_interrupted_turn_ends_with_its_time() {
         undo: None,
     };
     let frame = ended(ALL, end, 12_400);
-    assert!(frame.contains("interrupted after 12s"), "{frame}");
+    assert!(frame.contains("\u{25a0}\\e[0m interrupted  \\e[2m12s\\e[0m"), "{frame}");
     assert!(frame.contains("\\e]9;4;0\\e\\"), "{frame}");
 }
 
@@ -2600,7 +2606,7 @@ fn without_the_summary_a_turn_ends_as_before() {
         },
         5_000,
     );
-    assert!(frame.contains("interrupted\\e[0m"), "{frame}");
+    assert!(frame.contains("\u{25a0}\\e[0m interrupted\n"), "{frame}");
 }
 
 /// A completed turn that records why the model stopped, `stop`.
@@ -2621,12 +2627,13 @@ fn stopped(reason: StopReason, empty: bool) -> Event {
 fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
     for look in [ALL, Look::default()] {
         let frame = ended(look, stopped(StopReason::Refusal, true), 3_000);
-        // NOTE: the view is 40 columns wide, so the line is cut there.
-        assert!(frame.contains("the model stopped with no answer (stop:"), "{frame}");
+        // NOTE: the view is 40 columns wide, so the line goes on in the next row.
+        assert!(frame.contains("stopped:\\e[0m the model stopped with no\n"), "{frame}");
+        assert!(frame.contains("  answer \\e[2m(refusal)\\e[0m\n"), "{frame}");
     }
     let frame = ended(ALL, stopped(StopReason::EndTurn, true), 3_000);
-    assert!(frame.contains("the model stopped with no answer"), "{frame}");
-    assert!(frame.contains("done in 3.0s"), "{frame}");
+    assert!(frame.contains("the model stopped with no"), "{frame}");
+    assert!(frame.contains("done  \\e[2m3s\\e[0m"), "{frame}");
     let line = crate::format::turn_stop(&TurnStop { reason: StopReason::Refusal, empty: true });
     assert_eq!(line, "the model stopped with no answer (stop: refusal)");
 }
@@ -2634,7 +2641,7 @@ fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
 #[test]
 fn a_completed_turn_cut_at_the_output_limit_says_so() {
     let frame = ended(ALL, stopped(StopReason::MaxTokens, false), 3_000);
-    assert!(frame.contains("the answer reached the output limit"), "{frame}");
+    assert!(frame.contains("the answer reached the output\n  limit \\e[2m(max_tokens)"), "{frame}");
     let line = |reason| crate::format::turn_stop(&TurnStop { reason, empty: false });
     assert_eq!(
         line(StopReason::MaxTokens),

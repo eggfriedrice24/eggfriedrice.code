@@ -195,8 +195,8 @@ fn without_a_daemon_status_exits_three_with_the_hint() {
     let output = roots.efr().arg("status").output().unwrap();
     assert_eq!(output.status.code(), Some(3));
     let stderr = stderr_of(&output);
-    assert!(stderr.contains("no daemon is listening on"), "{stderr}");
-    assert!(stderr.ends_with("efr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n"));
+    assert!(stderr.contains("no daemon listens on"), "{stderr}");
+    assert!(stderr.ends_with("\n  systemctl --user start efrd\n"), "{stderr}");
 }
 
 #[test]
@@ -409,7 +409,7 @@ fn the_plugins_variables_carry_the_prompt_without_arguments() {
 }
 
 #[test]
-fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
+fn the_terminals_settings_reach_the_prompt_and_the_reply_has_no_first_line() {
     let roots = Roots::new();
     let daemon = roots.serve(|conn| {
         let (id, method) = conn.request();
@@ -474,8 +474,9 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
     daemon.join().unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
     assert_eq!(stdout_of(&output), "Done.\n");
-    // The effort came from the config in the daemon's view, so the note leaves it out.
-    assert_eq!(stderr_of(&output), "mode auto, model gpt-5.4\n");
+    // A reply has no first line for its settings: the prompt corner and the status row
+    // show them (DECISIONS.md, "The frame of a turn").
+    assert_eq!(stderr_of(&output), "");
 }
 
 #[test]
@@ -567,7 +568,9 @@ fn a_failed_turn_exits_one_with_the_reason() {
         .unwrap();
     daemon.join().unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(stderr_of(&output), "efr: the turn failed with internal: the provider is down\n");
+    // The view ends the turn with the failure and its reason; the command adds no
+    // message (TM-Endings 21). The locale of the test is not UTF-8: the ASCII mark.
+    assert_eq!(stderr_of(&output), "x failed\n  the provider is down\n");
 }
 
 #[test]

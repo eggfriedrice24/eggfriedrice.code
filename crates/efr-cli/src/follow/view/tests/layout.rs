@@ -1470,7 +1470,7 @@ fn a_home_file_with_its_own_line_is_not_counted_again() {
         Sent(1_010, home_copied(1, "/home/user/.zshrc", true, true)),
         Sent(1_500, turn_undone(None, undo)),
     ]);
-    assert!(err.contains("changed ~/.zshrc; efr undo reverts it\n"), "{err}");
+    assert!(err.contains("changed ~/.zshrc \u{b7} efr undo reverts it\n"), "{err}");
     assert!(!err.contains("in ~; efr undo reverts this turn"), "{err}");
 }
 
@@ -1502,7 +1502,10 @@ fn two_edits_of_one_floor_file_show_one_line() {
     // The second edit was not copied: undo cannot revert the file.
     let not_covered = edits(false);
     assert_eq!(not_covered.matches("changed ~/.zshrc").count(), 1, "{not_covered}");
-    assert!(not_covered.contains("changed ~/.zshrc; efr undo cannot revert it\n"), "{not_covered}");
+    assert!(
+        not_covered.contains("changed ~/.zshrc \u{b7} efr undo cannot revert it\n"),
+        "{not_covered}"
+    );
     insta::assert_snapshot!(format!("### covered\n{covered}### not covered\n{not_covered}"));
 }
 

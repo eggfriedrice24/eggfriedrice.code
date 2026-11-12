@@ -28,7 +28,6 @@ const NOT_YET: &[&str] = &[
     "crates/efr-cli/src/format/card.rs",
     "crates/efr-cli/src/format/jobs.rs",
     "crates/efr-cli/src/format/resume.rs",
-    "crates/efr-cli/src/format/route.rs",
     "crates/efr-cli/src/format/search.rs",
 ];
 

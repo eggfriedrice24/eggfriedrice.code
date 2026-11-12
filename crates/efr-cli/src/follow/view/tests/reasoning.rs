@@ -359,5 +359,5 @@ fn the_end_line_after_the_row_keeps_its_blank_line() {
     grid.write(&step.out);
     grid.write(&step.err);
     let (lines, _) = frame(&mut view, &mut grid, size, 3_500);
-    assert_eq!(lines[..3], ["\u{25b8} Plan it  thought 2s", "", "done in 3.5s"], "{lines:?}");
+    assert_eq!(lines[..3], ["\u{25b8} Plan it  thought 2s", "", "\u{2713} done  3s"], "{lines:?}");
 }

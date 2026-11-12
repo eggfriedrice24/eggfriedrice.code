@@ -291,8 +291,8 @@ async fn a_refused_undo_says_why_and_what_to_do() {
     assert_eq!(stdout, "");
     assert!(
         stderr.ends_with(&format!(
-            "efr: efr undo changed nothing: the later turn {} is not undone\n\
-             efr: undo the newer turn first, or add --force to undo this one anyway\n",
+            "efr: efr undo changed nothing: the later turn {} is not undone\n  undo the newer \
+             turn first, or add --force to undo this one anyway\n",
             turn()
         )),
         "{stderr}"

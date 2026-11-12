@@ -166,13 +166,12 @@ use efr_protocol::{
     FileChanges, Grant, InputWait, JobId, JudgeKind, Launch, Presence, QuestionId, Seq,
     ShellCommandEnd, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict,
 };
-use efr_render::{RenderOptions, WidthMethod};
+use efr_render::{RenderOptions, WidthMethod, render_trace};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
 use crate::format::changes::HomeChange;
-use crate::format::context::GaugedLine;
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
 use crate::live::{LiveZone, effective_width};
@@ -207,16 +206,14 @@ const PASTE_ON: &str = "\x1b[?2004h";
 /// Turns bracketed paste off again.
 const PASTE_OFF: &str = "\x1b[?2004l";
 
-/// The note when an interrupt sent the unread steers again as a new prompt.
-const RESENT: &str = "interrupted to send your message";
+/// How the row under an interrupted turn starts when the interrupt sent the unread
+/// steers again as a new prompt: `your steer "use TurnState" goes again as a new
+/// prompt` (TM-Endings 20, `format::ending::resent_row`). Tests look for it.
+#[cfg(test)]
+const RESENT: &str = "your steer";
 
 /// The note when the followed prompt was taken back before it ran.
 const WITHDRAWN: &str = "the prompt was taken back before it ran";
-
-/// The line at the start of a turn in full mode, in the error role. Undo covers the
-/// project and the files outside it that a line named, not what a script did.
-const FULL_STARTED: &str =
-    "full mode: no sandbox, no questions; efr undo reverts the project and the files efr saw";
 
 /// What starts the title of an approval of the turn that the followed one waits
 /// behind.
@@ -964,7 +961,7 @@ impl TurnView {
             self.resent_note = true;
             return self.commit(String::new());
         }
-        self.note(RESENT, size)
+        self.resent_late(size)
     }
 
     /// The connection to the daemon ended for good: the prompt that the view follows
@@ -1507,6 +1504,7 @@ impl TurnView {
     fn turn_event(&mut self, event: &Event, size: Size, can_ask: bool) -> Step {
         match event {
             Event::TurnStarted { .. } => self.turn_started(event, size),
+            Event::ModelSwitched { .. } => self.model_switched(event, size),
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 // NOTE: drafts showed most of this text before it was recorded; an update
                 // that adds nothing must not take the row back from a newer draft state.
@@ -1698,9 +1696,7 @@ impl TurnView {
                 self.dirty = true;
                 self.commit(committed)
             }
-            Event::PromptWithdrawn { .. } => {
-                self.end(TurnEnd::Withdrawn, &[WITHDRAWN.to_owned().into()], size)
-            }
+            Event::PromptWithdrawn { .. } => self.withdrawn_end(size),
             Event::TurnInterruptRequested { .. } if self.interrupting => Step::default(),
             Event::TurnInterruptRequested { origin, .. } => {
                 self.note(&format!("interrupt requested from {}", format::origin(*origin)), size)
@@ -1859,15 +1855,6 @@ impl TurnView {
         Step::default()
     }
 
-    /// The mark of turn `turn`, which a job notice started: once, however many notices
-    /// it takes.
-    fn wake_mark(&mut self, turn: TurnId, size: Size) -> Step {
-        if !self.jobs.woken.insert(turn) {
-            return Step::default();
-        }
-        self.whole_note(jobs::WAKE_MARK, size)
-    }
-
     /// The call that the background key (Ctrl+B) can move: the running `shell` call of
     /// the followed turn, which does not start a job, waits for no approval and was not
     /// moved yet. With no call running, the call whose command was left running in the
@@ -1921,14 +1908,10 @@ impl TurnView {
         self.rendered_after(String::new(), |options| rows(text, Tone::Dim, options), size)
     }
 
-    /// A note written after `before`, the end of a message.
+    /// A note written after `before`, the end of a message: muted and cut to the
+    /// screen on a terminal, plain otherwise.
     fn note_after(&mut self, before: String, text: &str, size: Size) -> Step {
-        self.line_after(before, &GaugedLine::from(text.to_owned()), size)
-    }
-
-    /// A muted line, with its gauge in the colour of its level, written after `before`.
-    fn line_after(&mut self, before: String, line: &GaugedLine, size: Size) -> Step {
-        self.rendered_after(before, |options| line.render(options), size)
+        self.rendered_after(before, |options| render_trace(text, options), size)
     }
 
     /// A note that `render` makes at the screen's width, written after `before`: on a
@@ -2342,6 +2325,8 @@ impl TurnView {
         if index < self.next_index {
             return Step::default();
         }
+        // NOTE: a `⇄` line that waits in the live zone stands before the reply.
+        self.release_switch();
         let mut committed = String::new();
         if self.message.as_ref().is_some_and(|message| message.index != index) {
             committed.push_str(&self.finish_message());
@@ -2481,6 +2466,8 @@ impl TurnView {
     /// Keeps `committed` for the next frame, after the text that the current message
     /// still holds back, and marks the live zone for that frame.
     fn stage(&mut self, committed: &str) {
+        // NOTE: a `⇄` line that waits in the live zone stands before any other block.
+        self.release_switch();
         // NOTE: the fold of reads ends with anything that is written after it.
         if !committed.is_empty() {
             self.flush_fold();
@@ -2499,9 +2486,9 @@ impl TurnView {
     /// the running call's line, the last lines of its output
     /// and the input it waits for, then the question when one is pending.
     fn live_body(&self, size: Size, now: Timestamp) -> String {
-        let mut live =
-            self.message.as_ref().map(|message| message.live().to_owned()).unwrap_or_default();
         let options = self.options_at(size);
+        let mut live = self.switch_live(&options);
+        live.push_str(self.message.as_ref().map_or("", |message| message.live()));
         live.push_str(&self.fold.live(&options));
         if self.call_shown()
             && let Some(call) = &self.call

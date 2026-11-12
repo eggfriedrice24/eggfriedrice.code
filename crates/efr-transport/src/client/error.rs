@@ -46,7 +46,7 @@ pub enum ClientError {
 
     /// Nothing listens at the socket: it does not exist, or it is left over from a
     /// daemon that stopped.
-    #[error("no daemon is listening on {}", .socket.display())]
+    #[error("no daemon listens on {}", .socket.display())]
     DaemonNotRunning {
         /// The socket.
         socket: PathBuf,

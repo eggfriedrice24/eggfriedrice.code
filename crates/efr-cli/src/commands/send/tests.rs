@@ -11,7 +11,6 @@ use efr_stdx::env::{Env, Var};
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
-use super::overrides;
 use crate::context::{Context, desktop_env};
 use crate::error::Exit;
 use crate::run;
@@ -478,10 +477,7 @@ async fn without_a_daemon_send_exits_with_three_and_a_hint() {
     let socket = env.socket();
     assert_eq!(
         captured.stderr(),
-        format!(
-            "efr: no daemon is listening on {}\nefr: start the daemon with: systemctl --user start efrd, or `just run` in the efr checkout for a foreground one\n",
-            socket.display()
-        )
+        format!("efr: no daemon listens on {}\n  systemctl --user start efrd\n", socket.display())
     );
 }
 
@@ -507,7 +503,7 @@ async fn a_refused_prompt_exits_with_one_and_the_daemons_message() {
 }
 
 #[tokio::test]
-async fn a_turn_without_a_login_says_how_to_log_in() {
+async fn a_turn_without_a_login_ends_with_the_login_that_fixes_it() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = env.context();
@@ -539,10 +535,12 @@ async fn a_turn_without_a_login_says_how_to_log_in() {
     let line = command(&["send", "--", "hello"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::DaemonError);
+    // TM-Endings 21: the view ends the turn with the failure, its reason and its fix,
+    // and the command adds no message. Off a terminal the rows are plain on stderr, in
+    // the ASCII forms of a locale that is not UTF-8.
     assert_eq!(
         captured.stderr(),
-        "efr: the turn failed with unauthorized: no credentials are stored for the provider\n\
-         efr: log in with: efr login openai\n"
+        "x failed\n  no credentials are stored for the provider\n  efr login openai\n"
     );
 }
 
@@ -775,23 +773,8 @@ fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
     }
 }
 
-#[test]
-fn the_note_names_only_the_overridden_values() {
-    assert_eq!(overrides(&effective(OverriddenSettings::default())), None);
-    let all = OverriddenSettings { mode: true, model: true, effort: true };
-    assert_eq!(
-        overrides(&effective(all)).as_deref(),
-        Some("mode auto, model gpt-5.4, effort high")
-    );
-    let model = OverriddenSettings { model: true, ..OverriddenSettings::default() };
-    assert_eq!(overrides(&effective(model)).as_deref(), Some("model gpt-5.4"));
-    let effort = OverriddenSettings { effort: true, ..OverriddenSettings::default() };
-    let none_sent = EffectiveSettings { effort: None, ..effective(effort) };
-    assert_eq!(overrides(&none_sent).as_deref(), Some("effort default"));
-}
-
 #[tokio::test]
-async fn overridden_settings_are_the_first_line_of_the_reply() {
+async fn overridden_settings_write_no_first_line() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = env.context();
@@ -804,7 +787,7 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
         let mut conn = daemon.accept().await;
         let (id, _) = conn.request().await;
         conn.reply(id, &result).await;
-        // Nothing arrives before the notes: they come from the prompt.send result.
+        // Nothing arrives before the note: it comes from the prompt.send result.
         let (id, method) = conn.request().await;
         assert!(matches!(method, Method::ConversationHistory(_)), "{}", method.name());
         conn.reply(id, &ConversationHistoryResult::default()).await;
@@ -828,11 +811,13 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
-    assert_eq!(captured.stderr(), "mode auto, model gpt-5.4\nqueued behind the running turn\n");
+    // A reply has no first line: the prompt corner shows the mode, and the status row
+    // the model (DECISIONS.md, "The frame of a turn").
+    assert_eq!(captured.stderr(), "queued behind the running turn\n");
 }
 
 #[tokio::test]
-async fn the_route_and_the_settings_share_the_first_line_of_the_reply() {
+async fn a_change_of_conversation_is_the_only_first_line() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = env.context();
@@ -874,14 +859,11 @@ async fn the_route_and_the_settings_share_the_first_line_of_the_reply() {
     };
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
-    assert_eq!(
-        captured.stderr(),
-        "↪ new conversation outside projects (the last one was idle for 13 h) · mode auto\n"
-    );
+    assert_eq!(captured.stderr(), "=> new conversation at home (the last one was idle for 13 h)\n");
 }
 
 #[tokio::test]
-async fn the_repo_hint_follows_the_head_line() {
+async fn the_repo_hint_shows_with_no_line_of_the_scope() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = env.context();
@@ -917,13 +899,13 @@ async fn the_repo_hint_follows_the_head_line() {
     assert_eq!(exit, Exit::Success);
     assert_eq!(
         captured.stderr(),
-        "○ no project · /srv/tool/src\n○ /srv/tool is a git repo but not a project: writes \
-         there ask you. efr project add /srv/tool registers it.\n"
+        "~ /srv/tool is a git repo but not a project: writes there ask you. efr project add \
+         /srv/tool\n"
     );
 }
 
 #[tokio::test]
-async fn on_a_terminal_the_settings_note_is_dim() {
+async fn on_a_terminal_a_prompt_with_its_own_settings_has_no_first_line() {
     let env = TestEnv::new();
     let daemon = env.listen();
     let ctx = Context {
