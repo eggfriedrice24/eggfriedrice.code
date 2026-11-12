@@ -97,7 +97,7 @@ fn a_set_colour_replaces_the_default_and_keeps_the_attributes() {
 }
 
 #[test]
-fn hex_colours_are_rgb_in_truecolor_and_the_nearest_entry_in_sixteen() {
+fn hex_colours_are_rgb_in_truecolor_and_the_roles_own_slot_in_sixteen() {
     let palette = Palette::new()
         .with(Role::Accent, Colour::Rgb(0xf2, 0xc1, 0x4e))
         .with(Role::Error, Colour::Rgb(0xfa, 0x3c, 0x3c));
@@ -105,9 +105,16 @@ fn hex_colours_are_rgb_in_truecolor_and_the_nearest_entry_in_sixteen() {
         RenderOptions::new(80).with_colour(ColourMode::TrueColor).with_palette(palette.clone());
     assert_eq!(truecolor.sgr(Role::Accent).as_deref(), Some("38;2;242;193;78"));
     assert_eq!(truecolor.sgr(Role::Heading).as_deref(), Some("1;38;2;242;193;78"));
+    // NOTE: in 16 colours each role is its own slot (TM-Depths 5 to 8), whatever hex
+    // colour the palette gives it.
     let sixteen = truecolor.clone().with_colour(ColourMode::Ansi16);
-    assert_eq!(sixteen.sgr(Role::Accent).as_deref(), Some("33"));
-    assert_eq!(sixteen.sgr(Role::Error).as_deref(), Some("91"));
+    let default = RenderOptions::new(80).with_colour(ColourMode::Ansi16);
+    assert_eq!(sixteen.sgr(Role::Accent), default.sgr(Role::Accent));
+    assert_eq!(sixteen.sgr(Role::Error), default.sgr(Role::Error));
+    assert_eq!(sixteen.sgr(Role::Muted), default.sgr(Role::Muted));
+    // A slot that the palette names stays.
+    let slot = default.clone().with_palette(Palette::new().with(Role::Accent, Colour::Palette(5)));
+    assert_eq!(slot.sgr(Role::Accent).as_deref(), Some("35"));
     let none = truecolor.with_colour(ColourMode::None);
     assert_eq!(none.sgr(Role::Accent).as_deref(), Some("1"));
     assert_eq!(none.sgr(Role::Error).as_deref(), Some("1"));

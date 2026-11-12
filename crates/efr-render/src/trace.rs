@@ -19,7 +19,7 @@ pub fn render_trace(text: &str, options: &RenderOptions) -> String {
     let line = cut(&clean, options.columns(), options.width_method(), options.glyphs().more);
     let mut out = String::new();
     Painter::new(options.colour(), options.hyperlinks())
-        .with_text(options.palette().colour(Role::Text))
+        .with_text(options.palette().colour_in(Role::Text, options.colour()))
         .paint(&mut out, &[Span::new(line, options.role_style(Role::Muted))]);
     out
 }

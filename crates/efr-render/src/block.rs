@@ -55,7 +55,7 @@ pub(crate) struct Ctx {
 impl Ctx {
     pub(crate) fn new(options: RenderOptions, assets: &'static Assets) -> Ctx {
         let painter = Painter::new(options.colour(), options.hyperlinks())
-            .with_text(options.palette().colour(Role::Text))
+            .with_text(options.palette().colour_in(Role::Text, options.colour()))
             .with_width(options.columns(), options.width_method());
         let code = CodeStyle::new(&options, assets);
         Ctx { options, painter, code }

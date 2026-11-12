@@ -85,11 +85,13 @@ them with a blend of its background, as before.
 
 A `Palette` sets any role to a `Colour`: a palette entry or RGB. A role keeps its
 attributes (bold, underline, italic) with a new colour. `muted` is dim only when it has
-no colour. An RGB colour is written as RGB in truecolor, as the nearest of the 16
-entries in 16-colour mode, and not at all without colour. In 16-colour mode a colour
-with a clear hue keeps its hue (red, yellow, green, cyan, blue or magenta, normal or
-bright), and only a colour with little hue becomes a grey, so the soft colours of a
-design system keep their meaning. When `text` has a colour,
+no colour. An RGB colour is written as RGB in truecolor and not at all without colour.
+In 16-colour mode each role is one of the 16 slots (TM-Depths 5 to 8): a role whose
+palette colour is RGB, or an entry above 15, keeps its 16-colour default, so `muted`
+stays dim and `text` the terminal's own colour; a slot from 0 to 15 that the palette
+names stays. The colours of a code theme still become the nearest of the 16 entries: a
+colour with a clear hue keeps its hue (red, yellow, green, cyan, blue or magenta,
+normal or bright), and only a colour with little hue becomes a grey. When `text` has a colour,
 every span without a colour of its own gets it. A heading without a colour of its own
 takes the accent's colour.
 

@@ -137,6 +137,18 @@ fn waiting_for_the_model_is_live_1() {
     check("Live", 1, &[Shown::new(State::Model, 2).ctx(12)]);
 }
 
+/// TM-Live 1 in 16 colours with the palette of a theme file: each role keeps its own
+/// slot (TM-Depths 5 to 8), so `muted` is dim and `text` the terminal's own colour, not
+/// the slot nearest to the theme's colour.
+#[test]
+fn sixteen_colours_with_a_theme_file_are_the_roles_slots_live_1() {
+    let frame = Frame::load("Live", 1).unwrap();
+    let options =
+        design_options(Depth::TrueColor, frame.cols).with_colour(efr_render::ColourMode::Ansi16);
+    let row = Shown::new(State::Model, 2).ctx(12).row(&options);
+    assert_rows(&frame, .., &row, Depth::Ansi16);
+}
+
 /// TM-Live 1 for a turn that sends no effort: the model's default effort shows, as
 /// `,model` names it, so the field is always the model and its effort.
 #[test]

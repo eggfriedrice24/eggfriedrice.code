@@ -225,7 +225,7 @@ impl Palette {
             return Style { bg: self.background(role, mode), ..Style::PLAIN };
         }
         let look = role.default_look();
-        let colour = reduce_colour(self.colour(role), mode);
+        let colour = self.colour_in(role, mode);
         let style = Style { fg: colour, ..look.always };
         if colour.is_none() { style.patch(look.without_colour) } else { style }
     }
@@ -240,10 +240,27 @@ impl Palette {
         if role.is_background() {
             return self.style(role, mode);
         }
-        match reduce_colour(self.colour(role), mode) {
+        match self.colour_in(role, mode) {
             Some(colour) => Style { fg: Some(colour), ..Style::PLAIN },
             None if role == Role::Warning => Style::PLAIN,
             None => Style::PLAIN.patch(role.default_look().without_colour),
+        }
+    }
+
+    /// The colour of `role` in colour mode `mode`. In the terminal's 16 colours each role
+    /// is one of the 16 slots (DECISIONS.md, TM-Depths 5 to 8): a colour of the palette
+    /// that is no slot, such as `#8695b7` of a theme file, does not pick the nearest
+    /// slot; the role keeps its 16-colour default, so `muted` stays dim and `text` the
+    /// terminal's own colour. A slot that the palette names stays.
+    pub(crate) fn colour_in(&self, role: Role, mode: ColourMode) -> Option<Colour> {
+        if mode != ColourMode::Ansi16 {
+            return reduce_colour(self.colour(role), mode);
+        }
+        let slot = self.get(role).filter(|colour| matches!(colour, Colour::Palette(0..=15)));
+        match (slot, role) {
+            (Some(colour), _) => Some(colour),
+            (None, Role::Heading) => self.colour_in(Role::Accent, mode),
+            (None, role) => role.default_look().colour,
         }
     }
 

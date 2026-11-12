@@ -162,7 +162,7 @@ fn a_hex_palette_in_truecolor() {
 }
 
 #[test]
-fn a_hex_palette_falls_back_to_the_nearest_of_sixteen() {
+fn a_hex_palette_keeps_the_slot_of_each_role_in_sixteen() {
     let options = RenderOptions::new(80).with_palette(hex_palette());
     // The roles keep their meaning: an added line never looks like a removed one.
     let roles = [Role::DiffAdd, Role::DiffRemove, Role::Muted, Role::Link];

@@ -35,7 +35,7 @@ pub fn diff_rows(diff: &str, options: &RenderOptions) -> Vec<Vec<String>> {
     let style = CodeStyle::new(options, &ASSETS);
     let mut block = CodeBlock::new("diff", &style);
     let painter = Painter::new(options.colour(), options.hyperlinks())
-        .with_text(options.palette().colour(Role::Text));
+        .with_text(options.palette().colour_in(Role::Text, options.colour()));
     let width = options.columns().max(1);
     let method = options.width_method();
     lines
