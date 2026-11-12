@@ -129,7 +129,9 @@ stays when something else shows. A single read names its file:
 ```
 
 A file write names its file and the lines that it added and removed. Its diff follows
-it, 2 columns in, with no file headers and no line numbers:
+it, 2 columns in, with no file headers and no line numbers. A hunk starts with a short
+header that names its line and its function, unless it is the first hunk and git names
+no function:
 
 ```text
 ✓ edit src/turn.rs  +5 -1

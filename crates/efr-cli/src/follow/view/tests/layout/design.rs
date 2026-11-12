@@ -698,16 +698,9 @@ fn a_file_edit_is_its_row_and_its_diff() {
         if depth != Depth::TrueColor {
             continue;
         }
-        // NOTE: the board draws the diff of `CHANGELOG.md` (row 43) with no hunk header;
-        // its note says that the header gives the place of the change, and git gives
-        // one to every hunk, so the header stays (row 39 of the output).
-        let blocks = [
-            (18..24, 17..23),
-            (25..27, 23..25),
-            (28..32, 25..29),
-            (33..44, 29..40),
-            (44..46, 41..43),
-        ];
+        // NOTE: a first hunk with no function context has no header row (row 43, the
+        // diff of `CHANGELOG.md`).
+        let blocks = [(18..24, 17..23), (25..27, 23..25), (28..32, 25..29), (33..46, 29..42)];
         for (board, real) in blocks {
             let part = rows(&shown, real);
             let inner = board.start >= 33;

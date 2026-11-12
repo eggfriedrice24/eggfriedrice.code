@@ -952,14 +952,13 @@ fn a_patch_of_one_file_shows_its_diff_as_a_write_does() {
             Sent(40, changed(1, changes, Some(diff))),
         ],
     );
-    let block: Vec<&str> = shown.lines().skip(1).take(4).collect();
+    let block: Vec<&str> = shown.lines().skip(1).take(3).collect();
     assert_eq!(
         block,
         [
-            // A patch of one file is named by what it does to the file (TM-Diffs 1).
+            // A patch of one file is named by what it does to the file (TM-Diffs 1). Its
+            // first hunk has no function context, so no header row (TM-Diffs 1).
             "✓ \\e[2medit\\e[0m src/lib.rs  +1",
-            // Without colour a hunk header is dim (TM-Legend 20).
-            "  \\e[2m@@ 1\\e[0m",
             "    pub mod parse;",
             "  \\e[1m+\\e[0m pub mod greet;",
         ],

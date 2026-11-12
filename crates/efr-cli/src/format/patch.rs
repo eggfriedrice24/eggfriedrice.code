@@ -428,8 +428,11 @@ pub(crate) fn layout(
     hint: bool,
     options: &RenderOptions,
 ) -> String {
-    // NOTE: the hunk of a new file shows no row, so it takes none of the limit.
-    let quiet = usize::from(parts.body.first().is_some_and(|line| new_file_hunk(line)));
+    // NOTE: the hunk of a new file shows no row, and neither does a first hunk with no
+    // function context of git, whose place the row of the file gives (TM-Diffs 1: the
+    // diff of `CHANGELOG.md`). So it takes none of the limit.
+    let quiet_first = |line: &str| new_file_hunk(line) || no_context(line);
+    let quiet = usize::from(parts.body.first().is_some_and(|line| quiet_first(line)));
     let shown = parts.body.len().min(limit.saturating_add(quiet));
     let hidden = parts.body.len() - shown + parts.cut;
     let mut source: Vec<String> = parts.head.iter().map(|line| (*line).to_owned()).collect();
@@ -454,10 +457,14 @@ pub(crate) fn layout(
         paint(indent, Tone::Dim, options)
     };
     let mut out = String::new();
-    for (line, source) in diff_lines(&text, &whole).into_iter().skip(head).zip(body) {
+    for (at, (line, source)) in
+        diff_lines(&text, &whole).into_iter().skip(head).zip(body).enumerate()
+    {
         match line.kind {
             // NOTE: the hunk of a new file starts at its first line and says nothing.
             DiffLineKind::Hunk if new_file_hunk(source) => {}
+            // NOTE: a later hunk keeps its header, so two hunks never read as one.
+            DiffLineKind::Hunk if at == 0 && no_context(source) => {}
             DiffLineKind::Hunk => {
                 out.push_str(&painted_indent);
                 out.push_str(&options.paint(Role::DiffHunk, &short_hunk(source, glyphs)));
@@ -511,6 +518,13 @@ pub(crate) fn layout(
 /// the row of the call does not.
 fn new_file_hunk(line: &str) -> bool {
     line.starts_with("@@ -0,0 ")
+}
+
+/// True for a hunk header with no function context, such as `@@ -3,1 +3,1 @@`.
+fn no_context(line: &str) -> bool {
+    line.strip_prefix("@@ ")
+        .and_then(|rest| rest.split_once(" @@"))
+        .is_some_and(|(_, context)| context.trim().is_empty())
 }
 
 /// A hunk header `@@ -88,7 +88,11 @@ impl Turn {` in its short form, `@@ 88 impl Turn`:

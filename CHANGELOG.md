@@ -282,6 +282,8 @@ into the GitHub release notes, and it stops when the section is missing.
   A question that waits is in the warning colour: `efr: a question waits in "fix steer
   race" (/dev/pts/4) · ,resume 019a7c02`. Other notices are muted.
 - `efr_prompt_info` prints `full app` in full mode, in place of the lock emoji.
+- The diff of a file write shows no hunk header for its first hunk when git names no
+  function there, such as `@@ 1`: the row of the file gives the place.
 - In 16 colours with a theme file, such as `eggfriedrice.toml`, each role keeps its own
   slot of the 16 colours, as without the file: muted text is dim and prose is in the
   terminal's own colour. Before, efr picked the slot nearest to the theme's colour, so

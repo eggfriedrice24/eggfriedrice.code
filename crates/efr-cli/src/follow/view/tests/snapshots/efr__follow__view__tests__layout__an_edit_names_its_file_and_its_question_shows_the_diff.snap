@@ -15,7 +15,6 @@ expression: shown
 [end]
 \e[32m✓\e[0m \e[2mallowed\e[0m
 \e[32m✓\e[0m \e[2medit\e[0m ~/.zshrc  \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     export EDITOR=nvim
   \e[1;31m-\e[0m \e[31malias ll='ls -l'\e[0m
   \e[1;32m+\e[0m \e[32malias ll='ls -la'\e[0m
@@ -35,7 +34,6 @@ expression: shown
 [end]
 ✓ \e[2mallowed\e[0m
 ✓ \e[2medit\e[0m ~/.zshrc  +1\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     export EDITOR=nvim
   \e[1m-\e[0m \e[2malias ll='ls -l'\e[0m
   \e[1m+\e[0m alias ll='ls -la'
@@ -55,7 +53,6 @@ expression: shown
 [end]
 \e[32m✓\e[0m \e[2mallowed\e[0m
 \e[32m✓\e[0m \e[2medit\e[0m ~/.zshrc  \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     export EDITOR=nvim
   \e[1;31m-\e[0m \e[31malias ll='ls -l'\e[0m
   \e[1;32m+\e[0m \e[32malias ll='ls -la'\e[0m
@@ -75,7 +72,6 @@ expression: shown
 [end]
 ✓ \e[2mallowed\e[0m
 ✓ \e[2medit\e[0m ~/.zshrc  +1\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     export EDITOR=nvim
   \e[1m-\e[0m \e[2malias ll='ls -l'\e[0m
   \e[1m+\e[0m alias ll='ls -la'
@@ -106,7 +102,6 @@ stderr:
     y allow   n deny
 ✓ allowed
 ✓ edit ~/.zshrc  +1 -1
-  @@ 1
     export EDITOR=nvim
   - alias ll='ls -l'
   + alias ll='ls -la'

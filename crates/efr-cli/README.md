@@ -426,7 +426,8 @@ Replies:
   files  +9 -2`. Its diff follows (`format::patch::layout`), 2 columns in: no file
   headers, no line numbers, no bar. A hunk header is short, `@@ 88 impl Turn` (the
   first line of the new side and git's function context without its `{`), in
-  `diff.hunk`; the hunk of a new file shows no row. A line is its sign (bold in
+  `diff.hunk`; the hunk of a new file shows no row, and neither does a first hunk with
+  no function context, whose place the row of the file gives (TM-Diffs 1). A line is its sign (bold in
   `diff.add` or `diff.remove`), one space and its text with the file's syntax colours
   (`efr_render::diff_lines`), on the fill of its kind to the end of the row in
   truecolor (`ESC [ K`, reset before the newline); a line that stays has two spaces in

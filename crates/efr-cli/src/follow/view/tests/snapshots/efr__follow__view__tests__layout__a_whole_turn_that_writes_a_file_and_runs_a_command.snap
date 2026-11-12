@@ -8,7 +8,6 @@ I will greet the user and run the
 formatter.
 
 \e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     fn main() {
   \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
   \e[1;32m+\e[0m \e[32m    println!("a new greeting that i\e[0m\e[2m↩\e[0m
@@ -30,7 +29,8 @@ formatter.
   \e[1;32m+\e[0m \e[32m    step(14);\e[0m
   \e[1;32m+\e[0m \e[32m    step(15);\e[0m
   \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[33m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
@@ -38,7 +38,6 @@ I will greet the user and run the
 formatter.
 
 \e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     fn main() {
   \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
   \e[1;32m+\e[0m \e[32m    println!("a new greeting that i\e[0m\e[2m↩\e[0m
@@ -60,7 +59,8 @@ formatter.
   \e[1;32m+\e[0m \e[32m    step(14);\e[0m
   \e[1;32m+\e[0m \e[32m    step(15);\e[0m
   \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
@@ -76,7 +76,6 @@ I will greet the user and run the
 formatter.
 
 ✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     fn main() {
   \e[1m-\e[0m \e[2m    println!("old");\e[0m
   \e[1m+\e[0m     println!("a new greeting that i\e[2m↩\e[0m
@@ -98,7 +97,8 @@ formatter.
   \e[1m+\e[0m     step(14);
   \e[1m+\e[0m     step(15);
   \e[1m+\e[0m     step(16);
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1m+\e[0m     step(17);
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[1m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
@@ -106,7 +106,6 @@ I will greet the user and run the
 formatter.
 
 ✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     fn main() {
   \e[1m-\e[0m \e[2m    println!("old");\e[0m
   \e[1m+\e[0m     println!("a new greeting that i\e[2m↩\e[0m
@@ -128,7 +127,8 @@ formatter.
   \e[1m+\e[0m     step(14);
   \e[1m+\e[0m     step(15);
   \e[1m+\e[0m     step(16);
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1m+\e[0m     step(17);
+  \e[2m… 6 more lines · efr diff\e[0m
 ✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
@@ -143,7 +143,6 @@ The greeting is in `src/main.rs`.
 I will greet the user and run the formatter.
 
 \e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     fn main() {
   \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
   \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
@@ -163,14 +162,14 @@ I will greet the user and run the formatter.
   \e[1;32m+\e[0m \e[32m    step(14);\e[0m
   \e[1;32m+\e[0m \e[32m    step(15);\e[0m
   \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[33m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
 I will greet the user and run the formatter.
 
 \e[32m✓\e[0m \e[2mwrite\e[0m src/main.rs  \e[32m+23\e[0m\e[2m \e[0m\e[31m-1\e[0m
-  \e[36m@@ 1\e[0m
     fn main() {
   \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
   \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
@@ -190,7 +189,8 @@ I will greet the user and run the formatter.
   \e[1;32m+\e[0m \e[32m    step(14);\e[0m
   \e[1;32m+\e[0m \e[32m    step(15);\e[0m
   \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[32m✓\e[0m \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
@@ -204,7 +204,6 @@ The greeting is in \e[32msrc/main.rs\e[0m.
 I will greet the user and run the formatter.
 
 ✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     fn main() {
   \e[1m-\e[0m \e[2m    println!("old");\e[0m
   \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
@@ -224,14 +223,14 @@ I will greet the user and run the formatter.
   \e[1m+\e[0m     step(14);
   \e[1m+\e[0m     step(15);
   \e[1m+\e[0m     step(16);
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1m+\e[0m     step(17);
+  \e[2m… 6 more lines · efr diff\e[0m
 \e[1m•\e[0m \e[2m$\e[0m cargo fmt
 
 [end]
 I will greet the user and run the formatter.
 
 ✓ \e[2mwrite\e[0m src/main.rs  +23\e[2m \e[0m\e[1m-1\e[0m
-  \e[2m@@ 1\e[0m
     fn main() {
   \e[1m-\e[0m \e[2m    println!("old");\e[0m
   \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
@@ -251,7 +250,8 @@ I will greet the user and run the formatter.
   \e[1m+\e[0m     step(14);
   \e[1m+\e[0m     step(15);
   \e[1m+\e[0m     step(16);
-  \e[2m… 7 more lines · efr diff\e[0m
+  \e[1m+\e[0m     step(17);
+  \e[2m… 6 more lines · efr diff\e[0m
 ✓ \e[2m$\e[0m \e[2mcargo fmt\e[0m  \e[2m1.3s\e[0m
   \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
@@ -266,7 +266,6 @@ stdout:
 I will greet the user and run the formatter.
 stderr:
 ✓ write src/main.rs  +23 -1
-  @@ 1
     fn main() {
   -     println!("old");
   +     println!("a new greeting that is much wider than forty columns");
@@ -286,7 +285,8 @@ stderr:
   +     step(14);
   +     step(15);
   +     step(16);
-  … 7 more lines · efr diff
+  +     step(17);
+  … 6 more lines · efr diff
 
 [end]
 stdout:
@@ -295,7 +295,6 @@ I will greet the user and run the formatter.
 The greeting is in `src/main.rs`.
 stderr:
 ✓ write src/main.rs  +23 -1
-  @@ 1
     fn main() {
   -     println!("old");
   +     println!("a new greeting that is much wider than forty columns");
@@ -315,7 +314,8 @@ stderr:
   +     step(14);
   +     step(15);
   +     step(16);
-  … 7 more lines · efr diff
+  +     step(17);
+  … 6 more lines · efr diff
 ✓ $ cargo fmt  1.3s
   changed src/lib.rs +2 -2
 

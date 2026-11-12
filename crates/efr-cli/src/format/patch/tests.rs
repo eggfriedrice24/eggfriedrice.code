@@ -217,8 +217,9 @@ fn the_heading_of_a_file_marks_a_delete_and_a_move_in_a_question() {
 fn each_file_keeps_its_limit_and_counts_what_it_leaves_out() {
     let diffs = file_diffs(DIFF);
     let options = RenderOptions::new(40).with_colour(ColourMode::None).with_terminal(false);
+    // NOTE: a first hunk with no function context has no row (TM-Diffs 1).
     let first = layout(&diffs[0].parts, None, 2, "  ", false, &options);
-    assert_eq!(first, "  @@ 1\n    fn main() {\n  \u{2026} 4 more lines\n");
+    assert_eq!(first, "    fn main() {\n  -     old();\n  \u{2026} 3 more lines\n");
     let last = layout(&diffs[4].parts, None, 20, "  ", true, &options);
     assert!(last.ends_with("  \u{2026} 12 more lines \u{b7} efr diff\n"), "{}", readable(&last));
 }

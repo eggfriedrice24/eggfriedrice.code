@@ -9,7 +9,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 [end]
 \e[32m✓\e[0m \e[2mpatch\e[0m 5 files  \e[32m+26\e[0m\e[2m \e[0m\e[31m-3\e[0m
   src/main.rs  \e[32m+22\e[0m\e[2m \e[0m\e[31m-1\e[0m
-    \e[36m@@ 1\e[0m
       fn main() {
     \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
     \e[1;32m+\e[0m \e[32m    println!("a new greeting that\e[0m\e[2m↩\e[0m
@@ -31,9 +30,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1;32m+\e[0m \e[32m    step(14);\e[0m
     \e[1;32m+\e[0m \e[32m    step(15);\e[0m
     \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-    \e[2m… 6 more lines\e[0m
+    \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+    \e[2m… 5 more lines\e[0m
   src/lib.rs  \e[32m+1\e[0m
-    \e[36m@@ 1\e[0m
       pub mod parse;
     \e[1;32m+\e[0m \e[32mpub mod greet;\e[0m
   \e[2mnew \e[0mnotes.md  \e[32m+2\e[0m
@@ -43,7 +42,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs
     \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
-    \e[36m@@ 1\e[0m
       pub fn parse() {
     \e[1;31m-\e[0m \e[31m    let a = 1;\e[0m
     \e[1;32m+\e[0m \e[32m    let a = 2;\e[0m
@@ -58,7 +56,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 [end]
 ✓ \e[2mpatch\e[0m 5 files  +26\e[2m \e[0m\e[1m-3\e[0m
   src/main.rs  +22\e[2m \e[0m\e[1m-1\e[0m
-    \e[2m@@ 1\e[0m
       fn main() {
     \e[1m-\e[0m \e[2m    println!("old");\e[0m
     \e[1m+\e[0m     println!("a new greeting that\e[2m↩\e[0m
@@ -80,9 +77,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1m+\e[0m     step(14);
     \e[1m+\e[0m     step(15);
     \e[1m+\e[0m     step(16);
-    \e[2m… 6 more lines\e[0m
+    \e[1m+\e[0m     step(17);
+    \e[2m… 5 more lines\e[0m
   src/lib.rs  +1
-    \e[2m@@ 1\e[0m
       pub mod parse;
     \e[1m+\e[0m pub mod greet;
   \e[2mnew \e[0mnotes.md  +2
@@ -92,7 +89,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs
     +1\e[2m \e[0m\e[1m-1\e[0m
-    \e[2m@@ 1\e[0m
       pub fn parse() {
     \e[1m-\e[0m \e[2m    let a = 1;\e[0m
     \e[1m+\e[0m     let a = 2;
@@ -107,7 +103,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 [end]
 \e[32m✓\e[0m \e[2mpatch\e[0m 5 files  \e[32m+26\e[0m\e[2m \e[0m\e[31m-3\e[0m
   src/main.rs  \e[32m+22\e[0m\e[2m \e[0m\e[31m-1\e[0m
-    \e[36m@@ 1\e[0m
       fn main() {
     \e[1;31m-\e[0m \e[31m    println!("old");\e[0m
     \e[1;32m+\e[0m \e[32m    println!("a new greeting that is much wider than forty columns");\e[0m
@@ -127,9 +122,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1;32m+\e[0m \e[32m    step(14);\e[0m
     \e[1;32m+\e[0m \e[32m    step(15);\e[0m
     \e[1;32m+\e[0m \e[32m    step(16);\e[0m
-    \e[2m… 6 more lines\e[0m
+    \e[1;32m+\e[0m \e[32m    step(17);\e[0m
+    \e[2m… 5 more lines\e[0m
   src/lib.rs  \e[32m+1\e[0m
-    \e[36m@@ 1\e[0m
       pub mod parse;
     \e[1;32m+\e[0m \e[32mpub mod greet;\e[0m
   \e[2mnew \e[0mnotes.md  \e[32m+2\e[0m
@@ -138,7 +133,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   \e[2mdelete \e[0mold.rs  \e[31m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  \e[32m+1\e[0m\e[2m \e[0m\e[31m-1\e[0m
-    \e[36m@@ 1\e[0m
       pub fn parse() {
     \e[1;31m-\e[0m \e[31m    let a = 1;\e[0m
     \e[1;32m+\e[0m \e[32m    let a = 2;\e[0m
@@ -153,7 +147,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
 [end]
 ✓ \e[2mpatch\e[0m 5 files  +26\e[2m \e[0m\e[1m-3\e[0m
   src/main.rs  +22\e[2m \e[0m\e[1m-1\e[0m
-    \e[2m@@ 1\e[0m
       fn main() {
     \e[1m-\e[0m \e[2m    println!("old");\e[0m
     \e[1m+\e[0m     println!("a new greeting that is much wider than forty columns");
@@ -173,9 +166,9 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
     \e[1m+\e[0m     step(14);
     \e[1m+\e[0m     step(15);
     \e[1m+\e[0m     step(16);
-    \e[2m… 6 more lines\e[0m
+    \e[1m+\e[0m     step(17);
+    \e[2m… 5 more lines\e[0m
   src/lib.rs  +1
-    \e[2m@@ 1\e[0m
       pub mod parse;
     \e[1m+\e[0m pub mod greet;
   \e[2mnew \e[0mnotes.md  +2
@@ -184,7 +177,6 @@ expression: "every_way(&[Sent(0, turn_started()), Sent(10, apply_patch(1, PATCH)
   \e[2mdelete \e[0mold.rs  \e[1m-1\e[0m
     \e[2mdeleted; its lines are in efr diff\e[0m
   \e[2mmove \e[0msrc/expr.rs\e[2m → \e[0msrc/expression.rs  +1\e[2m \e[0m\e[1m-1\e[0m
-    \e[2m@@ 1\e[0m
       pub fn parse() {
     \e[1m-\e[0m \e[2m    let a = 1;\e[0m
     \e[1m+\e[0m     let a = 2;
@@ -202,7 +194,6 @@ stdout:
 stderr:
 ✓ patch 5 files  +26 -3
   src/main.rs  +22 -1
-    @@ 1
       fn main() {
     -     println!("old");
     +     println!("a new greeting that is much wider than forty columns");
@@ -222,9 +213,9 @@ stderr:
     +     step(14);
     +     step(15);
     +     step(16);
-    … 6 more lines
+    +     step(17);
+    … 5 more lines
   src/lib.rs  +1
-    @@ 1
       pub mod parse;
     + pub mod greet;
   new notes.md  +2
@@ -233,7 +224,6 @@ stderr:
   delete old.rs  -1
     deleted; its lines are in efr diff
   move src/expr.rs → src/expression.rs  +1 -1
-    @@ 1
       pub fn parse() {
     -     let a = 1;
     +     let a = 2;
