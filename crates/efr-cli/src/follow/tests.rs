@@ -1817,6 +1817,61 @@ async fn a_tick_while_text_waits_goes_with_the_frame_of_the_text() {
     result.unwrap();
 }
 
+/// A draft of the input of call 0, a patch of `bytes` so far.
+fn tool_input(bytes: u64) -> ConversationSubscribeItem {
+    ConversationSubscribeItem::Draft(Draft {
+        turn_id: turn(),
+        after_seq: Seq::new(10),
+        draft: DraftPart::ToolInput { call: 0, tool: "apply_patch".to_owned(), bytes, tail: None },
+    })
+}
+
+#[tokio::test]
+async fn a_burst_of_drafts_that_show_no_text_inside_one_frame_time_gives_no_frame_of_its_own() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    // The clock never moves: a draft that shows no text waits for the frame time.
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        let before = frames(&seen.stdout());
+        for n in 1..=50_u64 {
+            conn.item(sub, &tool_input(n * 2_000)).await;
+        }
+        // Text goes at once.
+        conn.item(sub, &item(11, updated("Done."))).await;
+        shows(&seen, "Done.").await;
+        let stdout = seen.stdout();
+        assert_eq!(frames(&stdout), before + 1, "one frame, for the text: {}", readable(&stdout));
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn a_draft_that_shows_no_text_goes_when_the_frame_time_is_up() {
+    let env = TestEnv::new();
+    let (clock, ctx) = test_clock(&env);
+    let timing = clock.clone();
+    let (result, _, _) = run_view(&env, &ctx, started_view(), |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        timing.wait_for_sleeps(1).await;
+        conn.item(sub, &tool_input(4_000)).await;
+        // The first frame went a moment ago, so the draft waits for the frame time.
+        timing.wait_for_sleeps(2).await;
+        assert!(!seen.stdout().contains("KB"), "{}", readable(&seen.stdout()));
+        timing.advance(super::FRAME);
+        shows(&seen, "4.0 KB").await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}
+
 #[tokio::test]
 async fn a_resize_draws_the_live_zone_again_at_the_new_width() {
     let env = TestEnv::new();

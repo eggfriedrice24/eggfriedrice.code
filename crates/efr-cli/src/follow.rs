@@ -33,7 +33,10 @@
 //! late timer wrote counts from the time it was due, so the period stays [`FRAME`]. A
 //! frame that shows no new text, such as one for the persisted update of text that
 //! drafts showed, does not move this clock, so the next text does not wait for it. A
-//! question, an answer, a key and the end of the turn show at once. While the turn
+//! change that shows no new text, such as the input of a tool call or the reasoning in
+//! the status row, waits until the last frame of any kind is [`FRAME`] old, so the
+//! screen also gets at most 60 frames a second. A question, an answer, a key and the
+//! end of the turn show at once. While the turn
 //! runs, a tick every [`TICK`] moves the status row on. A tick that finds no change
 //! does not move the clock of the frames either; a tick that finds a change waits for
 //! that change's frame and goes with it. A resize of the window (SIGWINCH) draws the
@@ -311,6 +314,7 @@ pub(crate) async fn follow(
         silence: None,
         quit: None,
         last_frame: None,
+        last_paint: None,
         frame: None,
         frame_due: None,
         tick: None,
@@ -460,6 +464,9 @@ struct Follower<'a> {
     /// tick, or an event that adds no text, such as the persisted update of text that
     /// drafts showed, does not move it.
     last_frame: Option<Timestamp>,
+    /// The time of the last frame of any kind: a change that shows no new text, such
+    /// as the input of a tool call, waits [`FRAME`] after it.
+    last_paint: Option<Timestamp>,
     /// The time until the next frame, while a change waits for it.
     frame: Option<Sleep>,
     /// When the frame that waits is due.
@@ -680,6 +687,7 @@ impl Follower<'_> {
             let at = self.frame_due.filter(|due| *due <= now).unwrap_or(now);
             self.last_frame = Some(at);
         }
+        self.last_paint = Some(now);
         self.frame = None;
         self.frame_due = None;
         // Text that still waits to show asks for the next frame, never at once, so a
@@ -694,18 +702,31 @@ impl Follower<'_> {
         out.out(&frame)
     }
 
-    /// Writes a frame now when the last frame that showed new text is [`FRAME`] old,
-    /// else when that time is up, if the view has something to show.
+    /// Writes a frame now when the view has something to show and its clock allows it,
+    /// else when that time is up. New text goes when the last frame that showed new
+    /// text is [`FRAME`] old; any other change, such as the input of a tool call or
+    /// the reasoning in the status row, when the last frame of any kind is.
     fn schedule(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
-        if !view.wants_frame() || self.frame.is_some() {
+        if !view.wants_frame() {
             return Ok(());
         }
         let now = self.ctx.clock.now();
-        if let Some(due) = self.next_frame().filter(|due| *due > now) {
-            self.wait_frame(now, due);
-            return Ok(());
+        let after = if view.text_waits() {
+            self.next_frame()
+        } else {
+            self.last_paint.map(|last| last.checked_add(FRAME).unwrap_or(last))
+        };
+        match after.filter(|due| *due > now) {
+            Some(due) => {
+                // NOTE: text can be due before a change that waits for the frame of
+                // any kind, so the earlier time wins.
+                if self.frame_due.is_none_or(|waiting| due < waiting) {
+                    self.wait_frame(now, due);
+                }
+                Ok(())
+            }
+            None => self.paint(out, view, false),
         }
-        self.paint(out, view, false)
     }
 
     /// When the next frame that shows new text may go; `None` before the first.
