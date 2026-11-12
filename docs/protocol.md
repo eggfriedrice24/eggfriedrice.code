@@ -965,9 +965,10 @@ No protocol version has shipped yet.
   again. efrd sends them at once, and a subscription that starts during the wait gets
   the newest `connecting` or `retrying` first. The `tool_input` draft gains an optional
   `tail`: at most the newest 256 bytes of the raw input, which end at `bytes`, cut at a
-  character, with each control character as spaces of the same length. A client that
-  does not know the new parts skips them, and one that does not read `tail` shows the
-  size as before. The `draft_parts.json` fixture now sets `tail` and holds the three
+  character, with each control character as spaces of the same length. It is absent
+  in the drafts that efrd builds again for a subscriber that starts or falls behind
+  while the input grows, until the next draft. A client that does not know the new
+  parts skips them, and one that does not read `tail` shows the size as before. The `draft_parts.json` fixture now sets `tail` and holds the three
   new parts.
 - Version 1, additive: new method `provider.warm` (scope `operate`, unary, no command
   id) for the zsh plugin while the user types a prompt line. Its params are an

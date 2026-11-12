@@ -130,12 +130,7 @@ pub(crate) async fn handle(
     let (sender, mut receiver) = efr_transport::subscription();
     let progress = Arc::new(Progress { last: attached.reached(), lagged: AtomicBool::new(false) });
     let (feed, drafts) = oneshot::channel();
-    // NOTE: only a remote subscriber waits for the draft interval; a terminal on the
-    // local socket shows each draft at once and draws its frames on its own clock.
-    let gate = context.remote().and_then(|_| {
-        let interval = state.settings.borrow().conversation.draft_interval_ms;
-        Gate::new(Duration::from_millis(interval))
-    });
+    let gate = gate_of(context, || state.settings.borrow().conversation.draft_interval_ms);
     let live = Live {
         committed,
         sender,
@@ -641,6 +636,14 @@ pub(crate) fn snapshot(
         events.first().map_or_else(|| Seq::new(hwm.get().saturating_add(1)), |first| first.seq);
     let history_cursor = older.then(|| cursor(before));
     ConversationSnapshot { conversation, events, history_cursor, hwm, live: None }
+}
+
+/// The gate of the drafts of the subscriber of `context`, with the interval in
+/// milliseconds that `interval` reads. Only a remote subscriber, such as the phone,
+/// waits for the draft interval; a terminal on the local socket shows each draft at
+/// once and draws its frames on its own clock.
+fn gate_of(context: &ConnectionContext, interval: impl FnOnce() -> u64) -> Option<Gate> {
+    context.remote().and_then(|_| Gate::new(Duration::from_millis(interval())))
 }
 
 #[cfg(test)]

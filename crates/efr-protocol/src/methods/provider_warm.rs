@@ -39,8 +39,8 @@ pub struct ProviderWarm {
 /// the daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderWarmResult {
-    /// The provider that the warm-up is for, such as `openai-subscription`. Absent when
-    /// the daemon warms nothing, such as for a provider that a test injects.
+    /// The provider that the warm-up is for, such as `openai-subscription`. This
+    /// daemon always sends it; a client must also accept an answer without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }

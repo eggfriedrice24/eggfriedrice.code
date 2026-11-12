@@ -3660,7 +3660,7 @@
               "type": "string"
             },
             "tail": {
-              "description": "The newest part of the input as the model writes it: at most 256 bytes that\nend at `bytes`, cut at a character border. It is the raw text, JSON for\nmost tools, with each control character, such as a newline, as spaces of\nthe same length, so it is safe to print and its first byte is at `bytes`\nminus its length. A client can show its newest words while a long input\ngrows. Absent before the input has a byte, and from an older daemon.",
+              "description": "The newest part of the input as the model writes it: at most 256 bytes that\nend at `bytes`, cut at a character border. It is the raw text, JSON for\nmost tools, with each control character, such as a newline, as spaces of\nthe same length, so it is safe to print and its first byte is at `bytes`\nminus its length. A client can show its newest words while a long input\ngrows. Absent before the input has a byte, in the drafts that the daemon\nbuilds again for a subscriber that starts or falls behind while the input\ngrows (until the next draft), and from an older daemon.",
               "type": [
                 "string",
                 "null"
@@ -10165,7 +10165,7 @@
       "description": "The result of `provider.warm`. It comes before the warm-up ends, which runs on in\nthe daemon.",
       "properties": {
         "provider": {
-          "description": "The provider that the warm-up is for, such as `openai-subscription`. Absent when\nthe daemon warms nothing, such as for a provider that a test injects.",
+          "description": "The provider that the warm-up is for, such as `openai-subscription`. This\ndaemon always sends it; a client must also accept an answer without it.",
           "type": [
             "string",
             "null"

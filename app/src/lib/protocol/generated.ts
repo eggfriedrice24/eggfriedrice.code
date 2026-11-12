@@ -2400,7 +2400,9 @@ export type DraftPart =
        * most tools, with each control character, such as a newline, as spaces of
        * the same length, so it is safe to print and its first byte is at `bytes`
        * minus its length. A client can show its newest words while a long input
-       * grows. Absent before the input has a byte, and from an older daemon.
+       * grows. Absent before the input has a byte, in the drafts that the daemon
+       * builds again for a subscriber that starts or falls behind while the input
+       * grows (until the next draft), and from an older daemon.
        */
       tail?: string | null;
       /**
@@ -6953,8 +6955,8 @@ export interface WithdrawnPrompt {
  */
 export interface ProviderWarmResult {
   /**
-   * The provider that the warm-up is for, such as `openai-subscription`. Absent when
-   * the daemon warms nothing, such as for a provider that a test injects.
+   * The provider that the warm-up is for, such as `openai-subscription`. This
+   * daemon always sends it; a client must also accept an answer without it.
    */
   provider?: string | null;
 }

@@ -17,7 +17,7 @@ use tokio::sync::{broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::pending::{Boundary, Gate, PendingDrafts};
-use super::{DraftFeed, Live, LiveStart, Progress, Rebuild};
+use super::{DraftFeed, Live, LiveStart, Progress, Rebuild, gate_of};
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
 const TURN: &str = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -291,4 +291,19 @@ async fn a_remote_subscriber_gets_the_first_draft_at_once_and_then_one_merge_eac
     let last = DraftPart::Text { index: 0, offset: 13, delta: "!".to_owned() };
     assert_eq!(next_draft(&mut receiver).await, last);
     cancelled.cancel();
+}
+
+#[test]
+fn only_a_remote_subscriber_gets_a_gate_for_its_drafts() {
+    use efr_protocol::Origin;
+    use efr_transport::{ConnId, ConnectionContext, PeerCred, RemotePeer};
+
+    let addr: std::net::SocketAddr = "100.64.0.2:51000".parse().unwrap();
+    let remote =
+        ConnectionContext::new(ConnId::new(1), Origin::Phone, RemotePeer::new(addr, Arc::new(())));
+    let local = ConnectionContext::new(ConnId::new(2), Origin::Cli, PeerCred::new(1000, Some(5)));
+
+    assert!(gate_of(&remote, || 16).is_some(), "the phone waits for the interval");
+    assert!(gate_of(&remote, || 0).is_none(), "0 sends each draft at once");
+    assert!(gate_of(&local, || 16).is_none(), "a terminal gets each draft at once");
 }
