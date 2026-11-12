@@ -16,10 +16,12 @@
 //!
 //! `--mode full` asks the daemon whether it allows full mode (`admin.status`). When the
 //! config does not allow it, or the daemon cannot run it, the command fails with the
-//! daemon's own text (exit 2), so the terminal keeps its old mode. Otherwise three lines
-//! on stderr say what full mode does and what it does not read. A daemon that does not
-//! say leaves the choice to `permissions.allow_full` as `efr` reads the file; the daemon
-//! checks each prompt again.
+//! daemon's own text (exit 2), so the terminal keeps its old mode. Otherwise two lines
+//! on stderr say it once, as `TM-Endings` 8 draws them: what full mode does, in the
+//! error role, then how to undo and go back, muted. After that the prompt corner and
+//! the status row keep `full` in the error role; no turn says it again. A daemon that
+//! does not say leaves the choice to `permissions.allow_full` as `efr` reads the file;
+//! the daemon checks each prompt again.
 
 use std::fmt::Write as _;
 
@@ -27,23 +29,32 @@ use efr_protocol::{
     AdminStatus, AdminStatusResult, FullModeStatus, Method, Mode, ModelInfo, ModelsList,
     ModelsListResult, Origin, is_effort_word,
 };
+use efr_render::RenderOptions;
 
 use crate::cli::TurnSettingsArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format;
+use crate::format::{self, Tone};
+use crate::live::effective_width;
 use crate::output::Output;
 use crate::settings::TurnDefaults;
 use crate::turn_settings::{Asked, SettingSource};
 
-/// What `efr settings --mode full` writes on stderr when full mode may run: what it
-/// does, what efr still reads, and what it does not read.
-pub(crate) const FULL_WARNING: &str = "\
-efr: full mode: commands run with your rights, with no sandbox and no questions.
-efr: efr reads each line: it denies secrets and its own config, and asks for sudo, for a \
-process that outlives the turn and for a delete of ~, / or a project.
-efr: a script or a program that a line starts is not read; it can do what you can.
-";
+/// What `efr settings --mode full` writes on stderr when full mode may run, as
+/// `TM-Endings` 8 draws it: what full mode does, in the error role, then what reverts
+/// it and how to go back, muted.
+pub(crate) fn full_lines(options: &RenderOptions) -> String {
+    let separator = options.glyphs().separator;
+    let does = "full mode for this terminal: no sandbox, no questions";
+    let back = format!(
+        "efr undo reverts the project and the files efr saw {separator} ,mode default goes back"
+    );
+    format!(
+        "{}\n{}\n",
+        format::paint(does, Tone::Failure, options),
+        format::paint(&back, Tone::Dim, options)
+    )
+}
 
 pub(crate) async fn run(
     ctx: &Context,
@@ -78,7 +89,14 @@ pub(crate) async fn run(
                 out.err(&format!("efr: {}\n", format::sandbox::fallback_warning(&reason)));
             }
         }
-        Some(Mode::Full) => out.err(FULL_WARNING),
+        Some(Mode::Full) => {
+            // NOTE: stdout goes to the plugin, which reads the settings from it; the lines
+            // go to the terminal on stderr, painted when stderr is one.
+            let on_terminal = ctx.term.stderr_tty && ctx.term.term.as_deref() != Some("dumb");
+            let options =
+                ctx.render_options(effective_width(ctx.screen.size())).with_terminal(on_terminal);
+            out.err(&full_lines(&options));
+        }
         _ => {}
     }
     Ok(())

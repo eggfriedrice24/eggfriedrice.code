@@ -12,8 +12,9 @@ use crate::context::Context;
 use crate::error::{CliError, Exit};
 use crate::run;
 use crate::settings::{Settings, TurnDefaults};
-use crate::testing::{TestEnv, capture, command, models, now};
+use crate::testing::{TestEnv, capture, command, design_options, models, now};
 use crate::turn_settings::{Asked, Given, SettingSource};
+use efr_test_support::design::{Depth, Frame, assert_rows};
 
 const PATH: &str = "/home/user/.config/efr/config.toml";
 
@@ -410,18 +411,28 @@ async fn choose_full(
 }
 
 #[tokio::test]
-async fn mode_full_prints_the_warning() {
+async fn mode_full_says_what_it_does_once() {
     let allowed = FullModeStatus { allowed: true, refused: None };
     let (exit, stdout, stderr) = choose_full(Ok(Some(allowed)), None).await;
     assert_eq!(exit, Exit::Success, "{stderr}");
     assert!(stdout.starts_with("mode = full  # --mode;"), "{stdout}");
+    // The test's stderr is no terminal, and its locale is not UTF-8: the lines are
+    // plain, and the separator is `-`.
     assert_eq!(
         stderr,
-        "efr: full mode: commands run with your rights, with no sandbox and no questions.\n\
-         efr: efr reads each line: it denies secrets and its own config, and asks for sudo, \
-         for a process that outlives the turn and for a delete of ~, / or a project.\n\
-         efr: a script or a program that a line starts is not read; it can do what you can.\n"
+        "full mode for this terminal: no sandbox, no questions\n\
+         efr undo reverts the project and the files efr saw - ,mode default goes back\n"
     );
+}
+
+/// TM-Endings 8, rows 2 and 3: what `,mode full` says, in each depth.
+#[test]
+fn the_lines_of_full_mode_are_the_design() {
+    let frame = Frame::load("Endings", 8).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 1..=2, &super::full_lines(&options), depth);
+    }
 }
 
 #[tokio::test]
@@ -453,7 +464,7 @@ async fn mode_full_reads_the_config_file_when_the_daemon_does_not_say() {
     // A status without full mode, or no status at all: the file decides.
     let (exit, _, stderr) = choose_full(Ok(None), Some(ALLOWED)).await;
     assert_eq!(exit, Exit::Success, "{stderr}");
-    assert!(stderr.starts_with("efr: full mode: commands run with your rights"), "{stderr}");
+    assert!(stderr.starts_with("full mode for this terminal: no sandbox"), "{stderr}");
     let (exit, _, stderr) = choose_full(Err(()), Some(ALLOWED)).await;
     assert_eq!(exit, Exit::Success, "{stderr}");
     let (exit, stdout, stderr) = choose_full(Ok(None), None).await;
