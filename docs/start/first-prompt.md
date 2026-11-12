@@ -123,17 +123,21 @@ view and its keys](../use/turn-view.md) lists all the keys.
 
 ## Sticky agent mode
 
-Type `,` alone, or press Ctrl+Space, to switch sticky agent mode on. The marker `›`
-(bold, in the accent colour) then stands before the text that you type, and every
-line goes to the agent. With the prompt corner, the marker stands alone. Without the
-corner, the scope of the next prompt stands before it, and `full` in full mode:
+Type `,` alone, or press Ctrl+Space, to switch sticky agent mode on. The marker, the
+robot, then stands before the text that you type, and every line goes to the agent.
+With the prompt corner, the marker stands alone. Without the corner, the scope of the
+next prompt stands before it, and `full` in full mode:
 
 ```text
-› fix the failing test
-app › fix the failing test
-⌂ › check the disk space
-full app › clean the build caches
+🤖 fix the failing test
+app 🤖 fix the failing test
+⌂ 🤖 check the disk space
+full app 🤖 clean the build caches
 ```
+
+A terminal that cannot draw the robot shows `◆` in its place.
+[Conversations](../use/conversations.md#sticky-mode) tells how to choose another
+marker.
 
 In sticky mode:
 

@@ -274,12 +274,14 @@ into the GitHub release notes, and it stops when the section is missing.
 - Home is the name of every place that is in no registered project, with the mark
   `⌂` (`~` in a locale that is not UTF-8). It replaces `○`, "no project" and "outside
   projects" in the plugin and the docs.
-- Sticky mode shows the marker `›`, bold in the accent colour, before the typed text,
-  in place of the robot. With the prompt corner it stands alone; without the corner
-  the scope stands before it, such as `app › ` or `⌂ › `, and `full` in full mode. On
-  Enter the line keeps `›` as its first word. The dim tag with the terminal's own
-  settings is gone. A line of history that starts with the robot still goes to the
-  agent.
+- Sticky mode shows its marker, the robot, before the typed text. With the prompt
+  corner it stands alone; without the corner the scope stands before it, such as
+  `app 🤖 ` or `⌂ 🤖 `, and `full` in full mode. On Enter the line keeps the marker as
+  its first word. The dim tag with the terminal's own settings and the lock of full
+  mode are gone. Where a terminal cannot draw the robot (the Linux console, a dumb
+  terminal), the marker is `◆`, bold in the accent colour, and in a locale that is
+  not UTF-8 it is `*`. `EFR_STICKY_MARKER`, set before the plugin loads, names
+  another marker of one word.
 - `,mode full` says once what it does, in two lines: `full mode for this terminal: no
   sandbox, no questions` in the error colour, then `efr undo reverts the project and
   the files efr saw · ,mode default goes back`. Before, it wrote three lines that
@@ -344,8 +346,8 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Removed
 
 - The variables `EFR_STICKY_INDICATOR`, `EFR_STICKY_STYLE`, `EFR_TAG_STYLE`,
-  `EFR_SCOPE_STYLE` and `EFR_FULL_MARK` of the zsh plugin. The marker of sticky mode
-  and its colours come from the design and from efr's palette.
+  `EFR_SCOPE_STYLE` and `EFR_FULL_MARK` of the zsh plugin. The colours of sticky
+  mode come from efr's palette, and `EFR_STICKY_MARKER` names the marker.
 
 ### Fixed
 

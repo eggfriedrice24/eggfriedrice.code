@@ -787,10 +787,11 @@ fn e2e_sticky_mode_shows_its_indicator_without_changing_the_prompt() {
     let before = std::fs::read_to_string(home.path().join("before.txt")).unwrap();
     let during = std::fs::read_to_string(home.path().join("during.txt")).unwrap();
     assert_eq!(before, during, "sticky mode must not change PROMPT");
-    // The marker is drawn while sticky mode is on: `>` in the C locale. The raw bytes
+    // The marker is drawn while sticky mode is on: `*` in the C locale. The raw bytes
     // cannot show it next to the typed text: ZLE writes a key, steps back and writes it
     // again with colour. (`plugin/look.rs` checks the screen against the design.)
-    assert!(screen.contains("> "), "{screen}");
+    // No typed line holds a `*`, so the one on the screen is the marker.
+    assert!(screen.contains('*'), "{screen}");
     assert!(home.calls().is_empty(), "{:?}", home.calls());
 }
 
@@ -812,27 +813,43 @@ fn e2e_in_sticky_mode_a_prompt_line_starts_with_the_marker_instead_of_a_comma() 
     // History keeps the line that ran, which the screen showed all along: the marker
     // stood before the typed text and stays there, and no comma is ever drawn.
     let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
-    assert_eq!(history.trim_end(), format!("\u{203a} {prompt}"));
-    assert!(screen.contains('\u{203a}'), "{screen}");
-    assert!(!screen.contains('🤖'), "{screen}");
+    assert_eq!(history.trim_end(), format!("🤖 {prompt}"));
+    assert!(screen.contains('🤖'), "{screen}");
+    // NOTE: never `›`: after the last character of a prompt theme it reads as a part
+    // of the prompt.
+    assert!(!screen.contains('›'), "{screen}");
     assert!(!screen.contains(", what"), "{screen}");
+}
+
+/// Where a terminal cannot draw the robot, the marker is `◆`, and `EFR_STICKY_MARKER`
+/// names another one.
+#[test]
+fn e2e_the_marker_is_a_diamond_on_the_linux_console_and_what_the_user_names() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    for (env, marker) in [
+        (vec![("LANG", "C.UTF-8"), ("EFR_TEST_TERM", "linux")], "\u{25c6}"),
+        (vec![("LANG", "C.UTF-8"), ("EFR_STICKY_MARKER", "ai")], "ai"),
+        // More than one word is no marker: the robot stays.
+        (vec![("LANG", "C.UTF-8"), ("EFR_STICKY_MARKER", "a b")], "🤖"),
+    ] {
+        let home = Home::new();
+        type_lines_with(
+            &home,
+            &env,
+            &["<C-Space>", "hello", "!fc -ln -1 > history.txt", "<C-Space>"],
+        );
+        let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+        assert_eq!(history.trim_end(), format!("{marker} hello"), "{env:?}");
+        let prompts: Vec<Option<String>> =
+            home.calls().into_iter().map(|call| call.prompt).collect();
+        assert_eq!(prompts, [Some("hello".to_owned())], "{env:?}");
+    }
 }
 
 #[test]
 fn e2e_a_marker_line_from_history_goes_to_the_agent_outside_sticky_mode() {
-    if !zsh_tests_enabled() {
-        return;
-    }
-    let home = Home::new();
-    type_lines_with(&home, UTF8, &["\u{203a} sent again; from history"]);
-    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
-    assert_eq!(prompts, [Some("sent again; from history".to_owned())]);
-}
-
-/// A line of the history of an older version, which put the robot in front, still
-/// goes to the agent.
-#[test]
-fn e2e_a_robot_line_from_history_goes_to_the_agent_outside_sticky_mode() {
     if !zsh_tests_enabled() {
         return;
     }
@@ -842,6 +859,22 @@ fn e2e_a_robot_line_from_history_goes_to_the_agent_outside_sticky_mode() {
     assert_eq!(prompts, [Some("sent again; from history".to_owned())]);
 }
 
+/// A line of history that starts with a marker that is not the chosen one still goes
+/// to the agent: `◆` of a terminal without emoji, and `›` of a build before the release.
+#[test]
+fn e2e_a_line_with_another_marker_from_history_goes_to_the_agent() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    for marker in ["\u{25c6}", "›"] {
+        let home = Home::new();
+        type_lines_with(&home, UTF8, &[&format!("{marker} sent again; from history")]);
+        let prompts: Vec<Option<String>> =
+            home.calls().into_iter().map(|call| call.prompt).collect();
+        assert_eq!(prompts, [Some("sent again; from history".to_owned())], "{marker}");
+    }
+}
+
 #[test]
 fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
     if !zsh_tests_enabled() {
@@ -849,7 +882,7 @@ fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
     }
     let calls = run(r#"
         alias taken=true
-        for word in '›' '🤖' 'ai' '>' 'ls' 'if' 'taken' '-x' 'a b' ','; do
+        for word in '◆' '🤖' 'ai' '>' 'ls' 'if' 'taken' '-x' 'a b' ','; do
           if _efr_free_word $word; then efr word "$word"; else efr none; fi
         done
         _efr_sticky_word || efr marker "[$REPLY]"
@@ -858,7 +891,7 @@ fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
     assert_eq!(
         words,
         [
-            "word \u{203a}",
+            "word \u{25c6}",
             "word 🤖",
             "word ai",
             "none",
@@ -868,7 +901,7 @@ fn e2e_the_sticky_word_is_one_plain_word_that_names_nothing_else() {
             "none",
             "none",
             "none",
-            // In the C locale the marker is `>`, which can be no word.
+            // In the C locale the marker is `*`, which can be no word.
             "marker []"
         ]
     );
@@ -1785,10 +1818,10 @@ fn e2e_in_sticky_mode_a_bare_setting_word_runs_as_its_command() {
         [
             ",mode auto",
             ",model",
-            "\u{203a} effort matters",
-            "\u{203a} model the database schema",
+            "\u{1f916} effort matters",
+            "\u{1f916} model the database schema",
             ",effort high",
-            "\u{203a} what now",
+            "\u{1f916} what now",
             ",mode default",
         ]
     );
@@ -1940,17 +1973,17 @@ fn e2e_in_sticky_mode_the_marker_stands_before_the_text_and_stays_on_enter() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("\u{203a} what changed?", &[("P0", "fg=yellow,bold")]),
-            typed("\u{203a} and now", &[("P0", "fg=yellow,bold")]),
+            typed("\u{1f916} what changed?", &[("P0", "fg=yellow,bold")]),
+            typed("\u{1f916} and now", &[("P0", "fg=yellow,bold")]),
         ]
     );
     // Enter changed nothing on the screen: the marker became the first word of the line.
     let finished = read("finished.txt");
-    assert!(finished.lines().any(|line| line == "\u{203a} what changed?"), "{finished}");
-    assert!(finished.lines().any(|line| line == "\u{203a} and now"), "{finished}");
+    assert!(finished.lines().any(|line| line == "\u{1f916} what changed?"), "{finished}");
+    assert!(finished.lines().any(|line| line == "\u{1f916} and now"), "{finished}");
     assert_eq!(
         read("history.txt").lines().collect::<Vec<_>>(),
-        ["\u{203a} what changed?", ",mode default", ",model default", "\u{203a} and now"]
+        ["\u{1f916} what changed?", ",mode default", ",model default", "\u{1f916} and now"]
     );
     let calls = home.calls();
     let prompts: Vec<(Option<&str>, [Option<&str>; 3])> = calls
@@ -2478,13 +2511,16 @@ fn e2e_mode_full_shows_full_before_the_marker_in_sticky_mode() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("full app \u{203a} what changed?", &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]),
-            typed("app \u{203a} and now", &[("P4", "fg=yellow,bold")]),
-            typed("\u{203a} then", &[("P0", "fg=yellow,bold")]),
+            typed(
+                "full app \u{1f916} what changed?",
+                &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]
+            ),
+            typed("app \u{1f916} and now", &[("P4", "fg=yellow,bold")]),
+            typed("\u{1f916} then", &[("P0", "fg=yellow,bold")]),
         ]
     );
     let finished = std::fs::read_to_string(home.path().join("p/app/finished.txt")).unwrap();
-    assert!(finished.lines().any(|line| line == "full app \u{203a} what changed?"), "{finished}");
+    assert!(finished.lines().any(|line| line == "full app \u{1f916} what changed?"), "{finished}");
 }
 
 #[test]
@@ -2582,9 +2618,9 @@ fn e2e_a_config_that_makes_full_the_default_shows_full() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("full app \u{203a} by default", &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]),
-            typed("app \u{203a} cautious", &[("P4", "fg=yellow,bold")]),
-            typed("app \u{203a} not allowed", &[("P4", "fg=yellow,bold")]),
+            typed("full app \u{1f916} by default", &[("P0", "fg=red"), ("P9", "fg=yellow,bold")]),
+            typed("app \u{1f916} cautious", &[("P4", "fg=yellow,bold")]),
+            typed("app \u{1f916} not allowed", &[("P4", "fg=yellow,bold")]),
         ]
     );
     let info = std::fs::read_to_string(home.path().join("info.txt")).unwrap();
@@ -2651,9 +2687,9 @@ fn e2e_sticky_marker_names_the_project() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("app \u{203a} one", &[("P4", "fg=yellow,bold")]),
-            typed("lib \u{203a} two", &[("P4", "fg=yellow,bold")]),
-            typed("\u{2302} \u{203a} three", &[("P2", "fg=yellow,bold")]),
+            typed("app \u{1f916} one", &[("P4", "fg=yellow,bold")]),
+            typed("lib \u{1f916} two", &[("P4", "fg=yellow,bold")]),
+            typed("\u{2302} \u{1f916} three", &[("P2", "fg=yellow,bold")]),
         ]
     );
 }
@@ -2680,8 +2716,8 @@ fn e2e_sticky_marker_shows_the_home_mark_outside_projects() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("\u{2302} \u{203a} one", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
-            typed("\u{2302} \u{203a} two", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
+            typed("\u{2302} \u{1f916} one", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
+            typed("\u{2302} \u{1f916} two", &[("P0", "fg=#8695b7"), ("P2", "fg=#ffc940,bold")]),
         ]
     );
     // Without a UTF-8 locale the marks are their ASCII forms.
@@ -2699,7 +2735,7 @@ fn e2e_sticky_marker_shows_the_home_mark_outside_projects() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["~ > one", "app > two"]);
+    assert_eq!(shown, ["~ * one", "app * two"]);
 }
 
 #[test]
@@ -2716,7 +2752,7 @@ fn e2e_sticky_marker_through_a_symlinked_dir() {
         &[RECORD_ANYWHERE, "cd app-link", "<C-Space>", "one\u{18}\u{12}", "<C-Space>"],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["app \u{203a} one"]);
+    assert_eq!(shown, ["app \u{1f916} one"]);
 }
 
 /// A fake `git` that records each call in `$HOME/git-called`.
@@ -2747,7 +2783,7 @@ fn e2e_marker_runs_no_command() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["app \u{203a} ", "\u{2302} \u{203a} "]);
+    assert_eq!(shown, ["app \u{1f916} ", "\u{2302} \u{1f916} "]);
     assert!(home.calls().is_empty(), "{:?}", home.calls());
     assert!(!home.path().join("git-called").exists(), "the marker ran git");
 }
@@ -2784,7 +2820,7 @@ fn e2e_marker_reads_the_file_again_only_when_it_changed() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["app \u{203a} ", "app \u{203a} ", "apq \u{203a} "]);
+    assert_eq!(shown, ["app \u{1f916} ", "app \u{1f916} ", "apq \u{1f916} "]);
 }
 
 #[test]
@@ -2885,7 +2921,7 @@ fn e2e_marker_shows_a_bang_once_with_prompt_bang() {
         ],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["a!b \u{203a} "]);
+    assert_eq!(shown, ["a!b \u{1f916} "]);
     let scope = std::fs::read_to_string(home.path().join("scope.txt")).unwrap();
     assert_eq!(scope, "{a!!b}\n");
 }
@@ -2904,7 +2940,7 @@ fn e2e_marker_shows_a_percent_once() {
         &[RECORD_ANYWHERE, "cd p/app", "<C-Space>", "\u{18}\u{12}", "<C-Space>"],
     );
     let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
-    assert_eq!(shown, ["a%~b \u{203a} "]);
+    assert_eq!(shown, ["a%~b \u{1f916} "]);
 }
 
 #[test]
@@ -2950,7 +2986,7 @@ fn e2e_no_projects_file_no_marker() {
             "<C-Space>",
         ],
     );
-    assert_eq!(typed_lines(&home), [typed("\u{203a} one", &[("P0", "fg=yellow,bold")])]);
+    assert_eq!(typed_lines(&home), [typed("\u{1f916} one", &[("P0", "fg=yellow,bold")])]);
     let info = std::fs::read_to_string(home.path().join("info.txt")).unwrap();
     assert_eq!(info, "[]{}\n");
 }

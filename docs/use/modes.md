@@ -76,7 +76,7 @@ corner reads `permissions.mode` from `config.toml` itself.
 [Conversations](conversations.md#the-prompt-corner) tells more about the corner.
 
 - Without the corner, sticky mode shows `full` before the scope in full mode, such as
-  `full app › `.
+  `full app 🤖 `.
 - The status row of a running full turn ends its scope with `· full` in the error
   colour.
 - A reply has no line for the settings of its prompt. The status row of a running turn

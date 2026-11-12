@@ -1610,7 +1610,8 @@ runs on a pseudo-terminal with a pause after each part of the keys, as a person 
 one `efr warm --tty <tty>` for each `, ` prompt line, `,new` line (with `--new`) and
 line of sticky mode, none for a plain command, none while the daemon has no socket,
 and no text of the prompt in its command line or its environment. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
-marker `›` alone before the typed text and as the first word after Enter, the bare
+marker (the robot, `◆` on the Linux console, the word of `EFR_STICKY_MARKER`) alone
+before the typed text and as the first word after Enter, the bare
 command words of sticky mode, a `,word` that names nothing as a prompt, `full` before
 the scope in sticky mode without the corner, the default mode of a `config.toml`
 before efrd wrote `prompt.tsv`, until `,mode` or a change of the file says otherwise,

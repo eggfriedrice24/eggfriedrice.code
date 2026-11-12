@@ -80,17 +80,21 @@
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just a command word, as after
 #                  `, ` above (`resume`, or `mode` with one value that efr accepts),
-#                  which runs as its `,` command. The marker `›` (bold, in the accent
-#                  colour) stands before the typed text while it is on. With the
-#                  prompt corner it carries nothing else; without the corner it
-#                  carries the scope of the next prompt, such as `app › ` in a
-#                  registered project and `⌂ › ` at home, and `full` in full mode:
-#                  `full app › `. It shows with PREDISPLAY, so the prompt itself never
-#                  changes. A locale that is not UTF-8 shows `>` and `~`
-#   › <prompt>     what a prompt line becomes on Enter in sticky mode: `›` is an alias
-#                  of `,`, so the screen and history keep the line that ran, and the
-#                  line still goes to the agent when history recalls it. A line from
-#                  an older version that starts with the robot 🤖 does the same
+#                  which runs as its `,` command. The marker, the robot 🤖, stands
+#                  before the typed text while it is on. With the prompt corner it
+#                  carries nothing else; without the corner it carries the scope of
+#                  the next prompt, such as `app 🤖 ` in a registered project and
+#                  `⌂ 🤖 ` at home, and `full` in full mode: `full app 🤖 `. It shows
+#                  with PREDISPLAY, so the prompt itself never changes. Where a
+#                  terminal cannot draw the robot, the marker is `◆` (bold, in the
+#                  accent colour): on the Linux console and a dumb terminal. A locale
+#                  that is not UTF-8 shows `*` and `~`. EFR_STICKY_MARKER, set before
+#                  the plugin is sourced, names another marker, one word, such as `◆`
+#   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the marker is
+#                  an alias of `,`, so the screen and history keep the line that ran,
+#                  and the line still goes to the agent when history recalls it. A
+#                  line that starts with another marker (`◆`, or the robot when the
+#                  marker is `◆`) does the same
 #
 # The prompt corner: the scope and the permission mode of the next prompt at the right
 # edge of your zsh prompt, such as `app · auto`, `⌂ · cautious` or `app · full` (the
@@ -128,7 +132,7 @@
 # scope. A line before the reply says when the conversation changed.
 #
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
-# and in history, except that a sticky prompt gets `›` in front and an unknown
+# and in history, except that a sticky prompt gets the marker in front and an unknown
 # `,word` line gets a blank after its `,` (`,!word` one after its `,!`). The accept-line widget saves the prompt text, and `,`,
 # `,new`, `,!` and `,compact` are aliases whose expansion ends in a comment marker, so
 # zsh reads the rest of the line as a comment; the commands then take the saved text. The two
@@ -245,21 +249,39 @@ typeset -gi _efr_called
 typeset -ga _efr_saved_options
 # The marks of the plugin and their plain-text forms for a locale that is not UTF-8:
 # home (`⌂`, every place that is in no registered project), the marker of sticky mode
-# (`›`) and the separator of the corner (`·`). `⌂` and `·` have the "neutral" East Asian
-# width and `›` too, so a CJK locale keeps them one column wide: glibc's wcwidth, which
+# and the separator of the corner (`·`). `⌂` and `·` have the "neutral" East Asian
+# width, so a CJK locale keeps them one column wide: glibc's wcwidth, which
 # zle uses, gives them one column in every UTF-8 locale, and Ghostty draws them one
 # column wide whatever the locale (efr-screen-ghostty's widths test). The marker is
-# also the sticky word (see _efr_sticky_word); `>` cannot be one, so a prompt line of
-# sticky mode starts with `, ` in such a locale.
+# also the sticky word (see _efr_sticky_word); `*` cannot be one, so a prompt line of
+# sticky mode starts with `, ` in a locale that is not UTF-8.
+#
+# The marker of sticky mode is the robot, two columns wide, where a terminal can draw
+# an emoji. No terminal says whether it can, so the plugin goes by what it knows: the
+# Linux console and a dumb terminal cannot, and they get `◆` (U+25C6, one column, in
+# the fonts of the console too). The plain-text form is `*`.
+# NOTE: never `›` or `>`: a prompt theme often ends with such a character, and a
+# second one after it reads as a part of the prompt.
+# EFR_STICKY_MARKER names another marker, one word. The markers that are not chosen
+# stay sticky words, so a line of history that starts with one of them still goes to
+# the agent; `›` is among them, because a build before the release used it.
 if [[ -o multibyte && ${LC_ALL:-${LC_CTYPE:-$LANG}} == *.[Uu][Tt][Ff](-|)8* ]]; then
-  typeset -g _efr_home_mark='⌂' _efr_marker='›' _efr_separator='·' _efr_more='…'
-  # The sticky word of the versions before the marker. A line of history that starts
-  # with it still goes to the agent.
-  typeset -g _efr_old_sticky_word='🤖'
+  typeset -g _efr_home_mark='⌂' _efr_separator='·' _efr_more='…'
+  typeset -ga _efr_other_sticky_words=('🤖' '◆' '›')
+  if [[ $TERM == (linux|dumb) ]]; then
+    typeset -g _efr_marker='◆'
+  else
+    typeset -g _efr_marker='🤖'
+  fi
 else
-  typeset -g _efr_home_mark='~' _efr_marker='>' _efr_separator='-' _efr_more='...'
-  typeset -g _efr_old_sticky_word=
+  typeset -g _efr_home_mark='~' _efr_marker='*' _efr_separator='-' _efr_more='...'
+  typeset -ga _efr_other_sticky_words=()
 fi
+# NOTE: only a single word can stand where the marker stands and be an alias of `,`.
+if [[ -n ${EFR_STICKY_MARKER-} && $EFR_STICKY_MARKER != *[[:space:]]* ]]; then
+  typeset -g _efr_marker=$EFR_STICKY_MARKER
+fi
+_efr_other_sticky_words=(${_efr_other_sticky_words:#$_efr_marker})
 # The longest scope that the corner shows, in columns; a longer name is cut and ends
 # with `…`.
 typeset -gi _efr_scope_cells=16
@@ -372,21 +394,21 @@ _efr_free_word() {
   (( ! $+commands[$1] && ! $+functions[$1] && ! $+builtins[$1] && ! ${reswords[(Ie)$1]} ))
 }
 
-# Sets REPLY to the sticky word: the marker (`›`). A prompt line sent in sticky mode
-# starts with it, where the marker stood, and it is an alias of `,`. Returns 1 when the
-# marker can be no such word (`>` is a redirection, see _efr_free_word); a prompt line
-# then starts with `, ` instead.
+# Sets REPLY to the sticky word: the marker (the robot, or `◆`). A prompt line sent in
+# sticky mode starts with it, where the marker stood, and it is an alias of `,`.
+# Returns 1 when the marker can be no such word (`*` is a glob, see _efr_free_word); a
+# prompt line then starts with `, ` instead.
 _efr_sticky_word() {
   REPLY=$_efr_marker
   _efr_free_word "$REPLY" || { REPLY=; return 1 }
 }
 
-# Sets reply to every sticky word: the marker and the robot of older versions, which
-# lines of history may still start with. Both are aliases of `,`.
+# Sets reply to every sticky word: the marker and the other markers, which lines of
+# history may still start with. All are aliases of `,`.
 _efr_sticky_words() {
   local word
   reply=()
-  for word in $_efr_marker $_efr_old_sticky_word; do
+  for word in $_efr_marker $_efr_other_sticky_words; do
     _efr_free_word "$word" && reply+=("$word")
   done
   return 0
@@ -937,10 +959,11 @@ _efr_said_setting() {
 
 # --- sticky agent mode ------------------------------------------------------------
 
-# Shows the marker before the typed text while sticky mode is on: `›` (bold, in the
-# accent colour), and, without the prompt corner, what the corner would show before
-# it: `full` (in the error colour) in full mode and the muted scope of the next prompt
-# (see _efr_update_scope), such as `full app › `. With the corner, the marker alone.
+# Shows the marker before the typed text while sticky mode is on: the robot, or `◆`
+# (bold, in the accent colour), and, without the prompt corner, what the corner would
+# show before it: `full` (in the error colour) in full mode and the muted scope of the
+# next prompt (see _efr_update_scope), such as `full app 🤖 `. With the corner, the
+# marker alone.
 # Without a projects file the scope is left out. With $1 `tag` only the part before
 # the marker stays, for a prompt line whose first word $2 takes the marker's place and
 # keeps its look; with `hide` nothing shows. PREDISPLAY is not part of the buffer and leaves PROMPT alone,

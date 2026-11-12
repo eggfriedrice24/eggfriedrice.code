@@ -88,10 +88,15 @@ of each change of conversation, and nothing else.
 ### Sticky mode
 
 Ctrl+Space, or a line of only `,`, turns on sticky mode: each line that you type goes
-to the agent. The marker `›` (bold, in the accent colour) stands before the typed
-text. With the prompt corner, the marker stands alone. Without the corner, it carries
-the scope of the next prompt: `app › ` in a project, `⌂ › ` at home, and `full app › `
-in full mode. In a locale that is not UTF-8 the marker is `>`.
+to the agent. The marker, the robot 🤖, stands before the typed text. With the prompt
+corner, the marker stands alone. Without the corner, it carries the scope of the next
+prompt: `app 🤖 ` in a project, `⌂ 🤖 ` at home, and `full app 🤖 ` in full mode.
+
+Where a terminal cannot draw the robot, the marker is `◆` (bold, in the accent
+colour). efr knows this for the Linux console and for a dumb terminal. In a locale
+that is not UTF-8 the marker is `*`. To choose your own marker, set
+`EFR_STICKY_MARKER` to one word before the plugin loads, for example
+`export EFR_STICKY_MARKER='◆'` in `.zshrc`.
 
 ### A repository that is not a project
 

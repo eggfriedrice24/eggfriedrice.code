@@ -723,6 +723,14 @@ fn e2e_look_the_corner_is_the_legend() {
     }
 }
 
+/// The marker that the boards draw for sticky mode.
+///
+/// NOTE: the marker by default is the robot, which the user chose over the board on
+/// 2026-11-12, and `◆` where a terminal cannot draw it. The board's `›` is a marker
+/// that `EFR_STICKY_MARKER` names here, so these tests still compare the whole row
+/// with the board.
+const BOARD_MARKER: &str = "\u{203a}";
+
 /// TM-Legend 3: the marker of sticky mode, before the typed text.
 #[test]
 fn e2e_look_the_sticky_marker_is_the_legend() {
@@ -732,6 +740,7 @@ fn e2e_look_the_sticky_marker_is_the_legend() {
     let legend = frame("Legend", 3);
     for depth in Depth::ALL {
         let mut term = Term::new(legend.cols, depth);
+        term.env("EFR_STICKY_MARKER", BOARD_MARKER);
         term.prompt("");
         // The marker alone: no corner, and no projects file, so no scope in front.
         term.after.clear();
@@ -770,8 +779,13 @@ fn e2e_look_the_sticky_marker() {
             term.after.clear();
         }
         if at == 9 {
+            // A locale that is not UTF-8: the board draws `>`, and the marker there is
+            // `*` by default, for the reason of the NOTE at `BOARD_MARKER`.
             term.env.retain(|(name, _)| name != "LANG");
             term.env("LANG", "C");
+            term.env("EFR_STICKY_MARKER", ">");
+        } else {
+            term.env("EFR_STICKY_MARKER", BOARD_MARKER);
         }
         term.after(&format!("_efr_turn_mode={mode}"));
         let shown = term.run(dir, &[Step::Type(&format!("<C-Space>{typed}"))]);
@@ -779,6 +793,7 @@ fn e2e_look_the_sticky_marker() {
     }
     // In the scrollback after Enter.
     let mut term = Term::new(scope.cols, Depth::TrueColor);
+    term.env("EFR_STICKY_MARKER", BOARD_MARKER);
     term.theme(&scope, 2);
     term.default_mode("auto");
     let shown =
@@ -805,6 +820,7 @@ fn e2e_look_the_sticky_marker_without_colour() {
         (2, false, "auto", "why does parse_empty fail?"),
     ] {
         let mut term = Term::new(scope.cols, Depth::NoColor);
+        term.env("EFR_STICKY_MARKER", BOARD_MARKER);
         term.theme(&scope, at);
         if !corner {
             term.after.clear();
