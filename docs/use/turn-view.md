@@ -75,17 +75,61 @@ shows only on a terminal: when stdout is not a terminal, efr does not write it.
 
 ### Tool calls
 
-A command of the agent shows on one line with the spinner and its time, and its last
-three output lines below:
+Each tool call of the agent is one row. While a command runs, its row has the spinner,
+its time and how full the context is, and the last three lines of its output show
+below it, 4 columns in:
 
 ```text
-⠹ $ cargo test -p app  12s
+⠹ $ cargo test -p app  12s   ctx 38%
+    test steer_during_turn ... ok
 ```
 
-When the command ends, one line stays, such as `$ cargo test -p app  exit 101  6.2s`.
-A failed command also keeps its last three output lines. A file tool shows its diff,
-and a command that changed files shows one dim line that names them.
-[Undo and diff](undo-and-diff.md) tells more.
+When the call ends, one row stays. The first column tells how it ended:
+
+```text
+✓ $ cargo test -p app  38s
+✗ $ make  exit 2 · 1.5s
+    make: *** No rule to make target 'all'.  Stop.
+! $ curl -sI https://example.com  refused · no network in the sandbox
+· $ cargo update -p rusqlite  did not run
+→ $ cargo test --workspace  moved to job j4 after 42s
+```
+
+- `✓`: the call went well. The row is dim, and the time shows from a tenth of a second
+  on.
+- `✗`: the call failed. The command, the exit code and the time stand out, and the
+  last three lines of its output stay below it.
+- `!`: efr refused the call before it ran, and says why.
+- `·`: you denied the call, so it did not run.
+- `→`: the command runs on as a background job (Ctrl+B), or in the hidden shell.
+
+No blank line stands between calls. A command that is too long for the screen goes on
+in the next row, 4 columns after the `$`. The row ends in a dim `\` where the command
+has a space, and in a dim `↩` inside a word.
+
+Reads that follow each other fold into one row, which grows while the reads come and
+stays when something else shows. A single read names its file:
+
+```text
+✓ read 6 files  crates/app/src/lib.rs, session.rs, json.rs (+3)
+```
+
+A file write names its file and the lines that it added and removed. Its diff follows
+it, 2 columns in, with no file headers and no line numbers:
+
+```text
+✓ edit src/turn.rs  +5 -1
+  @@ 88 impl Turn
+  -         self.state = State::Done;
+  +         while let Ok(msg) = self.rx.try_recv() {
+  … 14 more lines · efr diff
+```
+
+The words are `edit`, `write` (with a dim `new` for a new file), `delete`, `move a → b`
+and `patch 3 files`. A patch of several files shows one row for each file, each with
+its own diff. A command that changed files gets one dim row under it that names them,
+such as `changed Cargo.toml +1 · Cargo.lock +18`. [Undo and diff](undo-and-diff.md)
+tells more.
 
 ### Questions
 
@@ -173,8 +217,9 @@ input row. Type the answer and press Enter.
 
 ## The end of a turn
 
-A turn that changed files ends with a line such as `3 files changed, +24 -7`. Then one
-dim line sums up the turn:
+A turn that changed files ends with a line such as `3 files changed  +24 -7  turn.rs,
+lib.rs, notes.md`. It names at most three files, then how many more. Then one dim line
+sums up the turn:
 
 ```text
 done in 42s, ctx 43% (89k/206k), 1.1k out, cache 91%

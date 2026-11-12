@@ -17,7 +17,7 @@ state and never writes the daemon's database or credentials.
 | `efr models [--names]` | `models.list` | the daemon's models, `*` before the default, with the context window of each and the largest one that the config's list (`[openai] models` or `[anthropic] models`) can set (`272k (up to 872k)`), its efforts, and a last line that names the provider and says where the list came from (`models: anthropic-api, from the backend, fetched 5m ago`, `from the cache, fetched 2h 5m ago`, `built into efr` or `no list yet; efrd fetches it in the background`); with the models of more than one provider (each other provider with a login), a `<provider>:` line above the models of each provider and its own `models:` line after them; `--names` prints only the ids, each once, for completion |
 | `efr status` | `admin.status` | one `provider` line for each provider with its login: `anthropic-api: logged in, key sk-ant-...a1b2 (active)`, where the key shows only as its hint and `(active)` marks the provider of new conversations; a key that its provider refused shows when (`key sk-ant-...a1b2 refused at <time> (5m 0s ago)`); a stored key that efrd has not checked since it started says so (`key sk-ant-...a1b2 not checked since efrd started`; the daemon keeps refusals in memory only, and `key_checked_at` says when it last checked); each time shows in the local time zone, to the second (`2026-10-20 12:00:00 CEST`); says on stderr how to log in when the active provider is not logged in or its provider refused its key (an earlier daemon that names none: when no provider is logged in); shows where the model list came from (the `models` line, as in `efr models`), the config file, its last reload error, the keys that wait for a restart, and the `sandbox` line: `ready (Landlock ABI 10, bubblewrap 0.13.0, caches tmp, network proxy)` or `unavailable: <reason>; auto runs as cautious` with its fix, where the network is `proxy` (efr's network proxy, phase D2), `none`, or `none (proxy self-test failed)` when `network.mode = "proxy"` but the probe's proxy self-test failed; with a ready sandbox, the `netview` line: `yes` when the probe's self-test of the network view passed (`ss` and `ip` read forms run in the sandbox with no review), else `no (<reason>)`; `off (network.netview = false)` when the daemon says that the user turned the key off; with a ready sandbox, the `bus filter` line (phase E): `on` when efrd runs the filtered bus proxy, else `off` with the reason: `dbus.proxy = false`, `xdg-dbus-proxy is not installed`, `its self-test failed` or `xdg-dbus-proxy is too old` (only `off` from an older daemon); the `full mode` line: `allowed`, `off (permissions.allow_full is false)` or `refused (<why>)`, such as `refused (efrd runs as root)`; `default mode full` when `config.toml`, as `efr` reads it, makes full mode the default (the daemon does not report it), with `efrd cannot run it, so a turn that names no mode runs as auto` when efrd refuses full mode; and the `config held` line when efrd holds a change of the file that loosens permissions and came while full mode ran: the keys that loosen and what to do |
 | `efr history [conversation] [--limit n] [--cursor c] [--verbose]` | `conversations.list`, `conversation.history` | a conversation is its id or the start of it (4 characters or more); the lines of each turn show together, and the turns show in the order that they started, not in event order; a prompt that never started (taken back, cancelled or still waiting) shows where it was in the queue, after the turns whose prompts were queued before it, with its note (`withdrawn before it ran`); each turn shows its mode, model and effort as a dim line after its prompt, and the fallback note when `auto` ran as `cautious`; the sandbox's notes, exits, the reviewer's allow, refusal and pause lines, the away expiry, the freed space of cache deletes, each change of presence (`away (efr away)`, `away (no input for a while)`, `back (input)`), quarantine questions and turn-end reports show as dim lines; background jobs show as the view shows them (a call that starts a job ends with ` (background)`, then `job j3 started; ...`, a call that the user moved to the background with Ctrl+B shows `moved to job j3 by you after 42 seconds; ...` and one line `your move covered: ...` for each exit that the answer to the move covered, each end of a job, a matched line, a notice that did not start a turn and each port that efr forwards or not, with the URL as an OSC 8 link on a terminal), and a turn that a job notice started shows `🤖 (job notice, not your input)` where a prompt would stand, once however many notices it took, and a notice that rode in a prompt's turn shows `the model also reads a notice of job j3; it is not your input`; each compaction of the model's context shows at its place with the line that the turn showed (see "Context" below); `--verbose` adds the last lines of each job's output (the tail of its `job_ended`) and the text of each notice, indented and through `format::lines`, and the record of each exit (`exit_requested`: its line, targets with the backup fact, hosts, programs and counts with the reviewer's refusals, the size of a file tool's edit, the git code of a git line that runs outside when it made the exit yours only (`git code: ...`), never a user message or the edit itself) and how it was judged (`exit allowed by full mode` when full mode let it through with no review and no question; for the reviewer also its model, the step of its chain, its time, a verdict from the turn's cache, the models that it skipped and `asked again for a real reason` when it asked its model again), the tokens of each turn that reported them, also an interrupted or failed one (`18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`, `format::usage_line`, numbers only), and the focus and the summary of each compaction as dim lines; the partial answer of an interrupted turn shows once: the completion of a text that an earlier event already printed prints nothing; `--verbose` without a conversation shows the newest conversation of this terminal (the first listed whose `tty` is the terminal on stdin), else the newest of all, after a dim line that says which; `--limit` and `--cursor` then page its events |
-| `efr diff [--turn <id>] [--conversation <id>] [--stat [--all]]` | `conversations.list` to find the conversation, `conversation.diff` (read scope); `conversation.history` for `--all` | what a turn changed in the files of its project and `$SCRATCH`, from the daemon's snapshots: by default the last turn of this terminal's conversation (the newest whose `tty` is the terminal on stdin), else of the newest conversation, with a dim line on stderr that says which; `--turn` asks for that turn and looks nothing up, `--conversation` takes an id or the start of one; on a terminal the diff is painted in the `diff.*` roles with the files' syntax colours, then a dim `… N more lines` for a diff the daemon cut and a dim `3 files changed, +24 -7`; in a pipe stdout holds the daemon's diff alone (tabs and newlines kept, other control characters as stand-ins), for `git apply` or a pager; `--stat` starts with a table of the groups of the files (see "Groups of changed files" below) when a file is not code, then lists each file with its kind, path and counts, then the totals; `--stat --all` adds up every turn of the conversation that changed files, from the ends of its turns in its history (`conversation.history`, every page of 500 events, which efr reads one at a time and keeps only the ends of the turns that changed files and the undos of; past 1,000 pages a dim line on stderr says that only the turns of the newest 1,000 count), without a turn that `efr undo` took back (an `undo_applied` without a later redo): one entry per path with the lines of every turn, the kind of the turns when they agree, else `new` for a file that the first turn made and no later turn deleted, `deleted` for a file that the last turn deleted, `renamed` for a renamed file that later turns changed, and `changed` for the rest (a path is relative to the project of its turn, so the same path in two projects is one entry, and a file that one turn lists and another leaves out counts twice in `N files`), and a dim `2 turns of the newest conversation that changed files` on stderr; an ignored file such as `.env` shows in the list, and the daemon's diff has only a line `<path>: ignored file, content not shown` for it; a turn that changed nothing says so on stderr (exit 0); no conversation, an unknown turn or a conversation with no finished turn (`not_found`) is an error (exit 1) that names the turn |
+| `efr diff [--turn <id>] [--conversation <id>] [--stat [--all]]` | `conversations.list` to find the conversation, `conversation.diff` (read scope); `conversation.history` for `--all` | what a turn changed in the files of its project and `$SCRATCH`, from the daemon's snapshots: by default the last turn of this terminal's conversation (the newest whose `tty` is the terminal on stdin), else of the newest conversation, with a dim line on stderr that says which; `--turn` asks for that turn and looks nothing up, `--conversation` takes an id or the start of one; on a terminal the diff is painted in the `diff.*` roles with the files' syntax colours, then a dim `… N more lines` for a diff the daemon cut and the line of the files, `3 files changed  +24 -7  src/a.rs, notes.md`; in a pipe stdout holds the daemon's diff alone (tabs and newlines kept, other control characters as stand-ins), for `git apply` or a pager; `--stat` starts with a table of the groups of the files (see "Groups of changed files" below) when a file is not code, then lists each file with its kind (in a column 9 wide), path and counts, then the totals, `3 files changed  +24 -4` in `text` with the counts in colour; `--stat --all` adds up every turn of the conversation that changed files, from the ends of its turns in its history (`conversation.history`, every page of 500 events, which efr reads one at a time and keeps only the ends of the turns that changed files and the undos of; past 1,000 pages a dim line on stderr says that only the turns of the newest 1,000 count), without a turn that `efr undo` took back (an `undo_applied` without a later redo): one entry per path with the lines of every turn, the kind of the turns when they agree, else `new` for a file that the first turn made and no later turn deleted, `deleted` for a file that the last turn deleted, `renamed` for a renamed file that later turns changed, and `changed` for the rest (a path is relative to the project of its turn, so the same path in two projects is one entry, and a file that one turn lists and another leaves out counts twice in `N files`), and a dim `2 turns of the newest conversation that changed files` on stderr; an ignored file such as `.env` shows in the list, and the daemon's diff has only a line `<path>: ignored file, content not shown` for it; a turn that changed nothing says so on stderr (exit 0); no conversation, an unknown turn or a conversation with no finished turn (`not_found`) is an error (exit 1) that names the turn |
 | `efr undo [--turn <id>] [--conversation <id>] [--list] [--dry-run] [--yes] [--force] [--redo]` | `conversations.list` to find the conversation, `turn.undo` (operate scope) twice: a dry run, then the apply | takes back the file and ref changes of a turn, from efr's snapshots: by default the newest turn of this terminal's conversation that is not undone, else of the newest conversation, with a dim line on stderr that says which; `--turn` names the turn, `--conversation` takes an id or the start of one. It shows the preview first, one row per path (`restore`, `trash`, `delete`, `command`, `skip` and `not covered` with the reason, such as `skip b.txt (changed after the turn; --force overwrites it)`), one row per ref (`ref main 1a2b3c4 -> 5d6e7f8`) and the daemon's notes, then asks `undo? y = yes, n = no` (one key; Esc says no, Ctrl+C exits 130). The apply names the turn of the preview, and efrd checks each path again; then one line says what it did: `undone: 2 files restored, 1 file moved to ~/.local/share/efr/undo-trash/u-.../`. `--dry-run` stops after the preview, `--yes` needs no question, `--force` also overwrites a path that changed after the turn, `--redo` takes back the newest undo (`redo? y = yes, n = no`, `redone: ...`), and `--list` lists the turns (id, `undone` or `stopped`, `auto` or `full`, title) and changes nothing. A preview with nothing to do says `nothing to undo`. A preview whose rows act only with `--force` (changed after the turn, no record after the turn, a later turn not undone) fails without `--force`, before the question: `efr undo changed nothing: 1 path acts only with --force; efr undo --force acts on it` (exit 1). Without a terminal and without `--yes` it shows the preview, says `efr undo needs a terminal or --yes; nothing changed` and exits 2. A refusal of efrd (`conflict`, `busy`, `forbidden`) is an error (exit 1) with its message and, for a newer turn that is not undone or an undo that needs `--force`, a hint |
 | `efr compact [--conversation <id>] [focus]` | `conversations.list` to find the conversation, `conversation.compact` (operate scope) | makes room in the model's context now: efrd writes a summary of the earlier turns and keeps the newest ones word for word; it never starts a turn. The focus (the words, else `EFR_PROMPT`; blank is none) says what the summary must keep. By default it compacts this terminal's conversation, else the newest one, with a dim line on stderr that says which; `--conversation` takes an id or the start of one. On a terminal a status row (`⠼ compacting context  4s`) shows while efrd works and goes before the result. Then one line says what came of it, as a turn shows a compaction: `context compacted (efr compact): 140k -> 19k tokens, kept 3 turns, summary 3.2k`, muted on a terminal. A refusal of efrd (`conflict` while a turn runs or when nothing lies before the newest turns) is an error (exit 1) with its message. No conversation is an error (exit 1). Ctrl+C stops the wait, not the compaction (exit 130, with a note) |
 | `efr context [conversation] [--model <id>] [--json]` | `conversations.list` to find the conversation, `conversation.context` (read scope) | what fills the model's context of a conversation (`format/context_report.rs`): the model, its window (with a note when efrd does not know it) and the point where it compacts; the provider's last count with the `ctx N%` gauge in its role's colour, else the reason why there is none; efrd's estimate of the next request without its prompt, with one row per part (`system`, `tools`, `summary`, `prompts`, `preambles`, `notices`, `answers`, `tool calls`, `tool outputs`, `pruned`), each with its count in the `muted` role; the five largest items with their turn and the label that `efr history` shows (`output of $ cargo test, turn 12`); the compactions and the newest one; the cache (`last turn 91%; conversation 83% read, 210k written (200k for 1h)`, the last turn only from 2,048 input tokens). It never prints the text of a message, and a label goes through `one_line`. On a terminal a line is cut to the width and the colours show only when it fits; in a pipe the lines are plain. By default it shows this terminal's conversation, else the newest one, with a dim line on stderr that says which; no conversation prints `no conversations yet`. `--model` counts for another model; `--json` prints the daemon's answer as it came |
@@ -296,13 +296,13 @@ Replies:
   for its context (`internal` with `data.cause = "context_overflow"`) shows the
   daemon's message, which names `,compact`.
 - A turn whose `turn_completed` carries `changes` (its first snapshot against its
-  last) ends with one more muted line right before that one, such as `3 files
-  changed, +24 -7`, also with `render.turn_summary = false` and in a pipe (on
-  stderr). A turn that changed no file has no such line. When a changed file is not
-  code, a parenthesis names at most two groups that are not code, the largest first by
-  changed lines: `9 files changed, +635 -44 (evals +503, tests +77)`. A turn that
-  changed only code keeps the line as it was. `efr history` shows the same line for a
-  turn that undo cannot take back.
+  last) ends with one more line right before that one, also with
+  `render.turn_summary = false` and in a pipe (on stderr): `3 files changed  +24 -7
+  crates/app/src/turn.rs, tests/steer.rs, CHANGELOG.md (+1 more)`
+  (`format::changes::turn_line`, as pieces: the count in `text`, the counts in
+  colour, at most three names muted, each after the first without the directories
+  that it shares with the first). A turn that changed no file has no such line.
+  `efr history` shows the same line for a turn that undo cannot take back.
 - Groups of changed files (`format/groups.rs`): the groups of `[diff.groups]` in
   `config.toml` match first, in the order of the file (`efr_config::DiffGroups`), then
   the built-in groups from the path: `generated` (lock files such as `Cargo.lock`,
@@ -330,98 +330,110 @@ Replies:
   question, a note. There is no blank line inside a block, between notes that follow
   each other, between a question and the line of its answer, and between `✓ allowed`
   and the call that it allowed.
-- A tool call is named by what it does: `$ cargo test` for a shell call, `read
-  src/main.rs` and `write src/main.rs` for the file tools, `settings ...` for the
-  settings tool, `apply_patch <files>` for a patch, `edit <path>` for the edit tool of
-  a Claude model, `<tool>: <detail>` for any other.
-  The block of a call starts with `·` in the `accent` role and what the call does in
-  the `code` role:
+- A tool call is one row (TM-Calls), named by what it does: `$ cargo test` for a shell
+  call, `read src/main.rs` and `write src/main.rs` for the file tools, `edit <path>`
+  for the edit tool of a Claude model, `settings ...` for the settings tool,
+  `<tool>: <detail>` for any other. An `apply_patch` call is named by its files: one
+  file gives `edit <path>`, `write <path>` (a new file), `delete <path>` or `move <a>
+  → <b>`, more files give `patch 3 files`. The first column is a scan line of one
+  glyph (`Glyphs`): `✓` (`success`) went well, `✗` (bold `error`) failed, `!`
+  (`warning`) refused before it ran, `·` (`muted`) denied, `→` (`accent`) moved to a
+  job or left running in the hidden shell; the spinner while it runs. The name is
+  `muted`:
 
   ```text
-  · $ cargo metadata --no-deps | jq -r '.packages[].name'
-    ✓ 1.4s
-
-  · $ make
-    │ cc -c a.c
-    │ make: *** No rule to make target 'all'.  Stop.
-    ✗ exit 2
+  ✓ $ cargo test -p app  38s
+  ✗ $ make  exit 2 · 1.5s
+      make: *** No rule to make target 'all'.  Stop.
+  ! $ curl -sI https://example.com  refused · no network in the sandbox
+  · $ cargo update -p rusqlite  did not run
+  → $ cargo test --workspace  moved to job j4 after 42s
   ```
 
-  Each line of a command of several lines shows on its own row, under the first, so
+  A call that went well is muted but its mark, with its time after two spaces from a
+  tenth of a second on (`format::took` without `.0`: `0.4s`, `9s`, `2m 12s`); a file
+  tool shows no time. A failed call has what it ran in `text`, `exit 2` or `failed` in
+  `error`, then ` · ` and its time, which always shows, and keeps the last three lines
+  of its output with text in them under it, 4 columns in, in `text`, with the spaces
+  at their start (from the last `tool_call_output_updated`, else from the output that
+  the model got, without efr's own notes in brackets at its end). A refused call
+  (`tool_call_completed` with a `refusal`) has `refused` in `warning` and ` · <why>`
+  muted; a sandbox that could not start says so in the same shape. A call that the
+  user denied, or whose approval expired, never ran: its muted row says `did not run`
+  and follows the line of the answer at once. No blank line stands between calls, and
+  one between a run of calls and prose (`Block::Row`).
+- Each line of a command of several lines shows on its own row, under the first, so
   two commands never look like one with more arguments. A line wider than the screen
   goes on in the next row, and nothing of what runs is cut. A row is cut after the
   last space that fits when the row is then at least half full: a muted `\` ends it,
-  and the rows after it are indented 4 more columns, so the indent stands for that
-  space. Otherwise (no space fits, or the cut would leave a short word such as `cp`
-  alone in the row) the row is cut inside a word: a muted `↩` ends it, and the word
-  goes on in the next row at the same column, with no indent, so the rows show no
-  space that the command does not have.
-- An `apply_patch` call never shows the text of its patch. Its line names each file of
-  the patch in the patch's order, with the lines that the patch adds and removes:
-  `apply_patch src/a.rs +3 -1, new notes.md +2, delete old.rs, move src/expr.rs →
-  src/expression.rs +1 -1`. The input is the patch text (a JSON string in the
-  freeform form, `freeform` on `tool_call_started`) or the member `input` of the
-  function form. Only the file lines (`*** Add File:`, `*** Delete File:`,
-  `*** Update File:`, `*** Move to:`) and the `+` and `-` lines count; the CLI does not
-  check the patch, the daemon does. The line goes on in the next row only between two
-  files, at the column of the first file and with no mark, because it is no command.
-  `efr history` shows the same line, and the live row of the running call cuts it with
-  `…`.
+  and the rows after it start 4 columns after the column of the name (column 6), so
+  the indent stands for that space. Otherwise (no space fits, or the cut would leave a
+  short word such as `cp` alone in the row) the row is cut inside a word: a muted `↩`
+  ends it, and the word goes on in the next row at the column of the row it goes on
+  from, so the rows show no space that the command does not have. The time and what
+  follows it stand after the last row; a last row with no room for them is cut
+  shorter, else they go on in a row of their own.
+- Reads that follow each other with nothing between them fold into one row
+  (`view/fold.rs`): `✓ read crates/app/src/lib.rs` for one, `✓ read 6 files
+  crates/app/src/lib.rs, session.rs, json.rs (+3)` for more, each name after the
+  first without the directories that it shares with the first. The row grows in the
+  live zone while the reads come and is written once when anything else is written: a
+  message, another call, an answer, a failed read, the end of the turn. When stdout is
+  not a terminal nothing folds. Only `read_file` folds; there is no search tool yet.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
-  spinner (accent), the call (code) cut to the width with `…` at the cut, and from 1 s
-  on how long it has run, then the gauge of the context, such as `⠹ $ cargo test -p
-  app  12s  ctx 43%`; up to three more lines
-  of a command of several (or two and `(5 more lines)`); then the last three lines of
-  its output with text in them (from `tool_call_output_updated`), each after `  │ `,
-  muted and cut to the width. The status row hides meanwhile, because the call's row
-  carries the spinner. A call whose approval waits shows nothing until the answer, and
-  its time counts from the answer.
-- When the call ends, its block is written once in place of the live rows, with its
-  result on a row of its own: `✓` in the `success` role, or `✗ exit 101` (or `✗
-  failed`) in the `error` role, also for a contained call (the end of the turn says
-  where the sandbox can write), and `✗ refused: efr's config (floor)` when efr refused
-  it before it ran (`tool_call_completed` with a `refusal`). The time follows for a
-  call that ran 1 s or more: `✓ 6.2s`, `✗ exit 2 · 1.5s`. A failed call keeps the last three lines of its
-  output above its result (from the last `tool_call_output_updated`, else from the
-  output that the model got, without efr's own notes in brackets at its end); a call
-  that went well keeps none. A call that the user denied, or whose approval expired,
-  never ran: its rows follow the line of the answer at once, with no result, so the
-  scrollback keeps what did not run. Notes and the end of a turn are muted lines.
+  spinner (`accent`), the name (`muted`) and what it does (`text`) cut to the width
+  with `…` at the cut, from 1 s on how long it has run after two spaces, then the tag
+  `full` in `error` in a full turn and the gauge of the context after three spaces
+  each, such as `⠹ $ cargo test -p app  12s   ctx 43%`; up to three more lines of a
+  command of several (or two and `(5 more lines)`); then the last three lines of its
+  output with text in them (from `tool_call_output_updated`), 4 columns in, muted and
+  cut to the width. The status row hides meanwhile, because the call's row carries
+  the spinner. A call whose approval waits shows nothing until the answer, and its
+  time counts from the answer.
 - What a call changed comes with its `tool_call_completed`, from the daemon's own
   snapshots, so it works in every project, git or not, and in `$SCRATCH`. A file
-  write's `diff` shows in its block above the result, after the bar: the first
-  `render.diff_lines` lines (20 by default) from the first hunk on, in the `diff.*`
-  roles with the file's syntax colours, then a muted `… N more lines` that also counts
-  the lines that the daemon cut (its last line `... N more lines`). The file headers
-  (`diff --git`, `---`, `+++`) stay out, because the call names the file. A line wider
-  than the screen goes on in the next row at the same column after a muted `↩`, so
-  nothing of it is cut and the rows read back as the line (`efr_render::diff_rows`).
-  The diff of an `apply_patch` call holds the diffs of its files one after another,
-  in the order of the patch, each with its `---` and `+++` lines. The CLI cuts it at
-  each file (`format::patch::file_diffs`; the lines of a hunk are counted from its
-  header, so a removed line `-- note` stays in its hunk) and shows one diff block per
-  file, each after a row that names the file at the column of the result: the path
-  in the `code` role, after a muted `new`, `deleted` or `moved` (`moved a.rs →
-  b.rs`) when the headers say so (`/dev/null` on one side, or two paths). The
-  `render.diff_lines` rule and its `… N more lines` row apply to each file on its own.
-  A diff of one file shows as a write's diff, with no such row, because the call's
-  line names the file.
+  write's row names its file in `text` and the lines that it added (`success`) and
+  removed (`error`), from its `changes`, else counted from its `diff`: `✓ edit
+  src/turn.rs  +5 -1`, `✓ write notes.md new  +12` (`new` muted), `✓ delete
+  src/cache.rs  -212`, `✓ move a.rs → b.rs  +1 -1` (the arrow muted), `✓ patch 3
+  files  +9 -2`. Its diff follows (`format::patch::layout`), 2 columns in: no file
+  headers, no line numbers, no bar. A hunk header is short, `@@ 88 impl Turn` (the
+  first line of the new side and git's function context without its `{`), in
+  `diff.hunk`; the hunk of a new file shows no row. A line is its sign (bold in
+  `diff.add` or `diff.remove`), one space and its text with the file's syntax colours
+  (`efr_render::diff_lines`), on the fill of its kind to the end of the row in
+  truecolor (`ESC [ K`, reset before the newline); a line that stays has two spaces in
+  place of its sign. A line wider than the screen goes on in the next row after a
+  muted `↩`, 2 columns before the code of the line, on the same fill. After
+  `render.diff_lines` rows (20 by default; `render.diff_lines_long`, 8, from the 6th
+  call of a turn on) a muted `… N more lines · efr diff` counts the lines left out
+  and the lines that the daemon cut (its last line `... N more lines`). A deleted
+  file shows the muted row `deleted; its lines are in efr diff` in place of a diff.
+  The diff of an `apply_patch` call of several files holds the diffs of its files one
+  after another, each with its `---` and `+++` lines; the CLI cuts it at each file
+  (`format::patch::file_diffs`; the lines of a hunk are counted from its header, so a
+  removed line `-- note` stays in its hunk) and shows one row for each file at 2
+  columns (the path in `text`, a muted `new`, `delete` or `move` before it, its
+  counts from the call's `changes`), each with its diff at 4 columns and a muted `…
+  N more lines`.
   A call that shows no diff and has `changes` (a shell call, or a write with
-  `render.diff_lines = 0`) gets one muted row under its result, such as `changed
-  src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)`: the first three files,
-  grouped by kind (`changed`, `new`, `deleted`, `renamed a → b`), `(binary)` for a
-  binary file, the counts of a changed or renamed file with `+N` in the `success` role
-  and `-N` in the `error` role, and how many more files changed. A row wider than the
-  screen goes on in the next row, indented 2 more columns. Every path passes through
-  `format::one_line`. The row and the turn's line say what changed in the roots while
-  the call or the turn ran, not who changed it: the snapshots cannot tell, so a file
-  that another conversation or the user's editor saved at the same time shows too.
-- When stdout is not a terminal, the blocks go to stderr in plain text, in the order
+  `render.diff_lines = 0`) gets one muted row under it, 2 columns in, such as
+  `changed src/a.rs +3 -1 · Cargo.lock +18 · deleted old.rs (+2 more)`: the first
+  three files, grouped by kind (`changed`, `new`, `deleted`, `renamed a → b`) and
+  each after ` · `, `(binary)` for a binary file, the counts of a changed or renamed
+  file with `+N` in the `success` role and `-N` in the `error` role, and how many more
+  files changed. A connection that efr's proxy blocked gets a muted row with the host
+  in `warning`: `network: blocked registry.npmjs.org:443 (not on the allow list) · 3
+  times`. A row wider than the screen goes on in the next row, indented 2 more
+  columns. Every path passes through `format::one_line`. The row and the turn's line
+  say what changed in the roots while the call or the turn ran, not who changed it:
+  the snapshots cannot tell, so a file that another conversation or the user's editor
+  saved at the same time shows too.
+- When stdout is not a terminal, the rows go to stderr in plain text, in the order
   that a terminal keeps them: the question of a call and the line of its answer, then
-  the first rows of the call, then its result (with the last lines of a failure's
-  output) when it ends. The first rows of a call wait for its question until another
-  event of the turn comes, such as its output, so the command shows once. Nothing
-  wraps there, because no screen sets a width.
+  the row of the call when it ends (with the last lines of a failure's output). The
+  row says how the call ended, so nothing of it shows before its end. Nothing wraps
+  there, because no screen sets a width.
 - A question is a card in the live zone, below the rest:
 
   ```text
@@ -523,9 +535,9 @@ Replies:
   and a question with `expires_in_secs` gets the row `expires in 2 min` in the
   `warning` role.
 - Background jobs (`docs/sandbox.md`, "Background jobs"). A call that starts a job
-  (`background: true` in its input) shows ` (background)`, muted, after what it runs,
-  on a row of its own when the last row has no room. Its `job_started` comes before
-  the call ends, so the block of the call ends with the muted row `job j3 started;
+  (`background: true` in its input) shows `(background)`, muted, after its time.
+  Its `job_started` comes before the call ends, so the row of the call has the muted
+  row `job j3 started;
   output $SCRATCH/jobs/j3.out; ends in 180 minutes` under its result. A job outlives
   its turn, so `job_ended`, `job_watch_matched` and `job_notice_held` belong to the
   conversation: the view shows them before it looks at the turn, as it does for
@@ -553,8 +565,9 @@ Replies:
   off)`; an outcome that this build does not know shows `job j1 listens on
   127.0.0.1:8765` without a reason, and the address and the reason go through
   `format::one_line`, also in `efr history`. A call that the user moved to the background
-  with Ctrl+B (see "The input row" below) ends with `(moved to job j3)`, muted, in place
-  of a result, and the line of its job, `moved to job j3 by you after 42 seconds; output
+  with Ctrl+B (see "The input row" below) is the muted row `→ $ make deploy  moved to
+  job j3 after 42s` (`→` in `accent`), then the line of its job, `moved to job j3 by
+  you after 42 seconds; output
   $SCRATCH/jobs/j3.out; ends in 60 minutes`, from the `job_started` that names the call
   in `moved_from`. A notice that rides in the followed turn shows `the model also
   reads a notice of job j3; it is not your input`. A turn that a job notice started,
@@ -581,13 +594,14 @@ Replies:
   and they show whole, in rows of the screen. `efr history` shows the same line at its
   place in the turn.
 - A turn whose end event says that `efr undo` can take it back (`undo.undoable`, only
-  after an `auto` turn) ends with `changed 4 files (+12 -3) in eggfriedrice.code and 2
-  in ~; efr undo reverts this turn` in place of `4 files changed, +12 -3`: the files of
-  the roots by their shown names (`a`, `a and b`, `a, b and c`; with home files the
-  roots joined by commas), and the home files. Only home files: `changed 1 file in ~;
-  efr undo reverts this turn`. Then `not covered: target/ (ignored, large), refs of app
+  after an `auto` turn) ends with `changed 4 files  +12 -3  in eggfriedrice.code and 2
+  in ~ · efr undo reverts this turn` in place of the line of the files
+  (`format::changes::undo_line`, as pieces: the count in `text`, the counts in
+  colour, the rest muted): the files of the roots by their shown names (`a`, `a and
+  b`, `a, b and c`; with home files the roots joined by commas), and the home files.
+  Only home files: `changed 1 file  in ~ · efr undo reverts this turn`. Then `not covered: target/ (ignored, large), refs of app
   (shallow)`, at most five names and `and N more`. These lines show whole, also after a
-  failure or an interrupt. Another turn keeps `4 files changed, +12 -3`. The groups
+  failure or an interrupt. Another turn keeps the line of its files. The groups
   of the files follow the counts: `changed 9 files (+635 -44; evals +503, tests +77) in
   app; ...`.
 - `efr history` shows an undo (`undo_applied`) as one line, such as `undid turn <id>: 2
@@ -1027,8 +1041,8 @@ A command can go on in the hidden shell after its call answered the model, such 
 after its timeout (`left_running` on `tool_call_completed`). The shell then takes no
 other call until the command ends. The view shows it so:
 
-- The call's block ends with `still runs in the hidden shell` in the warning role, in
-  place of the check mark, under the last lines of its output.
+- The call's row has `→` in the accent role in place of the check mark and ends with
+  `still runs in the hidden shell`, muted, with the last lines of its output under it.
 - `shell_command_detached` and `shell_command_input_changed` belong to the conversation,
   so they show while the view follows any turn of it. They and the call's completion
   come in either order; the view links them by the call id. While the command waits for
@@ -1233,7 +1247,12 @@ pieces keeps what `render` makes of the whole text. The call tests cover the run
 the spinner, time, the lines of a command and three lines of output at 40 and 80
 columns, the committed block of a call (with no time under 1 s, the exit code, the
 refusal and the failure's last lines), a long line that goes on in the next row and
-is never cut, a call whose approval waits, and a blank line between calls. The layout
+is never cut, a call whose approval waits, and no blank line between calls. The
+design tests (`follow/view/tests/layout/design.rs`) play real events through a view
+and compare the screen, cell by cell, with the frames of the Calls, Diffs, Legend,
+LongTurn, BeforeAfter, Sequence, Depths, Endings and Commands boards in truecolor, 16
+colours and `NO_COLOR` (`efr_test_support::design`); the colours inside the rows of a
+diff are the render slice's, and those cells compare by their text and fill. The layout
 tests (`follow/view/tests/layout.rs`) play each case on a simulated screen 40 and 80
 columns wide, with colour and with `NO_COLOR`, and through a pipe: a call that went
 well, a failed call with its tail, a refused call, a command of several lines, a long

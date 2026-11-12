@@ -138,8 +138,8 @@ rights. Lines that start with `efr:` are facts that efr found itself.
 ### What efr refuses
 
 A secret, a write of efr's config, of efr's own programs or of efr's own dirs is denied
-with no question. The call's result says why, such as `✗ refused: efr's config
-(floor)`.
+with no question. The row of the call says why, such as `! write ~/.ssh/config
+refused · efr's config (floor)`.
 
 ### Deletes and undo
 

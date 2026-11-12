@@ -90,6 +90,25 @@ into the GitHub release notes, and it stops when the section is missing.
   reflows a reply when you make the window wider or narrower, and a copy of a
   paragraph has a line break at each wrap. Code blocks still do not wrap, so a copy of
   code is the code.
+- Each tool call is one row now, such as `✓ $ cargo test -p app  38s`. The first
+  column tells how the call ended: `✓` went well, `✗` failed, `!` refused, `·` did not
+  run, `→` moved to a job. A call that went well is dim. A failed call shows its
+  command, its exit code and its time, and keeps its last three output lines under
+  it. No blank line stands between calls. Before, each call had a block of three rows
+  with its result on a row of its own.
+- Reads that follow each other fold into one row, such as `✓ read 6 files
+  src/lib.rs, session.rs, json.rs (+3)`.
+- A file write names its file and its counts, such as `✓ edit src/turn.rs  +5 -1`,
+  with `new` for a new file, and `delete`, `move a → b` or `patch 3 files` for a
+  patch. Its diff follows 2 columns in, with no bar: a short hunk header such as
+  `@@ 88 impl Turn`, the sign and a space before each line, and `… 14 more lines ·
+  efr diff` at the cut. From the 6th call of a turn on, a diff shows 8 lines
+  (`render.diff_lines_long`).
+- The line at the end of a turn names at most three files after its counts, such as
+  `3 files changed  +24 -7  src/turn.rs, tests/steer.rs, CHANGELOG.md`, in place of
+  the groups of the files. `efr undo` lines read `changed 4 files  +12 -3  in app ·
+  efr undo reverts this turn`. `efr diff --stat` ends with the same count line.
+- When stdout is not a terminal, the row of a call goes to stderr when the call ends.
 - An effort from `config.toml` that a model does not take no longer fails the turn.
   The turn uses the model's own default effort, so a switch to a model of the other
   company works. An effort that you choose with `,effort` must still be one that the

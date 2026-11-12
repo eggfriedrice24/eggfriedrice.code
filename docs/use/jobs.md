@@ -202,7 +202,8 @@ keeps running with your rights after the turn:
 │ y move · n no
 ```
 
-The view then shows `(moved to job j3)` in place of the result. The agent reads the
+The row of the call then says so, such as `→ $ npm run build  moved to job j3 after
+42s`. The agent reads the
 output so far, the job's id and the output file. A job notice tells the agent when the
 command ends.
 

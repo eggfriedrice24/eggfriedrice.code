@@ -270,7 +270,7 @@ yours from the call's change.
 - In `manual` and `cautious`, a file tool write outside the roots gets no copy.
 - The turn ends with one dim line for each changed floor file, such as `changed
   ~/.zshrc; efr undo reverts it`, and the line of the turn counts the other files,
-  such as `changed 1 file in ~; efr undo reverts this turn`. A file behind a dotfile
+  such as `changed 1 file  in ~ · efr undo reverts this turn`. A file behind a dotfile
   link keeps the path through the link and names its real file too.
 - The collector keeps the copies of the newest `snapshot.keep_turns` turns of each
   conversation, for at most `snapshot.max_age_days` days. efr writes nothing new to
@@ -1726,7 +1726,7 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
 - Undo restores the branches, tags, `refs/stash` and `HEAD` that the turn moved, from
   the mirror that efr took at the turn's first snapshot, by compare and swap. Your git
   index stays as it is. A turn that only moved refs, such as `git reset --soft`, ends
-  with `moved 1 ref in <project>; efr undo reverts this turn`. When efr cannot keep
+  with `moved 1 ref  in <project> · efr undo reverts this turn`. When efr cannot keep
   the refs that an undo moves away from, the undo leaves those refs as they are, so a
   redo can always give them back.
 - Undo is a stack: a turn cannot be undone while a newer turn of the conversation is

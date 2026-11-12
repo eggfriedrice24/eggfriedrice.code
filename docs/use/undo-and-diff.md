@@ -11,14 +11,17 @@ its own store and never writes the project's `.git` to take one.
 
 ### While the turn runs
 
-- When the agent writes a file with a file tool, the call shows the diff: its first 20
-  lines, then a dim `… 12 more lines`. `render.diff_lines` sets the count, and `0`
-  shows no diff.
+- When the agent writes a file with a file tool, the row of the call names the file
+  and counts its lines, such as `✓ edit src/a.rs  +3 -1`. The diff follows: its first
+  20 lines, then a dim `… 12 more lines · efr diff`. From the 6th call of a turn on,
+  the diff shows 8 lines, so a long turn stays short. `render.diff_lines` and
+  `render.diff_lines_long` set the counts, and `0` shows no diff. A deleted file
+  shows no diff: the row under it says `deleted; its lines are in efr diff`.
 - When a shell command changes files in the project or in `$SCRATCH`, one dim line
-  under its result names them:
+  under its row names them:
 
   ```text
-  changed src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)
+  changed src/a.rs +3 -1 · Cargo.lock +18 · deleted old.rs (+2 more)
   ```
 
 These lines say what changed while the call ran, not who changed it. A file that your
@@ -26,14 +29,15 @@ editor saved at the same time shows too.
 
 ### At the end of the turn
 
-A turn that changed files ends with a line such as `3 files changed, +24 -7`. When a
-changed file is not code, the line names up to two groups:
+A turn that changed files ends with a line that counts the files and the lines, and
+names at most three files. A later name leaves out the directories that it shares with
+the first:
 
 ```text
-9 files changed, +635 -44 (evals +503, tests +77)
+3 files changed  +24 -7  crates/app/src/turn.rs, tests/steer.rs, CHANGELOG.md
 ```
 
-The built-in groups are:
+`efr diff --stat` puts the files in groups. The built-in groups are:
 
 - `generated`: lock files such as `Cargo.lock` and `package-lock.json`, `*.snap`
   files, and files below `fixtures/`;
@@ -73,9 +77,9 @@ code   +1  -1
 docs   +1
 total  +2  -1
 
-changed src/main.rs  +1 -1
-new     notes.md     +1
-2 files changed, +2 -1
+changed  src/main.rs  +1 -1
+new      notes.md     +1
+2 files changed  +2 -1
 ```
 
 In a pipe, `efr diff` writes the plain diff, for `git apply` or a pager. An ignored
@@ -185,7 +189,7 @@ with no question when efr's snapshot holds every file that it can touch, because
 `efr undo` brings them back. The turn then says:
 
 ```text
-changed 4 files (+12 -3) in <project>; efr undo reverts this turn
+changed 4 files  +12 -3  in <project> · efr undo reverts this turn
 ```
 
 `shred`, `git clean -x` and a file that the snapshot left out still go to the
