@@ -6,8 +6,7 @@ expression: "format!(\"{plain}---\\n{verbose}\")"
 
   gpt-5.5 · cautious
   auto is not available here; this turn runs as cautious: Landlock ABI 6
-  $ cargo add serde
-  shell exited with 101 (sandbox)
+  ✗ $ cargo add serde  exit 101 · 0.0s
   network: blocked index.crates.io:443 (not on the allow list)
   approval needed: shell: run "sudo pacman -Syu"; runs outside the sandbox: sudo (you may need to type your password); the whole line runs with your full rights (files, secrets, network); programs: sudo /usr/bin/sudo; efr: only you can allow this
   question: the last command changed git settings that run programs: ~/project/.git/commondir (core.fsmonitor); moved to quarantine
@@ -23,8 +22,7 @@ efr history --verbose adds the output tails and the tokens of each turn
 
   gpt-5.5 · cautious
   auto is not available here; this turn runs as cautious: Landlock ABI 6
-  $ cargo add serde
-  shell exited with 101 (sandbox)
+  ✗ $ cargo add serde  exit 101 · 0.0s
   network: blocked index.crates.io:443 (not on the allow list)
   exit requested: privilege (predicted from the line)
     line: sudo pacman -Syu

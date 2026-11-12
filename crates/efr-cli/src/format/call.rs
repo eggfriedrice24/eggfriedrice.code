@@ -6,26 +6,11 @@
 use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 use serde_json::Value;
 
-use super::{Tone, cut, fits, one_line, patch, pieces, visible};
+use super::{Tone, fits, one_line, patch, pieces, visible};
 
 /// Keys of a tool's input that best describe a call in one line, in order of
 /// preference.
 const DETAIL_KEYS: &[&str] = &["command", "cmd", "path", "file", "url", "query"];
-
-/// A tool call in one line, such as `$ ls -la`, `read /etc/hosts` or `apply_patch
-/// src/a.rs +3 -1, src/b.rs +1`.
-///
-/// A command of several lines shows its first line and how many lines follow, such as
-/// `$ cd src (and 2 more lines)`: lines joined by spaces would look like one command
-/// with more arguments. With `columns` (and the terminal's way to count widths), the
-/// line is cut to fit that width, but never the count of the lines that follow.
-pub(crate) fn tool_call(
-    tool: &str,
-    input: &Value,
-    columns: Option<(usize, WidthMethod)>,
-) -> String {
-    call_line(tool, input).fit(columns, 0)
-}
 
 /// The width a line is cut to on a terminal, with the terminal's way to count widths;
 /// none when the output is not a terminal.
@@ -71,50 +56,6 @@ fn call_detail(tool: &str, input: &Value) -> String {
         Value::String(text) => text.clone(),
         Value::Null => String::new(),
         other => other.to_string(),
-    }
-}
-
-/// A tool call's line before it is cut to a width: the name and the first line of
-/// what it does, and how many lines of a command follow.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CallLine {
-    head: String,
-    more: String,
-}
-
-/// The line of a call of `tool` with `input`, such as `$ cargo test -p app`.
-pub(crate) fn call_line(tool: &str, input: &Value) -> CallLine {
-    let detail = call_detail(tool, input);
-    let name = call_name(tool);
-    let lines = command_lines(&detail);
-    let (first, more) = match lines.split_first() {
-        Some((first, rest)) => (command_line(first), rest.len()),
-        None => (String::new(), 0),
-    };
-    let head = if first.is_empty() {
-        name.trim_end_matches(':').to_owned()
-    } else {
-        format!("{name} {first}")
-    };
-    let more = match more {
-        0 => String::new(),
-        1 => " (and 1 more line)".to_owned(),
-        more => format!(" (and {more} more lines)"),
-    };
-    CallLine { head, more }
-}
-
-impl CallLine {
-    /// The line, cut to `columns` less `reserve` columns that follow it on the same row;
-    /// whole without `columns`. The count of the lines that follow is never cut.
-    pub(crate) fn fit(&self, columns: Option<(usize, WidthMethod)>, reserve: usize) -> String {
-        match columns {
-            Some((columns, method)) => {
-                let room = columns.saturating_sub(reserve + text_width(&self.more, method));
-                format!("{}{}", cut(&self.head, room, method), self.more)
-            }
-            None => format!("{}{}", self.head, self.more),
-        }
     }
 }
 

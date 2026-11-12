@@ -329,8 +329,13 @@ fix steer race in turn loop · app · 019a9b11 · 3 turns
 
 › a steer sometimes lands after the turn ended. find the race  14:31
   work/claude-opus-5-5 high · cautious
-  $ cargo test -p efr-daemon steer
-  edit crates/efr-daemon/src/turn.rs +5 -3
+  ✓ $ cargo test -p efr-daemon steer  38s
+  ✗ $ cargo clippy -p efr-daemon -- -D warnings  exit 101 · 9s
+  ✓ edit crates/efr-daemon/src/turn.rs  +5 -3
+  ✓ allowed · network (github.com)
+  ✓ $ git push -u origin fix/steer-race  3.1s
+  1 file changed  +5 -3  crates/efr-daemon/src/turn.rs
+  ✓ done  1m 42s · ctx 43% · 4.2k out · cache 91%
 
 efr history --verbose adds the output tails and the tokens of each turn
 ```
@@ -338,7 +343,9 @@ efr history --verbose adds the output tails and the tokens of each turn
 The first line names the conversation, its place (`⌂ home` outside every project), the
 start of its id and its turns. Each prompt shows its time, and the line under it the
 model, as `,model` takes it, the effort and the mode. The rows of the turn stand 2
-columns in.
+columns in. They are the rows that the turn showed: one row for each call, the line
+of each answer in place of its question, and the end lines. Each read has a row of
+its own, and a diff does not show: `efr diff` shows it.
 
 - `--verbose` adds the records of each exit from the sandbox, the last lines of each
   job's output, and the tokens of each turn. Without an id, it shows the newest

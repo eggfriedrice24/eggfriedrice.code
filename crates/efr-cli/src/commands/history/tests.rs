@@ -181,7 +181,7 @@ fn a_failed_turn_shows_its_message_safely() {
         next_cursor: None,
     };
     let text = show(&page, &RenderOptions::new(60).with_terminal(false));
-    assert!(text.ends_with("failed: boom\u{241b}[2J\n"), "{text}");
+    assert!(text.ends_with("\u{2717} failed\n  boom\u{241b}[2J\n"), "{text}");
 }
 
 #[tokio::test]
@@ -679,8 +679,9 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
     let at = |line: &str| text.find(line).unwrap_or_else(|| panic!("no {line:?} in {text}"));
     let order = [
         "\u{203a} fix the bug",
-        "$ cargo test",
+        // NOTE: the row of a call shows at its end, as the view writes it.
         "steered: look at the logs first",
+        "$ cargo test",
         "interrupted",
         "\u{203a} look at the logs first",
         "The logs show a timeout.",
@@ -910,7 +911,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
     assert!(!piped.contains("Begin Patch"), "{piped}");
     assert!(
         piped.contains(
-            "apply_patch src/a.rs +1 -1, new notes.md +1, delete old.rs, move src/expr.rs \u{2192} src/expression.rs"
+            "src/a.rs +1 -1, new notes.md +1, delete old.rs, move src/expr.rs \u{2192} src/expression.rs"
         ),
         "{piped}"
     );
@@ -1340,7 +1341,7 @@ fn history_shows_judge_always_with_the_rule() {
             head: None,
         },
     );
-    assert!(plain.contains("allowed always from the shell\n"), "{plain}");
+    assert!(plain.contains("\u{2713} allowed always\n"), "{plain}");
     assert!(plain.contains("saved as sandbox.allow[2]: write under ~/notes\n"), "{plain}");
     assert!(
         plain.contains("allowed by your rule sandbox.allow[2]: write under ~/notes\n"),
@@ -1657,7 +1658,9 @@ fn wake_turn_marked_in_history() {
     let page = ConversationHistoryResult { events: job_events(), next_cursor: None };
     let options = RenderOptions::new(80).with_terminal(false);
     let plain = show(&page, &options);
-    assert!(plain.contains("$ cargo build (background)\n"), "{plain}");
+    // NOTE: the page holds no end of the call: its row names it, with no mark of how it
+    // ended.
+    assert!(plain.contains("\u{b7} $ cargo build\n"), "{plain}");
     assert!(
         plain
             .contains("job j1 started \u{b7} output $SCRATCH/jobs/j1.out \u{b7} ends in 180 min\n"),
@@ -1838,7 +1841,7 @@ fn interrupted_partial_prints_once() {
     let text = plain(&page, false);
 
     assert_eq!(text.matches("Once upon a time").count(), 1, "{text}");
-    assert!(text.ends_with("Once upon a time\n\n  interrupted\n"), "{text}");
+    assert!(text.ends_with("Once upon a time\n\n  \u{25a0} interrupted\n"), "{text}");
 }
 
 #[test]
@@ -2087,5 +2090,179 @@ fn the_head_of_the_home_conversation_is_the_design() {
         let text = design_transcript(&head, "019a7c02-3d00-7a10-8b20-000000000001", depth);
         let first = text.lines().next().unwrap();
         assert_rows(&frame, 7..=7, &format!("{first}\n"), depth);
+    }
+}
+
+/// The first turn of TM-Commands frame 4 with its calls, its answer and its end: the
+/// rows of the calls are the view's (`follow::Call`), the end lines the turn's.
+fn first_turn_with_calls() -> ConversationHistoryResult {
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let turn_id: efr_protocol::TurnId = "019a9b1c-3d00-7a10-8b20-000000000002".parse().unwrap();
+    let at = |time: &str| format!("2026-10-04T{time}Z").parse::<jiff::Timestamp>().unwrap();
+    let call = |n: u8| -> efr_protocol::CallId {
+        format!("019a9b1c-3d00-7a10-8b20-0000000001{n:02x}").parse().unwrap()
+    };
+    let started = |n: u8, tool: &str, input: serde_json::Value| Event::ToolCallStarted {
+        turn_id,
+        call_id: call(n),
+        tool: tool.to_owned(),
+        input,
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    };
+    let ended = |n: u8, code: Option<i32>, changes: Option<efr_protocol::FileChanges>| {
+        Event::ToolCallCompleted {
+            turn_id,
+            call_id: call(n),
+            output: String::new(),
+            truncated: false,
+            is_error: code.is_some_and(|code| code != 0),
+            exit_code: code,
+            sandbox: None,
+            refusal: None,
+            changes,
+            diff: None,
+            left_running: false,
+        }
+    };
+    let turn_rs = efr_protocol::FileChange {
+        path: "crates/efr-daemon/src/turn.rs".to_owned(),
+        kind: efr_protocol::ChangeKind::Modified,
+        from: None,
+        added: 5,
+        removed: 3,
+        binary: false,
+    };
+    let changes = efr_protocol::FileChanges { files: vec![turn_rs], more: 0, added: 5, removed: 3 };
+    let mut usage = efr_protocol::Usage::new(100_000, 4_200);
+    usage.cached_input_tokens = 91_000;
+    let push = "git push -u origin fix/steer-race";
+    let events = [
+        (
+            "14:31:00",
+            Event::PromptQueued {
+                turn_id,
+                command_id,
+                text: "a steer sometimes lands after the turn ended. find the race".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+                steers: Vec::new(),
+            },
+        ),
+        (
+            "14:31:00",
+            Event::TurnStarted {
+                turn_id,
+                cwd: "/home/u/p/app".into(),
+                scope: Scope::Machine,
+                settings: Some(EffectiveSettings {
+                    mode: Mode::Cautious,
+                    model: "claude-opus-5-5".to_owned(),
+                    effort: Some("high".to_owned()),
+                    provider: Some("anthropic-api.work".to_owned()),
+                    overridden: OverriddenSettings::default(),
+                    fallback: None,
+                }),
+            },
+        ),
+        ("14:31:05", started(1, "shell", json!({ "command": "cargo test -p efr-daemon steer" }))),
+        ("14:31:43", ended(1, Some(0), None)),
+        (
+            "14:31:44",
+            started(2, "shell", json!({ "command": "cargo clippy -p efr-daemon -- -D warnings" })),
+        ),
+        ("14:31:53", ended(2, Some(101), None)),
+        (
+            "14:31:54",
+            started(
+                3,
+                "edit",
+                json!({ "path": "crates/efr-daemon/src/turn.rs", "old_string": "a", "new_string": "b" }),
+            ),
+        ),
+        ("14:31:54.5", ended(3, None, Some(changes.clone()))),
+        ("14:31:56", started(4, "shell", json!({ "command": push }))),
+        (
+            "14:31:56",
+            Event::ApprovalRequested {
+                turn_id,
+                call_id: call(4),
+                summary: format!("shell: network (github.com); run {push:?}"),
+                diff_preview: None,
+                interactive: false,
+                exit: None,
+                expires_in_secs: None,
+                local_only: false,
+                reason: None,
+            },
+        ),
+        (
+            "14:31:56",
+            Event::ApprovalResolved {
+                turn_id,
+                call_id: call(4),
+                decision: ApprovalDecision::Allow,
+                origin: Origin::Shell,
+            },
+        ),
+        ("14:31:59.1", ended(4, Some(0), None)),
+        (
+            "14:32:42",
+            Event::TurnCompleted {
+                turn_id,
+                usage: Some(usage),
+                changes: Some(changes),
+                context: Some(efr_protocol::ContextUse {
+                    tokens: 43_000,
+                    limit: 100_000,
+                    window: 272_000,
+                }),
+                stop: None,
+                undo: None,
+            },
+        ),
+    ];
+    let events = events
+        .into_iter()
+        .zip(1..)
+        .map(|((time, event), seq)| EventEnvelope { at: at(time), ..envelope(seq, event) })
+        .collect();
+    ConversationHistoryResult { events, next_cursor: None }
+}
+
+/// TM-Commands frame 4, rows 5 to 11: the rows of the calls, the answer line and the end
+/// lines of a turn, at 2 columns under its prompt, in the three depths.
+#[test]
+fn the_calls_and_the_end_lines_of_a_transcript_are_the_design() {
+    use efr_test_support::design::{Depth, Frame, assert_rows};
+
+    let frame = Frame::load("TM-Commands", 4).unwrap();
+    let head = super::Head {
+        title: Some("fix steer race in turn loop".to_owned()),
+        place: "app".to_owned(),
+        turns: 1,
+    };
+    for depth in Depth::ALL {
+        let options = crate::testing::design_options(depth, 100);
+        let shown = Shown {
+            options: &options,
+            verbose: false,
+            home: None,
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: Some(&head),
+        };
+        let id = "019a9b11-3d00-7a10-8b20-000000000001".parse().unwrap();
+        let text = transcript(id, &first_turn_with_calls(), &shown);
+        let rows: Vec<String> = text.lines().map(|row| format!("{row}\n")).collect();
+        assert_rows(&frame, 3..=9, &rows[2..9].concat(), depth);
+        // NOTE: the board draws the changes line of a turn without the names of its
+        // files; TM-Legend 34, TM-BeforeAfter 4 and TM-Endings 15 name them, as the
+        // view does, so the line is compared up to its counts.
+        let changed = crate::testing::bare(&rows[9]);
+        assert!(changed.starts_with(frame.rows[10].text.trim_end()), "{changed:?}");
+        assert_rows(&frame, 11..=11, &rows[10], depth);
     }
 }

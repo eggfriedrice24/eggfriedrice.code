@@ -37,9 +37,9 @@ pub(crate) mod status;
 
 pub(crate) use call::{
     CallText, CommandRow, EDIT_TOOL, RowEnd, call_text, columns, command_line, command_lines,
-    numbered_lines, refused, run_heading, tool_call, tool_result, wrap_command, wrap_spans,
+    numbered_lines, refused, run_heading, tool_result, wrap_command, wrap_spans,
 };
-pub(crate) use ending::{CACHE_SHOWN_FROM, turn_stop, usage_line};
+pub(crate) use ending::{CACHE_SHOWN_FROM, usage_line};
 pub(crate) use status::{
     StatusView, config_error, config_error_place, conversations, reloaded, status,
 };

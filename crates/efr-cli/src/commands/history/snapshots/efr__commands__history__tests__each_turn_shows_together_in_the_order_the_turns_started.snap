@@ -5,18 +5,21 @@ expression: text
 (no title) · 019a9b1c · 3 turns
 
 › fix the bug  12:00
-  $ cargo test
   steered: look at the logs first
-  shell exited with 130
-  interrupted
+  ✗ $ cargo test  exit 130 · 0.0s
+  ■ interrupted
 
 › look at the logs first  12:00
 
 The logs show a timeout.
 
+  ✓ done
+
 › then update the docs  12:00
 
 Docs updated.
+
+  ✓ done
 
 › and the changelog  12:00
   withdrawn before it ran

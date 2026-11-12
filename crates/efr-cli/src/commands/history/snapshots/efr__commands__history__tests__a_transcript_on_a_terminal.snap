@@ -6,12 +6,11 @@ expression: "readable(&show(&page, &RenderOptions::new(60)))"
 
 \e[33m›\e[0m \e[1mis nginx\e[0m  \e[2m12:00\e[0m
   \e[1mhealthy?\e[0m
-  \e[2m$ systemctl status nginx\e[0m
-  \e[2mapproval needed: run systemctl restart nginx\e[0m
-  \e[2mallowed from the phone\e[0m
+  \e[32m✓\e[0m \e[2mallowed · from the phone\e[0m
 
 It is \e[1mrunning\e[0m again.
 
 Cut off mid
 
-  \e[2minterrupted\e[0m
+  \e[2m·\e[0m \e[2m$\e[0m systemctl status nginx
+  \e[33m■\e[0m interrupted

@@ -6,7 +6,7 @@ use super::{
     DiffFile, Op, PatchFile, count, cut_rows, file_diffs, files, layout, short_hunk, split_painted,
     summary, text,
 };
-use crate::format::{Tone, call_text, tool_call};
+use crate::format::{Tone, call_text};
 use crate::testing::readable;
 
 /// A patch that updates two files, adds one, deletes one and moves one.
@@ -84,12 +84,11 @@ fn an_apply_patch_call_is_named_by_its_files() {
     // The function form reads the same.
     assert_eq!(call_text("apply_patch", &json!({ "input": PATCH })), text);
     let short = "*** Begin Patch\n*** Update File: src/a.rs\n-a\n+b\n+c\n*** Update File: src/b.rs\n+d\n*** End Patch\n";
-    assert_eq!(
-        tool_call("apply_patch", &json!(short), None),
-        "apply_patch src/a.rs +2 -1, src/b.rs +1"
-    );
+    assert_eq!(call_text("apply_patch", &json!(short)).lines, ["src/a.rs +2 -1, src/b.rs +1"]);
     // A patch without a file shows the tool alone.
-    assert_eq!(tool_call("apply_patch", &json!("*** Begin Patch\n"), None), "apply_patch");
+    let empty = call_text("apply_patch", &json!("*** Begin Patch\n"));
+    assert_eq!(empty.name, "apply_patch");
+    assert!(empty.lines.is_empty(), "{:?}", empty.lines);
 }
 
 /// A diff of a patch as the daemon sends it: the diffs of its files one after the

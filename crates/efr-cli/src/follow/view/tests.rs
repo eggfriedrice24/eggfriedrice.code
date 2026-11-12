@@ -2646,20 +2646,12 @@ fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
     let frame = ended(ALL, stopped(StopReason::EndTurn, true), 3_000);
     assert!(frame.contains("the model stopped with no"), "{frame}");
     assert!(frame.contains("done  \\e[2m3s\\e[0m"), "{frame}");
-    let line = crate::format::turn_stop(&TurnStop { reason: StopReason::Refusal, empty: true });
-    assert_eq!(line, "the model stopped with no answer (stop: refusal)");
 }
 
 #[test]
 fn a_completed_turn_cut_at_the_output_limit_says_so() {
     let frame = ended(ALL, stopped(StopReason::MaxTokens, false), 3_000);
     assert!(frame.contains("the answer reached the output\n  limit \\e[2m(max_tokens)"), "{frame}");
-    let line = |reason| crate::format::turn_stop(&TurnStop { reason, empty: false });
-    assert_eq!(
-        line(StopReason::MaxTokens),
-        "the answer reached the output limit (stop: max_tokens)"
-    );
-    assert_eq!(line(StopReason::Refusal), "the model refused (stop: refusal)");
 }
 
 #[test]

@@ -250,6 +250,12 @@ into the GitHub release notes, and it stops when the section is missing.
   turns of the conversation. Each prompt shows `›` and its time, the line under it the
   model as `,model` takes it, its effort and the mode, and the rows of the turn stand 2
   columns in. A last line says what `--verbose` adds.
+- `efr history <id>` shows the rows of a turn as the turn showed them: one row for
+  each call, such as `✗ $ cargo clippy  exit 101 · 9s`, with each read on a row of its
+  own; the line of an answer, such as `✓ allowed · network (github.com)`, in place of
+  the question; and the end lines, such as `1 file changed  +5 -3  src/turn.rs` and
+  `✓ done  1m 42s · ctx 43% · 4.2k out · cache 91%`. Before, each call had a line at
+  its start and a line for its result.
 
 - Home is the name of every place that is in no registered project, with the mark
   `⌂` (`~` in a locale that is not UTF-8). It replaces `○`, "no project" and "outside

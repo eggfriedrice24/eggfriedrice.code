@@ -8,12 +8,11 @@ expression: "show(&page, &options)"
 
 › is nginx  12:00
   healthy?
-  $ systemctl status nginx
-  approval needed: run systemctl restart nginx
-  allowed from the phone
+  ✓ allowed · from the phone
 
 It is **running** again.
 
 Cut off mid
 
-  interrupted
+  · $ systemctl status nginx
+  ■ interrupted

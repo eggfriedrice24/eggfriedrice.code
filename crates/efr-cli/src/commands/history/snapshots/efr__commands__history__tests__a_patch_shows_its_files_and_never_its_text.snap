@@ -4,16 +4,14 @@ expression: "format!(\"{}---\\n{piped}\", readable(&terminal))"
 ---
 \e[1m(no title)\e[0m \e[2m· 019a9b1c · 0 turns\e[0m
 
-  \e[2mapply_patch src/a.rs +1 -1, new notes.md +1, delete old.r…\e[0m
-  \e[2mapproval needed: apply_patch: edit src/a.rs, notes.md; de…\e[0m
-  \e[2mallowed from the shell\e[0m
-  \e[2mapply_patch src/b.rs +1\e[0m
-  \e[2mapply_patch failed\e[0m
+  \e[32m✓\e[0m \e[2mallowed\e[0m
+  \e[32m✓\e[0m \e[2mpatch\e[0m 4 files  \e[32m+2\e[0m\e[2m \e[0m\e[31m-1\e[0m
+  \e[2msrc/a.rs +1 -1, new notes.md +1, delete old.rs, move src/…\e[0m
+  \e[1;31m✗\e[0m \e[2medit\e[0m src/b.rs  \e[31mfailed\e[0m \e[2m· 0.0s\e[0m
 ---
 (no title) · 019a9b1c · 0 turns
 
-  apply_patch src/a.rs +1 -1, new notes.md +1, delete old.rs, move src/expr.rs → src/expression.rs
-  approval needed: apply_patch: edit src/a.rs, notes.md; delete old.rs; move src/expr.rs
-  allowed from the shell
-  apply_patch src/b.rs +1
-  apply_patch failed
+  ✓ allowed
+  ✓ patch 4 files  +2 -1
+  src/a.rs +1 -1, new notes.md +1, delete old.rs, move src/expr.rs → src/expression.rs
+  ✗ edit src/b.rs  failed · 0.0s

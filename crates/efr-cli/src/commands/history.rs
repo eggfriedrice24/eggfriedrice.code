@@ -50,8 +50,10 @@ use jiff::tz::TimeZone;
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
+use crate::follow::{Call, Outcome};
 use crate::format::changes::HomeChange;
-use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, resume, sandbox};
+use crate::format::route::Pieces;
+use crate::format::{self, Block, Spacing, Tone, changes, context, ending, jobs, resume, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -427,6 +429,27 @@ struct Transcript<'a> {
     effort: Option<String>,
     /// The turns that started on the page.
     turns: usize,
+    /// When the turn that started last started, for the time on its outcome line.
+    started: Option<Timestamp>,
+    /// The calls that started and did not end yet: the row of a call shows at its end,
+    /// as the view writes it.
+    calls: HashMap<CallId, Call>,
+    /// The calls whose approval was denied or expired: they never ran.
+    denied: HashSet<CallId>,
+    /// The calls of `calls` in the order that they started.
+    order: Vec<CallId>,
+    /// The files of a patch of several files with their counts, such as `src/a.rs +1 -1,
+    /// new notes.md +1`: the row of its call counts them, and with no diff in the
+    /// transcript this line names them.
+    patches: HashMap<CallId, String>,
+    /// The lines of the job that a call started, which stand under the call's row (the
+    /// job's line and the exits that a move covered), and the job of a call that the
+    /// user moved to one.
+    jobs: HashMap<CallId, (Vec<String>, Option<efr_protocol::JobId>)>,
+    /// What the question of each call asked about, such as `network (github.com)`, for
+    /// the line of its answer, which takes the place of the question; and the lines of
+    /// the question, which show when the page holds no answer.
+    asked: HashMap<CallId, Asked>,
 }
 
 impl<'a> Transcript<'a> {
@@ -452,6 +475,13 @@ impl<'a> Transcript<'a> {
             at: None,
             effort: None,
             turns: 0,
+            started: None,
+            calls: HashMap::new(),
+            denied: HashSet::new(),
+            order: Vec::new(),
+            patches: HashMap::new(),
+            jobs: HashMap::new(),
+            asked: HashMap::new(),
         }
     }
 
@@ -505,13 +535,17 @@ impl<'a> Transcript<'a> {
             // NOTE: a turn recorded before turn settings names none.
             Event::TurnStarted { settings: Some(settings), .. } => {
                 self.turns += 1;
+                self.started = self.at;
                 self.effort.clone_from(&settings.effort);
                 self.model_line(settings);
                 if let Some(fallback) = &settings.fallback {
                     self.note(&sandbox::fallback_note(fallback, settings.mode));
                 }
             }
-            Event::TurnStarted { .. } => self.turns += 1,
+            Event::TurnStarted { .. } => {
+                self.turns += 1;
+                self.started = self.at;
+            }
             Event::ModelSwitched { from, to, .. } => self.switched(from, to),
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
@@ -521,11 +555,28 @@ impl<'a> Transcript<'a> {
                 if matches!(launch, Some(Launch::Contained { .. })) {
                     self.contained.insert(*call_id);
                 }
-                let mut line = format::tool_call(tool, input, format::columns(self.options));
+                // NOTE: the row of a call says how it ended (TM-Commands frame 4), so it
+                // shows at the call's end, as the view writes it.
+                let mut call = Call::new(*call_id, format::call_text(tool, input), self.at);
                 if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
-                    line.push_str(" (background)");
+                    call = call.in_background();
                 }
-                self.note(&line);
+                self.calls.insert(*call_id, call);
+                self.order.push(*call_id);
+                if tool == format::patch::TOOL
+                    && let Some(text) = format::patch::text(input)
+                    && let files = format::patch::files(text)
+                    && files.len() > 1
+                {
+                    self.patches.insert(*call_id, format::patch::summary(&files));
+                }
+            }
+            Event::JobStarted { call_id, job, .. } if self.calls.contains_key(call_id) => {
+                // NOTE: the line of the job stands under the row of its call.
+                let moved = job.moved_from.is_some().then(|| job.id.clone());
+                let mut lines = vec![jobs::started(job, self.options.glyphs())];
+                lines.extend(jobs::moved_exits(job, self.home));
+                self.jobs.insert(*call_id, (lines, moved));
             }
             Event::JobStarted { job, .. } => {
                 self.note(&jobs::started(job, self.options.glyphs()));
@@ -587,13 +638,39 @@ impl<'a> Transcript<'a> {
                 exit_code,
                 sandbox: summary,
                 refusal,
+                changes,
+                diff,
+                left_running,
                 ..
             } => {
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.contains(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
-                if let Some(reason) = refusal {
+                let (job, moved) = self.jobs.remove(call_id).unzip();
+                let moved = moved.flatten();
+                self.order.retain(|started| started != call_id);
+                if let Some(call) = self.calls.remove(call_id) {
+                    // NOTE: the row of the view (TM-Commands frame 4), with no diff and no
+                    // tail: `--verbose` adds the tails.
+                    let outcome = match (refusal, setup, *exit_code, &moved) {
+                        _ if self.denied.contains(call_id) && refusal.is_none() => Outcome::Denied,
+                        (Some(reason), ..) => Outcome::Refused(reason),
+                        (None, Some(reason), ..) => Outcome::NotStarted(reason),
+                        (None, None, ..) if *left_running => Outcome::LeftRunning,
+                        (None, None, _, Some(job)) => Outcome::Moved(job),
+                        (None, None, Some(code), None) if code != 0 => Outcome::Exited(code),
+                        (None, None, None, None) if *is_error => Outcome::Failed,
+                        _ => Outcome::Ran,
+                    };
+                    let edit = call.edit(changes.as_ref(), diff.as_deref());
+                    let row = call.row(self.at, outcome, edit.as_ref(), &self.inner);
+                    self.out.push_str(self.spacing.before(Block::Row));
+                    self.out.push_str(&indented_rows(&row));
+                    if let Some(files) = self.patches.remove(call_id) {
+                        self.note(&files);
+                    }
+                } else if let Some(reason) = refusal {
                     self.note(&format::refused(tool, reason));
                 } else if let Some(line) = sandbox::setup_failed(setup) {
                     self.note(&line);
@@ -601,6 +678,9 @@ impl<'a> Transcript<'a> {
                     if contained {
                         line.push_str(" (sandbox)");
                     }
+                    self.note(&line);
+                }
+                for line in job.into_iter().flatten() {
                     self.note(&line);
                 }
                 if let Some(summary) = summary {
@@ -622,11 +702,15 @@ impl<'a> Transcript<'a> {
                 let lines = sandbox::exit_summary(exit, record, self.home);
                 self.approval(heading, &lines, true);
             }
+            // NOTE: as in the view, the line of the answer takes the place of the
+            // question (TM-Commands frame 4: `✓ allowed · network (github.com)`).
             Event::ApprovalRequested { call_id, summary, .. } => {
                 let tool = self.tools.get(call_id).map(String::as_str);
                 let command = self.commands.get(call_id).map(String::as_str);
+                let subject = format::card::approval(summary, tool, command).subject();
                 let (heading, asking) = format::approval_heading(summary, tool.zip(command));
-                self.approval(heading, asking.as_deref().unwrap_or_default(), false);
+                let rest = asking.unwrap_or_default();
+                self.asked.insert(*call_id, Asked { subject, heading, rest });
             }
             Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
                 if self.verbose {
@@ -712,14 +796,38 @@ impl<'a> Transcript<'a> {
                 let reason = format::one_line(reason);
                 self.note(&format!("sandbox unavailable: {reason}; auto turns run as cautious"));
             }
-            Event::ApprovalResolved { decision, origin, .. } => {
-                let line =
-                    format!("{} from {}", format::decision(*decision), format::origin(*origin));
-                self.note(&line);
+            Event::ApprovalResolved { call_id, decision, origin, .. } => {
+                if *decision == efr_protocol::ApprovalDecision::Deny {
+                    self.denied.insert(*call_id);
+                }
+                // NOTE: as the view says it: what the question asked about, and where the
+                // answer came from when it did not come from a terminal.
+                let subject = self.asked.remove(call_id).and_then(|asked| asked.subject);
+                let from =
+                    (*origin != Origin::Shell).then(|| format!("from {}", format::origin(*origin)));
+                let separator = format!(" {} ", self.options.glyphs().separator);
+                let line = [Some(format::decision(*decision).to_owned()), subject, from]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(&separator);
+                let glyphs = self.options.glyphs();
+                let (mark, tone) = if format::allows(*decision) {
+                    (glyphs.ok, Tone::Success)
+                } else {
+                    (glyphs.failed, Tone::Failure)
+                };
+                self.pieces(&vec![
+                    (mark.to_owned(), tone),
+                    (" ".to_owned(), Tone::Plain),
+                    (line, Tone::Dim),
+                ]);
             }
             Event::AlwaysRuleSaved { outcome, .. } => self.note(&format::always::saved(outcome)),
-            Event::ApprovalExpired { away: true, .. } => self.note(sandbox::AWAY_EXPIRED),
-            Event::ApprovalExpired { .. } => self.note("the approval expired"),
+            Event::ApprovalExpired { call_id, away, .. } => {
+                self.denied.insert(*call_id);
+                self.note(if *away { sandbox::AWAY_EXPIRED } else { "the approval expired" });
+            }
             Event::ClassifierPaused { reason, denials, .. } => {
                 self.note(&sandbox::paused(*reason, *denials));
             }
@@ -796,22 +904,33 @@ impl<'a> Transcript<'a> {
                     self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
                 }
             }
-            Event::TurnCompleted { stop, changes, undo, usage, .. } => {
+            // NOTE: the end lines of the view (TM-Commands frame 4, TM-Endings): the stop
+            // reason, what the turn changed, then how it ended.
+            Event::TurnCompleted { stop, changes, undo, usage, context, .. } => {
+                self.flush_calls();
+                let glyphs = self.options.glyphs();
                 if let Some(stop) = stop {
-                    self.note(&format::turn_stop(stop));
+                    self.pieces(&ending::stop_line(stop, glyphs));
                 }
-                self.usage(usage.as_ref());
                 self.undo_lines(changes.as_ref(), undo.as_ref());
+                let took = self.took();
+                self.pieces(&ending::done_line(took, usage.as_ref(), context.as_ref(), glyphs));
+                self.usage(usage.as_ref());
             }
-            Event::TurnInterrupted { changes, undo, usage, .. } => {
-                self.note("interrupted");
-                self.usage(usage.as_ref());
+            Event::TurnInterrupted { changes, undo, usage, context, .. } => {
+                self.flush_calls();
                 self.undo_lines(changes.as_ref(), undo.as_ref());
+                let line =
+                    ending::interrupted_line(self.took(), context.as_ref(), self.options.glyphs());
+                self.pieces(&line);
+                self.usage(usage.as_ref());
             }
             Event::TurnFailed { error, changes, undo, usage, .. } => {
-                self.note(&format!("failed: {}", format::one_line(&error.message)));
-                self.usage(usage.as_ref());
+                self.flush_calls();
                 self.undo_lines(changes.as_ref(), undo.as_ref());
+                self.pieces(&ending::failed_line(self.took(), self.options.glyphs()));
+                self.note(&format::one_line(&error.message));
+                self.usage(usage.as_ref());
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
             Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
@@ -821,6 +940,47 @@ impl<'a> Transcript<'a> {
             }
             _ => {}
         }
+    }
+
+    /// The rows of the calls that started and whose end the page does not hold, such as
+    /// a call of a turn that was interrupted: the rows that name them, or the row of a
+    /// call that the user moved to a job, then the lines of their jobs.
+    fn flush_calls(&mut self) {
+        // NOTE: a question whose answer the page does not hold shows as it asked.
+        let mut waiting: Vec<(CallId, Asked)> = self.asked.drain().collect();
+        waiting.sort_by_key(|(call_id, _)| *call_id);
+        for (_, asked) in waiting {
+            self.approval(asked.heading, &asked.rest, false);
+        }
+        for call_id in std::mem::take(&mut self.order) {
+            let Some(call) = self.calls.remove(&call_id) else { continue };
+            let (job, moved) = self.jobs.remove(&call_id).unzip();
+            let row = match moved.flatten() {
+                Some(job) => call.row(self.at, Outcome::Moved(&job), None, &self.inner),
+                None => call.header(&self.inner),
+            };
+            self.out.push_str(self.spacing.before(Block::Row));
+            self.out.push_str(&indented_rows(&row));
+            for line in job.into_iter().flatten() {
+                self.note(&line);
+            }
+        }
+    }
+
+    /// How long the turn that started last ran until the event that the transcript
+    /// writes now.
+    fn took(&self) -> Option<std::time::Duration> {
+        let (start, end) = (self.started?, self.at?);
+        std::time::Duration::try_from(end.duration_since(start)).ok()
+    }
+
+    /// One row of the design at 2 columns under its prompt, as `pieces` paint it.
+    fn pieces(&mut self, pieces: &Pieces) {
+        if pieces.iter().all(|(text, _)| text.is_empty()) {
+            return;
+        }
+        self.out.push_str(self.spacing.before(Block::Row));
+        self.out.push_str(&indented_rows(&ending::rows(pieces, 0, &self.inner)));
     }
 
     /// With `--verbose`, the tokens of a turn that carries its usage (DV10).
@@ -835,20 +995,16 @@ impl<'a> Transcript<'a> {
     /// it changed, such as `3 files changed, +24 -7`, as the turn showed it.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
         let Some(undo) = undo.filter(|undo| undo.undoable) else {
-            let line = changes
-                .map(|changes| changes::plain(&changes::turn_line(changes, self.options)))
-                .filter(|line| !line.is_empty());
-            if let Some(line) = line {
-                self.dim_lines(&[line]);
+            if let Some(changes) = changes {
+                self.pieces(&changes::turn_line(changes, self.options));
             }
             return;
         };
-        let line = changes::plain(&changes::undo_line(changes, undo, self.options));
-        let lines: Vec<String> = Some(line)
-            .filter(|line| !line.is_empty())
-            .into_iter()
-            .chain(changes::not_covered_line(&undo.not_covered, undo.not_covered_more))
-            .collect();
+        self.pieces(&changes::undo_line(changes, undo, self.options));
+        let lines: Vec<String> =
+            changes::not_covered_line(&undo.not_covered, undo.not_covered_more)
+                .into_iter()
+                .collect();
         if !lines.is_empty() {
             self.dim_lines(&lines);
         }
@@ -1002,9 +1158,19 @@ impl<'a> Transcript<'a> {
     }
 
     fn finish(mut self) -> String {
+        self.flush_calls();
         self.flush();
         self.out
     }
+}
+
+/// A question of a call that waits for its answer in the transcript.
+struct Asked {
+    /// What it asked about, such as `network (github.com)`.
+    subject: Option<String>,
+    /// Its heading and what asks, as `approval needed:` lines.
+    heading: Vec<String>,
+    rest: String,
 }
 
 /// The indent of the rows of a turn under its prompt.

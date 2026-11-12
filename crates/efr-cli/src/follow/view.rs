@@ -178,7 +178,6 @@ use crate::live::{LiveZone, effective_width};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
-use call::Call;
 use ending::Ending;
 use fold::Fold;
 use input::{Input, Queued, user_message};
@@ -189,6 +188,7 @@ use reasoning::Reasoning;
 use status::{Model, State, Status};
 use waits::{HIDDEN_INPUT_SANDBOXED, echo_prefix, program, silence_hint};
 
+pub(crate) use call::{Call, Outcome};
 pub(crate) use status::{TICK, spinner};
 
 /// Hides the cursor while the status row shows.

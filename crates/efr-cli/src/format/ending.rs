@@ -159,15 +159,6 @@ fn stop_words(stop: &TurnStop) -> (&'static str, &str) {
     (what, stop.reason.as_str())
 }
 
-/// Why the model of a completed turn stopped, as one plain line, such as `the answer
-/// reached the output limit (stop: max_tokens)`, for `efr history`.
-// NOTE: `efr history` shows this line until the commands slice of the terminal look
-// moves it to `stop_line`.
-pub(crate) fn turn_stop(stop: &TurnStop) -> String {
-    let (what, reason) = stop_words(stop);
-    format!("{what} (stop: {reason})")
-}
-
 /// The line before the end of a completed turn whose model gave no answer, or whose
 /// answer stopped before its end (TM-Endings 18, 19, TM-Legend 33): `! stopped: the
 /// answer reached the output limit (max_tokens)`. The mark and `stopped:` in

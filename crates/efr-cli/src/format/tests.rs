@@ -10,9 +10,9 @@ use proptest::prelude::{prop, proptest};
 use serde_json::json;
 
 use super::{
-    Block, Spacing, Tone, ago, approval_heading, approval_summary, code_block, cut, elapsed, lines,
-    local_time, one_line, paint, run_heading, size, tokens, took, tool_call, tool_result, until,
-    usage_line, wrap_command, wrap_spans,
+    Block, Spacing, Tone, ago, approval_heading, approval_summary, call_text, code_block, cut,
+    elapsed, lines, local_time, one_line, paint, run_heading, size, tokens, took, tool_result,
+    until, usage_line, wrap_command, wrap_spans,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, now};
 
@@ -174,37 +174,6 @@ fn a_code_block_fence_outgrows_the_backticks_inside() {
 }
 
 #[test]
-fn a_tool_call_shows_its_most_telling_input() {
-    let call = |tool, input| tool_call(tool, &input, None);
-    assert_eq!(call("shell", json!({"command": "ls -la", "timeout": 30})), "$ ls -la");
-    assert_eq!(call("read_file", json!({"path": "/etc/hosts"})), "read /etc/hosts");
-    assert_eq!(call("write_file", json!({"path": "src/main.rs"})), "write src/main.rs");
-    let edit = json!({"path": "src/a.rs", "old_string": "a", "new_string": "b"});
-    assert_eq!(call("edit", edit), "edit src/a.rs");
-    assert_eq!(call("settings", json!({"key": "model.name"})), r#"settings {"key":"model.name"}"#);
-    assert_eq!(call("shell", json!({"command": ""})), "$");
-    assert_eq!(call("fetch", json!({"url": "https://x"})), "fetch: https://x");
-    assert_eq!(call("odd", json!({"n": 1})), r#"odd: {"n":1}"#);
-    assert_eq!(call("echo", json!("hi")), "echo: hi");
-    assert_eq!(call("noop", json!(null)), "noop");
-}
-
-#[test]
-fn a_tool_call_of_several_lines_shows_the_first_and_how_many_follow() {
-    let call = |command: &str, columns| tool_call("shell", &json!({ "command": command }), columns);
-    assert_eq!(call(FROM_SRC, None), "$ cd src (and 3 more lines)");
-    assert_eq!(call(FAILED_UNITS, None), "$ systemctl --failed --no-pager (and 1 more line)");
-    // A cut keeps the count: the reader must see that more lines follow.
-    let narrow = Some((32, WidthMethod::CodePoint));
-    assert_eq!(call(FAILED_UNITS, narrow), "$ systemctl -\u{2026} (and 1 more line)");
-    // Blank lines at the start and the end run nothing.
-    assert_eq!(call("\n\nls -la\n\n", None), "$ ls -la");
-    assert_eq!(call("ls\n\n  \nuptime\n", None), "$ ls (and 3 more lines)");
-    // Control characters stay visible, a carriage return too.
-    assert_eq!(call("a\rb\u{1b}[2J\nc", None), "$ a\u{240d}b\u{241b}[2J (and 1 more line)");
-}
-
-#[test]
 fn a_question_shows_each_line_of_a_command_on_its_own() {
     assert_eq!(run_heading("shell", "uptime\n"), ["shell: run \"uptime\""]);
     insta::assert_snapshot!(format!(
@@ -324,7 +293,7 @@ fn format_characters_show_as_a_stand_in_in_every_line() {
     for shown in [
         one_line(line),
         lines(&format!("{line}\nnext")).into_owned(),
-        tool_call("shell", &json!({ "command": line }), None),
+        call_text("shell", &json!({ "command": line })).lines.join("\n"),
         run_heading("shell", &format!("{line}\nls")).join("\n"),
         approval_summary(&format!("shell: write /home/u/{line}")).0,
     ] {
