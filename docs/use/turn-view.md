@@ -1,6 +1,6 @@
 # The turn view and its keys
 
-<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, follow/view/reasoning.rs -->
+<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, follow/view/reasoning.rs, follow/view/web.rs, format/web.rs -->
 
 The turn view is what efr shows while a turn runs. It is not a full-screen program.
 The reply goes into your scrollback like the output of any command, and your prompt
@@ -37,7 +37,7 @@ mode already. The status row then shows neither of them:
 ```
 
 The states include `waiting for the model`, `thinking`, `writing`, `preparing <tool>`,
-`reviewing` and `compacting context`. What comes and goes stands after the scope, so
+`reviewing`, `searching`, `opening` and `compacting context`. What comes and goes stands after the scope, so
 the time, the context and the scope keep their place:
 
 - `no data for 25s`, in yellow, after 20 seconds with no data from the model.
@@ -67,6 +67,18 @@ rules of the reasoning words below. A newline of the input shows as a space:
 `ctx 43%` tells how full the model's context is. At 100%, efr compacts the context.
 The field is green below 50%, yellow from 50% and red from 90%.
 [Conversations, resume and search](conversations.md#the-models-context) tells more.
+
+While the provider searches the web for the model, the row says `searching`, or
+`opening` while it opens a page. The time counts from the first search that runs. The
+query, or the page, ends the row, and `+2` tells that two more searches run at the
+same time:
+
+```text
+⠼ searching   6s   ctx 22%   work/claude-opus-5-5 high   "ROB RUN" Steam Deck verified  +2
+```
+
+A search adds no other row while it runs. On a narrow screen the query goes first: it
+is cut with `…` and keeps the `+2`, then it goes.
 
 ### The reasoning
 
@@ -159,6 +171,47 @@ and `patch 3 files`. A patch of several files shows one row for each file, each 
 its own diff. A command that changed files gets one dim row under it that names them,
 such as `changed Cargo.toml +1 · Cargo.lock +18`. [Undo and diff](undo-and-diff.md)
 tells more.
+
+### Web search
+
+The provider of the model runs a web search inside the model call (see
+[Permission modes](modes.md#web-search)). Each search is one muted row when it ends,
+with the query as the model sent it, the number of results when the provider gives
+it, and the time:
+
+```text
+✓ web "ROB RUN" Proton Easy Anti-Cheat  10 results · 5s
+✓ web "ROB RUN" areweanticheatyet  5s
+✓ web open areweanticheatyet.com/game/rob-run  2s
+! web "ROB RUN" 1.4 patch notes Linux  too many requests · 1s
+```
+
+- A Claude model gets the number of results, also `0 results`. An OpenAI model does
+  not, so its row shows only the time.
+- A long query is cut after the last whole word that fits, then `…`. The number and
+  the time are never cut. `efr history` shows the whole query.
+- Several searches give one row each. They never fold, and the rows come in the order
+  in which the model started the searches, also when they run at the same time.
+- An OpenAI model can open a page: `web open` and the page without `https://` and
+  `www.`, as a link to the full address. A search for text inside a page gets no row.
+- A failed search shows `!` and the reason in yellow: `too many requests`,
+  `search limit of this turn reached` or `web search not available`. The model goes on
+  without that source.
+
+An answer of a Claude model marks each part that a page backs with `[1]`, `[2]`, in
+the link colour, before the punctuation. Where the terminal supports links, the mark
+is a link to the page. After the answer, one blank row, then the list of the pages
+that the answer cites, in the order of their first mark:
+
+```text
+[1] https://areweanticheatyet.com/game/rob-run  ROB RUN · Are We Anti-Cheat Yet?
+[2] https://www.protondb.com/app/2384710  ROB RUN · ProtonDB
+```
+
+The list shows the whole address, so you can open or copy it. On a narrow screen the
+title is cut, then left out; efr never cuts an address. An answer of an OpenAI model
+shows its links as the model wrote them, as normal Markdown links, and the list of
+the pages that it cites follows it in the same way.
 
 ### Questions
 
@@ -312,6 +365,12 @@ between them:
   muted part after it is the time, how full the context is, the tokens that the model
   wrote and the part of the turn's input that came from the provider's prompt cache
   (`cache 91%`). The time shows from 1 second.
+- A turn that searched the web counts its searches last on that line: `· 5 searches`,
+  or `· 1 search`. Failed searches and opened pages do not count. When the searches
+  read the provider's stored copy of the web (an OpenAI model in cautious mode), the
+  line says `5 searches, stored copy`. The first time in a conversation, one muted line
+  under it says what that means:
+  `a stored copy of the web can be some days old · ,mode auto searches the live web`.
 - When the model stopped for a reason, such as the output limit, a line before the
   end says why: `! stopped: the answer reached the output limit (max_tokens)`.
 - Under an interrupted turn whose steers go again as a new prompt, a line says so:

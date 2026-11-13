@@ -219,6 +219,42 @@ another reason starts with `this turn runs as <mode>: <reason>`, such as `this t
 runs as auto: a turn that a job notice starts runs with at most auto`.
 [Permissions and rules](../permissions.md#full-mode) has every detail of full mode.
 
+## Web search
+
+The model can search the web. The provider of the model runs the search inside the
+model call: efr loads nothing from the web itself, needs no key of a search company,
+and sends no query to one. A search never asks you. efr cannot ask, because the
+search runs inside the model call. So the mode decides whether the model gets it:
+
+| Mode | OpenAI model | Claude model |
+|---|---|---|
+| `manual` | off | off |
+| `cautious` | the stored copy of the web | the live web |
+| `auto` | the live web | the live web |
+| `full` | the live web | the live web |
+
+- The stored copy is OpenAI's own copy of the web. It can be some days old, and a
+  page that is not in it stays out of reach. The end line of a turn that read it says
+  `stored copy`, and the first such turn of a conversation says what it means. Use
+  `,mode auto` for the live web.
+- In `manual` the model gets no web search, and efr shows nothing about it. The model
+  knows that the search is off and that `,mode cautious` turns it on, so it can say so
+  in its answer.
+- An OpenAI model can also open a page and find text in it. A Claude model can fetch a
+  page. Outside `full`, a Claude model fetches only a page whose address you gave or a
+  search found, not one that only a command or a file named.
+- The live web is open to every address that the model writes. The sandbox of `auto`
+  does not see this traffic, because the provider makes it. `[web] search = "cached"`
+  keeps an OpenAI model on the stored copy.
+- `[web] search` in `config.toml` overrides the table: `off`, `cached` or `live`. On a
+  Claude model `cached` and `live` both mean the live web. `manual` stays off,
+  whatever the key says. `[web] max_searches` (default 20) limits the searches of one
+  turn on a provider that takes a limit. [config.md](../config.md#web) has both keys.
+
+[The turn view](turn-view.md#web-search) shows how a search looks: one row for each
+search, a mark such as `[1]` for each part of the answer that a page backs, the list of
+those pages after the answer, and the count of the searches on the end line.
+
 ## What holds in every mode
 
 - Secrets are denied, unless a rule of yours names them. The daemon's own `secrets/`

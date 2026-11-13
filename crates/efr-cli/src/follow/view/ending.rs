@@ -43,6 +43,7 @@ impl TurnView {
         };
         self.queued = false;
         self.kept.cwd = Some(cwd.clone());
+        self.kept.web = super::web::Web::default();
         self.started_at = self.event_at;
         self.reasoning = Reasoning::default();
         let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);
@@ -300,11 +301,14 @@ impl TurnView {
         &mut self,
         end: TurnEnd,
         before: Vec<Pieces>,
-        outcome: Option<Pieces>,
+        mut outcome: Option<Pieces>,
         mut under: Vec<Pieces>,
         size: Size,
     ) -> Step {
         self.release_switch();
+        // NOTE: the count of the searches goes last on the cost of the outcome line, and
+        // the note of the stored copy under all of it (TM-Web 13).
+        let web_note = self.web_end(outcome.as_mut());
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
@@ -332,6 +336,7 @@ impl TurnView {
         lines.extend(self.end_lines().into_iter().map(|line| (0, line)));
         lines.extend(outcome.map(|line| (0, line)));
         lines.extend(under.into_iter().map(|row| (UNDER, row)));
+        lines.extend(web_note.map(|note| (0, note)));
         // A turn that the daemon's restart cancelled says so when a queued prompt of
         // this view runs next; else it is the command's error.
         if next.is_some() && end == TurnEnd::Cancelled {

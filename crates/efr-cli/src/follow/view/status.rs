@@ -14,8 +14,9 @@
 //! while efr counts the user away from the conversation (`presence_changed`), both in
 //! the `warning` role without bold. The detail is what the state works on: the title
 //! or the newest words of a reasoning, the size and the newest words of a tool input
-//! that the model writes ([`State::detail`]), or what the reviewer reviews, in the
-//! `text` role.
+//! that the model writes ([`State::detail`]), what the reviewer reviews, in the
+//! `text` role, or the newest step of web search with `+2` for the others that run
+//! ([`State::Web`]), which a cut keeps.
 //!
 //! The model is `account/model effort`, as `,model` takes it, such as
 //! `work/claude-opus-5-5 high`, from the settings of the turn ([`Model`]). The scope is
@@ -170,6 +171,12 @@ pub(crate) enum State {
     Reviewing(String),
     /// The turn compacts the model's context before its next model call.
     Compacting,
+    /// The provider runs steps of its web tool for the model (TM-Web 4, 6, 7): the row
+    /// says `opening` for the opening of a page, else `searching`, and counts the time
+    /// from the first step that runs. `detail` names the newest step (its query, its
+    /// page, or the text that a find looks for), and `more` counts the other steps that
+    /// run, `+2`.
+    Web { opening: bool, detail: Option<String>, more: usize },
     /// The model call connects to the provider, or sends its request.
     Connecting,
     /// An attempt of the model call failed: the daemon waits `wait`, then tries again.
@@ -221,6 +228,8 @@ impl State {
                 None => words.clone(),
             },
             State::Compacting => "compacting context".to_owned(),
+            State::Web { opening: true, .. } => "opening".to_owned(),
+            State::Web { .. } => "searching".to_owned(),
         }
     }
 
@@ -424,13 +433,27 @@ impl Status {
         notes
     }
 
-    /// The detail that ends the row, with its tone: what the reviewer reviews, or the
-    /// detail of the state.
-    fn detail(&self) -> Option<(String, Tone)> {
-        if let State::Reviewing(words) = &self.state {
-            return reviewed(words).map(|subject| (subject.to_owned(), Tone::Text));
+    /// The detail that ends the row, with its tone and what a cut keeps after it: what
+    /// the reviewer reviews, the detail of the state, or the newest step of web search
+    /// with `  +2` for the other steps that run.
+    fn detail(&self) -> Option<(String, Tone, String)> {
+        match &self.state {
+            State::Reviewing(words) => {
+                reviewed(words).map(|subject| (subject.to_owned(), Tone::Text, String::new()))
+            }
+            State::Web { detail, more, .. } => {
+                let kept = if *more > 0 { format!("+{more}") } else { String::new() };
+                match (detail, kept.is_empty()) {
+                    (Some(detail), true) => Some((detail.clone(), Tone::Dim, kept)),
+                    (Some(detail), false) => {
+                        Some((detail.clone(), Tone::Dim, format!("{NOTE_GAP}{kept}")))
+                    }
+                    (None, false) => Some((kept, Tone::Dim, String::new())),
+                    (None, true) => None,
+                }
+            }
+            _ => self.state.detail().map(|detail| (detail, Tone::Dim, String::new())),
         }
-        self.state.detail().map(|detail| (detail, Tone::Dim))
     }
 
     /// The row at `now`, painted with `options` and cut to their width, with its
@@ -442,7 +465,12 @@ impl Status {
         let spinner = spinner(self.motion, ticks, glyphs);
         let silence = self.data.map_or(Duration::ZERO, |data| since_then(data, now));
         let lasted = self.since.map_or(Duration::ZERO, |since| since_then(since, now));
-        let elapsed = self.elapsed(now);
+        // NOTE: while the provider searches, the time counts from the first step that
+        // runs (TM-Web 4: "the time since the first started").
+        let elapsed = match self.state {
+            State::Web { .. } => lasted,
+            _ => self.elapsed(now),
+        };
         let time = (elapsed >= SHOW_ELAPSED).then(|| format::elapsed(elapsed));
         let queued = self.state == State::Queued;
         let scope = Scope::new(self.scope.as_deref(), self.full, glyphs, method);
@@ -496,9 +524,12 @@ impl Status {
         let gauged = self.context.as_ref().and_then(Gauge::of).is_some();
         let dropped =
             !queued && ((gauged && gauge.is_none()) || (self.model.is_some() && whole.is_none()));
-        let detail = self.detail().filter(|_| !dropped).and_then(|(detail, tone)| {
+        // NOTE: the end of a detail of web search, `  +2`, stays when its query is cut.
+        let detail = self.detail().filter(|_| !dropped).and_then(|(detail, tone, kept)| {
             let left = room.checked_sub(gap)?;
-            (left >= MIN_DETAIL).then(|| (cut(&detail, left, glyphs, method), tone))
+            let text = left.saturating_sub(text_width(&kept, method));
+            (left >= MIN_DETAIL)
+                .then(|| (format!("{}{kept}", cut(&detail, text, glyphs, method)), tone))
         });
         let mut row = options.paint(Role::Accent, &spinner.to_string());
         row.push(' ');

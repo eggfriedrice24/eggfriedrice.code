@@ -4,11 +4,12 @@
 //! the rows with the frame, cell by cell. One module for each board: `markdown`
 //! (TM-Markdown and the Markdown marks of TM-Legend), `code` (TM-Code, the code block
 //! of TM-Legend and TM-Depths), `diffs` (the rows of `diff_lines` against TM-Diffs and
-//! the diff rows of TM-Legend).
+//! the diff rows of TM-Legend), `web` (the citation marks of TM-Web).
 
 mod code;
 mod diffs;
 mod markdown;
+mod web;
 
 use efr_render::{CodeTheme, Colour, ColourMode, Palette, RenderOptions, Role, render};
 use efr_test_support::design::{

@@ -17,6 +17,9 @@
 // - Reasoning comes only in drafts and the snapshot: a buffer per turn, with its title.
 // - Tool input drafts show while the model writes; `tool_call_started` clears them, and a
 //   draft made before it is dropped.
+// - A step of the provider's web search (`web_call_started`, `web_call_completed`) is a
+//   tool call of the tool `web`, with its step in `web`: a search or an opened page. A
+//   find in a page makes none.
 // - The parts of a turn (messages, tool calls, approvals, steers) keep the order of
 //   their first sight.
 // - The first answer to an approval wins, from any client. A question that is open when
@@ -35,6 +38,8 @@ import type {
   Origin,
   StopReason,
   Usage,
+  WebAction,
+  WebError,
 } from "@/lib/protocol/generated";
 import type {
   Draft,
@@ -88,6 +93,24 @@ export interface ToolCallView {
   /** When the call started and ended, in ms since the epoch. */
   readonly startedAt: number | undefined;
   readonly endedAt: number | undefined;
+  /** A step of the provider's web search: the provider ran it, not efr. */
+  readonly web?: WebStepView;
+}
+
+/** The tool of a step of web search. */
+export const WEB_TOOL = "web";
+
+/** A step of the provider's web search: a search or an opened page. */
+export interface WebStepView {
+  readonly action: WebAction;
+  /** The query of a search, as the model sent it. */
+  readonly query: string | undefined;
+  /** The page of an open. */
+  readonly url: string | undefined;
+  /** How many results a search found, when the provider says it. */
+  readonly results: number | undefined;
+  /** Why the step failed. */
+  readonly error: WebError | undefined;
 }
 
 /** What became of an approval question. */
@@ -501,6 +524,32 @@ function applyEventBody(
           completeTool(call, event, at),
         ),
       );
+    case "web_call_started":
+      // A find in a page has no block: it is the model reading the page it opened.
+      if (event.action === "find") {
+        return state;
+      }
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(addPart(turn, { kind: "tool", callId: event.call_id }), event.call_id, (call) =>
+          call.done ? call : { ...webStep(call, event), startedAt: at ?? call.startedAt },
+        ),
+      );
+    case "web_call_completed":
+      if (event.action === "find") {
+        return state;
+      }
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(addPart(turn, { kind: "tool", callId: event.call_id }), event.call_id, (call) =>
+          call.done
+            ? call
+            : {
+                ...webStep(call, event),
+                done: true,
+                isError: event.error != null,
+                endedAt: at,
+              },
+        ),
+      );
     case "approval_requested":
       return updateTurn(state, event.turn_id, (turn) => askApproval(turn, event, at));
     case "approval_resolved":
@@ -705,6 +754,24 @@ function completeTool(
     leftRunning: event.left_running === true,
     endedAt: at,
   };
+}
+
+/** `call` as the step of web search of `event`: the end of a step names its whole state. */
+function webStep(
+  call: ToolCallView,
+  event: EventOf<"web_call_started"> | EventOf<"web_call_completed">,
+): ToolCallView {
+  const held = call.web;
+  const query = event.query ?? held?.query;
+  const url = event.url ?? held?.url;
+  let results = held?.results;
+  let error = held?.error;
+  if (event.kind === "web_call_completed") {
+    results = event.results == null ? undefined : event.results.length;
+    error = event.error ?? undefined;
+  }
+  const web: WebStepView = { action: event.action, query, url, results, error };
+  return { ...call, tool: WEB_TOOL, summary: query ?? url ?? "", web };
 }
 
 function askApproval(

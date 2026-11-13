@@ -10,7 +10,8 @@ conversations. `[model] provider` in `config.toml` sets it:
 | `anthropic-api` | Anthropic's Claude models, billed to an Anthropic API key | `efr login anthropic` with a key |
 
 This file tells how to log in with an API key, how to change the provider, which
-settings the Claude models have, and how the prompt cache works. [`config.md`](config.md)
+settings the Claude models have, which web search each provider runs, and how the
+prompt cache works. [`config.md`](config.md)
 lists every key.
 
 ## Log in with an API key
@@ -174,6 +175,22 @@ systemctl --user restart efrd
 ```
 
 The workspace id is not a secret, so it can be in a dotfiles repository.
+
+## Web search
+
+The provider runs the web search of the model inside the model call. efr sends the
+tool with the request and shows what the provider reports:
+
+| Provider | The tool | What the model can do |
+|---|---|---|
+| `openai-subscription`, `openai-api` | `web_search` | search, open a page, find text in it; the stored copy of the web or the live web |
+| `anthropic-api` | `web_search_20250305` and `web_fetch_20250910` | search and fetch a page; always the live web |
+
+A Claude model gives the number of results of each search and marks the parts of its
+answer that a page backs with `[1]`. An OpenAI model gives neither: its rows show the
+time only, and its answer keeps its own links. Both list the pages that the answer
+cites after it. The permission mode decides when the model gets the tool, and `[web]
+search` can override it: [Permission modes](use/modes.md#web-search) has the table.
 
 ## The reviewer
 

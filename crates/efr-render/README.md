@@ -177,7 +177,10 @@ value, the first value of a record in bold, and a blank line between records. Ru
 are muted and at most 40 columns wide, so they do not wrap when the terminal gets
 narrower. Links, bare URLs, absolute paths in links and inline code are OSC 8
 hyperlinks (`file://` for paths); without a hyperlink, the target follows in muted
-parentheses. Images show as `[image: alt]`. The line of a rule and of the table's rule
+parentheses. A citation mark of web search, a link whose text is `[`, digits and `]`
+(`[1]`), never shows its target, because the list of sources after the answer names
+the URL, and a row never starts with it: it goes to the next row with the word before
+it. Images show as `[image: alt]`. The line of a rule and of the table's rule
 is the `rule` glyph of the options (`─`, or `-` in ASCII).
 
 Soft line breaks keep the author's lines. A line of prose or a heading wider than the

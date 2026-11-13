@@ -134,7 +134,43 @@ fn tokens(spans: &[Span], method: WidthMethod) -> Vec<Token<'_>> {
             }
         }
     }
-    tokens
+    glue_citations(tokens)
+}
+
+/// `tokens` with each citation mark of web search (a word that starts with a link whose
+/// text is `[1]`) joined to the word before it, with the spaces between them, so a row
+/// never starts with a mark apart from the words that it backs (TM-Web 10: `Deck [3].`).
+/// A source line commits whole (`renderer`), so the join is the same while it streams.
+fn glue_citations(tokens: Vec<Token<'_>>) -> Vec<Token<'_>> {
+    let mut out: Vec<Token<'_>> = Vec::with_capacity(tokens.len());
+    for token in tokens {
+        let cites = matches!(&token, Token::Word(pieces) if pieces.first().is_some_and(|piece| {
+            piece.link.is_some() && is_citation(piece.text)
+        }));
+        let after_word = matches!(out.as_slice(), [.., Token::Word(_), Token::Gap(_)]);
+        match token {
+            Token::Word(pieces) if cites && after_word => {
+                let gap = match out.pop() {
+                    Some(Token::Gap(gap)) => gap,
+                    _ => Vec::new(),
+                };
+                if let Some(Token::Word(word)) = out.last_mut() {
+                    word.extend(gap);
+                    word.extend(pieces);
+                }
+            }
+            token => out.push(token),
+        }
+    }
+    out
+}
+
+/// True when `text` is a citation mark: `[`, digits, `]`, as efrd writes ` [[1]](<url>)`
+/// after the words that a web source backs.
+pub(crate) fn is_citation(text: &str) -> bool {
+    text.strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
 }
 
 #[cfg(test)]

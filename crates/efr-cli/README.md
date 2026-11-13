@@ -406,7 +406,32 @@ Replies:
   first without the directories that it shares with the first. The row grows in the
   live zone while the reads come and is written once when anything else is written: a
   message, another call, an answer, a failed read, the end of the turn. When stdout is
-  not a terminal nothing folds. Only `read_file` folds; there is no search tool yet.
+  not a terminal nothing folds. Only `read_file` folds; there is no code search tool,
+  and a web search never folds.
+- Web search (`follow/view/web.rs`, `format/web.rs`, TM-Web): the provider runs it
+  inside the model call, and efrd records each step (`web_call_started`,
+  `web_call_completed`). A step adds no row to the live zone: the status row says
+  `searching` (`opening` for a page), counts the time from the first step that runs,
+  and ends with the newest query, page or find (`"Proton" in protondb.com`) and `+2`
+  for the others, the detail cut first with `+2` kept. When a step ends, its row is
+  written once, in the order in which the steps started (`format::web::Order`): `✓ web
+  <query>  10 results · 6s` (all muted but the mark; the count only when the provider
+  gives it, `0 results` too; a long query cut after its last whole word with `…`, the
+  count and the time never cut), `✓ web open <host/path>  2s` (the page in `link`, an
+  OSC 8 link to the whole URL, a long path cut in the middle), `! web <query>  too many
+  requests · 1s` (`!` and the reason in `warning`, no tail). A find never has a row. The
+  report of the turn (`turn_web_report`) brings the list of the cited pages after the
+  answer, one blank row before it: `[1] <URL>  <title>`, the number and the title
+  muted, the URL whole in `link` (the title is cut, then left out, before a URL is
+  touched), and the count of the searches last on the cost of the outcome line, `·
+  5 searches` or `5 searches, stored copy`, with the muted row `a stored copy of the
+  web can be some days old · ,mode auto searches the live web` under it for the first
+  such turn of a conversation. The citation marks are Markdown in the text that efrd
+  writes (` [[1]](<url>)`); `efr-render` shows them as `[1]` in `link`. When stdout is
+  not a terminal, the rows and the list go to stderr, plain, in the same order. `efr
+  history` writes the same rows from the same events, with the whole query (a long one
+  goes on in the next rows, 6 columns in), and `--verbose` adds under a search its
+  first three results and `… 5 more · cited: 1, 3`, and under an open its finds.
 - On a terminal, a call of the followed turn shows in the live zone while it runs: the
   spinner (`accent`), the name (`muted`) and what it does (`text`) cut to the width
   with `…` at the cut, from 1 s on how long it has run after two spaces, then the tag
@@ -1284,7 +1309,13 @@ are listed there, and each slice of the terminal look takes out the files that i
 moves to the table. `format/context/tests.rs` compares the context gauge with
 TM-Legend frame 31 through `efr_test_support::design`, with the options of
 `testing::design_options` (the design's palette in truecolor, the default one in 16
-colours and without colour): the pattern of the tests of the terminal look.
+colours and without colour): the pattern of the tests of the terminal look. The rows
+of web search have their tests against TM-Web: `format/web/tests.rs` (the rows of a
+search, an open and a failure, the list of sources, the end lines and the rows of
+`--verbose`), `follow/view/status/tests/design.rs` (the status row while the provider
+searches), `follow/view/tests/layout/design/web.rs` (whole turns through a real view:
+the order of three searches at once, the marks, the list and the count, a manual turn,
+a pipe) and `commands/history/tests/web.rs` (`efr history` and `--verbose`).
 
 Unit tests cover argument parsing (with `efr --help` snapshots), output formatting
 (insta snapshots of status, listings, transcripts, config and rendered turns), the

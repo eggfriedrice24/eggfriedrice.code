@@ -58,6 +58,25 @@ fn links_stay_on_their_pieces() {
     );
 }
 
+/// A citation mark of web search goes to the next row with the word before it, so it
+/// never starts a row apart from the words that it backs (TM-Web 10, row 2).
+#[test]
+fn a_citation_mark_stays_with_the_word_before_it() {
+    let link = Some("https://x".to_owned());
+    let spans = [
+        Span::plain("on Steam Deck "),
+        Span::linked("[3]", Style::PLAIN, link.clone()),
+        Span::plain(". Your"),
+    ];
+    assert_eq!(texts(&spans, 13), ["on Steam", "Deck [3].", "Your"]);
+    // Only a link whose text is `[`, digits, `]` sticks; plain brackets and other links
+    // break as any word does.
+    let plain = [Span::plain("on Steam Deck [3]. Your")];
+    assert_eq!(texts(&plain, 13), ["on Steam Deck", "[3]. Your"]);
+    let other = [Span::plain("on Steam Deck "), Span::linked("[a]", Style::PLAIN, link)];
+    assert_eq!(texts(&other, 13), ["on Steam Deck", "[a]"]);
+}
+
 #[test]
 fn empty_input_is_one_empty_line() {
     assert_eq!(lines(&[], 10), [Vec::<Span>::new()]);

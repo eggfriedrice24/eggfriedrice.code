@@ -34,6 +34,7 @@ pub(crate) mod route;
 pub(crate) mod sandbox;
 pub(crate) mod search;
 pub(crate) mod status;
+pub(crate) mod web;
 
 pub(crate) use call::{
     CallText, CommandRow, EDIT_TOOL, RowEnd, call_text, columns, command_line, command_lines,
@@ -86,6 +87,8 @@ pub(crate) enum Tone {
     /// The `warning` role in bold: the title of a question and its keys, the `?` of a
     /// command that waits for input.
     AttentionBold,
+    /// The `link` role: a page of web search, underlined also without colour.
+    Link,
     /// The badge of a question, ` ? `: the `warning` role in reverse video and bold.
     /// Without colour it is bold alone (TM-Questions frame 10: "the badge becomes bold
     /// ?").
@@ -109,6 +112,7 @@ impl Tone {
             Tone::TextItalic => Some((Role::Text, Attrs::ITALIC)),
             Tone::FailureBold => Some((Role::Error, Attrs::BOLD)),
             Tone::AttentionBold => Some((Role::Warning, Attrs::BOLD)),
+            Tone::Link => Some((Role::Link, Attrs::NONE)),
             Tone::Badge => Some((Role::Warning, Attrs::BADGE)),
         }
     }

@@ -27,6 +27,12 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   components and screens in jest-expo.
 - Written, but not built yet: the Swift module of the device key and the native
   adapters. They need an EAS build.
+- A step of web search, which the provider of the model runs, shows as a tool block
+  with the verb `web`: a search with its query, an opened page as `open <page>`. The
+  status says `✓ 10 results · 6s` (the count only when the provider gives it), `✓ 5s`,
+  or why the step failed, such as `too many requests · 1s`. A find in a page has no
+  block. The citation marks of an answer (`[1]`) show as links through the Markdown of
+  the reply. The app shows no list of sources yet.
 - The app hears of the foreground from AppState, and of a change of the network path
   (such as from Wi-Fi to cellular) from NetInfo. Then each machine connects again at
   once.
@@ -292,53 +298,57 @@ not a test that pretends.
     the top. The older turns come in above, the place of the reader stays, and "Jump to
     latest" does not show for them. Kill the app, open it again without a network, and
     check that the older turns are still there.
-13. A reply with an image (`![x](https://example.com/x.png)`) and an HTML block
+13. A turn that searched the web: each search and each opened page is one tool block
+    (`web` and the query, or `open` and the page), in the order of their starts, with
+    its count of results and its time; a failed one names its reason. The marks `[1]`
+    of an answer of a Claude model are links that open their page.
+14. A reply with an image (`![x](https://example.com/x.png)`) and an HTML block
     (`<video src="https://example.com/v.mp4">`): the image shows as "!" and the link
     "x", the video line shows as text, and nothing loads (watch the log of a proxy, or
     of the web server).
 
 ### Speed
 
-14. zod on Hermes: run the bench route of a preview build, which is a release build. Open
+15. zod on Hermes: run the bench route of a preview build, which is a release build. Open
     it right after a launch, to get a cold first parse. It parses each frame of the
     recordings through the schemas, in three modes. The draft frames must stay under
     0.5 ms at p95. If they do not, use jitless mode or smaller draft schemas.
-15. The React Compiler: the app must behave the same with it on. Count the renders of a
+16. The React Compiler: the app must behave the same with it on. Count the renders of a
     streaming conversation with the render counter of a `development` build.
 
 ### The header and the navigation
 
-16. The title (`Stack.Title asChild` with our button): its layout, the yolk dot, the
+17. The title (`Stack.Title asChild` with our button): its layout, the yolk dot, the
     size of its tap target, and that a tap opens the conversations sheet.
-17. The menu glyphs: every glyph shows (Settings row menu, Steer/Queue, the copy
+18. The menu glyphs: every glyph shows (Settings row menu, Steer/Queue, the copy
     menus), with no gap before a title and no title on top of the row menu. Before,
     Fabric gave each glyph a clear colour.
-18. The anchor of a menu that opens from a view (`findNodeHandle`).
-19. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
+19. The anchor of a menu that opens from a view (`findNodeHandle`).
+20. The `Stack.Toolbar` glass group on iOS 26, the titles of the back history menu
     (long press on back), and the bar on iOS 26: no fill and no blur of its own, the
     soft scroll edge only at the top of the transcript, no blur over old turns or over
     the composer, and the glass capsule of the strip 8 pt under the bar. Before iOS 26
     the bar has the chrome blur. "Jump to latest" shows and hides its glass with the
     animation of the system, with no flash.
-20. The first send on the blank root opens the new conversation with no animation, and
+21. The first send on the blank root opens the new conversation with no animation, and
     the id of the conversation then changes in place (`replaceParams`). The new params
     have no `enter`, so back and the edge swipe from that conversation have the normal
     animation.
-21. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
+22. The ninth conversation in the stack drops the oldest with no flash. `dismissTo`
     goes back to a conversation in the stack. Start after a pairing, and Forget of the
     last machine, go to the root with a short cross-fade (`animation: "fade"` on the
     screen that goes, set just before the reset), and with none when Reduce Motion is
     on.
-22. The conversations sheet: its two sizes, the search field under "New conversation"
+23. The conversations sheet: its two sizes, the search field under "New conversation"
     and not under the bar, the status glyphs, and that a tap on a row closes the sheet
     and opens the conversation.
 
 ### The composer
 
-23. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
+24. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
     inset.
-24. The input grows to 6 lines.
-25. The Steer and Queue menu opens with a long press on the capsule, and a tap on the
+25. The input grows to 6 lines.
+26. The Steer and Queue menu opens with a long press on the capsule, and a tap on the
     capsule sends. This needs the patch of react-native-menu in a new build: without it,
     the button of a long press menu takes the taps of the views inside it. Check also
     that a tap on a tool block and on "show all N lines" opens it, and that a tap on a
@@ -346,11 +356,11 @@ not a test that pretends.
 
 ### Look and motion
 
-26. The BrailleCell and the cursor animate with the native driver. With Reduce Motion
+27. The BrailleCell and the cursor animate with the native driver. With Reduce Motion
     on, they show a still frame.
-27. `fontFamily: "ui-monospace"` gives SF Mono and follows Dynamic Type. If not, the
+28. `fontFamily: "ui-monospace"` gives SF Mono and follows Dynamic Type. If not, the
     app uses Menlo.
-28. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
+29. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
     layers of `assets/icon/` (this needs a Mac).
 
 ## Rules of the app

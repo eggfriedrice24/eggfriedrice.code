@@ -253,6 +253,94 @@ describe("reasoning and tools", () => {
   });
 });
 
+/** A `web_call_started` event of `action`, with its query or its page. */
+function webStarted(
+  callId: string,
+  action: "search" | "open" | "find",
+  query?: string,
+  url?: string,
+): Event {
+  const body: Event = { kind: "web_call_started", turn_id: TURN, call_id: callId, action };
+  if (query !== undefined) {
+    Reflect.set(body, "query", query);
+  }
+  if (url !== undefined) {
+    Reflect.set(body, "url", url);
+  }
+  return body;
+}
+
+describe("web search", () => {
+  it("makes a tool block of a search and of an opened page, in the order of their starts", () => {
+    const state = run([
+      event(1, turnStarted(TURN), at(0)),
+      event(2, webStarted("w1", "search", "rust 1.95"), at(1)),
+      event(3, webStarted("w2", "open", undefined, "https://www.example.com/a"), at(2)),
+      event(
+        4,
+        {
+          kind: "web_call_completed",
+          turn_id: TURN,
+          call_id: "w1",
+          action: "search",
+          query: "rust 1.95",
+          results: [{ url: "https://example.com/1" }, { url: "https://example.com/2" }],
+        },
+        at(7),
+      ),
+      event(
+        5,
+        {
+          kind: "web_call_completed",
+          turn_id: TURN,
+          call_id: "w2",
+          action: "open",
+          url: "https://www.example.com/a",
+          error: "too_many_requests",
+        },
+        at(3),
+      ),
+    ]);
+    const turn = state.turns.get(TURN);
+    expect(turn?.parts).toEqual([
+      { kind: "tool", callId: "w1" },
+      { kind: "tool", callId: "w2" },
+    ]);
+    expect(turn?.tools.get("w1")).toMatchObject({
+      tool: "web",
+      summary: "rust 1.95",
+      done: true,
+      isError: false,
+      startedAt: AT_MS + 1000,
+      endedAt: AT_MS + 7000,
+      web: { action: "search", query: "rust 1.95", results: 2, error: undefined },
+    });
+    expect(turn?.tools.get("w2")).toMatchObject({
+      done: true,
+      isError: true,
+      web: { action: "open", url: "https://www.example.com/a", error: "too_many_requests" },
+    });
+  });
+
+  it("makes no block of a find, and takes an end whose start it missed", () => {
+    const state = run([
+      event(1, webStarted("w3", "find", undefined, "https://a.org/"), at(1)),
+      event(
+        2,
+        { kind: "web_call_completed", turn_id: TURN, call_id: "w4", action: "search", query: "q" },
+        at(2),
+      ),
+    ]);
+    const turn = state.turns.get(TURN);
+    expect(turn?.tools.has("w3")).toBe(false);
+    expect(turn?.tools.get("w4")).toMatchObject({
+      done: true,
+      startedAt: undefined,
+      web: { action: "search", query: "q", results: undefined },
+    });
+  });
+});
+
 describe("prompts, steers and turn ends", () => {
   it("keeps the parts of a turn in the order they came", () => {
     const state = run([

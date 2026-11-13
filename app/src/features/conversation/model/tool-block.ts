@@ -12,8 +12,13 @@
 //   output, so a line keeps its view (and fades in only once) while the output grows.
 // - While the call's approval waits, the status is "waiting for approval", with no time.
 // - The word "error" in an output line is red (design: stderr "error" words).
+// - A step of the provider's web search (TM-Web) has the verb `web` and the query, or
+//   `open` and the page without `https://` and `www.`. Done: `✓ 10 results · 6s` (the
+//   count only when the provider gives it) or `✓ 5s`. Failed: the reason in words, such
+//   as `too many requests · 1s`. It has no output.
 
-import type { ToolCallView, ToolInputView } from "@/lib/stream/reducer";
+import type { WebAction, WebError } from "@/lib/protocol/generated";
+import type { ToolCallView, ToolInputView, WebStepView } from "@/lib/stream/reducer";
 import { utf8Length } from "@/lib/stream/utf8";
 import { between, elapsed } from "./durations";
 import { size } from "./format";
@@ -37,7 +42,10 @@ export interface ToolHeader {
 }
 
 /** The header of `call`. */
-export function toolHeader(call: Pick<ToolCallView, "tool" | "summary">): ToolHeader {
+export function toolHeader(call: Pick<ToolCallView, "tool" | "summary" | "web">): ToolHeader {
+  if (call.web !== undefined) {
+    return webHeader(call.web);
+  }
   switch (call.tool) {
     case "shell":
       return { verb: "$", subject: call.summary, wraps: true };
@@ -79,6 +87,9 @@ export function toolStatus(
   now: number,
   approval?: ToolApproval,
 ): ToolStatus {
+  if (call.web !== undefined) {
+    return webStatus(call, call.web, turnEnded, now);
+  }
   if (!call.done && !turnEnded) {
     if (approval?.pending === true) {
       return { kind: "waiting" };
@@ -106,6 +117,84 @@ export function toolStatus(
   }
   const detail = parts.length === 0 ? (call.isError ? "failed" : "done") : parts.join(" · ");
   return call.isError ? { kind: "failed", detail } : { kind: "done", detail };
+}
+
+/** The header of a step of web search: `web` and the query, or `web` and `open <page>`. */
+function webHeader(web: WebStepView): ToolHeader {
+  if (web.action === "open") {
+    return {
+      verb: "web",
+      subject: web.url === undefined ? "open" : `open ${webPage(web.url)}`,
+      wraps: false,
+    };
+  }
+  if (web.action === "search") {
+    return { verb: "web", subject: web.query ?? "search", wraps: false };
+  }
+  return { verb: "web", subject: "", wraps: false };
+}
+
+/** The status of a step of web search: its count of results and its time, or why it failed. */
+function webStatus(
+  call: ToolCallView,
+  web: WebStepView,
+  turnEnded: boolean,
+  now: number,
+): ToolStatus {
+  if (!call.done && !turnEnded) {
+    return { kind: "running", elapsed: elapsed(call.startedAt, now) };
+  }
+  const time = between(call.startedAt, call.endedAt);
+  if (!call.done) {
+    return { kind: "failed", detail: webReason(web.action, "not_finished") };
+  }
+  if (web.error !== undefined) {
+    const reason = webReason(web.action, web.error);
+    return { kind: "failed", detail: time === undefined ? reason : `${reason} · ${time}` };
+  }
+  const parts: string[] = [];
+  if (web.action === "search" && web.results !== undefined) {
+    parts.push(web.results === 1 ? "1 result" : `${String(web.results)} results`);
+  }
+  if (time !== undefined) {
+    parts.push(time);
+  }
+  return { kind: "done", detail: parts.length === 0 ? "done" : parts.join(" · ") };
+}
+
+/** Why a step of web search failed, in the words of efr's terminal. */
+export function webReason(action: WebAction, error: WebError): string {
+  const open = action === "open";
+  switch (error) {
+    case "too_many_requests":
+      return "too many requests";
+    case "limit_reached":
+      return open ? "page limit of this turn reached" : "search limit of this turn reached";
+    case "unavailable":
+      return open ? "page not available" : "web search not available";
+    case "invalid":
+      return open ? "address not accepted" : "query not accepted";
+    case "not_allowed":
+      return "page not allowed";
+    case "not_accessible":
+      return "page not reachable";
+    case "unsupported":
+      return "page type not supported";
+    case "not_finished":
+      return "did not finish";
+    default:
+      return "failed";
+  }
+}
+
+/** The page of `url` as a row names it: without the scheme and `www.`, `protondb.com/app/1`. */
+export function webPage(url: string): string {
+  const rest = url
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./, "");
+  const slash = rest.indexOf("/");
+  return slash >= 0 && slash === rest.length - 1 ? rest.slice(0, slash) : rest;
 }
 
 /** `61 lines`, `1 line`. */

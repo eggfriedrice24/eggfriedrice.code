@@ -30,6 +30,9 @@ struct Shown {
     away: bool,
     /// The tick of the band's cycle: the band ends after this character.
     band: i64,
+    /// The state shows from the start of the `secs`, whose time it counts: a state of
+    /// web search counts from its first step.
+    early: bool,
 }
 
 impl Shown {
@@ -45,6 +48,7 @@ impl Shown {
             full: false,
             away: false,
             band: 5,
+            early: false,
         }
     }
 
@@ -68,6 +72,9 @@ impl Shown {
         let frame = ticks * 100;
         let at = |millis: i64| now() + SignedDuration::from_millis(millis);
         status.turn_started();
+        if self.early {
+            status.set(self.state.clone());
+        }
         status.at(at(frame - secs * 1_000), false);
         if let Some(silent) = self.silent {
             status.stir();
@@ -353,5 +360,80 @@ fn the_status_row_under_a_prompt_line_is_scope_7_and_11() {
             let options = design_options(depth, frame.cols);
             assert_rows(&frame, live..=live, &shown.row(&options), depth);
         }
+    }
+}
+
+/// The row while the provider runs web steps: the time counts from the first one, the
+/// newest one is the detail, `+2` counts the others; `scope` and `model` as the frames
+/// of TM-Web draw them (no prompt corner, so the scope shows).
+fn web(
+    step: &crate::format::web::Step,
+    more: usize,
+    secs: u64,
+    percent: u64,
+    model: Model,
+) -> Shown {
+    let state = State::Web { opening: step.opens(), detail: step.detail(), more };
+    Shown {
+        model: Some(model),
+        scope: Some("\u{2302} ~"),
+        early: true,
+        ..Shown::new(state, secs).ctx(percent)
+    }
+}
+
+fn web_search(query: &str) -> crate::format::web::Step {
+    crate::format::web::Step {
+        action: efr_protocol::WebAction::Search,
+        query: Some(query.to_owned()),
+        url: None,
+        pattern: None,
+    }
+}
+
+/// The model of the OpenAI frames of TM-Web: `work/gpt-5.5 high`.
+fn gpt() -> Model {
+    Model {
+        account: Some("work".to_owned()),
+        name: "gpt-5.5".to_owned(),
+        effort: Some("high".to_owned()),
+    }
+}
+
+/// TM-Web 6 and 7: one search, three at once (`+2`), an open (`opening` and its page)
+/// and a find (`"<pattern>" in <host>`), at 100 columns; at 60 the detail goes first.
+#[test]
+fn the_row_while_the_provider_searches_is_the_web_board() {
+    let url = "https://areweanticheatyet.com/game/rob-run";
+    let open = crate::format::web::Step {
+        action: efr_protocol::WebAction::Open,
+        query: None,
+        url: Some(url.to_owned()),
+        pattern: None,
+    };
+    let find = crate::format::web::Step {
+        action: efr_protocol::WebAction::Find,
+        query: None,
+        url: Some(url.to_owned()),
+        pattern: Some("Easy Anti-Cheat".to_owned()),
+    };
+    let one = web(&web_search("\"ROB RUN\" Proton Easy Anti-Cheat"), 0, 5, 22, work());
+    let three = web(&web_search("\"ROB RUN\" Steam Deck verified"), 2, 6, 22, work());
+    let rows =
+        [one.clone(), three.clone(), web(&open, 0, 2, 24, gpt()), web(&find, 0, 1, 24, gpt())];
+    check("Web", 6, &rows);
+    check("Web", 7, &[one, three]);
+}
+
+/// TM-Web 4, the status rows of its stages: three searches at once, the newest query
+/// cut with `…` and `+2` kept, then the last one alone.
+#[test]
+fn the_row_of_three_searches_at_once_is_the_web_board() {
+    let frame = Frame::load("TM-Web", 4).unwrap();
+    let newest = web_search("Proton EasyAntiCheat Runtime install 2026");
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 3..=3, &web(&newest, 2, 2, 22, work()).row(&options), depth);
+        assert_rows(&frame, 9..=9, &web(&newest, 0, 6, 22, work()).row(&options), depth);
     }
 }

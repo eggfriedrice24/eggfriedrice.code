@@ -68,6 +68,15 @@ describe("turnStatus", () => {
     expect(
       statusAfter(event(turnStarted(TURN)), draft({ kind: "compacting", trigger: "auto" })),
     ).toBe("compacting context");
+    // A step of web search runs at the provider: the words of efr's terminal.
+    const web = (action: "search" | "open"): Event => ({
+      kind: "web_call_started",
+      turn_id: TURN,
+      call_id: `w-${action}`,
+      action,
+    });
+    expect(statusAfter(event(turnStarted(TURN)), event(web("search")))).toBe("searching");
+    expect(statusAfter(event(turnStarted(TURN)), event(web("open")))).toBe("opening");
   });
 
   it("carries the context gauge of the conversation", () => {

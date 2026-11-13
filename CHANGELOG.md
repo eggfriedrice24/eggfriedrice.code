@@ -41,6 +41,14 @@ into the GitHub release notes, and it stops when the section is missing.
 - A Claude answer that cites a web page gets the mark `[1]` after the cited words. The
   mark is a link to the page in the stored text, so `efr history` and the phone show
   it too. Each page has one number for the whole turn.
+- A search of the web shows as one muted row when it ends, such as `✓ web "rust 1.95
+  release notes"  10 results · 6s`, in the order in which the model started the
+  searches. A page that an OpenAI model opens shows as `web open <page>`, and a failed
+  search names its reason. While a search runs, the status row says `searching`. An
+  answer of a Claude model marks each part that a page backs with `[1]`, and the list
+  of the cited pages follows the answer. The end line counts the searches, such as
+  `· 5 searches`. `efr history` shows the same rows, and `efr history --verbose` adds
+  the first results of each search. The phone app shows each search as a tool block.
 
 - `[openai] effort` and `[anthropic] effort` set the reasoning effort for the models
   of one company, in place of `[model] effort`.

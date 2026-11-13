@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ToolCallView } from "@/lib/stream/reducer";
+import type { ToolCallView, WebStepView } from "@/lib/stream/reducer";
 import {
   errorSpans,
   lineCount,
@@ -10,6 +10,8 @@ import {
   toolLabel,
   toolOutput,
   toolStatus,
+  webPage,
+  webReason,
   writingBlock,
 } from "./tool-block";
 
@@ -207,5 +209,70 @@ describe("the small texts", () => {
     expect(toolLabel(header, { kind: "running", elapsed: undefined })).toBe(
       "Command cargo test -p efr-daemon, running",
     );
+  });
+});
+
+/** A step of web search as its tool block holds it. */
+function web(step: Partial<WebStepView>, overrides: Partial<ToolCallView> = {}): ToolCallView {
+  return call({
+    tool: "web",
+    summary: "",
+    web: {
+      action: "search",
+      query: undefined,
+      url: undefined,
+      results: undefined,
+      error: undefined,
+      ...step,
+    },
+    ...overrides,
+  });
+}
+
+describe("a step of web search", () => {
+  it("names a search by its query and an open by its page, as TM-Web does", () => {
+    expect(toolHeader(web({ query: '"ROB RUN" areweanticheatyet' }))).toEqual({
+      verb: "web",
+      subject: '"ROB RUN" areweanticheatyet',
+      wraps: false,
+    });
+    const open = web({ action: "open", url: "https://www.protondb.com/app/2384710" });
+    expect(toolHeader(open).subject).toBe("open protondb.com/app/2384710");
+    expect(toolHeader(web({})).subject).toBe("search");
+    expect(webPage("http://areweanticheatyet.com/")).toBe("areweanticheatyet.com");
+  });
+
+  it("says the count of results and the time, or the time alone", () => {
+    const done = { done: true, startedAt: 1_000, endedAt: 7_000 };
+    expect(toolStatus(web({ results: 10 }, done), false, 0)).toEqual({
+      kind: "done",
+      detail: "10 results · 6s",
+    });
+    expect(toolStatus(web({ results: 0 }, done), false, 0).kind).toBe("done");
+    expect(toolStatus(web({ results: 0 }, done), false, 0)).toMatchObject({
+      detail: "0 results · 6s",
+    });
+    expect(toolStatus(web({}, { ...done, endedAt: 6_000 }), false, 0)).toEqual({
+      kind: "done",
+      detail: "5s",
+    });
+  });
+
+  it("says why a step failed in the words of the terminal", () => {
+    const failed = web(
+      { error: "too_many_requests" },
+      { done: true, isError: true, startedAt: 1_000, endedAt: 2_000 },
+    );
+    expect(toolStatus(failed, false, 0)).toEqual({
+      kind: "failed",
+      detail: "too many requests · 1s",
+    });
+    expect(webReason("search", "limit_reached")).toBe("search limit of this turn reached");
+    expect(webReason("open", "limit_reached")).toBe("page limit of this turn reached");
+    expect(webReason("search", "unavailable")).toBe("web search not available");
+    // A step that its turn left open did not finish.
+    expect(toolStatus(web({}), true, 0)).toEqual({ kind: "failed", detail: "did not finish" });
+    // While it runs, its time counts from its start.
+    expect(toolStatus(web({}), false, 4_000)).toEqual({ kind: "running", elapsed: "3s" });
   });
 });

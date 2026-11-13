@@ -135,6 +135,11 @@
 //! notice started is marked once. Ctrl+X asks whether to stop the newest running job
 //! ([`TurnView::stop_question`]).
 //!
+//! Web search runs at the provider inside the model call (`web`): the status row says
+//! `searching` while it runs, each search and each opened page leaves one row in the
+//! order in which they started, the cited pages follow the answer, and the end line
+//! counts the searches.
+//!
 //! Ctrl+B moves the running shell call of the followed turn to the background
 //! ([`TurnView::background_call`]): efrd moves a call in the sandbox at once, and for a
 //! call outside the sandbox it answers a preview, which the view asks about with one
@@ -154,6 +159,7 @@ mod newest;
 mod reasoning;
 mod status;
 mod waits;
+mod web;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -415,6 +421,8 @@ struct Kept {
     /// The user's directory of the turn, from its start: the path of a file tool's call
     /// below it shows relative to it.
     cwd: Option<PathBuf>,
+    /// The steps of web search of the turn and its report (`web`).
+    web: web::Web,
 }
 
 /// The tool call whose output is arriving now.
@@ -1336,7 +1344,16 @@ impl TurnView {
         // NOTE: under the rows of the calls the status row keeps the blank row that the
         // next prose gets, so the rows do not touch it (TM-Sequence 6 to 8). Under the
         // event line of the turn's start it has none (TM-Scope 21).
-        if !row.is_empty() && body.is_empty() && self.kept.calls > 0 && self.spacing.after_row() {
+        // While the provider searches, the next block is the row of the search, so the
+        // status row stands right under the rows (TM-Web 4).
+        let searching =
+            self.status.as_ref().is_some_and(|status| matches!(status.state(), State::Web { .. }));
+        if !row.is_empty()
+            && body.is_empty()
+            && self.kept.calls > 0
+            && self.spacing.after_row()
+            && !searching
+        {
             body.push('\n');
         }
         // NOTE: the hint names Ctrl+B only once the call has run for a moment, so a
@@ -1530,11 +1547,12 @@ impl TurnView {
         if ends_drafts(event) {
             // NOTE: a call row follows the thought row with no blank line, as a row
             // follows a row; prose and the end take their blank line above it.
-            let next = if matches!(event, Event::ToolCallStarted { .. }) {
-                Block::Row
-            } else {
-                Block::Message
-            };
+            let next =
+                if matches!(event, Event::ToolCallStarted { .. } | Event::WebCallStarted { .. }) {
+                    Block::Row
+                } else {
+                    Block::Message
+                };
             self.end_reasoning(next);
         }
         // NOTE: the question of the call and its answer come before its first rows, as
@@ -1613,6 +1631,9 @@ impl TurnView {
                 self.input_changed(*call_id, *input, *looks_secret, size, can_ask)
             }
             Event::ToolCallCompleted { .. } => self.tool_call_completed(event, size, can_ask),
+            Event::WebCallStarted { .. } => self.web_call_started(event),
+            Event::WebCallCompleted { .. } => self.web_call_completed(event, size),
+            Event::TurnWebReport { .. } => self.web_report(event, size),
             Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
                 let exit = sandbox::Requested::new(kinds, grants, *source, record);
                 self.exits.insert(*call_id, exit);
@@ -2346,6 +2367,10 @@ impl TurnView {
         err.push_str(&self.raw_err(String::new()));
         self.flush_fold();
         let mut step = Step { err, ..self.commit(committed) };
+        // The rows of web steps that still wait for a step that never ended.
+        let web = self.web_flush(self.size);
+        step.out.push_str(&web.out);
+        step.err.push_str(&web.err);
         // A question that nobody answered stays in the scrollback.
         self.commit_question();
         self.question = None;
@@ -2498,6 +2523,7 @@ impl TurnView {
         self.interrupting = false;
         self.resent_note = false;
         self.kept.calls = 0;
+        self.kept.web = web::Web::default();
         self.ending.home_changes.clear();
         self.ending.full_exits.clear();
         if let Some(input) = &mut self.input {
@@ -2748,12 +2774,15 @@ struct Request<'a> {
 
 /// True for an event after which the drafts made before it show nothing new: the end
 /// of the text of a message, the start of a tool call (after the whole answer of the
-/// model), and the end of a turn. The daemon drops old drafts by the same rule.
+/// model), and the end of a turn. The daemon drops old drafts by the same rule. NOTE:
+/// the start of a web step too: the message before it is complete, and reasoning that
+/// a draft made before it belongs to the phase that the step ended.
 fn ends_drafts(event: &Event) -> bool {
     matches!(
         event,
         Event::AssistantMessageCompleted { .. }
             | Event::ToolCallStarted { .. }
+            | Event::WebCallStarted { .. }
             | Event::TurnCompleted { .. }
             | Event::TurnFailed { .. }
             | Event::TurnInterrupted { .. }

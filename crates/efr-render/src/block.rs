@@ -28,7 +28,7 @@ use crate::outline::parser_options;
 use crate::palette::Role;
 use crate::style::{Colour, Line, Painter, Span, Style, line_width, sanitize};
 use crate::table::Table;
-use crate::wrap::wrap;
+use crate::wrap::{is_citation, wrap};
 
 use inline::{Inline, InlineKind};
 
@@ -582,8 +582,12 @@ impl Writer<'_> {
         let muted = self.ctx.role(Role::Muted);
         let inline = self.inline_mut();
         let text = inline.text_since(link.start);
+        // NOTE: a citation mark (`[1]`) points to the list of sources after the answer,
+        // which names the whole URL, so it never shows its target (TM-Web 10 to 12).
         let redundant = text.as_deref().is_some_and(|text| {
-            text == link.destination || link.destination.strip_prefix("mailto:") == Some(text)
+            text == link.destination
+                || link.destination.strip_prefix("mailto:") == Some(text)
+                || is_citation(text)
         });
         if !redundant {
             let destination = sanitize(&link.destination).into_owned();

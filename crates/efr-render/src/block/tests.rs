@@ -256,6 +256,19 @@ fn links_are_hyperlinks_or_show_their_target() {
     assert_eq!(strip(&paint("<https://example.com>\n", off)), "https://example.com\n");
 }
 
+/// A citation mark of web search (` [[1]](<url>)`, TM-Web 10 to 12) is a link in the
+/// link role that never shows its target: the list of sources names the URL.
+#[test]
+fn a_citation_mark_never_shows_its_target() {
+    let markdown = "patch 1.4 [[1]](<https://example.com/a%20b>). Done [[12]](<https://x.org/>)\n";
+    let off = RenderOptions::new(80).with_hyperlinks(false);
+    assert_eq!(strip(&paint(markdown, off)), "patch 1.4 [1]. Done [12]\n");
+    let on = paint(markdown, RenderOptions::new(80));
+    assert!(on.contains("\x1b]8;;https://example.com/a%20b\x1b\\\x1b[4;35m[1]"), "{on:?}");
+    // Any other link text keeps its target.
+    assert_eq!(visible("[1a](src/a.rs) [x](src/b.rs)\n", 80), "1a (src/a.rs) x (src/b.rs)\n");
+}
+
 #[test]
 fn links_without_a_target_show_their_destination() {
     assert_eq!(visible("open [main](src/main.rs)\n", 80), "open main (src/main.rs)\n");

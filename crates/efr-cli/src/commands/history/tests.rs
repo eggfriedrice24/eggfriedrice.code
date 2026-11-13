@@ -2411,3 +2411,5 @@ fn a_transcript_of_two_turns_is_the_design() {
         assert_rows(&frame, 1..=22, &text, depth);
     }
 }
+
+mod web;

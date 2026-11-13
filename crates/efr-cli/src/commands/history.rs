@@ -30,6 +30,14 @@
 //! started shows `↪ a job notice started this turn (not your input)` where a prompt
 //! would stand. `--verbose` adds the text of each notice and the tail of each end, through
 //! `format::lines`, so the output of a job cannot drive the terminal.
+//!
+//! Web search shows as the turn showed it (TM-Web 14, `format::web`): one row for each
+//! search and each opened page, in the order of their starts, with the count of results
+//! and the time, a failed one with its reason; the list of sources after the answer, and
+//! `· 5 searches` on the end line. The whole query shows: on a terminal a long one goes
+//! on in the next rows, as a command does. `--verbose` (TM-Web 15) lists the first
+//! results under a search, how many more there are and which of them the answer cites,
+//! and under an opened page the finds in it.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -40,7 +48,7 @@ use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
     Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin, PageCursor, Seq,
-    SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict,
+    SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict, WebAction, WebResult, WebSource,
 };
 use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -53,6 +61,7 @@ use crate::error::CliError;
 use crate::follow::{Call, Outcome};
 use crate::format::changes::HomeChange;
 use crate::format::route::Pieces;
+use crate::format::web::{self, End, Ended, Fit};
 use crate::format::{self, Block, Spacing, Tone, changes, context, ending, jobs, resume, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
@@ -276,6 +285,7 @@ pub(crate) fn transcript(
     let mut transcript = Transcript::new(shown, out);
     for group in in_turn_order(&page.events) {
         transcript.home_changes(&group);
+        transcript.web_group(&group);
         for envelope in group {
             transcript.event(envelope);
         }
@@ -463,6 +473,26 @@ struct Transcript<'a> {
     /// the line of its answer, which takes the place of the question; and the lines of
     /// the question, which show when the page holds no answer.
     asked: HashMap<CallId, Asked>,
+    /// The steps of web search of the current group and its report.
+    web: Box<WebSteps>,
+}
+
+/// What a transcript keeps of the steps of web search of one turn (`format::web`).
+#[derive(Debug, Default)]
+struct WebSteps {
+    /// When each step started and what it does, until its row.
+    started: HashMap<CallId, (Option<Timestamp>, web::Step)>,
+    /// The rows that wait for the rows of the steps that started before them.
+    order: web::Order,
+    /// The results of each search, for `--verbose`.
+    results: HashMap<CallId, Vec<WebResult>>,
+    /// The finds in each opened page, for `--verbose`: a find belongs to the nearest
+    /// open before it of the same page, else to the nearest open before it.
+    finds: HashMap<CallId, Vec<String>>,
+    /// The pages that the answer of the turn cites, from its report, for `--verbose`.
+    sources: Vec<WebSource>,
+    /// The count of the searches, the stored copy and its note, from the report.
+    report: Option<(u32, bool, bool)>,
 }
 
 impl<'a> Transcript<'a> {
@@ -498,6 +528,80 @@ impl<'a> Transcript<'a> {
             patches: HashMap::new(),
             jobs: HashMap::new(),
             asked: HashMap::new(),
+            web: Box::default(),
+        }
+    }
+
+    /// Starts the steps of web search of `group`: the sources that its report names
+    /// and the finds of each opened page, which `--verbose` shows under the rows that
+    /// come before them.
+    fn web_group(&mut self, group: &[&EventEnvelope]) {
+        *self.web = WebSteps::default();
+        let mut opens: Vec<(CallId, Option<String>)> = Vec::new();
+        let mut seen: HashSet<CallId> = HashSet::new();
+        for envelope in group {
+            if let Event::TurnWebReport { sources, .. } = &envelope.event {
+                self.web.sources.clone_from(sources);
+            }
+            let Some((call_id, step)) = web::Step::of(&envelope.event) else { continue };
+            if !seen.insert(call_id) {
+                continue;
+            }
+            match step.action {
+                WebAction::Open => opens.push((call_id, step.url)),
+                WebAction::Find => {
+                    let page =
+                        opens.iter().rev().find(|(_, url)| url.is_some() && *url == step.url);
+                    if let Some((open, _)) = page.or_else(|| opens.last()) {
+                        let pattern = step.pattern.unwrap_or_default();
+                        self.web.finds.entry(*open).or_default().push(pattern);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The rows of the web steps that ended, as the turn wrote them, with what
+    /// `--verbose` adds under each.
+    fn web_rows(&mut self, ended: Vec<Ended>) {
+        for ended in ended {
+            let row = web::row(&ended, Fit::Wrap, &self.inner);
+            if row.is_empty() {
+                continue;
+            }
+            self.out.push_str(self.spacing.before(Block::Row));
+            self.out.push_str(&indented_rows(&row));
+            if !self.verbose {
+                continue;
+            }
+            let under = match ended.step.action {
+                WebAction::Search => self.web.results.get(&ended.call_id).map(|results| {
+                    web::results_rows(results, &self.web.sources, VERBOSE_INDENT, &self.inner)
+                }),
+                WebAction::Open => self
+                    .web
+                    .finds
+                    .get(&ended.call_id)
+                    .map(|finds| web::finds_row(finds, VERBOSE_INDENT, &self.inner)),
+                _ => None,
+            };
+            self.out.push_str(&indented_rows(&under.unwrap_or_default()));
+        }
+    }
+
+    /// The outcome line of a turn's end with the count of its searches last on its
+    /// cost, then the note of the stored copy of the first such turn (TM-Web 13).
+    fn outcome(&mut self, mut line: Pieces) {
+        let report = self.web.report.take();
+        let glyphs = self.options.glyphs();
+        let count = report.and_then(|(searches, stored, _)| web::count(searches, stored));
+        if let Some(count) = &count {
+            web::add_count(&mut line, count, glyphs);
+        }
+        self.pieces(&line);
+        if count.is_some() && report.is_some_and(|(_, stored, note)| stored && note) {
+            self.pieces(&vec![(web::stored_copy_note(glyphs), Tone::Dim)]);
         }
     }
 
@@ -722,6 +826,41 @@ impl<'a> Transcript<'a> {
                     if let Some(line) = sandbox::survivors(&summary.survivors) {
                         self.note(&line);
                     }
+                }
+            }
+            Event::WebCallStarted { .. } => {
+                if let Some((call_id, step)) = web::Step::of(event) {
+                    self.web.order.start(call_id, &step);
+                    self.web.started.insert(call_id, (self.at, step));
+                }
+            }
+            Event::WebCallCompleted { results, .. } => {
+                let (Some((call_id, step)), Some(end)) = (web::Step::of(event), End::of(event))
+                else {
+                    return;
+                };
+                let (step, since) = match self.web.started.remove(&call_id) {
+                    Some((since, started)) => (started.with(step), since),
+                    None => (step, None),
+                };
+                if let Some(results) = results {
+                    self.web.results.insert(call_id, results.clone());
+                }
+                let took = since.zip(self.at).and_then(|(since, end)| {
+                    std::time::Duration::try_from(end.duration_since(since)).ok()
+                });
+                let ready = self.web.order.end(Ended { call_id, step, end, took });
+                self.web_rows(ready);
+            }
+            // NOTE: the list of sources stands after the answer, one blank row before it,
+            // as the turn showed it (TM-Web 10).
+            Event::TurnWebReport { searches, stored_copy, stored_copy_note, sources, .. } => {
+                let rest = self.web.order.rest();
+                self.web_rows(rest);
+                self.web.report = Some((*searches, *stored_copy, *stored_copy_note));
+                if !sources.is_empty() {
+                    self.out.push_str(self.spacing.before(Block::Message));
+                    self.out.push_str(&indented_rows(&web::sources(sources, &self.inner)));
                 }
             }
             Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } => {
@@ -949,7 +1088,7 @@ impl<'a> Transcript<'a> {
                 }
                 self.undo_lines(changes.as_ref(), undo.as_ref());
                 let took = self.took();
-                self.pieces(&ending::done_line(took, usage.as_ref(), context.as_ref(), glyphs));
+                self.outcome(ending::done_line(took, usage.as_ref(), context.as_ref(), glyphs));
                 self.usage(usage.as_ref());
             }
             Event::TurnInterrupted { changes, undo, usage, context, .. } => {
@@ -957,13 +1096,13 @@ impl<'a> Transcript<'a> {
                 self.undo_lines(changes.as_ref(), undo.as_ref());
                 let line =
                     ending::interrupted_line(self.took(), context.as_ref(), self.options.glyphs());
-                self.pieces(&line);
+                self.outcome(line);
                 self.usage(usage.as_ref());
             }
             Event::TurnFailed { error, changes, undo, usage, .. } => {
                 self.flush_calls();
                 self.undo_lines(changes.as_ref(), undo.as_ref());
-                self.pieces(&ending::failed_line(self.took(), self.options.glyphs()));
+                self.outcome(ending::failed_line(self.took(), self.options.glyphs()));
                 self.note(&format::one_line(&error.message));
                 self.usage(usage.as_ref());
             }
@@ -981,6 +1120,9 @@ impl<'a> Transcript<'a> {
     /// a call of a turn that was interrupted: the rows that name them, or the row of a
     /// call that the user moved to a job, then the lines of their jobs.
     fn flush_calls(&mut self) {
+        // The rows of web steps that wait for a step whose end the page does not hold.
+        let rest = self.web.order.rest();
+        self.web_rows(rest);
         // NOTE: a question whose answer the page does not hold shows as it asked.
         let mut waiting: Vec<(CallId, Asked)> = self.asked.drain().collect();
         waiting.sort_by_key(|(call_id, _)| *call_id);
@@ -1240,6 +1382,10 @@ struct Asked {
 
 /// The indent of the rows of a turn under its prompt.
 const INDENT: &str = "  ";
+
+/// The indent of what `--verbose` puts under a row of web search, after [`INDENT`]: 6
+/// columns in all (TM-Web 15).
+const VERBOSE_INDENT: &str = "    ";
 
 /// Each row of `rows` after [`INDENT`]; an empty row stays empty.
 fn indented_rows(rows: &str) -> String {

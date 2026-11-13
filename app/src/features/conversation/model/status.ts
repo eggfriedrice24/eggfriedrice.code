@@ -34,6 +34,10 @@ export function turnStatus(turn: TurnView | undefined, state: StreamState): Turn
   }
   for (const call of turn?.tools.values() ?? []) {
     if (!call.done) {
+      // A step of web search runs at the provider, as efr's terminal says it.
+      if (call.web !== undefined) {
+        return withGauge(call.web.action === "open" ? "opening" : "searching");
+      }
       return withGauge(`running ${call.tool === "" ? "a tool" : call.tool}`);
     }
   }
