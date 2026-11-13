@@ -8,7 +8,8 @@
 //!   gone, so the answer could not resume anything;
 //! - a tool call of that turn without a result gets an error result
 //!   (`tool_call_completed`), so the log answers every call it started, as a provider
-//!   requires of the history;
+//!   requires of the history; a step of the web tool without its end ends as
+//!   `not_finished` (`web_call_completed`), so a client shows the search that ran;
 //! - a queued prompt is recorded as not run (`turn_cancelled` without a
 //!   `turn_started`), and its terminal gets a notice that names it and says to send it
 //!   again: running it by surprise, maybe hours later in another directory, would be
@@ -26,7 +27,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-use efr_protocol::{CallId, ConversationId, Event, EventEnvelope, TurnId};
+use efr_protocol::{CallId, ConversationId, Event, EventEnvelope, TurnId, WebAction, WebError};
 use efr_store::approvals::PendingApproval;
 use efr_store::conversations::{Turn, TurnStatus};
 use efr_store::shells::Shell;
@@ -43,6 +44,22 @@ pub(crate) const STOPPED_CALL: &str = "The call did not finish: the daemon stopp
 /// How many events one read of a turn's events asks for.
 const PAGE: u32 = 512;
 
+/// A call of a running turn that has no end in the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum OpenCall {
+    /// A tool call without a result.
+    Tool(CallId),
+    /// A step of the web tool without its `web_call_completed`, with what its start
+    /// said.
+    Web {
+        call_id: CallId,
+        action: WebAction,
+        query: Option<String>,
+        url: Option<String>,
+        pattern: Option<String>,
+    },
+}
+
 /// What the reconciliation did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Reconciled {
@@ -56,13 +73,13 @@ pub(crate) struct Reconciled {
 }
 
 /// The events that settle what was in flight, per conversation, in log order: expired
-/// approvals first, then the results of the calls in `open_calls` (the calls of each
-/// running turn without a result), then the cancelled turn, then the prompts that did
-/// not run.
+/// approvals first, then the ends of the calls in `open_calls` (the tool calls and web
+/// steps of each running turn without an end), then the cancelled turn, then the
+/// prompts that did not run.
 pub(crate) fn plan(
     turns: &[Turn],
     approvals: &[PendingApproval],
-    open_calls: &HashMap<TurnId, Vec<CallId>>,
+    open_calls: &HashMap<TurnId, Vec<OpenCall>>,
     shells: &[Shell],
 ) -> BTreeMap<ConversationId, Vec<Event>> {
     let mut events: BTreeMap<ConversationId, Vec<Event>> = BTreeMap::new();
@@ -75,19 +92,31 @@ pub(crate) fn plan(
     }
     for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Running) {
         let settled = events.entry(turn.conversation_id).or_default();
-        for call_id in open_calls.get(&turn.id).into_iter().flatten() {
-            settled.push(Event::ToolCallCompleted {
-                turn_id: turn.id,
-                call_id: *call_id,
-                output: STOPPED_CALL.to_owned(),
-                truncated: false,
-                is_error: true,
-                exit_code: None,
-                sandbox: None,
-                refusal: None,
-                changes: None,
-                diff: None,
-                left_running: false,
+        for open in open_calls.get(&turn.id).into_iter().flatten() {
+            settled.push(match open {
+                OpenCall::Tool(call_id) => Event::ToolCallCompleted {
+                    turn_id: turn.id,
+                    call_id: *call_id,
+                    output: STOPPED_CALL.to_owned(),
+                    truncated: false,
+                    is_error: true,
+                    exit_code: None,
+                    sandbox: None,
+                    refusal: None,
+                    changes: None,
+                    diff: None,
+                    left_running: false,
+                },
+                OpenCall::Web { call_id, action, query, url, pattern } => Event::WebCallCompleted {
+                    turn_id: turn.id,
+                    call_id: *call_id,
+                    action: *action,
+                    query: query.clone(),
+                    url: url.clone(),
+                    pattern: pattern.clone(),
+                    results: None,
+                    error: Some(WebError::NotFinished),
+                },
             });
         }
         settled.push(Event::TurnCancelled { turn_id: turn.id });
@@ -204,16 +233,33 @@ pub(crate) async fn reconcile(
     Ok(done)
 }
 
-/// Adds the calls of `turn_id` that start in `page` to `open`, and removes those that
-/// end there, so `open` keeps the calls without a result in the order they started.
-fn track_calls(open: &mut Vec<CallId>, turn_id: TurnId, page: &[EventEnvelope]) {
+/// Adds the tool calls and web steps of `turn_id` that start in `page` to `open`, and
+/// removes those that end there, so `open` keeps the calls without an end in the order
+/// they started.
+fn track_calls(open: &mut Vec<OpenCall>, turn_id: TurnId, page: &[EventEnvelope]) {
     for envelope in page {
         match &envelope.event {
             Event::ToolCallStarted { turn_id: turn, call_id, .. } if *turn == turn_id => {
-                open.push(*call_id);
+                open.push(OpenCall::Tool(*call_id));
             }
             Event::ToolCallCompleted { turn_id: turn, call_id, .. } if *turn == turn_id => {
-                open.retain(|open| open != call_id);
+                open.retain(|open| open != &OpenCall::Tool(*call_id));
+            }
+            Event::WebCallStarted { turn_id: turn, call_id, action, query, url, pattern }
+                if *turn == turn_id =>
+            {
+                open.push(OpenCall::Web {
+                    call_id: *call_id,
+                    action: *action,
+                    query: query.clone(),
+                    url: url.clone(),
+                    pattern: pattern.clone(),
+                });
+            }
+            Event::WebCallCompleted { turn_id: turn, call_id: ended, .. } if *turn == turn_id => {
+                open.retain(
+                    |open| !matches!(open, OpenCall::Web { call_id, .. } if call_id == ended),
+                );
             }
             _ => {}
         }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use efr_protocol::{
     CallId, CommandId, ConversationId, Event, EventEnvelope, Origin, PtyId, Scope, Seq, TurnId,
+    WebAction, WebError,
 };
 use efr_store::Batch;
 use efr_store::conversations::TurnStatus;
@@ -326,5 +327,68 @@ async fn a_prompt_that_did_not_run_is_reported_once_and_never_starts() {
     let turns = store.readers().with(efr_store::conversations::unfinished_turns).await.unwrap();
     assert!(turns.is_empty(), "{turns:?}");
     assert_eq!(std::fs::read_to_string(notices.path().join("pts-7")).unwrap(), before);
+    store.close().await;
+}
+
+#[tokio::test]
+async fn a_web_step_that_a_restart_cut_off_ends_as_not_finished() {
+    // efrd stopped while the provider ran a search: the query left the machine, so the
+    // log ends the step and `efr history` shows its row.
+    let store = TestStore::open(TestClock::new().shared()).await.unwrap();
+    let conversation = ConversationId::from_uuid(id(1));
+    let turn = TurnId::from_uuid(id(11));
+    let (search, done) = (CallId::from_uuid(id(21)), CallId::from_uuid(id(22)));
+    let start = |call_id| Event::WebCallStarted {
+        turn_id: turn,
+        call_id,
+        action: WebAction::Search,
+        query: Some("rust 2026".to_owned()),
+        url: None,
+        pattern: None,
+    };
+    let batch = Batch::new()
+        .event(conversation, created())
+        .event(conversation, queued(turn, 1))
+        .event(conversation, started(turn))
+        .event(conversation, start(done))
+        .event(
+            conversation,
+            Event::WebCallCompleted {
+                turn_id: turn,
+                call_id: done,
+                action: WebAction::Search,
+                query: Some("rust 2026".to_owned()),
+                url: None,
+                pattern: None,
+                results: None,
+                error: None,
+            },
+        )
+        .event(conversation, start(search));
+    let hwm = store.writer().append(batch).await.unwrap().last_seq();
+    let notices = tempfile::tempdir().unwrap();
+
+    let reconciled = reconcile(store.readers(), store.writer(), notices.path()).await.unwrap();
+
+    assert_eq!(reconciled.calls_closed, 1);
+    assert_eq!(
+        after(store.events().await.unwrap(), hwm),
+        [
+            (
+                Some(conversation),
+                Event::WebCallCompleted {
+                    turn_id: turn,
+                    call_id: search,
+                    action: WebAction::Search,
+                    query: Some("rust 2026".to_owned()),
+                    url: None,
+                    pattern: None,
+                    results: None,
+                    error: Some(WebError::NotFinished),
+                }
+            ),
+            (Some(conversation), Event::TurnCancelled { turn_id: turn }),
+        ]
+    );
     store.close().await;
 }

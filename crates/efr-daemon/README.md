@@ -37,7 +37,8 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    leaves them to the config then fails. The engine decides each tool call by the
    turn's mode.
 3. The store: the backup copy in `backups/`, the forward-only migrations.
-4. `reconcile.rs`: running turns cancelled, pending approvals expired, queued prompts
+4. `reconcile.rs`: running turns cancelled, their open tool calls answered with an
+   error, their open web steps ended as `not_finished`, pending approvals expired, queued prompts
    (and prompts an earlier daemon held) recorded as not run with `turn_cancelled` and
    one notice per conversation to its terminal ("efr restarted; a queued prompt did not
    run; see it with efr history <id> and send it again"). The notice never quotes a
