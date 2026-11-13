@@ -12,7 +12,7 @@ There are four modes:
 |---|---|---|
 | `manual` | only what your own rules allow | every read, write, command and network access |
 | `cautious` (the default) | reads outside secrets, writes in `$SCRATCH` and in the turn's registered project, and read-only commands such as `ls`, `cat` and `rg` | every other write and command |
-| `auto` | every shell command, in a kernel sandbox that can write the project; a reviewer model decides each action that leaves the sandbox | a delete of a tree such as `~`, a rule of yours that asks, and a change of efr's settings |
+| `auto` | every shell command, in a kernel sandbox that can write the project; a reviewer model decides each action that leaves the sandbox | only a rule of yours that asks. A delete of a tree such as `~` and a change of efr's settings are refused, and the model gives you the command |
 | `full` | every command, as you, with no sandbox | `sudo`, a process that outlives the turn, a delete of `~`, `/`, a system dir or a project, and some deletes and dir reads (see below) |
 
 In every mode, efr denies secrets and a write of its own config.

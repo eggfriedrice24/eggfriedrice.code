@@ -139,12 +139,18 @@ shows the words: `refused: no message of yours names this
 action; a message names it with: publish`. No text that the model read can bring the
 name about.
 
-### The one question that stays
+### No question, also for a guarded tree
 
-A delete or a write of a tree that only you give up still asks you: `~`, `/`, a
-directory above or outside your home directory, and a directory that holds efr's
+A delete or a write of a tree that only you give up does not run in `auto`: `~`, `/`,
+a directory above or outside your home directory, and a directory that holds efr's
 files, a secret, a file that runs code later or two or more projects. Full mode asks
-about the same trees. You also answer every exit while `classifier.enabled = false`.
+about the same trees. In `auto` efr refuses the line with no question, and the model
+gives you the command to run in your own shell. A change of efr's settings by the
+model is refused the same way. Only a rule of yours with the effect `ask` still asks.
+You answer every exit yourself while `classifier.enabled = false`.
+
+`sudo` still shows its password prompt, and efr makes sudo forget the password before
+and after each such call. So your password approves one line, never the ones after it.
 
 An action that leaves the sandbox runs alone. A line such as `just check && git push`
 does not run: the model runs `just check` in its own call, in the sandbox, and then

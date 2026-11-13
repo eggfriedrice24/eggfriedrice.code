@@ -1344,11 +1344,24 @@ impl Turn {
             self.record(events).await?;
             tracing::debug!(phase = "record_completed", elapsed_ms = %watch, "phase=record_completed elapsed_ms={}", watch);
             if !quarantined.is_empty() {
-                // NOTE: asked before any other call of the turn, so nothing runs with a
-                // git setting that the sandbox planted until the user has seen it.
-                let (note, stopped) = self.ask_surface(&tool_call.context, quarantined).await?;
-                outcome.output = format!("{}\n{note}", outcome.output);
-                interrupted |= stopped;
+                // NOTE: while the reviewer decides alone, `auto` asks nothing: the change
+                // stays in quarantine, and the model tells the user. Else the question
+                // comes before any other call of the turn, so nothing runs with a git
+                // setting that the sandbox planted until the user has seen it.
+                if self.decides_alone(&tool_call) {
+                    let names = exit::change_names(&quarantined);
+                    outcome.output = format!(
+                        "{}\n[The command changed git settings that run programs, so efr moved \
+                         them to quarantine, where nothing reads them: {names}. Tell the user. \
+                         If they want such a setting, they set it themselves with git config.]",
+                        outcome.output
+                    );
+                } else {
+                    let (note, stopped) =
+                        self.ask_surface(&tool_call.context, quarantined).await?;
+                    outcome.output = format!("{}\n{note}", outcome.output);
+                    interrupted |= stopped;
+                }
             }
             if let Some(summary) = outcome.sandbox.clone()
                 && !summary.cache_deletes.is_empty()
@@ -1586,6 +1599,11 @@ impl Turn {
         call: &ToolCall,
         ruling: &Ruling,
     ) -> Result<Authorization, ConversationError> {
+        // NOTE: while the reviewer decides alone, `auto` asks nothing that efr raised: a
+        // guarded tree and a settings change become refusals with the user's command.
+        if let Some(refused) = self.refused_in_auto(call, ruling).await? {
+            return Ok(refused);
+        }
         let watch = Stopwatch::start();
         let turn_id = self.turn_id();
         let call_id = call.context.call_id;

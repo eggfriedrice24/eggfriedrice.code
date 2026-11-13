@@ -7,9 +7,10 @@
 //! ([`Turn::reviews`]). From there no question follows: the call runs or the model
 //! reads why it does not, and the user's next message is the way to ask for it. Without
 //! a judge, or with `classifier.enabled = false`, the user answers each exit, as in
-//! `cautious`. One exit stays the user's own question in every case: a write or a
-//! delete of a tree that the delete guard of full mode covers too, such as the home
-//! directory ([`exit::guarded_tree`]).
+//! `cautious`. A write or a delete of a tree that the delete guard of full mode covers
+//! too, such as the home directory ([`exit::guarded_tree`]), and a change of efr's
+//! settings by the model get no review and no question: efr refuses them, and the model
+//! gives the user the command ([`Turn::refused_in_auto`]).
 //!
 //! The steps, each of which ends the review:
 //!
@@ -35,7 +36,7 @@
 
 use std::task::Poll;
 
-use efr_permissions::{Approver, Cause, Effect};
+use efr_permissions::{Approver, Cause, Effect, Subject};
 use efr_protocol::{
     ApprovedBy, ErrorBody, ErrorCode, Event, ExitKind, ExitRecord, JudgeKind, Judgement, Verdict,
 };
@@ -55,19 +56,109 @@ pub(super) enum Reviewed {
 }
 
 impl Turn {
+    /// True when the reviewer decides alone for `call`: the turn runs in `auto`, a judge
+    /// is configured and `classifier.enabled` is on. Then `auto` asks the user nothing
+    /// that efr itself raised: an exit goes to the reviewer ([`Turn::reviews`]), and a
+    /// guarded tree or a settings change is refused ([`Turn::refused_in_auto`]).
+    pub(super) fn decides_alone(&self, call: &ToolCall) -> bool {
+        call.context.sandboxed()
+            && self.shared.deps.judge.is_some()
+            && self.config.classifier_enabled
+    }
+
+    /// The refusal of `ruling` in place of a question, while the reviewer decides alone
+    /// ([`Turn::decides_alone`]):
+    ///
+    /// - a write or a delete of a tree that only the user gives up
+    ///   ([`exit::guarded_tree`]), such as `~`: the model reads the line, to give it to
+    ///   the user, who runs it in their own shell. Full mode keeps its question.
+    /// - a change of efr's settings by the model: the model tells the user the change.
+    ///
+    /// A rule of the user with the effect `ask` keeps its question, because the user
+    /// chose it. Neither refusal counts toward the pause of the reviewer: no model
+    /// decided it. `None` for any other ruling.
+    pub(super) async fn refused_in_auto(
+        &mut self,
+        call: &ToolCall,
+        ruling: &Ruling,
+    ) -> Result<Option<Authorization>, ConversationError> {
+        let decision = &ruling.decision;
+        if !self.decides_alone(call)
+            || decision.deciding().any(|reason| matches!(reason.cause, Cause::Rule { .. }))
+        {
+            return Ok(None);
+        }
+        if exit::guarded_tree(decision) {
+            let trees = exit::guarded_trees(decision, ruling.engine.locations().home());
+            let line = ruling.requirements.command.as_deref().unwrap_or_default();
+            let turn_id = self.turn_id();
+            let call_id = call.context.call_id;
+            let kinds = exit::kinds(decision);
+            let rationale = format!("only you give up {trees}; the model has the command for you");
+            let record = self.exit_record(call, ruling);
+            self.record(vec![
+                Event::ExitRequested {
+                    turn_id,
+                    call_id,
+                    kinds: kinds.clone(),
+                    grants: ruling.launch.grants().to_vec(),
+                    source: exit::source(decision),
+                    record: Box::new(record),
+                },
+                Event::ExitJudged {
+                    turn_id,
+                    call_id,
+                    judge: JudgeKind::Floor,
+                    verdict: Verdict::Deny,
+                    model: None,
+                    latency_ms: None,
+                    risk: None,
+                    user_authorization: None,
+                    category: kinds.first().map(|kind| kind.as_str().to_owned()),
+                    rationale: Some(rationale.clone()),
+                    record_sha256: None,
+                    cached: false,
+                    chain_step: None,
+                    skipped: Vec::new(),
+                    reasked: false,
+                },
+            ])
+            .await?;
+            let message = format!(
+                "efr did not run this line: it writes or deletes {trees}, which only the user \
+                 may give up. Do not try it another way. If the user wants it, they run the \
+                 command in their own shell: {line}"
+            );
+            return Ok(Some(Authorization::Refused { message, refusal: Some(rationale) }));
+        }
+        let settings =
+            decision.deciding().find_map(|reason| match (&reason.cause, &reason.subject) {
+                (Cause::SettingsChange, Subject::Settings { summary, .. }) => Some(summary.clone()),
+                _ => None,
+            });
+        if let Some(summary) = settings {
+            let message = format!(
+                "efr did not change its settings ({summary}): in auto only the user changes \
+                 them. Tell the user the change; they make it with `efr config set` or in \
+                 config.toml."
+            );
+            let refusal = Some("only you change efr's settings".to_owned());
+            return Ok(Some(Authorization::Refused { message, refusal }));
+        }
+        Ok(None)
+    }
+
     /// True when the classifier decides the exits of `ruling` alone, with no question
     /// to the user: see the module doc.
     ///
     /// Every reason that asks must be an exit. The ask of a privileged program, such as
     /// `sudo`, counts as one when the line has its `privilege` exit, which is the same
-    /// fact in the record. Any other reason that asks, such as a rule of the user or a
-    /// change of efr's settings, keeps the question.
+    /// fact in the record. Any other reason that asks, such as a rule of the user, keeps
+    /// the question.
     pub(super) fn reviews(&self, call: &ToolCall, ruling: &Ruling) -> bool {
         let decision = &ruling.decision;
         let privilege = decision.exits().any(|need| need.kind == ExitKind::Privilege);
-        call.context.sandboxed()
-            && self.shared.deps.judge.is_some()
-            && self.config.classifier_enabled
+        self.decides_alone(call)
             && ruling.approver.is_some()
             && decision.effect() == Effect::Ask
             && decision.deciding().all(|reason| match reason.cause {

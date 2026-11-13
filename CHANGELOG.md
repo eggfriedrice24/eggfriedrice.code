@@ -139,9 +139,16 @@ into the GitHub release notes, and it stops when the section is missing.
     `cargo owner`), the whole session bus, and the socket of your ssh or gpg agent. The
     refusal shows the words that name the action, such as `publish`. A text that the
     model read, such as a web page, cannot bring the name about.
-  - One question about such an action stays, as in full mode: a write or a delete of
-    `~`, `/`, a directory above or outside your home directory, or a directory that
-    holds efr's files, a secret, a file that runs code later or two or more projects.
+  - No question about such an action stays. A write or a delete of `~`, `/`, a
+    directory above or outside your home directory, or a directory that holds efr's
+    files, a secret, a file that runs code later or two or more projects, which full
+    mode asks about, does not run: the model gives you the command to run in your own
+    shell. A change of efr's settings by the model is refused the same way, and a git
+    setting that a command planted stays in quarantine; the model tells you. Only a
+    rule of yours with the effect `ask` still asks.
+  - `sudo` still shows its password prompt. efr now makes sudo forget the password
+    before and after each such call, so your password approves that one line, never
+    the ones after it.
   - When such an action runs code of your project, such as `sudo ./setup.sh`,
     `sudo make install` or `sudo "$TOOL"`, the reviewer reads a note that names the
     code, and its allow stands only when it also finds a clear request of yours. The

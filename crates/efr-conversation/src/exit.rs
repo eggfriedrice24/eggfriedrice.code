@@ -485,6 +485,23 @@ pub(crate) fn guarded_tree(decision: &Decision) -> bool {
     decision.exits().any(|need| need.kind == ExitKind::AboveRoot && need.approver == Approver::User)
 }
 
+/// The trees of [`guarded_tree`] in `decision`, each once, with the home directory as
+/// `~`, for the refusal that names them.
+pub(crate) fn guarded_trees(decision: &Decision, home: &Path) -> String {
+    let mut trees: Vec<String> = Vec::new();
+    for need in decision
+        .exits()
+        .filter(|need| need.kind == ExitKind::AboveRoot && need.approver == Approver::User)
+    {
+        let tree =
+            need.target.as_deref().map_or_else(|| need.part.to_string(), |path| tilde(path, home));
+        if !trees.contains(&tree) {
+            trees.push(tree);
+        }
+    }
+    trees.join(", ")
+}
+
 /// Who approves the exits of `decision`: the strictest approver of its exits, after
 /// [`approver`], so never [`Approver::ClassifierWhenNamed`]. A payload of a file tool
 /// edit that the classifier cannot judge whole ([`Payload::judgeable`]) gives at least

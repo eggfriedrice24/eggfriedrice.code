@@ -50,9 +50,12 @@ Two facts of efr make the same step safer here than without a sandbox:
    unless a message of the user names them, by a word match that efr does itself. The
    refusal shows the words. This is the one check that no model makes, so no text can
    talk its way past it.
-4. One exit stays the user's own question: a write or a delete of a tree that the
-   delete guard of full mode covers too (ADR 0015), such as the home directory. A mode
-   with a sandbox must not delete such a tree with less care than the mode without.
+4. A write or a delete of a tree that the delete guard of full mode covers too (ADR
+   0015), such as the home directory, stays the user's own act. A mode with a sandbox
+   must not delete such a tree with less care than the mode without. Amended on
+   2026-11-13: in `auto` efr refuses such a line with no review and no question, and
+   the model gives the user the command to run in their own shell. So `auto` asks
+   nothing that efr raises itself.
 5. A refusal counts as a denial, whoever made it: the reviewer, a rule after a review,
    or a rule with no review. After 3 in a row, or 10 in one turn, the model can finish
    the work that stays in the sandbox, and its next exit stops the turn. An allow
@@ -63,9 +66,12 @@ Two facts of efr make the same step safer here than without a sandbox:
 7. `classifier.enabled = false` keeps the old behaviour: the user answers every exit.
    This is no new key.
 
-A question that is no exit stays: a rule of the user with the effect `ask`, a change
-of efr's settings by the model, and a planted git setting that the surface guard
-found.
+A question that is no exit stays only for a rule of the user with the effect `ask`,
+because the user chose it. Amended on 2026-11-13: a change of efr's settings by the
+model is refused, and a planted git setting that the surface guard found stays in
+quarantine with a note to the model, with no question. An `auto` call that runs
+outside the sandbox makes sudo forget its cached password before and after the line,
+as a full call does, so the password that the user types approves that one line.
 
 ## Consequences
 

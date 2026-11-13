@@ -343,9 +343,16 @@ asks you nothing about an exit, and the class says how strict efr is:
   session bus, and the socket of a credential agent that efr knows from
   `$SSH_AUTH_SOCK` or `$GPG_AGENT_INFO` or that lies under a mask. efr refuses them
   with no review unless a message of yours names them.
-- One exit still asks you, as in full mode: an `above_root` write or delete of `~`,
-  `/`, a directory above or outside your home directory, and a directory that holds
-  efr's files, a secret, a file that runs code later or more than one project.
+- No exit asks you. An `above_root` write or delete of `~`, `/`, a directory above or
+  outside your home directory, and a directory that holds efr's files, a secret, a
+  file that runs code later or more than one project, which full mode asks about, is
+  refused with no review, and the model gives you the command to run yourself
+  (`Turn::refused_in_auto`). A change of efr's settings by the model is refused the
+  same way, and a git setting that the surface guard moved to quarantine stays there
+  with a note. A rule of yours with the effect `ask` still asks.
+- For an `auto` call that runs outside the sandbox, efr makes sudo forget its cached
+  password before and after the call, as for a full call, whatever `shell.sudo_cache`
+  says.
 - An exit that runs the whole line outside the sandbox and whose command runs project
   code, such as `sudo ./setup.sh` or `sudo make install`, gets a note for the reviewer
   and the class "only you", so the request rule holds (`exits/code.rs`). efr finds it

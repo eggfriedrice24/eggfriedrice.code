@@ -169,9 +169,11 @@ turns.
   `Approver::Guarded` (an exit of the highest risk that no user message names):
   refused with no review, `exit_judged` with the judge `floor` and the words that name
   it (`exit::Unreviewed`, `exit::missing_names`); a payload that the classifier cannot
-  read whole is refused the same way. One exit stays the user's own question: an
-  `above_root` exit of a tree that the delete guard of full mode covers too
-  (`exit::guarded_tree`). `exit_requested` and `exit_review_started` come in one batch, the
+  read whole is refused the same way. An `above_root` exit of a tree that the delete
+  guard of full mode covers too (`exit::guarded_tree`) and a settings change by the
+  model get no review and no question: `Turn::refused_in_auto` refuses them, and the
+  model reads the command for the user. A planted git setting stays in quarantine with
+  a note, with no surface question. `exit_requested` and `exit_review_started` come in one batch, the
   judge runs while the user can still interrupt, and `exit_judged` (judge
   `classifier`, with the model, the latency, the step of the chain, the skipped models,
   the record's hash, `cached` and `reasked`, from `JudgeOutcome::reasked`: the judge

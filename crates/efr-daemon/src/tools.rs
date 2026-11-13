@@ -58,8 +58,8 @@ use efr_conversation::{
 };
 use efr_permissions::{CoverAsk, Coverage, Engine, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SnapshotPhase,
-    SurfaceChange, TurnId, TurnUndoResult, UndoRefused,
+    CallId, ConversationId, FileChanges, InputWait, Launch, ReportedFile, SandboxSummary,
+    SnapshotPhase, SurfaceChange, TurnId, TurnUndoResult, UndoRefused,
 };
 use efr_provider::{ToolDefinition, ToolGrammar as ProviderGrammar};
 use efr_scope::Home;
@@ -457,11 +457,13 @@ impl DaemonToolbox {
         .with_scope(call.scope.clone())
         .with_origin(call.origin)
         .with_shell_cwd(call.shell_cwd.clone())
-        // NOTE: a full call clears sudo's cache before and after its line whatever
-        // `shell.sudo_cache` says (DF11): a cache from an earlier call or from the user's
-        // own terminal must not let a `sudo` in a script run with no question.
-        .with_forget_credentials(self.forgets_credentials() || call.is_full())
-        .with_forget_before(call.is_full())
+        // NOTE: a full call, and an `auto` call that runs outside the sandbox, clear sudo's
+        // cache before and after the line whatever `shell.sudo_cache` says (DF11): the
+        // password that the user typed for one line approves that line only, and a cache
+        // from an earlier call or from the user's own terminal must not let a `sudo` in
+        // a script run with no password.
+        .with_forget_credentials(self.forgets_credentials() || forgets_around(call))
+        .with_forget_before(forgets_around(call))
         .with_interactive_limit(self.interactive_limit(call))
         .with_input_limit(Some(self.input_limit()))
         .with_approved_by(call.approved_by)
@@ -522,6 +524,12 @@ impl DaemonToolbox {
     fn forgets_credentials(&self) -> bool {
         self.settings.borrow().shell.sudo_cache == SudoCache::PerCall
     }
+}
+
+/// True when `call` makes the hidden shell forget sudo's cached credentials before and
+/// after its line: a full call, and an `auto` call that runs outside the sandbox.
+fn forgets_around(call: &CallContext) -> bool {
+    call.is_full() || (call.sandboxed() && matches!(call.launch, Launch::Unsandboxed))
 }
 
 impl DaemonToolbox {

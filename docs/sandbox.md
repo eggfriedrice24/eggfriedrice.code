@@ -311,7 +311,10 @@ A call can still add new files to a git dir, such as `commondir`. After each cal
 surface guard checks the git dirs: those of the projects and their submodules, the git
 dir that a `.git` file names, and the include files and the `core.hooksPath` dir that
 their config names. It moves a planted setting that runs programs to
-quarantine, where nothing reads it, and the turn asks you before its next call:
+quarantine, where nothing reads it. While the reviewer decides alone, the change stays
+there with no question: the model reads what moved and tells you, and you set such a
+setting yourself with `git config` if you want it. With `classifier.enabled = false`,
+the turn asks you before its next call:
 
 ```
 question: the last command changed git settings that run programs
@@ -452,7 +455,9 @@ efr asks you nothing about an exit. The last column of the table says who decide
 - **Only by name**: the highest risks. efr refuses the action with no review unless a
   message of yours names it. With the name, the reviewer decides it, with your clear
   request. No text that the model read, such as a web page, can bring the name about.
-- **You**: the one question that stays, as in full mode.
+- **You, in your own shell**: a tree that only you give up, which full mode asks you
+  about too. In `auto` efr refuses it with no review and no question, and the model
+  gives you the command to run yourself.
 - **Nobody**: efr refuses it for everybody.
 
 When an action that you want does not run, say it in your next message, for example
@@ -471,20 +476,22 @@ yourself, and "the reviewer" in this file then means you.
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | the reviewer, with your clear request |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else the reviewer, with your clear request |
 | `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. With your clear request: when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
-| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password |
+| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password. efr makes sudo forget its cached password before and after each such call, so your password approves that one line |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request |
 | `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | the reviewer, with your clear request |
-| `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too |
+| `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, in your own shell, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too. efr refuses such a line, and the model gives you the command |
 | `secret` | a read or write of a secret | never: denied | nobody |
 | `config` | a write of efr's config, of efr's own programs or of efr's own dirs | never: denied | nobody |
 
 When the reviewer is paused, or no model of its chain answers, the action does not
 run. efr never runs an exit that nobody reviewed.
 
-Three more questions can still come in `auto`, because they are no exits: a rule of
-yours with the effect `ask`, a change of efr's settings by the model, and a planted git
-setting that the surface guard found ("Git settings").
+While the reviewer decides alone, `auto` asks you nothing that efr raises itself. A
+change of efr's settings by the model is refused, and the model tells you the change.
+A planted git setting that the surface guard found stays in quarantine, and the model
+tells you ("Git settings"). Only a rule of yours with the effect `ask` still asks,
+because you chose it.
 
 A grant lives for one call. The next call gets its own review, unless an always rule
 covers it (see "Always-allow rules").
@@ -634,8 +641,8 @@ the words of the line and its write roots, with no file:
 Inline code, as in `python3 -c '...'`, gets no note: the reviewer reads it in the line.
 A package publish keeps its own rule (see "Exits").
 
-**The question.** You see it for the trees that only you give up, and for every exit
-while you answer them yourself (`classifier.enabled = false`). In the sections below,
+**The question.** You see it for every exit while you answer them yourself
+(`classifier.enabled = false`). In the sections below,
 "only you approve" and "asks you" about an exit describe that mode. While the reviewer
 is on, read them as "the reviewer, with your clear request" (see "Exits").
 

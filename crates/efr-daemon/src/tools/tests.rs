@@ -141,10 +141,17 @@ fn full_forces_sudo_per_call() {
         call.context = call.context.clone().with_mode(Mode::Auto);
         forgets(&toolbox, &call)
     };
-    call.context = call.context.clone().with_mode(Mode::Full);
+    let auto_outside = {
+        call.context = call.context.clone().with_launch(Launch::Unsandboxed);
+        forgets(&toolbox, &call)
+    };
+    call.context = call.context.clone().with_mode(Mode::Full).with_launch(Launch::Direct);
     let full = forgets(&toolbox, &call);
 
-    assert_eq!(auto, (false, false), "keep leaves the cache to sudo outside full mode");
+    assert_eq!(auto, (false, false), "a contained auto call cannot use sudo anyway");
+    // NOTE: the password that the user typed for one line outside the sandbox approves
+    // that line only.
+    assert_eq!(auto_outside, (true, true), "an auto call outside forgets before and after");
     assert_eq!(full, (true, true), "a full call forgets before and after its line");
 }
 

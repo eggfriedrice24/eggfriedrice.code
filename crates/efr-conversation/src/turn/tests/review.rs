@@ -127,6 +127,17 @@ async fn decided(
     said: &str,
     declared: Option<(&str, Requirements)>,
 ) -> (Harness, bool) {
+    let (h, question, _) = decided_by_script(setup, call, said, declared).await;
+    (h, question)
+}
+
+/// [`decided`], with the script, so a test reads what the model got back.
+async fn decided_by_script(
+    setup: Setup,
+    call: (&str, Value),
+    said: &str,
+    declared: Option<(&str, Requirements)>,
+) -> (Harness, bool, Arc<Script>) {
     let script = Script::new(vec![call]);
     let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
     if let Some((key, requirements)) = declared {
@@ -145,7 +156,21 @@ async fn decided(
         h.answer(call_id, ApprovalDecision::Deny).await;
         h.wait_end(sent.turn_id).await;
     }
-    (h, question)
+    (h, question, script)
+}
+
+/// The text of the first tool result that the model read in `script`.
+fn first_result(script: &Script) -> String {
+    script
+        .requests()
+        .into_iter()
+        .flat_map(|request| request.messages)
+        .flat_map(|message| message.content)
+        .find_map(|block| match block {
+            efr_provider::ContentBlock::ToolResult { output, .. } => Some(output),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// Facts that give the program words of a line their files: (word, file, changed).
@@ -472,33 +497,54 @@ async fn classifier_routes_named_above_root_path() {
     assert_eq!(judge.calls(), 1);
 }
 
-/// A delete of the home directory is the one exit that stays the user's own question
-/// while the reviewer decides alone: the delete guard of full mode asks about it too.
+/// A delete of the home directory is a tree that only the user gives up, as the delete
+/// guard of full mode says. While the reviewer decides alone, efr asks nothing: it
+/// refuses the line with no review, and the model reads the command to give the user.
 #[tokio::test]
-async fn above_root_home_asks_user() {
+async fn above_root_home_is_refused_with_the_command_for_the_user() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let home = setup.home().to_path_buf();
     let line = format!("rm -rf {}", home.display());
     let requirements = Requirements::none().with_command(&line).with_write(&home);
     let said = format!("delete {}", home.display());
-    let (_, question) =
-        decided(setup, shell(&line), &said, Some((line.as_str(), requirements))).await;
-    assert!(question);
+    let (h, question, script) =
+        decided_by_script(setup, shell(&line), &said, Some((line.as_str(), requirements))).await;
+    assert!(!question);
     assert_eq!(judge.calls(), 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);
+    let read = first_result(&script);
+    assert!(read.contains("which only the user may give up"), "{read}");
+    assert!(read.contains(&format!("in their own shell: {line}")), "{read}");
 }
 
 #[tokio::test]
-async fn above_root_two_projects_asks_user() {
+async fn above_root_two_projects_is_refused_with_the_command_for_the_user() {
     // The home directory's parent of both projects: `~` holds two project roots.
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let parent = setup.home().to_path_buf();
     let line = format!("rm -rf {}/", parent.display());
     let requirements = Requirements::none().with_command(&line).with_write(&parent);
-    let (_, question) =
+    let (h, question) =
         decided(setup, shell(&line), "delete both projects", Some((line.as_str(), requirements)))
             .await;
+    assert!(!question);
+    assert_eq!(judge.calls(), 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);
+}
+
+/// With the reviewer off, the user answers the same delete, as before.
+#[tokio::test]
+async fn above_root_home_asks_the_user_while_the_user_answers() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let mut setup = reviewed(Some(Arc::clone(&judge)));
+    setup.config.classifier_enabled = false;
+    let home = setup.home().to_path_buf();
+    let line = format!("rm -rf {}", home.display());
+    let requirements = Requirements::none().with_command(&line).with_write(&home);
+    let (_, question) =
+        decided(setup, shell(&line), "delete it", Some((line.as_str(), requirements))).await;
     assert!(question);
     assert_eq!(judge.calls(), 0);
 }
@@ -619,10 +665,51 @@ async fn floor_kinds_never_judged() {
     assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);
 }
 
+/// A change of efr's settings by the model is never judged. While the reviewer decides
+/// alone, efr refuses it with no question, and the model tells the user the change.
 #[tokio::test]
-async fn settings_change_never_judged() {
+async fn settings_change_is_refused_and_never_judged() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
+    let requirements = Requirements::none()
+        .with_command("efr-settings")
+        .with_settings_change(SettingsChange::new("set mode = auto", true));
+    let (_, question, script) = decided_by_script(
+        setup,
+        shell("efr-settings"),
+        "set my default mode to auto",
+        Some(("efr-settings", requirements)),
+    )
+    .await;
+    assert!(!question);
+    assert_eq!(judge.calls(), 0);
+    let read = first_result(&script);
+    assert!(read.contains("efr did not change its settings (set mode = auto)"), "{read}");
+}
+
+/// A git setting that the sandbox planted stays in quarantine while the reviewer
+/// decides alone: no question, and the model reads what moved, to tell the user.
+#[tokio::test]
+async fn a_planted_git_setting_stays_in_quarantine_with_no_question() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let (h, question, script) =
+        decided_by_script(setup, shell("plant-hook"), "build it", None).await;
+    assert!(!question);
+    assert_eq!(count(&h, "surface_question_requested").await, 0);
+    assert_eq!(count(&h, "sandbox_surface_changed").await, 1);
+    assert!(h.toolbox.restored().is_empty(), "nothing moves back");
+    let read = first_result(&script);
+    assert!(read.contains("efr moved them to quarantine"), "{read}");
+    assert!(read.contains("(core.fsmonitor)"), "{read}");
+}
+
+/// With the reviewer off, the user answers a settings change, as before.
+#[tokio::test]
+async fn settings_change_asks_the_user_while_the_user_answers() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let mut setup = reviewed(Some(Arc::clone(&judge)));
+    setup.config.classifier_enabled = false;
     let requirements = Requirements::none()
         .with_command("efr-settings")
         .with_settings_change(SettingsChange::new("set mode = auto", true));
