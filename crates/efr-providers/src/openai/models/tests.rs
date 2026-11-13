@@ -34,9 +34,18 @@ fn the_builtin_table_is_codexs_listed_catalog_in_priority_order() {
             entry("gpt-5.6-sol", &ultra, "low", 872_000),
             entry("gpt-5.6-terra", &ultra, "medium", 872_000),
             entry("gpt-5.6-luna", &max, "medium", 872_000),
-            entry("gpt-5.5", &["low", "medium", "high", "xhigh"], "medium", 272_000),
         ]
     );
+}
+
+/// The ChatGPT backend refuses gpt-5.5, so only the API's built-in list names it.
+#[test]
+fn the_legacy_model_is_listed_for_the_api_only() {
+    let ids = |backend| -> Vec<String> {
+        Catalog::builtin(backend).models().into_iter().map(|model| model.id).collect()
+    };
+    assert!(!ids(Backend::Subscription).contains(&"gpt-5.5".to_owned()));
+    assert!(ids(Backend::Api).contains(&"gpt-5.5".to_owned()));
 }
 
 #[test]
@@ -67,7 +76,9 @@ fn every_builtin_model_reasons_takes_freeform_tools_and_has_a_window() {
 
 #[test]
 fn the_api_backend_has_the_same_models_without_ultra_and_with_medium_by_default() {
-    let api = Catalog::builtin(Backend::Api).models();
+    // NOTE: gpt-5.5 is the API's only, which a test of its own covers.
+    let api: Vec<_> =
+        Catalog::builtin(Backend::Api).models().into_iter().filter(|m| m.id != "gpt-5.5").collect();
     let subscription = Catalog::builtin(Backend::Subscription).models();
     let ids = |models: &[efr_provider::ModelInfo]| -> Vec<String> {
         models.iter().map(|model| model.id.clone()).collect()

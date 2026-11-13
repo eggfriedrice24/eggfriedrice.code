@@ -152,7 +152,7 @@ async fn the_websocket_answer_equals_the_http_answer_for_every_fixture() {
         let over_socket = setup(vec![socket], Vec::new(), WebSocketMode::On).await;
         let over_http = setup(Vec::new(), vec![fixture(name)], WebSocketMode::Off).await;
 
-        let model = "gpt-5.5";
+        let model = "gpt-6.1-sol";
         let by_socket =
             collect(over_socket.provider.stream(request(model, "hi")).await.unwrap()).await;
         let by_http = collect(over_http.provider.stream(request(model, "hi")).await.unwrap()).await;
@@ -170,7 +170,7 @@ async fn the_handshake_carries_the_headers_of_the_http_path_and_the_create_its_b
     let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
 
-    let completion = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let completion = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(completion.message.text(), "Hello.");
     let sockets = setup.server.sockets();
@@ -184,7 +184,7 @@ async fn the_handshake_carries_the_headers_of_the_http_path_and_the_create_its_b
     assert!(socket.headers["user-agent"].starts_with("efr/"));
     let create = &socket.messages[0];
     assert_eq!(create["type"], "response.create");
-    assert_eq!(create["model"], "gpt-5.5");
+    assert_eq!(create["model"], "gpt-6.1-sol");
     assert_eq!(create["stream"], true);
     assert_eq!(create["store"], false);
     assert_eq!(create["instructions"], "You are efr.");
@@ -200,7 +200,7 @@ async fn the_next_call_reuses_the_connection_and_sends_only_the_new_items() {
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = setup.provider.complete(request.clone()).await.unwrap();
     request.messages.push(first.message);
@@ -218,7 +218,7 @@ async fn the_next_call_reuses_the_connection_and_sends_only_the_new_items() {
 
 /// A request of the conversation with the web tool of `access`, or without one.
 fn web_request(access: Option<WebAccess>) -> Request {
-    let mut request = request("gpt-5.5", "Does ROB RUN run on Linux?");
+    let mut request = request("gpt-6.1-sol", "Does ROB RUN run on Linux?");
     request.hosted =
         access.map(|access| HostedTool::web_search(access, Some(20))).into_iter().collect();
     request
@@ -291,7 +291,7 @@ async fn a_changed_setting_sends_the_whole_input() {
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = setup.provider.complete(request.clone()).await.unwrap();
     request.messages.push(first.message);
@@ -311,7 +311,7 @@ async fn a_history_rebuilt_by_a_compaction_sends_the_whole_input() {
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let request_one = request("gpt-5.5", "hi");
+    let request_one = request("gpt-6.1-sol", "hi");
 
     setup.provider.complete(request_one.clone()).await.unwrap();
     // A compaction replaces the history with its summary and the newest prompt.
@@ -343,7 +343,7 @@ async fn a_dropped_stream_interrupts_the_answer_and_the_connection_serves_the_ne
         vec![Step::Send(answer("resp_2", "Done."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let mut stream = setup.provider.stream(request.clone()).await.unwrap();
     let first = stream.next().await.unwrap().unwrap();
@@ -371,8 +371,8 @@ async fn a_refused_upgrade_sends_the_call_over_http_and_pauses_websockets() {
     let posts = vec![fixture("plain_text.sse"), fixture("plain_text.sse")];
     let setup = setup(vec![Socket::refused(426)], posts, WebSocketMode::Auto).await;
 
-    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
-    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let first = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
+    let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(first.message.text(), "Your shell is zsh 5.9.");
     assert_eq!(second.message.text(), "Your shell is zsh 5.9.");
@@ -390,8 +390,8 @@ async fn a_close_before_the_answer_sends_the_call_over_http_and_the_next_call_re
     ];
     let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
-    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let first = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
+    let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(first.message.text(), "Your shell is zsh 5.9.");
     assert_eq!(second.message.text(), "Back.");
@@ -407,7 +407,7 @@ async fn a_close_after_the_answer_started_fails_the_call_as_on_http() {
     ]]);
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    let events = collect(setup.provider.stream(request("gpt-5.5", "hi")).await.unwrap()).await;
+    let events = collect(setup.provider.stream(request("gpt-6.1-sol", "hi")).await.unwrap()).await;
 
     assert_eq!(
         events,
@@ -428,8 +428,8 @@ async fn an_error_event_before_the_answer_sends_the_call_over_http_and_pauses_we
     let posts = vec![fixture("plain_text.sse"), fixture("plain_text.sse")];
     let setup = setup(vec![socket], posts, WebSocketMode::Auto).await;
 
-    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let first = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(first.message.text(), "Your shell is zsh 5.9.");
     assert_eq!(setup.server.posts().len(), 2);
@@ -451,7 +451,7 @@ async fn a_lost_previous_answer_sends_the_call_over_http_without_a_pause() {
         Socket::serving(vec![vec![Step::Send(answer("resp_3", "Fresh."))]]),
     ];
     let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = setup.provider.complete(request.clone()).await.unwrap();
     request.messages.push(first.message);
@@ -474,11 +474,11 @@ async fn a_lost_previous_answer_sends_the_call_over_http_without_a_pause() {
 async fn the_switch_and_the_model_choose_the_transport() {
     // (mode, model, with a conversation key, goes over the socket)
     let cases = [
-        (WebSocketMode::Auto, "gpt-5.5", true, true),
+        (WebSocketMode::Auto, "gpt-6.1-sol", true, true),
         (WebSocketMode::Auto, "o3", true, false),
-        (WebSocketMode::Auto, "gpt-5.5", false, false),
+        (WebSocketMode::Auto, "gpt-6.1-sol", false, false),
         (WebSocketMode::On, "o3", true, true),
-        (WebSocketMode::Off, "gpt-5.5", true, false),
+        (WebSocketMode::Off, "gpt-6.1-sol", true, false),
     ];
     for (mode, model, keyed, socket) in cases {
         let sockets = vec![Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hi."))]])];
@@ -504,7 +504,7 @@ async fn the_catalogs_prefer_websockets_chooses_the_transport_from_the_next_call
     let provider = setup.provider.with_catalog(catalog.clone());
     let fetch = |prefers: bool| {
         let body = json!({"models": [{
-            "slug": "gpt-5.5", "visibility": "list", "priority": 1,
+            "slug": "gpt-6.1-sol", "visibility": "list", "priority": 1,
             "supported_reasoning_levels": [], "prefer_websockets": prefers,
         }]});
         let (entries, _) = crate::openai::catalog::entries_of(&body).unwrap();
@@ -519,12 +519,12 @@ async fn the_catalogs_prefer_websockets_chooses_the_transport_from_the_next_call
     };
 
     fetch(false);
-    provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     assert_eq!(setup.server.posts().len(), 1, "the catalog says HTTP");
     assert_eq!(setup.server.sockets().len(), 0);
 
     fetch(true);
-    provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     assert_eq!(setup.server.posts().len(), 1);
     assert_eq!(setup.server.sockets().len(), 1, "the new catalog says WebSocket");
 }
@@ -537,10 +537,10 @@ async fn an_idle_connection_closes_and_the_next_call_opens_a_new_one() {
     ];
     let setup = setup(sockets, Vec::new(), WebSocketMode::Auto).await;
 
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(IDLE);
     eventually(|| setup.server.sockets()[0].closed).await;
-    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(second.message.text(), "Again.");
     assert_eq!(setup.server.sockets().len(), 2);
@@ -553,7 +553,7 @@ async fn a_call_after_a_quiet_spell_pings_and_reuses_a_connection_that_answers()
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = setup.provider.complete(request.clone()).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
@@ -578,7 +578,7 @@ async fn a_call_after_a_quiet_spell_sends_its_request_before_the_pong() {
     ])
     .without_pongs();
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = setup.provider.complete(request.clone()).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
@@ -604,7 +604,7 @@ async fn a_quiet_connection_that_answers_its_ping_keeps_a_slow_call_off_http() {
     let socket = Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))]]);
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
     let silence = async {
         eventually(|| {
@@ -615,7 +615,7 @@ async fn a_quiet_connection_that_answers_its_ping_keeps_a_slow_call_off_http() {
         eventually(|| setup.clock.waits_for(super::READ_TIMEOUT - PROBE_TIMEOUT)).await;
         setup.clock.advance(super::READ_TIMEOUT);
     };
-    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-5.5", "hi")), silence);
+    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-6.1-sol", "hi")), silence);
     let events = collect(stream.unwrap()).await;
 
     // The pong showed a live server that has the request, so the silence fails the
@@ -632,9 +632,9 @@ async fn a_quiet_connection_that_breaks_before_its_pong_and_any_event_sends_the_
             .without_pongs();
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
-    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     // No pong and no event came, so the server started no answer: HTTP sends the call.
     assert_eq!(second.message.text(), "Your shell is zsh 5.9.");
@@ -649,15 +649,15 @@ async fn a_quiet_connection_that_died_without_a_close_fails_its_ping_and_the_cal
     ];
     let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
     let pong_never_comes = async {
         eventually(|| setup.clock.waits_for(PROBE_TIMEOUT)).await;
         setup.clock.advance(PROBE_TIMEOUT);
     };
     let (second, ()) =
-        tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), pong_never_comes);
-    let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+        tokio::join!(setup.provider.complete(request("gpt-6.1-sol", "hi")), pong_never_comes);
+    let third = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     // The request went out with the ping, but the dead connection gave neither a pong
     // nor an event, so HTTP sent the call. This server never reads again; a server
@@ -681,13 +681,13 @@ async fn a_long_quiet_connection_sends_its_request_only_after_the_pong() {
     ]]);
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PING_FIRST);
     let stall = async {
         eventually(|| setup.clock.waits_for(PROBE_TIMEOUT)).await;
         setup.clock.advance(PROBE_TIMEOUT);
     };
-    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), stall);
+    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-6.1-sol", "hi")), stall);
     assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
     assert_eq!(setup.server.posts().len(), 1);
 
@@ -715,9 +715,9 @@ async fn a_quiet_connection_that_breaks_right_after_its_pong_fails_the_call_with
             Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))], vec![Step::Drop]]);
         let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-        setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+        setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
         setup.clock.advance(PROBE_AFTER);
-        let second = setup.provider.complete(request("gpt-5.5", "hi")).await;
+        let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await;
 
         // The pong showed a live server that has the request: the break is the call's
         // failure, and the call does not go out again.
@@ -732,7 +732,7 @@ async fn a_connection_that_breaks_after_the_request_went_out_fails_the_call_with
     let socket = Socket::serving(vec![vec![Step::Drop]]);
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    let events = collect(setup.provider.stream(request("gpt-5.5", "hi")).await.unwrap()).await;
+    let events = collect(setup.provider.stream(request("gpt-6.1-sol", "hi")).await.unwrap()).await;
 
     assert_eq!(events.len(), 1);
     let error = events[0].as_ref().unwrap_err();
@@ -751,7 +751,7 @@ async fn a_server_that_says_nothing_after_the_request_fails_the_call_at_the_read
         eventually(|| setup.clock.waits_for(super::READ_TIMEOUT)).await;
         setup.clock.advance(super::READ_TIMEOUT);
     };
-    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-5.5", "hi")), silence);
+    let (stream, ()) = tokio::join!(setup.provider.stream(request("gpt-6.1-sol", "hi")), silence);
     let events = collect(stream.unwrap()).await;
 
     assert_eq!(events.len(), 1);
@@ -780,9 +780,9 @@ async fn an_error_status_before_the_answer_fails_the_call_as_on_http_without_a_p
     ];
     let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
 
-    let overflow = setup.provider.stream(request("gpt-5.5", "hi")).await.err().unwrap();
-    let limited = setup.provider.stream(request("gpt-5.5", "hi")).await.err().unwrap();
-    let third = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let overflow = setup.provider.stream(request("gpt-6.1-sol", "hi")).await.err().unwrap();
+    let limited = setup.provider.stream(request("gpt-6.1-sol", "hi")).await.err().unwrap();
+    let third = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert!(overflow.is_context_overflow(), "{overflow:?}");
     assert!(
@@ -813,7 +813,7 @@ async fn a_second_refused_token_in_a_row_pauses_websockets() {
         let setup = setup(vec![first, second], posts, WebSocketMode::Auto).await;
 
         for _ in 0..3 {
-            setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+            setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
         }
 
         // The first refusal tries the socket again on the next call; the second one
@@ -855,7 +855,7 @@ async fn a_second_connection_for_one_conversation_does_not_cut_the_answer_of_the
     };
     let sockets = super::Sockets::new(clock.clone());
     let body = crate::openai::convert::request_body(
-        &request("gpt-5.5", "hi"),
+        &request("gpt-6.1-sol", "hi"),
         &OpenAiConfig::subscription(),
         None,
     );
@@ -922,7 +922,7 @@ async fn a_new_connection_tells_its_connect_and_a_reused_one_tells_nothing() {
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
 
     let first = Heard::default();
     let stream = setup.provider.stream_with_notices(request.clone(), &first).await.unwrap();
@@ -939,7 +939,7 @@ async fn a_new_connection_tells_its_connect_and_a_reused_one_tells_nothing() {
 }
 
 fn warmup() -> Warmup {
-    Warmup::new("gpt-5.5", Some(KEY.to_owned()))
+    Warmup::new("gpt-6.1-sol", Some(KEY.to_owned()))
 }
 
 #[tokio::test]
@@ -952,7 +952,7 @@ async fn a_warm_up_opens_the_socket_and_sends_no_request_so_the_call_takes_it() 
     eventually(|| setup.server.sockets().len() == 1).await;
     // The socket waits for the call: no model ran.
     assert!(setup.server.sockets()[0].messages.is_empty());
-    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let first = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(first.message.text(), "Hello.");
     let sockets = setup.server.sockets();
@@ -970,7 +970,7 @@ async fn a_call_waits_for_the_handshake_of_its_warm_up_and_opens_no_second_socke
     let warmup = warmup();
     let (warmed, first) = tokio::join!(
         setup.provider.warm(&warmup),
-        setup.provider.complete(request("gpt-5.5", "hi"))
+        setup.provider.complete(request("gpt-6.1-sol", "hi"))
     );
 
     assert!(warmed);
@@ -990,7 +990,7 @@ async fn a_call_that_waits_for_the_handshake_of_its_warm_up_tells_its_connect() 
     let call = async {
         // NOTE: the warm-up starts its handshake first.
         eventually(|| setup.provider.sockets().is_opening(KEY)).await;
-        let stream = setup.provider.stream_with_notices(request("gpt-5.5", "hi"), &heard).await;
+        let stream = setup.provider.stream_with_notices(request("gpt-6.1-sol", "hi"), &heard).await;
         collect(stream.unwrap()).await
     };
     let (warmed, answer) = tokio::join!(setup.provider.warm(&warmup), call);
@@ -1008,7 +1008,7 @@ async fn a_warm_up_pings_a_long_quiet_socket_so_the_call_after_the_pong_sends_no
         vec![Step::Send(answer("resp_2", "Again."))],
     ]);
     let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
-    let mut request = request("gpt-5.5", "hi");
+    let mut request = request("gpt-6.1-sol", "hi");
     let first = setup.provider.complete(request.clone()).await.unwrap();
     setup.clock.advance(PING_FIRST);
 
@@ -1038,7 +1038,7 @@ async fn a_call_that_takes_over_the_ping_of_a_warm_up_waits_the_whole_probe_time
         Socket::serving(vec![vec![Step::Send(answer("resp_1", "Hello."))], vec![Step::Hang]])
             .without_pongs();
     let setup = setup(vec![socket], vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
     assert!(setup.provider.warm(&warmup()).await);
     eventually(|| setup.server.sockets()[0].pings == 1).await;
@@ -1054,7 +1054,7 @@ async fn a_call_that_takes_over_the_ping_of_a_warm_up_waits_the_whole_probe_time
         assert!(setup.server.posts().is_empty());
         setup.clock.advance(PROBE_TIMEOUT - late);
     };
-    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-5.5", "hi")), stall);
+    let (second, ()) = tokio::join!(setup.provider.complete(request("gpt-6.1-sol", "hi")), stall);
 
     assert_eq!(second.unwrap().message.text(), "Your shell is zsh 5.9.");
     assert_eq!(setup.server.posts().len(), 1);
@@ -1067,7 +1067,7 @@ async fn a_warm_up_closes_a_quiet_socket_that_gives_no_pong_and_the_call_opens_a
         Socket::serving(vec![vec![Step::Send(answer("resp_2", "Fresh."))]]),
     ];
     let setup = setup(sockets, Vec::new(), WebSocketMode::Auto).await;
-    setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
     setup.clock.advance(PROBE_AFTER);
 
     let warmed = setup.provider.warm(&warmup()).await;
@@ -1080,7 +1080,7 @@ async fn a_warm_up_closes_a_quiet_socket_that_gives_no_pong_and_the_call_opens_a
     let warmed = setup.provider.warm(&warmup()).await;
     assert!(warmed);
     eventually(|| setup.server.sockets().len() == 2).await;
-    let second = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let second = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(second.message.text(), "Fresh.");
     let sockets = setup.server.sockets();
@@ -1099,7 +1099,7 @@ async fn a_warm_up_that_cannot_connect_leaves_the_call_free_to_open_the_socket()
 
     assert!(setup.provider.warm(&warmup()).await);
     eventually(|| setup.server.sockets().len() == 1).await;
-    let first = setup.provider.complete(request("gpt-5.5", "hi")).await.unwrap();
+    let first = setup.provider.complete(request("gpt-6.1-sol", "hi")).await.unwrap();
 
     assert_eq!(first.message.text(), "Hello.");
     assert_eq!(setup.server.sockets().len(), 2);
@@ -1109,7 +1109,7 @@ async fn a_warm_up_that_cannot_connect_leaves_the_call_free_to_open_the_socket()
 #[tokio::test]
 async fn a_warm_up_opens_nothing_without_a_conversation_or_for_a_call_over_http() {
     let setup = setup(Vec::new(), Vec::new(), WebSocketMode::Auto).await;
-    let without = Warmup::new("gpt-5.5", None);
+    let without = Warmup::new("gpt-6.1-sol", None);
     assert!(setup.provider.warm(&without).await);
     let off = setup_off().await;
     let warmup = warmup();

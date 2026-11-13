@@ -53,6 +53,9 @@ struct Builtin {
     max_context_window: u64,
     efforts: &'static [&'static str],
     default_effort: &'static str,
+    /// False for a model that only the API serves: the subscription backend refuses
+    /// it, so its list leaves it out.
+    subscription: bool,
 }
 
 /// The models of Codex's bundled catalog with `visibility: "list"`, in the order of
@@ -72,6 +75,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_ULTRA,
         default_effort: "low",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-6-astra",
@@ -81,6 +85,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_ULTRA,
         default_effort: "low",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-6-sol",
@@ -90,6 +95,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_ULTRA,
         default_effort: "medium",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-6-luna",
@@ -99,6 +105,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_MAX,
         default_effort: "medium",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-5.6-sol",
@@ -108,6 +115,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_ULTRA,
         default_effort: "low",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-5.6-terra",
@@ -117,6 +125,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_ULTRA,
         default_effort: "medium",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-5.6-luna",
@@ -126,6 +135,7 @@ const TABLE: &[Builtin] = &[
         max_context_window: MAX_CONTEXT_WINDOW,
         efforts: UP_TO_MAX,
         default_effort: "medium",
+        subscription: true,
     },
     Builtin {
         slug: "gpt-5.5",
@@ -135,6 +145,8 @@ const TABLE: &[Builtin] = &[
         max_context_window: CONTEXT_WINDOW,
         efforts: UP_TO_XHIGH,
         default_effort: "medium",
+        // NOTE: the ChatGPT backend refused it in a live test on 2026-11-05.
+        subscription: false,
     },
 ];
 
@@ -149,6 +161,7 @@ pub(crate) fn builtin_entries(backend: Backend) -> Vec<CatalogEntry> {
     let api = backend == Backend::Api;
     TABLE
         .iter()
+        .filter(|builtin| api || builtin.subscription)
         .map(|builtin| CatalogEntry {
             slug: builtin.slug.to_owned(),
             display_name: Some(builtin.display_name.to_owned()),
