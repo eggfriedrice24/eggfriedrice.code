@@ -139,12 +139,50 @@ shows the words: `refused: no message of yours names this
 action; a message names it with: publish`. No text that the model read can bring the
 name about.
 
-### The one question that stays
+### The two questions that stay
 
-A delete or a write of a tree that only you give up still asks you: `~`, `/`, a
-directory above or outside your home directory, and a directory that holds efr's
-files, a secret, a file that runs code later or two or more projects. Full mode asks
-about the same trees. You also answer every exit while `classifier.enabled = false`.
+**A tree that only you give up.** A delete or a write of `~`, `/`, a directory above
+or outside your home directory, and a directory that holds efr's files, a secret, a
+file that runs code later or two or more projects. Full mode asks about the same
+trees.
+
+**Code that the sandbox wrote, outside the sandbox.** The sandbox lets the model write
+any file of your project. So efr asks you before such a file runs or is installed
+outside the sandbox, with your full rights:
+
+- `sudo ./scripts/setup.sh`, or `./deploy.sh` in a line that runs outside the sandbox:
+  a program that lies in a write root or changed in this turn;
+- `sh deploy.sh`, `bash -e ./deploy.sh`, `python3 build.py`, `source ./env.sh` in such
+  a line: a file in a write root that the line names for an interpreter;
+- `sudo sh -c './setup.sh --prod'`, `bash -lc 'cd scripts && ./deploy.sh'`: efr reads
+  the code for a shell as a line of its own;
+- `cd scripts && sudo ./setup.sh`: efr follows each `cd` of the line to find the file;
+- `sudo cp app.service /etc/systemd/system/`: a file from a write root that a line
+  copies into a system directory;
+- `sudo make install`, or `cargo test && git push`: a build or task tool, such as
+  `make`, `just`, `npm`, `cargo` or `pytest`, that would run outside the sandbox in a
+  write root. It runs what the files of that directory say, and the model can write
+  them. Give such a tool its own line: it then runs in the sandbox with no question;
+- `ln -s ~/p/app/watcher.service ~/.config/systemd/user/`, and the same with `cp`,
+  `mv`, `install` or a redirect: a line that installs a file from a write root as a
+  unit, an autostart entry or another file that runs code later;
+- `git push` when the sandbox can write a git hook of the repository.
+
+The reviewer reads your messages and the line, never the file, so it cannot judge what
+would run. efr knows these cases from facts about the files that the line names and
+from the directory where a build tool runs. So code that stands in the line itself, as
+in `python3 -c '...'`, asks nothing: the reviewer reads it there. When efr cannot tell
+what a line would run, as in `sudo "$TOOL"` or `sudo ./scripts/set*.sh`, it asks you
+too. The question names each file, or the directory of a build tool:
+
+```text
+    efr  the line runs or installs ~/p/app/deploy.sh, which a sandboxed command can write
+    efr  the line runs make in ~/p/app, where a sandboxed command can write the files that make runs
+```
+
+Read that file, or the build file of that directory, before you say yes.
+
+You also answer every exit while `classifier.enabled = false`.
 
 The question shows the whole line and every program:
 

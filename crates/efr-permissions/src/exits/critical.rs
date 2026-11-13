@@ -445,7 +445,7 @@ fn after_cd(cd: &CdTarget, dir: Option<&Path>, locations: &Locations) -> Option<
 
 /// [`dirs`] from one start for the segments of one line, in their order: each segment
 /// sees the `cd`s of the one before it and more, so the walk reads each `cd` once.
-struct DirWalk {
+pub(super) struct DirWalk {
     /// The dir after the `cd`s read so far.
     dir: Option<PathBuf>,
     /// How many `cd`s it read.
@@ -457,7 +457,7 @@ struct DirWalk {
 }
 
 impl DirWalk {
-    fn new(start: Option<PathBuf>) -> Self {
+    pub(super) fn new(start: Option<PathBuf>) -> Self {
         DirWalk {
             dir: start.clone(),
             read: 0,
@@ -468,7 +468,7 @@ impl DirWalk {
 
     /// The dirs of [`dirs`] for a segment after the `cd`s `cds`, which start with the
     /// `cd`s that the walk read.
-    fn after(&mut self, cds: &[CdTarget], locations: &Locations) -> &[Option<PathBuf>] {
+    pub(super) fn after(&mut self, cds: &[CdTarget], locations: &Locations) -> &[Option<PathBuf>] {
         debug_assert!(self.read <= cds.len(), "a later segment sees fewer cds");
         for cd in &cds[self.read..] {
             self.dir = after_cd(cd, self.dir.as_deref(), locations);

@@ -233,6 +233,25 @@ Modules:
   only raises the approver, so a guarded exit stays guarded, and a guarded exit merges
   only with a guarded exit of the same names, so "push" never names the publish of
   `git push && npm publish`),
+  `unread_code` (true when a "yes" would run or install, outside the sandbox, code
+  that a sandboxed command wrote or can write and that no reviewer reads.
+  `exits/code.rs` finds it for each exit that runs the line in the exit child. One
+  walk over the line gives the items: each program word, the places of a program
+  word that names a file by a path, the operands of an interpreter or of `source`,
+  the operands of a line that names a place where a file runs code later (a floor,
+  or a system dir as the target of a copy or of a redirect), a pattern of the shell
+  in the place of such a file, and each runner of `programs::RUNNERS`, such as
+  `make` or `cargo`. The code of `sh -c`, `eval` and `su -c` is a line of its own. A
+  relative word resolves in each dir where a `cd` of the line can lead (`RunDirs`).
+  `fact_requests` adds the paths and the program words of the walk (`code_asks`) to
+  the request, so efrd says which files are there and which programs changed; no
+  option of the line is read. `sandbox_code` then marks a file that is there and
+  that a sandboxed command can write, a program that changed in this turn, a runner
+  or a pattern by its dir alone, and a program that efr cannot find, where the mark
+  fails closed; a package publish gets none. Without the facts of efrd there is no
+  mark. Writable git code gives the mark too. Each file or place gets a note for the
+  question, at most four and a count, and such an exit stays the user's own
+  question),
   the `names` that name it, what efrd copies into its home store first (`copies`: a
   `Home` file, or a `HomeDir` with what it holds for a dir target, an `above_root`
   write and the parent that a `Parent` bind opens; `backup_before_write` when it

@@ -169,9 +169,11 @@ turns.
   `Approver::Guarded` (an exit of the highest risk that no user message names):
   refused with no review, `exit_judged` with the judge `floor` and the words that name
   it (`exit::Unreviewed`, `exit::missing_names`); a payload that the classifier cannot
-  read whole is refused the same way. One exit stays the user's own question: an
-  `above_root` exit of a tree that the delete guard of full mode covers too
-  (`exit::guarded_tree`). `exit_requested` and `exit_review_started` come in one batch, the
+  read whole is refused the same way. Two exits stay the user's own question
+  (`exit::asks_the_user`): an `above_root` exit of a tree that the delete guard of
+  full mode covers too (`exit::guarded_tree`), and an exit that would run or install,
+  outside the sandbox, code that a sandboxed command wrote or can write and that no
+  reviewer reads (`exit::unread_code`, from `ExitNeed::unread_code`). `exit_requested` and `exit_review_started` come in one batch, the
   judge runs while the user can still interrupt, and `exit_judged` (judge
   `classifier`, with the model, the latency, the step of the chain, the skipped models,
   the record's hash, `cached` and `reasked`, from `JudgeOutcome::reasked`: the judge

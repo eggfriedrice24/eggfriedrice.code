@@ -91,8 +91,14 @@ impl Place {
             ("PATH".to_owned(), path),
             ("LANG".to_owned(), "C.UTF-8".to_owned()),
         ]);
+        // NOTE: the clock starts after the files of the test were written, so the fake
+        // `scp` of the test does not count as a program that changed in the turn. Such
+        // a program asks the user, and these tests are about a line that the reviewer
+        // allows.
+        let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
         let daemon = self
             .builder()
+            .clock(efr_test_support::TestClock::starting_at(start))
             .shell_env(env)
             .sandbox_launcher(fake.path())
             .probe_override(ready())

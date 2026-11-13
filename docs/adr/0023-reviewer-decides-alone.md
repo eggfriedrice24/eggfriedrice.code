@@ -50,9 +50,37 @@ Two facts of efr make the same step safer here than without a sandbox:
    unless a message of the user names them, by a word match that efr does itself. The
    refusal shows the words. This is the one check that no model makes, so no text can
    talk its way past it.
-4. One exit stays the user's own question: a write or a delete of a tree that the
-   delete guard of full mode covers too (ADR 0015), such as the home directory. A mode
-   with a sandbox must not delete such a tree with less care than the mode without.
+4. Two exits stay the user's own question.
+   - A write or a delete of a tree that the delete guard of full mode covers too (ADR
+     0015), such as the home directory. A mode with a sandbox must not delete such a
+     tree with less care than the mode without.
+   - An exit that would run or install, outside the sandbox, code that a sandboxed
+     command wrote or can write and that no reviewer reads (`ExitNeed::unread_code`):
+     a script of the project in a line with `sudo` or in a line that runs outside the
+     sandbox, a file from a write root that a line installs as a unit or an autostart
+     entry, and a git hook that the sandbox can write. The reviewer reads the user's
+     messages and the line, never the file, so its allow would give that code the
+     user's full rights unseen. This is the reason of ADR 0006 for the sandbox: the
+     model writes code freely in the project. An exit that runs this code outside the
+     sandbox undoes what the sandbox is for. No model decides the mark. For a file,
+     efr sets it from a fact of efrd that the file is there, in a write root. A first
+     form of this rule read the options of the line (`-c`, `-e`) to tell inline code
+     from a script. It was wrong on both sides: `bash -e ./deploy.sh` passed, and
+     `bash -lc '...'` asked. So efr asks efrd about every word that can name a file,
+     and no option of the line changes the answer. A relative word resolves in each
+     directory where a `cd` of the line can lead, and the code of `sh -c '...'` is a
+     line of its own, so `sudo sh -c './setup.sh'` gets the mark of its script. The
+     same holds for a file that a line copies into a system directory, such as
+     `sudo cp app.service /etc/systemd/system/`. Two cases have no file that the
+     line names. A build or task tool, such as `make`, `just`, `npm` or `cargo`, runs
+     what the files of its directory say: for a short list of such tools, the
+     directory decides, and the mark comes when the tool can run in a write root. So
+     `sudo make install` and `cargo test && git push` ask the user in a project. The
+     cost is a question for a line that mixes a build with an exit; the model avoids
+     it when it runs the build as its own line, in the sandbox. A package publish
+     keeps decision 3. And where efr cannot tell what the line runs, such as
+     `sudo "$TOOL"` or `sudo ./scripts/set*.sh`, the mark fails closed. Without the
+     facts of efrd, which is a machine without the sandbox, there is no mark.
 5. A refusal counts as a denial, whoever made it: the reviewer, a rule after a review,
    or a rule with no review. After 3 in a row, or 10 in one turn, the model can finish
    the work that stays in the sandbox, and its next exit stops the turn. An allow
@@ -77,10 +105,15 @@ found.
   Before, a name check that efr did itself stood behind each allow of an unnamed write
   or host. Now one loose rating of a small model can open such an action. Only the
   three exits by name keep a check that no model makes.
-- The reviewer never reads a file. For a line that runs a program that the sandbox
-  wrote, or that installs a file that efr could not read, it decides from the user's
-  request and the line. The user who answered such a question did not see the file
-  either, but knew the project.
+- The reviewer never reads a file. The second question of decision 4 covers the cases
+  that a fact shows, and the build tools of a short list. It does not cover another
+  program of the system that reads a file of the project, such as `docker compose up`
+  with the project's compose file, or a file that the line hides, such as
+  `sudo bash "$SCRIPT"`: that line goes to the reviewer under the request rule, and
+  the reviewer's prompt tells it to refuse a line that hides the file it runs.
+- efr cannot tell whether a `cd` works, so it counts the directory where the line
+  starts too. `cd ~/src/tool && sudo make install`, typed in a project, asks a
+  question that it does not need.
 - A wrong refusal costs the user one message. That is more than one key, so the
   reviewer's prompt must not refuse what the user clearly asked for. The first live
   use must check this with real models: every test uses a recorded reviewer.

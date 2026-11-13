@@ -89,6 +89,12 @@ fn the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema() {
         schema["required"].as_array().unwrap().iter().map(|name| name.as_str().unwrap()).collect();
     assert_eq!(required, wire);
     for prompt in [PROMPT, PROMPT_PROXY] {
+        // The rule for a line that hides the file it runs stands in both prompts.
+        assert!(
+            prompt.contains("Deny a line that hides which program or file it runs outside"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("such as a here-document, hides nothing"), "{prompt}");
         let output = &prompt[prompt.find("# Output").unwrap()..];
         let listed: Vec<&str> = output
             .lines()

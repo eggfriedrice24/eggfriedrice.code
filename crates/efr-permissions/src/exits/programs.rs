@@ -209,10 +209,11 @@ const INTERPRETERS: &[&str] = &[
 /// The words after an interpreter that only print its version or help.
 const INTERPRETER_INFO: &[&str] = &["--version", "-V", "--help", "-h"];
 
-/// True when `words`, one command, runs an interpreter on code that efr cannot read: an
-/// inline program (`python3 -c`, `perl -e`, `sh -c`), a script file, or its input. Only a
-/// call that prints the version or the help, such as `python3 --version`, runs none.
-pub(super) fn runs_unread_code(words: &[String]) -> bool {
+/// True when `words`, one command, runs an interpreter: on an inline program
+/// (`python3 -c`, `perl -e`, `sh -c`), a script file, or its input. Such code can do
+/// what no word of the line shows. Only a call that prints the version or the help,
+/// such as `python3 --version`, runs none.
+pub(super) fn runs_interpreter(words: &[String]) -> bool {
     let Some((first, args)) = words.split_first() else {
         return false;
     };
@@ -220,6 +221,109 @@ pub(super) fn runs_unread_code(words: &[String]) -> bool {
     let name = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
     INTERPRETERS.contains(&name)
         && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
+}
+
+/// True when `words`, one command, can run a file that it names as an operand: an
+/// interpreter ([`runs_interpreter`]), or the shell's own `source` or `.`. Which
+/// operand is the file depends on each interpreter's options, so efr asks about every
+/// operand and lets the facts say which of them is a file.
+pub(super) fn runs_file(words: &[String]) -> bool {
+    runs_interpreter(words)
+        || words.first().is_some_and(|first| matches!(first.as_str(), "source" | "."))
+}
+
+/// The shells whose `-c` string [`inline_code`] gives.
+const INLINE_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
+
+/// The code that `words`, one command, runs from one of its words, as a line of the
+/// shell: the string of `sh -c '...'` (also `bash -lc '...'`), the words of `eval`, and
+/// the string of `su -c '...'`. `None` for a shell that runs a file or its input, and
+/// for any other command. An expansion in the code stands there as
+/// [`OPAQUE`](super::scan::OPAQUE).
+pub(super) fn inline_code(words: &[String]) -> Option<String> {
+    let (first, args) = words.split_first()?;
+    match base_name(first) {
+        "eval" => (!args.is_empty()).then(|| args.join(" ")),
+        "su" => {
+            let mut args = args.iter();
+            while let Some(word) = args.next() {
+                if matches!(word.as_str(), "-c" | "--command" | "--session-command") {
+                    return args.next().cloned();
+                }
+                let value = word
+                    .strip_prefix("--command=")
+                    .or_else(|| word.strip_prefix("--session-command="));
+                if let Some(value) = value {
+                    return Some(value.to_owned());
+                }
+            }
+            None
+        }
+        shell if INLINE_SHELLS.contains(&shell) => {
+            let mut command = false;
+            let mut args = args.iter();
+            while let Some(word) = args.next() {
+                if word == "--" {
+                    return command.then(|| args.next().cloned()).flatten();
+                }
+                if matches!(word.as_str(), "-o" | "+o" | "-O" | "+O") {
+                    args.next();
+                } else if word.starts_with(['-', '+']) && word.len() > 1 {
+                    command |= word.starts_with('-') && word.contains('c');
+                } else {
+                    return command.then(|| word.clone());
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Runners: programs that run what the files of a directory say, which the line does
+/// not name: a `Makefile`, a `justfile`, the scripts of a `package.json`, a `build.rs`,
+/// a `setup.py`, a `conftest.py`. A version number at the end of the name does not
+/// count, so `pip3` is here too. The list is short on purpose: the build and task
+/// tools that a coding agent runs each day.
+const RUNNERS: &[&str] = &[
+    "make", "gmake", "bmake", "just", "ninja", "cmake", "ctest", "meson", "rake", "task", "npm",
+    "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "cargo", "go", "pip", "pipx", "uv",
+    "uvx", "poetry", "pdm", "hatch", "tox", "nox", "pytest", "gradle", "mvn", "ant", "bazel",
+    "dotnet", "composer", "bundle", "zig", "mise",
+];
+
+/// True when `words`, one command, runs a runner ([`RUNNERS`]): a program that runs
+/// code from the files of the directory where it runs or of a directory that an operand
+/// names (`make -C dir`, `cargo run --manifest-path dir/Cargo.toml`). Only a call that
+/// prints the version or the help runs none.
+pub(super) fn runs_project_files(words: &[String]) -> bool {
+    let Some((first, args)) = words.split_first() else {
+        return false;
+    };
+    let name = base_name(first).to_lowercase();
+    let name = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    RUNNERS.contains(&name) && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
+}
+
+/// The forms of the word `word` of a command that can name a file: the word itself
+/// when it is no option, the value that stands at a short option (`-fproject.awk`),
+/// and the value after the `=` of a long option (`--file=x.awk`). None for a word that
+/// only the shell can read.
+pub(super) fn operand_forms(word: &str) -> Vec<&str> {
+    if word.contains([OPAQUE, '$']) {
+        return Vec::new();
+    }
+    let Some(option) = word.strip_prefix('-') else {
+        return vec![word];
+    };
+    if let Some(long) = option.strip_prefix('-') {
+        return long.split_once('=').map(|(_, value)| value).into_iter().collect();
+    }
+    // NOTE: `-fproject.awk`: the letter of the option, then its value.
+    let mut letters = option.chars();
+    letters.next();
+    let value = letters.as_str();
+    if value.is_empty() { Vec::new() } else { vec![value] }
 }
 
 /// The base name of a program word, so `/usr/bin/sudo` is `sudo`.

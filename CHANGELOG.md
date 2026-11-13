@@ -139,9 +139,22 @@ into the GitHub release notes, and it stops when the section is missing.
     `cargo owner`), the whole session bus, and the socket of your ssh or gpg agent. The
     refusal shows the words that name the action, such as `publish`. A text that the
     model read, such as a web page, cannot bring the name about.
-  - One question about such an action stays, as in full mode: a write or a delete of
-    `~`, `/`, a directory above or outside your home directory, or a directory that
-    holds efr's files, a secret, a file that runs code later or two or more projects.
+  - Two questions about such an action stay. The first, as in full mode: a write or a
+    delete of `~`, `/`, a directory above or outside your home directory, or a
+    directory that holds efr's files, a secret, a file that runs code later or two or
+    more projects. The second: code that the sandbox wrote, or can write, and that
+    would run or be installed outside the sandbox with your full rights, such as
+    `sudo ./scripts/setup.sh` or `sh deploy.sh` with a script of your project, also in
+    the code of `sudo sh -c '...'`, a file from your project that a line installs as a
+    unit or an autostart entry or copies into a system directory such as `/etc`, or a
+    `git push` with a hook that the sandbox can write. The reviewer cannot read such a
+    file, so efr asks you, and the question names the file. efr also asks you when it
+    cannot tell which program such a line runs, as in `sudo "$TOOL"`. The same
+    question comes for a build or task tool, such as `make`, `just`, `npm`, `cargo` or
+    `pytest`, in a line that leaves the sandbox as a whole, such as
+    `sudo make install` or `cargo test && git push` in your project: the tool runs
+    what the files of the project say. Such a tool on its own line runs in the sandbox
+    and asks nothing.
   - After 3 refusals in a row, or 10 in one turn, the model can finish the work that
     stays in the sandbox, and its next action that leaves it stops the turn. Before,
     efr then asked you for the rest of the turn.

@@ -343,9 +343,38 @@ asks you nothing about an exit, and the class says how strict efr is:
   session bus, and the socket of a credential agent that efr knows from
   `$SSH_AUTH_SOCK` or `$GPG_AGENT_INFO` or that lies under a mask. efr refuses them
   with no review unless a message of yours names them.
-- One exit still asks you, as in full mode: an `above_root` write or delete of `~`,
-  `/`, a directory above or outside your home directory, and a directory that holds
-  efr's files, a secret, a file that runs code later or more than one project.
+- Two exits still ask you. The first, as in full mode: an `above_root` write or delete
+  of `~`, `/`, a directory above or outside your home directory, and a directory that
+  holds efr's files, a secret, a file that runs code later or more than one project.
+  The second: an exit that would run or install, outside the sandbox, code that a
+  sandboxed command wrote or can write and that no reviewer reads
+  (`ExitNeed::unread_code`). The mark is for each exit that runs the whole line
+  outside the sandbox (`outside`, `privilege`, `persistence`, `upload`,
+  `synced_write`, `above_root`, and a `write` that no contained bind serves), and efr
+  sets it for a file from a fact of efrd about a file that the line names: a program
+  word, also behind a wrapper, whose file lies in a real write root or changed in
+  this turn; a file in a real write root that the line names for an interpreter or
+  for `source`; a file in a real write root that the line names while it also names
+  a place where a file runs code later (a floor, or a system directory as the target
+  of a copy or of a redirect), whatever the command; and git code that a sandboxed
+  command can write. The fact request asks efrd about every word of such a command
+  that can name a file (`exits::code::code_asks`), so no option of the line changes
+  the answer. A relative word resolves in the directory where the line starts and in
+  the directory after each `cd` of the line, so `cd scripts && sudo ./setup.sh` gets
+  the mark too. efr reads the code of `sh -c '...'`, `eval` and `su -c` as a line of
+  its own, with the same rules. Some marks come from the place of a word, with no
+  fact of a file. The first is for a runner, a build or task tool such as `make`,
+  `just`, `npm`, `cargo` or `pytest`, that can run in a real write root or that the
+  line gives a path there: it runs what the files of that directory say, and the line
+  names none of them. A package publish keeps its own class. The second is for a
+  pattern of the shell in the place of a file, when it reads a directory in a real
+  write root. The third is for a program that efr cannot find, where the mark fails
+  closed: a word that only the shell can read, a relative word after a `cd` that efr
+  cannot follow, a runner in a directory that efr does not know, and code for a shell
+  inside code for a shell. Inline code of another interpreter, such as
+  `python3 -c '...'`, a line without the facts of efrd, and git code that efrd could
+  not check keep the request rule. The question shows a note for each file
+  ([`docs/sandbox.md`](sandbox.md), "Code of the sandbox outside the sandbox").
 
 Each exit has a kind. In the table, "only you" names the class:
 

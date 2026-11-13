@@ -538,12 +538,40 @@ fn outside_requirements(line: &str, cwd: &Path, facts: CallFacts) -> Requirement
         .with_facts(facts)
 }
 
+/// A script that the sandbox wrote would run outside the sandbox with the user's full
+/// rights, and no reviewer reads it. That exit stays the user's own question, also
+/// when the user asked for it: the reviewer never sees it.
 #[tokio::test]
-async fn outside_with_program_changed_this_turn_needs_a_clear_request() {
+async fn outside_with_program_changed_this_turn_asks_user() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let script = setup.cwd.join("deploy.sh");
+    let facts = programs(&[("./deploy.sh", script.to_str().unwrap(), true)]);
+    let requirements = outside_requirements("./deploy.sh", &setup.cwd, facts);
+    let (h, question) =
+        decided(setup, outside("./deploy.sh"), "deploy it", Some(("./deploy.sh", requirements)))
+            .await;
+    assert!(question);
+    assert_eq!(judge.calls(), 0);
+    let events = h.events().await;
+    let Some(Event::ApprovalRequested { exit: Some(exit), .. }) =
+        events.iter().find(|e| matches!(e, Event::ApprovalRequested { .. }))
+    else {
+        panic!("the user is asked");
+    };
+    assert!(exit.user_only);
+    // The question says why efr asks, and names the file to read.
+    let why = exit.facts.iter().find(|fact| fact.ends_with("which a sandboxed command can write"));
+    assert!(why.is_some_and(|fact| fact.contains("deploy.sh")), "{:?}", exit.facts);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+}
+
+/// The same line with a program that the sandbox cannot write, and with no fact about
+/// the program: the reviewer decides, under the request rule for the missing fact.
+#[tokio::test]
+async fn outside_with_no_fact_about_its_program_needs_a_clear_request() {
     strict(outside("./deploy.sh"), "deploy it", |setup| {
-        let script = setup.cwd.join("deploy.sh");
-        let facts = programs(&[("./deploy.sh", script.to_str().unwrap(), true)]);
-        let requirements = outside_requirements("./deploy.sh", &setup.cwd, facts);
+        let requirements = outside_requirements("./deploy.sh", &setup.cwd, programs(&[]));
         Some(("./deploy.sh".to_owned(), requirements))
     })
     .await;

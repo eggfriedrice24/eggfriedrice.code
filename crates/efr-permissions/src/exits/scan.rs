@@ -43,8 +43,9 @@ pub(super) struct Segment {
     /// The targets of the `cd` and `pushd` commands before it in the line, in order,
     /// when each one names one literal directory (`cd` alone names `~`); `None` when
     /// one of them goes where efr cannot read, such as `popd`, `cd -` or `cd "$X"`.
-    /// Empty when no such command comes before it. Only the guard of full mode reads
-    /// it (`critical.rs`); [`after_cd`](Self::after_cd) stays what the exits read.
+    /// Empty when no such command comes before it. The guard of full mode reads it
+    /// (`critical.rs`), and the search for code of the sandbox (`code.rs`);
+    /// [`after_cd`](Self::after_cd) stays what the other exits read.
     pub(super) cds: Option<Cds>,
     /// True for the segment that stands for a substitution below [`MAX_DEPTH`], whose
     /// text the split did not read: its words are `sh -c` and an [`OPAQUE`] script, so

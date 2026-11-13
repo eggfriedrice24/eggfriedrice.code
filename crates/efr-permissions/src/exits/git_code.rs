@@ -256,17 +256,24 @@ pub(super) fn apply(
         return;
     }
     let Some(facts) = facts else { return };
-    let notes = match checked(triggers, facts) {
+    // NOTE: git code that a sandboxed command can write is code that no reviewer reads
+    // (`ExitNeed::unread_code`). Code that efr could not check shows nothing: it keeps
+    // the stricter approver only.
+    let (notes, writable) = match checked(triggers, facts) {
         CodeState::Clean => return,
-        CodeState::NotChecked(dir) => vec![match dir {
-            Some(dir) => format!("efr could not check the git code of {}", tilde(&dir, home)),
-            None => "efr could not check the git code of the line's repository".to_owned(),
-        }],
-        CodeState::Writable(items) => writable_notes(&items, home),
+        CodeState::NotChecked(dir) => (
+            vec![match dir {
+                Some(dir) => format!("efr could not check the git code of {}", tilde(&dir, home)),
+                None => "efr could not check the git code of the line's repository".to_owned(),
+            }],
+            false,
+        ),
+        CodeState::Writable(items) => (writable_notes(&items, home), true),
     };
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
         // NOTE: only raised: a guarded upload, such as a publish, stays guarded.
         need.approver = need.approver.max(Approver::User);
+        need.unread_code |= writable;
         for note in &notes {
             if !need.notes.contains(note) {
                 need.notes.push(note.clone());
@@ -356,7 +363,7 @@ fn is_config_key(item: &str) -> bool {
 }
 
 /// `path` with the home directory as `~`.
-fn tilde(path: &Path, home: &Path) -> String {
+pub(super) fn tilde(path: &Path, home: &Path) -> String {
     let shown = match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
         Ok(rest) => format!("~/{}", rest.display()),

@@ -478,11 +478,27 @@ pub(crate) fn approver(need: &ExitNeed, messages: &[String]) -> Approver {
 /// secret, a file that runs code later, or two or more projects. The engine gives such
 /// an `above_root` exit to the user whatever the messages say, by the test that the
 /// delete guard of full mode reads. So the one question that full mode keeps is the
-/// one question about an exit that `auto` keeps while its reviewer decides alone: a
-/// mode with a sandbox must not delete a home directory with less care than the mode
-/// without one.
+/// question that `auto` keeps too while its reviewer decides alone: a mode with a
+/// sandbox must not delete a home directory with less care than the mode without one.
 pub(crate) fn guarded_tree(decision: &Decision) -> bool {
     decision.exits().any(|need| need.kind == ExitKind::AboveRoot && need.approver == Approver::User)
+}
+
+/// True when an exit of `decision` would run or install, outside the sandbox, code that
+/// a sandboxed command wrote or can write and that no reviewer reads
+/// ([`ExitNeed::unread_code`]): `./deploy.sh` or `sudo ./setup.sh` with a script of the
+/// project, a link from the project into a unit dir, a push with a git hook that the
+/// sandbox can write. The reviewer reads the line and the user's messages, never the
+/// file, so its allow would give that code the user's full rights unseen: the one case
+/// where an exit undoes what the sandbox is for. efr knows it from its own facts.
+pub(crate) fn unread_code(decision: &Decision) -> bool {
+    decision.exits().any(|need| need.unread_code)
+}
+
+/// True when the exits of `decision` stay the user's own question while the reviewer
+/// decides every other exit alone: [`guarded_tree`] or [`unread_code`].
+pub(crate) fn asks_the_user(decision: &Decision) -> bool {
+    guarded_tree(decision) || unread_code(decision)
 }
 
 /// Who approves the exits of `decision`: the strictest approver of its exits, after

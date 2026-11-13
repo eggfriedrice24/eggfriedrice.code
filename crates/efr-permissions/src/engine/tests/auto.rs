@@ -490,18 +490,28 @@ fn link_into_wants_goes_to_classifier_when_named() {
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
     assert_eq!(need.installs, [installed(evil)]);
     assert!(need.backup_before_write);
-    // Without a fact of the source, only the user approves it.
+    assert!(!need.unread_code, "the reviewer reads what the link installs");
+    // Without a fact of the source, only the user approves it. A missing fact shows
+    // nothing about who wrote the file, so it is no code of the sandbox by a fact.
     let unsourced = shell(&line).with_write(link).with_facts(facts.clone());
     let need = persistence(&with_backup(), unsourced);
     assert_eq!(need.approver, Approver::User);
     assert!(need.installs.is_empty());
+    assert!(!need.unread_code);
     // A plain file from the project there enables the unit too: the sandbox could have
-    // written it.
+    // written it. The fact that the file is there, in a write root, gives the mark and
+    // the note of the question.
     let line = format!("cp x.service {link}");
     let source = "/home/u/p/app/x.service";
-    let sourced = with_sources(facts, &[], &[(file_source(source), source)]);
+    let mut sourced = with_sources(facts, &[], &[(file_source(source), source)]);
+    sourced.targets.push((PathBuf::from(source), FILE));
     let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(sourced));
     assert_eq!(need.approver, Approver::User);
+    assert!(need.unread_code, "code that the sandbox can write, and that nobody reads");
+    assert_eq!(
+        need.notes,
+        ["the line runs or installs ~/p/app/x.service, which a sandboxed command can write"]
+    );
     // A link that the line makes elsewhere in a floor makes a new unit name.
     let unit = "/home/u/.config/systemd/user/x.service";
     let source = "/home/u/x.service";
@@ -517,10 +527,12 @@ fn dir_target_in_autostart_goes_to_classifier_when_named() {
     // Corpus 86: a copy into the autostart dir from the project stays with the user.
     let dir = "/home/u/.config/autostart";
     let source = "/home/u/p/app/evil.desktop";
-    let facts = with_sources(kinds_of(&[(dir, DIR)]), &[], &[(file_source(source), source)]);
+    let kinds = kinds_of(&[(dir, DIR), (source, FILE)]);
+    let facts = with_sources(kinds, &[], &[(file_source(source), source)]);
     let line = shell("cp evil.desktop ~/.config/autostart/").with_write(dir);
     let need = persistence(&with_backup(), line.with_facts(facts));
     assert_eq!(need.approver, Approver::User);
+    assert!(need.unread_code);
     // efrd copies the dir with what it holds, within the limits of the home store.
     assert!(need.backup_before_write);
     assert_eq!(need.copies, [CoverAsk::HomeDir(PathBuf::from(dir))]);
@@ -2630,6 +2642,65 @@ fn a_guarded_exit_stays_guarded_beside_a_user_rule(#[case] line: &str) {
         .find(|need| need.kind == ExitKind::Upload && need.names == ["publish"])
         .unwrap_or_else(|| panic!("{line:?}: {:?}", decision.exits().collect::<Vec<_>>()));
     assert_eq!(publish.approver, Approver::Guarded, "{line:?}");
+}
+
+/// `sudo` with a script of the project gives code that the sandbox can write more
+/// rights still, and no reviewer reads the script: the `privilege` exit gets the mark.
+/// `sudo` with a program of the system does not.
+#[rstest]
+#[case::project_script("sudo ./setup.sh", "./setup.sh", "/home/u/p/app/setup.sh", false, true)]
+#[case::changed_program("sudo backup", "backup", "/usr/local/bin/backup", true, true)]
+#[case::system_program("sudo pacman -Syu", "pacman", "/usr/bin/pacman", false, false)]
+fn sudo_with_code_of_the_sandbox_is_marked(
+    #[case] line: &str,
+    #[case] word: &str,
+    #[case] path: &str,
+    #[case] changed: bool,
+    #[case] unread: bool,
+) {
+    let facts = CallFacts {
+        programs: vec![
+            ("sudo".to_owned(), Some(PathBuf::from("/usr/bin/sudo")), false),
+            (word.to_owned(), Some(PathBuf::from(path)), changed),
+        ],
+        ..CallFacts::default()
+    };
+    let decision = decide(shell(line).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
+    assert_eq!((need.approver, need.unread_code), (Approver::User, unread), "{line}");
+    // With no fact about the programs, efr shows nothing, so the mark stays off.
+    let decision = decide(shell(line));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
+    assert!(!need.unread_code, "{line}");
+}
+
+/// A runner, such as `make` or `cargo`, runs what the files of its dir say. In the
+/// project a sandboxed command can write them, so an exit of a line that runs one
+/// outside the sandbox gets the mark, wherever the runner stands in the line. A package
+/// publish keeps its own route: the reviewer judges it when a user message names it.
+#[rstest]
+#[case::make("sudo make install", ExitKind::Privilege, Approver::User, true)]
+#[case::build_first(
+    "cargo build --release && sudo cp target/release/x /usr/local/bin/",
+    ExitKind::Privilege,
+    Approver::User,
+    true
+)]
+#[case::system_program("sudo pacman -Syu", ExitKind::Privilege, Approver::User, false)]
+#[case::publish("npm publish", ExitKind::Upload, Approver::Guarded, false)]
+fn a_runner_outside_the_sandbox_in_the_project_is_marked(
+    #[case] line: &str,
+    #[case] kind: ExitKind,
+    #[case] approver: Approver,
+    #[case] unread: bool,
+) {
+    let decision = decide(shell(line).with_facts(CallFacts::default()));
+    let need = decision.exits().find(|need| need.kind == kind).unwrap();
+    assert_eq!((need.approver, need.unread_code), (approver, unread), "{line}");
+    // Without the facts of efrd, efr shows nothing, so the mark stays off.
+    let decision = decide(shell(line));
+    let need = decision.exits().find(|need| need.kind == kind).unwrap();
+    assert!(!need.unread_code, "{line}");
 }
 
 /// A session bus at another path than `/run/user/<uid>/bus`, such as one of

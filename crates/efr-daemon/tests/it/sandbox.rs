@@ -1479,7 +1479,11 @@ async fn shell_floor_backup_through_linked_config_dir() {
     // efrd read `config.toml` again, which holds no `classifier.enabled = false`.
     let model =
         ScriptedModel::reviewed(vec![("shell", json!({ "command": line }))], REVIEWER_ALLOWS);
+    // NOTE: the clock starts after every program of the machine was written, so `sed`
+    // does not count as a program that changed in the turn (which asks the user).
+    let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
     let daemon = with_zsh(TestDaemon::builder())
+        .clock(efr_test_support::TestClock::starting_at(start))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
