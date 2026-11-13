@@ -231,12 +231,13 @@ pub(super) fn notes_stored_copy(event: &Event) -> bool {
 }
 
 /// The mark of source `number` at `url`: ` [[n]](<url>)`, a Markdown link whose text is
-/// `[n]`. The destination is in angle brackets, with `<`, `>`, white space and control
-/// characters percent-encoded, so any URL is a valid destination.
+/// `[n]`. The destination is in angle brackets, with `<`, `>`, `\`, white space and
+/// control characters percent-encoded, so any URL is a valid destination: Markdown reads
+/// `\>` as an escaped `>`, which would leave the link open.
 pub(super) fn mark(number: usize, url: &str) -> String {
     let mut out = format!(" [[{number}]](<");
     for c in url.chars() {
-        if c == '<' || c == '>' || c.is_whitespace() || c.is_control() {
+        if matches!(c, '<' | '>' | '\\') || c.is_whitespace() || c.is_control() {
             let mut bytes = [0; 4];
             for byte in c.encode_utf8(&mut bytes).bytes() {
                 out.push_str(&format!("%{byte:02X}"));

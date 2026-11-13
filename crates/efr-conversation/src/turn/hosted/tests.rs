@@ -239,6 +239,8 @@ fn the_mark_encodes_what_would_break_its_destination() {
         " [[12]](<https://example.com/a%20b%3Cc%3E%07%20>)"
     );
     assert_eq!(mark(2, "https://example.com/\u{a0}x"), " [[2]](<https://example.com/%C2%A0x>)");
+    // `\>` would read as an escaped `>`: the link would not close and show no `[1]`.
+    assert_eq!(mark(1, "https://a.example/b\\"), " [[1]](<https://a.example/b%5C>)");
 }
 
 /// TM-Web 13: the stored copy is said with the count, and its note only in the first
