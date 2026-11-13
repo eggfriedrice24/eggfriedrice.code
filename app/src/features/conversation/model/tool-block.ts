@@ -129,7 +129,9 @@ function webHeader(web: WebStepView): ToolHeader {
     };
   }
   if (web.action === "search") {
-    return { verb: "web", subject: web.query ?? "search", wraps: false };
+    // A blank query names nothing, so the block says `web search` as for none.
+    const query = web.query?.trim() === "" ? undefined : web.query;
+    return { verb: "web", subject: query ?? "search", wraps: false };
   }
   return { verb: "web", subject: "", wraps: false };
 }

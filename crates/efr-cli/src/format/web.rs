@@ -38,7 +38,7 @@ use std::time::Duration;
 use efr_protocol::{CallId, Event, WebAction, WebError, WebResult, WebSource};
 use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 
-use super::{Tone, columns, fits, one_line, paint, pieces, wrap_spans};
+use super::{Tone, columns, fits, one_line, one_line_words, paint, pieces, wrap_spans};
 
 /// The word of every row of web search, muted, as `read` and `edit` are.
 pub(crate) const WORD: &str = "web";
@@ -128,10 +128,12 @@ impl Step {
     /// `None` when efr does not know it yet.
     pub(crate) fn detail(&self) -> Option<String> {
         match self.action {
-            WebAction::Search => self.query.as_deref().map(one_line),
+            WebAction::Search => {
+                self.query.as_deref().filter(|query| !query.trim().is_empty()).map(one_line_words)
+            }
             WebAction::Open => self.url.as_deref().map(page),
             WebAction::Find => {
-                let pattern = self.pattern.as_deref().map(one_line)?;
+                let pattern = self.pattern.as_deref().map(one_line_words)?;
                 Some(match self.url.as_deref() {
                     Some(url) => format!("\"{pattern}\" in {}", host(url)),
                     None => format!("\"{pattern}\""),
@@ -222,23 +224,55 @@ pub(crate) fn row(ended: &Ended, fit: Fit, options: &RenderOptions) -> String {
     let width = columns(options).map(|(width, _)| width);
     if ended.step.opens() {
         out.push_str(&paint(&format!("{WORD} {OPEN}"), Tone::Dim, options));
-        if let Some(url) = ended.step.url.as_deref() {
-            let used = column + text_width(WORD, method) + 1 + text_width(OPEN, method) + 1;
-            let shown = match (width, fit) {
-                (Some(width), Fit::Cut) => {
-                    cut_page(&page(url), width.saturating_sub(used + suffix_width), glyphs, method)
+        let Some(url) = ended.step.url.as_deref().filter(|url| !url.trim().is_empty()) else {
+            push_pieces(&mut out, &suffix, options);
+            out.push('\n');
+            return out;
+        };
+        let used = column + text_width(WORD, method) + 1 + text_width(OPEN, method) + 1;
+        out.push(' ');
+        match (width, fit) {
+            (Some(width), Fit::Cut) => {
+                let room = width.saturating_sub(used + suffix_width);
+                let shown = cut_page(&page(url), room, glyphs, method);
+                out.push_str(&linked(&paint(&shown, Tone::Link, options), url, options));
+            }
+            // NOTE: `efr history` keeps the whole page, at efr's indent as a long query,
+            // so the terminal never wraps it at column 0; each piece links the URL.
+            (Some(width), Fit::Wrap) => {
+                let rest = width.saturating_sub(column + GOES_ON).max(1);
+                let parts = chunks(&page(url), width.saturating_sub(used).max(1), rest, method);
+                for (at, part) in parts.iter().enumerate() {
+                    if at > 0 {
+                        out.push('\n');
+                        out.push_str(&" ".repeat(column + GOES_ON));
+                    }
+                    out.push_str(&linked(&paint(part, Tone::Link, options), url, options));
                 }
-                _ => page(url),
-            };
-            out.push(' ');
-            out.push_str(&linked(&paint(&shown, Tone::Link, options), url, options));
+                let lead = if parts.len() == 1 { used } else { column + GOES_ON };
+                let used = lead + parts.last().map_or(0, |part| text_width(part, method));
+                if !suffix.is_empty() && used + suffix_width > width {
+                    out.push('\n');
+                    out.push_str(&" ".repeat(column + GOES_ON));
+                    push_pieces(&mut out, after_gap(&suffix), options);
+                } else {
+                    push_pieces(&mut out, &suffix, options);
+                }
+                out.push('\n');
+                return out;
+            }
+            (None, _) => {
+                out.push_str(&linked(&paint(&page(url), Tone::Link, options), url, options));
+            }
         }
         push_pieces(&mut out, &suffix, options);
         out.push('\n');
         return out;
     }
-    let subject = match (&ended.step.action, ended.step.query.as_deref()) {
-        (_, Some(query)) => format!("{WORD} {}", one_line(query)),
+    // NOTE: a blank query names nothing, so the row says `web search` as for none.
+    let query = ended.step.query.as_deref().filter(|query| !query.trim().is_empty());
+    let subject = match (&ended.step.action, query) {
+        (_, Some(query)) => format!("{WORD} {}", one_line_words(query)),
         (WebAction::Search, None) => format!("{WORD} {SEARCH}"),
         _ => WORD.to_owned(),
     };
@@ -259,11 +293,24 @@ pub(crate) fn row(ended: &Ended, fit: Fit, options: &RenderOptions) -> String {
             push_pieces(&mut out, &suffix, options);
             out.push('\n');
         }
+        // NOTE: only the query wraps; the count, the time and the reason stay whole on
+        // the last row, or on a row of their own when they do not fit after it
+        // (DECISIONS-web 3: they are never cut).
         (Some(width), Fit::Wrap) => {
-            let mut spans = vec![(subject, Tone::Dim)];
-            spans.extend(suffix);
+            let first = width.saturating_sub(column).max(1);
             let rest = width.saturating_sub(column + GOES_ON).max(1);
-            let rows = wrap_spans(&spans, width.saturating_sub(column).max(1), rest, method);
+            let mut rows = wrap_spans(&[(subject, Tone::Dim)], first, rest, method);
+            if !suffix.is_empty() {
+                let room = if rows.len() == 1 { first } else { rest };
+                let used: usize = rows
+                    .last()
+                    .map(|row| row.iter().map(|(text, _)| text_width(text, method)).sum())
+                    .unwrap_or_default();
+                match rows.last_mut() {
+                    Some(last) if used + suffix_width <= room => last.extend(suffix),
+                    _ => rows.push(after_gap(&suffix).to_vec()),
+                }
+            }
             for (at, row) in rows.iter().enumerate() {
                 if at > 0 {
                     out.push_str(&" ".repeat(column + GOES_ON));
@@ -398,18 +445,29 @@ pub(crate) fn host(url: &str) -> String {
 
 /// `page` in `room` columns: whole when it fits, else cut in the middle, the host, `/…/`
 /// and the longest end of its path that fits (`store.steampowered.com/…/ROB_RUN/`), else
-/// cut at its end.
+/// cut at its end. A query string or a fragment goes first: it shows as `?…` (`#…`)
+/// after the path, which says more of the page.
 fn cut_page(page: &str, room: usize, glyphs: &Glyphs, method: WidthMethod) -> String {
     if fits(page, room, method) {
         return page.to_owned();
     }
     let more = glyphs.more;
-    if let Some((host, path)) = page.split_once('/') {
+    let (base, tail) = match page.find(['?', '#']) {
+        Some(at) => (&page[..at], format!("{}{more}", &page[at..=at])),
+        None => (page, String::new()),
+    };
+    if !tail.is_empty() {
+        let shown = format!("{base}{tail}");
+        if fits(&shown, room, method) {
+            return shown;
+        }
+    }
+    if let Some((host, path)) = base.split_once('/') {
         // NOTE: each end of the path from a `/` on, longest first, so the cut keeps as
         // much of the path as the row has room for.
         let ends = path.match_indices('/').map(|(at, _)| &path[at + 1..]);
         for end in ends.filter(|end| !end.is_empty()) {
-            let shown = format!("{host}/{more}/{end}");
+            let shown = format!("{host}/{more}/{end}{tail}");
             if fits(&shown, room, method) {
                 return shown;
             }
@@ -443,6 +501,35 @@ fn encode(url: &str) -> String {
         }
     }
     out
+}
+
+/// `suffix` without the gap that starts it, for a row of its own.
+fn after_gap(suffix: &[(String, Tone)]) -> &[(String, Tone)] {
+    match suffix.split_first() {
+        Some(((gap, _), rest)) if gap == GAP => rest,
+        _ => suffix,
+    }
+}
+
+/// `text` in rows of `first` columns, then `rest` columns each, cut between grapheme
+/// clusters: a page has no space to cut at. Nothing of the text is left out.
+fn chunks(text: &str, first: usize, rest: usize, method: WidthMethod) -> Vec<String> {
+    let mut rows = vec![String::new()];
+    let mut used = 0;
+    let mut room = first;
+    for piece in pieces(text, method) {
+        let width = text_width(piece, method);
+        if used > 0 && used + width > room {
+            rows.push(String::new());
+            used = 0;
+            room = rest;
+        }
+        if let Some(row) = rows.last_mut() {
+            row.push_str(piece);
+        }
+        used += width;
+    }
+    rows
 }
 
 /// Paints `pieces` onto `out`.
@@ -479,7 +566,7 @@ pub(crate) fn sources(sources: &[WebSource], options: &RenderOptions) -> String 
 /// room that the row leaves after two spaces; `None` when there is no title or too
 /// little room for one. Off a terminal it is whole.
 fn title(title: Option<&str>, lead: &str, options: &RenderOptions) -> Option<String> {
-    let title = one_line(title?.trim());
+    let title = one_line_words(title?.trim());
     if title.is_empty() {
         return None;
     }
@@ -586,7 +673,7 @@ pub(crate) fn finds_row(patterns: &[String], indent: &str, options: &RenderOptio
     let separator = format!(" {} ", options.glyphs().separator);
     let line = patterns
         .iter()
-        .map(|pattern| format!("find \"{}\"", one_line(pattern)))
+        .map(|pattern| format!("find \"{}\"", one_line_words(pattern)))
         .collect::<Vec<_>>()
         .join(&separator);
     format!("{indent}{}\n", paint(&line, Tone::Dim, options))

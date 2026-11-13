@@ -402,6 +402,20 @@ pub(crate) fn lines(text: &str) -> Cow<'_, str> {
 /// A diff safe to print as it is, for a pipe: newlines and tabs stay, so a tool that
 /// reads the diff can apply it, and other control characters and format characters
 /// become visible stand-ins.
+/// As [`one_line`], for words that a person or a model wrote, such as the query of a
+/// web search: the zero-width joiner and non-joiner stay, because an emoji sequence and
+/// the words of scripts such as Persian or Hindi need them, and neither moves the cursor
+/// or turns the text around. Every other format character becomes `U+FFFD`.
+pub(crate) fn one_line_words(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\n' | '\r' | '\t' => ' ',
+            '\u{200c}' | '\u{200d}' => c,
+            c => visible(c),
+        })
+        .collect()
+}
+
 pub(crate) fn diff_text(text: &str) -> Cow<'_, str> {
     let unsafe_char = |c: char| (c.is_control() && c != '\n' && c != '\t') || is_format(c);
     if !text.chars().any(unsafe_char) {

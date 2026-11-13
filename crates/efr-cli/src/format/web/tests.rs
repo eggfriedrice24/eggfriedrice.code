@@ -435,3 +435,99 @@ fn the_whole_query_wraps_in_history() {
         "\u{2713} web one two three four five six seven eight nine  3 results \u{b7} 2s\n"
     );
 }
+
+/// DECISIONS-web 3: the count, the time and the reason are never cut, also in
+/// `efr history`, where only the query wraps. They stay on the last row of the query,
+/// or go to a row of their own at the indent.
+#[test]
+fn history_never_breaks_the_count_the_time_or_the_reason() {
+    let options = design_options(Depth::NoColor, 60);
+    let bare = |ended: &Ended| crate::testing::bare(&row(ended, Fit::Wrap, &options));
+    let long = done(search("Proton EasyAntiCheat Runtime install 2026 Linux"), Some(10), 7.0);
+    assert_eq!(
+        bare(&long),
+        "\u{2713} web Proton EasyAntiCheat Runtime install 2026 Linux\n      10 results \u{b7} 7s\n"
+    );
+    let refused =
+        failed(search("\"ROB RUN\" 1.4 patch notes Linux Proton"), WebError::TooManyRequests, 1.0);
+    assert_eq!(
+        bare(&refused),
+        "! web \"ROB RUN\" 1.4 patch notes Linux Proton\n      too many requests \u{b7} 1s\n"
+    );
+    let fits = done(search("Proton EasyAntiCheat Runtime"), Some(10), 7.0);
+    assert_eq!(bare(&fits), "\u{2713} web Proton EasyAntiCheat Runtime  10 results \u{b7} 7s\n");
+}
+
+/// A query that is empty or only spaces names nothing: the row and the status row say
+/// `web search` as for no query.
+#[test]
+fn a_blank_query_is_named_by_its_word() {
+    let options = design_options(Depth::NoColor, 100);
+    for query in ["", "   "] {
+        let ended = done(search(query), Some(10), 2.0);
+        assert_eq!(
+            crate::testing::bare(&row(&ended, Fit::Cut, &options)),
+            "\u{2713} web search  10 results \u{b7} 2s\n",
+            "{query:?}"
+        );
+        assert_eq!(search(query).detail(), None, "{query:?}");
+    }
+}
+
+/// The cut of a page keeps the end of its path (the note of TM-Web 5:
+/// `store.steampowered.com/…/ROB_RUN/`); a query string goes first, as `?…`.
+#[test]
+fn the_cut_of_a_page_drops_its_query_string_before_its_path() {
+    let url = "https://store.steampowered.com/app/2384710/ROB_RUN/?snr=1_4_4__tab-Specials&curator_clanid=1234567&utm_source=x";
+    let at = |cols| {
+        let options = design_options(Depth::NoColor, cols);
+        crate::testing::bare(&row(&done(open(url), None, 2.0), Fit::Cut, &options))
+    };
+    assert_eq!(
+        at(100),
+        "\u{2713} web open store.steampowered.com/app/2384710/ROB_RUN/?\u{2026}  2s\n"
+    );
+    assert_eq!(at(50), "\u{2713} web open store.steampowered.com/\u{2026}/ROB_RUN/?\u{2026}  2s\n");
+}
+
+/// `efr history` keeps the whole page and goes on at efr's indent, so the terminal
+/// never wraps it at column 0; each piece links the whole URL.
+#[test]
+fn a_long_page_goes_on_at_the_indent_in_history() {
+    let url = "https://store.steampowered.com/app/2384710/ROB_RUN/?snr=1_4_4__tab-Specials&curator_clanid=1234567";
+    let options = design_options(Depth::NoColor, 40);
+    let written = crate::testing::bare(&row(&done(open(url), None, 2.0), Fit::Wrap, &options));
+    assert_eq!(
+        written,
+        "\u{2713} web open store.steampowered.com/app/23\n      84710/ROB_RUN/?snr=1_4_4__tab-Spec\n      ials&curator_clanid=1234567  2s\n"
+    );
+    for line in written.lines() {
+        assert!(efr_render::text_width(line, efr_render::WidthMethod::Grapheme) <= 40, "{line}");
+    }
+    let linked = design_options(Depth::TrueColor, 40).with_hyperlinks(true);
+    let painted = row(&done(open(url), None, 2.0), Fit::Wrap, &linked);
+    assert_eq!(
+        painted.matches("\x1b]8;;https://store.steampowered.com/").count(),
+        3,
+        "{painted:?}"
+    );
+}
+
+/// DECISIONS-web 3: the query shows as the model sent it. The joiners of an emoji
+/// sequence and of scripts such as Persian stay; a bidi override and other format
+/// characters still show as `U+FFFD`.
+#[test]
+fn a_query_keeps_its_joiners_and_loses_its_bidi_controls() {
+    let options = design_options(Depth::NoColor, 100);
+    let family = "\u{1f469}\u{200d}\u{1f469}\u{200d}\u{1f467} trip";
+    let persian = "\u{0645}\u{06cc}\u{200c}\u{062e}\u{0648}\u{0627}\u{0647}\u{0645}";
+    for query in [family, persian] {
+        let written =
+            crate::testing::bare(&row(&done(search(query), None, 2.0), Fit::Cut, &options));
+        assert_eq!(written, format!("\u{2713} web {query}  2s\n"));
+        assert_eq!(search(query).detail().as_deref(), Some(query));
+    }
+    let turned =
+        crate::testing::bare(&row(&done(search("a\u{202e}b"), None, 2.0), Fit::Cut, &options));
+    assert_eq!(turned, "\u{2713} web a\u{fffd}b  2s\n");
+}

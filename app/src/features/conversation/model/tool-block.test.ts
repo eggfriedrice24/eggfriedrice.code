@@ -239,6 +239,8 @@ describe("a step of web search", () => {
     const open = web({ action: "open", url: "https://www.protondb.com/app/2384710" });
     expect(toolHeader(open).subject).toBe("open protondb.com/app/2384710");
     expect(toolHeader(web({})).subject).toBe("search");
+    expect(toolHeader(web({ query: "" })).subject).toBe("search");
+    expect(toolHeader(web({ query: "   " })).subject).toBe("search");
     expect(webPage("http://areweanticheatyet.com/")).toBe("areweanticheatyet.com");
   });
 
