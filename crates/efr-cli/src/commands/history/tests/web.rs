@@ -232,3 +232,29 @@ fn verbose_shows_the_results_and_the_finds_as_the_web_board() {
         ]
     );
 }
+
+/// OpenAI names the action of a step only at its end, so every start says `search`
+/// without a query: `--verbose` still lists the finds under their open, and no row
+/// waits for a step that ends as a find.
+#[test]
+fn steps_named_only_at_their_end_keep_their_finds_under_their_open() {
+    let rob_run = "https://areweanticheatyet.com/game/rob-run";
+    let unnamed = |n: u8| step(n, WebAction::Search, None, None, None);
+    let named = |n: u8, action: WebAction, pattern: Option<&str>| {
+        ended(&step(n, action, None, Some(rob_run), pattern), None, None)
+    };
+    let steps = vec![
+        (6.0, unnamed(2)),
+        (8.0, named(2, WebAction::Open, None)),
+        (8.0, unnamed(3)),
+        (9.0, named(3, WebAction::Find, Some("Easy Anti-Cheat"))),
+        (9.0, unnamed(4)),
+        (10.0, named(4, WebAction::Find, Some("Proton"))),
+    ];
+    let page = page(steps, Vec::new());
+    let frame = Frame::load("TM-Web", 15).unwrap();
+    for depth in Depth::ALL {
+        let rows = shown(&page, depth, true);
+        assert_rows(&frame, 5..=6, &rows[4..6].concat(), depth);
+    }
+}

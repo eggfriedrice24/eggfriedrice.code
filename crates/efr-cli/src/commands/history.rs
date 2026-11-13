@@ -537,16 +537,21 @@ impl<'a> Transcript<'a> {
     /// come before them.
     fn web_group(&mut self, group: &[&EventEnvelope]) {
         *self.web = WebSteps::default();
-        let mut opens: Vec<(CallId, Option<String>)> = Vec::new();
-        let mut seen: HashSet<CallId> = HashSet::new();
+        // NOTE: each step with what its end knows, in the order of the starts: OpenAI
+        // names the action of a step only at its end, so its start says `search`.
+        let mut steps: Vec<(CallId, web::Step)> = Vec::new();
         for envelope in group {
             if let Event::TurnWebReport { sources, .. } = &envelope.event {
                 self.web.sources.clone_from(sources);
             }
             let Some((call_id, step)) = web::Step::of(&envelope.event) else { continue };
-            if !seen.insert(call_id) {
-                continue;
+            match steps.iter_mut().find(|(id, _)| *id == call_id) {
+                Some((_, held)) => *held = held.clone().with(step),
+                None => steps.push((call_id, step)),
             }
+        }
+        let mut opens: Vec<(CallId, Option<String>)> = Vec::new();
+        for (call_id, step) in steps {
             match step.action {
                 WebAction::Open => opens.push((call_id, step.url)),
                 WebAction::Find => {

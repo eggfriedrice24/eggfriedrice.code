@@ -61,6 +61,40 @@ fn context(play: &mut Play, turn_id: TurnId, percent: u64) {
     play.frame();
 }
 
+/// `efr history` (with `verbose`, `--verbose`) of the turn `ran` with the times of
+/// `events`, 100 columns wide in `depth`.
+fn history(ran: &Ran, events: &[(i64, Event)], depth: Depth, verbose: bool) -> String {
+    let start: jiff::Timestamp = "2026-11-12T21:14:00Z".parse().unwrap();
+    let events: Vec<EventEnvelope> = events
+        .iter()
+        .zip(1..)
+        .map(|((millis, event), seq)| EventEnvelope {
+            seq: Seq::new(seq),
+            conversation_id: None,
+            at: start + jiff::SignedDuration::from_millis(*millis),
+            event: event.clone(),
+        })
+        .collect();
+    assert!(events.iter().all(|envelope| envelope.event.turn_id() == Some(ran.turn)));
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let head = Head {
+        title: Some("ROB RUN quits under Proton".to_owned()),
+        place: "\u{2302} home".to_owned(),
+        turns: 2,
+    };
+    let options = crate::testing::design_options(depth, 100);
+    let shown = Shown {
+        options: &options,
+        verbose,
+        home: Some(Path::new("/home/user")),
+        groups: &DiffGroups::default(),
+        zone: &TimeZone::UTC,
+        head: Some(&head),
+    };
+    let id = "019a7c02-3d00-7a10-8b20-000000000001".parse().unwrap();
+    transcript(id, &page, &shown)
+}
+
 /// The index of the first row of `shown` whose text starts with `start`.
 fn row_of(shown: &str, start: &str) -> usize {
     shown
@@ -247,39 +281,12 @@ async fn a_claude_turn_of_five_searches_is_the_board_web_3_4_10_13() {
 #[tokio::test]
 async fn efr_history_of_the_claude_turn_is_the_board_web_14_15() {
     let ran = run(Wire::fixtures(Company::Anthropic, 1_000_000, &["web_search_board.sse"])).await;
-    let start: jiff::Timestamp = "2026-11-12T21:14:00Z".parse().unwrap();
-    let events: Vec<EventEnvelope> = board_timing()
-        .of(&ran)
-        .into_iter()
-        .zip(1..)
-        .map(|((millis, event), seq)| EventEnvelope {
-            seq: Seq::new(seq),
-            conversation_id: None,
-            at: start + jiff::SignedDuration::from_millis(millis),
-            event,
-        })
-        .collect();
-    let page = ConversationHistoryResult { events, next_cursor: None };
-    let head = Head {
-        title: Some("ROB RUN quits under Proton".to_owned()),
-        place: "\u{2302} home".to_owned(),
-        turns: 2,
-    };
+    let events = board_timing().of(&ran);
     let (fourteen, fifteen) =
         (Frame::load("TM-Web", 14).unwrap(), Frame::load("TM-Web", 15).unwrap());
     for depth in Depth::ALL {
         for verbose in [false, true] {
-            let options = crate::testing::design_options(depth, 100);
-            let shown = Shown {
-                options: &options,
-                verbose,
-                home: Some(Path::new("/home/user")),
-                groups: &DiffGroups::default(),
-                zone: &TimeZone::UTC,
-                head: Some(&head),
-            };
-            let id = "019a7c02-3d00-7a10-8b20-000000000001".parse().unwrap();
-            let text = transcript(id, &page, &shown);
+            let text = history(&ran, &events, depth, verbose);
             let first = row_of(&text, "\u{2713} web");
             if verbose {
                 // The second search with its first three results and `… 5 more · cited: 1`.
@@ -332,8 +339,10 @@ async fn the_rows_of_a_search_of_each_provider_are_the_board_web_1_2() {
     }
 }
 
-/// TM-Web 5 from OpenAI turns: a search, an open, a find, an open and a search. Each
-/// open is its own row with its page; the find has no row. The fixture of the slice
+/// TM-Web 5 and 15 from OpenAI turns: a search, an open, two finds, an open and a
+/// search. Each open is its own row with its page; a find has no row, and `efr history
+/// --verbose` lists the finds under their open. OpenAI names the action of a step only
+/// at its end, so each step starts as a search without a query. The fixture of the slice
 /// (`web_search.sse`: a search, an open, a find) gives rows 0 and 1, the board's stream
 /// rows 0, 1, 3 and 4. NOTE: the board keeps an empty row where the find stands.
 #[tokio::test]
@@ -356,6 +365,7 @@ async fn the_steps_of_an_openai_turn_are_the_board_web_5() {
                 (1_000, 5_000),
                 (6_000, 2_000),
                 (8_000, 1_000),
+                (9_000, 0),
                 (9_000, 3_000),
                 (12_000, 4_000),
             ],
@@ -374,6 +384,10 @@ async fn the_steps_of_an_openai_turn_are_the_board_web_5() {
         check(&frame, 3..=4, &rows(&shown, 2..4), depth, all);
         assert!(!bare(&shown).contains("find"), "a find has no row: {}", bare(&shown));
         assert!(!bare(&shown).contains("stored copy"), "{}", bare(&shown));
+        let fifteen = Frame::load("TM-Web", 15).unwrap();
+        let text = history(&board, &board_events, depth, true);
+        let open = row_of(&text, "\u{2713} web open");
+        check(&fifteen, 5..=6, &rows(&text, open..open + 2), depth, all);
     }
 }
 
