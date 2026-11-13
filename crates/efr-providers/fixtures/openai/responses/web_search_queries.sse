@@ -35,5 +35,5 @@ event: response.output_item.done
 data: {"type":"response.output_item.done","sequence_number":10,"output_index":1,"item":{"id":"msg_multi1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Three searches agree: patch 1.4 allowed Linux.","annotations":[]}]}}
 
 event: response.completed
-data: {"type":"response.completed","sequence_number":11,"response":{"id":"resp_web3","object":"response","status":"completed","model":"gpt-5.5","output":[],"usage":{"input_tokens":4100,"input_tokens_details":{"cached_tokens":0},"output_tokens":120,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4220},"tool_usage":{"web_search":{"num_requests":3}}}}
+data: {"type":"response.completed","sequence_number":11,"response":{"id":"resp_web3","object":"response","status":"completed","model":"gpt-5.5","output":[],"usage":{"input_tokens":4100,"input_tokens_details":{"cached_tokens":0},"output_tokens":120,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4220},"tool_usage":{"web_search":{"num_requests":1}}}}
 

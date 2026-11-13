@@ -1036,28 +1036,29 @@ fn search(query: &str) -> HostedAction {
 }
 
 #[rstest]
-#[case::query(json!({"type": "search", "query": "rob run"}), vec![search("rob run")])]
+#[case::query(json!({"type": "search", "query": "rob run"}), search("rob run"))]
 #[case::queries(
-    json!({"type": "search", "query": "a", "queries": ["a", "b", "c"]}),
-    vec![search("a"), search("b"), search("c")],
+    json!({"type": "search", "query": "a", "queries": ["a", "b", "a", "c"]}),
+    search("a; b; c"),
 )]
-#[case::empty_queries(json!({"type": "search", "query": "a", "queries": []}), vec![search("a")])]
-#[case::no_query(json!({"type": "search"}), vec![HostedAction::Search { query: None }])]
+#[case::empty_queries(json!({"type": "search", "query": "a", "queries": []}), search("a"))]
+#[case::blank_query(json!({"type": "search", "query": "  "}), HostedAction::Search { query: None })]
+#[case::no_query(json!({"type": "search"}), HostedAction::Search { query: None })]
 #[case::open(
     json!({"type": "open_page", "url": "https://store.steampowered.com/app/2384710/ROB_RUN/"}),
-    vec![HostedAction::Open { url: Some("https://store.steampowered.com/app/2384710/ROB_RUN/".to_owned()) }],
+    HostedAction::Open { url: Some("https://store.steampowered.com/app/2384710/ROB_RUN/".to_owned()) },
 )]
-#[case::open_null(json!({"type": "open_page", "url": null}), vec![HostedAction::Open { url: None }])]
+#[case::open_null(json!({"type": "open_page", "url": null}), HostedAction::Open { url: None })]
 #[case::find(
     json!({"type": "find_in_page", "pattern": "Easy Anti-Cheat", "url": "https://areweanticheatyet.com/game/rob-run"}),
-    vec![HostedAction::Find {
+    HostedAction::Find {
         pattern: "Easy Anti-Cheat".to_owned(),
         url: Some("https://areweanticheatyet.com/game/rob-run".to_owned()),
-    }],
+    },
 )]
-#[case::unknown(json!({"type": "screenshot"}), vec![HostedAction::Search { query: None }])]
-#[case::not_an_object(json!("search"), vec![HostedAction::Search { query: None }])]
-fn a_web_search_call_reads_its_steps(#[case] action: Value, #[case] actions: Vec<HostedAction>) {
+#[case::unknown(json!({"type": "screenshot"}), HostedAction::Search { query: None })]
+#[case::not_an_object(json!("search"), HostedAction::Search { query: None })]
+fn a_web_search_call_reads_its_step(#[case] action: Value, #[case] step: HostedAction) {
     let item =
         json!({"id": "ws_1", "type": "web_search_call", "status": "completed", "action": action});
     assert_eq!(
@@ -1065,7 +1066,7 @@ fn a_web_search_call_reads_its_steps(#[case] action: Value, #[case] actions: Vec
         OutputItem::WebCall {
             id: Some("ws_1".to_owned()),
             status: Some("completed".to_owned()),
-            actions,
+            action: step,
         }
     );
 }
@@ -1078,7 +1079,7 @@ fn a_web_search_call_without_an_action_is_a_search_without_a_query() {
         OutputItem::WebCall {
             id: None,
             status: Some("failed".to_owned()),
-            actions: vec![HostedAction::Search { query: None }],
+            action: HostedAction::Search { query: None },
         }
     );
 }

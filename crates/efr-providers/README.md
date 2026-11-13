@@ -143,8 +143,9 @@ Modules:
   `sse_events.rs`). The item of `response.output_item.added` and the three
   `response.web_search_call.*` events start the step; they carry no query, so the
   start of a search mostly has none. The finished item ends it with the complete
-  action: `search` (each of its `queries` is a search of its own, with the id
-  `<item id>#<i>` after the first; else its `query`), `open_page` (`url`) or
+  action: `search` (its `queries` joined by `; `, else its `query`; one item is one
+  search, because the guide bills one tool call for each search action), `open_page`
+  (`url`) or
   `find_in_page` (`pattern`, `url`); no action is a search without a query. The status
   `failed` ends it as `Unavailable`, `incomplete` as `NotFinished`, and every other
   status as done, without results: efr does not ask for them. A step whose item never

@@ -33,7 +33,7 @@
 //! | `response.output_item.added` of a `web_search_call` | `HostedCallStart` with the action that the item has, mostly none: a search without a query |
 //! | `response.web_search_call.in_progress`, `.searching` | `HostedCallStart` (a search without a query) when no start came for the item, else none |
 //! | `response.web_search_call.completed` | none |
-//! | `response.output_item.done` of a `web_search_call` | `HostedCallStart` when none came, then `HostedCallEnd` with the complete action: `failed` is `Failed(Unavailable)`, `incomplete` is `Failed(NotFinished)`, any other status `Done` without results. A search with `n` queries ends the item's call with the first query, then each other query `i` is a start and an end of its own with the id `<item id>#<i>` |
+//! | `response.output_item.done` of a `web_search_call` | `HostedCallStart` when none came, then `HostedCallEnd` with the complete action: `failed` is `Failed(Unavailable)`, `incomplete` is `Failed(NotFinished)`, any other status `Done` without results. One item is one step: a search with several `queries` has them joined by `; ` as its query, and counts as one search |
 //! | `response.output_text.annotation.added` | none: a `url_citation` is kept for the end of its message |
 //! | `response.output_item.done` of a `message` | the text when no delta came, then one `Citation` (not placed) for each URL of its `url_citation` annotations that no earlier message of the answer cited, in the order of `start_index` |
 //! | `response.completed` | `HostedCallEnd` for each step whose item never finished: from the item in `response.output`, else `Failed(NotFinished)`; `response.incomplete` ends them the same way |
@@ -376,11 +376,7 @@ impl EventMapper {
             OutputItem::FunctionCall { call_id, name, freeform, .. } => {
                 self.start_call(call_id, name, freeform, at, out);
             }
-            OutputItem::WebCall { mut actions, .. } if self.web_call_at(at).is_none() => {
-                // NOTE: a search item with several queries starts as its first one; the
-                // others start when the item is done.
-                actions.truncate(1);
-                let action = actions.pop().unwrap_or(HostedAction::Search { query: None });
+            OutputItem::WebCall { action, .. } if self.web_call_at(at).is_none() => {
                 self.start_web(at, action, out);
             }
             _ => {}
@@ -423,40 +419,25 @@ impl EventMapper {
         self.web.len() - 1
     }
 
-    /// Ends the step of the web tool at `at` with the steps of its finished item. A step
+    /// Ends the step of the web tool at `at` with the action of its finished item. A step
     /// that ended already ends no second time.
     fn end_web(
         &mut self,
         at: &Location,
         status: Option<&str>,
-        actions: Vec<HostedAction>,
+        action: HostedAction,
         out: &mut Vec<ProviderEvent>,
     ) {
-        let mut actions = actions.into_iter();
-        let first = actions.next().unwrap_or(HostedAction::Search { query: None });
         let index = match self.web_call_at(at) {
             Some(index) => index,
-            None => self.start_web(at, first.clone(), out),
+            None => self.start_web(at, action.clone(), out),
         };
         let Some(call) = self.web.get_mut(index).filter(|call| !call.ended) else {
             return;
         };
         call.ended = true;
         let call_id = call.call_id.clone();
-        let outcome = web_outcome(status);
-        out.push(ProviderEvent::HostedCallEnd {
-            call_id: call_id.clone(),
-            action: first,
-            outcome: outcome.clone(),
-        });
-        for (number, action) in (1..).zip(actions) {
-            let call_id = format!("{call_id}#{number}");
-            out.push(ProviderEvent::HostedCallStart {
-                call_id: call_id.clone(),
-                action: action.clone(),
-            });
-            out.push(ProviderEvent::HostedCallEnd { call_id, action, outcome: outcome.clone() });
-        }
+        out.push(ProviderEvent::HostedCallEnd { call_id, action, outcome: web_outcome(status) });
     }
 
     /// Ends every step of the web tool whose item never finished: by its item in
@@ -480,10 +461,10 @@ impl EventMapper {
                     .find(|item| at.item_id.is_some() && text(item, "id") == at.item_id.as_deref())
             });
             match item.map(OutputItem::parse) {
-                Some(OutputItem::WebCall { status, actions, .. }) => {
-                    self.end_web(&at, status.as_deref(), actions, out);
+                Some(OutputItem::WebCall { status, action, .. }) => {
+                    self.end_web(&at, status.as_deref(), action, out);
                 }
-                _ => self.end_web(&at, Some("incomplete"), vec![action], out),
+                _ => self.end_web(&at, Some("incomplete"), action, out),
             }
         }
     }
@@ -606,8 +587,8 @@ impl EventMapper {
                     out.push(ProviderEvent::ToolCallEnd { call_id, arguments });
                 }
             }
-            OutputItem::WebCall { status, actions, .. } => {
-                self.end_web(at, status.as_deref(), actions, out);
+            OutputItem::WebCall { status, action, .. } => {
+                self.end_web(at, status.as_deref(), action, out);
             }
             OutputItem::Other { kind } => {
                 tracing::debug!(item_type = %kind, "passed on an output item with no canonical form");

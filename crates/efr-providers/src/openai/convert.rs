@@ -655,9 +655,9 @@ pub(crate) enum OutputItem {
         /// The item's `status`: `in_progress`, `searching`, `completed`, `failed` or
         /// `incomplete` by the reference.
         status: Option<String>,
-        /// What the step did, at least one: a search with `n` queries is `n` searches,
-        /// in order.
-        actions: Vec<HostedAction>,
+        /// What the step did. A search with several `queries` is one search, as the
+        /// guide bills it ("Search actions incur a tool call cost").
+        action: HostedAction,
     },
     /// Any other item, such as a hosted tool call of another tool, which has no
     /// canonical form.
@@ -695,7 +695,7 @@ impl OutputItem {
             WEB_CALL => OutputItem::WebCall {
                 id: string(item, "id"),
                 status: string(item, "status"),
-                actions: web_actions(item.get("action")),
+                action: web_action(item.get("action")),
             },
             other => OutputItem::Other { kind: other.to_owned() },
         }
@@ -707,42 +707,48 @@ fn string(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned)
 }
 
-/// The steps of a `web_search_call` whose `action` is `action`, by the reference
+/// The step of a `web_search_call` whose `action` is `action`, by the reference
 /// (developers.openai.com/api/reference/resources/responses/streaming-events,
-/// `WebSearchCall`): a `search` with its `queries` when the list is not empty, each one
-/// a search of its own, else with its `query`; an `open_page` with its `url`; a
-/// `find_in_page` with its `pattern` and `url`. No action, or an action of another type,
-/// is a search without a query: the guide says that a search "will usually (but not
-/// always)" name its queries.
-fn web_actions(action: Option<&Value>) -> Vec<HostedAction> {
+/// `WebSearchCall`): a `search` with its `queries` joined by `; ` when the list is not
+/// empty, else with its `query`; an `open_page` with its `url`; a `find_in_page` with its
+/// `pattern` and `url`. One item is one step: the guide bills one tool call for each
+/// search action, also when it lists several queries. No action, or an action of another
+/// type, is a search without a query: the guide says that a search "will usually (but
+/// not always)" name its queries.
+fn web_action(action: Option<&Value>) -> HostedAction {
     let Some(action) = action.filter(|action| action.is_object()) else {
-        return vec![HostedAction::Search { query: None }];
+        return HostedAction::Search { query: None };
     };
     match action.get("type").and_then(Value::as_str) {
         Some("search") => {
-            let queries: Vec<HostedAction> = action
+            let mut queries: Vec<&str> = Vec::new();
+            for query in action
                 .get("queries")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
-                .filter(|query| !query.is_empty())
-                .map(|query| HostedAction::Search { query: Some(query.to_owned()) })
-                .collect();
-            if queries.is_empty() {
-                vec![HostedAction::Search { query: string(action, "query") }]
-            } else {
-                queries
+                .filter(|query| !query.trim().is_empty())
+            {
+                if !queries.contains(&query) {
+                    queries.push(query);
+                }
             }
+            let query = if queries.is_empty() {
+                string(action, "query").filter(|query| !query.trim().is_empty())
+            } else {
+                Some(queries.join("; "))
+            };
+            HostedAction::Search { query }
         }
-        Some("open_page") => vec![HostedAction::Open { url: string(action, "url") }],
-        Some("find_in_page") => vec![HostedAction::Find {
+        Some("open_page") => HostedAction::Open { url: string(action, "url") },
+        Some("find_in_page") => HostedAction::Find {
             pattern: action.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned(),
             url: string(action, "url"),
-        }],
+        },
         other => {
             tracing::debug!(action = ?other.map(|kind| kind.chars().take(64).collect::<String>()), "a web search step of an unknown action; shown as a search");
-            vec![HostedAction::Search { query: None }]
+            HostedAction::Search { query: None }
         }
     }
 }

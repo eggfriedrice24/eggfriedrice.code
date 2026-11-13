@@ -120,21 +120,17 @@ fn a_failed_search_ends_as_not_available() {
 }
 
 #[test]
-fn a_search_with_three_queries_is_three_searches_in_order() {
+fn a_search_with_three_queries_is_one_search_with_the_three_queries() {
+    // NOTE: the guide bills one tool call for each search action, so one item is one
+    // step, one row and one search of the end line.
     let (mapped, error) = map_all(&fixture_events("web_search_queries.sse"));
     assert!(error.is_none(), "{error:?}");
+    let query = "\"ROB RUN\" anti-cheat; \"ROB RUN\" Proton; \"ROB RUN\" patch 1.4";
     assert_eq!(
-        mapped[..6],
-        [
-            start("ws_multi1", search(None)),
-            end("ws_multi1", search(Some("\"ROB RUN\" anti-cheat")), done()),
-            start("ws_multi1#1", search(Some("\"ROB RUN\" Proton"))),
-            end("ws_multi1#1", search(Some("\"ROB RUN\" Proton")), done()),
-            start("ws_multi1#2", search(Some("\"ROB RUN\" patch 1.4"))),
-            end("ws_multi1#2", search(Some("\"ROB RUN\" patch 1.4")), done()),
-        ]
+        mapped[..2],
+        [start("ws_multi1", search(None)), end("ws_multi1", search(Some(query)), done())]
     );
-    assert_eq!(mapped[6], text("Three searches agree: patch 1.4 allowed Linux."));
+    assert_eq!(mapped[2], text("Three searches agree: patch 1.4 allowed Linux."));
 }
 
 #[test]
