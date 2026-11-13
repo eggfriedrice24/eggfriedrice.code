@@ -258,3 +258,33 @@ fn steps_named_only_at_their_end_keep_their_finds_under_their_open() {
         assert_rows(&frame, 5..=6, &rows[4..6].concat(), depth);
     }
 }
+
+/// A failed turn that read the stored copy: the reason stands under the end line and
+/// the note of the stored copy under both, in the order of the turn
+/// (`follow::view::ending`).
+#[test]
+fn the_note_of_the_stored_copy_stands_under_the_reason_of_a_failure() {
+    let mut page = page(searched(1, "rust 2026", 1.0, 2.0, 3), Vec::new());
+    let len = page.events.len();
+    page.events[len - 2].event = Event::TurnWebReport {
+        turn_id: turn_id(),
+        searches: 1,
+        stored_copy: true,
+        stored_copy_note: true,
+        sources: Vec::new(),
+    };
+    page.events[len - 1].event = Event::TurnFailed {
+        turn_id: turn_id(),
+        error: efr_protocol::ErrorBody::new(efr_protocol::ErrorCode::Internal, "the stream broke"),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+    };
+    let rows = shown(&page, Depth::NoColor, false);
+    let text: Vec<String> = rows.iter().map(|row| bare(row)).collect();
+    let failed = text.iter().position(|row| row.contains("failed")).expect("the end line");
+    assert!(text[failed].contains("1 search, stored copy"), "{text:?}");
+    assert!(text[failed + 1].contains("the stream broke"), "{text:?}");
+    assert!(text[failed + 2].contains("a stored copy of the web can be some days old"), "{text:?}");
+}

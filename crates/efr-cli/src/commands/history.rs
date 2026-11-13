@@ -597,7 +597,14 @@ impl<'a> Transcript<'a> {
 
     /// The outcome line of a turn's end with the count of its searches last on its
     /// cost, then the note of the stored copy of the first such turn (TM-Web 13).
-    fn outcome(&mut self, mut line: Pieces) {
+    fn outcome(&mut self, line: Pieces) {
+        let note = self.outcome_line(line);
+        self.stored_copy_note(note);
+    }
+
+    /// The outcome line of a turn's end with the count of its searches last on its
+    /// cost; true when the note of the stored copy belongs under it.
+    fn outcome_line(&mut self, mut line: Pieces) -> bool {
         let report = self.web.report.take();
         let glyphs = self.options.glyphs();
         let count = report.and_then(|(searches, stored, _)| web::count(searches, stored));
@@ -605,8 +612,14 @@ impl<'a> Transcript<'a> {
             web::add_count(&mut line, count, glyphs);
         }
         self.pieces(&line);
-        if count.is_some() && report.is_some_and(|(_, stored, note)| stored && note) {
-            self.pieces(&vec![(web::stored_copy_note(glyphs), Tone::Dim)]);
+        count.is_some() && report.is_some_and(|(_, stored, note)| stored && note)
+    }
+
+    /// The note of the stored copy, when `due`.
+    fn stored_copy_note(&mut self, due: bool) {
+        if due {
+            let note = web::stored_copy_note(self.options.glyphs());
+            self.pieces(&vec![(note, Tone::Dim)]);
         }
     }
 
@@ -1107,8 +1120,12 @@ impl<'a> Transcript<'a> {
             Event::TurnFailed { error, changes, undo, usage, .. } => {
                 self.flush_calls();
                 self.undo_lines(changes.as_ref(), undo.as_ref());
-                self.outcome(ending::failed_line(self.took(), self.options.glyphs()));
+                // NOTE: the reason stands under the outcome and the note of the stored
+                // copy under both, as in the turn (`follow::view::ending`).
+                let note =
+                    self.outcome_line(ending::failed_line(self.took(), self.options.glyphs()));
                 self.note(&format::one_line(&error.message));
+                self.stored_copy_note(note);
                 self.usage(usage.as_ref());
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
