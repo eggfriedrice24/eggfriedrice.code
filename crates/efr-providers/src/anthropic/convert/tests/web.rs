@@ -263,6 +263,39 @@ fn a_search_next_to_a_client_call_waits_for_the_tool_results() {
     assert_eq!(kinds(&messages[1]), ["text", "server_tool_use", "tool_use"]);
 }
 
+#[test]
+fn a_result_whose_call_a_compaction_cut_off_goes_as_its_canonical_content() {
+    // The tail of a compaction starts with the answer that starts with the result of a
+    // search; the answer before it, with the `server_tool_use`, is in the summary.
+    let resumed = Message::new(
+        Role::Assistant,
+        vec![
+            text("It fails."),
+            ContentBlock::ToolCall {
+                call_id: "toolu_02".to_owned(),
+                name: "shell".to_owned(),
+                input: json!({"command": "ls"}),
+                freeform: false,
+            },
+        ],
+    )
+    .with_provider_raw(Value::String(
+        r#"[{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01M","content":[]},{"type":"text","text":"It fails."},{"type":"tool_use","id":"toolu_02","name":"shell","input":{"command":"ls"}}]"#
+            .to_owned(),
+    ));
+    let request = with_web(request_of(vec![
+        Message::user("The summary."),
+        Message::user("Go."),
+        resumed,
+        user(vec![result("toolu_02", "a b")]),
+        Message::user("Why?"),
+    ]));
+    let messages = messages(&request);
+    assert_eq!(kinds(&messages[2]), ["text", "tool_use"]);
+    let text = serde_json::to_string(&messages).unwrap();
+    assert!(!text.contains("srvtoolu_01M"), "{text}");
+}
+
 fn request_of(messages: Vec<Message>) -> Request {
     request(messages)
 }

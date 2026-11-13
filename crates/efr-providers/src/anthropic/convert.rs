@@ -67,6 +67,12 @@
 //!    search that waited for client tools). Anywhere else, such as a turn that an
 //!    interrupt ended inside a search, the block is left out, the other blocks of its
 //!    message go one by one, each exact, and a message that becomes empty is left out.
+//! 9. A raw message with a result block of a server tool whose `server_tool_use` no
+//!    earlier part of the request holds goes as its canonical content, such as the
+//!    first answer of the tail that a compaction kept after a search that waited for
+//!    client tools or a `pause_turn`: its call was in the answer before, which the
+//!    summary replaced. The docs show only that the API refuses a call without its
+//!    result, so efr sends no result without its call either.
 //!
 //! A request can end with an assistant message: the continuation of a `pause_turn`. The
 //! marker of the tail then sits on the last user message, as in the request before.
@@ -584,11 +590,22 @@ impl BodyMessage {
 fn drafts(request: &Request) -> Vec<Draft> {
     let messages = &request.messages;
     let mut drafts: Vec<Draft> = Vec::with_capacity(messages.len());
+    let mut server_calls: Vec<String> = Vec::new();
     for message in messages {
         let draft = match message.role {
-            Role::Assistant => {
-                raw_draft(message, request).unwrap_or_else(|| assistant_draft(message))
-            }
+            Role::Assistant => match raw_draft(message, request) {
+                Some(raw) if orphan_result(&raw, &server_calls) => {
+                    tracing::debug!(
+                        "a server tool result without its call in the request; sending the canonical content"
+                    );
+                    assistant_draft(message)
+                }
+                Some(raw) => {
+                    server_calls.extend(raw.server_calls.iter().cloned());
+                    raw
+                }
+                None => assistant_draft(message),
+            },
             Role::User => user_draft(message),
             other => {
                 tracing::debug!(role = ?other, "a role the Messages API does not know; sent as user");
@@ -608,6 +625,14 @@ fn drafts(request: &Request) -> Vec<Draft> {
     drop_stale_server_calls(&mut drafts);
     answer_open_calls(&mut drafts);
     drafts
+}
+
+/// True when a result block of a server tool in `draft` answers a call that neither
+/// `draft` nor an earlier message of the request (`calls`) holds (rule 9 of the module
+/// doc), such as the start of the tail that a compaction kept: the call was in the
+/// answer before, which the summary replaced.
+fn orphan_result(draft: &Draft, calls: &[String]) -> bool {
+    draft.server_results.iter().any(|id| !draft.server_calls.contains(id) && !calls.contains(id))
 }
 
 /// Leaves out each `server_tool_use` block whose call can no longer end (rule 8 of the
