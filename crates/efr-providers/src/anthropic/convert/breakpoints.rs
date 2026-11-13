@@ -5,14 +5,16 @@
 //! daemon restart. A marker is `"cache_control": {"type": "ephemeral", "ttl": "5m"}`
 //! (or `"1h"`) on the last block of its place. There are four places at most:
 //!
-//! - S, the system: the system block, else the last tool. It covers the tools and the
-//!   system prompt, which a pruning or a compaction does not change.
+//! - S, the system: the system block, else the last tool that efr runs (never a server
+//!   tool such as the web search). It covers the tools and the system prompt, which a
+//!   pruning or a compaction does not change.
 //! - A, the anchor: the last place before the tail at which an earlier call marked an
 //!   anchor.
 //! - P, the previous tail: the last place before the tail, where the call before put
 //!   its T. The call reads that entry directly, so the API's lookback of 20 blocks
 //!   never matters.
-//! - T, the tail: the last message, which is a user message.
+//! - T, the tail: the last user place, which is the last message, or the message
+//!   before a paused answer that the continuation of a `pause_turn` sends back.
 //!
 //! Places. The conversion never merges user messages; the API joins a run of adjacent
 //! user messages into one. A run is one place, at its last message: a new prompt after
@@ -97,7 +99,7 @@ pub(crate) enum Slot {
     Anchor,
     /// P, the tail of the call before.
     Previous,
-    /// T, the last message.
+    /// T, the last user place.
     Tail,
 }
 
@@ -209,14 +211,13 @@ pub(crate) fn place_breakpoints(layout: &Layout<'_>, ttl: CacheTtl) -> Vec<Break
     // ended a call's request, so only the last one of a run counts.
     let users: Vec<usize> =
         (0..messages.len()).filter(|&index| is_user(index) && !is_user(index + 1)).collect();
+    // NOTE: a body can end with an assistant message: the continuation of a paused
+    // turn of server tools. Its tail is then the last user place, where the paused
+    // request put its own tail, so the continuation reads that entry; a marker on the
+    // paused answer itself could not sit on its raw blocks.
     let Some((&tail, past)) = users.split_last() else {
         return marks;
     };
-    if tail + 1 != messages.len() {
-        // NOTE: a body that ends with an assistant message has no tail to mark; the
-        // API refuses it anyway.
-        return marks;
-    }
 
     let tokens = |from: usize, to: usize| -> u64 {
         messages

@@ -269,9 +269,23 @@ fn the_system_marker_falls_back_to_the_last_tool_or_to_nothing() {
 }
 
 #[test]
-fn a_body_without_a_user_tail_marks_only_the_system() {
+fn a_body_without_a_user_message_marks_only_the_system() {
     assert_eq!(place(&[], false, CacheTtl::Auto), vec![system(H)]);
-    assert_eq!(place(&[prompt(10), answer(10)], false, CacheTtl::Auto), vec![system(H)]);
+}
+
+#[test]
+fn the_continuation_of_a_paused_turn_marks_the_tail_of_the_paused_request() {
+    // A paused turn of server tools goes on with the paused answer as the last message:
+    // the markers are those of the paused request, so the continuation reads its entry.
+    let paused = [prompt(1_000), answer(500), results(300)];
+    let continued = [prompt(1_000), answer(500), results(300), answer(4_000)];
+    let marks = place(&continued, false, CacheTtl::Auto);
+    assert_eq!(marks, place(&paused, false, CacheTtl::Auto));
+    assert_eq!(marks.last(), Some(&at(Slot::Tail, 2, H)));
+    assert_eq!(
+        place(&[prompt(10), answer(10)], false, CacheTtl::Auto),
+        vec![system(H), at(Slot::Tail, 0, H)]
+    );
 }
 
 #[test]

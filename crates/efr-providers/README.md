@@ -437,8 +437,8 @@ The Anthropic Messages API client. `AnthropicProvider` implements
 `https://api.anthropic.com/v1`, with an API key. Its provider id is `anthropic-api`.
 
 Status: the config, the request body with its cache markers, the stream mapping, the
-usage sums, the HTTP exchange with its retries, the catalog fetch, its cache file and
-the key check are built. efrd builds the provider for `[model] provider =
+usage sums, the HTTP exchange with its retries, the catalog fetch, its cache file, the
+key check and the web tools (web search and web fetch, which the API runs) are built. efrd builds the provider for `[model] provider =
 "anthropic-api"` (`efr-daemon`, `providers.rs`) and shares one `ModelCatalog` between
 the provider and its fetch of the list (`catalog.rs`, cache file
 `anthropic_model_catalog.json`).
@@ -463,15 +463,19 @@ Modules:
   fetches, `read_cache` and `write_cache` keep the list in a file of its own name, and
   `check_key` checks a key.
 - `convert`: `request_body`, the request body and its messages as a pure function,
-  and `THINKING_BINDING_BETA`, the one beta header; its `breakpoints` module places
-  the prompt cache markers (see "Prompt cache" below). The provider calls
+  `THINKING_BINDING_BETA`, the one beta header, and `FETCH_MAX_CONTENT_TOKENS`, the
+  limit of one web fetch; its `breakpoints` module places the prompt cache markers (see
+  "Prompt cache" below). The provider calls
   `request_body(&Request, &AnthropicConfig, Option<&ModelInfo>) -> Result<MessagesBody,
   ProviderError>` once per call and sends `MessagesBody::betas()` as the
   `anthropic-beta` header.
 - `sse_events`: `EventMapper`, a pure state machine from the stream's events to
-  `ProviderEvent`s (see "The stream" below). The provider calls `EventMapper::new()`,
-  then `map(&SseEvent) -> Result<Vec<ProviderEvent>, ProviderError>` for each event
-  until `is_done()`; an `error` event goes through `failure::event`.
+  `ProviderEvent`s (see "The stream" below). The provider calls
+  `EventMapper::new().with_web_tools(body.carries_web_tools())`, then
+  `map(&SseEvent) -> Result<Vec<ProviderEvent>, ProviderError>` for each event until
+  `is_done()`; an `error` event goes through `failure::event`. Before the error of an
+  answer that fails or ends early, it sends `take_held()`, the text that a block held
+  back for the mark of a citation.
 - `usage`: Anthropic's counts in efr's canonical sense, and `StreamUsage`, which keeps
   the cumulative counts of one stream (see "Token counts" below).
 - `failure`: what an error answer means and whether to send the request again (see
@@ -556,6 +560,8 @@ Modules:
 - Edit tool: every catalog model has `ModelInfo::edit_tool` `EditTool::Replace`, so
   the request offers `edit` (`path`, `old_string`, `new_string`, `replace_all`) and not
   `apply_patch`.
+- Web tools: see "Web search" below. A request without `Request::hosted` has no server
+  tool, so manual mode and `web.search = "off"` never send one.
 
 ### Prompt cache
 
@@ -589,10 +595,12 @@ so the same for the same bytes. A marker is `"cache_control": {"type": "ephemera
   call that failed, such as the tool results before a new prompt; the API's lookback
   from the markers after it reads the entry of that call.
 - At most four markers, in the order of the prefix: S (the system block, else the last
-  tool), A (the last anchor before the tail), P (the previous tail: the last place
-  before the tail, where the call before put its T) and T (the tail, the last
-  message). Markers sit only on the system block, a tool or the last block of a user
-  message, never on a `thinking` block. No top-level automatic marker.
+  client tool), A (the last anchor before the tail), P (the previous tail: the last
+  place before the tail, where the call before put its T) and T (the tail, the last
+  user place: the last message, or the message before the paused answer that the
+  continuation of a `pause_turn` sends back). Markers sit only on the system block, a
+  client tool or the last block of a user message, never on a `thinking` block or a
+  server tool. No top-level automatic marker.
 - Anchors: every place ends the request of one call. That call marks an anchor at it
   when a message of its run opens a turn, or when the messages after the last anchor,
   the run included, hold more than `ANCHOR_STEP_TOKENS` (20,000). A side call never
@@ -652,13 +660,127 @@ the full table. In short:
   has no `provider_raw`.
 - Stop reasons: `end_turn` and `stop_sequence` are `EndTurn`, `tool_use` is `ToolUse`,
   `max_tokens` and `model_context_window_exceeded` are `MaxTokens`, `refusal` is
-  `Refusal`, `pause_turn` is `PauseTurn` (efr does not continue it); an unknown or
-  missing one is `ToolUse` with a tool call, else `EndTurn`.
-- `ping` is ignored, `citations_delta` too. Any other unknown event, block or delta is
-  `Raw`, never a failure.
+  `Refusal`, `pause_turn` is `PauseTurn` (the turn continues it, see "Web search"); an
+  unknown or missing one is `ToolUse` with a tool call, else `EndTurn`. A web step
+  never makes an answer `ToolUse`.
+- The blocks of the web tools give `HostedCallStart`, `HostedCallEnd` and `Citation`
+  (see "Web search").
+- `ping` is ignored. Any other unknown event, block or delta is `Raw`, never a
+  failure; so is a `server_tool_use` of a tool other than `web_search` and
+  `web_fetch`, which stays in `provider_raw` as it came.
 - An `error` event fails the stream with the class of its `error.type` (see
   "Failures"); `message.input_transformations` entries of `message_start` are logged at
   `warn`.
+
+### Web search
+
+A request whose `Request::hosted` holds `HostedTool::WebSearch` gets two server tools
+after the client tools; `AnthropicProvider::web_search` is `WebSupport::Live`, because
+the API has no stored copy of the web:
+
+```json
+{"type": "web_search_20250305", "name": "web_search", "max_uses": 20}
+{"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 20,
+ "max_content_tokens": 25000, "url_sources": {"client_tool_results": {"type": "none"}}}
+```
+
+- `max_uses` is `web.max_searches`, for each of the two tools. `web_search_20250305`
+  is the basic version, which the model calls directly; the later versions run through
+  code execution unless `allowed_callers` is `["direct"]`. Both versions need no beta.
+- `url_sources` keeps a fetch from a URL that only the output of a command or a file
+  gave: such a text could make the model put data into a URL. It is left out in `full`
+  mode (`urls_from_tool_results`). A URL of the user or of a search result is always a
+  source.
+- The cache marker S stays on the system block, or on the last client tool when there
+  is no system prompt: the docs do not show a marker on a server tool.
+
+The stream (`sse_events`):
+
+- A `server_tool_use` of `web_search` or `web_fetch` is built as a `tool_use` is: the
+  joined `input_json_delta` fragments, else the start's `input`, else `{}`. At its
+  `content_block_stop` it gives `HostedCallStart` with `Search { query }` or
+  `Open { url }`. It never gives `ToolCallStart`: efr never runs it. An input that is
+  not a JSON object gives the action without its subject, and `{}` in `provider_raw`.
+- A `web_search_tool_result` gives `HostedCallEnd` with `Done { results }` (the `url`
+  and `title` of each result, never `encrypted_content`; an empty list is a search that
+  found nothing) or `Failed`. A `web_fetch_tool_result` gives `HostedCallEnd` with
+  `Open { url }`, `Done` without results, or `Failed`. A result whose call started in an
+  earlier answer still gives its end. Both blocks stay in `provider_raw` as they came.
+
+  | `error_code` | `HostedError` |
+  |---|---|
+  | `too_many_requests` | `TooManyRequests` |
+  | `max_uses_exceeded` | `LimitReached` |
+  | `unavailable` | `Unavailable` |
+  | `invalid_tool_input`, `query_too_long`, `request_too_large`, `url_too_long` | `Invalid` |
+  | `url_not_allowed`, `url_not_in_prior_context` | `NotAllowed` |
+  | `url_not_accessible` | `NotAccessible` |
+  | `unsupported_content_type`, `content_too_large` | `Unsupported` |
+  | any other | `Other` |
+
+- A `citations_delta` adds its citation, as it came, to its text block, which goes into
+  `provider_raw` with `"citations": [...]` (a block without a citation is written as
+  before). At the stop of the block, each `web_search_result_location` gives
+  `Citation { placed: true }`, in order; another citation type gives no event.
+- In a request with the web tools, the trailing run of white space and `. , ; : ! ?`
+  of a text block waits for the next text of the block or for its stop, where it comes
+  after the citations. So the turn's mark `[n]` stands before the punctuation. The text
+  of `provider_raw` never changes, and every held character comes exactly once, also
+  before the error of an answer that fails or ends early.
+- `usage.server_tool_use.web_search_requests` and `web_fetch_requests` go into one
+  `debug` line at `message_stop`. efr counts its own rows of the searches.
+- `pause_turn` is `PauseTurn` without a `warn` line. The answer can end with a
+  `server_tool_use` that has not run; so can a `tool_use` answer where the model called
+  a search and a client tool together.
+
+The replay (`convert`):
+
+- A raw message with a step of the web tools (a `server_tool_use`, a
+  `web_search_tool_result` or `web_fetch_tool_result` block, or a text block with
+  `citations`) goes back, each block exact, only in a request with the web tools. Any
+  other request sends its canonical content: the API refuses a waiting call without its
+  tool, and the docs do not say that it takes the other blocks without one.
+- A `server_tool_use` without its result block stays only where its call can still
+  end: in the last message (the continuation of a `pause_turn`), or before one user
+  message of only tool results that ends the request or comes before the answer that
+  starts with the result. Anywhere else, such as a turn that an interrupt ended inside
+  a search, the block is left out, the other blocks go one by one, and a message that
+  becomes empty is left out. `answer_open_calls` still answers only `tool_use` blocks.
+- A request can end with the paused answer. Its tail marker then sits on the last user
+  message, where the paused request put it, so the continuation reads that entry. A
+  paused answer and its continuation merge into one assistant message, each block
+  exact.
+
+Pages, read on 2026-11-12: the web search tool
+(`platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool`), the web
+fetch tool (`.../web-fetch-tool`), server tools (`.../server-tools`), streaming
+(`platform.claude.com/docs/en/build-with-claude/streaming`) and citations
+(`.../build-with-claude/citations`). Not confirmed by them, so a real recording
+(`EFR_RECORD_STREAMS`) must check:
+
+- the shape of a `web_search_result_location` inside `citations_delta`, and its place
+  among the `text_delta` events of its block (the mark is placed at the stop of the
+  block, which is right for every order);
+- whether the start of a cited text block holds `"citations": []` (efr writes
+  `citations` back only when a citation came);
+- that both tools work with `anthropic-version: 2023-06-01` and the one beta of efr
+  (the pages show `2026-10-21`);
+- how three searches at once stream (the fixture puts the three calls before the three
+  results);
+- that the API takes the blocks of a search in a request without the tools (efr never
+  sends them so), and a marker on a server tool (efr puts none there).
+
+Fixtures in `fixtures/anthropic/messages/`, each written from the pages that its first
+lines name, none a recording: `web_search.sse` (a search, its results and one cited
+block), `web_search_error.sse` (`too_many_requests`, `max_uses_exceeded`,
+`unavailable`), `web_search_empty.sse` (no results), `web_search_pause_turn.sse` (ends
+with a call that has not run) and `web_search_continued.sse` (starts with its result),
+`web_search_with_tool_use.sse` (a search next to a client call), `web_fetch.sse`,
+`web_fetch_error.sse` and `web_search_three.sse` (three searches at once, then the
+answer of the board TM-Web 10 with three citations). The tests are in
+`sse_events/tests/web.rs`, `convert/tests/web.rs` and `messages/tests.rs`. A recording
+of a real search replaces the fixture of its case, after a check that it holds no
+private text.
 
 ### Catalog
 

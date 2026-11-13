@@ -7,7 +7,9 @@
 //! ([`API_BASE_URL`] by default), the models of the config, the retry policy, the
 //! [`CacheTtl`] and the optional workspace id. Each assistant message keeps its content
 //! as the JSON text that efr built from the stream, as `provider_raw`, and the next
-//! request writes that text back unchanged, so signed thinking survives.
+//! request writes that text back unchanged, so signed thinking survives. A request
+//! with the web tool of the turn also gets the API's web search and web fetch tools,
+//! and their steps and citations come back as canonical events.
 //!
 //! The models come only from the API: a [`CatalogClient`] fetches `GET /models`,
 //! [`read_cache`] and [`write_cache`] keep the list in a file, and a [`ModelCatalog`]

@@ -65,6 +65,16 @@ impl StreamUsage {
     pub(crate) fn token_usage(&self) -> TokenUsage {
         token_usage(&self.counts)
     }
+
+    /// The counts of `usage.server_tool_use` so far, `(web_search_requests,
+    /// web_fetch_requests)`, or nothing when the API sent no such member. They are no
+    /// part of [`TokenUsage`]: efr counts its own rows of the searches, and the provider's
+    /// numbers only go into a debug line.
+    pub(crate) fn server_tools(&self) -> Option<(u64, u64)> {
+        let counts = self.counts.get("server_tool_use")?;
+        let count = |key: &str| counts.get(key).and_then(Value::as_u64).unwrap_or(0);
+        Some((count("web_search_requests"), count("web_fetch_requests")))
+    }
 }
 
 /// The canonical counts of `usage`, a usage object of the Messages API after the last

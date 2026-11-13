@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 use super::EventMapper;
 use crate::anthropic::testing::{fixture_completion, fixture_events};
 
+mod web;
+
 /// The events of a stream made of `events`, each sent under its own `type` as the event
 /// name, the way the Messages API frames them.
 fn sse(events: &[Value]) -> Vec<SseEvent> {
@@ -21,7 +23,12 @@ fn sse(events: &[Value]) -> Vec<SseEvent> {
 /// Maps `events` in order and returns the canonical events and the error that ended
 /// the stream, if one did.
 fn map_all(events: &[SseEvent]) -> (Vec<ProviderEvent>, Option<ProviderError>) {
-    let mut mapper = EventMapper::new();
+    map_all_with(events, false)
+}
+
+/// [`map_all`] for a request that carries the web tools when `web` is true.
+fn map_all_with(events: &[SseEvent], web: bool) -> (Vec<ProviderEvent>, Option<ProviderError>) {
+    let mut mapper = EventMapper::new().with_web_tools(web);
     let mut out = Vec::new();
     for event in events {
         match mapper.map(event) {
@@ -405,8 +412,10 @@ fn an_error_event_without_an_error_object_still_fails() {
 
 #[test]
 fn unknown_events_blocks_and_deltas_are_passed_on() {
+    // A server tool that efr does not send, such as code execution, is a block that efr
+    // does not know.
     let mut events = vec![start(), json!({"type": "message_progress", "share": 0.5})];
-    events.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "zsh"}}}));
+    events.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "server_tool_use", "id": "srvtoolu_1", "name": "code_execution", "input": {"code": "ls"}}}));
     events.push(json!({"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{}"}}));
     events.push(json!({"type": "content_block_stop", "index": 0}));
     events.extend(text_block(1, "Hi."));
@@ -431,7 +440,7 @@ fn unknown_events_blocks_and_deltas_are_passed_on() {
         mapped.last(),
         Some(&done(
             StopReason::EndTurn,
-            r#"[{"id":"srvtoolu_1","input":{"query":"zsh"},"name":"web_search","type":"server_tool_use"},{"type":"text","text":"Hi."}]"#,
+            r#"[{"id":"srvtoolu_1","input":{"code":"ls"},"name":"code_execution","type":"server_tool_use"},{"type":"text","text":"Hi."}]"#,
         ))
     );
 }

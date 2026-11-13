@@ -12,6 +12,7 @@ use crate::anthropic::{AnthropicConfig, CacheTtl};
 
 mod perf;
 mod prefix;
+mod web;
 
 fn shell_tool() -> ToolDefinition {
     ToolDefinition::function(

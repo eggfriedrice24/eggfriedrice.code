@@ -11,6 +11,12 @@
 //! provider reads no `provider_options` key: the conversation sends OpenAI's
 //! `prompt_cache_key` to every provider, and an unknown body member is a 400. The
 //! response's `request-id` goes into the request's span and into every failure line.
+//!
+//! The provider has the live web (`WebSupport::Live`): a request with
+//! `Request::hosted` gets the API's web search and web fetch tools (see `convert`), and
+//! its stream holds back the trailing punctuation of each text block for the mark of a
+//! citation (see `sse_events`). An answer that fails or ends early first sends that
+//! held text.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -22,7 +28,7 @@ use efr_http::{
 };
 use efr_provider::{
     CallNotice, CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError,
-    ProviderEvent, ProviderId, ProviderStream, Request, SecretString, TokenSource,
+    ProviderEvent, ProviderId, ProviderStream, Request, SecretString, TokenSource, WebSupport,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -251,7 +257,11 @@ impl Provider for AnthropicProvider {
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });
-        Ok(events(response, span, timing))
+        Ok(events(response, span, timing, body.carries_web_tools()))
+    }
+
+    fn web_search(&self) -> WebSupport {
+        WebSupport::Live
     }
 }
 
@@ -285,8 +295,14 @@ pub(crate) fn sign(
 }
 
 /// The events of a streaming response, until the answer is done or fails. Nothing here
-/// sends the request again: the stream has started.
-fn events(response: HttpResponse, span: tracing::Span, timing: Timing) -> ProviderStream {
+/// sends the request again: the stream has started. `web` is true when the request
+/// carries the web tools (see `sse_events`).
+fn events(
+    response: HttpResponse,
+    span: tracing::Span,
+    timing: Timing,
+    web: bool,
+) -> ProviderStream {
     let request_id = response
         .headers()
         .get(REQUEST_ID_HEADER)
@@ -294,7 +310,7 @@ fn events(response: HttpResponse, span: tracing::Span, timing: Timing) -> Provid
         .map(str::to_owned);
     let state = EventState {
         sse: Some(response.into_sse()),
-        mapper: EventMapper::new(),
+        mapper: EventMapper::new().with_web_tools(web),
         pending: VecDeque::new(),
         timing,
         request_id,
@@ -337,25 +353,26 @@ impl EventState {
             if matches!(next, Some(Ok(_))) {
                 self.timing.accepted();
             }
-            let ended = match next {
+            let failed = match next {
                 Some(Ok(event)) => match self.mapper.map(&event) {
                     Ok(events) => {
                         self.pending.extend(events.into_iter().map(Ok));
-                        self.mapper.is_done()
+                        None
                     }
-                    Err(error) => {
-                        self.pending.push_back(Err(error));
-                        true
-                    }
+                    Err(error) => Some(error),
                 },
-                Some(Err(error)) => {
-                    self.pending.push_back(Err(transport(error)));
+                Some(Err(error)) => Some(transport(error)),
+                None => Some(ProviderError::Incomplete),
+            };
+            // NOTE: the text that a block held back for a citation mark still reaches
+            // the turn before the error, so a failed answer keeps all of its text.
+            let ended = match failed {
+                Some(error) => {
+                    self.pending.extend(self.mapper.take_held().into_iter().map(Ok));
+                    self.pending.push_back(Err(error));
                     true
                 }
-                None => {
-                    self.pending.push_back(Err(ProviderError::Incomplete));
-                    true
-                }
+                None => self.mapper.is_done(),
             };
             if ended {
                 self.sse = None;

@@ -1,0 +1,132 @@
+: not a recording: written from platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool (read 2026-11-12)
+: and platform.claude.com/docs/en/build-with-claude/streaming
+: and platform.claude.com/docs/en/build-with-claude/citations
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_01three","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":2700,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":3}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_01T1","name":"web_search","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\": \"\\\"ROB RUN\\\" "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"Proton Easy Anti-Cheat\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"server_tool_use","id":"srvtoolu_01T2","name":"web_search","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\": \"\\\"ROB RUN\\"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\" areweanticheatyet\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"server_tool_use","id":"srvtoolu_01T3","name":"web_search","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"query\": \"ROB"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":" RUN protondb\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01T1","content":[{"type":"web_search_result","title":"ROB RUN · Are We Anti-Cheat Yet?","url":"https://areweanticheatyet.com/game/rob-run","encrypted_content":"Ev0DCioIAxgCthree1","page_age":null},{"type":"web_search_result","title":"Proton result 1","url":"https://example.com/proton/1","encrypted_content":"EqgfCioIARgBPr01","page_age":null},{"type":"web_search_result","title":"Proton result 2","url":"https://example.com/proton/2","encrypted_content":"EqgfCioIARgBPr02","page_age":null},{"type":"web_search_result","title":"Proton result 3","url":"https://example.com/proton/3","encrypted_content":"EqgfCioIARgBPr03","page_age":null},{"type":"web_search_result","title":"Proton result 4","url":"https://example.com/proton/4","encrypted_content":"EqgfCioIARgBPr04","page_age":null},{"type":"web_search_result","title":"Proton result 5","url":"https://example.com/proton/5","encrypted_content":"EqgfCioIARgBPr05","page_age":null},{"type":"web_search_result","title":"Proton result 6","url":"https://example.com/proton/6","encrypted_content":"EqgfCioIARgBPr06","page_age":null},{"type":"web_search_result","title":"Proton result 7","url":"https://example.com/proton/7","encrypted_content":"EqgfCioIARgBPr07","page_age":null},{"type":"web_search_result","title":"Proton result 8","url":"https://example.com/proton/8","encrypted_content":"EqgfCioIARgBPr08","page_age":null},{"type":"web_search_result","title":"Proton result 9","url":"https://example.com/proton/9","encrypted_content":"EqgfCioIARgBPr09","page_age":null}]}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3}
+
+event: content_block_start
+data: {"type":"content_block_start","index":4,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01T2","content":[{"type":"web_search_result","title":"ROB RUN · Are We Anti-Cheat Yet?","url":"https://areweanticheatyet.com/game/rob-run","encrypted_content":"Ev0DCioIAxgCthree2","page_age":null},{"type":"web_search_result","title":"Awacy result 1","url":"https://example.com/awacy/1","encrypted_content":"EqgfCioIARgBAw01","page_age":null},{"type":"web_search_result","title":"Awacy result 2","url":"https://example.com/awacy/2","encrypted_content":"EqgfCioIARgBAw02","page_age":null},{"type":"web_search_result","title":"Awacy result 3","url":"https://example.com/awacy/3","encrypted_content":"EqgfCioIARgBAw03","page_age":null},{"type":"web_search_result","title":"Awacy result 4","url":"https://example.com/awacy/4","encrypted_content":"EqgfCioIARgBAw04","page_age":null},{"type":"web_search_result","title":"Awacy result 5","url":"https://example.com/awacy/5","encrypted_content":"EqgfCioIARgBAw05","page_age":null},{"type":"web_search_result","title":"Awacy result 6","url":"https://example.com/awacy/6","encrypted_content":"EqgfCioIARgBAw06","page_age":null},{"type":"web_search_result","title":"Awacy result 7","url":"https://example.com/awacy/7","encrypted_content":"EqgfCioIARgBAw07","page_age":null}]}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":4}
+
+event: content_block_start
+data: {"type":"content_block_start","index":5,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01T3","content":[{"type":"web_search_result","title":"ROB RUN · ProtonDB","url":"https://www.protondb.com/app/2384710","encrypted_content":"EqgfCioIARgBthree3","page_age":"April 30, 2026"},{"type":"web_search_result","title":"Steam Deck Verified: ROB RUN","url":"https://www.steamdeck.com/verified/2384710","encrypted_content":"EqgfCioIARgBdeck","page_age":null},{"type":"web_search_result","title":"Protondb result 1","url":"https://example.com/protondb/1","encrypted_content":"EqgfCioIARgBPr01","page_age":null},{"type":"web_search_result","title":"Protondb result 2","url":"https://example.com/protondb/2","encrypted_content":"EqgfCioIARgBPr02","page_age":null},{"type":"web_search_result","title":"Protondb result 3","url":"https://example.com/protondb/3","encrypted_content":"EqgfCioIARgBPr03","page_age":null},{"type":"web_search_result","title":"Protondb result 4","url":"https://example.com/protondb/4","encrypted_content":"EqgfCioIARgBPr04","page_age":null},{"type":"web_search_result","title":"Protondb result 5","url":"https://example.com/protondb/5","encrypted_content":"EqgfCioIARgBPr05","page_age":null},{"type":"web_search_result","title":"Protondb result 6","url":"https://example.com/protondb/6","encrypted_content":"EqgfCioIARgBPr06","page_age":null},{"type":"web_search_result","title":"Protondb result 7","url":"https://example.com/protondb/7","encrypted_content":"EqgfCioIARgBPr07","page_age":null},{"type":"web_search_result","title":"Protondb result 8","url":"https://example.com/protondb/8","encrypted_content":"EqgfCioIARgBPr08","page_age":null}]}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":5}
+
+event: content_block_start
+data: {"type":"content_block_start","index":6,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":6,"delta":{"type":"text_delta","text":"The developers allowed Linux in Easy Anti-Cheat with patch 1.4"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":6,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://areweanticheatyet.com/game/rob-run","title":"ROB RUN · Are We Anti-Cheat Yet?","encrypted_index":"Eo8BCioIAhgBthree1","cited_text":"ROB RUN: supported since patch 1.4 ..."}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":6}
+
+event: content_block_start
+data: {"type":"content_block_start","index":7,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"text_delta","text":". "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":7}
+
+event: content_block_start
+data: {"type":"content_block_start","index":8,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"ProtonDB reports that it runs with Proton 10 and the Proton EasyAntiCheat "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"Runtime installed"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://www.protondb.com/app/2384710","title":"ROB RUN · ProtonDB","encrypted_index":"Eo8BCioIAhgBthree2","cited_text":"Works with Proton 10 and the runtime ..."}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":8}
+
+event: content_block_start
+data: {"type":"content_block_start","index":9,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":", and it is Verified on Steam Deck."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://www.steamdeck.com/verified/2384710","title":"Steam Deck Verified: ROB RUN","encrypted_index":"Eo8BCioIAhgBthree3","cited_text":"Steam Deck Verified ..."}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":9}
+
+event: content_block_start
+data: {"type":"content_block_start","index":10,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":10,"delta":{"type":"text_delta","text":" Your setup forces Proton 9 for it, and the runtime is not installed."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":10}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":14200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":610,"server_tool_use":{"web_search_requests":3}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+

@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use efr_http::{HeaderMap, HttpClient, HttpConfig, Record, Recorder, RetryPolicy};
 use efr_provider::{
-    EditTool, Message, ModelInfo, Provider, ProviderError, ProviderId, Request, StopReason,
+    EditTool, HostedTool, Message, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId,
+    Request, StopReason, WebAccess, WebSupport,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
@@ -14,8 +15,8 @@ use wiremock::{Mock, MockServer, Request as SeenRequest, ResponseTemplate};
 use super::AnthropicProvider;
 use crate::anthropic::catalog::entries_of;
 use crate::anthropic::testing::{
-    FakeTokens, FixedRng, InstantClock, KEY, LogText, closed_base_url, model_entry, sse, start,
-    text_answer,
+    FakeTokens, FixedRng, InstantClock, KEY, LogText, closed_base_url, messages_fixture,
+    model_entry, sse, start, text_answer,
 };
 use crate::anthropic::{AnthropicConfig, Catalog, DEFAULT_EFFORT, DEFAULT_MODEL, ModelCatalog};
 
@@ -665,4 +666,102 @@ async fn a_call_that_gets_no_connection_tells_a_retry_without_a_status() {
         ),
         "{heard:?}"
     );
+}
+
+/// `request` with the web tool of the turn.
+fn with_web(mut request: Request) -> Request {
+    request.hosted = vec![HostedTool::web_search(WebAccess::Live, Some(20))];
+    request
+}
+
+#[tokio::test]
+async fn a_request_with_the_web_tool_sends_both_server_tools_and_holds_the_period_for_the_mark() {
+    let server = MockServer::start().await;
+    let stream = messages_fixture("web_search.sse");
+    mount(&server, ResponseTemplate::new(200).set_body_raw(stream, "text/event-stream")).await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+    assert_eq!(setup.provider.web_search(), WebSupport::Live);
+
+    let events: Vec<ProviderEvent> = setup
+        .provider
+        .stream(with_web(request("Does ROB RUN run on Linux?")))
+        .await
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+        .await;
+
+    let body = body_of(&seen(&server).await[0]);
+    let names: Vec<&str> = body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["web_search", "web_fetch"]);
+    let answer: Vec<&ProviderEvent> = events
+        .iter()
+        .filter(|event| {
+            matches!(event, ProviderEvent::TextDelta { .. } | ProviderEvent::Citation { .. })
+        })
+        .skip(2)
+        .collect();
+    let text = |text: &str| ProviderEvent::TextDelta { text: text.to_owned() };
+    assert_eq!(
+        answer,
+        [
+            &text("The developers allowed Linux in Easy Anti-Cheat with patch 1.4"),
+            &ProviderEvent::Citation {
+                url: "https://areweanticheatyet.com/game/rob-run".to_owned(),
+                title: Some("ROB RUN · Are We Anti-Cheat Yet?".to_owned()),
+                placed: true,
+            },
+            &text(". Your setup forces Proton 9 for it"),
+            &text("."),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_request_without_the_web_tool_sends_no_server_tool() {
+    let server = MockServer::start().await;
+    mount(&server, answer("Hi.")).await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+
+    let events: Vec<_> = setup.provider.stream(request("Hi")).await.unwrap().collect().await;
+
+    assert!(events.iter().all(Result::is_ok), "{events:?}");
+    let body = body_of(&seen(&server).await[0]);
+    assert_eq!(body.get("tools"), None, "{body}");
+}
+
+#[tokio::test]
+async fn held_text_reaches_the_turn_before_an_early_end() {
+    let server = MockServer::start().await;
+    let truncated = sse(&[
+        (
+            "message_start",
+            json!({"message": {"id": "msg_01", "type": "message", "role": "assistant", "content": [], "model": DEFAULT_MODEL, "usage": {"input_tokens": 12, "output_tokens": 1}}}),
+        ),
+        ("content_block_start", json!({"index": 0, "content_block": {"type": "text", "text": ""}})),
+        (
+            "content_block_delta",
+            json!({"index": 0, "delta": {"type": "text_delta", "text": "Cut here. "}}),
+        ),
+    ]);
+    mount(&server, ResponseTemplate::new(200).set_body_raw(truncated, "text/event-stream")).await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+
+    let events: Vec<_> =
+        setup.provider.stream(with_web(request("Hi"))).await.unwrap().collect().await;
+
+    let texts: Vec<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Ok(ProviderEvent::TextDelta { text }) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, ["Cut here", ". "]);
+    assert!(matches!(events.last(), Some(Err(ProviderError::Incomplete))), "{events:?}");
 }

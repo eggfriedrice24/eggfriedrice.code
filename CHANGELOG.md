@@ -20,6 +20,10 @@ into the GitHub release notes, and it stops when the section is missing.
   live web.
 - An OpenAI model with the reasoning effort `minimal` gets no web search, because
   OpenAI says that web search needs a higher effort.
+- A Claude model can also open a web page that your prompt or a search result names.
+  It cannot open an address that only the output of a command or a file holds, except
+  in full mode, so a text in a file cannot make it send data out in an address. One
+  page gives the model at most about 25,000 tokens of text.
 - `[web] search` overrides the table by mode: `off`, `cached` or `live`. The default,
   `mode`, follows the permission mode. Manual mode stays off whatever it says.
   `[web] max_searches` (default 20) limits the searches of one turn on a provider that

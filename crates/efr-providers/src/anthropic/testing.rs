@@ -270,7 +270,13 @@ pub(crate) fn fixture_events(name: &str) -> Vec<SseEvent> {
 
 /// The answer of the stream fixture `name`, as the conversation folds it.
 pub(crate) fn fixture_completion(name: &str) -> Completion {
-    let mut mapper = EventMapper::new();
+    fixture_completion_with(name, false)
+}
+
+/// The answer of the stream fixture `name` to a request that carries the web tools when
+/// `web` is true.
+pub(crate) fn fixture_completion_with(name: &str, web: bool) -> Completion {
+    let mut mapper = EventMapper::new().with_web_tools(web);
     let mut builder = CompletionBuilder::new();
     for event in fixture_events(name) {
         for mapped in mapper.map(&event).unwrap() {
