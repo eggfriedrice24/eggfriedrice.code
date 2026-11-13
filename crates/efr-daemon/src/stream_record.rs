@@ -14,10 +14,16 @@
 //!   message as `event: <type>`, `data: <message>` and a blank line, so the file reads
 //!   as the SSE fixtures of efr-providers read;
 //! - one line in `index.jsonl`: `{"n", "at", "transport", "status", "end"}`, `end` being
-//!   `complete`, `failed` or `dropped`.
+//!   `complete`, `failed` or `dropped`. A provider stops reading an HTTP answer at its
+//!   last event, so the body never reaches its end; an answer whose file holds the last
+//!   event of the API (`message_stop`, `response.completed`, `response.incomplete`) is
+//!   `complete` all the same, and one with `response.failed` or `error` is `failed`.
+//!   `dropped` is an answer that stopped before such an event.
 //!
 //! How it keeps every secret out: it never writes a header (of a request, a response or
-//! a handshake: tokens, keys, cookies and account ids travel only there), it takes only
+//! a handshake: tokens, keys, cookies and account ids travel only there), it writes no
+//! body of an answer with the status 401 or 403 (OpenAI's 401 quotes the start and the
+//! end of the key that it refused), it takes only
 //! an exchange whose URL path ends in `/responses` or `/messages` (a login, a token
 //! refresh or a model list is never written, also when a later change marks one
 //! recorded by mistake), and it writes the URL without its query and its user. The
@@ -56,6 +62,24 @@ const WRITER_STACK: usize = 256 * 1024;
 /// The ends of the URL paths that the recorder takes: the Responses API and the
 /// Messages API.
 const MODEL_PATHS: [&str; 2] = ["/responses", "/messages"];
+
+/// The statuses whose answer body is not written: a refused credential, which the body
+/// can quote in part.
+const UNWRITTEN_STATUSES: [u16; 2] = [401, 403];
+
+/// The SSE event names that end the answer of a model call over HTTP: the Messages API
+/// ends with `message_stop`, the Responses API with one of its three last events.
+const SSE_ENDS: [(&str, &str); 5] = [
+    ("message_stop", "complete"),
+    ("response.completed", "complete"),
+    ("response.incomplete", "complete"),
+    ("response.failed", "failed"),
+    ("error", "failed"),
+];
+
+/// The most bytes of a line that the scan of [`SSE_ENDS`] keeps: an `event:` line is
+/// short, and a long `data:` line is skipped.
+const EVENT_LINE: usize = 64;
 
 /// The WebSocket message types that end the answer of a model call.
 const SOCKET_ENDS: [(&str, &str); 4] = [
@@ -229,6 +253,51 @@ struct Open {
     transport: &'static str,
     status: Option<u16>,
     response: Option<File>,
+    /// The scan of an HTTP answer for its last event.
+    scan: EventScan,
+}
+
+/// Finds the last event of an SSE answer ([`SSE_ENDS`]) in its chunks, which can split a
+/// line anywhere.
+#[derive(Default)]
+struct EventScan {
+    /// The start of the line that the last chunk did not end, at most [`EVENT_LINE`]
+    /// bytes.
+    line: Vec<u8>,
+    /// True while the line is longer than [`EVENT_LINE`]: no event line, so the rest
+    /// until its end is skipped.
+    long: bool,
+    /// The end that the newest `event:` line of [`SSE_ENDS`] names.
+    end: Option<&'static str>,
+}
+
+impl EventScan {
+    fn feed(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            if byte == b'\n' {
+                if !self.long {
+                    self.line_done();
+                }
+                self.line.clear();
+                self.long = false;
+            } else if !self.long {
+                self.line.push(byte);
+                if self.line.len() > EVENT_LINE {
+                    self.long = true;
+                    self.line.clear();
+                }
+            }
+        }
+    }
+
+    fn line_done(&mut self) {
+        let line = String::from_utf8_lossy(&self.line);
+        let Some(name) = line.trim_end_matches('\r').strip_prefix("event:") else { return };
+        let name = name.trim();
+        if let Some((_, end)) = SSE_ENDS.iter().find(|(ends, _)| *ends == name) {
+            self.end = Some(end);
+        }
+    }
 }
 
 /// The writer thread's state.
@@ -281,12 +350,21 @@ impl Writer {
             }
             Item::Chunk { exchange, bytes } => {
                 if let Some(mut open) = self.http.remove(&exchange) {
-                    self.append(&mut open, &bytes);
+                    if !open.status.is_some_and(|status| UNWRITTEN_STATUSES.contains(&status)) {
+                        open.scan.feed(&bytes);
+                        self.append(&mut open, &bytes);
+                    }
                     self.http.insert(exchange, open);
                 }
             }
             Item::End { exchange, end } => {
                 if let Some(open) = self.http.remove(&exchange) {
+                    // NOTE: the provider drops the body after its last event, so the
+                    // event, not the end of the body, says whether the answer is whole.
+                    let end = match (end, open.scan.end) {
+                        ("dropped", Some(seen)) => seen,
+                        _ => end,
+                    };
                     self.index(&open, end);
                 }
             }
@@ -347,7 +425,7 @@ impl Writer {
                 None
             }
         };
-        Open { n, at, transport, status: None, response }
+        Open { n, at, transport, status: None, response, scan: EventScan::default() }
     }
 
     fn append(&mut self, open: &mut Open, bytes: &[u8]) {

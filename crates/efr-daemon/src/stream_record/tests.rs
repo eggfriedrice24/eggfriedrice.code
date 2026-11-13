@@ -205,3 +205,80 @@ fn the_messages_of_a_socket_become_one_call_for_each_request() {
     assert_eq!(ends[1]["end"], "dropped", "the socket ended before the answer");
     assert_eq!(dir.file_name().unwrap().to_string_lossy(), "20261004T120000Z-77");
 }
+
+/// The lines of `index.jsonl` and the answer files of the writer after `items`.
+fn written(items: Vec<Item>) -> (Vec<Value>, Vec<(String, String)>) {
+    let state = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let dir = run_dir(state.path(), clock.now(), 77).unwrap();
+    let (sender, queue) = std::sync::mpsc::sync_channel(64);
+    for item in items {
+        sender.send(item).unwrap();
+    }
+    drop(sender);
+    Writer::new(dir.clone()).run(&queue);
+    let found = files(&dir);
+    let index = found
+        .iter()
+        .find(|(name, _)| name == "index.jsonl")
+        .map(|(_, text)| text.lines().map(|line| serde_json::from_str(line).unwrap()).collect())
+        .unwrap_or_default();
+    let answers = found.into_iter().filter(|(name, _)| name.ends_with(".response.sse")).collect();
+    (index, answers)
+}
+
+fn request(exchange: u64) -> Item {
+    Item::Request {
+        exchange,
+        at: TestClock::new().now(),
+        method: "POST".to_owned(),
+        url: "https://api.anthropic.com/v1/messages".to_owned(),
+        body: br#"{"model":"m"}"#.to_vec(),
+    }
+}
+
+fn chunk(exchange: u64, text: &str) -> Item {
+    Item::Chunk { exchange, bytes: text.as_bytes().to_vec() }
+}
+
+#[test]
+fn an_answer_that_the_provider_stopped_reading_after_its_last_event_is_complete() {
+    let long = "x".repeat(200);
+    let (index, _) = written(vec![
+        request(1),
+        Item::Response { exchange: 1, status: 200 },
+        chunk(1, &format!("event: content_block_delta\ndata: {{\"t\":\"{long}\"}}\n\nevent: mess")),
+        chunk(1, "age_stop\ndata: {\"type\":\"message_stop\"}\n\n"),
+        Item::End { exchange: 1, end: "dropped" },
+        request(2),
+        Item::Response { exchange: 2, status: 200 },
+        chunk(2, "event: content_block_delta\ndata: {}\n\n"),
+        Item::End { exchange: 2, end: "dropped" },
+        request(3),
+        Item::Response { exchange: 3, status: 200 },
+        chunk(3, "event: response.failed\r\ndata: {}\r\n\r\n"),
+        Item::End { exchange: 3, end: "dropped" },
+    ]);
+    let ends: Vec<&str> = index.iter().map(|line| line["end"].as_str().unwrap()).collect();
+    assert_eq!(ends, ["complete", "dropped", "failed"]);
+}
+
+#[test]
+fn the_body_of_a_refused_credential_is_not_written() {
+    // OpenAI's 401 quotes the first and the last characters of the key it refused.
+    let refused = r#"{"error":{"message":"Incorrect API key provided: sk-fake*******enai."}}"#;
+    let (index, answers) = written(vec![
+        request(1),
+        Item::Response { exchange: 1, status: 401 },
+        chunk(1, refused),
+        Item::End { exchange: 1, end: "complete" },
+        request(2),
+        Item::Response { exchange: 2, status: 400 },
+        chunk(2, r#"{"error":{"message":"Web search is not enabled."}}"#),
+        Item::End { exchange: 2, end: "complete" },
+    ]);
+    assert_eq!(answers[0].1, "", "the 401 body");
+    assert_eq!(answers[1].1, r#"{"error":{"message":"Web search is not enabled."}}"#);
+    assert_eq!(index[0]["status"], 401);
+    assert_eq!(index[0]["end"], "complete");
+}

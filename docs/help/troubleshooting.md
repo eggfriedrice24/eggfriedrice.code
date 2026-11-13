@@ -120,9 +120,12 @@ model call `n` there are three entries:
   prompt, the system prompt, the history and the output of tools.
 - `<n>.response.sse`: the answer of the model as it came.
 - one line in `index.jsonl`: the time, the transport, the status and how the answer
-  ended.
+  ended: `complete` when the last event of the answer came, `failed` for an error,
+  `dropped` when the answer stopped before its last event.
 
-efr never writes a header, so no token, API key or cookie goes into the files. But the
+efr never writes a header, so no token, API key or cookie goes into the files. The
+answer to a refused key (status 401 or 403) stays empty, because the provider can
+quote a part of the key in it. But the
 files hold your prompts and the answers, so they are private: the directory has mode
 0700 and each file 0600, and efr never sends them anywhere. Read a file before you
 share it. Remove the variable and restart efrd to stop. Then delete the directory.
