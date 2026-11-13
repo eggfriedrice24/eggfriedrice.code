@@ -446,11 +446,12 @@ jobs:
 
   # The required check `sandbox`: one result for the six shards. It passes when every
   # shard passed, or when `changes` said that the shards need not run. It runs also
-  # after a failed shard, because a job that GitHub skips counts as passed for a
-  # required check.
+  # after a failed shard and in a cancelled run, because a job that GitHub skips counts
+  # as passed for a required check: a run that someone cancels while the shards run
+  # must not read as a pass.
   sandbox:
     needs: [changes, sandbox-shard]
-    if: ${{ !cancelled() }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - env:
