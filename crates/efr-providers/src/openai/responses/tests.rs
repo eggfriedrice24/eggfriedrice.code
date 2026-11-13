@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use efr_http::{HeaderMap, HttpClient, HttpConfig, Record, Recorder, RetryPolicy};
 use efr_provider::{
-    ContentBlock, Message, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, Request,
-    StopReason, ToolDefinition,
+    ContentBlock, HostedTool, Message, ModelInfo, Provider, ProviderError, ProviderEvent,
+    ProviderId, Request, StopReason, ToolDefinition, WebAccess, WebSupport,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
@@ -862,4 +862,42 @@ async fn a_new_catalog_decides_the_tool_form_from_the_next_request() {
     let sent = seen(&server).await;
     assert_eq!(body_of(&sent[0])["tools"][0]["type"], "function", "unknown before the fetch");
     assert_eq!(body_of(&sent[1])["tools"][0]["type"], "custom", "the catalog says freeform");
+}
+
+/// A web search over HTTP on each backend, with the fixture written from
+/// developers.openai.com/api/docs/guides/tools-web-search and
+/// developers.openai.com/api/reference/resources/responses/streaming-events.
+#[tokio::test]
+async fn both_backends_take_the_web_tool_and_send_its_items_back_on_the_next_call() {
+    for (config, tokens, at) in [
+        (OpenAiConfig::subscription(), subscription_tokens(), SUBSCRIPTION_PATH),
+        (OpenAiConfig::api(), FakeTokens::new(&["sk-test"]).without_refresh(), API_PATH),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(at))
+            .respond_with(sse_response("web_search.sse"))
+            .mount(&server)
+            .await;
+        let setup = setup(&server, config, tokens);
+        assert_eq!(setup.provider.web_search(), WebSupport::StoredOrLive);
+        let mut request = request("Does ROB RUN run on Linux?");
+        request.hosted = vec![HostedTool::web_search(WebAccess::Stored, Some(20))];
+
+        let completion = setup.provider.complete(request.clone()).await.unwrap();
+        assert_eq!(completion.stop_reason, StopReason::EndTurn);
+        assert!(completion.message.text().starts_with("The developers allowed Linux"));
+        let raw = completion.message.provider_raw.clone().unwrap();
+        request.messages.push(completion.message);
+        request.messages.push(Message::user("And on the Steam Deck?"));
+        setup.provider.complete(request).await.unwrap();
+
+        let seen = seen(&server).await;
+        let first = body_of(&seen[0]);
+        assert_eq!(first["tools"], json!([{"type": "web_search", "external_web_access": false}]));
+        assert_eq!(first["tool_choice"], "auto");
+        let second = body_of(&seen[1]);
+        let input = second["input"].as_array().unwrap();
+        assert_eq!(Value::Array(input[1..5].to_vec()), raw, "{at}");
+    }
 }

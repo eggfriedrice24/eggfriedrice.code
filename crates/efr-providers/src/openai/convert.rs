@@ -29,11 +29,24 @@
 //! its encrypted content is refused when `store` is false. So is a message whose raw
 //! items hold a call of a tool that the request does not offer: its canonical content
 //! shows that call as text (`efr_provider::unoffered_call_text`).
+//!
+//! The web tool (`HostedTool::WebSearch` in `Request::hosted`) goes after the function
+//! tools as `{"type": "web_search", "external_web_access": <live>}`, always with the
+//! member, as Codex sends it (`codex-rs/core/src/tools/hosted_spec.rs`,
+//! `create_web_search_tool`): `false` reads the provider's stored copy of the web,
+//! `true` the live web (developers.openai.com/api/docs/guides/tools-web-search). A
+//! request whose reasoning effort is `minimal` gets no web tool: the guide says that web
+//! search needs an effort above it. A `web_search_call` item is a step of that tool; it
+//! has no canonical form, so it goes back only in its raw items, and only in a request
+//! that carries the web tool. In any other request its message falls back to the
+//! canonical content, because the docs do not say that the API takes the item without
+//! the tool.
 
 use std::collections::HashSet;
 
 use efr_provider::{
-    ContentBlock, FREEFORM_INPUT, Message, ModelInfo, Request, Role, ToolDefinition,
+    ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, ModelInfo, Request, Role,
+    ToolDefinition, WebAccess,
 };
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -44,6 +57,13 @@ use crate::openai::models::is_reasoning_model;
 
 /// The item type of a call of a freeform tool.
 pub(crate) const CUSTOM_CALL: &str = "custom_tool_call";
+
+/// The item type of a step of the hosted web tool.
+pub(crate) const WEB_CALL: &str = "web_search_call";
+
+/// The reasoning effort at which the web tool is not sent: the guide says that web
+/// search needs an effort above it (on `gpt-5`).
+const NO_WEB_EFFORT: &str = "minimal";
 
 /// What the model is asked to return besides its output: the encrypted reasoning that
 /// lets the next request continue the same chain of thought without server-side state.
@@ -142,6 +162,10 @@ pub(crate) fn request_body(
         effort: request.effort.clone().or_else(|| config.reasoning_effort().map(str::to_owned)),
         summary: options.nullable_string("reasoning_summary", config.reasoning_summary()),
     });
+    let minimal = reasoning
+        .as_ref()
+        .is_some_and(|reasoning| reasoning.effort.as_deref() == Some(NO_WEB_EFFORT));
+    let web = web_tool(&request.hosted, minimal);
     // NOTE: the subscription backend refuses `max_output_tokens`; Codex never sends it
     // and opencode removes it on that path ("Match codex cli").
     let max_output_tokens = match config.backend() {
@@ -152,8 +176,10 @@ pub(crate) fn request_body(
         _ => model.and_then(|model| model.max_output_tokens).or(request.max_output_tokens),
     };
     let freeform = model.is_some_and(|model| model.freeform_tools);
-    let tools: Vec<Value> =
+    let mut tools: Vec<Value> =
         request.tools.iter().map(|tool| tool_definition(tool, freeform)).collect();
+    let carries_web = web.is_some();
+    tools.extend(web);
     let calls_tools = !tools.is_empty();
     let format = request.output.as_ref().map(|output| TextFormat {
         kind: "json_schema",
@@ -170,7 +196,7 @@ pub(crate) fn request_body(
         service_tier: options.string("service_tier"),
         previous_response_id: None,
         instructions: request.system.clone().filter(|system| !system.is_empty()),
-        input: input_items(&request.messages, freeform, |name| request.offers(name)),
+        input: input_items(&request.messages, freeform, carries_web, |name| request.offers(name)),
         tools,
         tool_choice: calls_tools.then_some("auto"),
         parallel_tool_calls: calls_tools
@@ -343,6 +369,20 @@ pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
     }
 }
 
+/// The web tool of a request whose hosted tools are `hosted`, or `None` when it has none
+/// or when the effort is `minimal`. A second web entry adds nothing: the API takes one.
+pub(crate) fn web_tool(hosted: &[HostedTool], minimal: bool) -> Option<Value> {
+    let access = hosted.iter().find_map(|tool| match tool {
+        HostedTool::WebSearch { access, .. } => Some(*access),
+        _ => None,
+    })?;
+    if minimal {
+        tracing::debug!("the reasoning effort is minimal; the request carries no web tool");
+        return None;
+    }
+    Some(json!({"type": "web_search", "external_web_access": access == WebAccess::Live}))
+}
+
 /// The Responses `input` for a conversation, oldest first, for a model that takes
 /// freeform tools when `takes_freeform` is true.
 ///
@@ -352,16 +392,19 @@ pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
 /// freeform call goes to a model that does not take freeform tools in the function
 /// form that the tool has for it, so a conversation that changes the model keeps one
 /// shape for each tool. `offers` says whether the request offers a tool: raw items
-/// with a call of a tool that it does not offer are not sent.
+/// with a call of a tool that it does not offer are not sent. `web` says whether the
+/// request carries the web tool: raw items with a step of it are not sent without it.
 pub(crate) fn input_items(
     messages: &[Message],
     takes_freeform: bool,
+    web: bool,
     offers: impl Fn(&str) -> bool,
 ) -> Vec<Value> {
-    let freeform = freeform_calls(messages, takes_freeform, &offers);
+    let offered = Offered { web, tools: offers };
+    let freeform = freeform_calls(messages, takes_freeform, &offered);
     let mut items = Vec::new();
     for message in messages {
-        match raw_items(message, &offers) {
+        match raw_items(message, &offered) {
             Some(raw) => items.extend(raw.iter().cloned()),
             None => push_canonical(&mut items, message, &freeform, takes_freeform),
         }
@@ -375,11 +418,11 @@ pub(crate) fn input_items(
 fn freeform_calls<'m>(
     messages: &'m [Message],
     takes_freeform: bool,
-    offers: &impl Fn(&str) -> bool,
+    offered: &Offered<impl Fn(&str) -> bool>,
 ) -> HashSet<&'m str> {
     let mut calls = HashSet::new();
     for message in messages {
-        if let Some(raw) = raw_items(message, offers) {
+        if let Some(raw) = raw_items(message, offered) {
             calls.extend(
                 raw.iter()
                     .filter(|item| item.get("type").and_then(Value::as_str) == Some(CUSTOM_CALL))
@@ -403,12 +446,25 @@ pub(crate) fn provider_raw(items: Vec<Value>) -> Option<Value> {
     (!items.is_empty()).then_some(Value::Array(items))
 }
 
-/// The items of an assistant message's `provider_raw`, when it holds a list of items
-/// and each call among them is of a tool that the request `offers`. Anything else falls
+/// What a request offers the model: its tools by name, and whether it carries the web
+/// tool.
+struct Offered<F> {
+    web: bool,
+    tools: F,
+}
+
+/// The items of an assistant message's `provider_raw`, when it holds a list of items,
+/// each call among them is of a tool that the request offers, and a step of the web
+/// tool is among them only when the request carries that tool. Anything else falls
 /// back to the canonical content, so a damaged or foreign value costs the encrypted
-/// reasoning, not the request, and a call of a tool that the request does not offer
-/// goes as the text of the canonical content.
-fn raw_items<'m>(message: &'m Message, offers: &impl Fn(&str) -> bool) -> Option<&'m Vec<Value>> {
+/// reasoning, not the request, a call of a tool that the request does not offer goes as
+/// the text of the canonical content, and a web search of an earlier turn reaches a
+/// request without the web tool (manual mode, `web.search = "off"`) only as the answer
+/// that the model wrote.
+fn raw_items<'m>(
+    message: &'m Message,
+    offered: &Offered<impl Fn(&str) -> bool>,
+) -> Option<&'m Vec<Value>> {
     if message.role != Role::Assistant {
         return None;
     }
@@ -423,11 +479,19 @@ fn raw_items<'m>(message: &'m Message, offers: &impl Fn(&str) -> bool) -> Option
                     item.get("type").and_then(Value::as_str),
                     Some("function_call" | CUSTOM_CALL)
                 );
-                call && !item.get("name").and_then(Value::as_str).is_some_and(offers)
+                call && !item.get("name").and_then(Value::as_str).is_some_and(&offered.tools)
             });
             if unoffered {
                 tracing::debug!(
                     "provider_raw holds a call of a tool that the request does not offer; sending the canonical content"
+                );
+                return None;
+            }
+            let web =
+                items.iter().any(|item| item.get("type").and_then(Value::as_str) == Some(WEB_CALL));
+            if web && !offered.web {
+                tracing::debug!(
+                    "provider_raw holds a web search and the request carries no web tool; sending the canonical content"
                 );
                 return None;
             }
@@ -583,7 +647,20 @@ pub(crate) enum OutputItem {
     /// A function call, or a freeform (`custom_tool_call`) call whose `arguments` are
     /// its raw text `input`.
     FunctionCall { call_id: String, name: String, arguments: String, freeform: bool },
-    /// Any other item, such as a hosted tool call, which has no canonical form.
+    /// A step of the hosted web tool (`web_search_call`). It has no canonical form: the
+    /// stream reports it as hosted call events, and it goes back only in the raw items.
+    WebCall {
+        /// The item's id, when it has one.
+        id: Option<String>,
+        /// The item's `status`: `in_progress`, `searching`, `completed`, `failed` or
+        /// `incomplete` by the reference.
+        status: Option<String>,
+        /// What the step did, at least one: a search with `n` queries is `n` searches,
+        /// in order.
+        actions: Vec<HostedAction>,
+    },
+    /// Any other item, such as a hosted tool call of another tool, which has no
+    /// canonical form.
     Other { kind: String },
 }
 
@@ -615,7 +692,57 @@ impl OutputItem {
                     _ => OutputItem::Other { kind: kind.to_owned() },
                 }
             }
+            WEB_CALL => OutputItem::WebCall {
+                id: string(item, "id"),
+                status: string(item, "status"),
+                actions: web_actions(item.get("action")),
+            },
             other => OutputItem::Other { kind: other.to_owned() },
+        }
+    }
+}
+
+/// The member `key` of `value` when it is a string that is not empty.
+fn string(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned)
+}
+
+/// The steps of a `web_search_call` whose `action` is `action`, by the reference
+/// (developers.openai.com/api/reference/resources/responses/streaming-events,
+/// `WebSearchCall`): a `search` with its `queries` when the list is not empty, each one
+/// a search of its own, else with its `query`; an `open_page` with its `url`; a
+/// `find_in_page` with its `pattern` and `url`. No action, or an action of another type,
+/// is a search without a query: the guide says that a search "will usually (but not
+/// always)" name its queries.
+fn web_actions(action: Option<&Value>) -> Vec<HostedAction> {
+    let Some(action) = action.filter(|action| action.is_object()) else {
+        return vec![HostedAction::Search { query: None }];
+    };
+    match action.get("type").and_then(Value::as_str) {
+        Some("search") => {
+            let queries: Vec<HostedAction> = action
+                .get("queries")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|query| !query.is_empty())
+                .map(|query| HostedAction::Search { query: Some(query.to_owned()) })
+                .collect();
+            if queries.is_empty() {
+                vec![HostedAction::Search { query: string(action, "query") }]
+            } else {
+                queries
+            }
+        }
+        Some("open_page") => vec![HostedAction::Open { url: string(action, "url") }],
+        Some("find_in_page") => vec![HostedAction::Find {
+            pattern: action.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            url: string(action, "url"),
+        }],
+        other => {
+            tracing::debug!(action = ?other.map(|kind| kind.chars().take(64).collect::<String>()), "a web search step of an unknown action; shown as a search");
+            vec![HostedAction::Search { query: None }]
         }
     }
 }

@@ -126,15 +126,42 @@ Modules:
   conversation that started on a model of the catalog, the canonical freeform call
   goes as a `function_call` with the text in `arguments` as `{"input": text}`, and
   its result as a `function_call_output`, so each tool has one shape in the request.
+  The web tool (`HostedTool::WebSearch` in `Request::hosted`) goes after the function
+  tools as `{"type": "web_search", "external_web_access": <live>}`, on both backends
+  and always with the member, as Codex sends it: `false` for the stored copy of the
+  web, `true` for the live web. A request with the web tool and no function tool
+  still sends `tool_choice` and `parallel_tool_calls`. A request whose reasoning
+  effort is `minimal` gets no web tool, because the guide says that web search needs a
+  higher effort. No `include` value is added for it.
 - `sse_events`: `EventMapper`, a pure state machine from Responses events to
   `ProviderEvent`s (text, reasoning, tool call start, deltas and end, usage, done).
   A `custom_tool_call` item is a freeform call: `response.custom_tool_call_input.delta`
   events grow its text (found by item id, output index or call id), and its finished
   item holds the whole text as `input`.
+  A `web_search_call` item is a step of the web tool, and its events become
+  `HostedCallStart` and `HostedCallEnd` (the table in the module doc of
+  `sse_events.rs`). The item of `response.output_item.added` and the three
+  `response.web_search_call.*` events start the step; they carry no query, so the
+  start of a search mostly has none. The finished item ends it with the complete
+  action: `search` (each of its `queries` is a search of its own, with the id
+  `<item id>#<i>` after the first; else its `query`), `open_page` (`url`) or
+  `find_in_page` (`pattern`, `url`); no action is a search without a query. The status
+  `failed` ends it as `Unavailable`, `incomplete` as `NotFinished`, and every other
+  status as done, without results: efr does not ask for them. A step whose item never
+  finished ends with `response.completed` or `response.incomplete`, from the item in
+  `response.output`, else as `NotFinished`. A web step never makes the stop reason
+  `ToolUse`. The `url_citation` annotations of a finished message (else those of its
+  `response.output_text.annotation.added` events) become one unplaced `Citation` per
+  URL of the answer, in the order of `start_index`: the text stays as the model wrote
+  it, with its Markdown links, and no mark `[n]` goes into it. The mapper keeps
+  `start_index` and `end_index`, so a placed citation is a small change once a
+  recording shows that the text and the annotation allow it.
+  `response.tool_usage.web_search.num_requests` is one debug line; the turn counts
+  the searches from the events.
   Unknown event types and output items without a canonical form become
   `ProviderEvent::Raw` and are logged at debug, never dropped silently.
 - `responses`: `OpenAiProvider`, the HTTP exchange, the choice of the transport and
-  the event stream.
+  the event stream. `web_search()` is `WebSupport::StoredOrLive` on both backends.
 - `websocket`: `Sockets`, the WebSocket connection of each conversation; its
   `connection` module holds the task that owns one connection, and its
   `continuation` module decides when a call sends only its new input.
@@ -154,7 +181,11 @@ usable `provider_raw` is rebuilt from its canonical content; its reasoning text 
 dropped, because a reasoning item without its encrypted content is refused when
 `store` is false. Raw items with a `function_call` or `custom_tool_call` of a tool
 that the request does not offer are not usable: the canonical content shows that
-call as text (`efr_provider::unoffered_call_text`).
+call as text (`efr_provider::unoffered_call_text`). Raw items with a
+`web_search_call` are usable only in a request that carries the web tool. In any
+other request (manual mode, `web.search = "off"`, a `minimal` effort) the message goes
+as its canonical content, the answer as the model wrote it: the docs do not say that
+the API takes the item without the tool.
 
 Failures:
 
@@ -265,6 +296,12 @@ the new input with them. Thus it compares the bytes that went on the wire. The i
 are partly the model's and the tools' text, so the hash must resist a chosen
 collision: with one, the server would continue a prefix other than the one efr has. An item that
 cannot be encoded sends the whole input.
+
+Web search needs nothing of its own here. The events of a web step come as on HTTP and
+map the same way. The finished item of a web step is an output item of the answer like
+any other, so the next call continues the answer with only its new items. A change of
+the web tool (on or off, the stored copy or the live web) changes `tools`, so that call
+sends the whole input.
 
 Interrupt: when the conversation drops the stream of a running answer, the connection
 sends `{"type": "response.interrupt", "response_id", "mode": "discard_partial_items"}`
@@ -377,6 +414,21 @@ a missing or `null` part counts as zero. OpenAI has no cache time to live to cho
 `cache_write_1h_tokens` is always zero. The tests check them on the recorded streams in
 `fixtures/openai/responses/` (`tool_call.sse` has a cache write), and the overflow on
 `context_length_exceeded.sse`, a 400 with that code and a 413.
+
+Web search follows developers.openai.com/api/docs/guides/tools-web-search and
+developers.openai.com/api/reference/resources/responses/streaming-events (the
+`WebSearchCall` item, the three `response.web_search_call.*` events,
+`response.output_text.annotation.added` and `tool_usage`), read on 2026-11-12, and
+Codex's `codex-rs/core/src/tools/hosted_spec.rs` for the subscription path. No real
+stream was recorded yet. The fixtures `web_search.sse`, `web_search_failed.sse`,
+`web_search_queries.sse` and `web_search_no_action.sse` are written from those pages,
+and the first comment line of each says so. The tests run them on the mapper, over
+HTTP on both backends and over the WebSocket. What the docs do not show, and what the
+fixtures therefore only guess: whether the item of `response.output_item.added` has an
+action, when the annotation event comes and how the text cites a page, how a failed
+step looks beyond its status, when an item has `queries`, whether the subscription
+backend takes the tool and sends `tool_usage`, and whether the API takes a
+`web_search_call` input item without the tool (efr never sends one).
 
 ## The anthropic module
 

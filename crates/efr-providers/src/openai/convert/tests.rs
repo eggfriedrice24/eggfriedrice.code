@@ -1,12 +1,13 @@
 use efr_provider::{
-    ContentBlock, FREEFORM_INPUT, Message, Request, Role, ToolDefinition, ToolGrammar,
+    ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, Request, Role, ToolDefinition,
+    ToolGrammar, WebAccess,
 };
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{OutputItem, input_items, provider_raw, request_body, tool_definition};
+use super::{OutputItem, input_items, provider_raw, request_body, tool_definition, web_tool};
 use crate::openai::catalog::with_extra;
 use crate::openai::{Catalog, OpenAiConfig, ReasoningMode};
 
@@ -313,7 +314,7 @@ fn user_text_and_images_form_one_message() {
         vec![text("What is on this screen?"), image("image/png", "iVBORw==")],
     );
     assert_eq!(
-        input_items(&[message], true, |_| true),
+        input_items(&[message], true, false, |_| true),
         vec![json!({
             "type": "message",
             "role": "user",
@@ -338,7 +339,7 @@ fn an_assistant_message_without_raw_items_is_rebuilt_in_order() {
         ],
     );
     assert_eq!(
-        input_items(&[message], true, |_| true),
+        input_items(&[message], true, false, |_| true),
         vec![
             json!({
                 "type": "message",
@@ -374,7 +375,7 @@ fn tool_results_become_function_call_outputs_between_messages() {
         ],
     );
     assert_eq!(
-        input_items(&[message], true, |_| true),
+        input_items(&[message], true, false, |_| true),
         vec![
             json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Before."}]}),
             json!({"type": "function_call_output", "call_id": "call_1", "output": "file.txt"}),
@@ -419,7 +420,7 @@ fn raw_items_are_sent_verbatim_in_place_of_the_content() {
         assistant,
         Message::new(Role::User, vec![result("call_1", "file.txt", false)]),
     ];
-    let items = input_items(&messages, true, |_| true);
+    let items = input_items(&messages, true, false, |_| true);
     assert_eq!(items.len(), 4);
     assert_eq!(Value::Array(items[1..3].to_vec()), raw);
     assert_eq!(items[3]["type"], json!("function_call_output"));
@@ -454,7 +455,7 @@ fn a_claude_tool_call_after_a_switch_gets_a_call_id_of_openai_form_that_its_resu
         Message::new(Role::User, vec![result("call_own_1", "/home", false)]),
     ];
 
-    let items = input_items(&switched, true, |_| true);
+    let items = input_items(&switched, true, false, |_| true);
     let ids: Vec<&str> = items.iter().filter_map(|item| item["call_id"].as_str()).collect();
 
     let [claude_call, claude_result, own_call, own_result] = ids.as_slice() else {
@@ -467,7 +468,7 @@ fn a_claude_tool_call_after_a_switch_gets_a_call_id_of_openai_form_that_its_resu
     );
     assert_ne!(*claude_call, "toolu_01AbCdEfGh");
     assert_eq!((*own_call, *own_result), ("call_own_1", "call_own_1"), "an own id goes as it is");
-    let again = input_items(&switched, true, |_| true);
+    let again = input_items(&switched, true, false, |_| true);
     assert_eq!(items, again, "the same history makes the same bytes, for the prompt cache");
 }
 
@@ -480,6 +481,7 @@ fn an_id_not_in_openai_form_is_mapped(#[case] id: &str) {
     let items = input_items(
         &[Message::new(Role::Assistant, vec![call(id, "shell", json!({}))])],
         true,
+        false,
         |_| true,
     );
     let sent = items[0]["call_id"].as_str().unwrap();
@@ -492,6 +494,7 @@ fn a_long_id_is_mapped_too() {
     let items = input_items(
         &[Message::new(Role::Assistant, vec![call(&long, "shell", json!({}))])],
         true,
+        false,
         |_| true,
     );
     assert_eq!(items[0]["call_id"].as_str().unwrap().len(), 29);
@@ -547,7 +550,7 @@ fn a_body_after_a_model_switch_holds_no_reasoning_or_item_id_of_the_other_model(
 fn unusable_raw_items_fall_back_to_the_content(#[case] raw: Value) {
     let message = Message::assistant("Done.").with_provider_raw(raw);
     assert_eq!(
-        input_items(&[message], true, |_| true),
+        input_items(&[message], true, false, |_| true),
         vec![json!({
             "type": "message",
             "role": "assistant",
@@ -559,7 +562,12 @@ fn unusable_raw_items_fall_back_to_the_content(#[case] raw: Value) {
 #[test]
 fn an_empty_message_sends_nothing() {
     assert_eq!(
-        input_items(&[Message::new(Role::User, Vec::new()), Message::user("")], true, |_| true),
+        input_items(
+            &[Message::new(Role::User, Vec::new()), Message::user("")],
+            true,
+            false,
+            |_| true
+        ),
         Vec::<Value>::new()
     );
 }
@@ -627,7 +635,7 @@ fn output_items_read_back_their_canonical_parts() {
 
 #[rstest]
 #[case::call_without_id(json!({"type": "function_call", "name": "shell"}), "function_call")]
-#[case::hosted_tool(json!({"type": "web_search_call", "id": "ws_1"}), "web_search_call")]
+#[case::hosted_tool(json!({"type": "image_generation_call", "id": "ig_1"}), "image_generation_call")]
 #[case::untyped(json!({"id": "x"}), "")]
 fn other_output_items_have_no_canonical_form(#[case] item: Value, #[case] kind: &str) {
     assert_eq!(OutputItem::parse(&item), OutputItem::Other { kind: kind.to_owned() });
@@ -642,7 +650,7 @@ fn raw_items_round_trip_through_provider_raw() {
     assert_eq!(provider_raw(Vec::new()), None);
     let raw = provider_raw(items.clone()).unwrap();
     let message = Message::assistant("ignored").with_provider_raw(raw);
-    assert_eq!(input_items(&[message], true, |_| true), items);
+    assert_eq!(input_items(&[message], true, false, |_| true), items);
 }
 
 #[test]
@@ -659,7 +667,7 @@ fn raw_items_with_a_call_of_a_tool_that_the_request_does_not_offer_are_not_sent(
         Message::new(Role::Assistant, vec![call("call_1", "shell", json!({})), text(&shown)])
             .with_provider_raw(raw.clone());
 
-    let items = input_items(std::slice::from_ref(&message), true, |name| name == "shell");
+    let items = input_items(std::slice::from_ref(&message), true, false, |name| name == "shell");
 
     assert_eq!(
         items,
@@ -673,7 +681,7 @@ fn raw_items_with_a_call_of_a_tool_that_the_request_does_not_offer_are_not_sent(
         ]
     );
     // Raw items whose calls are all offered still go as they came.
-    assert_eq!(input_items(&[message], true, |_| true), raw.as_array().unwrap().clone());
+    assert_eq!(input_items(&[message], true, false, |_| true), raw.as_array().unwrap().clone());
 }
 
 #[test]
@@ -681,7 +689,7 @@ fn raw_items_on_a_user_message_are_not_used() {
     let raw = json!([{"type": "message", "role": "user", "content": []}]);
     let message = Message::user("Hello.").with_provider_raw(raw);
     assert_eq!(
-        input_items(&[message], true, |_| true),
+        input_items(&[message], true, false, |_| true),
         vec![json!({
             "type": "message",
             "role": "user",
@@ -743,7 +751,7 @@ fn a_freeform_call_and_its_result_go_back_as_custom_items() {
         ),
     ];
     assert_eq!(
-        input_items(&messages, true, |_| true),
+        input_items(&messages, true, false, |_| true),
         vec![
             json!({"type": "custom_tool_call", "call_id": "call_1", "name": "apply_patch", "input": patch}),
             json!({"type": "function_call", "call_id": "call_2", "name": "shell", "arguments": "{\"command\":\"ls\"}"}),
@@ -760,7 +768,7 @@ fn a_freeform_call_goes_back_in_the_function_form_to_a_model_without_freeform_to
         Message::new(Role::Assistant, vec![freeform_call("call_1", patch)]),
         Message::new(Role::User, vec![result("call_1", "Success. Deleted: a.txt", false)]),
     ];
-    let items = input_items(&messages, false, |_| true);
+    let items = input_items(&messages, false, false, |_| true);
     assert_eq!(
         items,
         vec![
@@ -786,7 +794,7 @@ fn a_result_of_a_raw_custom_call_is_a_custom_output() {
     )
     .with_provider_raw(raw.clone());
     let messages = [assistant, Message::new(Role::User, vec![result("call_1", "bad", true)])];
-    let items = input_items(&messages, true, |_| true);
+    let items = input_items(&messages, true, false, |_| true);
     assert_eq!(items[0], raw[0]);
     assert_eq!(
         items[1],
@@ -865,4 +873,212 @@ fn the_settings_are_every_member_but_the_input() {
     assert!(settings.input().is_empty());
     // The settings of the settings are the settings.
     assert_eq!(settings.settings(), settings);
+}
+
+// The web tool. Pages: developers.openai.com/api/docs/guides/tools-web-search (the tool
+// and `external_web_access`, the effort above `minimal`) and
+// developers.openai.com/api/reference/resources/responses/streaming-events
+// (`WebSearchCall` and its actions), both read on 2026-11-12.
+
+fn web_request(access: Option<WebAccess>) -> Request {
+    let mut request = Request::new("gpt-5.5");
+    request.messages = vec![Message::user("Does ROB RUN run on Linux?")];
+    request.tools = vec![shell_tool()];
+    request.hosted =
+        access.map(|access| HostedTool::web_search(access, Some(20))).into_iter().collect();
+    request
+}
+
+/// The `web_search` entries of a body's tools.
+fn web_tools(body: &Value) -> Vec<Value> {
+    body["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tool| tool["type"] == "web_search")
+        .cloned()
+        .collect()
+}
+
+#[rstest]
+#[case::stored(WebAccess::Stored, false)]
+#[case::live(WebAccess::Live, true)]
+fn the_web_tool_follows_the_function_tools_on_both_backends(
+    #[case] access: WebAccess,
+    #[case] live: bool,
+) {
+    for config in [OpenAiConfig::subscription(), OpenAiConfig::api()] {
+        let body = body(&web_request(Some(access)), &config);
+        let tools = body["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["name"], "shell");
+        assert_eq!(tools[1], json!({"type": "web_search", "external_web_access": live}));
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+        // No new `include` value: only the encrypted reasoning.
+        assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+    }
+}
+
+#[test]
+fn a_request_without_a_hosted_tool_never_carries_the_web_tool() {
+    // Manual mode and `web.search = "off"` give a request without hosted tools; this is
+    // what the provider then sends, on both backends.
+    for config in [OpenAiConfig::subscription(), OpenAiConfig::api()] {
+        let body = body(&web_request(None), &config);
+        assert_eq!(web_tools(&body), Vec::<Value>::new());
+        assert!(!body.to_string().contains("web_search"), "{body}");
+    }
+}
+
+#[test]
+fn a_request_with_only_the_web_tool_chooses_its_tools_itself() {
+    let mut request = web_request(Some(WebAccess::Live));
+    request.tools.clear();
+    let body = body(&request, &OpenAiConfig::subscription());
+    assert_eq!(body["tools"], json!([{"type": "web_search", "external_web_access": true}]));
+    assert_eq!(body["tool_choice"], "auto");
+    assert_eq!(body["parallel_tool_calls"], true);
+}
+
+#[test]
+fn a_second_web_entry_adds_no_second_tool() {
+    let mut request = web_request(Some(WebAccess::Stored));
+    request.hosted.push(HostedTool::web_search(WebAccess::Live, None));
+    let body = body(&request, &OpenAiConfig::api());
+    assert_eq!(web_tools(&body), vec![json!({"type": "web_search", "external_web_access": false})]);
+}
+
+#[test]
+fn the_minimal_effort_gets_no_web_tool() {
+    let mut request = web_request(Some(WebAccess::Live));
+    request.effort = Some("minimal".to_owned());
+    assert_eq!(web_tools(&body(&request, &OpenAiConfig::subscription())), Vec::<Value>::new());
+
+    let config = OpenAiConfig::api().with_reasoning_effort(Some("minimal".to_owned()));
+    assert_eq!(web_tools(&body(&web_request(Some(WebAccess::Live)), &config)), Vec::<Value>::new());
+
+    // A model that does not reason sends no effort, so the tool goes.
+    let mut plain = web_request(Some(WebAccess::Live));
+    plain.model = "gpt-4.1".to_owned();
+    plain.effort = Some("minimal".to_owned());
+    assert_eq!(web_tools(&body(&plain, &OpenAiConfig::api())).len(), 1);
+    assert_eq!(web_tool(&plain.hosted, true), None);
+}
+
+/// An answer of the web fixture: a search, an open, a find and the cited text.
+fn searched_answer() -> Message {
+    let text = "The developers allowed Linux with patch 1.4 \
+                ([areweanticheatyet.com](https://areweanticheatyet.com/game/rob-run)).";
+    Message::assistant(text).with_provider_raw(json!([
+        {"id": "ws_1", "type": "web_search_call", "status": "completed",
+         "action": {"type": "search", "query": "\"ROB RUN\" areweanticheatyet"}},
+        {"id": "ws_2", "type": "web_search_call", "status": "completed",
+         "action": {"type": "open_page", "url": "https://areweanticheatyet.com/game/rob-run"}},
+        {"id": "msg_1", "type": "message", "status": "completed", "role": "assistant",
+         "content": [{"type": "output_text", "text": text, "annotations": [
+             {"type": "url_citation", "start_index": 44, "end_index": 113,
+              "url": "https://areweanticheatyet.com/game/rob-run", "title": "ROB RUN"}]}]},
+    ]))
+}
+
+#[test]
+fn web_items_go_back_only_in_a_request_that_carries_the_web_tool() {
+    let answer = searched_answer();
+    let raw = answer.provider_raw.clone().unwrap();
+    let messages = [Message::user("Does ROB RUN run on Linux?"), answer.clone()];
+
+    let with = input_items(&messages, true, true, |_| true);
+    assert_eq!(Value::Array(with[1..].to_vec()), raw);
+
+    let without = input_items(&messages, true, false, |_| true);
+    assert_eq!(
+        without[1],
+        json!({
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": answer.text()}],
+        })
+    );
+    assert_eq!(without.len(), 2);
+    assert!(!Value::Array(without).to_string().contains("web_search_call"));
+}
+
+#[rstest]
+#[case::manual(None, None)]
+#[case::minimal_effort(Some(WebAccess::Live), Some("minimal"))]
+fn a_body_without_the_web_tool_sends_earlier_searches_as_their_answer(
+    #[case] access: Option<WebAccess>,
+    #[case] effort: Option<&str>,
+) {
+    let mut request = web_request(access);
+    request.effort = effort.map(str::to_owned);
+    request.messages.push(searched_answer());
+    request.messages.push(Message::user("And on the Steam Deck?"));
+    let body = body(&request, &OpenAiConfig::subscription());
+    assert!(!body.to_string().contains("web_search"), "{body}");
+    assert_eq!(body["input"][1]["type"], "message");
+    assert_eq!(body["input"][1]["role"], "assistant");
+
+    let carried = body_of(Some(WebAccess::Stored));
+    assert_eq!(carried["input"][1]["type"], "web_search_call");
+}
+
+fn body_of(access: Option<WebAccess>) -> Value {
+    let mut request = web_request(access);
+    request.messages.push(searched_answer());
+    request.messages.push(Message::user("And on the Steam Deck?"));
+    body(&request, &OpenAiConfig::subscription())
+}
+
+fn search(query: &str) -> HostedAction {
+    HostedAction::Search { query: Some(query.to_owned()) }
+}
+
+#[rstest]
+#[case::query(json!({"type": "search", "query": "rob run"}), vec![search("rob run")])]
+#[case::queries(
+    json!({"type": "search", "query": "a", "queries": ["a", "b", "c"]}),
+    vec![search("a"), search("b"), search("c")],
+)]
+#[case::empty_queries(json!({"type": "search", "query": "a", "queries": []}), vec![search("a")])]
+#[case::no_query(json!({"type": "search"}), vec![HostedAction::Search { query: None }])]
+#[case::open(
+    json!({"type": "open_page", "url": "https://store.steampowered.com/app/2384710/ROB_RUN/"}),
+    vec![HostedAction::Open { url: Some("https://store.steampowered.com/app/2384710/ROB_RUN/".to_owned()) }],
+)]
+#[case::open_null(json!({"type": "open_page", "url": null}), vec![HostedAction::Open { url: None }])]
+#[case::find(
+    json!({"type": "find_in_page", "pattern": "Easy Anti-Cheat", "url": "https://areweanticheatyet.com/game/rob-run"}),
+    vec![HostedAction::Find {
+        pattern: "Easy Anti-Cheat".to_owned(),
+        url: Some("https://areweanticheatyet.com/game/rob-run".to_owned()),
+    }],
+)]
+#[case::unknown(json!({"type": "screenshot"}), vec![HostedAction::Search { query: None }])]
+#[case::not_an_object(json!("search"), vec![HostedAction::Search { query: None }])]
+fn a_web_search_call_reads_its_steps(#[case] action: Value, #[case] actions: Vec<HostedAction>) {
+    let item =
+        json!({"id": "ws_1", "type": "web_search_call", "status": "completed", "action": action});
+    assert_eq!(
+        OutputItem::parse(&item),
+        OutputItem::WebCall {
+            id: Some("ws_1".to_owned()),
+            status: Some("completed".to_owned()),
+            actions,
+        }
+    );
+}
+
+#[test]
+fn a_web_search_call_without_an_action_is_a_search_without_a_query() {
+    let item = json!({"type": "web_search_call", "status": "failed"});
+    assert_eq!(
+        OutputItem::parse(&item),
+        OutputItem::WebCall {
+            id: None,
+            status: Some("failed".to_owned()),
+            actions: vec![HostedAction::Search { query: None }],
+        }
+    );
 }

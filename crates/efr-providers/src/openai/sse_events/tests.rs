@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 use super::{EventMapper, retry_hint};
 use crate::openai::testing::fixture_events;
 
+mod web;
+
 /// The events of a stream made of `events`, each sent under its own `type` as the
 /// event name, the way the Responses API frames them.
 fn sse(events: &[Value]) -> Vec<SseEvent> {
@@ -445,7 +447,7 @@ fn the_response_output_stands_in_for_missing_finished_items() {
 #[test]
 fn unknown_events_and_items_pass_on_as_raw() {
     let metadata = json!({"type": "response.metadata", "metadata": {"plan": "pro"}});
-    let search = json!({"type": "web_search_call", "id": "ws_1", "status": "completed"});
+    let search = json!({"type": "image_generation_call", "id": "ig_1", "status": "completed"});
     let events = sse(&[
         metadata.clone(),
         json!({"type": "response.output_item.done", "output_index": 0, "item": search}),

@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
 use efr_provider::{
-    Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, Warmup,
+    HostedTool, Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
+    Request, Warmup, WebAccess,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
@@ -135,6 +136,10 @@ const FIXTURES: &[&str] = &[
     "error_event.sse",
     "failed_rate_limit.sse",
     "context_length_exceeded.sse",
+    "web_search.sse",
+    "web_search_failed.sse",
+    "web_search_queries.sse",
+    "web_search_no_action.sse",
 ];
 
 #[tokio::test]
@@ -207,6 +212,74 @@ async fn the_next_call_reuses_the_connection_and_sends_only_the_new_items() {
     assert_eq!(next["previous_response_id"], "resp_1");
     assert_eq!(next["input"], json!([user_item("and now?")]));
     assert!(setup.server.posts().is_empty());
+}
+
+/// A request of the conversation with the web tool of `access`, or without one.
+fn web_request(access: Option<WebAccess>) -> Request {
+    let mut request = request("gpt-5.5", "Does ROB RUN run on Linux?");
+    request.hosted =
+        access.map(|access| HostedTool::web_search(access, Some(20))).into_iter().collect();
+    request
+}
+
+#[tokio::test]
+async fn the_next_call_after_a_web_search_continues_the_answer_with_only_the_new_items() {
+    let socket = Socket::serving(vec![
+        vec![Step::Send(sse_events(&fixture("web_search.sse")))],
+        vec![Step::Send(answer("resp_2", "Yes, with Proton 9."))],
+    ]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = web_request(Some(WebAccess::Live));
+
+    let first = setup.provider.complete(request.clone()).await.unwrap();
+    let raw = first.message.provider_raw.clone().unwrap();
+    assert_eq!(raw[0]["type"], "web_search_call");
+    request.messages.push(first.message);
+    request.messages.push(Message::user("And on the Steam Deck?"));
+    let second = setup.provider.complete(request).await.unwrap();
+
+    assert_eq!(second.message.text(), "Yes, with Proton 9.");
+    let sockets = setup.server.sockets();
+    assert_eq!(sockets.len(), 1);
+    let create = &sockets[0].messages[0];
+    assert_eq!(create["tools"], json!([{"type": "web_search", "external_web_access": true}]));
+    let next = &sockets[0].messages[1];
+    assert_eq!(next["previous_response_id"], "resp_web1");
+    assert_eq!(next["input"], json!([user_item("And on the Steam Deck?")]));
+    assert!(setup.server.posts().is_empty());
+}
+
+#[rstest::rstest]
+#[case::stored_to_live(Some(WebAccess::Live))]
+#[case::web_turned_off(None)]
+#[tokio::test]
+async fn a_change_of_the_web_plan_starts_a_new_chain(#[case] next: Option<WebAccess>) {
+    let socket = Socket::serving(vec![
+        vec![Step::Send(sse_events(&fixture("web_search.sse")))],
+        vec![Step::Send(answer("resp_2", "Again."))],
+    ]);
+    let setup = setup(vec![socket], Vec::new(), WebSocketMode::Auto).await;
+    let mut request = web_request(Some(WebAccess::Stored));
+
+    let first = setup.provider.complete(request.clone()).await.unwrap();
+    request.messages.push(first.message);
+    request.messages.push(Message::user("And on the Steam Deck?"));
+    request.hosted = web_request(next).hosted;
+    setup.provider.complete(request).await.unwrap();
+
+    let next_create = &setup.server.sockets()[0].messages[1];
+    assert!(next_create.get("previous_response_id").is_none());
+    let input = next_create["input"].as_array().unwrap();
+    if next.is_some() {
+        // The web items go back with the tool: the user item, the four output items,
+        // the new user item.
+        assert_eq!(input.len(), 6);
+        assert_eq!(input[1]["type"], "web_search_call");
+    } else {
+        // Without the tool the answer goes as its text.
+        assert_eq!(input.len(), 3);
+        assert!(!next_create.to_string().contains("web_search"), "{next_create}");
+    }
 }
 
 #[tokio::test]

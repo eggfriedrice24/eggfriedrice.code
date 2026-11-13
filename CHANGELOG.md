@@ -18,6 +18,8 @@ into the GitHub release notes, and it stops when the section is missing.
   OpenAI model searches a stored copy of the web, which can be some days old, and a
   Claude model searches the live web. In auto and full mode every model searches the
   live web.
+- An OpenAI model with the reasoning effort `minimal` gets no web search, because
+  OpenAI says that web search needs a higher effort.
 - `[web] search` overrides the table by mode: `off`, `cached` or `live`. The default,
   `mode`, follows the permission mode. Manual mode stays off whatever it says.
   `[web] max_searches` (default 20) limits the searches of one turn on a provider that

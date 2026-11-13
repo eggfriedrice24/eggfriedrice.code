@@ -11,7 +11,7 @@ use efr_http::{
 };
 use efr_provider::{
     AccessToken, CallNotice, CallNotices, ModelInfo, NoNotices, Provider, ProviderError,
-    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource, Warmup,
+    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource, Warmup, WebSupport,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -404,6 +404,13 @@ impl Provider for OpenAiProvider {
 
     fn models(&self) -> Vec<ModelInfo> {
         with_extra(self.catalog.current().models(), self.config.models())
+    }
+
+    /// The `web_search` tool, with the stored copy or the live web, on both backends:
+    /// the guide documents it for the API, and Codex sends the same tool on the
+    /// subscription path (`codex-rs/core/src/tools/hosted_spec.rs`).
+    fn web_search(&self) -> WebSupport {
+        WebSupport::StoredOrLive
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

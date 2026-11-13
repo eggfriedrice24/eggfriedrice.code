@@ -24,12 +24,37 @@
 //! When a server sends an item only whole, without deltas, its text, reasoning summary
 //! or call is taken from `response.output_item.done`, so the canonical message never
 //! misses what the raw items hold.
+//!
+//! The hosted web tool (developers.openai.com/api/docs/guides/tools-web-search and
+//! developers.openai.com/api/reference/resources/responses/streaming-events):
+//!
+//! | Responses event | Canonical events |
+//! |---|---|
+//! | `response.output_item.added` of a `web_search_call` | `HostedCallStart` with the action that the item has, mostly none: a search without a query |
+//! | `response.web_search_call.in_progress`, `.searching` | `HostedCallStart` (a search without a query) when no start came for the item, else none |
+//! | `response.web_search_call.completed` | none |
+//! | `response.output_item.done` of a `web_search_call` | `HostedCallStart` when none came, then `HostedCallEnd` with the complete action: `failed` is `Failed(Unavailable)`, `incomplete` is `Failed(NotFinished)`, any other status `Done` without results. A search with `n` queries ends the item's call with the first query, then each other query `i` is a start and an end of its own with the id `<item id>#<i>` |
+//! | `response.output_text.annotation.added` | none: a `url_citation` is kept for the end of its message |
+//! | `response.output_item.done` of a `message` | the text when no delta came, then one `Citation` (not placed) for each URL of its `url_citation` annotations that no earlier message of the answer cited, in the order of `start_index` |
+//! | `response.completed` | `HostedCallEnd` for each step whose item never finished: from the item in `response.output`, else `Failed(NotFinished)`; `response.incomplete` ends them the same way |
+//!
+//! The annotations of the finished message item count; the `annotation.added` events
+//! stand in when the item has none. A citation is not placed: the docs do not show where
+//! the text cites a page nor when its annotation comes, so the turn lists the page and
+//! puts no mark into the text. The mapper keeps `start_index` and `end_index`, so a
+//! placed citation is a small change once a recording shows that it can work. A web
+//! step never makes the answer's stop reason `ToolUse`: efr has nothing to run. The
+//! number of billable searches (`response.tool_usage.web_search.num_requests`, which
+//! the docs say can be omitted) is only a debug line; the turn counts the searches from
+//! the events.
 
 use std::collections::HashSet;
 use std::time::Duration;
 
 use efr_http::SseEvent;
-use efr_provider::{ProviderError, ProviderEvent, StopReason, TokenUsage};
+use efr_provider::{
+    HostedAction, HostedError, HostedOutcome, ProviderError, ProviderEvent, StopReason, TokenUsage,
+};
 use serde_json::Value;
 
 use crate::openai::convert::{OutputItem, provider_raw};
@@ -44,6 +69,13 @@ const RATE_LIMIT_CODES: &[&str] = &["rate_limit_exceeded", "rate_limit_error"];
 #[derive(Debug, Default)]
 pub(crate) struct EventMapper {
     calls: Vec<Call>,
+    /// The steps of the web tool that started, in order.
+    web: Vec<WebCall>,
+    /// The `url_citation` annotations of `response.output_text.annotation.added`, in
+    /// order, for messages whose finished item holds none.
+    annotations: Vec<(Location, UrlCitation)>,
+    /// The URLs cited so far in this answer.
+    cited: HashSet<String>,
     items: Vec<Value>,
     text: Seen,
     reasoning: Seen,
@@ -60,6 +92,55 @@ struct Call {
     output_index: Option<u64>,
     arguments: String,
     ended: bool,
+}
+
+/// A step of the web tool that started.
+#[derive(Debug)]
+struct WebCall {
+    /// The id of its canonical events: the item's id.
+    call_id: String,
+    item_id: Option<String>,
+    output_index: Option<u64>,
+    /// The action of the start.
+    action: HostedAction,
+    ended: bool,
+}
+
+/// A `url_citation` annotation: a page that a span of the text cites.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UrlCitation {
+    /// The content part of the message that holds the span.
+    content_index: u64,
+    /// The span, by the reference in characters of the text. The start orders the
+    /// citations; the span places no mark yet (see the module doc).
+    start_index: Option<u64>,
+    end_index: Option<u64>,
+    url: String,
+    title: Option<String>,
+}
+
+impl UrlCitation {
+    /// Reads an annotation of the content part `content_index`; `None` for another
+    /// kind of annotation or one without a URL.
+    fn parse(annotation: &Value, content_index: u64) -> Option<UrlCitation> {
+        if annotation.get("type").and_then(Value::as_str) != Some("url_citation") {
+            return None;
+        }
+        let url = text(annotation, "url").filter(|url| !url.is_empty())?;
+        Some(UrlCitation {
+            content_index,
+            start_index: annotation.get("start_index").and_then(Value::as_u64),
+            end_index: annotation.get("end_index").and_then(Value::as_u64),
+            url: url.to_owned(),
+            title: text(annotation, "title").filter(|title| !title.is_empty()).map(str::to_owned),
+        })
+    }
+
+    /// The order of the citations of one message: by content part, then by the start
+    /// of the span; a citation without a start comes after those with one.
+    fn order(&self) -> (u64, u64) {
+        (self.content_index, self.start_index.unwrap_or(u64::MAX))
+    }
 }
 
 /// The items that have streamed deltas of one kind, by item id and by output index,
@@ -206,6 +287,24 @@ impl EventMapper {
                     self.item_done(item, &location_of_item(event, item), &mut out);
                 }
             }
+            "response.web_search_call.in_progress" | "response.web_search_call.searching" => {
+                let at = location(event);
+                if self.web_call_at(&at).is_none() {
+                    self.start_web(&at, HostedAction::Search { query: None }, &mut out);
+                }
+            }
+            "response.web_search_call.completed" => {
+                tracing::trace!(event_type = kind, "consumed a Responses event");
+            }
+            "response.output_text.annotation.added" => {
+                let content_index = event.get("content_index").and_then(Value::as_u64).unwrap_or(0);
+                if let Some(citation) = event
+                    .get("annotation")
+                    .and_then(|annotation| UrlCitation::parse(annotation, content_index))
+                {
+                    self.annotations.push((location(event), citation));
+                }
+            }
             "response.completed" => self.completed(event, &mut out),
             "response.incomplete" => self.incomplete(event, &mut out)?,
             "response.failed" => {
@@ -273,8 +372,156 @@ impl EventMapper {
     }
 
     fn item_added(&mut self, item: &Value, at: &Location, out: &mut Vec<ProviderEvent>) {
-        if let OutputItem::FunctionCall { call_id, name, freeform, .. } = OutputItem::parse(item) {
-            self.start_call(call_id, name, freeform, at, out);
+        match OutputItem::parse(item) {
+            OutputItem::FunctionCall { call_id, name, freeform, .. } => {
+                self.start_call(call_id, name, freeform, at, out);
+            }
+            OutputItem::WebCall { mut actions, .. } if self.web_call_at(at).is_none() => {
+                // NOTE: a search item with several queries starts as its first one; the
+                // others start when the item is done.
+                actions.truncate(1);
+                let action = actions.pop().unwrap_or(HostedAction::Search { query: None });
+                self.start_web(at, action, out);
+            }
+            _ => {}
+        }
+    }
+
+    /// The started step of the web tool at `at`, found by its item id, else by its
+    /// output index.
+    fn web_call_at(&self, at: &Location) -> Option<usize> {
+        let by_id = |call: &WebCall| at.item_id.is_some() && call.item_id == at.item_id;
+        let by_index =
+            |call: &WebCall| at.output_index.is_some() && call.output_index == at.output_index;
+        self.web.iter().position(by_id).or_else(|| self.web.iter().position(by_index))
+    }
+
+    /// Starts a step of the web tool at `at` with `action`, and gives its index.
+    fn start_web(
+        &mut self,
+        at: &Location,
+        action: HostedAction,
+        out: &mut Vec<ProviderEvent>,
+    ) -> usize {
+        let call_id = match (&at.item_id, at.output_index) {
+            (Some(id), _) => id.clone(),
+            (None, Some(index)) => format!("web_search_call@{index}"),
+            (None, None) => format!("web_search_call#{}", self.web.len()),
+        };
+        out.push(ProviderEvent::HostedCallStart {
+            call_id: call_id.clone(),
+            action: action.clone(),
+        });
+        self.last_delta = LastDelta::Other;
+        self.web.push(WebCall {
+            call_id,
+            item_id: at.item_id.clone(),
+            output_index: at.output_index,
+            action,
+            ended: false,
+        });
+        self.web.len() - 1
+    }
+
+    /// Ends the step of the web tool at `at` with the steps of its finished item. A step
+    /// that ended already ends no second time.
+    fn end_web(
+        &mut self,
+        at: &Location,
+        status: Option<&str>,
+        actions: Vec<HostedAction>,
+        out: &mut Vec<ProviderEvent>,
+    ) {
+        let mut actions = actions.into_iter();
+        let first = actions.next().unwrap_or(HostedAction::Search { query: None });
+        let index = match self.web_call_at(at) {
+            Some(index) => index,
+            None => self.start_web(at, first.clone(), out),
+        };
+        let Some(call) = self.web.get_mut(index).filter(|call| !call.ended) else {
+            return;
+        };
+        call.ended = true;
+        let call_id = call.call_id.clone();
+        let outcome = web_outcome(status);
+        out.push(ProviderEvent::HostedCallEnd {
+            call_id: call_id.clone(),
+            action: first,
+            outcome: outcome.clone(),
+        });
+        for (number, action) in (1..).zip(actions) {
+            let call_id = format!("{call_id}#{number}");
+            out.push(ProviderEvent::HostedCallStart {
+                call_id: call_id.clone(),
+                action: action.clone(),
+            });
+            out.push(ProviderEvent::HostedCallEnd { call_id, action, outcome: outcome.clone() });
+        }
+    }
+
+    /// Ends every step of the web tool whose item never finished: by its item in
+    /// `response.output` when the response lists it, else as not finished.
+    fn end_open_web_calls(&mut self, response: Option<&Value>, out: &mut Vec<ProviderEvent>) {
+        let open: Vec<(Location, HostedAction)> = self
+            .web
+            .iter()
+            .filter(|call| !call.ended)
+            .map(|call| {
+                let at =
+                    Location { item_id: call.item_id.clone(), output_index: call.output_index };
+                (at, call.action.clone())
+            })
+            .collect();
+        let output = response.and_then(|response| response.get("output")).and_then(Value::as_array);
+        for (at, action) in open {
+            let item = output.and_then(|output| {
+                output
+                    .iter()
+                    .find(|item| at.item_id.is_some() && text(item, "id") == at.item_id.as_deref())
+            });
+            match item.map(OutputItem::parse) {
+                Some(OutputItem::WebCall { status, actions, .. }) => {
+                    self.end_web(&at, status.as_deref(), actions, out);
+                }
+                _ => self.end_web(&at, Some("incomplete"), vec![action], out),
+            }
+        }
+    }
+
+    /// The `Citation`s of a finished message item at `at`: its `url_citation`
+    /// annotations, else those of the annotation events for it, one per URL that no
+    /// earlier message of the answer cited, in the order of `start_index`.
+    fn cite(&mut self, item: &Value, at: &Location, out: &mut Vec<ProviderEvent>) {
+        let mut citations: Vec<UrlCitation> = Vec::new();
+        for (content_index, part) in
+            (0..).zip(item.get("content").and_then(Value::as_array).into_iter().flatten())
+        {
+            citations.extend(
+                part.get("annotations")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|annotation| UrlCitation::parse(annotation, content_index)),
+            );
+        }
+        let streamed = self.annotations.iter().filter(|(of, _)| {
+            (at.item_id.is_some() && of.item_id == at.item_id)
+                || (of.item_id.is_none()
+                    && at.output_index.is_some()
+                    && of.output_index == at.output_index)
+        });
+        if citations.is_empty() {
+            citations.extend(streamed.map(|(_, citation)| citation.clone()));
+        }
+        citations.sort_by_key(UrlCitation::order);
+        for citation in citations {
+            if self.cited.insert(citation.url.clone()) {
+                out.push(ProviderEvent::Citation {
+                    url: citation.url,
+                    title: citation.title,
+                    placed: false,
+                });
+            }
         }
     }
 
@@ -341,6 +588,7 @@ impl EventMapper {
                     self.last_delta = LastDelta::Other;
                     out.push(ProviderEvent::TextDelta { text });
                 }
+                self.cite(item, at, out);
             }
             OutputItem::Reasoning { summary } => {
                 if !summary.is_empty() && !self.reasoning.contains(at) {
@@ -357,6 +605,9 @@ impl EventMapper {
                     self.tool_use = true;
                     out.push(ProviderEvent::ToolCallEnd { call_id, arguments });
                 }
+            }
+            OutputItem::WebCall { status, actions, .. } => {
+                self.end_web(at, status.as_deref(), actions, out);
             }
             OutputItem::Other { kind } => {
                 tracing::debug!(item_type = %kind, "passed on an output item with no canonical form");
@@ -377,6 +628,9 @@ impl EventMapper {
                 arguments: call.arguments.clone(),
             });
         }
+        self.end_open_web_calls(response, out);
+        // NOTE: a web step never sets `tool_use`: the provider ran it, and efr has
+        // nothing to run.
         let stop_reason = if self.tool_use { StopReason::ToolUse } else { StopReason::EndTurn };
         self.finish(response, stop_reason, out);
     }
@@ -410,6 +664,7 @@ impl EventMapper {
                 problem: "the response stopped inside a tool call",
             });
         }
+        self.end_open_web_calls(response, out);
         self.finish(response, stop_reason, out);
         Ok(())
     }
@@ -423,6 +678,15 @@ impl EventMapper {
         if let Some(usage) = response.and_then(|response| response.get("usage")).and_then(usage) {
             out.push(ProviderEvent::Usage(usage));
         }
+        if let Some(searches) = response
+            .and_then(|response| response.pointer("/tool_usage/web_search/num_requests"))
+            .and_then(Value::as_u64)
+        {
+            tracing::debug!(
+                web_search_requests = searches,
+                "the provider counted its billable web searches"
+            );
+        }
         let mut items = std::mem::take(&mut self.items);
         if items.is_empty() {
             // A server that sent no finished items still lists them on the response.
@@ -435,6 +699,16 @@ impl EventMapper {
         let provider_raw = provider_raw(items);
         out.push(ProviderEvent::Done { stop_reason, provider_raw });
         self.done = true;
+    }
+}
+
+/// How a step of the web tool ended, by the `status` of its finished item. The docs show
+/// no error code of a failed step, so every failure is `Unavailable`.
+fn web_outcome(status: Option<&str>) -> HostedOutcome {
+    match status {
+        Some("failed") => HostedOutcome::Failed { error: HostedError::Unavailable },
+        Some("incomplete") => HostedOutcome::Failed { error: HostedError::NotFinished },
+        _ => HostedOutcome::Done { results: None },
     }
 }
 

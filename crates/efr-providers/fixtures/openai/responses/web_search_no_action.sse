@@ -1,0 +1,39 @@
+: Not a recording: written on 2026-11-12 from developers.openai.com/api/docs/guides/tools-web-search
+: and developers.openai.com/api/reference/resources/responses/streaming-events.
+: The reference marks action as optional; this item has none.
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_web4","object":"response","created_at":1794400000,"status":"in_progress","model":"gpt-5.5","output":[],"store":false,"tool_choice":"auto","usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"ws_bare1","type":"web_search_call","status":"in_progress"}}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","sequence_number":2,"output_index":0,"item_id":"ws_bare1"}
+
+event: response.web_search_call.searching
+data: {"type":"response.web_search_call.searching","sequence_number":3,"output_index":0,"item_id":"ws_bare1"}
+
+event: response.web_search_call.completed
+data: {"type":"response.web_search_call.completed","sequence_number":4,"output_index":0,"item_id":"ws_bare1"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"ws_bare1","type":"web_search_call","status":"completed"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":6,"output_index":1,"item":{"id":"msg_bare1","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":7,"item_id":"msg_bare1","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":8,"item_id":"msg_bare1","output_index":1,"content_index":0,"delta":"I searched the web for it."}
+
+event: response.output_text.done
+data: {"type":"response.output_text.done","sequence_number":9,"item_id":"msg_bare1","output_index":1,"content_index":0,"text":"I searched the web for it."}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":10,"output_index":1,"item":{"id":"msg_bare1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"I searched the web for it.","annotations":[]}]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":11,"response":{"id":"resp_web4","object":"response","status":"completed","model":"gpt-5.5","output":[],"usage":{"input_tokens":4100,"input_tokens_details":{"cached_tokens":0},"output_tokens":120,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4220},"tool_usage":{"web_search":{"num_requests":1}}}}
+
