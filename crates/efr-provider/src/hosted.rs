@@ -40,20 +40,22 @@ pub enum HostedTool {
         /// provider's own limit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_uses: Option<u32>,
-        /// True when a page fetch of the provider may take a URL that only a result of
-        /// one of efr's own tools holds, such as a URL that a command printed. False
-        /// when absent: the fetch takes only a URL of the user or of a search result,
-        /// so a text in a file cannot make the model send data out in a URL.
+        /// True when a page fetch of the provider may take a URL from any message of
+        /// the conversation: the user's text, which also holds efr's notes, the output
+        /// of a background job, a summary and `AGENTS.md`, and the results of efr's own
+        /// tools. False when absent: the fetch takes only a URL that a search or an
+        /// earlier fetch of the provider found, so a text in a file or in a command's
+        /// output cannot make the model load a URL that holds data of the machine.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        urls_from_tool_results: bool,
+        urls_from_conversation: bool,
     },
 }
 
 impl HostedTool {
     /// The web tool with `access`, a limit of `max_uses` searches when given, and page
-    /// fetches only of URLs that the user or a search gave.
+    /// fetches only of URLs that a search or a fetch found.
     pub fn web_search(access: WebAccess, max_uses: Option<u32>) -> Self {
-        HostedTool::WebSearch { access, max_uses, urls_from_tool_results: false }
+        HostedTool::WebSearch { access, max_uses, urls_from_conversation: false }
     }
 }
 

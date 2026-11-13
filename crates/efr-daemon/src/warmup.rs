@@ -139,8 +139,8 @@ impl Provider for Noted {
 
     // NOTE: the default of the trait is no web tool, so a wrapper that does not pass it
     // on would keep web search out of every request of its provider.
-    fn web_search(&self) -> WebSupport {
-        self.inner.web_search()
+    fn web_search(&self, effort: Option<&str>) -> WebSupport {
+        self.inner.web_search(effort)
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

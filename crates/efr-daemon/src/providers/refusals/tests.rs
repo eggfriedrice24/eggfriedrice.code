@@ -165,7 +165,7 @@ impl Provider for Scripted {
         EditTool::Replace
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         WebSupport::Live
     }
 
@@ -259,5 +259,5 @@ async fn a_watched_provider_reports_each_call_and_passes_the_answer_on() {
 fn a_watched_provider_passes_its_web_search_on() {
     let clock = TestClock::new();
     let provider = Watched::new(Scripted::new(Vec::new()), PROVIDER, refusals(&clock));
-    assert_eq!(provider.web_search(), WebSupport::Live);
+    assert_eq!(provider.web_search(None), WebSupport::Live);
 }

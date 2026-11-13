@@ -67,7 +67,7 @@ fn the_web_tool_adds_web_search_and_web_fetch_after_the_client_tools() {
             "name": "web_fetch",
             "max_uses": 20,
             "max_content_tokens": 25_000,
-            "url_sources": {"client_tool_results": {"type": "none"}},
+            "url_sources": {"user_input": {"type": "none"}, "client_tool_results": {"type": "none"}},
         })
     );
     assert_eq!(body["tool_choice"], json!({"type": "auto"}));
@@ -82,7 +82,7 @@ fn full_mode_lets_a_fetch_take_urls_of_tool_results() {
     request.hosted = vec![HostedTool::WebSearch {
         access: WebAccess::Stored,
         max_uses: None,
-        urls_from_tool_results: true,
+        urls_from_conversation: true,
     }];
     let tools = value(&body(&request))["tools"].clone();
     // The API has only the live web, so the stored copy asks for the same tools.

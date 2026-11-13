@@ -1,5 +1,5 @@
 //! The provider's items of web search in the history and the compaction: they stay in
-//! the next requests, a summary request carries the same hosted tools as the turn, the
+//! the next requests, a summary request carries no hosted tool, the
 //! estimate of the context counts them, and a pruning keeps them (the build spec of web
 //! search, 5.3 item 7, and 6.2).
 
@@ -39,15 +39,18 @@ fn live() -> Vec<HostedTool> {
     vec![HostedTool::WebSearch {
         access: WebAccess::Live,
         max_uses: Some(20),
-        urls_from_tool_results: false,
+        urls_from_conversation: false,
     }]
 }
 
 #[test]
-fn a_summary_request_carries_the_hosted_tools_of_its_base() {
+fn a_summary_request_carries_no_hosted_tool() {
+    // NOTE: the provider runs a hosted tool itself, so a search in a summary call would
+    // run with no row, no count and no regard for the mode of the terminal that asked
+    // for the compaction. The function tools stay: efr runs none of them there.
     let base = Request { hosted: live(), ..request(Vec::new()) };
     let summary = summary_request(&base, vec![Message::user("hi")], None, LeftOut::default());
-    assert_eq!(summary.hosted, live());
+    assert_eq!(summary.hosted, Vec::new());
     assert!(summary.side_call);
 }
 
@@ -107,7 +110,7 @@ impl Provider for Searching {
         self.inner.id()
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         WebSupport::Live
     }
 
@@ -138,7 +141,7 @@ impl Provider for Searching {
 /// A manual compaction after turns with searches: its summary request carries the web
 /// tool of the turns, and the history that it summarizes holds their items.
 #[tokio::test]
-async fn a_manual_compaction_sends_the_web_tool_and_the_search_items() {
+async fn a_manual_compaction_sends_the_search_items_without_the_web_tool() {
     let mut setup = Setup::new();
     setup.config.mode = Mode::Auto;
     let recorder = Recorder::new(1);
@@ -168,6 +171,6 @@ async fn a_manual_compaction_sends_the_web_tool_and_the_search_items() {
         "the next request sends the items of the search back"
     );
     let summary = requests.iter().find(|request| request.side_call).expect("a summary request");
-    assert_eq!(summary.hosted, live());
+    assert_eq!(summary.hosted, Vec::new());
     assert!(summary.messages.iter().any(|message| message.provider_raw == Some(search_items())));
 }

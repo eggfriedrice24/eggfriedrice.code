@@ -459,13 +459,16 @@ request:
    `live` gets the live web; `cached` gets the stored copy where the provider has one,
    else the live web; `mode` gets the stored copy in `cautious` where the provider has
    one, and the live web in every other case. The tool has `max_uses` from
-   `web.max_searches`, and its page fetches take a URL from efr's own tool results only
-   in `full`. A hosted search never passes `authorize_tool_call`, so this is the gate
-   of web search. `Turn::drive` decides the plan once, before the preamble, and keeps
-   it for the turn; the manual compaction and the context view build the same list
-   from the newest turn's settings (`web::hosted_for`), and a summary request copies
-   the list of its base, so their requests match the turn's. The live-state preamble
-   has one line, after the mode, for a plan that is off or reads a stored copy:
+   `web.max_searches`, and its page fetches take a URL from any message only in
+   `full`; in the other modes only a URL that a search found. A hosted search never
+   passes `authorize_tool_call`, so this is the gate of web search. `Turn::drive`
+   decides the plan once, before the preamble, and keeps it for the turn; the manual
+   compaction and the context view build the same list from the newest turn's
+   settings (`web::hosted_for`), so their counts match the turn's. A summary request
+   carries no hosted tool: the provider would run a search in it with no row and no
+   count, also after the user went to `manual`. It then misses the prompt cache of the
+   turn once. The live-state preamble has one line, after the mode, for a plan that is
+   off or reads a stored copy:
    `Web search is off in manual mode. The user turns it on with ",mode cautious" in
    this terminal.`, `Web search is off (web.search = "off" in efr's config).`, or `Web
    search reads a stored copy of the web, which can be some days old. The user gets the
@@ -1056,7 +1059,8 @@ manual compaction runs them between turns.
    the estimate has just counted too low, so it cannot show that pruning is enough: a
    summary always follows. The cut is the place after the newest pruned result.
 2. Summarize. Send one summary request:
-   - the same system prompt and the same tool definitions as the turn;
+   - the same system prompt and the same tool definitions as the turn, but no hosted
+     tool (no web search);
    - the history as the last request sent it, so the request hits the prompt cache.
      Only when that request would pass the hard cap, or after an overflow, does it
      send the pruned history;

@@ -241,8 +241,11 @@ search runs inside the model call. So the mode decides whether the model gets it
   knows that the search is off and that `,mode cautious` turns it on, so it can say so
   in its answer.
 - An OpenAI model can also open a page and find text in it. A Claude model can fetch a
-  page. Outside `full`, a Claude model fetches only a page whose address you gave or a
-  search found, not one that only a command or a file named.
+  page. Outside `full`, a Claude model fetches only a page that a search found. It
+  does not fetch an address that only your prompt, a command, a file or a note of efr
+  named: efr puts the output of a job and other text into the messages of the user,
+  and an address there can carry data out. So for an address that you type, the model
+  searches first. In `full` it fetches any address of the conversation.
 - The live web is open to every address that the model writes. The sandbox of `auto`
   does not see this traffic, because the provider makes it. `[web] search = "cached"`
   keeps an OpenAI model on the stored copy.

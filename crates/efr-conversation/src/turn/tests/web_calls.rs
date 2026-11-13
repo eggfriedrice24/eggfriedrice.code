@@ -87,7 +87,7 @@ impl Provider for Scripted {
         self.models.clone()
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         self.support
     }
 
@@ -256,7 +256,7 @@ fn live_web() -> Vec<efr_provider::HostedTool> {
     vec![efr_provider::HostedTool::WebSearch {
         access: efr_provider::WebAccess::Live,
         max_uses: Some(20),
-        urls_from_tool_results: false,
+        urls_from_conversation: false,
     }]
 }
 
@@ -575,7 +575,7 @@ async fn the_stored_copy_is_said_with_its_note_once_per_conversation() {
         == [efr_provider::HostedTool::WebSearch {
             access: efr_provider::WebAccess::Stored,
             max_uses: Some(20),
-            urls_from_tool_results: false,
+            urls_from_conversation: false,
         }]));
     // The preamble of each prompt says what the stored copy is.
     let first = &requests[0].messages[0].content[0];

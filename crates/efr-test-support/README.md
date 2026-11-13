@@ -89,7 +89,7 @@ directories, a store and provider traffic from one place and never from the mach
   harness reports through `handled_through(line)` that it has handled the records
   before it, for an interrupt in the middle of an answer. `with_models(list)` makes
   `models()` answer that list, such as a model that changes files with `edit`; the
-  list is empty by default. `with_web_search(support)` makes `web_search()` answer
+  list is empty by default. `with_web_search(support)` makes `web_search(effort)` answer
   `support`, so a turn in a mode that allows web search sends the hosted web tool and
   the expected request names it in `hosted`; a provider has no web tool by default.
   The canonical events of a web step (`hosted_call_start`, `hosted_call_end`,

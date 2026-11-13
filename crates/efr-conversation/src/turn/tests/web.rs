@@ -26,7 +26,7 @@ impl Provider for WebProvider {
         self.inner.id()
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         self.support
     }
 
@@ -54,7 +54,7 @@ async fn hosted_of(mode: Mode, search: WebSearch, support: WebSupport) -> Vec<Ho
 }
 
 fn web(access: WebAccess) -> Vec<HostedTool> {
-    vec![HostedTool::WebSearch { access, max_uses: Some(9), urls_from_tool_results: false }]
+    vec![HostedTool::WebSearch { access, max_uses: Some(9), urls_from_conversation: false }]
 }
 
 #[tokio::test]

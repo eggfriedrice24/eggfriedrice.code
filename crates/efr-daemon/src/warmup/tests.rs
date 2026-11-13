@@ -45,7 +45,7 @@ impl Provider for Quiet {
         &self.0
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         WebSupport::Live
     }
 
@@ -81,5 +81,5 @@ fn a_noted_provider_passes_its_web_search_on() {
     let warmups = Arc::new(Warmups::new(clock.shared()));
     let inner = Arc::new(Quiet(ProviderId::new("anthropic-api").unwrap()));
     let provider = Noted::new(inner, "anthropic-api", warmups);
-    assert_eq!(provider.web_search(), WebSupport::Live);
+    assert_eq!(provider.web_search(None), WebSupport::Live);
 }

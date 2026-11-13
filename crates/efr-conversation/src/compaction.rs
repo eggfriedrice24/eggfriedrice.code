@@ -345,9 +345,12 @@ pub(crate) fn summary_request(
         system: base.system.clone(),
         messages,
         tools: base.tools.clone(),
-        // NOTE: the same hosted tools as the turn's requests, as `tools`, so the summary
-        // request shares their prefix in the prompt cache.
-        hosted: base.hosted.clone(),
+        // NOTE: no hosted tool, although the prompt cache then misses the turn's prefix
+        // once: the provider runs a hosted tool itself, so a search in the summary call
+        // would run with no row and no count, also after the user went to manual. The
+        // function tools stay, because efr runs none of them in a side call. The
+        // providers then send the messages of a web step as their canonical content.
+        hosted: Vec::new(),
         max_output_tokens: Some(SUMMARY_MAX_OUTPUT_TOKENS + SUMMARY_REASONING_TOKENS),
         effort: base.effort.clone(),
         side_call: true,

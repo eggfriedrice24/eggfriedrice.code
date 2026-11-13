@@ -680,7 +680,7 @@ async fn a_request_with_the_web_tool_sends_both_server_tools_and_holds_the_perio
     let stream = messages_fixture("web_search.sse");
     mount(&server, ResponseTemplate::new(200).set_body_raw(stream, "text/event-stream")).await;
     let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
-    assert_eq!(setup.provider.web_search(), WebSupport::Live);
+    assert_eq!(setup.provider.web_search(None), WebSupport::Live);
 
     let events: Vec<ProviderEvent> = setup
         .provider

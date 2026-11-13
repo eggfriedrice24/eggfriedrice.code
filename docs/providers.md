@@ -184,13 +184,19 @@ tool with the request and shows what the provider reports:
 | Provider | The tool | What the model can do |
 |---|---|---|
 | `openai-subscription`, `openai-api` | `web_search` | search, open a page, find text in it; the stored copy of the web or the live web |
-| `anthropic-api` | `web_search_20250305` and `web_fetch_20250910` | search and fetch a page; always the live web |
+| `anthropic-api` | `web_search_20250305` and `web_fetch_20250910` | search, and fetch a page that a search found (any address in `full`); always the live web |
 
 A Claude model gives the number of results of each search and marks the parts of its
 answer that a page backs with `[1]`. An OpenAI model gives neither: its rows show the
 time only, and its answer keeps its own links. Both list the pages that the answer
 cites after it. The permission mode decides when the model gets the tool, and `[web]
 search` can override it: [Permission modes](use/modes.md#web-search) has the table.
+
+OpenAI's guide says that the context of its web search is limited to 128k tokens, also
+for a model with a larger window. efr sends the tool with every request of a turn
+that may search, also above 128k tokens. A real recording must still show what the
+API does with such a request. If a long conversation fails with the tool, run
+`,compact` or set `web.search = "off"`.
 
 ## The reviewer
 
@@ -254,7 +260,9 @@ again.
 | `1h` | Everything for one hour. Each write costs more, and a pause up to one hour loses nothing. |
 
 A summary call of a compaction uses the same time as the other calls, so it reads the
-cache of the conversation.
+cache of the conversation. A turn that may search the web is the exception: the
+summary call sends no web tool, so the model cannot search while it writes the
+summary. The call then reads the conversation without the cache.
 
 ### What makes the cache miss
 
@@ -262,6 +270,7 @@ cache of the conversation.
 |---|---|---|
 | A change of the model (`,model`) | The whole cache: each model has its own | The whole cache |
 | A change of the effort (`,effort`) | The conversation; the system prompt and the tools stay | Can miss |
+| Web search on or off (a change of the mode or of `web.search`) | The system prompt and the conversation | The whole cache |
 | A new `[model] system_prompt` | The system prompt and the conversation | The whole cache |
 | A compaction | The conversation; the system prompt and the tools stay | The whole cache |
 | A pause longer than the time to live | The whole cache | The whole cache (OpenAI keeps an entry for 30 minutes or more) |

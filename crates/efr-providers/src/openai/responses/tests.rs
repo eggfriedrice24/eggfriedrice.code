@@ -736,6 +736,25 @@ async fn a_model_the_subscription_refuses_is_an_unknown_model() {
 }
 
 #[tokio::test]
+async fn a_model_that_does_not_take_the_web_tool_is_no_unknown_model() {
+    // The wording is a guess: the docs do not show this error. A message that names a
+    // tool is about the tool, so the turn can say how to turn the web tool off.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": {"message": "Hosted tool 'web_search' is not supported with this model.", "type": "invalid_request_error"},
+        })))
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    assert!(matches!(&error, ProviderError::Api { status: Some(400), .. }), "{error:?}");
+}
+
+#[tokio::test]
 async fn an_error_body_that_is_not_json_becomes_the_message() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -880,7 +899,10 @@ async fn both_backends_take_the_web_tool_and_send_its_items_back_on_the_next_cal
             .mount(&server)
             .await;
         let setup = setup(&server, config, tokens);
-        assert_eq!(setup.provider.web_search(), WebSupport::StoredOrLive);
+        assert_eq!(setup.provider.web_search(None), WebSupport::StoredOrLive);
+        assert_eq!(setup.provider.web_search(Some("high")), WebSupport::StoredOrLive);
+        // The request at `minimal` carries no web tool, so the turn must plan none.
+        assert_eq!(setup.provider.web_search(Some("minimal")), WebSupport::None);
         let mut request = request("Does ROB RUN run on Linux?");
         request.hosted = vec![HostedTool::web_search(WebAccess::Stored, Some(20))];
 

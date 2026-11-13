@@ -307,7 +307,7 @@ impl Provider for ReplayProvider {
         self.models.clone()
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         self.web
     }
 

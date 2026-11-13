@@ -162,9 +162,7 @@ pub(crate) fn request_body(
         effort: request.effort.clone().or_else(|| config.reasoning_effort().map(str::to_owned)),
         summary: options.nullable_string("reasoning_summary", config.reasoning_summary()),
     });
-    let minimal = reasoning
-        .as_ref()
-        .is_some_and(|reasoning| reasoning.effort.as_deref() == Some(NO_WEB_EFFORT));
+    let minimal = !takes_web(reasoning.as_ref().and_then(|reasoning| reasoning.effort.as_deref()));
     let web = web_tool(&request.hosted, minimal);
     // NOTE: the subscription backend refuses `max_output_tokens`; Codex never sends it
     // and opencode removes it on that path ("Match codex cli").
@@ -367,6 +365,13 @@ pub(crate) fn tool_definition(tool: &ToolDefinition, freeform: bool) -> Value {
             "parameters": tool.input_schema,
         }),
     }
+}
+
+/// True when a request with the reasoning effort `effort` may carry the web tool: any
+/// effort but `minimal`. `OpenAiProvider::web_search` says the same, so the turn plans
+/// no search that the request cannot carry.
+pub(crate) fn takes_web(effort: Option<&str>) -> bool {
+    effort != Some(NO_WEB_EFFORT)
 }
 
 /// The web tool of a request whose hosted tools are `hosted`, or `None` when it has none

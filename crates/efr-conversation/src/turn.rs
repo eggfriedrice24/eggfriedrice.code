@@ -730,7 +730,11 @@ impl Turn {
         // so the mode decides here whether the request carries the tool at all: never
         // in manual, never with `web.search = "off"` (`web.rs`). The preamble names a
         // plan that is off or reads the stored copy.
-        self.web.plan = web::plan(settings.mode, config.web.search, provider.web_search());
+        self.web.plan = web::plan(
+            settings.mode,
+            config.web.search,
+            provider.web_search(settings.effort.as_deref()),
+        );
         tracing::debug!(web = ?self.web.plan, "the web plan of the turn");
         if snapshot.page.iter().any(|envelope| hosted::notes_stored_copy(&envelope.event)) {
             self.web.noted_before();
@@ -2198,7 +2202,12 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     };
-    let body = ErrorBody::new(code, error.to_string());
+    let mut message = error.to_string();
+    if web::refuses_web(error) {
+        message.truncate(message.trim_end().trim_end_matches('.').len());
+        message.push_str(web::REFUSED_HINT);
+    }
+    let body = ErrorBody::new(code, message);
     match error {
         ProviderError::RateLimited { retry_after: Some(delay) } => {
             let millis = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);

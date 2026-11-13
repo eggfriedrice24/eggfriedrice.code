@@ -234,6 +234,18 @@ fn markers(body: &Value) -> Vec<(String, String)> {
     found
 }
 
+/// The tools of `tools` that efr runs, without the server tools and the markers.
+fn client_tools(tools: &Value) -> Value {
+    let kept: Vec<Value> = without_markers(tools)
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tool| !tool["type"].as_str().is_some_and(|kind| kind.starts_with("web_")))
+        .cloned()
+        .collect();
+    Value::Array(kept)
+}
+
 fn marks(list: &[(&str, &str)]) -> Vec<(String, String)> {
     list.iter().map(|(place, ttl)| ((*place).to_owned(), (*ttl).to_owned())).collect()
 }
@@ -352,7 +364,14 @@ async fn a_claude_conversation_edits_compacts_and_keeps_each_request_a_prefix_of
             .collect();
         assert!(tools.contains(&"edit"), "{tools:?}");
         assert!(!tools.contains(&"apply_patch"), "a Claude model gets only the edit tool");
-        assert_eq!(without_markers(&body["tools"]), without_markers(&edit_call["tools"]));
+        // NOTE: the summary request carries no web tool, so the provider cannot search
+        // in it; it shares only the client tools of the turn's requests.
+        let expected = if std::ptr::eq(body, summary_call) {
+            client_tools(&edit_call["tools"])
+        } else {
+            without_markers(&edit_call["tools"])
+        };
+        assert_eq!(without_markers(&body["tools"]), expected);
         assert_eq!(without_markers(&body["system"]), without_markers(&edit_call["system"]));
     }
 

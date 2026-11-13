@@ -99,6 +99,12 @@ key needs `systemctl --user restart efrd`.
 with a 400 that names `anthropic-workspace-id`. Make a key that is scoped to one
 workspace, or set `[anthropic] workspace_id` and restart efrd.
 
+**Every prompt fails with an error about web search.** An admin of the account can
+turn off web search or web fetch for the organization. Then the provider refuses each
+request that carries the web tool, and efr adds a hint to the error. Set
+`efr config set web.search off`, or use `,mode manual`. The daemon reloads the key
+without a restart.
+
 **A login does not change the provider.** Choose a model of the new provider with
 `,model`, or set `model.provider`. Neither needs a restart. [When a prompt
 fails](../use/models-and-login.md#when-a-prompt-fails) tells more.

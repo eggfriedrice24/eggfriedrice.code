@@ -19,21 +19,29 @@ into the GitHub release notes, and it stops when the section is missing.
   Claude model searches the live web. In auto and full mode every model searches the
   live web.
 - An OpenAI model with the reasoning effort `minimal` gets no web search, because
-  OpenAI says that web search needs a higher effort.
-- A Claude model can also open a web page that your prompt or a search result names.
-  It cannot open an address that only the output of a command or a file holds, except
-  in full mode, so a text in a file cannot make it send data out in an address. One
-  page gives the model at most about 25,000 tokens of text.
+  OpenAI says that web search needs a higher effort. Its instructions then do not name
+  web search either.
+- A Claude model can also open a web page that a search found. Outside full mode it
+  does not open an address that only your prompt, a command, a file or a note of efr
+  names, so a text in a file cannot make it send data out in an address. For an
+  address that you type, it searches first. One page gives the model at most about
+  25,000 tokens of text.
 - `[web] search` overrides the table by mode: `off`, `cached` or `live`. The default,
   `mode`, follows the permission mode. Manual mode stays off whatever it says.
   `[web] max_searches` (default 20) limits the searches of one turn on a provider that
-  takes a limit. Both apply from the next turn. A change of `web.search` to `live`, or
-  away from `off`, counts as a change that loosens permissions.
+  takes a limit. Both apply from the next turn. A change of `web.search` that lets the
+  model reach more of the web counts as a change that loosens permissions. From less
+  to more, the values are `off`, `cached`, `mode` and `live`.
+- When the provider refuses its web search tool, for example because an admin turned
+  it off for the account, the error of the turn says how to stop it: set
+  `web.search = "off"`, or use `,mode manual`.
+- A compaction sends no web search tool, so the model cannot search while it writes
+  the summary.
 - `EFR_RECORD_STREAMS=1` for efrd writes the body of each model request and the
   stream of its answer to private files below `<state dir>/streams/`, so you can report
-  a problem with a provider. efr never writes a header, so no token, key or cookie.
-  The files hold your prompts and the answers: the directory has mode 0700 and each
-  file 0600.
+  a problem with a provider. efr never writes a header, so no token, key or cookie,
+  and it keeps the answer to a refused key empty. The files hold your prompts and the
+  answers: the directory has mode 0700 and each file 0600.
 - Three new protocol events: `web_call_started`, `web_call_completed` and
   `turn_web_report`. An older client skips them.
 - In manual mode the model reads that web search is off and that `,mode cautious` turns

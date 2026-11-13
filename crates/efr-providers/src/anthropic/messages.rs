@@ -260,7 +260,7 @@ impl Provider for AnthropicProvider {
         Ok(events(response, span, timing, body.carries_web_tools()))
     }
 
-    fn web_search(&self) -> WebSupport {
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         WebSupport::Live
     }
 }

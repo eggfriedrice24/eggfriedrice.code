@@ -24,7 +24,7 @@
 //! The module does no IO.
 
 use efr_protocol::{EffectiveSettings, Mode};
-use efr_provider::{HostedTool, Provider, WebAccess, WebSupport};
+use efr_provider::{HostedTool, Provider, ProviderError, WebAccess, WebSupport};
 
 use crate::ConversationConfig;
 
@@ -124,8 +124,10 @@ pub(crate) fn plan(mode: Mode, setting: WebSearch, support: WebSupport) -> WebPl
 
 /// The hosted tools of a request of a turn with `plan` in `mode`: nothing when the plan
 /// is off, else the web tool with its access, a limit of `max` searches, and page
-/// fetches of URLs from efr's own tool results only in `full` (where every command
-/// runs with no question already).
+/// fetches of a URL from any message only in `full` (where every command runs with no
+/// question already). In the other modes a fetch takes only a URL that a search found:
+/// efr puts the output of a job, its notes, a summary and `AGENTS.md` into user
+/// messages, and the provider counts a URL there as one that the user gave.
 pub(crate) fn hosted_tools(plan: WebPlan, mode: Mode, max: u32) -> Vec<HostedTool> {
     let access = match plan {
         WebPlan::Off(_) => return Vec::new(),
@@ -135,7 +137,7 @@ pub(crate) fn hosted_tools(plan: WebPlan, mode: Mode, max: u32) -> Vec<HostedToo
     vec![HostedTool::WebSearch {
         access,
         max_uses: Some(max),
-        urls_from_tool_results: mode == Mode::Full,
+        urls_from_conversation: mode == Mode::Full,
     }]
 }
 
@@ -147,8 +149,31 @@ pub(crate) fn hosted_for(
     config: &ConversationConfig,
     provider: &dyn Provider,
 ) -> Vec<HostedTool> {
-    let plan = plan(settings.mode, config.web.search, provider.web_search());
+    let plan =
+        plan(settings.mode, config.web.search, provider.web_search(settings.effort.as_deref()));
     hosted_tools(plan, settings.mode, config.web.max_searches)
+}
+
+/// What the failure of a turn adds when the provider refused its web tool
+/// ([`refuses_web`]): how the user stops sending it.
+pub(crate) const REFUSED_HINT: &str = ". The account may not allow the provider's web \
+     search: set web.search = \"off\" in efr's config, or use \",mode manual\".";
+
+/// True when `error` is the provider's refusal of a request for its web tool, such as
+/// Anthropic's 400 `invalid_request_error` when an admin turned web search or web
+/// fetch off ("Web search is not enabled for this organization"): an API error without
+/// a status or with a 4xx status whose message names web search or web fetch. The
+/// same request fails again, so every turn would fail until the user turns the tool
+/// off.
+pub(crate) fn refuses_web(error: &ProviderError) -> bool {
+    let ProviderError::Api { status, message, .. } = error else {
+        return false;
+    };
+    if status.is_some_and(|status| !(400..500).contains(&status)) {
+        return false;
+    }
+    let message = message.to_ascii_lowercase();
+    ["web search", "web_search", "web fetch", "web_fetch"].iter().any(|name| message.contains(name))
 }
 
 #[cfg(test)]

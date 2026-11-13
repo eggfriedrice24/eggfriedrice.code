@@ -408,9 +408,15 @@ impl Provider for OpenAiProvider {
 
     /// The `web_search` tool, with the stored copy or the live web, on both backends:
     /// the guide documents it for the API, and Codex sends the same tool on the
-    /// subscription path (`codex-rs/core/src/tools/hosted_spec.rs`).
-    fn web_search(&self) -> WebSupport {
-        WebSupport::StoredOrLive
+    /// subscription path (`codex-rs/core/src/tools/hosted_spec.rs`). None at the effort
+    /// `minimal`, the effort of the request or else the config's default, where the
+    /// request carries no web tool (`convert::web_tool`).
+    fn web_search(&self, effort: Option<&str>) -> WebSupport {
+        if crate::openai::convert::takes_web(effort.or(self.config.reasoning_effort())) {
+            WebSupport::StoredOrLive
+        } else {
+            WebSupport::None
+        }
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
@@ -608,7 +614,9 @@ impl ErrorDetails {
         self.codes().any(|code| QUOTA_CODES.contains(&code))
     }
 
-    /// True when the server says it does not serve the requested model.
+    /// True when the server says it does not serve the requested model. A message that
+    /// names a tool is about the tool, such as a model that does not take the web search
+    /// tool: the turn then names the tool, not the model.
     fn names_unknown_model(&self, status: StatusCode) -> bool {
         if self.codes().any(|code| code == "model_not_found") {
             return true;
@@ -616,6 +624,7 @@ impl ErrorDetails {
         let message = self.message.as_deref().unwrap_or_default().to_ascii_lowercase();
         status == StatusCode::BAD_REQUEST
             && message.contains("model")
+            && !message.contains("tool")
             && (message.contains("not supported") || message.contains("does not exist"))
     }
 }

@@ -15,10 +15,10 @@ fn a_web_tool_has_its_wire_form_and_leaves_out_what_is_absent() {
     let full = HostedTool::WebSearch {
         access: WebAccess::Stored,
         max_uses: Some(20),
-        urls_from_tool_results: true,
+        urls_from_conversation: true,
     };
     let wire = json!({
-        "kind": "web_search", "access": "stored", "max_uses": 20, "urls_from_tool_results": true
+        "kind": "web_search", "access": "stored", "max_uses": 20, "urls_from_conversation": true
     });
     assert_eq!(serde_json::to_value(&full).unwrap(), wire);
     assert_eq!(serde_json::from_value::<HostedTool>(wire).unwrap(), full);

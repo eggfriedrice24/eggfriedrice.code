@@ -57,11 +57,11 @@ Modules:
   `StopReason::PauseTurn` (Anthropic's `pause_turn`) means that the turn sends the
   paused answer back and goes on.
 - `hosted`: the hosted tools. `HostedTool::WebSearch { access, max_uses,
-  urls_from_tool_results }` is the provider's web tool: `WebAccess::Stored` (the
+  urls_from_conversation }` is the provider's web tool: `WebAccess::Stored` (the
   provider's stored copy of the web, OpenAI's `external_web_access: false`) or `Live`,
   the most searches of a turn for a provider that takes a limit, and whether a page
-  fetch may take a URL that only a result of efr's own tools holds (false unless the
-  turn runs in `full`). It is a field of its own and not a `ToolDefinition`: efr does
+  fetch may take a URL from any message of the conversation (false unless the turn
+  runs in `full`: then a fetch takes only a URL that a search or a fetch found). It is a field of its own and not a `ToolDefinition`: efr does
   not run it, so `Request::offers`, the toolbox and the permission check never see it.
   `WebSupport` (`None`, `Live`, `StoredOrLive`) is what `Provider::web_search` says;
   the default `None` keeps every fake provider of the tests as it is. The steps of a

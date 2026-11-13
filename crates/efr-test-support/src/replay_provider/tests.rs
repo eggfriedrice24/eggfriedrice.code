@@ -464,7 +464,7 @@ async fn a_tool_call_answer_collects_into_a_message() {
 async fn the_provider_has_no_web_tool_unless_a_test_gives_one_and_replays_web_events() {
     use efr_provider::{HostedAction, HostedOutcome, HostedTool, WebAccess, WebSupport};
 
-    assert_eq!(echo(&[]).web_search(), WebSupport::None);
+    assert_eq!(echo(&[]).web_search(None), WebSupport::None);
     let mut asked = request("what changed");
     asked.hosted = vec![HostedTool::web_search(WebAccess::Live, Some(20))];
     let answer_events = [
@@ -485,7 +485,7 @@ async fn the_provider_has_no_web_tool_unless_a_test_gives_one_and_replays_web_ev
     let provider = ReplayProvider::new(&Transcript::from_records(records))
         .unwrap()
         .with_web_search(WebSupport::StoredOrLive);
-    assert_eq!(provider.web_search(), WebSupport::StoredOrLive);
+    assert_eq!(provider.web_search(None), WebSupport::StoredOrLive);
     assert_eq!(events(&provider, asked).await, answer_events);
     provider.finish().unwrap();
 }

@@ -162,7 +162,9 @@ Modules:
   Unknown event types and output items without a canonical form become
   `ProviderEvent::Raw` and are logged at debug, never dropped silently.
 - `responses`: `OpenAiProvider`, the HTTP exchange, the choice of the transport and
-  the event stream. `web_search()` is `WebSupport::StoredOrLive` on both backends.
+  the event stream. `web_search(effort)` is `WebSupport::StoredOrLive` on both
+  backends, and `None` at the effort `minimal` (the request's, else `reasoning_effort`
+  of the config), so the turn plans no search and its preamble names none.
 - `websocket`: `Sockets`, the WebSocket connection of each conversation; its
   `connection` module holds the task that owns one connection, and its
   `continuation` module decides when a call sends only its new input.
@@ -431,8 +433,10 @@ HTTP on both backends and over the WebSocket. What the docs do not show, and wha
 fixtures therefore only guess: whether the item of `response.output_item.added` has an
 action, when the annotation event comes and how the text cites a page, how a failed
 step looks beyond its status, when an item has `queries`, whether the subscription
-backend takes the tool and sends `tool_usage`, and whether the API takes a
-`web_search_call` input item without the tool (efr never sends one).
+backend takes the tool and sends `tool_usage`, whether the API takes a
+`web_search_call` input item without the tool (efr never sends one), and what the API
+does with a request above 128k tokens with the tool: the guide says that "the web
+search context window is limited to 128k", and efr keeps its own limit.
 
 ## The anthropic module
 
@@ -685,16 +689,20 @@ the API has no stored copy of the web:
 ```json
 {"type": "web_search_20250305", "name": "web_search", "max_uses": 20}
 {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 20,
- "max_content_tokens": 25000, "url_sources": {"client_tool_results": {"type": "none"}}}
+ "max_content_tokens": 25000,
+ "url_sources": {"user_input": {"type": "none"}, "client_tool_results": {"type": "none"}}}
 ```
 
 - `max_uses` is `web.max_searches`, for each of the two tools. `web_search_20250305`
   is the basic version, which the model calls directly; the later versions run through
   code execution unless `allowed_callers` is `["direct"]`. Both versions need no beta.
-- `url_sources` keeps a fetch from a URL that only the output of a command or a file
-  gave: such a text could make the model put data into a URL. It is left out in `full`
-  mode (`urls_from_tool_results`). A URL of the user or of a search result is always a
-  source.
+- `url_sources` lets a fetch take only a URL that a search or a fetch found. A text in
+  a file or in a command's output could make the model put data into a URL, and efr
+  puts more than the user's own words into user messages: the output of a background
+  job, efr's notes, the summary of a compaction and `AGENTS.md`. The API counts a URL
+  there as one of the user. So a URL that the user types is not a source either; the
+  model searches for the page first. `url_sources` is left out in `full` mode
+  (`urls_from_conversation`), where every command runs with no question already.
 - The cache marker S stays on the system block, or on the last client tool when there
   is no system prompt: the docs do not show a marker on a server tool.
 

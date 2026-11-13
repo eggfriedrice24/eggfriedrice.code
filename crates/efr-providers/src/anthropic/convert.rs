@@ -21,10 +21,12 @@
 //! The web tools, after the client tools: `{"type": "web_search_20250305", "name":
 //! "web_search", "max_uses": n}` and `{"type": "web_fetch_20250910", "name":
 //! "web_fetch", "max_uses": n, "max_content_tokens": 25000, "url_sources":
-//! {"client_tool_results": {"type": "none"}}}`, with `n` from `max_uses` (left out when
-//! it is `None`). `url_sources` is left out when `urls_from_tool_results` is true: by
-//! default a fetch then may not take a URL that only the output of one of efr's tools
-//! holds. The access of the tool does not matter: the API has only the live web. Both
+//! {"user_input": {"type": "none"}, "client_tool_results": {"type": "none"}}}`, with `n`
+//! from `max_uses` (left out when it is `None`). So a fetch takes only a URL that a
+//! search or a fetch found: efr puts the output of a job, its notes, a summary and
+//! `AGENTS.md` into user messages, and a URL there could carry data out.
+//! `url_sources` is left out when `urls_from_conversation` is true (`full` mode): the
+//! API then takes every source. The access of the tool does not matter: the API has only the live web. Both
 //! versions call the tool directly (no code execution) and need no beta. The request
 //! has no other server tool, and a request without `hosted` has none at all.
 //!
@@ -208,10 +210,12 @@ struct ServerTool {
     url_sources: Option<UrlSources>,
 }
 
-/// `{"client_tool_results": {"type": "none"}}`: a fetch takes no URL that only the
-/// result of a client tool holds.
+/// `{"user_input": {"type": "none"}, "client_tool_results": {"type": "none"}}`: a fetch
+/// takes no URL that only a user message or the result of a client tool holds, only one
+/// of a search or fetch result (`server_tool_results`, which stays `all`).
 #[derive(Debug, Clone, Copy, Serialize)]
 struct UrlSources {
+    user_input: SourceFilter,
     client_tool_results: SourceFilter,
 }
 
@@ -224,16 +228,17 @@ struct SourceFilter {
 /// The server tools for `hosted`, in order: the web search and the web fetch tool for
 /// the first `HostedTool::WebSearch`, and nothing for any other entry.
 fn server_tools(hosted: &[HostedTool]) -> Vec<ServerTool> {
-    let Some((max_uses, urls_from_tool_results)) = hosted.iter().find_map(|tool| match tool {
-        HostedTool::WebSearch { max_uses, urls_from_tool_results, .. } => {
-            Some((*max_uses, *urls_from_tool_results))
+    let Some((max_uses, urls_from_conversation)) = hosted.iter().find_map(|tool| match tool {
+        HostedTool::WebSearch { max_uses, urls_from_conversation, .. } => {
+            Some((*max_uses, *urls_from_conversation))
         }
         _ => None,
     }) else {
         return Vec::new();
     };
-    let url_sources = (!urls_from_tool_results)
-        .then_some(UrlSources { client_tool_results: SourceFilter { kind: "none" } });
+    let none = SourceFilter { kind: "none" };
+    let url_sources = (!urls_from_conversation)
+        .then_some(UrlSources { user_input: none, client_tool_results: none });
     vec![
         ServerTool {
             kind: WEB_SEARCH_TYPE,

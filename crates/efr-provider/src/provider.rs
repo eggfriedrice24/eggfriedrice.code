@@ -52,10 +52,12 @@ pub trait Provider: Send + Sync + fmt::Debug {
     }
 
     /// What the provider can do with the web tool
-    /// ([`HostedTool::WebSearch`](crate::HostedTool::WebSearch)). The turn adds the tool
-    /// to a request only when it is not [`WebSupport::None`], the default, so a provider
-    /// that does not override it never gets one.
-    fn web_search(&self) -> WebSupport {
+    /// ([`HostedTool::WebSearch`](crate::HostedTool::WebSearch)) in a request with the
+    /// reasoning effort `effort` (`None`: the request sends none). The turn adds the
+    /// tool to a request only when it is not [`WebSupport::None`], the default, so a
+    /// provider that does not override it never gets one. A provider that sends no web
+    /// tool at some effort says `None` for it, so the turn plans no search there.
+    fn web_search(&self, _effort: Option<&str>) -> WebSupport {
         WebSupport::None
     }
 
