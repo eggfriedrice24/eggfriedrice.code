@@ -463,7 +463,8 @@ fn git(args: &[Word]) -> Option<Reads> {
     Some(Reads { writes: named, links: true, ..Reads::default() })
 }
 
-/// Every operand, and every option value that looks like a path, read alone.
+/// Every operand, and every option value that looks like a path, read alone. A URL,
+/// such as the `https://example.com/x` of `curl`, names no local path.
 pub(super) fn generic(args: &[Word]) -> Reads {
     let mut named = Vec::new();
     let mut after_options = false;
@@ -473,7 +474,7 @@ pub(super) fn generic(args: &[Word]) -> Reads {
             after_options = true;
             continue;
         }
-        if text == "-" || word.expansion {
+        if text == "-" || word.expansion || text.contains("://") {
             continue;
         }
         if after_options || !text.starts_with('-') {

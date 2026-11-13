@@ -33,7 +33,8 @@ fn of(line: &str) -> (Vec<String>, Option<Depth>) {
 #[case::expansion("cat $FILE", &[], None)]
 #[case::unknown_program("cargo test --manifest-path=x/Cargo.toml", &["test:one", "x/Cargo.toml:one"], None)]
 #[case::revision_path("git show HEAD:.ssh/config", &["show:one", "HEAD:.ssh/config:one", ".ssh/config:one"], None)]
-#[case::url("curl https://example.org/x", &["https://example.org/x:one"], None)]
+// A URL names no local path, so the question shows no `~/https:/...` read.
+#[case::url("curl https://example.org/x", &[], None)]
 // Programs whose arguments are not paths.
 #[case::echo("echo ~/.ssh/id_rsa", &[], None)]
 #[case::printf("printf '%s' ~/.netrc", &[], None)]

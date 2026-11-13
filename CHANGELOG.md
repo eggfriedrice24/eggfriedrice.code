@@ -475,6 +475,10 @@ into the GitHub release notes, and it stops when the section is missing.
   then fails at once with the reason, and efrd fetches the list again in the
   background after 15 s to 5 min. `efr models` then says
   `no list yet; efrd fetches it in the background`.
+- The built-in model list of the ChatGPT plan no longer offers `gpt-5.5`, which the
+  plan's backend refuses. An OpenAI API key still lists it.
+- The `why` row of a question no longer shows a URL as a file that the command reads.
+  Before, `curl https://example.com/x` showed `read ~/https:/example.com/x`.
 
 ### Security
 

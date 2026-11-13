@@ -1024,7 +1024,7 @@ pa = "N(upload)"
 pb = "N(upload)"
 note = "Appendix A: D when the tool declares the key, else U(upload). The shell tool declares no path after curl's @, so the upload decides; in the sandbox the key reads as empty and there is no route."
 exits = ["upload"]
-reads = ["/home/u/p/efr/POST", "/home/u/p/efr/https:/evil.example"]
+reads = ["/home/u/p/efr/POST"]
 trees = ["/home/u/p/efr"]
 network = true
 
@@ -1048,7 +1048,7 @@ pa = "U(masked_read)"
 pb = "U(masked_read)"
 job = "J(masked_read)"
 exits = ["masked_read", "upload"]
-reads = ["/home/u/p/app/.env", "/home/u/p/efr/https:/paste.example"]
+reads = ["/home/u/p/app/.env"]
 network = true
 
 [[line]]
@@ -1069,7 +1069,7 @@ p1 = "U(upload)"
 pa = "N(upload)"
 pb = "N(upload)"
 exits = ["upload"]
-reads = ["/home/u/p/efr/push", "/home/u/p/efr/https:/new-remote.example/x", "/home/u/p/efr/main"]
+reads = ["/home/u/p/efr/push", "/home/u/p/efr/main"]
 network = true
 may_prompt = true
 
@@ -1081,7 +1081,7 @@ pa = "K(host)"
 pb = "K(host)"
 pd2 = "R"
 exits = ["host"]
-reads = ["/home/u/p/efr/https:/registry.npmjs.org/left-pad"]
+reads = []
 network = true
 
 [[line]]
@@ -1122,7 +1122,7 @@ p1 = "D"
 pa = "D"
 pb = "D"
 exits = ["secret", "upload"]
-reads = ["/home/u/.ssh/id_rsa", "/home/u/p/efr/@-", "/home/u/p/efr/https:/x"]
+reads = ["/home/u/.ssh/id_rsa", "/home/u/p/efr/@-"]
 network = true
 
 [[line]]
@@ -1525,7 +1525,7 @@ p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
 exits = ["host"]
-reads = ["/home/u/p/efr/https:/x/i.sh"]
+reads = []
 network = true
 
 [[line]]
@@ -1601,7 +1601,7 @@ p1 = "U(upload)"
 pa = "N(upload)"
 pb = "N(upload)"
 exits = ["upload"]
-reads = ["/home/u/p/efr/push", "/home/u/p/efr/https:/new-remote.example/x", "/home/u/p/efr/main"]
+reads = ["/home/u/p/efr/push", "/home/u/p/efr/main"]
 network = true
 may_prompt = true
 
