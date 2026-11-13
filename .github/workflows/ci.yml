@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Each Monday the `sandbox` job runs with the full launch cost gate, which takes about
-  # 13 minutes in the VM; a push or a pull request runs the cost tests without it.
+  # Each Monday the sandbox shards run with the full launch cost gate, which takes about
+  # 13 minutes in one VM; a push or a pull request runs the cost tests without it.
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -350,16 +350,28 @@ jobs:
   # fails. `just test-sandbox-vm` runs the same step in a container set up like this
   # runner.
   #
-  # The job runs only when `changes` says that a changed file can change what it tests
-  # (.github/sandbox-paths.sh). A skipped job counts as passed for the required check.
-  sandbox:
+  # The shards run only when `changes` says that a changed file can change what they
+  # test (.github/sandbox-paths.sh).
+  #
+  # Most of the suite's time is tests that run one at a time by design (the test group
+  # `shell` and the launch cost tests): about 16 minutes in one VM. So six runners each
+  # boot the VM and run one sixth of each test phase (SBX_SHARD); the six together run
+  # every test once. A shard pays about a minute and a half for its setup, so more
+  # shards than six save little: `test-full` after `build` then takes as long.
+  sandbox-shard:
+    name: sandbox (${{ matrix.shard }}/6)
     needs: [build, changes]
     if: needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
       SBX_GATE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
+      SBX_SHARD: ${{ matrix.shard }}/6
     steps:
       - uses: actions/checkout@v7
       # GitHub gives public repositories KVM on its standard Linux runners, but only the
@@ -408,12 +420,13 @@ jobs:
       - run: .github/sandbox-vm.sh kernel "$RUNNER_TEMP/kernel"
         env:
           SBX_VM_CACHE: ${{ runner.temp }}/sandbox-vm-cache
-      - if: ${{ github.ref == 'refs/heads/main' && steps.downloads.outputs.cache-hit != 'true' }}
+      # Every shard downloads the same files, so only the first one saves them.
+      - if: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.downloads.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/sandbox-vm-cache/downloads
           key: ${{ steps.downloads.outputs.cache-primary-key }}
-      - if: ${{ github.ref == 'refs/heads/main' && steps.apt.outputs.cache-hit != 'true' }}
+      - if: ${{ github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.apt.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/sandbox-vm-cache/apt
@@ -426,10 +439,38 @@ jobs:
           name: nextest-archive
           path: ${{ runner.temp }}
       # Unpacked into the checkout, as in `test-full`; the step summary gets the
-      # kernel, the Landlock ABI and the launch cost table.
+      # kernel, the Landlock ABI and the launch cost tables of this shard's cost tests.
       - run: >-
           .github/sandbox-vm.sh run "$RUNNER_TEMP/kernel"
           "$RUNNER_TEMP/nextest-archive.tar.zst" . .
+
+  # The required check `sandbox`: one result for the six shards. It passes when every
+  # shard passed, or when `changes` said that the shards need not run. It runs also
+  # after a failed shard, because a job that GitHub skips counts as passed for a
+  # required check.
+  sandbox:
+    needs: [changes, sandbox-shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          WANTED: ${{ needs.changes.outputs.sandbox }}
+          SHARDS: ${{ needs.sandbox-shard.result }}
+        run: |
+          echo "changes: $CHANGES, sandbox wanted: $WANTED, shards: $SHARDS"
+          if [[ "$CHANGES" != success ]]; then
+            echo "::error::the changes job did not say whether the sandbox shards must run"
+            exit 1
+          fi
+          if [[ "$WANTED" == true && "$SHARDS" != success ]]; then
+            echo "::error::the sandbox shards ended with: $SHARDS"
+            exit 1
+          fi
+          if [[ "$WANTED" != true && "$SHARDS" != skipped ]]; then
+            echo "::error::the sandbox shards ended with $SHARDS, but changes did not ask for them"
+            exit 1
+          fi
 
   ghostty:
     runs-on: ubuntu-latest

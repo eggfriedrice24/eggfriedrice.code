@@ -28,6 +28,14 @@
 # as a download that apt checks. Without SBX_VM_CACHE, as in the image of
 # `just test-sandbox-vm`, the same steps run with temporary dirs, so a cache hit, a miss
 # and a local run install the same way.
+#
+# Shards: SBX_SHARD=K/N makes `run` run the K-th of N equal parts of each test phase
+# (nextest's `slice` partition, which deals the sorted tests of a phase out one by one).
+# The N runs together run every test exactly once. Most of the suite's time is tests
+# that run one at a time by design (the test group `shell` and the launch cost tests),
+# so CI's sandbox job runs the parts on N runners at the same time. Without SBX_SHARD,
+# as in `just test-sandbox-vm`, one run does everything. A part with no test fails, so N
+# cannot be larger than the test count of the smallest phase.
 set -euo pipefail
 shopt -s nullglob
 
@@ -323,18 +331,23 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
     # gate with its 1000 calls and more.
     local gate="${SBX_GATE:-1}"
     [[ "$gate" == 0 || "$gate" == 1 ]] || fail "SBX_GATE must be 0 or 1, not $gate"
-    guest="$(printf '%q ' "$self" guest "$user" "$nextest" "$workspace" "$extract/target" "$tmpdir" "$gate")"
+    local shard="${SBX_SHARD:-1/1}"
+    if [[ ! "$shard" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] ||
+        ((BASH_REMATCH[1] > BASH_REMATCH[2])); then
+        fail "SBX_SHARD must be K/N with 1 <= K <= N, not $shard"
+    fi
+    guest="$(printf '%q ' "$self" guest "$user" "$nextest" "$workspace" "$extract/target" "$tmpdir" "$gate" "$shard")"
     # The size of GitHub's standard runner for public repositories, so a local run
     # boots the same VM.
     local cpus="${SBX_VM_CPUS:-4}" memory="${SBX_VM_MEMORY:-4G}"
-    say "booting $kernel_release with $cpus CPUs and $memory of memory"
+    say "booting $kernel_release with $cpus CPUs and $memory of memory, shard $shard"
     local status=0
     PATH="$virtme_ng_dir/bin:$PATH" vng --run "$kernel/boot/vmlinuz-$kernel_release" \
         --user root --cpus "$cpus" --memory "$memory" --exec "$guest" \
         </dev/null 2>&1 | tee "$log" || status=$?
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         {
-            echo "### Sandbox suite in a VM"
+            echo "### Sandbox suite in a VM, shard $shard"
             echo
             echo '```'
             sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|launch cost gate|toolchain|xdg-dbus-proxy|systemd) /\1 /p' "$log"
@@ -356,7 +369,7 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
 # Inside the VM, as root: the writable tmpfs, then the tests as the user, then the
 # check of the kernel log.
 cmd_guest() {
-    local user="$1" nextest="$2" workspace="$3" target="$4" tmpdir="$5" gate="$6"
+    local user="$1" nextest="$2" workspace="$3" target="$4" tmpdir="$5" gate="$6" shard="$7"
     # The guest's console is not a terminal, and stderr may take another way out.
     exec 2>&1
     # virtme-ng's init leaves its serial ports open as fds 3 to 5 in every process. The
@@ -403,7 +416,7 @@ cmd_guest() {
     done
     local status=0
     runuser -u "$user" -- "$self" tests "$nextest" "$workspace" "$target" "$tmpdir" "$gate" \
-        </dev/null || status=$?
+        "$shard" </dev/null || status=$?
     # The layer helper mounts each overlay with index=off and xino=off, so the kernel
     # must log no fallback and no upper dir in use. Only root reads the kernel log.
     local lines
@@ -420,7 +433,7 @@ cmd_guest() {
 # Inside the VM, as the user: what `just test-sandbox` runs, on a machine that must be
 # ready, so a skipped test fails.
 cmd_tests() {
-    local nextest="$1" workspace="$2" target="$3" tmpdir="$4" gate="$5"
+    local nextest="$1" workspace="$2" target="$3" tmpdir="$4" gate="$5" shard="$6"
     export HOME
     HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
     # rustup's cargo, rustc and rustfmt, for the corpus rows that build a Rust project.
@@ -457,11 +470,16 @@ cmd_tests() {
     fi
     say "probe ready"
     say "launch cost gate $gate"
+    say "shard $shard"
     export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE=1 EFR_TEST_SBX_GATE="$gate"
     export INSTA_WORKSPACE_ROOT="$workspace" INSTA_UPDATE=no
+    # Each phase below takes its own slice, so a shard gets its part of the slow tests
+    # of every phase. nextest fails a run that selects no test: a filter that matches
+    # nothing, or a shard count above the test count of a phase, cannot pass unseen.
     local run=("$nextest" nextest run --workspace-remap "$workspace" --target-dir-remap "$target"
         --binaries-metadata "$target/nextest/binaries-metadata.json"
-        --cargo-metadata "$target/nextest/cargo-metadata.json")
+        --cargo-metadata "$target/nextest/cargo-metadata.json"
+        --partition "slice:$shard")
     "${run[@]}" -E 'package(efr-sbx) & not test(/^cost::|^corpus::/)'
     # The launch cost and the corpus print their tables; show them.
     "${run[@]}" --success-output immediate -E 'package(efr-sbx) & test(/^cost::|^corpus::/)'
@@ -478,7 +496,7 @@ cmd_tests() {
     if grep -q 'skipped:' "$log"; then
         fail "efr-daemon's sandbox tests skipped on a ready machine"
     fi
-    say "all sandbox tests passed"
+    say "all sandbox tests of shard $shard passed"
 }
 
 command="${1:-}"

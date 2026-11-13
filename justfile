@@ -335,6 +335,8 @@ test-sandbox-ubuntu:
 # The VM boots the kernel of .github/sandbox-vm.sh with virtme-ng. The container is set
 # up like GitHub's runner: it builds the archive that CI's build job makes, then runs
 # the job's own step.
+# CI splits the suite over six runners; SBX_SHARD=K/6 in the environment runs one of
+# those shards here, and without it one VM runs everything.
 # CI's sandbox job: the tests of test-sandbox in a VM (needs Docker and /dev/kvm).
 test-sandbox-vm:
     #!/usr/bin/env bash
@@ -365,7 +367,7 @@ test-sandbox-vm:
         -v "$cache/registry:/home/runner/.cargo/registry" \
         -v "$cache/git:/home/runner/.cargo/git" \
         -v "$target:/home/runner/target" \
-        -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always \
+        -e CARGO_TARGET_DIR=/home/runner/target -e CARGO_TERM_COLOR=always -e SBX_SHARD \
         -w /home/runner/work/efr efr-sandbox-vm bash -euo pipefail -c '
             out=/home/runner/target/sandbox-vm
             mkdir -p "$out"
