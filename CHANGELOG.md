@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-11-13
+
 ### Added
 
 - The model can search the web. The provider runs the search inside the model call,
@@ -2289,7 +2291,8 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.8...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.9...HEAD
+[0.0.9]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.5...v0.0.6
