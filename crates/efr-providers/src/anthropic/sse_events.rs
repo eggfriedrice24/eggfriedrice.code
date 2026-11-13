@@ -139,6 +139,9 @@ enum Kind {
         joined: String,
         /// The input and the action at `content_block_stop`.
         stopped: Option<(Box<RawValue>, HostedAction)>,
+        /// The members of the start block other than `type`, `id`, `name` and `input`,
+        /// such as `caller`, each as the API sent it: the block goes back with them.
+        extra: Vec<(String, Box<RawValue>)>,
     },
     /// A `redacted_thinking` block, a result block of a server tool, or a block of a
     /// type that efr does not know, kept as the API sent it.
@@ -187,6 +190,9 @@ enum LastDelta {
 enum RawBlock<'a> {
     Built(BuiltBlock<'a>),
     Verbatim(&'a RawValue),
+    /// A block that efr wrote whole, such as a `server_tool_use` with members beyond
+    /// the four that `BuiltBlock` knows.
+    Owned(Box<RawValue>),
 }
 
 #[derive(Debug, Serialize)]
@@ -211,6 +217,66 @@ enum BuiltBlock<'a> {
         name: &'a str,
         input: &'a RawValue,
     },
+}
+
+/// The members of the `content_block` `raw` of a `server_tool_use` start other than the
+/// four that efr writes itself, each as it came, in the API's order. The docs say to
+/// send the blocks back exactly as they came; efr writes `input` from the joined
+/// deltas, so it keeps the rest here.
+fn extra_members(raw: &RawValue) -> Vec<(String, Box<RawValue>)> {
+    let members = serde_json::from_str::<Members>(raw.get()).map(|members| members.0);
+    members
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(key, _)| !matches!(key.as_str(), "type" | "id" | "name" | "input"))
+        .collect()
+}
+
+/// The members of a JSON object in their order, each value as it came.
+struct Members(Vec<(String, Box<RawValue>)>);
+
+impl<'de> Deserialize<'de> for Members {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visit;
+        impl<'de> serde::de::Visitor<'de> for Visit {
+            type Value = Members;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a JSON object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Members, A::Error> {
+                let mut members = Vec::new();
+                while let Some(member) = map.next_entry::<String, Box<RawValue>>()? {
+                    members.push(member);
+                }
+                Ok(Members(members))
+            }
+        }
+        deserializer.deserialize_map(Visit)
+    }
+}
+
+/// The `server_tool_use` block `{type, id, name, input, ...extra}` as JSON text.
+fn server_tool_use(
+    id: &str,
+    name: &str,
+    input: &RawValue,
+    extra: &[(String, Box<RawValue>)],
+) -> Result<Box<RawValue>, ProviderError> {
+    let head = serde_json::to_string(&BuiltBlock::ServerToolUse { id, name, input })
+        .map_err(|source| ProviderError::Decode { source })?;
+    let mut text = head.strip_suffix('}').unwrap_or(&head).to_owned();
+    for (key, value) in extra {
+        let key = serde_json::to_string(key).map_err(|source| ProviderError::Decode { source })?;
+        text.push(',');
+        text.push_str(&key);
+        text.push(':');
+        text.push_str(value.get());
+    }
+    text.push('}');
+    RawValue::from_string(text).map_err(|source| ProviderError::Decode { source })
 }
 
 /// True for a text block without citations, which goes back as it did before web search.
@@ -424,6 +490,7 @@ impl EventMapper {
                     start: start_input(),
                     joined: String::new(),
                     stopped: None,
+                    extra: extra_members(raw),
                 },
                 _ => {
                     tracing::debug!("kept a server tool call of another tool as it came");
@@ -633,7 +700,7 @@ impl EventMapper {
                 });
                 *input = Some(raw);
             }
-            Kind::ServerTool { id, tool, start, joined, stopped } => {
+            Kind::ServerTool { id, tool, start, joined, stopped, .. } => {
                 let text = if joined.is_empty() {
                     start.as_ref().map_or(EMPTY_INPUT, |start| start.get())
                 } else {
@@ -643,11 +710,14 @@ impl EventMapper {
                 // as an object only loses the subject of the row; `provider_raw` then
                 // holds `{}`, and the replay drops such a call when it never ran.
                 let object = serde_json::from_str::<Map<String, Value>>(text).ok();
+                // NOTE: a blank query or URL names nothing, so the step has no subject
+                // and the row says `web search` (or `web open`).
                 let subject = |key: &str| {
                     object
                         .as_ref()
                         .and_then(|object| object.get(key))
                         .and_then(Value::as_str)
+                        .filter(|subject| !subject.trim().is_empty())
                         .map(str::to_owned)
                 };
                 let action = match tool {
@@ -750,8 +820,13 @@ impl EventMapper {
                         problem: "a tool call never ended",
                     });
                 }
-                Kind::ServerTool { id, tool, stopped: Some((input, _)), .. } => {
+                Kind::ServerTool { id, tool, stopped: Some((input, _)), extra, .. }
+                    if extra.is_empty() =>
+                {
                     RawBlock::Built(BuiltBlock::ServerToolUse { id, name: tool.name(), input })
+                }
+                Kind::ServerTool { id, tool, stopped: Some((input, _)), extra, .. } => {
+                    RawBlock::Owned(server_tool_use(id, tool.name(), input, extra)?)
                 }
                 Kind::Verbatim(raw) => RawBlock::Verbatim(raw),
             });

@@ -480,6 +480,32 @@ fn a_start_with_its_input_and_no_deltas_keeps_that_input() {
     assert_eq!(hosted(&events), vec![started("srvtoolu_1", search("zsh"))]);
 }
 
+#[rstest]
+#[case::empty(r#"{"query": ""}"#)]
+#[case::blank(r#"{"query": "   "}"#)]
+fn a_blank_query_names_no_subject(#[case] fragment: &str) {
+    let events = search_call(
+        json!({"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {}}),
+        &[fragment],
+    );
+    assert_eq!(hosted(&events), vec![started("srvtoolu_1", HostedAction::Search { query: None })]);
+}
+
+#[test]
+fn a_call_goes_back_with_every_member_of_its_start() {
+    // The server tools page: send the blocks back "exactly as you received them"; a
+    // call from code execution has a `caller`.
+    let events = search_call(
+        json!({"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {}, "caller": {"type": "direct"}}),
+        &[r#"{"query": "zsh"}"#],
+    );
+    assert_eq!(hosted(&events), vec![started("srvtoolu_1", search("zsh"))]);
+    assert_eq!(
+        raw_of(&events),
+        r#"[{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query": "zsh"},"caller":{"type":"direct"}}]"#
+    );
+}
+
 /// The text and citation events of one text block that streams `fragments`, then
 /// `citations`, to a request with the web tools when `web` is true.
 fn text_block(fragments: &[&str], citations: &[Value], web: bool) -> Vec<ProviderEvent> {
