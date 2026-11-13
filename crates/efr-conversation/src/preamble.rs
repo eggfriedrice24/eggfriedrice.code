@@ -430,7 +430,8 @@ const AUTO_RULE_PROXY: &str = " Shell commands reach package registries and GitH
 
 /// The rest of the rule of `auto`.
 const AUTO_RULE_TAIL: &str = " A command that runs outside the sandbox, such as sudo or a \
-                              push, must be alone in its call. For long work, such as a \
+                              push, must be alone in its call, with its values written out \
+                              (no $VAR or $(...)). For long work, such as a \
                               server or a monitor, call shell with background: true; you get \
                               a notice when it ends, so do not poll. If efr refuses an \
                               action, do not try it another way. In the sandbox, tty and $$ \

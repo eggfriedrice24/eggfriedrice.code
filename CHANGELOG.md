@@ -148,7 +148,10 @@ into the GitHub release notes, and it stops when the section is missing.
     model may have written that code, and the reviewer cannot read the file. A line
     that joins such code with an action that leaves the sandbox, such as
     `just check && git push`, still does not run: the model runs the two parts as two
-    commands, and the first one runs in the sandbox.
+    commands, and the first one runs in the sandbox. The model now reads this rule in
+    full before it writes such a line: no `$VAR`, no `$(...)` and no here-document, and
+    `git add` and `git commit` in their own call before `git push`. Before, it learned
+    the rule only from a refusal.
   - After 3 refusals in a row, or 10 in one turn, the model can finish the work that
     stays in the sandbox, and its next action that leaves it stops the turn. Before,
     efr then asked you for the rest of the turn.

@@ -345,7 +345,7 @@ fn prompt_auto_says_do_what_the_user_asks() {
         "efr decides: it runs it in a sandbox, or it asks its reviewer or the user.",
         "so run such commands as they are.",
         "call shell again with the narrowest needs and a short reason.",
-        "must be alone in its call.",
+        "must be alone in its call, with its values written out (no $VAR or $(...)).",
         "If efr refuses an action, do not try it another way.",
     ] {
         assert!(rule.contains(says), "{says:?} in {rule}");
