@@ -10,7 +10,7 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
-## [0.0.9] - 2026-11-13
+## [0.0.9] - 2026-11-14
 
 ### Added
 
