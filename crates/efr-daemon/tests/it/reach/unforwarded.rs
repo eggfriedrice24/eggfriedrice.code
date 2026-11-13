@@ -57,6 +57,10 @@ fn outcomes(events: &[EventEnvelope]) -> Vec<(u16, ForwardOutcome)> {
 
 #[tokio::test]
 async fn port_in_use_refuses_the_line_and_asks_nobody() {
+    // NOTE: the call for the port of no job runs, which needs the real zsh.
+    if !zsh_enabled("port_in_use_refuses_the_line_and_asks_nobody") {
+        return;
+    }
     let setup = Setup::new();
     let answers = vec![line(CHECK), line("curl -s http://127.0.0.1:8768/"), None];
     let (daemon, conversation, mut forwarder, job_fifo) =
