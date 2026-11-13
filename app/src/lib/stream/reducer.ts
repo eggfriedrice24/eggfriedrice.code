@@ -535,8 +535,10 @@ function applyEventBody(
         ),
       );
     case "web_call_completed":
+      // A step can start without its action and end as a find (OpenAI names the
+      // action only at the end): the block of its start goes.
       if (event.action === "find") {
-        return state;
+        return updateTurn(state, event.turn_id, (turn) => dropTool(turn, event.call_id));
       }
       return updateTurn(state, event.turn_id, (turn) =>
         updateTool(addPart(turn, { kind: "tool", callId: event.call_id }), event.call_id, (call) =>
@@ -1075,6 +1077,17 @@ function updateTool(
   const tools = new Map(turn.tools);
   tools.set(callId, call);
   return { ...turn, tools };
+}
+
+/** `turn` without the tool call `callId` and its part; the same turn when it has none. */
+function dropTool(turn: TurnView, callId: string): TurnView {
+  if (!turn.tools.has(callId)) {
+    return turn;
+  }
+  const tools = new Map(turn.tools);
+  tools.delete(callId);
+  const parts = turn.parts.filter((part) => !(part.kind === "tool" && part.callId === callId));
+  return { ...turn, tools, parts };
 }
 
 function updateApproval(

@@ -334,6 +334,28 @@ fn the_rows_wait_for_the_steps_that_started_before_them() {
     assert_eq!(ids(order.rest()), vec![id(5)]);
 }
 
+/// OpenAI starts every step without its action, so a find starts as a search with no
+/// query and is a find only at its end. The rows after it must not wait for it.
+#[test]
+fn a_step_that_ends_as_a_find_holds_back_no_row() {
+    let mut order = Order::default();
+    let ended = |n: u8, step: Step| Ended {
+        call_id: id(n),
+        step,
+        end: End::Done { results: None },
+        took: None,
+    };
+    let unknown = Step { action: WebAction::Search, query: None, url: None, pattern: None };
+    let ids = |rows: Vec<Ended>| rows.into_iter().map(|row| row.call_id).collect::<Vec<_>>();
+    order.start(id(1), &unknown);
+    order.start(id(2), &unknown);
+    assert_eq!(order.end(ended(2, search("b"))), vec![]);
+    assert_eq!(ids(order.end(ended(1, find("x", "https://a.org/")))), vec![id(2)]);
+    order.start(id(3), &unknown);
+    assert_eq!(ids(order.end(ended(3, search("c")))), vec![id(3)]);
+    assert_eq!(ids(order.rest()), Vec::<CallId>::new());
+}
+
 #[test]
 fn every_failure_has_its_words() {
     let all: Vec<(&str, &str)> = WebError::ALL

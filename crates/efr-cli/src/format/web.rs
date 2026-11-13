@@ -611,9 +611,12 @@ impl Order {
     }
 
     /// A step ended: the rows that can be written now, in order. A step whose start
-    /// was not seen counts as one that started now.
+    /// was not seen counts as one that started now. NOTE: a step can end as a find
+    /// although it started without its action (OpenAI sends the action only with the
+    /// end of the step); the rows after it then wait for it no more.
     pub(crate) fn end(&mut self, ended: Ended) -> Vec<Ended> {
         if ended.step.rowless() {
+            self.waiting.retain(|(id, _)| *id != ended.call_id);
             return self.ready();
         }
         match self.waiting.iter_mut().find(|(id, _)| *id == ended.call_id) {

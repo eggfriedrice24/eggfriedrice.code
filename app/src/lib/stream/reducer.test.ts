@@ -339,6 +339,30 @@ describe("web search", () => {
       web: { action: "search", query: "q", results: undefined },
     });
   });
+
+  it("drops the block of a step that started without its action and ended as a find", () => {
+    // OpenAI names the action of a step only at its end, so every step starts as a
+    // search without a query.
+    const state = run([
+      event(1, webStarted("w5", "search"), at(1)),
+      event(2, webStarted("w6", "search"), at(2)),
+      event(
+        3,
+        {
+          kind: "web_call_completed",
+          turn_id: TURN,
+          call_id: "w5",
+          action: "find",
+          url: "https://a.org/",
+          pattern: "Proton",
+        },
+        at(3),
+      ),
+    ]);
+    const turn = state.turns.get(TURN);
+    expect(turn?.tools.has("w5")).toBe(false);
+    expect(turn?.parts).toEqual([{ kind: "tool", callId: "w6" }]);
+  });
 });
 
 describe("prompts, steers and turn ends", () => {
