@@ -232,7 +232,7 @@ async fn a_prompt_with_a_model_outside_the_list_is_invalid_with_the_choices() {
     let data = body.data.unwrap();
     assert_eq!(data["setting"], "model");
     let choices = data["choices"].as_array().unwrap();
-    assert!(choices.iter().any(|choice| choice == "gpt-5.5"), "{choices:?}");
+    assert!(choices.iter().any(|choice| choice == "gpt-6-luna"), "{choices:?}");
     let list: ConversationsListResult =
         client.call(Method::ConversationsList(ConversationsList::default())).await.unwrap();
     assert!(list.conversations.is_empty(), "nothing was recorded");

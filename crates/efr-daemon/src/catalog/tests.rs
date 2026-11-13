@@ -151,7 +151,6 @@ fn a_configured_window_raises_or_lowers_the_window_up_to_the_largest() {
         limits("gpt-6.1-sol", 600_000),
         limits("gpt-6-sol", 100_000),
         limits("gpt-6-luna", 900_000),
-        limits("gpt-5.5", 300_000),
         limits("gpt-next", 2_000_000),
     ]);
 
@@ -160,15 +159,8 @@ fn a_configured_window_raises_or_lowers_the_window_up_to_the_largest() {
     assert_eq!(window(&models, "gpt-6.1-sol"), Some(600_000), "raised");
     assert_eq!(window(&models, "gpt-6-sol"), Some(100_000), "lowered");
     assert_eq!(window(&models, "gpt-6-luna"), Some(872_000), "cut down to the largest");
-    assert_eq!(window(&models, "gpt-5.5"), Some(272_000), "gpt-5.5 cannot grow");
     assert_eq!(window(&models, "gpt-next"), Some(2_000_000), "an unknown model has no limit");
-    assert_eq!(
-        clamps,
-        [
-            Clamp { model: "gpt-6-luna".to_owned(), asked: 900_000, max: 872_000 },
-            Clamp { model: "gpt-5.5".to_owned(), asked: 300_000, max: 272_000 },
-        ]
-    );
+    assert_eq!(clamps, [Clamp { model: "gpt-6-luna".to_owned(), asked: 900_000, max: 872_000 }]);
 }
 
 #[test]

@@ -21,7 +21,7 @@ const COMMENTED: &str = "\
 # My efr settings, kept in dotfiles.
 [model]
 # Pinned while the new one is tested.
-name = \"gpt-5.5\" # the old default
+name = \"gpt-6-luna\" # the old default
 
 [permissions]
 mode = \"cautious\"
@@ -174,7 +174,7 @@ async fn read_needs_no_approval_and_lists_settings_rules_and_models() {
     let text = outcome.output;
     assert!(text.contains("(a file)"), "{text}");
     assert!(text.contains("The last reload succeeded."), "{text}");
-    assert!(text.contains("model.name = \"gpt-5.5\"  # file, live"), "{text}");
+    assert!(text.contains("model.name = \"gpt-6-luna\"  # file, live"), "{text}");
     assert!(text.contains("screen = \"auto\"  # default, restart"), "{text}");
     assert!(text.contains("render.theme = (unset)  # default, client"), "{text}");
     assert!(
@@ -185,7 +185,7 @@ async fn read_needs_no_approval_and_lists_settings_rules_and_models() {
     );
     assert!(
         text.contains(
-            "gpt-5.5 (the default): efforts low, medium, high, xhigh, default effort medium; \
+            "gpt-6-luna (the default): efforts low, medium, high, xhigh, max, default effort medium; \
              window 272000 tokens"
         ),
         "{text}"
@@ -213,7 +213,7 @@ async fn a_change_asks_with_a_diff_that_keeps_the_comments_and_applies_after_a_r
         diff,
         format!(
             "--- a{0}\n+++ b{0}\n@@ -1,7 +1,7 @@\n # My efr settings, kept in dotfiles.\n \
-             [model]\n # Pinned while the new one is tested.\n-name = \"gpt-5.5\" # the old \
+             [model]\n # Pinned while the new one is tested.\n-name = \"gpt-6-luna\" # the old \
              default\n+name = \"gpt-6-sol\" # the old default\n \n [permissions]\n mode = \
              \"cautious\"\n",
             target.display()
@@ -222,7 +222,7 @@ async fn a_change_asks_with_a_diff_that_keeps_the_comments_and_applies_after_a_r
     assert!(!outcome.is_error, "{}", outcome.output);
     assert_eq!(
         fixture.text(),
-        COMMENTED.replace("name = \"gpt-5.5\" # the old", "name = \"gpt-6-sol\" # the old")
+        COMMENTED.replace("name = \"gpt-6-luna\" # the old", "name = \"gpt-6-sol\" # the old")
     );
     assert!(outcome.output.contains("set model.name = \"gpt-6-sol\""), "{}", outcome.output);
     assert!(outcome.output.contains("from the next turn"), "{}", outcome.output);
@@ -260,7 +260,10 @@ async fn an_invalid_change_goes_back_to_the_model_and_asks_nothing() {
         (json!({"operation": "set", "key": "permissions.rules", "value": "x"}), "add_rule"),
         (json!({"operation": "set", "key": "model.name", "value": "gpt-9"}), "openai.models"),
         (json!({"operation": "set", "key": "model.effort", "value": "ultra"}), "xhigh"),
-        (json!({"operation": "set", "key": "model.name", "value": "gpt-5.5"}), "nothing changes"),
+        (
+            json!({"operation": "set", "key": "model.name", "value": "gpt-6-luna"}),
+            "nothing changes",
+        ),
         (json!({"operation": "set", "key": "model.name"}), "set needs value"),
         (json!({"operation": "unset", "key": "model.effort"}), "default applies already"),
         (json!({"operation": "remove_rule", "index": 7}), "has 1 rules"),
@@ -417,7 +420,7 @@ async fn an_edit_after_the_user_saw_the_change_writes_nothing_and_the_next_call_
     assert!(!written.is_error, "{}", written.output);
     assert_eq!(
         fixture.text(),
-        theirs.replace("name = \"gpt-5.5\" # the old", "name = \"gpt-6-sol\" # the old")
+        theirs.replace("name = \"gpt-6-luna\" # the old", "name = \"gpt-6-sol\" # the old")
     );
 }
 
@@ -678,7 +681,7 @@ mod daemon {
         let (summary, diff) = asked.expect("the change asked, also in auto");
         assert_eq!(summary, "settings: change settings: set model.name = \"gpt-6-sol\"");
         let diff = diff.unwrap();
-        assert!(diff.contains("-name = \"gpt-5.5\" # the old default\n"), "{diff}");
+        assert!(diff.contains("-name = \"gpt-6-luna\" # the old default\n"), "{diff}");
         assert!(diff.contains("+name = \"gpt-6-sol\" # the old default\n"), "{diff}");
         assert!(diff.contains(" # Pinned while the new one is tested.\n"), "{diff}");
         let (is_error, output) = tool_output(&events);
@@ -687,7 +690,7 @@ mod daemon {
         let path = dirs.dirs().config().join("config.toml");
         assert_eq!(
             std::fs::read_to_string(path).unwrap(),
-            COMMENTED.replace("name = \"gpt-5.5\" # the old", "name = \"gpt-6-sol\" # the old")
+            COMMENTED.replace("name = \"gpt-6-luna\" # the old", "name = \"gpt-6-sol\" # the old")
         );
         assert_eq!(
             running.settings.borrow().model.name.as_deref(),
@@ -715,7 +718,7 @@ mod daemon {
         assert!(output.contains("denied"), "{output}");
         let path = dirs.dirs().config().join("config.toml");
         assert_eq!(std::fs::read_to_string(path).unwrap(), COMMENTED);
-        assert_eq!(running.settings.borrow().model.name.as_deref(), Some("gpt-5.5"));
+        assert_eq!(running.settings.borrow().model.name.as_deref(), Some("gpt-6-luna"));
 
         drop(client);
         running.stop().await;
