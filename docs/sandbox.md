@@ -4,8 +4,7 @@ In the `auto` mode, each shell command of the model runs in a kernel sandbox. A
 command that stays in the sandbox runs at once, with no question. An action that
 leaves the sandbox is an exit. A reviewer model decides each exit alone, from what you
 asked: the action runs, or the model reads why it does not. efr asks you nothing about
-an exit, with two exceptions: a delete of a tree such as your home directory, and an
-action that would run or install code that the sandbox wrote, outside the sandbox (see
+an exit, with one exception: a delete of a tree such as your home directory (see
 "Exits"). This file tells what the sandbox allows, what it blocks, who decides an exit,
 what happens when the sandbox cannot run, and the limits that stay. [`docs/permissions.md`](permissions.md) has the rules
 of the engine. [`docs/adr/0006-auto-sandbox.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0006-auto-sandbox.md) records the
@@ -352,10 +351,10 @@ when it gets an `outside` or `upload` exit.
   that runs on past its timeout. The git floors of a project (its `.git` config, hooks,
   include files and hooks path, also of worktrees and submodules) are not writable,
   except while a running contained job has them in its write roots.
-- When a part is writable, efr asks you: code that a sandboxed command can write
-  would run outside the sandbox. When efrd could not check the code (git did not answer
-  in 200 ms, git found no repository, the submodules lie too deep or behind a link),
-  the reviewer needs your clear request. The question names the file:
+- When a part is writable, or efrd could not check the code (git did not answer in
+  200 ms, git found no repository, the submodules lie too deep or behind a link), the
+  reviewer needs your clear request. While you answer the exits yourself, the question
+  names the file:
 
   ```
   git runs ~/p/app/vendor/x/.git/hooks/pre-push, which a sandboxed command can write
@@ -453,22 +452,7 @@ efr asks you nothing about an exit. The last column of the table says who decide
 - **Only by name**: the highest risks. efr refuses the action with no review unless a
   message of yours names it. With the name, the reviewer decides it, with your clear
   request. No text that the model read, such as a web page, can bring the name about.
-- **You**: the two questions that stay. The first is a tree that only you give up, as
-  in full mode. The second is code that the sandbox wrote, or can write, and that would
-  run or be installed outside the sandbox: a script of your project in a line with
-  `sudo` or in a line that runs outside the sandbox, a build or task tool such as
-  `make` or `cargo` in such a line, a file from your project that a line installs as a
-  unit or an autostart entry, and a git hook that the sandbox can write. The reviewer
-  reads your messages and the line, never the file, so its allow would give that code
-  your full rights unseen. That is the one case where an exit undoes what the sandbox
-  is for. efr knows it from facts about the files that the line names, such as "this
-  file lies in your project" or "this program changed in this turn", and from the
-  directory where a build tool runs; no model decides it, and no option of the line
-  changes it: `sh deploy.sh`,
-  `bash -e ./deploy.sh` and `source ./deploy.sh` ask alike. The question names each
-  such file: `efr: the line runs or installs ~/p/app/deploy.sh, which a sandboxed
-  command can write`. Read that file before you say yes. See "Code of the sandbox
-  outside the sandbox" below for the full rule.
+- **You**: the one question that stays, as in full mode.
 - **Nobody**: efr refuses it for everybody.
 
 When an action that you want does not run, say it in your next message, for example
@@ -486,10 +470,10 @@ yourself, and "the reviewer" in this file then means you.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | the reviewer, with your clear request |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else the reviewer, with your clear request |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. You: when the line runs code of the sandbox (a program or a script in a write root, or a program that changed in this turn; see below). With your clear request: when the line runs an interpreter, also on code that stands in the line (`python3 -c`, `sh -c`); when efr has no fact about a program of the line; for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
-| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. You, when the line runs code of the sandbox, such as `sudo ./scripts/setup.sh` (see below). A password prompt still comes to your terminal: only you know the password |
-| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request. You, when the line installs or runs a file from a write root, whatever its command: `cp`, `mv`, `install`, `cat x > unit`, `crontab ./x.cron`, `./gen.sh >> ~/.zshrc` (see below) |
-| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code efr could not check ("Git settings"). You, for a git or gh line whose git code a sandboxed command can write, such as a hook. Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. With your clear request: when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
+| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password |
+| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request |
+| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | the reviewer, with your clear request |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too |
 | `secret` | a read or write of a secret | never: denied | nobody |
@@ -501,62 +485,6 @@ run. efr never runs an exit that nobody reviewed.
 Three more questions can still come in `auto`, because they are no exits: a rule of
 yours with the effect `ask`, a change of efr's settings by the model, and a planted git
 setting that the surface guard found ("Git settings").
-
-**Code of the sandbox outside the sandbox.** The sandbox lets the model write every
-file of your project. So efr asks you, and no reviewer decides, when an exit would run
-the whole line outside the sandbox and the line runs or installs such a file. efrd
-looks at the files that the line names and gives efr these facts:
-
-| The line names | efr asks you when | Examples |
-|---|---|---|
-| a program, also behind `sudo`, `env` or another wrapper | its file lies in a write root, or changed in this turn | `./deploy.sh`, `sudo ./scripts/setup.sh`, `sudo ~/p/app/setup.sh`, `.venv/bin/python -c '...'`, `./node_modules/.bin/gh pr create` |
-| a program by a path, whose file is not there yet | a place of that file lies in a write root: the line makes the program that it runs | `gcc x.c -o x && sudo ./x` |
-| a file for an interpreter, or for `source` or `.` | that file is there and lies in a write root | `sh deploy.sh`, `bash -e ./deploy.sh`, `python3 build.py -c x`, `awk -fproject.awk`, `source ./env.sh` |
-| code for a shell: the string of `sh -c`, `bash -lc`, `eval` or `su -c` | efr reads that code as a line of its own, with every rule of this table | `sudo sh -c './setup.sh --prod'`, `bash -lc 'cd scripts && ./deploy.sh'`, `eval ./deploy.sh` |
-| a file, in a line that also names a place where a file runs code later: a file of "The floor", or a system directory such as `/etc`, `/usr` or `/opt` as the target of a copy or of a redirect | that file is there and lies in a write root | `cp evil.desktop ~/.config/autostart/`, `mv`, `install`, `cat x.service > ~/.config/systemd/user/x.service`, `crontab ./x.cron`, `sudo cp app.service /etc/systemd/system/`, `sudo install -m755 build/tool /usr/local/bin/tool` |
-| a pattern of the shell in the place of such a file | the pattern reads a directory in a write root | `cp contrib/*.service ~/.config/systemd/user/`, `sh deploy.s?` |
-| a program by a relative path after a `cd` | that file is there, in a directory where a `cd` of the line can lead, and lies in a write root; or efr cannot follow the `cd` | `cd scripts && sudo ./setup.sh`, `cd "$DIR" && ./setup.sh` |
-| a program that only the shell can read | always | `$PWD/deploy.sh`, `./scripts/set*.sh`, `bash -c "$CMD"`, code for a shell inside code for a shell |
-| a runner: a build or task tool (the list is below) | it can run in a write root, the line gives it a path in a write root, or efr cannot tell where it runs | `sudo make install`, `cargo test && git push`, `sudo make -C ~/p/app install` |
-| a git repository | the sandbox can write a part of its git code | `git push` with a writable hook ("Git settings") |
-
-efr does not guess from the options of a line. It asks efrd about every word that can
-name a file, so the code after `python3 -c` or `node -p` names no file and asks
-nothing: it stands in the line, where the reviewer reads it. The code after `sh -c` or
-`bash -lc` stands in the line too, but it can run a file, so efr reads it as a line. A
-script outside every write root, such as `python3 /usr/share/tool/run.py`, asks nothing
-either, and so does a file that no sandboxed command can write: a file of "The floor",
-a secret or a masked file. Without the facts of efrd, efr marks nothing, and the
-reviewer decides with your clear request. Where efr cannot tell what a line runs, it
-asks you. A line of many such files shows the first four and a count.
-
-A `cd` can fail, and it can run in a subshell. So efr looks in the directory where the
-line starts and in the directory after each `cd` of the line, up to 8 directories. A
-line with more, or with a `popd` or a `cd -`, runs its later commands in a directory
-that efr does not know, and efr still looks in the directory where the line starts.
-
-A runner runs what the files of its directory say: a `Makefile`, a `justfile`, the
-scripts of a `package.json`, a `build.rs`, a `setup.py`. The line names none of these
-files, and a sandboxed command can write each of them in your project. So the place of
-the runner decides, not a fact about one file. The runners are `make`, `gmake`,
-`bmake`, `just`, `ninja`, `cmake`, `ctest`, `meson`, `rake`, `task`, `npm`, `npx`,
-`pnpm`, `pnpx`, `yarn`, `bun`, `bunx`, `deno`, `cargo`, `go`, `pip`, `pipx`, `uv`,
-`uvx`, `poetry`, `pdm`, `hatch`, `tox`, `nox`, `pytest`, `gradle`, `mvn`, `ant`,
-`bazel`, `dotnet`, `composer`, `bundle`, `zig` and `mise`, also with a version number
-at the end, such as `pip3`. The question names the place:
-
-```text
-    efr  the line runs make in ~/p/app, where a sandboxed command can write the files that make runs
-```
-
-A runner alone on its line runs in the sandbox and asks nothing. The question comes
-only when the same line also leaves the sandbox as a whole, as in `cargo test && git
-push`: the tests of the project would then run with your full rights. When the runner
-and the other command are two lines, the runner stays in the sandbox, and the reviewer
-decides the other line. A call that only prints the version or the help, such as
-`make --version`, asks nothing. A package publish (`npm publish`, `cargo publish`) is
-no such question: it runs only when a message of yours names it (the class "Only by
-name" above).
 
 A grant lives for one call. The next call gets its own review, unless an always rule
 covers it (see "Always-allow rules").
@@ -681,8 +609,32 @@ outside the sandbox must run alone; run the other parts in a separate call", and
 see `refused: a command that must run outside the sandbox must run alone`. The
 processes of such a run stop when the call ends.
 
-**The question.** You see it for the trees that only you give up, for code of the
-sandbox that would run or be installed outside it, and for every exit
+So a build next to a push, as in `just check && git push`, never runs outside the
+sandbox: the model runs `just check` in its own call, in the sandbox, and then
+`git push`. When the one command of the exit itself runs code of your project, efr
+gives the reviewer a note that names it, and the reviewer's allow stands only with a
+clear request of yours, because the model may have written that code. efr reads only
+the words of the line and its write roots, with no file:
+
+- a program by a relative path or in a write root, also behind `sudo`:
+  `sudo ./setup.sh`, `sudo ~/p/app/setup.sh`;
+- a program on your `PATH` whose file lies in a write root, such as the project's
+  `.venv/bin`, or changed in this turn;
+- a build or task tool that runs what the files of its directory say, such as `make`,
+  `just`, `npm`, `cargo` or `pytest`: `sudo make install`;
+- an interpreter or `source` on a file by a relative path or in a write root:
+  `sudo python3 tools/fix.py`, `python3 -m tool`, and an interpreter that reads its
+  code from its input: `cat ./setup.sh | sudo bash`;
+- the code of `sh -c '...'`, `eval` and `su -c`, as a line of its own;
+- a program or a script that only the shell can read: `sudo "$TOOL"`,
+  `sudo ~/p/app/set*.sh`;
+- a copy of such a file into a system directory:
+  `sudo cp app.service /etc/systemd/system/`, also with `cp -t` and after a `cd`.
+
+Inline code, as in `python3 -c '...'`, gets no note: the reviewer reads it in the line.
+A package publish keeps its own rule (see "Exits").
+
+**The question.** You see it for the trees that only you give up, and for every exit
 while you answer them yourself (`classifier.enabled = false`). In the sections below,
 "only you approve" and "asks you" about an exit describe that mode. While the reviewer
 is on, read them as "the reviewer, with your clear request" (see "Exits").
@@ -2198,9 +2150,7 @@ the config hold of full mode holds it.
 | Limit | What can happen | What efr does |
 |---|---|---|
 | the reviewer decides each exit alone, and it is a model | a wrong allow runs an action that you did not ask for, with no question before it; a wrong refusal costs you one more message | the reviewer reads only your messages and efr's own facts, never a file, a web page or a tool result; the request rule; the highest risks run only by name; a tree such as `~` still asks you; `efr undo` for what efr copied first; `classifier.enabled = false` gives the questions back |
-| efr asks you about code of the sandbox that would run outside it only when a fact about a file that the line names shows it, or when the line runs a build or task tool of its list in a write root ("Code of the sandbox outside the sandbox") | these go to the reviewer, which never reads a file: a program of the system that is no runner of the list and reads a file of your project that the line does not name, such as `docker compose up` or `python3 -m mymodule`; a file for an interpreter that only the shell can read (`bash $PWD/deploy.sh`, or `bash setup.sh` after a `cd` that efr cannot follow) or that a line reads from its input (`tee unit < x.service`, `sh < setup.sh`); a file that a line copies into a system directory with a program that is not `cp`, `mv`, `install`, `ln`, `rsync` or `tee`; a line whose git code efr could not check |
-| in a line that names a place where a file runs code later, efr asks efrd about every word of every command | a question too many, with a note that names a file which the line only reads: `git add .vscode && git push origin main` asks you when your project has a file `main` | answer the question; run the two commands as two lines | the request rule; the reviewer's prompt tells it to refuse a line that hides the file it runs; the turn-end list of the files that run code later; `efr sandbox check` warnings |
-| efr cannot tell whether a `cd` of a line works, so it counts the directory where the line starts too | a question too many: `cd ~/src/tool && sudo make install`, typed in your project, asks you, because `make` would run in the project if the `cd` failed | answer the question, or start the line in the other directory |
+| the reviewer never reads a file: a line that runs a program that the sandbox wrote, or that installs a file that efr could not read, such as a link from your project into a unit dir | the reviewer decides from your request and the line; when you asked for the action, code that nobody read runs with your rights | the request rule; the record tells the reviewer that the program changed in this turn; the turn-end list of files that run code later; while you answered such a question yourself, you did not see the file either |
 | a bug in the kernel, bubblewrap or overlayfs | an escape | three layers; bubblewrap from your distribution; the probe at every start |
 | code that the model writes and you run later (a `Makefile`, a `build.rs`, a new dependency, a project `.cargo/config.toml`) | that code runs with your rights | the turn-end list of such files; `efr sandbox check` warnings |
 | a hard link that existed before, from a secret or an rc file into a write root | a write in the project changes the file outside | `efr sandbox check` warns about such files |
@@ -2249,7 +2199,8 @@ the config hold of full mode holds it.
 | MCP servers | they run outside the sandbox | none yet |
 | the host naming rule sees only the hosts of the line and of the git remotes | a host that a script connects to has no fact before the proxy refuses it | with the proxy, a host that is not listed gets 403 and then a review of that one host; the masks and the environment filter stay |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
-| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a copy | a program that the model did not write in this turn can change `~/.zshrc` with no name and no copy; the turn-end line names only what the copies cover | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
+| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a copy | a program that the model did not write in this turn can change `~/.zshrc` with no name and no copy; the turn-end line names only what the copies cover | the one-command rule; a program written in this turn or in a write root, project code of the command and an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script) get the strict review; the reviewer sees the line |
+| the note about project code reads the words of the line, not the files | a file of the project that reaches a system file through a pipe, as in `cat x.service \| sudo tee /etc/...`, or through a redirect inside `sh -c`, gets no note; nor does a program name inside `sh -c` that lies in a write root, a copy inside `sh -c` after a `cd` outside it, or another program that reads a project file, such as `docker compose up`; some notes are too strict, such as for a here-document fed to `python3 -` or `sudo make install` outside a project | `sudo` and the other privilege exits get the strict review anyway, and so does a line outside the sandbox that runs an interpreter; the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
 | older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |
 | a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |

@@ -215,7 +215,6 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
         covered: None,
         installs: Vec::new(),
         notes: Vec::new(),
-        unread_code: false,
     };
     let launch = Launch::Contained { grants: vec![Grant::Write { path: target.clone() }] };
     let prepared = service.prepare(&call(&fixture, launch, vec![need]), &input).await.unwrap();

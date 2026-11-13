@@ -490,28 +490,18 @@ fn link_into_wants_goes_to_classifier_when_named() {
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
     assert_eq!(need.installs, [installed(evil)]);
     assert!(need.backup_before_write);
-    assert!(!need.unread_code, "the reviewer reads what the link installs");
-    // Without a fact of the source, only the user approves it. A missing fact shows
-    // nothing about who wrote the file, so it is no code of the sandbox by a fact.
+    // Without a fact of the source, only the user approves it.
     let unsourced = shell(&line).with_write(link).with_facts(facts.clone());
     let need = persistence(&with_backup(), unsourced);
     assert_eq!(need.approver, Approver::User);
     assert!(need.installs.is_empty());
-    assert!(!need.unread_code);
     // A plain file from the project there enables the unit too: the sandbox could have
-    // written it. The fact that the file is there, in a write root, gives the mark and
-    // the note of the question.
+    // written it.
     let line = format!("cp x.service {link}");
     let source = "/home/u/p/app/x.service";
-    let mut sourced = with_sources(facts, &[], &[(file_source(source), source)]);
-    sourced.targets.push((PathBuf::from(source), FILE));
+    let sourced = with_sources(facts, &[], &[(file_source(source), source)]);
     let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(sourced));
     assert_eq!(need.approver, Approver::User);
-    assert!(need.unread_code, "code that the sandbox can write, and that nobody reads");
-    assert_eq!(
-        need.notes,
-        ["the line runs or installs ~/p/app/x.service, which a sandboxed command can write"]
-    );
     // A link that the line makes elsewhere in a floor makes a new unit name.
     let unit = "/home/u/.config/systemd/user/x.service";
     let source = "/home/u/x.service";
@@ -527,12 +517,10 @@ fn dir_target_in_autostart_goes_to_classifier_when_named() {
     // Corpus 86: a copy into the autostart dir from the project stays with the user.
     let dir = "/home/u/.config/autostart";
     let source = "/home/u/p/app/evil.desktop";
-    let kinds = kinds_of(&[(dir, DIR), (source, FILE)]);
-    let facts = with_sources(kinds, &[], &[(file_source(source), source)]);
+    let facts = with_sources(kinds_of(&[(dir, DIR)]), &[], &[(file_source(source), source)]);
     let line = shell("cp evil.desktop ~/.config/autostart/").with_write(dir);
     let need = persistence(&with_backup(), line.with_facts(facts));
     assert_eq!(need.approver, Approver::User);
-    assert!(need.unread_code);
     // efrd copies the dir with what it holds, within the limits of the home store.
     assert!(need.backup_before_write);
     assert_eq!(need.copies, [CoverAsk::HomeDir(PathBuf::from(dir))]);
@@ -1632,8 +1620,11 @@ fn exits_outside_from_a_project_with_trusted_programs_is_classifier() {
     facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
     assert_eq!(approver_of(outside("git pull").with_facts(facts)), Approver::Classifier);
     // A program in a cache overlay or the private tmp was not written in the sandbox.
+    let facts = programs(&[("rg", Some("/home/u/.cargo/bin/rg"), false)]);
+    assert_eq!(approver_of(outside("rg x").with_facts(facts)), Approver::Classifier);
+    // A runner runs project code, whatever its own file: the strict review.
     let facts = programs(&[("cargo", Some("/home/u/.cargo/bin/cargo"), false)]);
-    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::Classifier);
+    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::User);
     // A builtin leads to no file.
     let facts = programs(&[("cd", None, false), ("gdb", Some("/usr/bin/gdb"), false)]);
     let line = "cd /tmp && gdb -p 1";
@@ -1832,8 +1823,14 @@ fn exits_outside_running_unread_code_is_user(#[case] line: &str, #[case] program
 /// returns on a stack as small as a tokio worker's, also for a nest far past the cap.
 #[test]
 fn exits_outside_of_a_line_nested_too_deep_is_user() {
-    let facts = programs(&[("x", Some("/usr/bin/x"), false), ("sh", Some("/usr/bin/sh"), false)]);
-    let shallow = format!("{}x{}", "$(".repeat(3), ")".repeat(3));
+    let facts = programs(&[
+        ("x", Some("/usr/bin/x"), false),
+        ("sh", Some("/usr/bin/sh"), false),
+        ("echo", Some("/usr/bin/echo"), false),
+    ]);
+    // NOTE: `echo` in each level, so no program word is a substitution, which efr
+    // cannot read at any depth (`code.rs`).
+    let shallow = format!("{}x{}", "echo $(".repeat(3), ")".repeat(3));
     assert_eq!(approver_of(outside(&shallow).with_facts(facts.clone())), Approver::Classifier);
     for closed in [true, false] {
         for depth in [65, 10_000] {
@@ -2397,9 +2394,149 @@ fn auto_nested_shell_denied() {
 #[case::forget_with_a_program("sudo -k make; sudo true")]
 #[case::forget_then_two("sudo -k; rm x; sudo true")]
 #[case::forget_by_path("./sudo -k; sudo true")]
+// Project code beside an exit: alone it runs in the sandbox, so it never runs outside.
+#[case::check_then_push("just check && git push")]
+#[case::build_then_install("cargo build --release && sudo cp target/release/x /usr/local/bin/")]
+#[case::script_into_tee("./gen.sh | sudo tee /etc/x")]
+#[case::install_then_restart("just install && systemctl --user restart efrd")]
 fn exits_unsandboxed_line_must_be_one_command(#[case] line: &str) {
     let problem = unsandboxed_line_problem(line).unwrap();
     assert!(problem.starts_with(ONE_COMMAND), "{line:?}: {problem}");
+}
+
+/// Project code in the command of an exit that runs the line outside the sandbox, such
+/// as a script of the project behind `sudo`, gets a note for the reviewer and the strict
+/// review: a sandboxed command may have written that code, and the reviewer reads the
+/// line, never the file. The check reads only the words, so it needs no fact of efrd. A
+/// program of the system, a program in a cache root, inline code that the line shows
+/// and a package publish get no note.
+#[rstest]
+#[case::script("sudo ./setup.sh", ExitKind::Privilege, &["the line runs ./setup.sh"])]
+#[case::project_path("sudo ~/p/app/setup.sh", ExitKind::Privilege, &["the line runs ~/p/app/setup.sh"])]
+#[case::runner(
+    "sudo make install",
+    ExitKind::Privilege,
+    &["the line runs make, which runs what the files of its dir say"]
+)]
+#[case::interpreter("sudo python3 tools/x.py", ExitKind::Privilege, &["the line runs tools/x.py with python3"])]
+#[case::module("sudo python3 -m tool", ExitKind::Privilege, &["the line runs tool with python3"])]
+#[case::inline_shell("sudo sh -c './setup.sh --prod'", ExitKind::Privilege, &["the line runs ./setup.sh"])]
+#[case::hidden("sudo \"$TOOL\"", ExitKind::Privilege, &["efr cannot read which program the line runs"])]
+#[case::install(
+    "sudo cp app.service /etc/systemd/system/",
+    ExitKind::Privilege,
+    &["the line installs app.service"]
+)]
+#[case::pattern("sudo ~/p/app/set*.sh", ExitKind::Privilege, &["the line runs ~/p/app/set*.sh"])]
+#[case::errexit("sudo bash -e ./setup.sh", ExitKind::Privilege, &["the line runs ./setup.sh with bash"])]
+#[case::shell_option(
+    "sudo bash -o errexit ./x.sh",
+    ExitKind::Privilege,
+    &["the line runs ./x.sh with bash"]
+)]
+#[case::python_env("sudo python3 -E build.py", ExitKind::Privilege, &["the line runs build.py with python3"])]
+#[case::gawk_exec("sudo gawk -E x.awk", ExitKind::Privilege, &["the line runs x.awk with gawk"])]
+#[case::input("cat ./setup.sh | sudo bash", ExitKind::Privilege, &["the line runs code from the input of bash"])]
+#[case::target_option(
+    "sudo cp -t /etc/systemd/system x.service",
+    ExitKind::Privilege,
+    &["the line installs x.service"]
+)]
+#[case::target_attached(
+    "sudo cp -t/etc/systemd/system x.service",
+    ExitKind::Privilege,
+    &["the line installs x.service"]
+)]
+#[case::brace(
+    "sudo cp /usr/{a,../home/u/p/app/x.service} /etc/systemd/system/",
+    ExitKind::Privilege,
+    &["the line installs /usr/{a,../home/u/p/app/x.service}"]
+)]
+#[case::target_after_cd(
+    "cd /etc/systemd/system && sudo cp ~/p/app/x.service .",
+    ExitKind::Privilege,
+    &["the line installs ~/p/app/x.service"]
+)]
+#[case::option_values(
+    "sudo install -m 644 -o root build/tool /usr/local/bin/tool",
+    ExitKind::Privilege,
+    &["the line installs build/tool"]
+)]
+#[case::many_files(
+    "sudo cp a b c d e f /etc/x/",
+    ExitKind::Privilege,
+    &[
+        "the line installs a",
+        "the line installs b",
+        "the line installs c",
+        "the line installs d",
+        "the line runs or installs 2 more such files",
+    ]
+)]
+#[case::node_inline("sudo node -e 'x'", ExitKind::Privilege, &[])]
+#[case::system("sudo pacman -Syu", ExitKind::Privilege, &[])]
+#[case::cache_root("sudo ~/.cargo/bin/tool", ExitKind::Privilege, &[])]
+#[case::inline_code("sudo python3 -c 'print(1)'", ExitKind::Privilege, &[])]
+#[case::awk_program("sudo awk 'NR == 1' /etc/fstab", ExitKind::Privilege, &[])]
+#[case::publish("npm publish", ExitKind::Upload, &[])]
+fn project_code_in_an_exit_gets_a_note_and_the_strict_review(
+    #[case] line: &str,
+    #[case] kind: ExitKind,
+    #[case] notes: &[&str],
+) {
+    let decision = decide(shell(line));
+    let need = decision.exits().find(|need| need.kind == kind).unwrap();
+    let code: Vec<&str> = need
+        .notes
+        .iter()
+        .map(String::as_str)
+        .filter(|note| {
+            note.starts_with("the line runs")
+                || note.starts_with("the line installs")
+                || note.starts_with("efr cannot read wh")
+        })
+        .collect();
+    assert_eq!(code, notes, "{line}");
+    if !notes.is_empty() {
+        assert!(need.approver >= Approver::User, "{line}: {:?}", need.approver);
+    }
+}
+
+/// A program on the `PATH` is project code when a fact of efrd places its file in a
+/// write root, such as the project's `.venv/bin`, or shows that it changed in this
+/// turn. A program of the system that did not change gets no note.
+#[rstest]
+#[case::in_the_project(
+    "deploy",
+    "/home/u/p/app/.venv/bin/deploy",
+    false,
+    &["the line runs ~/p/app/.venv/bin/deploy, which a sandboxed command can write"]
+)]
+#[case::changed(
+    "deploy",
+    "/usr/local/bin/deploy",
+    true,
+    &["the line runs /usr/local/bin/deploy, which changed in this turn"]
+)]
+#[case::changed_by_path(
+    "/usr/local/bin/deploy",
+    "/usr/local/bin/deploy",
+    true,
+    &["the line runs /usr/local/bin/deploy, which changed in this turn"]
+)]
+#[case::system("deploy", "/usr/bin/deploy", false, &[])]
+fn a_program_on_the_path_is_project_code_by_its_facts(
+    #[case] word: &str,
+    #[case] path: &str,
+    #[case] changed: bool,
+    #[case] notes: &[&str],
+) {
+    let facts = programs(&[("sudo", Some("/usr/bin/sudo"), false), (word, Some(path), changed)]);
+    let decision = decide(shell(&format!("sudo {word}")).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
+    let code: Vec<&str> =
+        need.notes.iter().map(String::as_str).filter(|note| note.starts_with("the line")).collect();
+    assert_eq!(code, notes, "{path}");
 }
 
 #[rstest]
@@ -2642,65 +2779,6 @@ fn a_guarded_exit_stays_guarded_beside_a_user_rule(#[case] line: &str) {
         .find(|need| need.kind == ExitKind::Upload && need.names == ["publish"])
         .unwrap_or_else(|| panic!("{line:?}: {:?}", decision.exits().collect::<Vec<_>>()));
     assert_eq!(publish.approver, Approver::Guarded, "{line:?}");
-}
-
-/// `sudo` with a script of the project gives code that the sandbox can write more
-/// rights still, and no reviewer reads the script: the `privilege` exit gets the mark.
-/// `sudo` with a program of the system does not.
-#[rstest]
-#[case::project_script("sudo ./setup.sh", "./setup.sh", "/home/u/p/app/setup.sh", false, true)]
-#[case::changed_program("sudo backup", "backup", "/usr/local/bin/backup", true, true)]
-#[case::system_program("sudo pacman -Syu", "pacman", "/usr/bin/pacman", false, false)]
-fn sudo_with_code_of_the_sandbox_is_marked(
-    #[case] line: &str,
-    #[case] word: &str,
-    #[case] path: &str,
-    #[case] changed: bool,
-    #[case] unread: bool,
-) {
-    let facts = CallFacts {
-        programs: vec![
-            ("sudo".to_owned(), Some(PathBuf::from("/usr/bin/sudo")), false),
-            (word.to_owned(), Some(PathBuf::from(path)), changed),
-        ],
-        ..CallFacts::default()
-    };
-    let decision = decide(shell(line).with_facts(facts));
-    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
-    assert_eq!((need.approver, need.unread_code), (Approver::User, unread), "{line}");
-    // With no fact about the programs, efr shows nothing, so the mark stays off.
-    let decision = decide(shell(line));
-    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
-    assert!(!need.unread_code, "{line}");
-}
-
-/// A runner, such as `make` or `cargo`, runs what the files of its dir say. In the
-/// project a sandboxed command can write them, so an exit of a line that runs one
-/// outside the sandbox gets the mark, wherever the runner stands in the line. A package
-/// publish keeps its own route: the reviewer judges it when a user message names it.
-#[rstest]
-#[case::make("sudo make install", ExitKind::Privilege, Approver::User, true)]
-#[case::build_first(
-    "cargo build --release && sudo cp target/release/x /usr/local/bin/",
-    ExitKind::Privilege,
-    Approver::User,
-    true
-)]
-#[case::system_program("sudo pacman -Syu", ExitKind::Privilege, Approver::User, false)]
-#[case::publish("npm publish", ExitKind::Upload, Approver::Guarded, false)]
-fn a_runner_outside_the_sandbox_in_the_project_is_marked(
-    #[case] line: &str,
-    #[case] kind: ExitKind,
-    #[case] approver: Approver,
-    #[case] unread: bool,
-) {
-    let decision = decide(shell(line).with_facts(CallFacts::default()));
-    let need = decision.exits().find(|need| need.kind == kind).unwrap();
-    assert_eq!((need.approver, need.unread_code), (approver, unread), "{line}");
-    // Without the facts of efrd, efr shows nothing, so the mark stays off.
-    let decision = decide(shell(line));
-    let need = decision.exits().find(|need| need.kind == kind).unwrap();
-    assert!(!need.unread_code, "{line}");
 }
 
 /// A session bus at another path than `/run/user/<uid>/bus`, such as one of

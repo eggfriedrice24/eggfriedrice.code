@@ -68,12 +68,10 @@ fn git_code_writable_hook_makes_upload_user_only() {
         need.notes,
         ["git runs ~/p/app/vendor/x/.git/hooks/pre-push, which a sandboxed command can write"]
     );
-    assert!(need.unread_code, "a hook that the sandbox can write runs with the push");
     // The same push with a clean check goes to the reviewer when a message names it.
     let need = one("git push origin main", facts(Some(checked(APP, &[]))));
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
     assert_eq!(need.notes, Vec::<String>::new());
-    assert!(!need.unread_code);
 }
 
 #[test]
@@ -83,8 +81,6 @@ fn git_code_not_checked_makes_upload_user_only() {
         let need = one("git push origin main", facts(code.clone()));
         assert_eq!(need.approver, Approver::User, "{code:?}");
         assert_eq!(need.notes, ["efr could not check the git code of ~/p/app"], "{code:?}");
-        // A check that did not happen shows nothing: the mark needs a fact.
-        assert!(!need.unread_code, "{code:?}");
     }
     // A repository that efr cannot tell, such as one after a `cd`, is not checked either.
     let need = one("cd sub && git push origin main", facts(Some(checked(APP, &[]))));

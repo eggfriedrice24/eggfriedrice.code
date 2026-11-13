@@ -233,25 +233,6 @@ Modules:
   only raises the approver, so a guarded exit stays guarded, and a guarded exit merges
   only with a guarded exit of the same names, so "push" never names the publish of
   `git push && npm publish`),
-  `unread_code` (true when a "yes" would run or install, outside the sandbox, code
-  that a sandboxed command wrote or can write and that no reviewer reads.
-  `exits/code.rs` finds it for each exit that runs the line in the exit child. One
-  walk over the line gives the items: each program word, the places of a program
-  word that names a file by a path, the operands of an interpreter or of `source`,
-  the operands of a line that names a place where a file runs code later (a floor,
-  or a system dir as the target of a copy or of a redirect), a pattern of the shell
-  in the place of such a file, and each runner of `programs::RUNNERS`, such as
-  `make` or `cargo`. The code of `sh -c`, `eval` and `su -c` is a line of its own. A
-  relative word resolves in each dir where a `cd` of the line can lead (`RunDirs`).
-  `fact_requests` adds the paths and the program words of the walk (`code_asks`) to
-  the request, so efrd says which files are there and which programs changed; no
-  option of the line is read. `sandbox_code` then marks a file that is there and
-  that a sandboxed command can write, a program that changed in this turn, a runner
-  or a pattern by its dir alone, and a program that efr cannot find, where the mark
-  fails closed; a package publish gets none. Without the facts of efrd there is no
-  mark. Writable git code gives the mark too. Each file or place gets a note for the
-  question, at most four and a count, and such an exit stays the user's own
-  question),
   the `names` that name it, what efrd copies into its home store first (`copies`: a
   `Home` file, or a `HomeDir` with what it holds for a dir target, an `above_root`
   write and the parent that a `Parent` bind opens; `backup_before_write` when it
@@ -484,6 +465,20 @@ Modules:
   (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
   `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.
   With no facts at all (no sandbox in efrd), the route stays.
+- `exits/code.rs` (v0.0.9): the project code that a line runs outside the sandbox.
+  `code::apply` gives each exit that runs the whole line in the exit child a note for
+  each command that runs project code and `Approver::User` (`ExitNeed::raise_to_user`,
+  which `git_code.rs` uses too): a program by a relative path or in a real write root
+  (also behind a wrapper), a bare program name whose `CallFacts::programs` fact places
+  it in a real write root or shows it changed in this turn, a runner of
+  `programs::RUNNERS` such as `make` or `cargo`, an interpreter or `source` on such a
+  file, with `-m`, or on its input, the code of `sh -c`, `eval` and `su -c` (one
+  level), a program or a script that only the shell can read, and a copy of such a
+  file into a system dir (`-t`, and a relative target after a `cd`, count). Inline
+  code (an interpreter's own inline option, such as `python3 -c` or `node -e`) and a
+  package publish get no note. Apart from the program facts, which efrd sends anyway,
+  it reads only the words and the envelope. Project code beside the exit never gets
+  here: the one-command rule (`unsandboxed_line_problem`) refuses such a line.
 - `exits/control.rs` (v0.0.5, OQS17): an ssh control socket is a logged-in session,
   and it, not the host of the line, decides where a command runs. So each exit of a
   command that makes or uses one (`ssh` or `autossh` with `-S`, `-M` (ssh only), `-O`

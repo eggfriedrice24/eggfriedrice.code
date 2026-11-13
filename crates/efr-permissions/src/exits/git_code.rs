@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{ExitKind, GitCodeFact};
 
+use super::ExitNeed;
 use super::envelope::resolve;
 use super::programs::base_name;
 use super::scan::OPAQUE;
-use super::{Approver, ExitNeed};
 use crate::command::git;
 use crate::{CallFacts, GitCodeAsk, Locations};
 
@@ -256,29 +256,16 @@ pub(super) fn apply(
         return;
     }
     let Some(facts) = facts else { return };
-    // NOTE: git code that a sandboxed command can write is code that no reviewer reads
-    // (`ExitNeed::unread_code`). Code that efr could not check shows nothing: it keeps
-    // the stricter approver only.
-    let (notes, writable) = match checked(triggers, facts) {
+    let notes = match checked(triggers, facts) {
         CodeState::Clean => return,
-        CodeState::NotChecked(dir) => (
-            vec![match dir {
-                Some(dir) => format!("efr could not check the git code of {}", tilde(&dir, home)),
-                None => "efr could not check the git code of the line's repository".to_owned(),
-            }],
-            false,
-        ),
-        CodeState::Writable(items) => (writable_notes(&items, home), true),
+        CodeState::NotChecked(dir) => vec![match dir {
+            Some(dir) => format!("efr could not check the git code of {}", tilde(&dir, home)),
+            None => "efr could not check the git code of the line's repository".to_owned(),
+        }],
+        CodeState::Writable(items) => writable_notes(&items, home),
     };
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
-        // NOTE: only raised: a guarded upload, such as a publish, stays guarded.
-        need.approver = need.approver.max(Approver::User);
-        need.unread_code |= writable;
-        for note in &notes {
-            if !need.notes.contains(note) {
-                need.notes.push(note.clone());
-            }
-        }
+        need.raise_to_user(&notes);
     }
 }
 
@@ -286,11 +273,9 @@ pub(super) fn apply(
 /// approve, with `note`, when a git command of the line chooses the code that git runs
 /// ([`steers_code`]), or a variable of a git or gh line does ([`sets_git_env`]).
 pub(super) fn apply_steering(needs: &mut [ExitNeed], note: &str) {
+    let notes = [note.to_owned()];
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
-        need.approver = need.approver.max(Approver::User);
-        if !need.notes.iter().any(|known| known == note) {
-            need.notes.push(note.to_owned());
-        }
+        need.raise_to_user(&notes);
     }
 }
 

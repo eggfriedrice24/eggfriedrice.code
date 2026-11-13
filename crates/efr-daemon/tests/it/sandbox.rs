@@ -620,7 +620,13 @@ async fn shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child() {
         "command": "sh -c 'echo made > \"$HOME/gen.txt\"'",
         "needs": { "write": ["~/gen.txt"], "reason": "the script writes ~/gen.txt" },
     })]);
+    // NOTE: the clock starts after every program of the machine was written, so `sh`
+    // does not count as a program that changed in the turn, which gives the exit to the
+    // user. A container or CI image can have an `sh` newer than the start of the test
+    // clock.
+    let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
     let daemon = user_answers(with_zsh(TestDaemon::builder()))
+        .clock(efr_test_support::TestClock::starting_at(start))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -1480,7 +1486,7 @@ async fn shell_floor_backup_through_linked_config_dir() {
     let model =
         ScriptedModel::reviewed(vec![("shell", json!({ "command": line }))], REVIEWER_ALLOWS);
     // NOTE: the clock starts after every program of the machine was written, so `sed`
-    // does not count as a program that changed in the turn (which asks the user).
+    // does not count as a program that changed in the turn (the strict review).
     let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
     let daemon = with_zsh(TestDaemon::builder())
         .clock(efr_test_support::TestClock::starting_at(start))

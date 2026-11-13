@@ -305,27 +305,6 @@ pub(super) fn runs_project_files(words: &[String]) -> bool {
     RUNNERS.contains(&name) && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
 }
 
-/// The forms of the word `word` of a command that can name a file: the word itself
-/// when it is no option, the value that stands at a short option (`-fproject.awk`),
-/// and the value after the `=` of a long option (`--file=x.awk`). None for a word that
-/// only the shell can read.
-pub(super) fn operand_forms(word: &str) -> Vec<&str> {
-    if word.contains([OPAQUE, '$']) {
-        return Vec::new();
-    }
-    let Some(option) = word.strip_prefix('-') else {
-        return vec![word];
-    };
-    if let Some(long) = option.strip_prefix('-') {
-        return long.split_once('=').map(|(_, value)| value).into_iter().collect();
-    }
-    // NOTE: `-fproject.awk`: the letter of the option, then its value.
-    let mut letters = option.chars();
-    letters.next();
-    let value = letters.as_str();
-    if value.is_empty() { Vec::new() } else { vec![value] }
-}
-
 /// The base name of a program word, so `/usr/bin/sudo` is `sudo`.
 pub(super) fn base_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)

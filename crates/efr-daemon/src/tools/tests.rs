@@ -1251,7 +1251,6 @@ pub(super) fn home_write(target: &Path) -> efr_permissions::ExitNeed {
         covered: Some(true),
         installs: Vec::new(),
         notes: Vec::new(),
-        unread_code: false,
     }
 }
 

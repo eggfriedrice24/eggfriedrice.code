@@ -7,10 +7,9 @@
 //! ([`Turn::reviews`]). From there no question follows: the call runs or the model
 //! reads why it does not, and the user's next message is the way to ask for it. Without
 //! a judge, or with `classifier.enabled = false`, the user answers each exit, as in
-//! `cautious`. Two exits stay the user's own question in every case
-//! ([`exit::asks_the_user`]): a write or a delete of a tree that the delete guard of
-//! full mode covers too, such as the home directory, and an exit that would run or
-//! install code that the sandbox wrote and that no reviewer reads.
+//! `cautious`. One exit stays the user's own question in every case: a write or a
+//! delete of a tree that the delete guard of full mode covers too, such as the home
+//! directory ([`exit::guarded_tree`]).
 //!
 //! The steps, each of which ends the review:
 //!
@@ -76,7 +75,7 @@ impl Turn {
                 Cause::Privileged { .. } => privilege,
                 _ => false,
             })
-            && !exit::asks_the_user(decision)
+            && !exit::guarded_tree(decision)
     }
 
     /// Decides the exits of `ruling`, whose record is `record`, when [`Turn::reviews`]

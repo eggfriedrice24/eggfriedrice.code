@@ -43,7 +43,6 @@ use std::sync::Arc;
 
 use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
-use self::code::{code_asks, sandbox_code};
 pub(crate) use self::cover::set_copies;
 pub use self::critical::critical_deletes;
 pub(crate) use self::envelope::Envelope;
@@ -222,23 +221,6 @@ pub struct ExitNeed {
     /// as the file of the git code that a sandboxed command can write, or the project
     /// code that a publish runs (v0.0.4, B4). Empty for most exits.
     pub notes: Vec<String>,
-    /// True when a "yes" would run or install, outside the sandbox, code that a
-    /// sandboxed command wrote or can write, and that no reviewer reads. For each exit
-    /// that runs the whole line in the exit child ([`ExitNeed::runs_unsandboxed`]): a
-    /// program word that changed in this turn or lies in a real write root; a file in
-    /// a real write root that the line names for an interpreter or for `source`, or
-    /// names while it also names a place where a file runs code later; a runner such
-    /// as `make` in a real write root; and a program that efr cannot find
-    /// (`code::sandbox_code` has the full list). And for a git line: git code that a
-    /// sandboxed command can write. Such an exit undoes what the sandbox is for, so it
-    /// stays the user's own question while the reviewer decides every other exit
-    /// alone, and [`notes`](Self::notes) names each file or place.
-    ///
-    /// efr sets it for a file from a fact of efrd that the file is there, and for a
-    /// runner or a pattern from the dir that it reads. Where efr cannot tell what the
-    /// line runs, it sets the mark too: the mark fails closed. Without the facts of
-    /// efrd (no sandbox) it is never set.
-    pub unread_code: bool,
 }
 
 /// One file that a persistence form installs, as the classifier reads it.
@@ -281,7 +263,6 @@ impl ExitNeed {
             covered: None,
             installs: Vec::new(),
             notes: Vec::new(),
-            unread_code: false,
         }
     }
 
@@ -290,6 +271,17 @@ impl ExitNeed {
     /// user message that names it.
     pub fn user_only(&self) -> bool {
         self.approver != Approver::Classifier
+    }
+
+    /// Gives the exit to the user, [`Approver::User`], with each of `notes` once. The
+    /// approver is only raised, so a guarded exit, such as a publish, stays guarded.
+    pub(crate) fn raise_to_user(&mut self, notes: &[String]) {
+        self.approver = self.approver.max(Approver::User);
+        for note in notes {
+            if !self.notes.contains(note) {
+                self.notes.push(note.clone());
+            }
+        }
     }
 
     /// True when the call runs in the exit child after a "yes": a kind that runs
@@ -320,7 +312,6 @@ impl fmt::Debug for ExitNeed {
             .field("covered", &self.covered)
             .field("installs", &self.installs)
             .field("notes", &self.notes)
-            .field("unread_code", &self.unread_code)
             .finish()
     }
 }
@@ -747,24 +738,16 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut found = found.needs;
+    // NOTE: every kind that runs the whole line in the exit child gives the project
+    // code of the line the user's rights: `./gen.sh >> ~/.zshrc` and `sudo ./setup.sh`
+    // as much as `./deploy.sh`.
+    if found.iter().any(ExitNeed::runs_unsandboxed) {
+        code::apply(&mut found, &segments, input, &envelope);
+    }
     // NOTE: the rule of the program words is the same for each `outside` exit of the
-    // line, and the code of the sandbox is the same for each exit that runs the line
-    // outside the sandbox, so the call finds each once.
+    // line, so the call finds it once.
     let mut words_approver: Option<Approver> = None;
-    let mut code: Option<Vec<String>> = None;
     for need in &mut found {
-        // NOTE: every kind that runs the whole line in the exit child gives the code
-        // of the line the user's rights: `./gen.sh >> ~/.zshrc` and `sudo ./setup.sh`
-        // as much as `./deploy.sh`.
-        if need.runs_unsandboxed() {
-            let notes = code.get_or_insert_with(|| sandbox_code(input, &envelope));
-            need.unread_code |= !notes.is_empty();
-            for note in notes.iter() {
-                if !need.notes.contains(note) {
-                    need.notes.push(note.clone());
-                }
-            }
-        }
         match need.kind {
             // NOTE: the stricter of the form's approver and the rule of the program
             // words, so a `rustup` form that must be named stays so.
@@ -1022,16 +1005,12 @@ pub struct FactRequest {
     /// (redirections, `dd of=`, `sed -i`, `tee`, `touch`, `mkdir`), each operand of
     /// `rm -r`, and the paths of `needs.write` ([`FactRequest::with_needs`]). The daemon
     /// adds the declared write paths and the parents of each target up to the first one
-    /// that exists. Also the files that the line can run or install (`code::code_asks`):
-    /// the places of a program word that names a file by a path, the operands of an
-    /// interpreter or of `source`, and the operands of a line that names a place where
-    /// a file runs code later. The kind says which of them is a file that is there.
+    /// that exists.
     pub targets: Vec<PathBuf>,
     /// The directories of `rm -r` whose tracked files a fact counts.
     pub tracked: Vec<PathBuf>,
     /// The program words of the line, each once, also behind wrappers such as `env`
-    /// and `sudo`, and the program words in the code of `sh -c '...'`, `eval` and
-    /// `su -c`; a word that only the shell can read is left out.
+    /// and `sudo`; a word that only the shell can read is left out.
     pub programs: Vec<String>,
     /// The words of [`programs`](Self::programs) that the shell runs itself in every
     /// place of the line: a builtin or a reserved word of zsh, such as `:`, `cd` or
@@ -1200,16 +1179,6 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
         }
     }
     request.add_covers(covers);
-    // NOTE: the files that the line can run or install, and the program words in the
-    // code of its `sh -c` strings: efrd says which files exist and which programs
-    // changed, and `sandbox_code` then knows the code of the sandbox.
-    let asks = code_asks(line, command_dir, locations);
-    for path in asks.paths {
-        once(&mut request.targets, &mut seen.targets, path);
-    }
-    for word in asks.programs {
-        once(&mut request.programs, &mut seen.programs, word);
-    }
     // NOTE: a word that runs as a file in one place of the line resolves as a file, so
     // the question shows that file and whether the sandbox wrote it.
     request.builtins.retain(|word| !files.contains(word));
@@ -1403,7 +1372,6 @@ impl Found {
                     }
                 }
                 known.installs.extend(need.installs);
-                known.unread_code |= need.unread_code;
                 for note in need.notes {
                     if !known.notes.contains(&note) {
                         known.notes.push(note);

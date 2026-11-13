@@ -9,9 +9,7 @@ use proptest::prelude::*;
 
 use super::super::envelope::{Envelope, resolve};
 use super::super::scan::{self, OPAQUE, Segment, is_assignment};
-use super::super::{
-    Naming, code_asks, cover, fact_requests, git_code, part_text, persist, programs, remotes,
-};
+use super::super::{Naming, cover, fact_requests, git_code, part_text, persist, programs, remotes};
 use crate::network::HostList;
 use crate::path_class::normalize;
 use crate::{AutoSupport, CoverAsk, FactRequest, Locations};
@@ -136,18 +134,6 @@ fn listed_fact_requests(
     for ask in covers {
         if !request.covers.contains(&ask) {
             request.covers.push(ask);
-        }
-    }
-    // NOTE: the files that the line can run or install and the program words in its
-    // inline code, which v0.0.9 added: the same step as in `fact_requests`, with the
-    // lists scanned for each item.
-    let asks = code_asks(line, command_dir, locations);
-    for path in asks.paths {
-        add(&mut request.targets, path);
-    }
-    for word in asks.programs {
-        if !request.programs.contains(&word) {
-            request.programs.push(word);
         }
     }
     // NOTE: a word that runs as a file in one place of the line resolves as a file, so

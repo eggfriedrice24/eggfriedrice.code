@@ -173,8 +173,7 @@ fn fact_requests_name_the_write_paths_of_needs() {
     let request = super::fact_requests("./gen.sh > out", Some(Path::new("/p")), &locations)
         .with_needs(Some(&needs), Some(Path::new("/p")), &locations);
     let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
-    // The file of the program word is a target too: efrd says whether it is there.
-    assert_eq!(request.targets, paths(&["/p/out", "/p/gen.sh", "/home/u/gen.txt"]));
+    assert_eq!(request.targets, paths(&["/p/out", "/home/u/gen.txt"]));
     let unchanged = super::fact_requests("ls", None, &locations).with_needs(None, None, &locations);
     assert!(unchanged.targets.is_empty());
 }

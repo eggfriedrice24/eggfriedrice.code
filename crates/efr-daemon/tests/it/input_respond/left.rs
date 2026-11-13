@@ -93,8 +93,8 @@ impl Place {
         ]);
         // NOTE: the clock starts after the files of the test were written, so the fake
         // `scp` of the test does not count as a program that changed in the turn. Such
-        // a program asks the user, and these tests are about a line that the reviewer
-        // allows.
+        // a program gets the strict review, and these tests are about a line that the
+        // reviewer allows.
         let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
         let daemon = self
             .builder()
