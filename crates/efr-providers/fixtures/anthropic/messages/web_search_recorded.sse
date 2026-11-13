@@ -1,0 +1,513 @@
+: A recording of 2026-11-13: one answer of claude-opus-5-5 on the Messages API with the tools
+: web_search_20250305 and web_fetch_20250910: a search, two fetches at once, then a cited answer.
+: Every id, each encrypted_content, each encrypted_index and the signature are replaced by made-up
+: values; the thinking and the text of the fetched pages are left out; cited_text is cut to 80 characters.
+: What it shows: a server_tool_use starts with an empty input and gets its query in input_json_delta;
+: a cited text block starts with "citations": [] and its citations_delta comes before its text.
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_rec_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"cache_creation_input_tokens":10217,"cache_read_input_tokens":0,"output_tokens":16}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_rec_1","name":"web_search","input":{}}}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\": \"ROB"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":" RUN ga"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"me Prot"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"on Prot"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"onDB\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srvtoolu_rec_1","content":[{"type":"web_search_result","url":"https://www.protondb.com/app/4262460","title":"ProtonDB","page_age":null,"encrypted_content":"enc_rec_1"},{"type":"web_search_result","url":"https://www.gamingonlinux.com/itemdb/app/76544/rob-run/","title":"ROB RUN","page_age":"3 days ago","encrypted_content":"enc_rec_2"},{"type":"web_search_result","url":"https://www.change.org/p/allow-non-windows-players-to-play-rob-run","title":"Petition · Allow Non-Windows players to play ROB RUN - Poland · Change.org","page_age":"3 days ago","encrypted_content":"enc_rec_3"},{"type":"web_search_result","url":"https://www.protondb.com/app/2181790","title":"ProtonDB","page_age":null,"encrypted_content":"enc_rec_4"},{"type":"web_search_result","url":"https://www.protondb.com/app/582270","title":"ProtonDB","page_age":null,"encrypted_content":"enc_rec_5"},{"type":"web_search_result","url":"https://www.protondb.com/app/420970?device=steamDeck","title":"ProtonDB","page_age":null,"encrypted_content":"enc_rec_6"},{"type":"web_search_result","url":"https://www.protondb.com/app/2551020","title":"ProtonDB","page_age":null,"encrypted_content":"enc_rec_7"},{"type":"web_search_result","url":"https://steamidx.com/app/rob-run","title":"ROB RUN (App #4262460) · Steam Index","page_age":null,"encrypted_content":"enc_rec_8"},{"type":"web_search_result","url":"https://robrunwiki.org/game/system-requirements/","title":"ROB RUN System Requirements: AVX2, Linux and Steam Deck","page_age":"7 days ago","encrypted_content":"enc_rec_9"}],"caller":{"type":"direct"}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"The "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"ProtonDB page is the"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":" best source. Let me open it"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
+event: content_block_start
+data: {"type":"content_block_start","index":3,"content_block":{"type":"server_tool_use","id":"srvtoolu_rec_2","name":"web_fetch","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"{\"url\":"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":" \"https"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"://www."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"protond"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"b.com/a"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"pp/4262"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"460\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3}
+
+event: content_block_start
+data: {"type":"content_block_start","index":4,"content_block":{"type":"server_tool_use","id":"srvtoolu_rec_3","name":"web_fetch","input":{}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"{\"url\":"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":" \"https"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"://robr"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"unwiki."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"org/gam"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"e/syste"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"m-requi"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"rements"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":4,"delta":{"type":"input_json_delta","partial_json":"/\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":4}
+
+event: content_block_start
+data: {"type":"content_block_start","index":5,"content_block":{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_rec_2","content":{"type":"web_fetch_result","url":"https://www.protondb.com/app/4262460","retrieved_at":"2026-11-13T09:07:00+00:00","content":{"type":"document","source":{"type":"text","media_type":"text/plain","data":"(the text of the page, left out of this fixture)"}}},"caller":{"type":"direct"}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":5}
+
+event: content_block_start
+data: {"type":"content_block_start","index":6,"content_block":{"type":"web_fetch_tool_result","tool_use_id":"srvtoolu_rec_3","content":{"type":"web_fetch_result","url":"https://robrunwiki.org/game/system-requirements/","retrieved_at":"2026-11-13T02:09:14+00:00","content":{"type":"document","source":{"type":"text","media_type":"text/plain","data":"(the text of the page, left out of this fixture)"},"title":"ROB RUN System Requirements: AVX2, Linux and Steam Deck"}},"caller":{"type":"direct"}}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":6}
+
+event: content_block_start
+data: {"type":"content_block_start","index":7,"content_block":{"type":"thinking","thinking":"","signature":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"thinking_delta","thinking":"(the thinking of the model, left out of this fixture)"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":7,"delta":{"type":"signature_delta","signature":"sig_rec"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":7}
+
+event: content_block_start
+data: {"type":"content_block_start","index":8,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"No."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" ROB RUN does not"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" run under Proton right now."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" The game"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"'s"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" Easy Anti-"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"Cheat blocks it."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"\n\nI opened the Prot"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"onDB page first, but it"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" only loads with"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" JavaScript, so the"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" fetch came"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" back empty."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" Its search snippet"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" still"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" showed the re"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"ports. The best page I could"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" read"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" in"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" full was the unofficial "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"ROB RUN Wi"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"ki's system requ"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"irements page ("}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"robrunwiki.org"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"/game/system-requirements"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":","}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" checked against the Early"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" Access build on 6 November"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" "}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":"2026).\n\n- **The"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":8,"delta":{"type":"text_delta","text":" wiki:** "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":8}
+
+event: content_block_start
+data: {"type":"content_block_start","index":9,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Linux and Steam Deck do not work because the anti-cheat blocks Proton.\n\n","url":"https://robrunwiki.org/game/system-requirements/","title":"ROB RUN System Requirements: AVX2, Linux and Steam Deck","encrypted_index":"idx_rec_10"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":"Linux and Steam"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":" Deck do not work because the"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":" anti-cheat bloc"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":9,"delta":{"type":"text_delta","text":"ks Proton."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":9}
+
+event: content_block_start
+data: {"type":"content_block_start","index":10,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":10,"delta":{"type":"text_delta","text":" "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":10}
+
+event: content_block_start
+data: {"type":"content_block_start","index":11,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Under Proton the game stops with the Easy Anti-Cheat error \"No anti-cheat module","url":"https://robrunwiki.org/game/system-requirements/","title":"ROB RUN System Requirements: AVX2, Linux and Steam Deck","encrypted_index":"idx_rec_11"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"Under Proton the game st"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"ops with the Easy An"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"ti-Cheat error \""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"No anti-cheat module"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":" has been found for this game and plat"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":11,"delta":{"type":"text_delta","text":"form\"."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":11}
+
+event: content_block_start
+data: {"type":"content_block_start","index":12,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":12,"delta":{"type":"text_delta","text":" "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":12}
+
+event: content_block_start
+data: {"type":"content_block_start","index":13,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Players point out that Epic's anti-cheat supports Proton if the developer switch","url":"https://robrunwiki.org/game/system-requirements/","title":"ROB RUN System Requirements: AVX2, Linux and Steam Deck","encrypted_index":"idx_rec_12"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":"Players point"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":" out that Epic's anti"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":"-cheat supports Pro"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":"ton if the developer switches it"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":" on; Kefir has not"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":13,"delta":{"type":"text_delta","text":" done so or said it will."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":13}
+
+event: content_block_start
+data: {"type":"content_block_start","index":14,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":"\n-"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":" **ProtonDB:"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":14,"delta":{"type":"text_delta","text":"** it rates the game "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":14}
+
+event: content_block_start
+data: {"type":"content_block_start","index":15,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":15,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"ROB RUN\n\nBorked\n\n### E-0502 EosAntiCheatModuleNotLoadedError { Code = AntiCheatM","url":"https://www.protondb.com/app/4262460","title":"ProtonDB","encrypted_index":"idx_rec_13"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":15,"delta":{"type":"text_delta","text":"Borked"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":15}
+
+event: content_block_start
+data: {"type":"content_block_start","index":16,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":". People t"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":"ested"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" Proton 10.0-"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":"3, Proton Experim"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":"ental and GE-Proton"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":"11-7,"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" and none"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" of them got"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" past the an"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":"ti-cheat."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" One reporter says"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":16,"delta":{"type":"text_delta","text":" "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":16}
+
+event: content_block_start
+data: {"type":"content_block_start","index":17,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"ROB RUN\n\nBorked\n\n### E-0502 EosAntiCheatModuleNotLoadedError { Code = AntiCheatM","url":"https://www.protondb.com/app/4262460","title":"ProtonDB","encrypted_index":"idx_rec_14"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":"Installs just"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":" fine, error with installing"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":" Easy Anti Che"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":"at (EAC), cant"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":" get past the initial loading scre"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":17,"delta":{"type":"text_delta","text":"en"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":17}
+
+event: content_block_start
+data: {"type":"content_block_start","index":18,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":18,"delta":{"type":"text_delta","text":".\n- **GamingO"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":18,"delta":{"type":"text_delta","text":"nLinux:** it"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":18,"delta":{"type":"text_delta","text":" also lists the game as "}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":18}
+
+event: content_block_start
+data: {"type":"content_block_start","index":19,"content_block":{"type":"text","text":"","citations":[]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":19,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","cited_text":"Broken","url":"https://www.gamingonlinux.com/itemdb/app/76544/rob-run/","title":"ROB RUN","encrypted_index":"idx_rec_15"}}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":19,"delta":{"type":"text_delta","text":"Broken"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":19}
+
+event: content_block_start
+data: {"type":"content_block_start","index":20,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"."}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"\n\nChanging your"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":" Proton version or set"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"up won't f"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"ix this. The"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":" developer,"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":" Kefir, has to tur"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"n on Proton support in"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":" Easy Anti-C"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":"heat. Players have started a"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":20,"delta":{"type":"text_delta","text":" petition asking for that."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":20}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":8,"cache_creation_input_tokens":19943,"cache_read_input_tokens":27096,"output_tokens":855,"server_tool_use":{"web_search_requests":1,"web_fetch_requests":2}}}
+
+event: message_stop
+data: {"type":"message_stop"}
+

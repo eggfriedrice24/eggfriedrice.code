@@ -272,6 +272,34 @@ fn the_citations_of_a_message_come_once_per_url_in_the_order_of_their_spans() {
     );
 }
 
+/// A recorded answer of 2026-11-13 cited one page with `?utm_source=openai` after its
+/// address and another with no parameter.
+#[test]
+fn a_cited_address_loses_the_tracking_parameter_of_openai_and_names_its_page_once() {
+    let page = "https://steamcommunity.com/app/1/discussions/0/2/";
+    let events = sse(&[
+        json!({"type": "response.output_item.done", "output_index": 0, "item": message("msg_1", "Pages.", json!([
+            {"type": "url_citation", "start_index": 0, "end_index": 2, "url": format!("{page}?utm_source=openai"), "title": "A"},
+            {"type": "url_citation", "start_index": 3, "end_index": 4, "url": page, "title": "again"},
+            {"type": "url_citation", "start_index": 5, "end_index": 6, "url": "https://a.example/s?q=x&utm_source=openai&p=2#top", "title": "B"},
+            {"type": "url_citation", "start_index": 7, "end_index": 8, "url": "https://a.example/t?utm_source=other", "title": "C"},
+        ]))}),
+        json!({"type": "response.completed", "response": {}}),
+    ]);
+    let (mapped, error) = map_all(&events);
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(
+        mapped[..4],
+        [
+            text("Pages."),
+            cite(page, Some("A")),
+            cite("https://a.example/s?q=x&p=2#top", Some("B")),
+            // Another site's own parameter is a part of its address.
+            cite("https://a.example/t?utm_source=other", Some("C")),
+        ]
+    );
+}
+
 #[test]
 fn the_annotation_events_stand_in_when_the_finished_message_has_none() {
     let annotation = |index: u64, url: &str| {
@@ -297,4 +325,64 @@ fn the_annotation_events_stand_in_when_the_finished_message_has_none() {
             cite("https://a.example/one", Some("T")),
         ]
     );
+}
+
+/// `web_search_recorded.sse` is a real answer of the ChatGPT subscription backend
+/// (2026-11-13), with its ids replaced. It shows what the docs did not: the item of
+/// `output_item.added` has no action, so a step starts with no query and ends with it,
+/// and the citation data names pages that the text already links.
+#[test]
+fn a_recorded_answer_gives_the_steps_and_the_sources_that_the_written_fixtures_expect() {
+    let (mapped, error) = map_all(&fixture_events("web_search_recorded.sse"));
+    assert!(error.is_none(), "{error:?}");
+    let steps: Vec<ProviderEvent> = mapped
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                ProviderEvent::HostedCallStart { .. } | ProviderEvent::HostedCallEnd { .. }
+            )
+        })
+        .cloned()
+        .collect();
+    let thread = "https://steamcommunity.com/app/4262460/discussions/0/564798922323803596/";
+    assert_eq!(
+        steps,
+        vec![
+            start("ws_rec_1", search(None)),
+            end("ws_rec_1", search(Some("ROB RUN Proton Linux ProtonDB")), done()),
+            start("ws_rec_2", search(None)),
+            end("ws_rec_2", HostedAction::Open { url: Some(thread.to_owned()) }, done()),
+        ]
+    );
+    let sources: Vec<ProviderEvent> = mapped
+        .iter()
+        .filter(|event| matches!(event, ProviderEvent::Citation { .. }))
+        .cloned()
+        .collect();
+    // The second address came with `?utm_source=openai` after it.
+    assert_eq!(
+        sources,
+        vec![
+            cite(
+                "https://www.gamingonlinux.com/itemdb/app/76544/rob-run/",
+                Some("ROB RUN | GamingOnLinux")
+            ),
+            cite(thread, Some("LINUX gaming :: ROB RUN General Discussions")),
+        ]
+    );
+    // The text keeps the links that the model wrote, and the events of the backend
+    // that efr does not know end no answer.
+    let answer: String = mapped
+        .iter()
+        .filter_map(|event| match event {
+            ProviderEvent::TextDelta { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(answer.contains("([gamingonlinux.com](https://www.gamingonlinux.com/"), "{answer}");
+    assert!(matches!(
+        mapped.last(),
+        Some(ProviderEvent::Done { stop_reason: StopReason::EndTurn, .. })
+    ));
 }

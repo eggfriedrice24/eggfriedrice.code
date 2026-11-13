@@ -131,7 +131,7 @@ impl UrlCitation {
             content_index,
             start_index: annotation.get("start_index").and_then(Value::as_u64),
             end_index: annotation.get("end_index").and_then(Value::as_u64),
-            url: url.to_owned(),
+            url: without_tracking(url),
             title: text(annotation, "title").filter(|title| !title.is_empty()).map(str::to_owned),
         })
     }
@@ -141,6 +141,37 @@ impl UrlCitation {
     fn order(&self) -> (u64, u64) {
         (self.content_index, self.start_index.unwrap_or(u64::MAX))
     }
+}
+
+/// The parameter that OpenAI adds to the address of a cited page, to tell the site
+/// where the visit came from. It is no part of the page's address.
+const TRACKING: &str = "utm_source=openai";
+
+/// `url` without OpenAI's own tracking parameter, so the list of sources shows the
+/// address of the page and names a page once, with or without the parameter. Every
+/// other part of the address stays, also its other parameters and its fragment.
+///
+/// A real answer of 2026-11-13 cited one page as `https://host/path/?utm_source=openai`
+/// and another with no parameter.
+fn without_tracking(url: &str) -> String {
+    let (address, fragment) = match url.split_once('#') {
+        Some((address, fragment)) => (address, Some(fragment)),
+        None => (url, None),
+    };
+    let Some((path, query)) = address.split_once('?') else {
+        return url.to_owned();
+    };
+    let kept: Vec<&str> = query.split('&').filter(|pair| *pair != TRACKING).collect();
+    let mut out = path.to_owned();
+    if !kept.is_empty() {
+        out.push('?');
+        out.push_str(&kept.join("&"));
+    }
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(fragment);
+    }
+    out
 }
 
 /// The items that have streamed deltas of one kind, by item id and by output index,

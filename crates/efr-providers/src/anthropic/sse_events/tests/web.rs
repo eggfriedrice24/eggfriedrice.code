@@ -624,3 +624,77 @@ fn held_text_is_taken_once_after_an_error() {
     assert_eq!(out, vec![text("Almost done"), text(". ")]);
     assert_eq!(mapper.take_held(), Vec::new());
 }
+
+/// The kind and the subject of each step of `events`, a start as `+` and an end as `-`.
+fn step_list(events: &[ProviderEvent]) -> Vec<String> {
+    let subject = |action: &HostedAction| match action {
+        HostedAction::Search { query } => format!("search {}", query.as_deref().unwrap_or("?")),
+        HostedAction::Open { url } => format!("open {}", url.as_deref().unwrap_or("?")),
+        other => format!("{other:?}"),
+    };
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderEvent::HostedCallStart { action, .. } => Some(format!("+ {}", subject(action))),
+            ProviderEvent::HostedCallEnd { action, outcome, .. } => {
+                let how = match outcome {
+                    HostedOutcome::Done { results } => results
+                        .as_ref()
+                        .map_or_else(|| "done".to_owned(), |r| format!("{} results", r.len())),
+                    HostedOutcome::Failed { error } => format!("failed {error:?}"),
+                    other => format!("{other:?}"),
+                };
+                Some(format!("- {} ({how})", subject(action)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// `web_search_recorded.sse` is a real answer of the Messages API (2026-11-13), with its
+/// ids and its encrypted values replaced. It shows what the docs did not: a server tool
+/// call starts with an empty input and gets its query in `input_json_delta`, two
+/// fetches run at once, and the citation of a text block comes before its text.
+#[test]
+fn a_recorded_answer_gives_its_search_its_two_fetches_and_its_placed_citations() {
+    let events = web("web_search_recorded.sse");
+    let wiki = "https://robrunwiki.org/game/system-requirements/";
+    let protondb = "https://www.protondb.com/app/4262460";
+    assert_eq!(
+        step_list(&events),
+        [
+            "+ search ROB RUN game Proton ProtonDB".to_owned(),
+            "- search ROB RUN game Proton ProtonDB (9 results)".to_owned(),
+            format!("+ open {protondb}"),
+            format!("+ open {wiki}"),
+            format!("- open {protondb} (done)"),
+            format!("- open {wiki} (done)"),
+        ]
+    );
+    // One citation event for each cited block, each placed, in the order of the text.
+    let cited: Vec<&str> = events
+        .iter()
+        .filter_map(|event| match event {
+            ProviderEvent::Citation { url, placed: true, .. } => Some(url.as_str()),
+            _ => None,
+        })
+        .collect();
+    let rob_run = "https://www.gamingonlinux.com/itemdb/app/76544/rob-run/";
+    assert_eq!(cited, [wiki, wiki, wiki, protondb, protondb, rob_run]);
+    assert_eq!(stop_reason(&events), StopReason::EndTurn);
+}
+
+/// `web_fetch_not_allowed_recorded.sse` is a real answer (2026-11-13) to a prompt that
+/// names an address, outside full mode: the fetch of that address is refused, a search
+/// follows, and the answer ends with a call of a client tool.
+#[test]
+fn a_recorded_fetch_of_a_typed_address_is_refused_and_the_answer_goes_on() {
+    let events = web("web_fetch_not_allowed_recorded.sse");
+    let steps = step_list(&events);
+    assert_eq!(steps.len(), 4, "{steps:?}");
+    assert_eq!(steps[0], "+ open https://areweanticheatyet.com/");
+    assert!(steps[1].starts_with("- open https://areweanticheatyet.com/ (failed "), "{steps:?}");
+    assert_eq!(steps[2], "+ search areweanticheatyet ROB RUN");
+    assert_eq!(steps[3], "- search areweanticheatyet ROB RUN (9 results)");
+    assert_eq!(stop_reason(&events), StopReason::ToolUse);
+}

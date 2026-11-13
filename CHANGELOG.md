@@ -54,7 +54,9 @@ into the GitHub release notes, and it stops when the section is missing.
   searches. A page that an OpenAI model opens shows as `web open <page>`, and a failed
   search names its reason. While a search runs, the status row says `searching`. An
   answer of a Claude model marks each part that a page backs with `[1]`, and the list
-  of the cited pages follows the answer. The end line counts the searches, such as
+  of the cited pages follows the answer. An OpenAI model writes its own links into the
+  answer, and the list after it names their pages, without the `utm_source=openai`
+  that OpenAI adds to an address. The end line counts the searches, such as
   `· 5 searches`. `efr history` shows the same rows, and `efr history --verbose` adds
   the first results of each search. The phone app shows each search as a tool block.
   A search that runs when efrd stops shows as `did not finish` after the restart.
