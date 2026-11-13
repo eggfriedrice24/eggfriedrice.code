@@ -12,7 +12,7 @@ not repeat them.
 ## Gates
 
 Run the gates for what you change before you commit. Before a push, all of these must
-pass. Local gates must equal CI.
+pass, as far as the path filters below ask for them. Local gates must equal CI.
 
 - `just check` (lint, then the leaf tests)
 - `just docs` (the link check of `docs/` and the book build with mdBook 0.5.4; lint
@@ -29,6 +29,17 @@ pass. Local gates must equal CI.
   `docs/protocol.schema.json` (the CI app job; needs pnpm)
 - `just bench-search` when a change touches the store, the end of a turn or search; run
   it alone, because the numbers of a busy machine are not valid
+
+The path filters of CI decide which of these gates a push needs. Run each filter with
+the base of the push:
+
+- `.github/rust-paths.sh push origin/main` prints `rust=false` for a change of only docs
+  text or the phone app. Then `just fmt-check`, `just typos`, `just tidy`, `just deps`,
+  `just deny` and `just docs` are enough (the CI jobs that always run), and
+  `just app-check` for a change of `app/`.
+- `.github/sandbox-paths.sh push origin/main` prints `sandbox=false` when no changed
+  file can change what the sandbox suite tests. Then skip `just test-sandbox` and
+  `just test-sandbox-vm`.
 
 ## Safety
 
