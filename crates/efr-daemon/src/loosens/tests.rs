@@ -78,7 +78,7 @@ fn the_phone_listener_on_or_another_tailscaled_socket_loosens() {
 }
 
 #[test]
-fn web_search_to_live_or_away_from_off_loosens() {
+fn web_search_up_the_order_off_cached_mode_live_loosens() {
     use efr_config::WebSearch;
 
     let with = |search| {
@@ -94,7 +94,9 @@ fn web_search_to_live_or_away_from_off_loosens() {
         (WebSearch::Off, WebSearch::Live, true),
         (WebSearch::Live, WebSearch::Mode, false),
         (WebSearch::Mode, WebSearch::Cached, false),
-        (WebSearch::Cached, WebSearch::Mode, false),
+        // An OpenAI model goes from the stored copy to the live web in auto and full.
+        (WebSearch::Cached, WebSearch::Mode, true),
+        (WebSearch::Cached, WebSearch::Off, false),
         (WebSearch::Mode, WebSearch::Off, false),
         (WebSearch::Live, WebSearch::Live, false),
     ];

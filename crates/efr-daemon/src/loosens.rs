@@ -66,11 +66,23 @@ pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str>
 }
 
 /// `web.search` when the change lets the model reach more of the web with no question
-/// (a hosted search cannot ask): to `live` from any other value, or away from `off`.
+/// (a hosted search cannot ask). The values reach more in this order: `off` (nothing),
+/// `cached` (an OpenAI model reads the stored copy in every mode), `mode` (the live web
+/// in `auto` and `full`), `live` (the live web in `cautious` too). A step up the order
+/// loosens.
 fn web_loosening(before: &WebSettings, next: &WebSettings) -> Vec<&'static str> {
-    let live = next.search == WebSearch::Live && before.search != WebSearch::Live;
-    let on = before.search == WebSearch::Off && next.search != WebSearch::Off;
-    keys([("web.search", live || on)])
+    keys([("web.search", web_reach(next.search) > web_reach(before.search))])
+}
+
+/// The place of `search` in the order of [`web_loosening`]. A value that efrd does not
+/// know counts as the most open.
+fn web_reach(search: WebSearch) -> u8 {
+    match search {
+        WebSearch::Off => 0,
+        WebSearch::Cached => 1,
+        WebSearch::Mode => 2,
+        _ => 3,
+    }
 }
 
 /// The `[remote]` keys that open efrd to more peers: the phone listener turned on, or
