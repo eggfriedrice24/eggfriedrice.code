@@ -192,6 +192,26 @@ fn drafts_before_a_boundary_go() {
     assert_eq!(drain(&mut pending), vec![(5, text(1, 0, "b"))]);
 }
 
+/// The start of a web step ends the drafts before it, as the client's view counts it.
+#[test]
+fn the_start_of_a_web_step_is_a_boundary() {
+    let mut pending = PendingDrafts::default();
+    let mut boundary = Boundary::default();
+    pending.push(draft(1, context(10)));
+    pending.push(draft(5, context(20)));
+    let started = Event::WebCallStarted {
+        turn_id: turn(),
+        call_id: "019a9b1c-3d00-7a10-8b20-000000000004".parse().unwrap(),
+        action: efr_protocol::WebAction::Search,
+        query: None,
+        url: None,
+        pattern: None,
+    };
+    assert!(boundary.pass(&started, Seq::new(5)));
+    pending.drop_ended(boundary);
+    assert_eq!(drain(&mut pending), vec![(5, context(20))]);
+}
+
 #[test]
 fn reasoning_stays_past_the_end_of_a_message_and_goes_at_the_end_of_the_turn() {
     let mut pending = PendingDrafts::default();

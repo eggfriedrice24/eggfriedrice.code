@@ -1010,7 +1010,10 @@ No protocol version has shipped yet.
   `unsupported`, `not_finished`, `unknown`); a value that a client does not know reads
   as `unknown`. The daemon cuts a query and a pattern to 1000 characters, a URL to
   2048 and a title to 200. The assistant message before a web step is complete: the
-  text after it is the next message. A client that does not know the new kinds skips
+  text after it is the next message, and the drafts made before the step show nothing
+  new. The `action` of `web_call_completed` is the whole one; a provider can name it
+  only at the end, so a step can start as a `search` without a query and end as an
+  `open` or a `find`. A client that does not know the new kinds skips
   them and shows the text of the answer; an older daemon sends none of them. No
   capability key. New fixtures `events/web_call_started.json`,
   `events/web_call_started_open.json`, `events/web_call_completed.json`,

@@ -97,10 +97,15 @@ impl Boundary {
 
 /// True for an event after which the drafts made before it show nothing new: the
 /// end of the text of a message, the start of a tool call (after the whole answer of
-/// the model), and the end of a turn.
+/// the model), the start of a step of the provider's web tool (the message before it
+/// is complete), and the end of a turn. efr's view drops old drafts by the same rule.
 fn ends_drafts(event: &Event) -> bool {
-    matches!(event, Event::AssistantMessageCompleted { .. } | Event::ToolCallStarted { .. })
-        || ends_turn(event)
+    matches!(
+        event,
+        Event::AssistantMessageCompleted { .. }
+            | Event::ToolCallStarted { .. }
+            | Event::WebCallStarted { .. }
+    ) || ends_turn(event)
 }
 
 /// True for the end of a turn.
