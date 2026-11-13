@@ -348,7 +348,7 @@ fn is_config_key(item: &str) -> bool {
 }
 
 /// `path` with the home directory as `~`.
-pub(super) fn tilde(path: &Path, home: &Path) -> String {
+fn tilde(path: &Path, home: &Path) -> String {
     let shown = match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
         Ok(rest) => format!("~/{}", rest.display()),

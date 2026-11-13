@@ -465,20 +465,16 @@ Modules:
   (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
   `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.
   With no facts at all (no sandbox in efrd), the route stays.
-- `exits/code.rs` (v0.0.9): the project code that a line runs outside the sandbox.
-  `code::apply` gives each exit that runs the whole line in the exit child a note for
-  each command that runs project code and `Approver::User` (`ExitNeed::raise_to_user`,
-  which `git_code.rs` uses too): a program by a relative path or in a real write root
-  (also behind a wrapper), a bare program name whose `CallFacts::programs` fact places
-  it in a real write root or shows it changed in this turn, a runner of
-  `programs::RUNNERS` such as `make` or `cargo`, an interpreter or `source` on such a
-  file, with `-m`, or on its input, the code of `sh -c`, `eval` and `su -c` (one
-  level), a program or a script that only the shell can read, and a copy of such a
-  file into a system dir (`-t`, and a relative target after a `cd`, count). Inline
-  code (an interpreter's own inline option, such as `python3 -c` or `node -e`) and a
-  package publish get no note. Apart from the program facts, which efrd sends anyway,
-  it reads only the words and the envelope. Project code beside the exit never gets
-  here: the one-command rule (`unsandboxed_line_problem`) refuses such a line.
+- `ExitNeed::contained` (v0.0.9): an exit of a kind that runs outside by default runs
+  in the sandbox with its grants. `Network::upload` in `exits/programs.rs` sets it for
+  an HTTP upload that carries no credential (`curl -d`, `-T`, `-X POST`, `wget
+  --post-data`): it gets the grants that a fetch of the same URLs gets, and keeps the
+  `upload` kind and its approver. A POST to a forwarded port of the conversation's job
+  is no exit. A merged exit runs contained only when each of its forms does.
+- `unsandboxed_line_problem` reads the exact exit status words (`$?`, `$status`,
+  `$pipestatus`, `$PIPESTATUS`, and these names with a subscript of literal digits) as
+  the number that they are (`status_words_as_literals`); every other expansion stays
+  refused.
 - `exits/control.rs` (v0.0.5, OQS17): an ssh control socket is a logged-in session,
   and it, not the host of the line, decides where a command runs. So each exit of a
   command that makes or uses one (`ssh` or `autossh` with `-S`, `-M` (ssh only), `-O`

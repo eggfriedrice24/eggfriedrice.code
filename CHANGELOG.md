@@ -149,16 +149,22 @@ into the GitHub release notes, and it stops when the section is missing.
   - `sudo` still shows its password prompt. efr now makes sudo forget the password
     before and after each such call, so your password approves that one line, never
     the ones after it.
-  - When such an action runs code of your project, such as `sudo ./setup.sh`,
-    `sudo make install` or `sudo "$TOOL"`, the reviewer reads a note that names the
-    code, and its allow stands only when it also finds a clear request of yours. The
-    model may have written that code, and the reviewer cannot read the file. A line
-    that joins such code with an action that leaves the sandbox, such as
-    `just check && git push`, still does not run: the model runs the two parts as two
-    commands, and the first one runs in the sandbox. The model now reads this rule in
-    full before it writes such a line: no `$VAR`, no `$(...)` and no here-document, and
-    `git add` and `git commit` in their own call before `git push`. Before, it learned
-    the rule only from a refusal.
+  - When such an action runs code of your project, such as `sudo ./setup.sh` or
+    `sudo make install`, the reviewer's allow stands only when it also finds a clear
+    request of yours: the model may have written that code, and the reviewer cannot
+    read the file. A line that joins such code with an action that leaves the
+    sandbox, such as `just check && git push`, still does not run: the model runs the
+    two parts as two commands, and the first one runs in the sandbox. The model now
+    reads this rule in full before it writes such a line: no `$VAR`, no `$(...)` and no
+    here-document, and `git add` and `git commit` in their own call before `git push`.
+    Before, it learned the rule only from a refusal. `$?` and `${pipestatus[1]}` after
+    such a command are allowed now, so `git push; echo "exit=$?"` runs.
+  - An upload with `curl -d`, `curl -X POST` or `wget --post-data` now runs in the
+    sandbox, with only the hosts of its URLs, instead of with your full rights. It can
+    send only what the sandbox can read. A POST to a port of your conversation's own
+    job, such as a dev server, needs no review at all.
+  - `gh api` with `-X GET`, and `gh api graphql` with a query that changes nothing,
+    count as reads. `git fetch origin main:main` no longer counts as an ssh URL.
   - After 3 refusals in a row, or 10 in one turn, the model can finish the work that
     stays in the sandbox, and its next action that leaves it stops the turn. Before,
     efr then asked you for the rest of the turn.

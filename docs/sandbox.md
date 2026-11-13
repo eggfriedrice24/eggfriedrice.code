@@ -478,7 +478,7 @@ yourself, and "the reviewer" in this file then means you.
 | `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. With your clear request: when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password. efr makes sudo forget its cached password before and after each such call, so your password approves that one line |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request |
-| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
+| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox; an HTTP upload with no credential (`curl -d`, `curl -X POST`, `wget --post-data`) runs in the sandbox with the grants of its hosts, as a fetch of the same URLs would, and a POST to a port of the conversation's own job is no exit | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | the reviewer, with your clear request |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, in your own shell, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too. efr refuses such a line, and the model gives you the command |
 | `secret` | a read or write of a secret | never: denied | nobody |
@@ -618,28 +618,11 @@ processes of such a run stop when the call ends.
 
 So a build next to a push, as in `just check && git push`, never runs outside the
 sandbox: the model runs `just check` in its own call, in the sandbox, and then
-`git push`. When the one command of the exit itself runs code of your project, efr
-gives the reviewer a note that names it, and the reviewer's allow stands only with a
-clear request of yours, because the model may have written that code. efr reads only
-the words of the line and its write roots, with no file:
-
-- a program by a relative path or in a write root, also behind `sudo`:
-  `sudo ./setup.sh`, `sudo ~/p/app/setup.sh`;
-- a program on your `PATH` whose file lies in a write root, such as the project's
-  `.venv/bin`, or changed in this turn;
-- a build or task tool that runs what the files of its directory say, such as `make`,
-  `just`, `npm`, `cargo` or `pytest`: `sudo make install`;
-- an interpreter or `source` on a file by a relative path or in a write root:
-  `sudo python3 tools/fix.py`, `python3 -m tool`, and an interpreter that reads its
-  code from its input: `cat ./setup.sh | sudo bash`;
-- the code of `sh -c '...'`, `eval` and `su -c`, as a line of its own;
-- a program or a script that only the shell can read: `sudo "$TOOL"`,
-  `sudo ~/p/app/set*.sh`;
-- a copy of such a file into a system directory:
-  `sudo cp app.service /etc/systemd/system/`, also with `cp -t` and after a `cd`.
-
-Inline code, as in `python3 -c '...'`, gets no note: the reviewer reads it in the line.
-A package publish keeps its own rule (see "Exits").
+`git push`. The exit status of the command may follow it: `$?`, `$status`,
+`$pipestatus` and `${pipestatus[1]}` read as numbers, so `git push; echo "exit=$?"`
+runs. When the one command of the exit itself runs code of your project, such as
+`sudo ./setup.sh` or `sudo make install`, its kind already needs your clear request,
+and the reviewer's prompt says that such a line runs code that nobody read.
 
 **The question.** You see it for every exit while you answer them yourself
 (`classifier.enabled = false`). In the sections below,
@@ -2207,7 +2190,8 @@ the config hold of full mode holds it.
 | the host naming rule sees only the hosts of the line and of the git remotes | a host that a script connects to has no fact before the proxy refuses it | with the proxy, a host that is not listed gets 403 and then a review of that one host; the masks and the environment filter stay |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
 | an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a copy | a program that the model did not write in this turn can change `~/.zshrc` with no name and no copy; the turn-end line names only what the copies cover | the one-command rule; a program written in this turn or in a write root, project code of the command and an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script) get the strict review; the reviewer sees the line |
-| the note about project code reads the words of the line, not the files | a file of the project that reaches a system file through a pipe, as in `cat x.service \| sudo tee /etc/...`, or through a redirect inside `sh -c`, gets no note; nor does a program name inside `sh -c` that lies in a write root, a copy inside `sh -c` after a `cd` outside it, or another program that reads a project file, such as `docker compose up`; some notes are too strict, such as for a here-document fed to `python3 -` or `sudo make install` outside a project | `sudo` and the other privilege exits get the strict review anyway, and so does a line outside the sandbox that runs an interpreter; the reviewer sees the line |
+| the reviewer reads no file | a line outside the sandbox that runs a project file which the line does not show, such as `docker compose up` with the project's compose file, or a project unit that `sudo tee` installs, is judged from the line and your request alone | `sudo`, `docker` and the other privilege exits get the strict review by their kind, and so does a line outside the sandbox that runs an interpreter; the reviewer's prompt says that such code is unread |
+| a contained HTTP upload can send what the sandbox can read | a wrongly allowed `curl -d @file https://host` sends a readable file of the project to that host, up to the upload budget | secrets read as empty in the sandbox; only the hosts of the line are open; the strict review for a host that no message of yours names |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
 | older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |
 | a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |

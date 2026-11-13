@@ -1548,7 +1548,69 @@ fn exits_named_upload_is_classifier_when_named(#[case] line: &str, #[case] names
     let need = decision.exits().next().unwrap();
     assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
     assert_eq!(need.names, names, "{line:?}");
-    assert!(need.user_only() && need.runs_unsandboxed(), "{line:?}");
+    assert!(need.user_only(), "{line:?}");
+    // NOTE: an HTTP upload carries no credential, so it runs in the sandbox with the
+    // grants of its hosts; the others need the user's keys or tokens.
+    let http = line.starts_with("curl") || line.starts_with("wget");
+    assert_eq!(need.runs_unsandboxed(), !http, "{line:?}");
+    assert_eq!(need.contained, http, "{line:?}");
+    assert_eq!(need.grants.is_empty(), !http, "{line:?}");
+}
+
+/// A POST to a port of the conversation's own job is no exit: the call's reach helper
+/// serves it, as it serves a fetch of the same URL.
+#[test]
+fn an_upload_to_a_job_port_is_no_exit() {
+    let facts = CallFacts { reach_ports: vec![5173], ..CallFacts::default() };
+    let line = "curl -X POST -d x http://localhost:5173/api";
+    let decision = decide(shell(line).with_facts(facts));
+    assert_eq!(kinds(&decision), Vec::<ExitKind>::new());
+}
+
+/// A refspec after the repository of a git fetch is no ssh URL, so the fetch runs in the
+/// sandbox; an ssh URL in any place still runs outside.
+#[rstest]
+#[case::refspec("git fetch origin main:refs/remotes/origin/main", false)]
+#[case::plain_refspec("git fetch origin main:main", false)]
+#[case::forced_refspec("git fetch origin +main:main", false)]
+#[case::pull_refspec("git pull origin main:main", false)]
+#[case::scp_url("git fetch git@mirror.test:o/r.git main", true)]
+#[case::alias_url_after_an_option("git clone --depth 1 work:o/r.git", true)]
+fn a_git_refspec_is_no_ssh_url(#[case] line: &str, #[case] outside: bool) {
+    let decision = super::proxy::proxy_engine().decide(&in_auto(shell(line)));
+    let runs_outside = decision.exits().any(ExitNeed::runs_unsandboxed);
+    assert_eq!(runs_outside, outside, "{line:?}: {:?}", kinds(&decision));
+}
+
+/// `gh api` changes something only with a method other than GET or HEAD, with a field
+/// or `--input` of a REST endpoint and no method, or with a GraphQL query that efr
+/// cannot read or that names a mutation or a subscription.
+#[rstest]
+#[case::get("gh api repos/o/r/pulls", false)]
+#[case::explicit_get_with_fields("gh api -X GET repos/o/r/issues -f state=open", false)]
+#[case::method_equals_get("gh api --method=GET repos/o/r", false)]
+#[case::graphql_query("gh api graphql -f query='query { viewer { login } }'", false)]
+#[case::graphql_mutation("gh api graphql -f query='mutation { addStar(input: {}) { x } }'", true)]
+#[case::graphql_from_a_file("gh api graphql -F query=@q.graphql", true)]
+#[case::graphql_with_no_query("gh api graphql --input body.json", true)]
+#[case::field_posts("gh api repos/o/r/issues -f title=x", true)]
+#[case::delete("gh api -X DELETE repos/o/r", true)]
+fn gh_api_writes_only_with_a_writing_form(#[case] line: &str, #[case] upload: bool) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision).contains(&ExitKind::Upload), upload, "{line:?}");
+}
+
+/// An HTTP upload runs in the sandbox with the grants that a fetch of its URL gets:
+/// under the proxy, one host and port for a host off the list, nothing for a listed one;
+/// and no exit for a POST to a port of the conversation's own job.
+#[rstest]
+#[case::off_the_list("curl -X POST -d x https://paste.example/x", vec![Grant::Host { host: "paste.example".to_owned(), port: 443 }])]
+#[case::listed("curl -X POST -d x https://github.com/x", Vec::new())]
+fn an_http_upload_runs_contained_with_its_host(#[case] line: &str, #[case] grants: Vec<Grant>) {
+    let decision = super::proxy::proxy_engine().decide(&in_auto(shell(line)));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Upload).unwrap();
+    assert!(need.contained && !need.runs_unsandboxed(), "{line:?}");
+    assert_eq!(need.grants, grants, "{line:?}");
 }
 
 #[test]
@@ -1620,11 +1682,8 @@ fn exits_outside_from_a_project_with_trusted_programs_is_classifier() {
     facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
     assert_eq!(approver_of(outside("git pull").with_facts(facts)), Approver::Classifier);
     // A program in a cache overlay or the private tmp was not written in the sandbox.
-    let facts = programs(&[("rg", Some("/home/u/.cargo/bin/rg"), false)]);
-    assert_eq!(approver_of(outside("rg x").with_facts(facts)), Approver::Classifier);
-    // A runner runs project code, whatever its own file: the strict review.
     let facts = programs(&[("cargo", Some("/home/u/.cargo/bin/cargo"), false)]);
-    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::User);
+    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::Classifier);
     // A builtin leads to no file.
     let facts = programs(&[("cd", None, false), ("gdb", Some("/usr/bin/gdb"), false)]);
     let line = "cd /tmp && gdb -p 1";
@@ -2399,144 +2458,29 @@ fn auto_nested_shell_denied() {
 #[case::build_then_install("cargo build --release && sudo cp target/release/x /usr/local/bin/")]
 #[case::script_into_tee("./gen.sh | sudo tee /etc/x")]
 #[case::install_then_restart("just install && systemctl --user restart efrd")]
+// Only the exact exit status words read as a number; any other expansion stays refused.
+#[case::status_subscript_runs_code("git push; echo ${pipestatus[$(id)]}")]
+#[case::status_bare_subscript_runs_code("git push; echo $pipestatus[$(id)]")]
+#[case::status_flag_runs_code("git push; echo \"${(e)status}\"")]
+#[case::status_prefix_of_a_name("git push; echo $statusx")]
+#[case::a_variable_beside_a_status("git push origin \"$BRANCH\"; echo $?")]
 fn exits_unsandboxed_line_must_be_one_command(#[case] line: &str) {
     let problem = unsandboxed_line_problem(line).unwrap();
     assert!(problem.starts_with(ONE_COMMAND), "{line:?}: {problem}");
 }
 
-/// Project code in the command of an exit that runs the line outside the sandbox, such
-/// as a script of the project behind `sudo`, gets a note for the reviewer and the strict
-/// review: a sandboxed command may have written that code, and the reviewer reads the
-/// line, never the file. The check reads only the words, so it needs no fact of efrd. A
-/// program of the system, a program in a cache root, inline code that the line shows
-/// and a package publish get no note.
+/// Project code that an exit runs outside the sandbox, such as a script of the project
+/// behind `sudo`, gets the strict review from the kind of its exit: the reviewer's allow
+/// stands only with a clear request of the user.
 #[rstest]
-#[case::script("sudo ./setup.sh", ExitKind::Privilege, &["the line runs ./setup.sh"])]
-#[case::project_path("sudo ~/p/app/setup.sh", ExitKind::Privilege, &["the line runs ~/p/app/setup.sh"])]
-#[case::runner(
-    "sudo make install",
-    ExitKind::Privilege,
-    &["the line runs make, which runs what the files of its dir say"]
-)]
-#[case::interpreter("sudo python3 tools/x.py", ExitKind::Privilege, &["the line runs tools/x.py with python3"])]
-#[case::module("sudo python3 -m tool", ExitKind::Privilege, &["the line runs tool with python3"])]
-#[case::inline_shell("sudo sh -c './setup.sh --prod'", ExitKind::Privilege, &["the line runs ./setup.sh"])]
-#[case::hidden("sudo \"$TOOL\"", ExitKind::Privilege, &["efr cannot read which program the line runs"])]
-#[case::install(
-    "sudo cp app.service /etc/systemd/system/",
-    ExitKind::Privilege,
-    &["the line installs app.service"]
-)]
-#[case::pattern("sudo ~/p/app/set*.sh", ExitKind::Privilege, &["the line runs ~/p/app/set*.sh"])]
-#[case::errexit("sudo bash -e ./setup.sh", ExitKind::Privilege, &["the line runs ./setup.sh with bash"])]
-#[case::shell_option(
-    "sudo bash -o errexit ./x.sh",
-    ExitKind::Privilege,
-    &["the line runs ./x.sh with bash"]
-)]
-#[case::python_env("sudo python3 -E build.py", ExitKind::Privilege, &["the line runs build.py with python3"])]
-#[case::gawk_exec("sudo gawk -E x.awk", ExitKind::Privilege, &["the line runs x.awk with gawk"])]
-#[case::input("cat ./setup.sh | sudo bash", ExitKind::Privilege, &["the line runs code from the input of bash"])]
-#[case::target_option(
-    "sudo cp -t /etc/systemd/system x.service",
-    ExitKind::Privilege,
-    &["the line installs x.service"]
-)]
-#[case::target_attached(
-    "sudo cp -t/etc/systemd/system x.service",
-    ExitKind::Privilege,
-    &["the line installs x.service"]
-)]
-#[case::brace(
-    "sudo cp /usr/{a,../home/u/p/app/x.service} /etc/systemd/system/",
-    ExitKind::Privilege,
-    &["the line installs /usr/{a,../home/u/p/app/x.service}"]
-)]
-#[case::target_after_cd(
-    "cd /etc/systemd/system && sudo cp ~/p/app/x.service .",
-    ExitKind::Privilege,
-    &["the line installs ~/p/app/x.service"]
-)]
-#[case::option_values(
-    "sudo install -m 644 -o root build/tool /usr/local/bin/tool",
-    ExitKind::Privilege,
-    &["the line installs build/tool"]
-)]
-#[case::many_files(
-    "sudo cp a b c d e f /etc/x/",
-    ExitKind::Privilege,
-    &[
-        "the line installs a",
-        "the line installs b",
-        "the line installs c",
-        "the line installs d",
-        "the line runs or installs 2 more such files",
-    ]
-)]
-#[case::node_inline("sudo node -e 'x'", ExitKind::Privilege, &[])]
-#[case::system("sudo pacman -Syu", ExitKind::Privilege, &[])]
-#[case::cache_root("sudo ~/.cargo/bin/tool", ExitKind::Privilege, &[])]
-#[case::inline_code("sudo python3 -c 'print(1)'", ExitKind::Privilege, &[])]
-#[case::awk_program("sudo awk 'NR == 1' /etc/fstab", ExitKind::Privilege, &[])]
-#[case::publish("npm publish", ExitKind::Upload, &[])]
-fn project_code_in_an_exit_gets_a_note_and_the_strict_review(
-    #[case] line: &str,
-    #[case] kind: ExitKind,
-    #[case] notes: &[&str],
-) {
+#[case::script("sudo ./setup.sh", ExitKind::Privilege)]
+#[case::runner("sudo make install", ExitKind::Privilege)]
+#[case::hidden("sudo \"$TOOL\"", ExitKind::Privilege)]
+#[case::install("sudo cp app.service /etc/systemd/system/", ExitKind::Privilege)]
+fn project_code_in_an_exit_gets_the_strict_review(#[case] line: &str, #[case] kind: ExitKind) {
     let decision = decide(shell(line));
     let need = decision.exits().find(|need| need.kind == kind).unwrap();
-    let code: Vec<&str> = need
-        .notes
-        .iter()
-        .map(String::as_str)
-        .filter(|note| {
-            note.starts_with("the line runs")
-                || note.starts_with("the line installs")
-                || note.starts_with("efr cannot read wh")
-        })
-        .collect();
-    assert_eq!(code, notes, "{line}");
-    if !notes.is_empty() {
-        assert!(need.approver >= Approver::User, "{line}: {:?}", need.approver);
-    }
-}
-
-/// A program on the `PATH` is project code when a fact of efrd places its file in a
-/// write root, such as the project's `.venv/bin`, or shows that it changed in this
-/// turn. A program of the system that did not change gets no note.
-#[rstest]
-#[case::in_the_project(
-    "deploy",
-    "/home/u/p/app/.venv/bin/deploy",
-    false,
-    &["the line runs ~/p/app/.venv/bin/deploy, which a sandboxed command can write"]
-)]
-#[case::changed(
-    "deploy",
-    "/usr/local/bin/deploy",
-    true,
-    &["the line runs /usr/local/bin/deploy, which changed in this turn"]
-)]
-#[case::changed_by_path(
-    "/usr/local/bin/deploy",
-    "/usr/local/bin/deploy",
-    true,
-    &["the line runs /usr/local/bin/deploy, which changed in this turn"]
-)]
-#[case::system("deploy", "/usr/bin/deploy", false, &[])]
-fn a_program_on_the_path_is_project_code_by_its_facts(
-    #[case] word: &str,
-    #[case] path: &str,
-    #[case] changed: bool,
-    #[case] notes: &[&str],
-) {
-    let facts = programs(&[("sudo", Some("/usr/bin/sudo"), false), (word, Some(path), changed)]);
-    let decision = decide(shell(&format!("sudo {word}")).with_facts(facts));
-    let need = decision.exits().find(|need| need.kind == ExitKind::Privilege).unwrap();
-    let code: Vec<&str> =
-        need.notes.iter().map(String::as_str).filter(|note| note.starts_with("the line")).collect();
-    assert_eq!(code, notes, "{path}");
+    assert!(need.approver >= Approver::User, "{line}: {:?}", need.approver);
 }
 
 #[rstest]
@@ -2551,6 +2495,14 @@ fn a_program_on_the_path_is_project_code_by_its_facts(
 #[case::forget_all_then_sudo("sudo -K && sudo true")]
 #[case::reset_then_sudo("sudo --reset-timestamp; sudo pacman -Syu")]
 #[case::sudo_then_forget("sudo true; sudo -k")]
+// The exit status words of step 3 of 2026-11-13: a number, no program.
+#[case::status("git push origin main; echo \"exit=$?\"")]
+#[case::pipestatus("git push origin main 2>&1 | tail -n 20; echo \"exit: ${pipestatus[1]}\"")]
+#[case::bash_pipestatus("git push 2>&1 | tail -3; echo \"push exit=${PIPESTATUS[0]}\"")]
+#[case::bare_subscript("git push | tail -3; echo $pipestatus[1] $status")]
+#[case::status_after_curl(
+    "curl -sS -X POST --data 1 http://127.0.0.1:48731/count; echo \" [exit $?]\""
+)]
 fn exits_read_only_helper_allowed_in_unsandboxed_line(#[case] line: &str) {
     assert_eq!(unsandboxed_line_problem(line), None, "{line:?}");
 }

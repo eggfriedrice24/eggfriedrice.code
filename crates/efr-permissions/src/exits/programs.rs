@@ -31,6 +31,9 @@ pub(super) struct Found {
     pub(super) bus_read: bool,
     /// efr's notes for the question, such as what a publish runs.
     pub(super) notes: Vec<String>,
+    /// True when a kind that runs outside the sandbox by default runs in it with
+    /// [`grants`](Self::grants) ([`ExitNeed::contained`](super::ExitNeed::contained)).
+    pub(super) contained: bool,
 }
 
 impl Found {
@@ -45,6 +48,7 @@ impl Found {
             hosts: Vec::new(),
             bus_read: false,
             notes: Vec::new(),
+            contained: false,
         }
     }
 
@@ -221,88 +225,6 @@ pub(super) fn runs_interpreter(words: &[String]) -> bool {
     let name = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
     INTERPRETERS.contains(&name)
         && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
-}
-
-/// True when `words`, one command, can run a file that it names as an operand: an
-/// interpreter ([`runs_interpreter`]), or the shell's own `source` or `.`. Which
-/// operand is the file depends on each interpreter's options, so efr asks about every
-/// operand and lets the facts say which of them is a file.
-pub(super) fn runs_file(words: &[String]) -> bool {
-    runs_interpreter(words)
-        || words.first().is_some_and(|first| matches!(first.as_str(), "source" | "."))
-}
-
-/// The shells whose `-c` string [`inline_code`] gives.
-const INLINE_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
-
-/// The code that `words`, one command, runs from one of its words, as a line of the
-/// shell: the string of `sh -c '...'` (also `bash -lc '...'`), the words of `eval`, and
-/// the string of `su -c '...'`. `None` for a shell that runs a file or its input, and
-/// for any other command. An expansion in the code stands there as
-/// [`OPAQUE`](super::scan::OPAQUE).
-pub(super) fn inline_code(words: &[String]) -> Option<String> {
-    let (first, args) = words.split_first()?;
-    match base_name(first) {
-        "eval" => (!args.is_empty()).then(|| args.join(" ")),
-        "su" => {
-            let mut args = args.iter();
-            while let Some(word) = args.next() {
-                if matches!(word.as_str(), "-c" | "--command" | "--session-command") {
-                    return args.next().cloned();
-                }
-                let value = word
-                    .strip_prefix("--command=")
-                    .or_else(|| word.strip_prefix("--session-command="));
-                if let Some(value) = value {
-                    return Some(value.to_owned());
-                }
-            }
-            None
-        }
-        shell if INLINE_SHELLS.contains(&shell) => {
-            let mut command = false;
-            let mut args = args.iter();
-            while let Some(word) = args.next() {
-                if word == "--" {
-                    return command.then(|| args.next().cloned()).flatten();
-                }
-                if matches!(word.as_str(), "-o" | "+o" | "-O" | "+O") {
-                    args.next();
-                } else if word.starts_with(['-', '+']) && word.len() > 1 {
-                    command |= word.starts_with('-') && word.contains('c');
-                } else {
-                    return command.then(|| word.clone());
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Runners: programs that run what the files of a directory say, which the line does
-/// not name: a `Makefile`, a `justfile`, the scripts of a `package.json`, a `build.rs`,
-/// a `setup.py`, a `conftest.py`. A version number at the end of the name does not
-/// count, so `pip3` is here too. The list is short on purpose: the build and task
-/// tools that a coding agent runs each day.
-const RUNNERS: &[&str] = &[
-    "make", "gmake", "bmake", "just", "ninja", "cmake", "ctest", "meson", "rake", "task", "npm",
-    "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "deno", "cargo", "go", "pip", "pipx", "uv",
-    "uvx", "poetry", "pdm", "hatch", "tox", "nox", "pytest", "gradle", "mvn", "ant", "bazel",
-    "dotnet", "composer", "bundle", "zig", "mise",
-];
-
-/// True when `words`, one command, runs a runner ([`RUNNERS`]): a program that runs
-/// code from the files of the directory where it runs or of a directory that an operand
-/// names (`make -C dir`, `cargo run --manifest-path dir/Cargo.toml`). Only a call that
-/// prints the version or the help runs none.
-pub(super) fn runs_project_files(words: &[String]) -> bool {
-    let Some((first, args)) = words.split_first() else {
-        return false;
-    };
-    let name = base_name(first).to_lowercase();
-    let name = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
-    RUNNERS.contains(&name) && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
 }
 
 /// The base name of a program word, so `/usr/bin/sudo` is `sudo`.
@@ -682,12 +604,12 @@ pub(super) fn classify(
             found.push(Found::upload(remote_names(program, args)));
         }
         "curl" => found.extend(if curl_uploads(args) {
-            Some(Found::upload(url_names(args)))
+            network.upload(url_names(args))
         } else {
             network.host()
         }),
         "wget" => found.extend(if wget_uploads(args) {
-            Some(Found::upload(url_names(args)))
+            network.upload(url_names(args))
         } else {
             network.host()
         }),
@@ -1082,6 +1004,24 @@ impl Network<'_> {
                 (!grants.is_empty()).then(|| Found { grants, ..Found::of(ExitKind::Host) })
             }
         }
+    }
+
+    /// The `upload` exit of an HTTP program that sends data, such as `curl -d` or
+    /// `wget --post-file`, with `names`. It carries no credential: the sandbox hides
+    /// every credential file, and a token on the line is text that the reviewer reads.
+    /// So it runs in the sandbox ([`Found::contained`]) with the grants that a fetch of
+    /// the same URLs gets ([`Network::host`]): it can send only what the sandbox can
+    /// read, to its own hosts. It keeps the kind, so a host that no user message names
+    /// needs the user's clear request. A command whose every URL is a forwarded port of
+    /// the conversation's jobs has no exit, as for a fetch.
+    fn upload(&self, names: Vec<String>) -> Option<Found> {
+        let reached = !self.urls.is_empty()
+            && self.urls.iter().all(|(host, port)| reaches_job(self.reach, host, *port));
+        if reached {
+            return None;
+        }
+        let grants = self.host().map(|found| found.grants).unwrap_or_default();
+        Some(Found { grants, contained: true, ..Found::upload(names) })
     }
 
     /// A remote shell to `host`, or an ssh git URL of `host`: a `host` exit with the
@@ -1654,8 +1594,16 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
         }
         "fetch" | "pull" | "clone" | "ls-remote" => {
             // NOTE: an ssh URL on the line, such as `git clone git@host:o/r.git`; a
-            // remote name reads its URLs from the facts (remotes.rs).
-            match operands_of(rest).into_iter().find(|word| is_ssh_url(word)) {
+            // remote name reads its URLs from the facts (remotes.rs). A word after
+            // another operand that reads as a refspec, such as
+            // `main:refs/remotes/origin/main`, names no repository.
+            let operands = operands_of(rest);
+            let url = operands
+                .iter()
+                .enumerate()
+                .find(|(at, word)| is_ssh_url(word) && !(*at > 0 && is_refspec(word)))
+                .map(|(_, word)| *word);
+            match url {
                 Some(url) => {
                     let steered = git_steers_ssh(&args[..at], rest);
                     network.remote_shell(ssh_url_host(url), steered).into_iter().collect()
@@ -1687,6 +1635,21 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
 /// The words of `rest` that are no option.
 fn operands_of(rest: &[String]) -> Vec<&str> {
     rest.iter().map(String::as_str).filter(|word| !word.starts_with('-')).collect()
+}
+
+/// True when `word`, a word of a git fetch after its repository, reads as a refspec and
+/// not as an ssh URL in the scp form: it starts with `+`, or its source has no `@` and
+/// no `.` and its destination starts with `refs/` or has no `/`, as in `main:main` or
+/// `main:refs/remotes/origin/main`. A host alias with a path, such as `work:o/r.git`,
+/// stays a URL.
+fn is_refspec(word: &str) -> bool {
+    if word.starts_with('+') {
+        return true;
+    }
+    let Some((source, destination)) = word.split_once(':') else {
+        return false;
+    };
+    !source.contains(['@', '.']) && (destination.starts_with("refs/") || !destination.contains('/'))
 }
 
 /// True when git reaches the URL `word` over ssh: `ssh://`, `git+ssh://`, `ssh+git://`,
@@ -1823,11 +1786,7 @@ fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
         (Some("issue"), Some("create" | "comment" | "edit" | "close")) => true,
         (Some("gist"), Some("create" | "edit")) => true,
         (Some("repo"), Some("create" | "fork" | "edit" | "delete" | "sync")) => true,
-        (Some("api"), _) => args.iter().any(|word| {
-            matches!(word.as_str(), "-f" | "-F" | "--field" | "--raw-field" | "--input")
-                || word.starts_with("-X")
-                || word.starts_with("--method")
-        }),
+        (Some("api"), endpoint) => gh_api_writes(args, endpoint),
         _ => false,
     };
     if !writes {
@@ -1838,6 +1797,58 @@ fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
         names.push("pull request".to_owned());
     }
     Some(Found::upload(names))
+}
+
+/// True when `gh api` with `args` and the endpoint `endpoint` can change something:
+///
+/// - a method other than `GET` or `HEAD` (`-X POST`, `--method=PATCH`); an explicit
+///   `GET` is a read, also with fields, which gh then sends as query parameters;
+/// - with no method: a field or `--input` of a REST endpoint, which makes gh send a
+///   `POST`;
+/// - for `graphql`: a query that efr cannot read (from a file or `--input`), or one
+///   that holds the word `mutation` or `subscription`. Any other query is a read.
+fn gh_api_writes(args: &[String], endpoint: Option<&str>) -> bool {
+    let mut method: Option<&str> = None;
+    let mut fields: Vec<&str> = Vec::new();
+    let mut input = false;
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let word = word.as_str();
+        match word {
+            "-X" | "--method" => method = words.next().map(String::as_str),
+            "-f" | "-F" | "--field" | "--raw-field" => {
+                fields.extend(words.next().map(String::as_str));
+            }
+            "--input" => input = true,
+            _ => {
+                if let Some(value) =
+                    word.strip_prefix("--method=").or_else(|| word.strip_prefix("-X"))
+                {
+                    method = Some(value);
+                } else if let Some(value) =
+                    word.strip_prefix("--field=").or_else(|| word.strip_prefix("--raw-field="))
+                {
+                    fields.push(value);
+                } else if let Some(value) = word.strip_prefix("--input=") {
+                    input = !value.is_empty();
+                }
+            }
+        }
+    }
+    if let Some(method) = method {
+        return !(method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD"));
+    }
+    if endpoint != Some("graphql") {
+        return input || !fields.is_empty();
+    }
+    let queries: Vec<&str> =
+        fields.iter().filter_map(|field| field.strip_prefix("query=")).collect();
+    let unread = input || queries.is_empty() || queries.iter().any(|query| query.starts_with('@'));
+    let changes = queries.iter().any(|query| {
+        let text = query.to_ascii_lowercase();
+        text.contains("mutation") || text.contains("subscription")
+    });
+    unread || changes
 }
 
 /// The options of `ssh` that take a value as the next word.

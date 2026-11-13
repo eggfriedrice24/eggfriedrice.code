@@ -354,11 +354,15 @@ asks you nothing about an exit, and the class says how strict efr is:
   password before and after the call, as for a full call, whatever `shell.sudo_cache`
   says.
 - An exit that runs the whole line outside the sandbox and whose command runs project
-  code, such as `sudo ./setup.sh` or `sudo make install`, gets a note for the reviewer
-  and the class "only you", so the request rule holds (`exits/code.rs`). efr finds it
-  from the words of the line and its write roots ([`docs/sandbox.md`](sandbox.md)).
-  Project code next to the exit never runs outside: the one-command rule refuses the
-  line, and the model runs each part in its own call.
+  code, such as `sudo ./setup.sh` or `sudo make install`, has the class "only you" by
+  its kind, so the request rule holds, and the reviewer's prompt says that such a line
+  runs code that nobody read. Project code next to the exit never runs outside: the
+  one-command rule refuses the line, and the model runs each part in its own call. The
+  rule reads the exit status words (`$?`, `${pipestatus[1]}`) as numbers.
+- An HTTP upload that carries no credential (`curl -d`, `curl -X POST`, `wget
+  --post-data`) keeps the `upload` kind and its class, but runs in the sandbox with the
+  grants that a fetch of its URLs gets (`ExitNeed::contained`). It can send only what
+  the sandbox can read. A POST to a port of the conversation's own job is no exit.
 
 Each exit has a kind. In the table, "only you" names the class:
 

@@ -20,7 +20,6 @@
 //! of a tree that only the user may risk, such as `~`, `/`, a system dir or a project.
 //! `auto` never reads it; it is no exit.
 
-mod code;
 mod control;
 mod cover;
 mod critical;
@@ -221,6 +220,12 @@ pub struct ExitNeed {
     /// as the file of the git code that a sandboxed command can write, or the project
     /// code that a publish runs (v0.0.4, B4). Empty for most exits.
     pub notes: Vec<String>,
+    /// True when an exit of a kind that runs outside the sandbox
+    /// ([`ExitKind::runs_unsandboxed`]) runs in the sandbox with its
+    /// [`grants`](Self::grants) after a yes: an upload that carries no credential, such
+    /// as `curl -d` or `curl -X POST`, which can send only what the sandbox can read, to
+    /// its own hosts. The kind and its approver stay. False for every other exit.
+    pub contained: bool,
 }
 
 /// One file that a persistence form installs, as the classifier reads it.
@@ -263,6 +268,7 @@ impl ExitNeed {
             covered: None,
             installs: Vec::new(),
             notes: Vec::new(),
+            contained: false,
         }
     }
 
@@ -285,9 +291,10 @@ impl ExitNeed {
     }
 
     /// True when the call runs in the exit child after a "yes": a kind that runs
-    /// unsandboxed, or a `write` that no contained bind serves.
+    /// unsandboxed and is not [`contained`](Self::contained), or a `write` that no
+    /// contained bind serves.
     pub fn runs_unsandboxed(&self) -> bool {
-        self.kind.runs_unsandboxed() || self.bind == Some(WriteBind::ExitChild)
+        (self.kind.runs_unsandboxed() && !self.contained) || self.bind == Some(WriteBind::ExitChild)
     }
 }
 
@@ -312,6 +319,7 @@ impl fmt::Debug for ExitNeed {
             .field("covered", &self.covered)
             .field("installs", &self.installs)
             .field("notes", &self.notes)
+            .field("contained", &self.contained)
             .finish()
     }
 }
@@ -738,12 +746,6 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut found = found.needs;
-    // NOTE: every kind that runs the whole line in the exit child gives the project
-    // code of the line the user's rights: `./gen.sh >> ~/.zshrc` and `sudo ./setup.sh`
-    // as much as `./deploy.sh`.
-    if found.iter().any(ExitNeed::runs_unsandboxed) {
-        code::apply(&mut found, &segments, input, &envelope);
-    }
     // NOTE: the rule of the program words is the same for each `outside` exit of the
     // line, so the call finds it once.
     let mut words_approver: Option<Approver> = None;
@@ -1354,6 +1356,8 @@ impl Found {
                     known.approver = Approver::User;
                 }
                 known.approver = known.approver.max(need.approver);
+                // NOTE: one form that must run outside makes the merged exit run outside.
+                known.contained &= need.contained;
                 for name in need.names {
                     if !known.names.contains(&name) {
                         known.names.push(name);
@@ -1400,6 +1404,7 @@ fn predicted(exit: programs::Found, part: &Arc<str>) -> ExitNeed {
     need.names = exit.names;
     need.hosts = exit.hosts;
     need.notes = exit.notes;
+    need.contained = exit.contained;
     need
 }
 
@@ -1533,9 +1538,11 @@ pub fn mount_view_line(line: &str) -> bool {
 /// its simple commands may be other than a helper: a command that the `cautious`
 /// read-only table allows, such as `echo` in `echo x | sudo tee /etc/x`, or a `sudo`
 /// that only forgets the cached password, such as `sudo -k` in `sudo -k; sudo true`.
+/// The words of the exit status (`status_words_as_literals`), such as `$?` in
+/// `git push; echo "exit=$?"`, read as the number that they always are.
 /// The answer is the text for the model; the call gets no question.
 pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
-    let commands = match command::analyze_with_redirects(line) {
+    let commands = match command::analyze_with_redirects(&status_words_as_literals(line)) {
         Ok(commands) => commands,
         Err(construct) => {
             return Some(format!(
@@ -1556,6 +1563,73 @@ pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
         })
         .count();
     (carrying > 1).then(|| ONE_COMMAND.to_owned())
+}
+
+/// The names whose value is the exit status of the last command, or of each command of
+/// the last pipeline: zsh's `status` and `pipestatus`, and bash's `PIPESTATUS`.
+const STATUS_NAMES: &[&str] = &["status", "pipestatus", "PIPESTATUS"];
+
+/// `line` with each exact word of an exit status replaced by `0`: `$?`, `$status`,
+/// `$pipestatus`, `$PIPESTATUS`, and each of these three names with a subscript of
+/// literal digits, braced or not, such as `${pipestatus[1]}` or `$pipestatus[2]`. Such a
+/// word is a number: it hides no program and no path, so the one-command rule reads it
+/// as a literal. Any other expansion stays, such as `${pipestatus[$(id)]}`, `$HOME` or
+/// `${(e)x}`, in which zsh can run code.
+fn status_words_as_literals(line: &str) -> std::borrow::Cow<'_, str> {
+    if !line.contains('$') {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'$'
+            && let Some(len) = status_word_len(&line[at..])
+        {
+            out.push('0');
+            at += len;
+            continue;
+        }
+        // NOTE: a `$` and every name byte are ASCII, so `at` moves by whole chars.
+        let ch = line[at..].chars().next().unwrap_or_default();
+        out.push(ch);
+        at += ch.len_utf8();
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// The length of the exit status word at the start of `text`, which starts with `$`, or
+/// `None` when it is no such word ([`status_words_as_literals`]).
+fn status_word_len(text: &str) -> Option<usize> {
+    if text.starts_with("$?") {
+        return Some(2);
+    }
+    let name_end = |rest: &str| {
+        rest.char_indices()
+            .find(|(_, ch)| !(ch.is_ascii_alphanumeric() || *ch == '_'))
+            .map_or(rest.len(), |(at, _)| at)
+    };
+    // NOTE: `[digits]`, the subscript that a status word may have.
+    let subscript = |rest: &str| -> Option<usize> {
+        let digits = rest.strip_prefix('[')?;
+        let count = digits.bytes().take_while(u8::is_ascii_digit).count();
+        (count > 0 && digits[count..].starts_with(']')).then_some(count + 2)
+    };
+    if let Some(inner) = text.strip_prefix("${") {
+        let end = name_end(inner);
+        if !STATUS_NAMES.contains(&&inner[..end]) {
+            return None;
+        }
+        let after = &inner[end..];
+        let index = subscript(after).unwrap_or(0);
+        return after[index..].starts_with('}').then_some(2 + end + index + 1);
+    }
+    let rest = &text[1..];
+    let end = name_end(rest);
+    if !STATUS_NAMES.contains(&&rest[..end]) {
+        return None;
+    }
+    Some(1 + end + subscript(&rest[end..]).unwrap_or(0))
 }
 
 /// The options of `sudo` that only forget the cached password and run nothing.

@@ -91,16 +91,19 @@ as a full call does, so the password that the user types approves that one line.
     run outside the sandbox with more than one command that is no read-only helper,
     such as `just check && git push`. The model then runs the build in its own call,
     in the sandbox, and only the push leaves it.
-  - When the command of the exit itself runs project code, such as `sudo ./setup.sh`,
-    `sudo make install` or a program that efr cannot read, efr gives the exit a note
-    for the reviewer and the strict route (`Approver::User`), so the request rule
-    holds (`exits/code.rs`). efr finds it from the words of the line and its write
-    roots, with no fact of a file.
+  - When the command of the exit itself runs project code, such as `sudo ./setup.sh`
+    or `sudo make install`, the kind of its exit gives it the strict route
+    (`Approver::User`), so the request rule holds, and the reviewer's prompt says that
+    such a line runs code that nobody read.
 
-  A first form of the second rule (0.0.9, before the release) asked the user about
-  such code, from facts about each file. It cost 555 lines and most of its cases were
-  lines that the one-command rule already refuses. Claude Code's auto mode asks about
-  none of them.
+  Two earlier forms of the second rule (0.0.9, before the release) were removed: a
+  question to the user, from facts about each file (555 lines), and then a note for
+  the reviewer from the words of the line (about 400 lines). Most of their cases were
+  lines that the one-command rule already refuses, and in the 1b count over 100,418
+  real calls the note never fired. Claude Code's auto mode asks about none of them.
+  The plan of 2026-11-13 (`research/auto-direction/plan.md`, not in git) moves more
+  exits into the sandbox instead: an HTTP upload that carries no credential runs
+  there with the grants of its hosts.
 - A wrong refusal costs the user one message. That is more than one key, so the
   reviewer's prompt must not refuse what the user clearly asked for. The first live
   use must check this with real models: every test uses a recorded reviewer.

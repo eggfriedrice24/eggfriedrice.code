@@ -95,6 +95,12 @@ fn the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema() {
             "{prompt}"
         );
         assert!(prompt.contains("such as a here-document, hides nothing"), "{prompt}");
+        // The rule for project code that a line runs outside, which efr marks by the
+        // strict review of its kind.
+        assert!(
+            prompt.contains("runs code that the agent can write and that nobody read"),
+            "{prompt}"
+        );
         let output = &prompt[prompt.find("# Output").unwrap()..];
         let listed: Vec<&str> = output
             .lines()
