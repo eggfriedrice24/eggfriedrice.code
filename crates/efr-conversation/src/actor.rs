@@ -41,7 +41,7 @@
 //! ([`completed_result`]) when it answers a retry.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -421,6 +421,7 @@ impl ConversationActor {
             status: Arc::default(),
             gap: CallGap::default(),
             denied_cache_deletes: Mutex::default(),
+            stored_copy_noted: AtomicBool::new(false),
         });
         let status = Arc::clone(&shared.status);
         let actor = ConversationActor {

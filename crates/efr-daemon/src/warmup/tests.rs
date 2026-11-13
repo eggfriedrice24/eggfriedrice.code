@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_provider::{Provider, ProviderError, ProviderId, ProviderStream, Request};
+use efr_provider::{Provider, ProviderError, ProviderId, ProviderStream, Request, WebSupport};
 use efr_test_support::TestClock;
 use futures::StreamExt as _;
 
@@ -45,6 +45,10 @@ impl Provider for Quiet {
         &self.0
     }
 
+    fn web_search(&self) -> WebSupport {
+        WebSupport::Live
+    }
+
     async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
         Ok(Box::pin(futures::stream::empty()))
     }
@@ -67,4 +71,15 @@ async fn a_model_call_is_a_use_of_its_provider_when_it_starts_and_when_its_answe
 
     assert!(!warmups.http_due("anthropic-api"), "the answer ended a moment ago");
     assert!(warmups.http_due("openai-api"));
+}
+
+/// The wrapper passes on what the provider can do with the web tool: without it, no
+/// request of the provider would carry web search.
+#[test]
+fn a_noted_provider_passes_its_web_search_on() {
+    let clock = TestClock::new();
+    let warmups = Arc::new(Warmups::new(clock.shared()));
+    let inner = Arc::new(Quiet(ProviderId::new("anthropic-api").unwrap()));
+    let provider = Noted::new(inner, "anthropic-api", warmups);
+    assert_eq!(provider.web_search(), WebSupport::Live);
 }

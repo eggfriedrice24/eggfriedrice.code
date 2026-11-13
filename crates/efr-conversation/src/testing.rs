@@ -756,6 +756,7 @@ impl Setup {
             full_allowed: self.config.full_mode.allowed,
             wake: false,
             switched_from: None,
+            web: crate::web::WebPlan::Off(crate::web::WhyOff::NoSupport),
         }
     }
 

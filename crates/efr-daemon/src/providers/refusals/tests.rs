@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_provider::{
     CallNotice, CallNotices, EditTool, ModelInfo, Provider, ProviderError, ProviderEvent,
-    ProviderId, ProviderStream, Request, StopReason,
+    ProviderId, ProviderStream, Request, StopReason, WebSupport,
 };
 use efr_test_support::TestClock;
 use futures::StreamExt as _;
@@ -165,6 +165,10 @@ impl Provider for Scripted {
         EditTool::Replace
     }
 
+    fn web_search(&self) -> WebSupport {
+        WebSupport::Live
+    }
+
     async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
         let events = self.answers.lock().unwrap().pop_front().unwrap()?;
         Ok(Box::pin(futures::stream::iter(events)))
@@ -247,4 +251,13 @@ async fn a_watched_provider_reports_each_call_and_passes_the_answer_on() {
 
     assert!(!call(&provider).await);
     assert_eq!(refusals.refused_at(PROVIDER), None);
+}
+
+/// The wrapper passes on what the provider can do with the web tool: without it, no
+/// request of an API key's provider would carry web search.
+#[test]
+fn a_watched_provider_passes_its_web_search_on() {
+    let clock = TestClock::new();
+    let provider = Watched::new(Scripted::new(Vec::new()), PROVIDER, refusals(&clock));
+    assert_eq!(provider.web_search(), WebSupport::Live);
 }

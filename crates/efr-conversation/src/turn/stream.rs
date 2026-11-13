@@ -17,8 +17,9 @@
 
 use std::sync::Arc;
 
-use efr_protocol::Event;
+use efr_protocol::{CallId, Event};
 use efr_provider::{CompletionBuilder, Message, ProviderError, ProviderEvent, Request, StopReason};
+use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
 use futures::StreamExt as _;
 use tracing::Instrument as _;
@@ -54,6 +55,12 @@ impl Turn {
     /// text arrives, then `assistant_message_completed` with the whole text. Text that
     /// streamed before a failure or an interrupt is completed too, so the log shows
     /// what the user saw.
+    ///
+    /// A step of the provider's web tool ends the message: its text so far is completed
+    /// before `web_call_started`, and the text after the step is the next message, so
+    /// every client shows text, rows and text in the order of the model. A placed
+    /// citation puts its mark into the text as if the model had written it (`hosted.rs`).
+    /// The transcript keeps the whole answer as one assistant message.
     pub(super) async fn respond(
         &mut self,
         request: Request,
@@ -96,8 +103,9 @@ impl Turn {
         let mut builder = CompletionBuilder::new();
         let mut updates = Coalescer::new(self.config.update_interval);
         self.streamed = 0;
+        self.web.begin_answer();
         self.drafter.begin_call(self.assistant_index);
-        let streamed = loop {
+        let streamed = 'events: loop {
             let now = clock.now();
             let flush = updates.flush_after(now);
             let draft_flush = self.drafter.flush_after(now);
@@ -107,7 +115,7 @@ impl Turn {
                 () = sleep_or_pending(&*clock, flush) => {
                     updates.flushed(clock.now());
                     efr_stdx::mark::value("stream.record.begin", 1, 0);
-                    self.record_text(builder.text()).await?;
+                    self.record_text(builder.segment_text()).await?;
                     efr_stdx::mark::value("stream.record.end", 1, 0);
                 }
                 () = sleep_or_pending(&*clock, draft_flush) => {
@@ -134,19 +142,37 @@ impl Turn {
                         if let ProviderEvent::Raw(raw) = &event {
                             tracing::debug!(raw = %raw, "the provider sent an event with no canonical form");
                         }
-                        if let Err(error) = builder.push(&event) {
-                            break Streamed::Failed(error);
-                        }
-                        // NOTE: the draft goes before the update, which waits for the commit,
-                        // so a live client sees the text first.
-                        if self.drafter.push(&event) {
-                            self.drafter.offer(clock.now());
-                        }
-                        let text_grew = matches!(&event, ProviderEvent::TextDelta { text } if !text.is_empty());
-                        if text_grew && updates.offer(clock.now()) {
-                            efr_stdx::mark::value("stream.record.begin", 0, 0);
-                            self.record_text(builder.text()).await?;
-                            efr_stdx::mark::value("stream.record.end", 0, 0);
+                        // NOTE: a web step, its end and a citation are recorded before the
+                        // builder takes the event: the start ends the message whose text
+                        // the builder still holds as the current one.
+                        let mark = match &event {
+                            ProviderEvent::HostedCallStart { .. }
+                            | ProviderEvent::HostedCallEnd { .. }
+                            | ProviderEvent::Citation { .. } => {
+                                self.hosted_event(&event, &builder).await?
+                            }
+                            ProviderEvent::TextDelta { text } if !text.is_empty() => {
+                                self.web.text_grew();
+                                None
+                            }
+                            _ => None,
+                        };
+                        let mark = mark.map(|text| ProviderEvent::TextDelta { text });
+                        for event in std::iter::once(&event).chain(mark.as_ref()) {
+                            if let Err(error) = builder.push(event) {
+                                break 'events Streamed::Failed(error);
+                            }
+                            // NOTE: the draft goes before the update, which waits for the
+                            // commit, so a live client sees the text first.
+                            if self.drafter.push(event) {
+                                self.drafter.offer(clock.now());
+                            }
+                            let text_grew = matches!(event, ProviderEvent::TextDelta { text } if !text.is_empty());
+                            if text_grew && updates.offer(clock.now()) {
+                                efr_stdx::mark::value("stream.record.begin", 0, 0);
+                                self.record_text(builder.segment_text()).await?;
+                                efr_stdx::mark::value("stream.record.end", 0, 0);
+                            }
                         }
                     }
                 },
@@ -162,6 +188,9 @@ impl Turn {
             self.drafter.flush(clock.now());
         }
         self.drafter.answer_ended();
+        // NOTE: the current message is the text after the last web step; the transcript
+        // keeps the whole answer.
+        let segment = builder.segment_text();
         let partial = builder.text();
         let outcome = match streamed {
             Streamed::Ended => builder.finish().map_err(Response::Failed),
@@ -191,16 +220,68 @@ impl Turn {
                 }
                 self.last_call = completion.usage;
                 self.answer_stop = Some(completion.stop_reason);
-                self.complete_text(completion.message.text()).await?;
+                self.complete_text(segment).await?;
                 return Ok(Response::Done(completion.message));
             }
             Err(failure) => failure,
         };
+        self.complete_text(segment).await?;
         if !partial.is_empty() {
-            self.complete_text(partial.clone()).await?;
             self.transcript.push(Message::assistant(partial));
         }
         Ok(failure)
+    }
+
+    /// Records what a step of the provider's web tool or a citation in `event` means for
+    /// the turn, before `builder` takes the event; returns the mark of a placed citation,
+    /// which goes into the text as a text delta of its own.
+    ///
+    /// - The start of a step completes the current message when it has text, then
+    ///   records `web_call_started`.
+    /// - The end of a step records `web_call_completed`, after its start when the start
+    ///   never came.
+    /// - A citation gets its number.
+    async fn hosted_event(
+        &mut self,
+        event: &ProviderEvent,
+        builder: &CompletionBuilder,
+    ) -> Result<Option<String>, ConversationError> {
+        let turn_id = self.turn_id();
+        match event {
+            ProviderEvent::HostedCallStart { call_id, action } => {
+                let segment = builder.segment_text();
+                if !segment.is_empty() {
+                    self.complete_text(segment).await?;
+                    self.drafter.next_message(self.assistant_index);
+                }
+                let id = self.mint_call_id();
+                if let Some(started) = self.web.start(turn_id, call_id, action, id) {
+                    self.record(vec![started]).await?;
+                }
+                Ok(None)
+            }
+            ProviderEvent::HostedCallEnd { call_id, action, outcome } => {
+                let clock = Arc::clone(&self.shared.deps.clock);
+                let rng = Arc::clone(&self.shared.deps.rng);
+                let events = self.web.end(turn_id, call_id, action, outcome, || {
+                    CallId::from_uuid(uuid_v7(&*clock, &*rng))
+                });
+                self.record(events).await?;
+                Ok(None)
+            }
+            ProviderEvent::Citation { url, title, placed } => {
+                let mark = self.web.cite(url, title.as_deref(), *placed);
+                // NOTE: a mark backs the words before it; with no text in the message yet
+                // it would stand alone at its start.
+                Ok(mark.filter(|_| !builder.segment_text().is_empty()))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// A new id of efr's own for a call or a step.
+    fn mint_call_id(&self) -> CallId {
+        CallId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng))
     }
 
     /// Records what `text`, the current message so far, added since the last update.

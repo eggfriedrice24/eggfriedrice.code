@@ -90,7 +90,10 @@ pub use efr_conversation::HostInfo;
 pub use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyInfo, Signal, SignalTarget, SpawnSpec,
 };
-pub use efr_provider::Provider;
+// NOTE: what a provider can do with the web tool comes with the trait, so a scenario of
+// efr-test-daemon, whose allowlist has no efr-provider edge, can give its replay provider
+// web search.
+pub use efr_provider::{Provider, WebSupport};
 pub use efr_shell::ScreenFactory;
 pub use error::{BusProxyProblem, DaemonError, KeyProblem, PairingProblem};
 pub use malloc::init as init_malloc;

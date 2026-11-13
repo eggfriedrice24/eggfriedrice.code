@@ -192,7 +192,11 @@ The fourteen fixtures are the milestone 1 list: `single_turn_text`,
 `provider_401_refresh_once`, `restart_reconcile_inflight_turn` and
 `pty_attach_since_seq`. Later fixtures build on them: `messages_thinking_two_turns` runs
 Claude over Anthropic's wire and checks that signed thinking goes back unchanged, the
-first step to cross-provider tests. The tests in `crates/efr-daemon/tests/` replay them
+first step to cross-provider tests. The `web_search_*` fixtures give the replay provider web search
+(`ScenarioSpec::web`) and the canonical events of web steps and citations: a Claude
+turn with searches at once, a failed one and marks; two OpenAI turns in the stored
+copy with an open and a find; a manual turn with no web tool; a paused turn that goes
+on; and a search with a shell call, whose steer waits one call. The tests in `crates/efr-daemon/tests/` replay them
 and add the assertions of each case.
 
 ## Tier

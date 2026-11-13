@@ -178,6 +178,21 @@ impl Drafter {
         }
     }
 
+    /// The current message ended inside the model call, at a step of the provider's web
+    /// tool, and the text after it is message `index`: its text drafts start again at
+    /// offset 0. A text draft that waited for the interval is dropped, because the
+    /// completion of the message that ended carries its text.
+    pub(super) fn next_message(&mut self, index: u32) {
+        self.index = index;
+        self.text_changed = false;
+        self.text_block = false;
+        self.text_sent = 0;
+        self.with_parts(|parts| {
+            parts.index = index;
+            parts.text.clear();
+        });
+    }
+
     /// The turn recorded events up to `seq`; later drafts come after them.
     pub(super) fn recorded(&self, seq: Seq) {
         self.recorded.fetch_max(seq.get(), Ordering::AcqRel);
@@ -243,6 +258,12 @@ impl Drafter {
             }
             ProviderEvent::ToolCallEnd { call_id, arguments } => {
                 self.grow_call(call_id, |input| input.whole(arguments))
+            }
+            // NOTE: a step of the provider's web tool is a border of the text, as in the
+            // builder: the text after it is a block of its own.
+            ProviderEvent::HostedCallStart { .. } => {
+                self.text_block = false;
+                false
             }
             _ => false,
         }

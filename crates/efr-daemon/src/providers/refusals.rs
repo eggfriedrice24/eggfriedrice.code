@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use async_trait::async_trait;
 use efr_provider::{
     CallNotices, EditTool, ModelInfo, NoNotices, Provider, ProviderError, ProviderId,
-    ProviderStream, Request, Warmup,
+    ProviderStream, Request, Warmup, WebSupport,
 };
 use efr_stdx::time::Clock;
 use futures::StreamExt as _;
@@ -205,6 +205,12 @@ impl Provider for Watched {
 
     fn default_edit_tool(&self) -> EditTool {
         self.inner.default_edit_tool()
+    }
+
+    // NOTE: the default of the trait is no web tool, so a wrapper that does not pass it
+    // on would keep web search out of every request of its provider.
+    fn web_search(&self) -> WebSupport {
+        self.inner.web_search()
     }
 
     async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {

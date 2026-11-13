@@ -36,6 +36,11 @@ into the GitHub release notes, and it stops when the section is missing.
   file 0600.
 - Three new protocol events: `web_call_started`, `web_call_completed` and
   `turn_web_report`. An older client skips them.
+- In manual mode the model reads that web search is off and that `,mode cautious` turns
+  it on, so its answer can say so. efr adds no line of its own.
+- A Claude answer that cites a web page gets the mark `[1]` after the cited words. The
+  mark is a link to the page in the stored text, so `efr history` and the phone show
+  it too. Each page has one number for the whole turn.
 
 - `[openai] effort` and `[anthropic] effort` set the reasoning effort for the models
   of one company, in place of `[model] effort`.
@@ -98,6 +103,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- A turn that the provider paused during a long web search goes on by itself, up to
+  five times. Before, the turn ended with `the provider paused the turn`.
 - A reply has no first line of its own any more. The scope line (`app`,
   `○ no project · ~/notes`) and the note of the prompt's settings go: the prompt line
   shows where the prompt goes. A line comes only when something changed: `↪` when the

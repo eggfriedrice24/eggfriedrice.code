@@ -447,3 +447,38 @@ fn a_retry_goes_at_once_and_the_status_keeps_it_until_the_call_opens() {
     drafter.call_opened();
     assert!(status.drafts().is_empty(), "the call opened");
 }
+
+/// A step of the provider's web tool ends the message inside the model call: the text
+/// after it is the next message, whose live text and text drafts start again at offset
+/// 0 and equal the builder's text after the step.
+#[test]
+fn a_message_that_ends_at_a_web_step_starts_the_next_one_at_offset_zero() {
+    let (mut drafter, status, sender) = drafter_with_status();
+    let mut receiver = sender.subscribe();
+    drafter.begin_call(0);
+    let mut builder = CompletionBuilder::new();
+    feed(&mut drafter, &mut builder, &text("I'll check."));
+    let step = ProviderEvent::HostedCallStart {
+        call_id: "srvtoolu_1".to_owned(),
+        action: efr_provider::HostedAction::Search { query: None },
+    };
+    // NOTE: the turn completes message 0 and moves the drafter before the builder takes
+    // the start (stream.rs).
+    drafter.message_completed(1);
+    drafter.next_message(1);
+    feed(&mut drafter, &mut builder, &step);
+    feed(&mut drafter, &mut builder, &text("It works"));
+    feed(&mut drafter, &mut builder, &text("."));
+
+    let live = status.live_turn().unwrap();
+    assert_eq!((live.index, live.text.as_str()), (1, "It works."));
+    assert_eq!(live.text, builder.segment_text());
+    assert_eq!(
+        parts(&mut receiver),
+        [
+            DraftPart::Text { index: 0, offset: 0, delta: "I'll check.".to_owned() },
+            DraftPart::Text { index: 1, offset: 0, delta: "It works".to_owned() },
+            DraftPart::Text { index: 1, offset: 8, delta: ".".to_owned() },
+        ]
+    );
+}

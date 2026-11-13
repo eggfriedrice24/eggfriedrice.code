@@ -24,6 +24,12 @@
 //! The list of the modes names `full` only when the user allowed full mode
 //! (`permissions.allow_full`) or the turn runs in it. With full mode off the preamble is
 //! byte for byte what it was before full mode existed, so no prompt cache breaks.
+//!
+//! One line says what the turn does with the provider's web search when the model
+//! cannot read it from its tools: off in manual mode (and how the user turns it on), off
+//! by the setting, or only the stored copy of the web ([`web_line`]). A turn whose
+//! provider has no web tool, and a turn with the live web, get no line, so their block
+//! is byte for byte what it was before web search existed.
 
 mod recent;
 pub(crate) mod secrets;
@@ -37,6 +43,8 @@ use efr_permissions::Egress;
 use efr_protocol::{BusyShell, InputWait, Mode, ModeFallback, RecentCommand, SwitchedModel};
 use efr_scope::Repo;
 use jiff::Timestamp;
+
+use crate::web::{WebPlan, WhyOff};
 
 /// The longest last command shown, in characters; a longer one is cut with a marker.
 const COMMAND_MAX_CHARS: usize = 400;
@@ -100,6 +108,8 @@ pub(crate) struct LiveState {
     /// The provider and the model of the turn before, when this turn is the first on
     /// another one: the block says so once.
     pub(crate) switched_from: Option<SwitchedModel>,
+    /// What the turn does with the provider's web search (`web.rs`).
+    pub(crate) web: WebPlan,
 }
 
 impl fmt::Debug for LiveState {
@@ -126,6 +136,7 @@ impl fmt::Debug for LiveState {
             .field("effort", &self.effort)
             .field("full_allowed", &self.full_allowed)
             .field("wake", &self.wake)
+            .field("web", &self.web)
             .finish_non_exhaustive()
     }
 }
@@ -245,6 +256,11 @@ impl LiveState {
                 fallback.reason.trim_end_matches('.')
             );
         }
+        // NOTE: efr prints nothing of its own when a turn has no web search (TM-Web 9):
+        // the model's own sentence names the reason and the command.
+        if let Some(line) = web_line(self.web) {
+            text.push_str(line);
+        }
         let _ = writeln!(text, "Model: {}", self.model);
         match &self.effort {
             Some(effort) => {
@@ -328,6 +344,31 @@ to type. Your settings tool changes only the defaults in config.toml, after the 
 approves its diff, from the next turn on, and a terminal's own choice still wins over \
 them.
 ";
+
+/// The line about web search for a turn with `plan`: why it is off, or that it reads a
+/// stored copy (the build spec of web search, 3.6). `None` when the provider has no web
+/// tool and when the turn has the live web, where the tool in the request says enough.
+fn web_line(plan: WebPlan) -> Option<&'static str> {
+    match plan {
+        WebPlan::Off(WhyOff::NoSupport) | WebPlan::Live => None,
+        WebPlan::Off(WhyOff::Manual) => Some(WEB_OFF_MANUAL),
+        WebPlan::Off(WhyOff::Setting) => Some(WEB_OFF_SETTING),
+        WebPlan::Stored => Some(WEB_STORED),
+    }
+}
+
+/// The line of web search in manual mode, where a hosted search could not ask first.
+pub(crate) const WEB_OFF_MANUAL: &str = "Web search is off in manual mode. The user turns it \
+                                         on with \",mode cautious\" in this terminal.\n";
+
+/// The line of web search with `web.search = "off"`.
+pub(crate) const WEB_OFF_SETTING: &str =
+    "Web search is off (web.search = \"off\" in efr's config).\n";
+
+/// The line of web search that reads the provider's stored copy of the web.
+pub(crate) const WEB_STORED: &str = "Web search reads a stored copy of the web, which can be \
+                                     some days old. The user gets the live web with \",mode \
+                                     auto\".\n";
 
 /// The line about a command left running in the hidden shell: what it is, how long it
 /// has run, whether it waits for input, and what that means for the next call.

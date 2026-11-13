@@ -461,10 +461,18 @@ request:
    one, and the live web in every other case. The tool has `max_uses` from
    `web.max_searches`, and its page fetches take a URL from efr's own tool results only
    in `full`. A hosted search never passes `authorize_tool_call`, so this is the gate
-   of web search. `Turn::drive` keeps the plan in `Turn::web_plan`; the manual
-   compaction and the context view build the same list from the newest turn's
-   settings (`web::hosted_for`), and a summary request copies the list of its base, so
-   their requests match the turn's.
+   of web search. `Turn::drive` decides the plan once, before the preamble, and keeps
+   it for the turn; the manual compaction and the context view build the same list
+   from the newest turn's settings (`web::hosted_for`), and a summary request copies
+   the list of its base, so their requests match the turn's. The live-state preamble
+   has one line, after the mode, for a plan that is off or reads a stored copy:
+   `Web search is off in manual mode. The user turns it on with ",mode cautious" in
+   this terminal.`, `Web search is off (web.search = "off" in efr's config).`, or `Web
+   search reads a stored copy of the web, which can be some days old. The user gets the
+   live web with ",mode auto".` A turn whose provider has no web tool, and a turn with
+   the live web, get no line, so their block keeps its bytes. efr itself prints nothing
+   about web search in manual mode: the model's own sentence names the reason and the
+   command.
 
 It streams the provider and records coalesced `assistant_message_updated` events (at
 most one per `update_interval` on the injected clock, the text held back sent when the
@@ -509,7 +517,8 @@ change that the tool reports just before it returns is still recorded before the
 completion. The turn ends with
 `turn_completed` (with the summed usage, and `stop` when the last model call gave no
 text and no tool call or stopped for another reason than `end_turn`, such as
-`max_tokens` or `refusal`; a `pause_turn` is not continued), `turn_failed` (a provider error mapped to an
+`max_tokens` or `refusal`; a `pause_turn` only after `MAX_PAUSES` continuations, see
+"Web search in a turn"), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
 `retry_after_ms`, an overloaded provider to `busy` without it, an unknown model to `invalid` with the `model`, the rest to
@@ -633,6 +642,65 @@ else changes.
   takes a `PromptRouting`: an event that the prompt's append records right before its
   `prompt_queued` (`terminal_attached`, so the log never holds a pick-up without its
   prompt) and the `route` that the result and its receipt carry.
+
+### Web search in a turn
+
+The provider runs the steps of its web tool (a search, an opened page, a find in a
+page) inside the model call (`turn/hosted.rs`, the build spec of web search). efr
+never runs them and never authorizes them; the gate is the plan of the request (see
+the request above). The turn records what the stream says:
+
+- **The steps.** A `HostedCallStart` ends the current assistant message when it has
+  text: the turn records its `assistant_message_completed` first, and the text after
+  the step is the next message, at the next index, whose updates and drafts count
+  their offsets from 0 again. So every client shows text, rows and text in the order
+  of the model. Then the turn records `web_call_started` with a `CallId` of its own. A
+  `HostedCallEnd` records `web_call_completed` with the whole state of the step
+  again: the query, the page or the pattern (the start's when the end lacks it), the
+  first `MAX_WEB_RESULTS` results, or the error. An end whose start never came records
+  both in one batch. A query and a pattern are cut to 1000 characters, a URL to 2048
+  and a title to 200. The open steps stay in the turn across its model calls, in the
+  order of their starts, so the end of a step that a pause or a client tool call moved
+  to the next answer finds its start. A web step is no tool call: it is not in
+  `tool_call_*` events and does not count against the limit of a wake turn.
+- **The count.** Each search that ended without an error counts. Failed searches,
+  opens and finds do not.
+- **The sources and the marks.** A cited URL that is new to the turn gets the next
+  number, and a known URL keeps its number, for the whole turn (at most
+  `MAX_WEB_SOURCES`). A placed citation (Claude, where the cited part of the text comes
+  with its URL) puts the mark ` [[n]](<url>)` into the text right after the words that
+  it backs, as a text delta of its own: in the updates, the completion, the drafts and
+  the saved messages. The destination is in angle brackets, with `<`, `>`, white space
+  and control characters percent-encoded. Two citations of one run with the same
+  number give one mark. An unplaced citation (OpenAI, whose model writes its own
+  Markdown link) only gets its number.
+- **The report.** At the end of every turn that ran a search or cited a page, the
+  batch of the terminal event holds, before it, a `web_call_completed` with
+  `not_finished` for each step that never ended, then one `turn_web_report`: the
+  count, `stored_copy` when the plan read the stored copy and a search ran, the cited
+  pages in the order of their numbers, and `stored_copy_note` for the first such report
+  of the conversation (no earlier report with `stored_copy` in the turn's snapshot, and
+  a flag of the actor that the first one sets).
+- **`pause_turn`.** A provider that stops its own loop of hosted steps answers with
+  `StopReason::PauseTurn`. When that answer has no client tool call, the turn sends
+  the next request at once, which ends with the paused answer as it came, so the
+  provider goes on with it; up to `MAX_PAUSES` (5) times in a turn, and within
+  `max_model_calls`. After that the turn ends with `stop` `pause_turn`.
+- **Nothing between.** After a paused answer, and after an answer with a step that
+  started and did not end (a search together with a client tool call, which the
+  provider runs in the next call), the next request takes no notes of the toolbox and
+  no steer: a user message there would end the assistant's turn on the API, and the
+  provider would refuse the step that waits. They wait for the call after it.
+- **The history.** The transcript keeps the whole answer of a model call as one
+  assistant message, with the provider's items (`provider_raw`, which holds the
+  search, its results and their encrypted content). The next request of the same model
+  sends them back. A switch of the model or the provider drops them, as for any item,
+  and the new model reads the canonical text with its marks, so the URLs of the sources
+  stay. Each provider sends raw items with a web step only in a request that carries
+  the web tool; in any other request (manual mode, `off`) the message goes as its
+  canonical content. A turn rebuilt from its events ignores the web events: its text
+  is in `assistant_message_completed`. A pruning never touches the items, so the
+  results of a search stay in the context until a summary.
 
 ### Provider items survive a restart
 
@@ -1388,7 +1456,20 @@ refuses every request above its model's window: the turn compacts before its fir
 call, the summary request leaves out the oldest prompts and says so in its prompt, and
 no request is refused; a history of tool loops shows that no request parts a tool call
 from its result; the pure steps (pruning frees at least 20000 tokens or does nothing, the tail
-rule, the cut) and the summary prompt's sections have unit tests. The `auto` tests
+rule, the cut) and the summary prompt's sections have unit tests. The web search tests
+(`turn/tests/web.rs`, `turn/tests/web_calls.rs`, `turn/tests/web_history.rs`,
+`turn/hosted/tests.rs`) cover the gate (manual and `off` send no web tool, the stored
+copy in `cautious`), the events of a Claude turn against the facts of the frames 4,
+10, 13 and 14 of the board TM-Web (each search with its own time, three at once, the
+failed search that does not count, the marks before the punctuation, the sources 1, 2,
+3), the offsets of the updates and drafts after a step, an OpenAI answer with an open,
+a find and unplaced citations, the stored copy and its note once (also after a
+restart), a manual turn with its preamble line and no event (frame 9), a failed and an
+interrupted turn inside a search, a paused turn that goes on and one that stops after
+five continuations, a steer and a note that wait one call after a step that waits, a
+switch of the model, a rebuilt turn, a summary request with the web tool, the estimate
+and the pruning with the search items, and the numbers, the cuts and the marks alone.
+The `auto` tests
 (`turn/tests/sandbox.rs`) cover a contained call, a
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to

@@ -46,6 +46,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use efr_daemon::WebSupport;
 use efr_protocol::{
     ClientFrame, ConversationId, ConversationSubscribe, ConversationSubscribeItem, ErrorBody,
     EventEnvelope, Method, PromptSendResult, Seq,
@@ -112,6 +113,10 @@ pub struct ScenarioSpec {
     /// `conversation.follow_project = false`: a terminal keeps one conversation,
     /// whatever the scope of its prompts.
     pub one_conversation_per_terminal: bool,
+    /// What the replay provider says that it can do with the web tool: with it, the
+    /// requests of a turn in a mode that allows web search carry the hosted tool
+    /// (`"hosted"`), and the answers give the canonical events of web steps.
+    pub web: Option<WebSupport>,
 }
 
 impl ScenarioSpec {
@@ -126,7 +131,13 @@ impl ScenarioSpec {
             restart_after_event: None,
             project: None,
             one_conversation_per_terminal: false,
+            web: None,
         }
+    }
+
+    const fn web(mut self, support: WebSupport) -> Self {
+        self.web = Some(support);
+        self
     }
 
     const fn subscription(mut self) -> Self {
@@ -193,6 +204,16 @@ pub const SCENARIOS: &[ScenarioSpec] = &[
     // Claude over Anthropic's wire: the signed thinking of the first turn goes back
     // unchanged in the request of the second.
     ScenarioSpec::new("messages_thinking_two_turns").messages(),
+    // Web search with the canonical events of the provider slices (the build spec of web
+    // search, 5.3): a Claude turn with three searches, one failed, and two marks; an
+    // OpenAI turn with a search, an open and a find in the stored copy, twice, with the
+    // note of the stored copy in the first turn only; a manual turn with no web tool; a
+    // paused turn that goes on; a search with a shell call, whose steer waits one call.
+    ScenarioSpec::new("web_search_claude").web(WebSupport::Live),
+    ScenarioSpec::new("web_search_openai").web(WebSupport::StoredOrLive),
+    ScenarioSpec::new("web_search_manual").web(WebSupport::Live),
+    ScenarioSpec::new("web_search_pause").web(WebSupport::Live),
+    ScenarioSpec::new("web_search_with_tool").web(WebSupport::Live),
 ];
 
 /// The fake model server of a scenario that runs a real provider.
@@ -387,8 +408,11 @@ impl Replay {
             builder = builder.messages(&server);
             (None, Some(WireServer::Messages(server)))
         } else {
-            let provider =
+            let mut provider =
                 ReplayProvider::new(&scenario.transcript)?.with_redactor(redactor.clone()).paced();
+            if let Some(support) = spec.web {
+                provider = provider.with_web_search(support);
+            }
             let provider = Arc::new(provider);
             builder = builder.provider(Arc::clone(&provider));
             (Some(provider), None)

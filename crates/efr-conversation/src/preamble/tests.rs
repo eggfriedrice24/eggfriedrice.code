@@ -6,7 +6,8 @@ use efr_scope::Repo;
 use insta::assert_snapshot;
 use jiff::Timestamp;
 
-use super::LiveState;
+use super::{LiveState, WEB_OFF_MANUAL, WEB_OFF_SETTING, WEB_STORED};
+use crate::web::{WebPlan, WhyOff};
 
 fn minimal() -> LiveState {
     LiveState {
@@ -33,6 +34,7 @@ fn minimal() -> LiveState {
         full_allowed: false,
         wake: false,
         switched_from: None,
+        web: WebPlan::Off(WhyOff::NoSupport),
     }
 }
 
@@ -515,4 +517,50 @@ fn the_first_turn_on_another_model_names_the_model_before_once() {
         "{text}"
     );
     assert!(!minimal().render().contains("The earlier turns"), "only after a switch");
+}
+
+/// The line about web search (the build spec of web search, 3.6): a manual turn on a
+/// provider with a web tool says that search is off and how the user turns it on (the
+/// model's own sentence of TM-Web 9 needs both), the setting `off` names the setting, and
+/// a stored copy says how old it can be. The line stands after the mode.
+#[test]
+fn the_web_line_says_why_search_is_off_or_that_it_reads_a_stored_copy() {
+    let manual = LiveState { mode: Mode::Manual, web: WebPlan::Off(WhyOff::Manual), ..minimal() };
+    let text = manual.render();
+    assert!(
+        text.contains(
+            "Permission mode: manual\nWeb search is off in manual mode. The user turns it on \
+             with \",mode cautious\" in this terminal.\nModel: gpt-5.5\n"
+        ),
+        "{text}"
+    );
+    let off = LiveState { web: WebPlan::Off(WhyOff::Setting), ..minimal() }.render();
+    assert!(off.contains("Web search is off (web.search = \"off\" in efr's config).\n"), "{off}");
+    let stored = LiveState { web: WebPlan::Stored, ..minimal() }.render();
+    assert!(
+        stored.contains(
+            "Web search reads a stored copy of the web, which can be some days old. The user \
+             gets the live web with \",mode auto\".\n"
+        ),
+        "{stored}"
+    );
+    for (line, text) in [(WEB_OFF_MANUAL, &text), (WEB_OFF_SETTING, &off), (WEB_STORED, &stored)] {
+        assert_eq!(text.matches(line).count(), 1, "{text}");
+    }
+}
+
+/// A turn whose provider has no web tool, and a turn with the live web, keep the bytes of
+/// the block of before web search, so no prompt cache breaks.
+#[test]
+fn no_web_line_without_support_or_with_the_live_web() {
+    let before = minimal().render();
+    let live = LiveState { web: WebPlan::Live, ..minimal() }.render();
+    assert_eq!(live, before);
+    assert!(!before.contains("Web search"), "{before}");
+    let manual = LiveState { mode: Mode::Manual, ..minimal() };
+    assert_eq!(
+        manual.render(),
+        LiveState { web: WebPlan::Off(WhyOff::NoSupport), ..manual.clone() }.render()
+    );
+    assert!(!manual.render().contains("Web search"));
 }

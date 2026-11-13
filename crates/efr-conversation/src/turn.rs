@@ -44,6 +44,7 @@ mod coalesce;
 mod compact;
 mod drafter;
 mod full;
+mod hosted;
 mod reason;
 mod review;
 mod stream;
@@ -51,7 +52,7 @@ mod stream;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -82,6 +83,7 @@ pub(crate) use self::compact::{read_fresh, summarized, wire_usage};
 use self::coalesce::{Coalescer, sleep_or_pending};
 use self::compact::{Guard, Recovered};
 use self::drafter::Drafter;
+use self::hosted::{MAX_PAUSES, WebState};
 use self::review::Reviewed;
 use self::stream::Response;
 use crate::approvals::{self, Approvals};
@@ -156,6 +158,10 @@ pub(crate) struct Shared {
     /// The paths whose delete in the real tool caches the classifier or the user refused
     /// in this conversation: a later call does not raise them again.
     pub(crate) denied_cache_deletes: Mutex<HashSet<PathBuf>>,
+    /// Set by the first `turn_web_report` of searches in a stored copy of the web that
+    /// this actor records: later reports of the conversation leave out the note that
+    /// says what the stored copy means.
+    pub(crate) stored_copy_noted: AtomicBool,
 }
 
 /// A prompt that waits for its turn, or runs as one; or a turn that job notices
@@ -399,10 +405,11 @@ struct Turn {
     /// list when the turn starts: the request offers only this one of the two edit
     /// tools, and each call carries it so the toolbox refuses the other one.
     edit_tool: EditTool,
-    /// What the turn does with the provider's web tool, decided once when the request
-    /// is built (`web.rs`): every request of the turn carries the same hosted tools.
-    /// Off until then.
-    web_plan: WebPlan,
+    /// What the turn does with the provider's web tool: its plan, decided once before
+    /// the preamble (`web.rs`), so every request of the turn carries the same hosted
+    /// tools (off until then); the steps of the tool, the count of the searches and the
+    /// cited pages (`hosted.rs`).
+    web: WebState,
     spec: TurnSpec,
     control: Control,
     cwd: PathBuf,
@@ -534,7 +541,7 @@ impl Turn {
             provider: None,
             switched_from: None,
             edit_tool: EditTool::default(),
-            web_plan: WebPlan::Off(WhyOff::NoSupport),
+            web: WebState::new(WebPlan::Off(WhyOff::NoSupport)),
             spec,
             control,
             cwd,
@@ -719,6 +726,15 @@ impl Turn {
         };
         let busy_shell = shared.deps.toolbox.busy_shell(shared.conversation_id).await;
         efr_stdx::mark::hit("turn.shell");
+        // NOTE: the gate of web search. A hosted search never passes the check point,
+        // so the mode decides here whether the request carries the tool at all: never
+        // in manual, never with `web.search = "off"` (`web.rs`). The preamble names a
+        // plan that is off or reads the stored copy.
+        self.web.plan = web::plan(settings.mode, config.web.search, provider.web_search());
+        tracing::debug!(web = ?self.web.plan, "the web plan of the turn");
+        if snapshot.page.iter().any(|envelope| hosted::notes_stored_copy(&envelope.event)) {
+            self.web.noted_before();
+        }
         let preamble = self.live_state(derivation.repo, agent_cwd, moved_from, busy_shell).render();
         let fresh = match snapshot.summary() {
             Some(compaction) => Some(self.fresh_for(compaction).await),
@@ -754,17 +770,12 @@ impl Turn {
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
         efr_stdx::mark::hit("turn.window");
         self.edit_tool = edit_tool(&*provider, &settings.model);
-        // NOTE: the gate of web search. A hosted search never passes the check point,
-        // so the mode decides here whether the request carries the tool at all: never
-        // in manual, never with `web.search = "off"` (`web.rs`).
-        self.web_plan = web::plan(settings.mode, config.web.search, provider.web_search());
-        tracing::debug!(web = ?self.web_plan, "the web plan of the turn");
         let base = Request {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
             messages: Vec::new(),
             tools: shared.deps.toolbox.definitions(self.edit_tool),
-            hosted: web::hosted_tools(self.web_plan, settings.mode, config.web.max_searches),
+            hosted: web::hosted_tools(self.web.plan, settings.mode, config.web.max_searches),
             max_output_tokens: config.max_output_tokens,
             effort: settings.effort.clone(),
             side_call: false,
@@ -778,13 +789,22 @@ impl Turn {
             if self.control.interrupt.is_raised() {
                 return Ok(Ending::Interrupted);
             }
+            // NOTE: after a paused answer, or one with a hosted step that waits, the
+            // request must end as the answer did: a user message there ends the
+            // assistant's turn on the API, and the provider refuses the step that waits
+            // (the build spec of web search, 3.7). Notes and steers wait one call.
+            let hold = std::mem::take(&mut self.web.hold);
             // NOTE: efr's own notes, such as a port that a job's forward did not get,
             // reach the model at its next call, also in this turn (v0.0.4 L2).
-            let notes = shared.deps.toolbox.take_notes(shared.conversation_id).await;
+            let notes = if hold {
+                Vec::new()
+            } else {
+                shared.deps.toolbox.take_notes(shared.conversation_id).await
+            };
             if !notes.is_empty() {
                 self.push(&mut window, Message::user(notice::notes_text(&notes)));
             }
-            let steers = self.control.steering.take();
+            let steers = if hold { Vec::new() } else { self.control.steering.take() };
             if !steers.is_empty() {
                 // NOTE: recorded before the call that sends them, so a client moves
                 // them into the conversation, and an interrupt no longer sends them
@@ -822,6 +842,21 @@ impl Turn {
             let stop = turn_stop(self.answer_stop, &message);
             self.push(&mut window, message);
             self.count_call();
+            self.web.hold = self.web.pending();
+            // NOTE: the provider stopped its own loop of hosted steps; the next request
+            // sends the paused answer back as it is, and the provider goes on with it.
+            if calls.is_empty()
+                && self.answer_stop == Some(StopReason::PauseTurn)
+                && self.web.pauses < MAX_PAUSES
+            {
+                self.web.pauses += 1;
+                self.web.hold = true;
+                tracing::debug!(
+                    pauses = self.web.pauses,
+                    "the provider paused the turn; it goes on"
+                );
+                continue;
+            }
             if calls.is_empty() {
                 if !self.control.steering.close_if_idle().await {
                     continue;
@@ -944,6 +979,15 @@ impl Turn {
         let files = self.shared.deps.toolbox.turn_report(conversation_id, turn_id).await;
         if !files.is_empty() {
             batch = batch.event(conversation_id, Event::TurnSurfaceReport { turn_id, files });
+        }
+        // NOTE: a hosted step that never got its end did not finish; the report of the
+        // web comes last before the terminal event, so a view writes the sources after
+        // the answer and the count on the end line.
+        for event in self.web.unfinished(turn_id) {
+            batch = batch.event(conversation_id, event);
+        }
+        if let Some(report) = self.web.report(turn_id, &self.shared.stored_copy_noted) {
+            batch = batch.event(conversation_id, report);
         }
         batch = batch.event(conversation_id, event);
         if let Some(messages) = self.saved_messages(&key) {
@@ -1102,6 +1146,7 @@ impl Turn {
             full_allowed: self.config.full_mode.allowed,
             wake: self.spec.is_wake(),
             switched_from: self.switched_from.clone(),
+            web: self.web.plan,
         }
     }
 
@@ -2045,8 +2090,8 @@ struct PendingCall {
 /// Why the model stopped, for `turn_completed`, when the final answer `message`, which
 /// stopped for `stop`, has no text and no tool call, or stopped for another reason than
 /// the end of its answer, such as the output limit or a refusal. `None` for a normal
-/// answer. A `pause_turn` ends the turn too: efr does not send the answer back to
-/// continue it.
+/// answer. A `pause_turn` reaches this only after [`MAX_PAUSES`] continuations: the turn
+/// then ends as one that the provider paused.
 fn turn_stop(stop: Option<StopReason>, message: &Message) -> Option<TurnStop> {
     let empty = message.text().trim().is_empty() && tool_calls(message).is_empty();
     let reason = match stop {
