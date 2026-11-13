@@ -177,9 +177,21 @@ async fn full_records_exit_judged_full_and_asks_no_reviewer() {
 
 #[tokio::test]
 async fn auto_turn_still_reviews_and_offers_always() {
-    // The guard of the split of `CallContext`: `auto` keeps its reviewer and its offer.
+    // The guard of the split of `CallContext`: `auto` keeps its reviewer, which decides
+    // alone, and, while the user answers, its offer of a rule.
     let judge = FakeJudge::answering(vec![crate::testing::unanswered()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let declared = notes_copy(setup.home(), "today.txt");
+    let calls = vec![shell(&declared.0)];
+    let (mut h, _, turn_id) = start(setup, calls, vec![declared], "copy it to my notes").await;
+    h.wait_end(turn_id).await;
+    assert_eq!(judge.calls(), 1, "auto asks its reviewer");
+    assert!(h.toolbox.judged()[0].sandboxed());
+    assert!(!h.kinds().await.iter().any(|kind| kind == "approval_requested"));
+
+    let judge = FakeJudge::answering(Vec::new());
     let mut setup = reviewed(Some(Arc::clone(&judge)));
+    setup.config.classifier_enabled = false;
     setup.allow_writer = Some(FakeAllowWriter::saving());
     let declared = notes_copy(setup.home(), "today.txt");
     let calls = vec![shell(&declared.0)];
@@ -191,9 +203,7 @@ async fn auto_turn_still_reviews_and_offers_always() {
     assert!(exit.always.is_some(), "auto offers a rule: {exit:?}");
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(turn_id).await;
-
-    assert_eq!(judge.calls(), 1, "auto asks its reviewer first");
-    assert!(h.toolbox.judged()[0].sandboxed());
+    assert_eq!(judge.calls(), 0);
 }
 
 #[tokio::test]

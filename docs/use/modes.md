@@ -12,7 +12,7 @@ There are four modes:
 |---|---|---|
 | `manual` | only what your own rules allow | every read, write, command and network access |
 | `cautious` (the default) | reads outside secrets, writes in `$SCRATCH` and in the turn's registered project, and read-only commands such as `ls`, `cat` and `rg` | every other write and command |
-| `auto` | every shell command, in a kernel sandbox that can write the project | an action that leaves the sandbox, when a reviewer model does not decide it |
+| `auto` | every shell command, in a kernel sandbox that can write the project; a reviewer model decides each action that leaves the sandbox | a delete of a tree such as `~`, a rule of yours that asks, and a change of efr's settings |
 | `full` | every command, as you, with no sandbox | `sudo`, a process that outlives the turn, a delete of `~`, `/`, a system dir or a project, and some deletes and dir reads (see below) |
 
 In every mode, efr denies secrets and a write of its own config.
@@ -131,8 +131,11 @@ and private copies of the tool caches. It reaches the package registries and Git
 through efr's network proxy.
 
 An action that leaves the sandbox is an exit, such as `sudo`, `git push` or a write to
-`~/.zshrc`. A reviewer model decides most exits from your messages. Some exits always
-ask you. The file tools (`read_file`, `write_file`, `edit`, `apply_patch`) follow the
+`~/.zshrc`. A reviewer model decides each exit from your messages, alone: the action
+runs, or the model reads why it does not, and efr asks you nothing about it. When a
+refused action is one that you want, ask for it in your next message. The highest
+risks, such as `npm publish`, run only when a message of yours names them
+([The sandbox](sandbox-basics.md#exits)). The file tools (`read_file`, `write_file`, `edit`, `apply_patch`) follow the
 rules of `cautious`.
 
 `auto` needs Linux 7.1 or newer and bubblewrap. Without them, `auto` runs as

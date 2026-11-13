@@ -131,6 +131,9 @@ async fn real_daemon(
     // NOTE: the clock starts after the files of the test were written, so no script of
     // the test counts as a program that changed in the turn (which asks the user).
     let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
+    // NOTE: the user answers each exit of these tests, so the reviewer is off, in the
+    // file too: each project that this function adds makes efrd read the file again.
+    crate::full::write_config(dirs, "[classifier]\nenabled = false\n");
     let daemon = with_zsh(TestDaemon::builder())
         .clock(efr_test_support::TestClock::starting_at(start))
         .dirs(Arc::clone(dirs))
@@ -140,6 +143,7 @@ async fn real_daemon(
             config.permissions.mode = Mode::Auto;
             // NOTE: no wake turn takes the calls of the test's next turn.
             config.jobs.max_wakes_per_hour = 0;
+            config.classifier.enabled = false;
         })
         .custom_provider(model)
         .start()
@@ -289,12 +293,14 @@ async fn escape_planted_pre_push_in_scratch_clone_asks_user() {
     assert_eq!(model.reviews(), 0, "the reviewer never judged it");
     assert!(!marker.exists(), "the hook never ran");
 
-    // The control row: with no plant, the same push goes to the reviewer.
+    // The control row: with no plant, the same push is one that the reviewer may judge.
+    // The reviewer is off in this test, so the question comes, and it does not say
+    // that only the user approves it.
     std::fs::remove_file(&hook).unwrap();
     model.shell(&line);
     let (_, events) = turn(&daemon, 4, "push it", ApprovalDecision::Deny, false).await;
     let exit = question(&events);
-    assert_eq!(model.reviews(), 1, "{:?}", kinds(&events));
+    assert_eq!(model.reviews(), 0, "{:?}", kinds(&events));
     assert!(!exit.user_only, "{exit:?}");
     assert!(exit.facts.iter().all(|fact| !fact.contains("git")), "{:?}", exit.facts);
     assert!(!marker.exists(), "the hook never ran");

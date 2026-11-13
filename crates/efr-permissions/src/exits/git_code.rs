@@ -265,7 +265,8 @@ pub(super) fn apply(
         CodeState::Writable(items) => writable_notes(&items, home),
     };
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
-        need.approver = Approver::User;
+        // NOTE: only raised: a guarded upload, such as a publish, stays guarded.
+        need.approver = need.approver.max(Approver::User);
         for note in &notes {
             if !need.notes.contains(note) {
                 need.notes.push(note.clone());
@@ -279,7 +280,7 @@ pub(super) fn apply(
 /// ([`steers_code`]), or a variable of a git or gh line does ([`sets_git_env`]).
 pub(super) fn apply_steering(needs: &mut [ExitNeed], note: &str) {
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
-        need.approver = Approver::User;
+        need.approver = need.approver.max(Approver::User);
         if !need.notes.iter().any(|known| known == note) {
             need.notes.push(note.to_owned());
         }

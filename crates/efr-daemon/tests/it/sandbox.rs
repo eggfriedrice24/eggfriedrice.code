@@ -79,11 +79,17 @@ pub(crate) fn ready() -> SandboxStatus {
 /// fails with its message.
 pub(crate) const JOB_WORK: Duration = Duration::from_secs(40);
 
-/// The reviewer's answer that hands every exit to the user.
+/// The answer of a reviewer model that is not sure. Nobody asks the user about an exit
+/// while the reviewer is on, so such an exit does not run. A test that answers a
+/// question builds its daemon with [`user_answers`]; its model then gets no review.
 const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
 
 /// The reviewer's answer that allows an exit.
 pub(crate) const REVIEWER_ALLOWS: &str = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"fits the request","rationale":"the user named the file"}"#;
+
+/// The reviewer's answer that allows an exit but finds no clear request of the user
+/// for it: efr's request rule refuses such an allow for an exit that needs one.
+pub(crate) const REVIEWER_ALLOWS_LOOSELY: &str = r#"{"verdict":"allow","risk":"low","user_authorization":"low","category":"fits the request","rationale":"it looks like a step of the work"}"#;
 
 /// A model that calls a tool with each input in turn, then says `done`. A request of
 /// the reviewer (a one-shot request) gets `verdict` and does not count as a turn's
@@ -98,7 +104,8 @@ pub(crate) struct ScriptedModel {
 }
 
 impl ScriptedModel {
-    /// Calls `shell` with each input; the reviewer hands each exit to the user.
+    /// Calls `shell` with each input; a reviewer that this model plays is not sure of
+    /// any exit. For a daemon of [`user_answers`], where the user decides each exit.
     fn new(calls: Vec<Value>) -> Arc<Self> {
         let calls = calls.into_iter().map(|input| ("shell", input)).collect();
         Self::reviewed(calls, REVIEWER_ASKS)
@@ -523,6 +530,14 @@ fn with_zsh(builder: TestDaemonBuilder) -> TestDaemonBuilder {
     builder.local_pty()
 }
 
+/// `builder` for a daemon whose user answers each exit: its reviewer is off
+/// (`classifier.enabled = false`). With the reviewer on, which is the default, `auto`
+/// asks the user nothing about an exit, so a test that says yes or no to a question
+/// builds its daemon with this. Its model never gets a review.
+pub(crate) fn user_answers(builder: TestDaemonBuilder) -> TestDaemonBuilder {
+    builder.config(|settings| settings.classifier.enabled = false)
+}
+
 #[tokio::test]
 async fn shell_a_routine_command_in_auto_runs_contained_without_a_question() {
     if !zsh_enabled("shell_a_routine_command_in_auto_runs_contained_without_a_question") {
@@ -531,7 +546,7 @@ async fn shell_a_routine_command_in_auto_runs_contained_without_a_question() {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let (launcher, fake) = fake_launcher(&dirs);
     let model = ScriptedModel::new(vec![json!({ "command": "echo efr-$((40+2))" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -570,7 +585,7 @@ async fn shell_a_predicted_exit_asks_and_a_yes_runs_with_its_grant() {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let (launcher, fake) = fake_launcher(&dirs);
     let model = ScriptedModel::new(vec![json!({ "command": "echo hi > ~/notes.txt" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -582,9 +597,9 @@ async fn shell_a_predicted_exit_asks_and_a_yes_runs_with_its_grant() {
     let kinds = kinds(&events);
     let asked = kinds.iter().position(|kind| *kind == "approval_requested").unwrap();
     let requested = kinds.iter().position(|kind| *kind == "exit_requested").unwrap();
-    // The reviewer judged the write first and handed it to the user.
+    // The reviewer is off, so the question follows the record of the exit at once.
     assert!(requested < asked, "{kinds:?}");
-    assert_eq!(kinds[asked - 1], "exit_judged", "{kinds:?}");
+    assert_eq!(kinds[asked - 1], "exit_requested", "{kinds:?}");
     assert_eq!(kinds.iter().filter(|kind| **kind == "exit_requested").count(), 1, "{kinds:?}");
     let notes = dirs.home().join("notes.txt");
     let [spec] = specs(&fake).try_into().unwrap();
@@ -605,7 +620,7 @@ async fn shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child() {
         "command": "sh -c 'echo made > \"$HOME/gen.txt\"'",
         "needs": { "write": ["~/gen.txt"], "reason": "the script writes ~/gen.txt" },
     })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -646,7 +661,7 @@ async fn shell_an_exit_question_resolves_programs_with_the_hidden_shells_path() 
         .unwrap();
     let model =
         ScriptedModel::new(vec![json!({ "command": "true" }), json!({ "command": "sudo true" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -675,7 +690,7 @@ async fn shell_reprobe_after_sandbox_failed() {
     let (launcher, fake) = fake_launcher(&dirs);
     std::fs::write(fake.join("fail"), "").unwrap();
     let model = ScriptedModel::new(vec![json!({ "command": "true" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .custom_provider(model)
@@ -738,7 +753,7 @@ async fn shell_a_contained_call_runs_in_the_real_sandbox() {
     let line = "touch inside.txt && echo private > /tmp/x && cat /tmp/x; \
                 sh -c 'echo no > $HOME/outside.txt'; echo status=$?";
     let model = ScriptedModel::new(vec![json!({ "command": line })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .sandbox_launcher(&launcher)
@@ -794,7 +809,7 @@ async fn shell_scratch_is_set_for_a_call_outside_the_sandbox() {
     }
     let dirs = Arc::new(TestDirs::new().unwrap());
     let model = ScriptedModel::new(vec![json!({ "command": SCRATCH_LINE })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .custom_provider(model)
         .start()
@@ -828,7 +843,7 @@ async fn shell_scratch_is_set_in_the_real_sandbox() {
         ("SCRATCH".to_owned(), "/scratch/user".to_owned()),
     ]);
     let model = ScriptedModel::new(vec![json!({ "command": SCRATCH_LINE })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .sandbox_launcher(&launcher)
@@ -890,7 +905,7 @@ async fn shell_a_contained_call_cannot_reach_the_snapshot_store() {
         store.display()
     );
     let model = ScriptedModel::new(vec![json!({ "command": line })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .sandbox_launcher(&launcher)
@@ -1029,7 +1044,7 @@ async fn model_side_peer(
         out.display()
     );
     let model = ScriptedModel::new(vec![json!({ "command": command })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .custom_provider(model)
         .start()
@@ -1194,7 +1209,7 @@ async fn shell_a_turn_reports_its_surface_files_and_keeps_a_quarantined_change_o
     let model = ScriptedModel::new(vec![json!({
         "command": "printf 'all:\\n' > Makefile && echo hook > planted"
     })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -1255,7 +1270,7 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
         json!({ "command": "echo second" }),
         json!({ "command": "echo from-b" }),
     ]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -1350,7 +1365,7 @@ async fn shell_a_survivor_of_an_exit_closes_the_hidden_shell() {
     std::fs::write(fake.join("survivors"), "").unwrap();
     let model =
         ScriptedModel::new(vec![json!({ "command": "true" }), json!({ "command": "true" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -1382,7 +1397,7 @@ async fn shell_floor_backup_taken_before_exit_child_line() {
     std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
     let model =
         ScriptedModel::new(vec![json!({ "command": "echo 'alias k=kubectl' >> ~/.zshrc" })]);
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
         .probe_override(ready())
@@ -1460,7 +1475,10 @@ async fn shell_floor_backup_through_linked_config_dir() {
     let config = dirs.create_dir("home/.config").unwrap();
     std::os::unix::fs::symlink(real.parent().unwrap(), config.join("hypr")).unwrap();
     let line = "sed -i 's/gaps_in = 5/gaps_in = 10/' ~/.config/hypr/hyprland.conf";
-    let model = ScriptedModel::new(vec![json!({ "command": line })]);
+    // NOTE: the reviewer decides this exit: the project that the test adds below makes
+    // efrd read `config.toml` again, which holds no `classifier.enabled = false`.
+    let model =
+        ScriptedModel::reviewed(vec![("shell", json!({ "command": line }))], REVIEWER_ALLOWS);
     let daemon = with_zsh(TestDaemon::builder())
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
@@ -1486,7 +1504,8 @@ async fn shell_floor_backup_through_linked_config_dir() {
     .await;
 
     let kinds = kinds(&events);
-    assert!(kinds.contains(&"approval_requested"), "{kinds:?}");
+    assert!(!kinds.contains(&"approval_requested"), "{kinds:?}");
+    assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Allow)]);
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
     assert_eq!(std::fs::read_to_string(&real).unwrap(), "gaps_in = 10\n", "the line ran");
@@ -1517,10 +1536,18 @@ async fn shell_allowed_floor_edit_keeps_floor_bind_for_contained_code() {
     // The first line edits the project's .envrc, a floor that efr predicts, and runs in
     // the exit child after the yes. The second hides its write in `sh -c`, so it runs
     // contained, where the floor stays read only.
-    let model = ScriptedModel::new(vec![
-        json!({ "command": "echo 'export B=2' >> .envrc" }),
-        json!({ "command": "sh -c 'echo C=3 >> .envrc'; echo status=$?; touch ok.txt" }),
-    ]);
+    // NOTE: the reviewer decides the first line: the project that the test adds below
+    // makes efrd read `config.toml` again, which holds no `classifier.enabled = false`.
+    let model = ScriptedModel::reviewed(
+        vec![
+            ("shell", json!({ "command": "echo 'export B=2' >> .envrc" })),
+            (
+                "shell",
+                json!({ "command": "sh -c 'echo C=3 >> .envrc'; echo status=$?; touch ok.txt" }),
+            ),
+        ],
+        REVIEWER_ALLOWS,
+    );
     let daemon = with_zsh(TestDaemon::builder())
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
@@ -1548,7 +1575,8 @@ async fn shell_allowed_floor_edit_keeps_floor_bind_for_contained_code() {
         run_turn(&daemon, "add B=2 to my .envrc", Mode::Auto, ApprovalDecision::Allow).await;
 
     let kinds = kinds(&events);
-    assert_eq!(kinds.iter().filter(|kind| **kind == "approval_requested").count(), 1, "{kinds:?}");
+    assert!(!kinds.contains(&"approval_requested"), "{kinds:?}");
+    assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Allow)], "{kinds:?}");
     let [_, (output, _)] = completed(&events).try_into().unwrap();
     assert!(output.contains("Read-only file system"), "{output}");
     assert!(!output.contains("status=0"), "{output}");
@@ -1653,20 +1681,28 @@ async fn a_floor_file_edit_that_the_reviewer_refuses_never_runs_and_asks_nobody(
 }
 
 #[tokio::test]
-async fn an_unnamed_floor_file_edit_asks_the_user_and_never_the_reviewer() {
+async fn an_unnamed_floor_file_edit_needs_a_clear_request_and_asks_nobody() {
+    // No message names the file. The reviewer judges the edit, and its allow stands only
+    // with a clear request of the user: a loose allow does not run, and nobody is asked.
     let dirs = Arc::new(TestDirs::new().unwrap());
     let zshrc = dirs.home().join(".zshrc");
     std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
     let write = json!({ "path": zshrc, "content": "alias k=kubectl\n" });
-    let model = ScriptedModel::reviewed(vec![("write_file", write)], REVIEWER_ALLOWS);
+    let model = ScriptedModel::reviewed(vec![("write_file", write)], REVIEWER_ALLOWS_LOOSELY);
     let daemon = reviewed_daemon(&dirs, Arc::clone(&model)).await;
 
     let (_, events) =
-        run_turn(&daemon, "set up kubectl for me", Mode::Auto, ApprovalDecision::Deny).await;
+        run_turn(&daemon, "set up kubectl for me", Mode::Auto, ApprovalDecision::Allow).await;
 
-    assert_eq!(model.reviews.load(Ordering::SeqCst), 0);
-    assert_eq!(judgements(&events), [(JudgeKind::User, Verdict::Deny)]);
+    assert!(!kinds(&events).contains(&"approval_requested"));
+    assert_eq!(model.reviews.load(Ordering::SeqCst), 1);
+    assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Deny)]);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias ll='ls -l'\n");
+    let output = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallCompleted { output, is_error: true, .. } => Some(output.clone()),
+        _ => None,
+    });
+    assert!(output.unwrap().contains("it needs a clear request of the user"));
     daemon.stop().await.unwrap();
 }
 
@@ -2005,7 +2041,7 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
         calls: calls as usize,
         asked: AtomicUsize::new(0),
     });
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .sandbox_launcher(&launcher)
@@ -2227,7 +2263,7 @@ async fn shell_call_phases_in_a_project() {
         calls: PHASE_BENCH_TURN as usize,
         asked: AtomicUsize::new(0),
     });
-    let daemon = with_zsh(TestDaemon::builder())
+    let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .sandbox_launcher(&launcher)

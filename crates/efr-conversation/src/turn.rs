@@ -22,8 +22,9 @@
 //! [`Toolbox::invoke`] without passing it.
 //!
 //! In `auto` a shell call runs in the kernel sandbox. `Contain` runs it at once with
-//! [`Launch::Contained`]. An exit goes to the classifier first when it may judge it
-//! (`review.rs`), and else, or when it is unsure, to the user, with its record in
+//! [`Launch::Contained`]. An exit goes to the classifier, which decides it alone
+//! (`review.rs`): nobody asks the user about an exit, except for a tree that full mode
+//! guards too, or with the classifier off. Its record is in
 //! `exit_requested` first; an allow runs the call with the narrowest launch
 //! ([`exit::grant`]). An exit that would run outside the sandbox must be one command, or
 //! the call is refused with no question. A floor refuses an exit before any question,
@@ -1608,32 +1609,29 @@ impl Turn {
                 AlwaysVerdict::Covered { index } => {
                     return self.covered(call, ruling, record, index).await;
                 }
-                AlwaysVerdict::Offer(rule) if self.shared.deps.allow_writer.is_some() => {
+                // NOTE: only a question can take the `a` answer, so a call that the
+                // reviewer decides alone has no offer.
+                AlwaysVerdict::Offer(rule)
+                    if self.shared.deps.allow_writer.is_some() && !self.reviews(call, ruling) =>
+                {
                     offer = Some(rule);
                 }
                 _ => {}
             }
-            let (recorded, judgement) = match self.review(call, ruling, &record).await? {
+            // NOTE: while the reviewer decides alone, no question follows: the call
+            // runs, or the model reads why it does not.
+            match self.review(call, ruling, &record).await? {
                 Reviewed::Decided(authorization) => return Ok(authorization),
-                Reviewed::Ask { recorded, judgement } => (recorded, judgement),
-            };
-            let stopped = self.paused_and_away(call, ruling);
-            if !recorded {
-                events.push(Event::ExitRequested {
-                    turn_id,
-                    call_id,
-                    kinds: kinds.clone(),
-                    grants: ruling.launch.grants().to_vec(),
-                    source: exit::source(decision),
-                    record: Box::new(record),
-                });
+                Reviewed::Ask => {}
             }
-            // NOTE: the exit that stops the turn keeps its record, so the history shows
-            // what nobody could decide.
-            if let Some(stopped) = stopped {
-                self.record(events).await?;
-                return Ok(stopped);
-            }
+            events.push(Event::ExitRequested {
+                turn_id,
+                call_id,
+                kinds: kinds.clone(),
+                grants: ruling.launch.grants().to_vec(),
+                source: exit::source(decision),
+                record: Box::new(record),
+            });
             let home = ruling.engine.locations().home();
             // NOTE: full mode has no reviewer: only the user answers what it asks.
             let approver = match ruling.approver {
@@ -1642,7 +1640,6 @@ impl Turn {
             };
             let mut info =
                 exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
-            info.judged = judgement;
             info.always = offer.as_ref().map(AllowRule::describe);
             Some(info)
         };

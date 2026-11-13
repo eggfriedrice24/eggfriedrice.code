@@ -200,7 +200,7 @@ API does with such a request. If a long conversation fails with the tool, run
 
 ## The reviewer
 
-In `auto`, a reviewer model decides most actions that leave the sandbox
+In `auto`, a reviewer model decides each action that leaves the sandbox
 ([`docs/sandbox.md`](sandbox.md), "Exits"). efr asks the models in this order:
 
 1. `classifier.model` when it is set, else the small model of the turn's provider:
@@ -208,15 +208,18 @@ In `auto`, a reviewer model decides most actions that leave the sandbox
    `anthropic-api`.
 2. The turn's model at the effort `classifier.effort` (default `low`), unless
    `classifier.fallback_to_turn_model = false`.
-3. You.
+
+When no step answers, the action does not run, and efr does not ask you. After 3
+reviews in a row with no answer, the turn stops and tells you to look at the reviewer's
+model and your provider.
 
 efr goes to the next step when a model is not in your model list, refuses, takes more
 than `classifier.timeout_secs` (default 20) or gives an answer that does not fit. An
 answer with an empty reason or a placeholder reason, such as `x`, does not fit. The
 first model then gets the same request once more before efr goes to the next step. A
 model that is missing or refuses is skipped for the rest of the conversation. A
-provider that refuses the login fails for every model, so the question then goes to
-you at once. `efr history --verbose` shows the model, the step and the skipped models
+provider that refuses the login fails for every model, so the review then ends at
+once with no answer. `efr history --verbose` shows the model, the step and the skipped models
 of each review, and `asked again for a real reason` when the first model got its
 request a second time.
 

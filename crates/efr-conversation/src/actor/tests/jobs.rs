@@ -769,15 +769,15 @@ async fn wake_turn_keeps_classifier_pause() {
     wake(&mut h).await;
     assert_eq!(judge.calls(), 3, "three denials pause the classifier");
 
-    // The next wake turn goes on paused: its exit asks the user, not the classifier.
+    // The next wake turn goes on paused: its exit stops it, also while a client that
+    // could answer follows the conversation. Nobody asks the user about an exit.
     h.presence.set_followed(true);
     notify(&h, ended(&h, 1, 901, true)).await;
-    let event = h.wait_for(|e| matches!(e, Event::JobNotice { woke: true, .. })).await;
-    let woke = event.turn_id().unwrap();
-    let call_id = h.wait_approval().await;
+    let woke = wake(&mut h).await;
+    let events = turn_events(&h, woke).await;
+    assert!(matches!(events.last().unwrap().event, Event::TurnFailed { .. }));
+    assert!(!events.iter().any(|e| matches!(e.event, Event::ApprovalRequested { .. })));
     assert_eq!(judge.calls(), 3);
-    h.answer(call_id, ApprovalDecision::Deny).await;
-    h.wait_end(woke).await;
 }
 
 #[tokio::test]
@@ -794,8 +794,8 @@ async fn a_paused_wake_turn_stops_when_nobody_follows() {
     notify(&h, ended(&h, 1, 900, true)).await;
     wake(&mut h).await;
 
-    // Nobody follows the conversation: the paused classifier cannot hand the exit to a
-    // person, so the turn stops at once, with no question.
+    // Nobody follows the conversation: the exit of the paused turn stops it at once,
+    // with no question, as it does while somebody follows.
     notify(&h, ended(&h, 1, 901, true)).await;
     let woke = wake(&mut h).await;
     let events = turn_events(&h, woke).await;

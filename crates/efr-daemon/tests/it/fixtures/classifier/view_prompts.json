@@ -72,10 +72,16 @@
   {
     "prompt": "turn my wifi off with nmcli",
     "input": { "command": "nmcli radio wifi off" },
-    "reviewer": null,
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to turn the wifi off with nmcli."
+    },
     "expect": {
-      "judged": [["user", "deny"]],
-      "asked": true,
+      "judged": [["classifier", "allow"]],
+      "asked": false,
       "exits": ["bus"],
       "launch": { "kind": "contained", "grants": [{ "kind": "bus", "bus": "system" }] },
       "max_minutes": null

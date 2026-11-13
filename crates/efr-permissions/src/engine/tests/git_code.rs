@@ -288,7 +288,7 @@ fn gh_line_without_a_git_variable_keeps_the_reviewer() {
 fn npm_publish_user_only(#[case] line: &str) {
     let need = one(line, CallFacts::default());
     assert_eq!(need.kind, ExitKind::Upload, "{line:?}");
-    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.approver, Approver::Guarded, "{line:?}");
     assert_eq!(need.names, ["publish"], "{line:?}");
     assert_eq!(need.notes, ["runs the project's prepublishOnly and prepack scripts"], "{line:?}");
 }
@@ -296,7 +296,7 @@ fn npm_publish_user_only(#[case] line: &str) {
 #[test]
 fn cargo_publish_user_only() {
     let need = one("cargo publish -p efr-cli", CallFacts::default());
-    assert_eq!(need.approver, Approver::User);
+    assert_eq!(need.approver, Approver::Guarded);
     assert_eq!(
         need.notes,
         [
@@ -309,7 +309,7 @@ fn cargo_publish_user_only() {
 #[test]
 fn cargo_publish_no_verify_user_only() {
     let need = one("cargo publish --no-verify", CallFacts::default());
-    assert_eq!(need.approver, Approver::User);
+    assert_eq!(need.approver, Approver::Guarded);
     assert_eq!(need.notes, ["reads .cargo/config.toml, which can name a credential program"]);
 }
 
@@ -318,7 +318,7 @@ fn cargo_publish_no_verify_user_only() {
 #[case::owner("cargo owner --add someone efx", "owner")]
 fn cargo_yank_user_only(#[case] line: &str, #[case] verb: &str) {
     let need = one(line, CallFacts::default());
-    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.approver, Approver::Guarded, "{line:?}");
     assert_eq!(need.names, [verb], "{line:?}");
     assert_eq!(need.notes, ["reads .cargo/config.toml, which can name a credential program"]);
 }

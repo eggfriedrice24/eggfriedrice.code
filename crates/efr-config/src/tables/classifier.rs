@@ -1,5 +1,6 @@
-//! `[classifier]`: the reviewer model that decides most exits of the `auto` sandbox
-//! before the user does (efr's auto spec, section 9.5, phase A).
+//! `[classifier]`: the reviewer model that decides each exit of the `auto` sandbox
+//! alone, with no question to the user (efr's auto spec, section 9.5, phase A; ADR
+//! 0023).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,22 +14,23 @@ pub const DEFAULT_CLASSIFIER_EFFORT: &str = "low";
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ClassifierSettings {
-    /// `true` lets a reviewer model decide most actions that leave the sandbox in
-    /// `auto`, and hand the unsure ones to you. `false` asks you about every such
-    /// action, as efr did before it had a reviewer. Each review is one more request to
-    /// your provider.
+    /// `true` lets a reviewer model decide each action that leaves the sandbox in
+    /// `auto`, alone: the action runs, or the model reads why it does not, and efr asks
+    /// you nothing about it. `false` asks you about every such action. Each review is
+    /// one more request to your provider.
     pub enabled: bool,
     /// The model that reviews first. Unset: the small model of the turn's provider,
     /// such as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude.
     pub model: Option<String>,
     /// `true` lets the turn's model review when the first model is missing, refuses,
-    /// times out or gives an answer that does not fit. `false` then asks you.
+    /// times out or gives an answer that does not fit. `false` then does not run the
+    /// action.
     pub fallback_to_turn_model: bool,
     /// The reasoning effort of each review, one lowercase word such as `low`, for the
     /// models that take an effort.
     pub effort: String,
     /// How long each model of the chain may take, in seconds, from 1 to 300. A slower
-    /// answer goes to the next step.
+    /// answer goes to the next step, and after the last step the action does not run.
     pub timeout_secs: u32,
 }
 

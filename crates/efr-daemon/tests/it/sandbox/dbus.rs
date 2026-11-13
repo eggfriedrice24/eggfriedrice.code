@@ -670,8 +670,9 @@ async fn notify_send_runs_through_the_filter() {
 
 /// S1, the proof behind DV18: a grant of the whole session bus reaches every service on
 /// it, here the fake's stand-in Secret Service, whose real one hands out the keyring's
-/// secrets with no prompt while the keyring is unlocked. So only the user may approve
-/// it: the reviewer never sees the call, and the question says why.
+/// secrets with no prompt while the keyring is unlocked. So the whole session bus is
+/// an exit of the highest risk: the reviewer judges it only when a message of the user
+/// names the bus, as the prompt of this test does.
 #[tokio::test]
 async fn whole_session_bus_grant_reaches_the_secret_service() {
     let test = "whole_session_bus_grant_reaches_the_secret_service";
@@ -683,25 +684,16 @@ async fn whole_session_bus_grant_reaches_the_secret_service() {
     let model = ScriptedModel::reviewed(vec![("shell", call)], REVIEWER_ALLOWS);
     let provider = Arc::clone(&model) as Arc<dyn Provider>;
     let Some(setup) = bus_daemon(test, &dirs, provider).await else { return };
-    let (_, events) =
-        run_turn(&setup.daemon, "open a keyring session", Mode::Auto, ApprovalDecision::Allow)
-            .await;
+    let said = "open a keyring session on the session bus";
+    let (_, events) = run_turn(&setup.daemon, said, Mode::Auto, ApprovalDecision::Deny).await;
     let report = format!("events: {:?}\nfake log:\n{}", kinds(&events), setup.buses.log());
-    assert_eq!(model.reviews(), 0, "the reviewer never judged the whole bus: {report}");
-    let question = events.iter().find_map(|envelope| match &envelope.event {
-        Event::ApprovalRequested { exit, .. } => exit.clone(),
+    assert_eq!(model.reviews(), 1, "the prompt names the bus, so the reviewer judges: {report}");
+    assert!(!kinds(&events).contains(&"approval_requested"), "nobody is asked: {report}");
+    let requested = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ExitRequested { grants, .. } => Some(grants.clone()),
         _ => None,
     });
-    let question = question.unwrap_or_else(|| panic!("the user was not asked: {report}"));
-    assert!(question.user_only, "{report}");
-    assert_eq!(question.grants, [Grant::Bus { bus: BusKind::Session }], "{report}");
-    assert!(
-        question
-            .facts
-            .contains(&"the whole session bus can start programs outside the sandbox".to_owned()),
-        "{:?}",
-        question.facts
-    );
+    assert_eq!(requested, Some(vec![Grant::Bus { bus: BusKind::Session }]), "{report}");
     assert_eq!(
         launches(&events),
         [Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::Session }] }],

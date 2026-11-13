@@ -92,33 +92,59 @@ roots, a host that is not on your allow list, a socket, a device, a masked file 
 as a project `.env`, `sudo`, `git push` and a change that runs later, such as
 `~/.zshrc` or `crontab`.
 
-Your request is the permission. A reviewer model decides most exits from your
-messages, so you see few questions:
+Your request is the permission. A reviewer model decides each exit from your
+messages, alone. efr asks you nothing about an exit:
 
-- It allows an action that fits what you asked.
-- It refuses an action that nothing you said relates to.
-- It hands an unsure case to you.
+- The reviewer allows an action that fits what you asked. The action runs.
+- It refuses an action that nothing you said relates to, or that it is not sure about.
+  The model reads the reason and tells you what it wanted to do.
+
+When a refused action is one that you want, say it in your next message, for example
+"push it". The reviewer reads your messages and the facts that efr collects, and never
+a file, a web page or the output of a command. So a text that the model read cannot
+talk the reviewer into an action.
 
 While it works, the status row shows `reviewing  <command>`. Its answer stays as one
 dim line, such as:
 
 ```text
 reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
+reviewer refused: git push origin main: no message of yours asks for this clearly (...)
 ```
 
 An allow opens exactly that path, host, socket or device for one call. The next call
-asks again, unless an always rule covers it. After the reviewer refused 3 actions in a
-row, or 10 in one turn, it pauses, and efr asks you for the rest of the turn.
+gets its own review, unless an always rule covers it. After 3 refusals in a row, or 10
+in one turn, the reviewer pauses: the model can finish the work that stays in the
+sandbox, and its next exit stops the turn.
 
 Each review is one more request to your provider.
 `classifier.enabled = false` asks you about every exit instead.
 
-### What asks only you
+### What needs your clear request
 
-Some exits never go to the reviewer: `sudo` and other ways to more rights, a masked
-file, a synced folder such as `~/Dropbox`, a desktop command that types or starts
-programs, and the whole session bus. An upload, a delete above the project or a
-change that runs later asks you when no message of yours names it.
+For some exits the reviewer's allow is not enough alone. It stands only when the
+reviewer also finds that a message of yours asks for the action, or for a goal that
+needs it as a direct step: `sudo` and other ways to more rights, a masked file, a
+synced folder such as `~/Dropbox`, a desktop command that types or starts programs, a
+high risk, and an upload, a delete above the project or a change that runs later that
+no message of yours names. `sudo` still shows its password prompt in your terminal.
+
+### What runs only by name
+
+The highest risks get no review at all unless a message of yours names them: a package
+publish (`npm publish`, `cargo publish`; say "publish"), the whole session bus (say
+"session bus" or "dbus") and the socket of your ssh or gpg agent, which efr knows from
+`$SSH_AUTH_SOCK` and `$GPG_AGENT_INFO` (say "ssh agent" or "gpg agent"). The refusal
+shows the words: `refused: no message of yours names this
+action; a message names it with: publish`. No text that the model read can bring the
+name about.
+
+### The one question that stays
+
+A delete or a write of a tree that only you give up still asks you: `~`, `/`, a
+directory above or outside your home directory, and a directory that holds efr's
+files, a secret, a file that runs code later or two or more projects. Full mode asks
+about the same trees. You also answer every exit while `classifier.enabled = false`.
 
 The question shows the whole line and every program:
 
@@ -158,13 +184,9 @@ names the files that run code later outside the sandbox, such as a `Makefile` or
 
 ## Always-allow rules
 
-At some exit questions, `a` saves a standing answer. The keys of the question then
-end with `a always…`. After `a`, the card shows the rule in words and asks once more:
-`always saves the rule  write under ~/notes`, then `y save the rule and allow   n
-back`. Only `y` saves the rule and runs the call. The answer line then names the rule:
-`✓ allowed always · saved as sandbox.allow[2]: write under ~/notes`.
-
-The rule goes to `[[sandbox.allow]]` at the end of `config.toml`:
+An always-allow rule is your standing answer for one kind of exit. A call that a rule
+covers runs with no review. Use one for an exit that the reviewer refuses again and
+again although you want it. A rule is a `[[sandbox.allow]]` table in `config.toml`:
 
 ```toml
 [[sandbox.allow]]
@@ -180,6 +202,13 @@ that a rule covers runs with no question and no review, and shows a dim line suc
 
 A rule never covers `sudo`, an upload, a change that runs later, a masked read, the
 bus or a file tool. A rule that crosses a floor stays in the file but is disabled.
+
+While you answer the exits yourself (`classifier.enabled = false`), a question can
+save the rule for you. The keys of the question then end with `a always…`. After `a`,
+the card shows the rule in words and asks once more: `always saves the rule  write
+under ~/notes`, then `y save the rule and allow   n back`. Only `y` saves the rule and
+runs the call. The answer line then names the rule: `✓ allowed always · saved as
+sandbox.allow[2]: write under ~/notes`.
 
 ```sh
 efr sandbox allow           # list the rules with their index

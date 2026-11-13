@@ -544,8 +544,10 @@ fn verdict(decision: &Decision, expected: &str) -> String {
         }
         Effect::Ask => {
             let approver = decision.exits().map(|need| need.approver).max();
+            // NOTE: the column says who answers while the user answers: a guarded exit
+            // is the user's too.
             let letter = match approver {
-                Some(Approver::User) => "U",
+                Some(Approver::User | Approver::Guarded) => "U",
                 Some(Approver::ClassifierWhenNamed) => "N",
                 Some(Approver::Classifier) => "K",
                 None => "none",

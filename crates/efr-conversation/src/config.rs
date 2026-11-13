@@ -80,9 +80,9 @@ pub struct ConversationConfig {
     /// How long a parked approval waits before it expires; `None` waits until the user
     /// answers or interrupts.
     pub approval_timeout: Option<Duration>,
-    /// True when the classifier may judge an exit before the user (`classifier.enabled`);
-    /// false asks the user about every exit. A turn without a judge asks the user
-    /// either way.
+    /// True when the classifier decides each exit alone (`classifier.enabled`); false
+    /// asks the user about every exit. A turn without a judge asks the user either
+    /// way.
     pub classifier_enabled: bool,
     /// How long a parked question waits while the user is away
     /// (`presence.away_wait_secs`); then the call does not run.
@@ -290,8 +290,8 @@ pub struct ConversationDeps {
     /// turn starts: an `auto` turn without an available sandbox runs as `cautious`,
     /// with the probe's reason.
     pub sandbox: watch::Receiver<SandboxStatus>,
-    /// Who judges an exit before the user (the classifier, from phase A); `None` asks
-    /// the user about every exit, as phase 1 does.
+    /// Who decides an exit in place of the user (the classifier, from phase A); `None`
+    /// asks the user about every exit, as phase 1 does.
     pub judge: Option<Arc<dyn ExitJudge>>,
     /// Whether a person is at a conversation to answer a question, read when a turn
     /// parks one ([`AlwaysPresent`](crate::AlwaysPresent) counts one present always).

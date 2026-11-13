@@ -5,13 +5,17 @@
 //! so a delete there frees nothing. The launcher reports the paths that the call deleted
 //! in that layer (`SandboxSummary::cache_deletes`). After the call, [`Turn::cache_deletes`]
 //! lets the engine decide them ([`Engine::decide_cache_delete`]): a path below a cache is
-//! one `write` exit, and anything else stays private. The classifier reviews the exits
-//! with no user message that names them, because a tool fills a cache again; when it
-//! cannot decide, the user does. The question has a call id of its own, because the
-//! call's own question, if it had one, was another. An allow hands the paths to
+//! one `write` exit, and anything else stays private. The classifier decides the exits
+//! with no user message that names them, because a tool fills a cache again; with the
+//! classifier off, the user does. The review has a call id of its own, because the
+//! call's own exit, if it had one, was another. An allow hands the paths to
 //! [`Toolbox::delete_cache_paths`](crate::Toolbox::delete_cache_paths), which checks
 //! each one again, and records `cache_delete_applied`. A denial keeps the paths private
 //! for the rest of the conversation, so the next call does not raise them again.
+//!
+//! The command itself stayed in the sandbox, so this follow-up never stops the turn of
+//! a paused reviewer: the deletes then stay private with no review. And a review that
+//! no model answered is no denial: the paths come up again at the next call.
 
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
@@ -82,11 +86,21 @@ impl Turn {
             summary: Some(question(&kept)),
         };
         let question = ToolCall::new(call.name.clone(), call.input.clone(), asked);
+        let unallowed = || (Some(format!("[{STAYED_PRIVATE}: nobody allowed them.]")), false);
+        // NOTE: a paused reviewer stops the turn at the next exit that the model tries.
+        // This is no such exit: the command ran in the sandbox, and the model did not
+        // ask for anything.
+        if self.exits.paused.is_some() && self.reviews(&question, &ruling) {
+            return Ok(unallowed());
+        }
+        let silent = self.exits.silent_in_a_row;
         let authorization = self.ask(&question, &ruling).await?;
         Ok(match authorization {
             Authorization::Allowed { .. } => {
                 (Some(self.apply_cache_deletes(call, &kept).await?), false)
             }
+            // NOTE: no reviewer model answered, so nobody refused the deletes.
+            Authorization::Denied { .. } if self.exits.silent_in_a_row > silent => unallowed(),
             Authorization::Denied { .. } => {
                 let mut denied =
                     self.shared.denied_cache_deletes.lock().unwrap_or_else(PoisonError::into_inner);
@@ -94,9 +108,7 @@ impl Turn {
                 (Some(format!("[{STAYED_PRIVATE}: the deletes were refused.]")), false)
             }
             Authorization::Interrupted => (None, true),
-            Authorization::Refused { .. } | Authorization::Expired { .. } => {
-                (Some(format!("[{STAYED_PRIVATE}: nobody allowed them.]")), false)
-            }
+            Authorization::Refused { .. } | Authorization::Expired { .. } => unallowed(),
         })
     }
 

@@ -135,7 +135,9 @@ pub(super) fn exits(
 /// ([`is_credential_agent`]), because a key there signs and logs in as the user, and
 /// an ssh control socket (`ssh`, a fact of efrd that an ssh process listens there; or
 /// a `ControlPath` of the user's ssh config), because it is a logged-in session
-/// (OQS17).
+/// (OQS17). A socket under a mask and a credential agent's socket that efrd knows from
+/// the environment are guarded ([`Approver::Guarded`]), with the names of
+/// [`agent_names`].
 fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource, ssh: bool) -> ExitNeed {
     let part = format!("needs.sockets {}", path.display());
     let locations = envelope.locations();
@@ -180,11 +182,26 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource, ssh: bool)
     let mut need = ExitNeed::new(kind, part, source);
     if kind == ExitKind::Socket {
         need.grants = vec![Grant::Socket { path: path.clone() }];
-        if envelope.is_masked(&path) || is_credential_agent(&path, locations) {
+        // NOTE: a socket that efr knows as a credential agent's, from the environment
+        // or by its mask, is guarded: while the reviewer decides alone, it judges such
+        // a socket only when a user message names it. A socket that only looks like
+        // one, by a word of its path, is the user's, and so is an ssh control socket,
+        // as a line with `ssh -S` is: a wrong guess then costs a stricter review, and
+        // never a refusal with no review.
+        // Only a socket that efr knows as an agent's takes the phrases for an agent: a
+        // socket under a mask can be anything, so only its own path names it.
+        let agent = locations.credential_sockets().iter().any(|known| known == &path);
+        let control = ssh || is_ssh_control(&path, locations);
+        if agent {
+            need.approver = Approver::Guarded;
+            need.names = agent_names(&path, locations.home());
+        } else if envelope.is_masked(&path) {
+            need.approver = Approver::Guarded;
+            need.names = super::names::path_forms(&path, locations.home());
+        } else if control || is_credential_agent(&path, locations) {
             need.approver = Approver::User;
         }
-        if ssh || is_ssh_control(&path, locations) {
-            need.approver = Approver::User;
+        if control {
             need.notes.push(super::control::CONTROL_NOTE.to_owned());
         }
     }
@@ -220,6 +237,21 @@ pub(crate) fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
 /// that it holds.
 const AGENT_WORDS: &[&str] =
     &["agent", "ssh", "gnupg", "gpg", "keyring", "gcr", "keyboxd", "credential"];
+
+/// The phrases that name a credential agent's socket in a user message, whatever its
+/// path: efr knows such a socket from `$SSH_AUTH_SOCK` or `$GPG_AGENT_INFO`, and the
+/// agent of a password manager has a path with no word of its role. "agent" alone
+/// names nothing: it is a common word in a prompt to a coding agent.
+pub(crate) const AGENT_NAMES: &[&str] =
+    &["ssh agent", "ssh-agent", "gpg agent", "gpg-agent", "credential agent"];
+
+/// The forms that name the guarded socket `path` in a user message: its path forms and
+/// the phrases of [`AGENT_NAMES`].
+fn agent_names(path: &Path, home: &Path) -> Vec<String> {
+    let mut forms = super::names::path_forms(path, home);
+    forms.extend(AGENT_NAMES.iter().map(|phrase| (*phrase).to_owned()));
+    super::names::dedup(forms)
+}
 
 /// True when `path` is the place of an ssh control socket that a `ControlPath` of the
 /// user's ssh config names

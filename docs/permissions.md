@@ -284,15 +284,17 @@ fallback and the limits. This section tells how the engine decides in `auto`.
   sandbox mask, a destructive git or file command, `sudo` and the other programs that
   give more rights, `git push` and other uploads, rc files, services and cron. Each one
   is an exit with the effect `ask`, and the reason names its kind, such as `exit:
-  write`. The reviewer (below) decides most exits; the others ask you. After an allow,
+  write`. The reviewer (below) decides each exit, and efr asks you nothing about it,
+  except for a tree such as `~` ("Exits", below). After an allow,
   the call runs in the sandbox with exactly that path, socket, device or the network
   opened for this one call, or, for privilege, persistence, upload and some writes,
   outside the sandbox. The model can also ask for an exit with the shell tool's
   `needs`.
 - A line that the engine cannot read gets only the exits that it can find. It runs in
   the sandbox, which holds it.
-- The floors hold, as in every mode: a privileged program asks, and only you can
-  approve it; a secret is denied unless a rule of yours names it; efr's config, efr's
+- The floors hold, as in every mode: a privileged program asks, and the reviewer
+  decides it with your clear request, as the `privilege` exit that it is, or you do
+  with `classifier.enabled = false`; a secret is denied unless a rule of yours names it; efr's config, efr's
   own programs (`efrd`, `efr`, `efr-sbx` and its copy) and efr's own dirs
   (`$XDG_RUNTIME_DIR/efr`, `~/.local/state/efr`, and `~/.local/share/efr` except
   `$SCRATCH` and efr's trash) are denied; a change of the settings asks you.
@@ -326,9 +328,26 @@ reviewer decides or you decide, as for the same write of a shell call.
 
 **Exits.** An action that leaves the sandbox is an exit. The engine reads the line,
 the paths that the tool declares and the facts that the daemon collects, and gives
-each exit its own reason and the one who may approve it: the reviewer, the reviewer
-when a message of yours names the target, or only you. `secret` and `config` are
-denied. Each exit has a kind:
+each exit its own reason and a class: the reviewer, the reviewer when a message of
+yours names the target, or only you. `secret` and `config` are denied.
+
+The class says who answered while you answered the exits yourself, and it still does
+with `classifier.enabled = false`. While the reviewer is on, which is the default, efr
+asks you nothing about an exit, and the class says how strict efr is:
+
+- "the reviewer": the reviewer's allow runs the action.
+- "only you", and "the reviewer when a message names it" with no such message: the
+  reviewer still decides, but its allow stands only with your clear request (the
+  request rule, below).
+- Three exits of the highest risk run only by name: a package publish, the whole
+  session bus, and the socket of a credential agent that efr knows from
+  `$SSH_AUTH_SOCK` or `$GPG_AGENT_INFO` or that lies under a mask. efr refuses them
+  with no review unless a message of yours names them.
+- One exit still asks you, as in full mode: an `above_root` write or delete of `~`,
+  `/`, a directory above or outside your home directory, and a directory that holds
+  efr's files, a secret, a file that runs code later or more than one project.
+
+Each exit has a kind. In the table, "only you" names the class:
 
 | Kind | Examples |
 |---|---|
@@ -418,30 +437,35 @@ port other than 443 and 80 give the whole network for the call. Every other host
 gives a grant of that one host and port.
 
 **The reviewer.** In `auto`, the user's request is the permission. A reviewer model
-decides most exits, so you see far fewer questions. It reads your messages and the
-facts that efr collects (the line, the targets, the hosts, the programs and counts),
-and never the output of a command, a file of the project or the model's reason. It
-allows an action that fits what you asked, refuses an action that nothing you said
-relates to, and hands an unsure case to you. efr then applies two rules of its own:
+decides each exit alone, so efr asks you nothing about an exit. It reads your messages
+and the facts that efr collects (the line, the targets, the hosts, the programs and
+counts), and never the output of a command, a file of the project or the model's
+reason. It allows an action that fits what you asked, and it refuses an action that
+nothing you said relates to, or that it is not sure about. The model reads each
+refusal with its reason and tells you; your next message can ask for the action. efr
+then applies two rules of its own to an allow:
 
-- A `critical` risk never allows, and a `high` risk allows only when a message of
-  yours clearly authorizes it.
-- An allow of a write needs a message of yours that names each target, unless the
-  target is in a tool cache, in build output below a registered project or in efr's
-  trash, which a tool or efr can make again. An allow of a host that is not on the
-  allow list needs a message that names the host, except a package fetch of a request
-  to build, install or update. Without the name, the allow goes to you. A host is on
+- The allow rule: a `critical` risk never allows.
+- The request rule: with one of these marks, the allow stands only when the reviewer
+  also rates your authorization as `medium` or `high`, that is, a message of yours
+  asks for the action itself, or for a goal that needs it as a normal and direct step.
+  The marks are a `high` risk; an exit of the class "only you"; a write to a target
+  that no message of yours names, unless the target is in a tool cache, in build
+  output below a registered project or in efr's trash, which a tool or efr can make
+  again; and a host that is not on the allow list and that no message names, except a
+  package fetch of a request to build, install or update. With a mark and no clear
+  request, the action does not run. A host is on
   the allow list (`on_allow_list` in the record) only with the proxy, only for an exit
   whose grant for that host is a grant of that one host, and only on the exit's own
-  port; an exit with the whole network, an `upload` and an `outside` exit always need
-  the name. efr knows a host from the line (the host of a URL, of a remote operand of
+  port; an exit with the whole network, an `upload` and an `outside` exit have no such
+  name. efr knows a host from the line (the host of a URL, of a remote operand of
   `scp`, `sftp` or `rsync`, the destination of `ssh`), and from the git remote facts
   below. A host that a script connects to has nothing to check until the proxy refuses
   it.
 
 A message of yours names a target, a host or an upload only when it is in the current
 turn or in your turn before it. An older message does not count, so a "now do it" three
-turns after "commit and push" asks you. After another terminal picked up the
+turns after "commit and push" needs a clear request again. After another terminal picked up the
 conversation, or you resumed it, only your messages since then count. In a turn that a
 job notice started, your newest turn before it and the turn before that count. The
 reviewer still reads every message of the conversation.
@@ -467,21 +491,22 @@ is an `outside` exit with the host.
   in one of its jobs. This is a fact for the record and the question, never a name:
   it shows only that a command tried the host, never that you want it.
 
-The reviewer is the small model of your provider, then the turn's model, then you:
+The reviewer is the small model of your provider, then the turn's model:
 [`docs/providers.md`](providers.md) tells which models and what they cost. A missing
 model, an error, a timeout or an answer that does not fit goes to the next step, and
-never allows. The `[classifier]` keys turn the reviewer off, choose the model, the
+never allows. When no step answers, the action does not run, and after 3 such reviews
+in a row the turn stops. The `[classifier]` keys turn the reviewer off, choose the model, the
 effort and the timeout. While it works, the status row shows `reviewing: <command>`,
 and its answer shows as one line, `reviewer allowed: ...` or `reviewer refused: ...`.
 
-After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
-rest of the turn, and each later exit asks you. An error or an expired question is no
-refusal; an allow or your answer starts the count in a row again. When you are away,
-the turn stops instead.
+After 3 refusals in a row, or 10 in one turn, the reviewer pauses for the rest of the
+turn. The model can finish the work that stays in the sandbox, and its next exit stops
+the turn. An error is no refusal; an allow starts the count in a row again.
 
 **Away.** efr counts you away from a conversation after `presence.away_after_minutes`
 (10) without input, or after `efr away` or `,away`. Your next input there ends it.
-While you are away, a question waits `presence.away_wait_secs` (300); then the call
+The reviewer decides an exit in the same way while you are away. A question, of the
+few that are left, then waits `presence.away_wait_secs` (300); then the call
 does not run, and the model goes on without it and names it in its answer. A question
 that already waits when you leave gets the same wait, from the moment efr sees that you
 are away (it looks every 15 seconds).

@@ -7,13 +7,18 @@
 //! grants, or the exit child when one exit cannot run in the sandbox. [`route`] finishes
 //! the engine's approver of each exit with the user's messages: an exit that the
 //! classifier may judge only when a message names it goes to the user when none does.
+//! While the reviewer decides alone (the default of `auto`), nobody asks the user: the
+//! route then says how strict efr is with the reviewer's allow ([`effective`]), and an
+//! exit of the highest risk that no message names is refused with no review
+//! ([`Unreviewed::Unnamed`]).
 //! [`record`] holds only user messages, the action and facts that efr collected itself:
 //! never tool output, file contents or the model's reason. The one piece of model text
 //! besides the line is the payload of a file tool's floor edit ([`Payload`]), so the
 //! classifier judges what efr will write. The one piece of file content is the text of
 //! a file that a named persistence form installs, such as the source of a link into a
-//! unit dir, which efrd read outside every write root ([`ExitNeed::installs`]). [`effective`] applies the allow rule and the
-//! naming rule of efr's auto spec (section 9.4) to the classifier's verdict.
+//! unit dir, which efrd read outside every write root ([`ExitNeed::installs`]).
+//! [`effective`] applies efr's own rules to the classifier's verdict: the allow rule and
+//! the request rule.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -133,18 +138,188 @@ pub(crate) fn reviewer_denied(judgement: &Judgement) -> String {
     )
 }
 
-/// What a turn fails with when the classifier stopped for the turn and nobody is there
-/// to decide an exit that it would have judged.
-pub(crate) fn away_stopped(reason: PauseReason, denials: u8) -> String {
+/// What a turn fails with when the classifier stopped for the turn and the model then
+/// tries another exit: nobody asks the user, so nobody could decide it. The count holds
+/// the refusals of the reviewer and of efr's own rules.
+pub(crate) fn reviewer_stopped(reason: PauseReason, denials: u8) -> String {
     let refused = match reason {
-        PauseReason::PerTurn => format!("refused {denials} actions in this turn"),
-        _ => format!("refused {denials} actions in a row"),
+        PauseReason::PerTurn => format!("{denials} actions of this turn were refused"),
+        _ => format!("{denials} actions in a row were refused"),
     };
     format!(
-        "auto stopped this turn: the reviewer {refused} and nobody could decide. Read the \
-         answers, then send a new prompt."
+        "auto stopped this turn: {refused}. Read the answers, then send a new prompt that \
+         names what you want."
     )
 }
+
+/// What ends each text that tells the model that an exit did not run and nobody asks
+/// the user about it: the user's next message is the only way to get it.
+const TELL_THE_USER: &str = "Do not try to reach the same result another way. Finish the work \
+                             that stays in the sandbox, then tell the user what you wanted to do \
+                             and why; the user can ask for it in the next message.";
+
+/// What the model reads when no reviewer model answered about an exit: every step of
+/// the chain failed, timed out or refused. An error never allows.
+pub(crate) fn reviewer_silent() -> String {
+    format!(
+        "The auto reviewer gave no answer, so this action did not run. Do not try it again in \
+         this turn. {TELL_THE_USER}"
+    )
+}
+
+/// Why an exit that the reviewer judged does not run, while the reviewer decides alone:
+/// the reviewer refused it, or one of efr's own rules refused the reviewer's answer
+/// ([`effective`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// The reviewer refused it.
+    Reviewer,
+    /// The reviewer was not sure, or gave a verdict that this build does not know.
+    Unsure,
+    /// The reviewer rated the risk as critical: nothing allows that.
+    Critical,
+    /// The reviewer allowed it, but the request rule asks for a clear request of the
+    /// user and the reviewer found none.
+    Unasked,
+}
+
+impl Refusal {
+    /// What the model reads. `judgement` is the reviewer's answer.
+    pub(crate) fn for_model(self, judgement: &Judgement) -> String {
+        match self {
+            Refusal::Reviewer => reviewer_denied(judgement),
+            Refusal::Unsure => format!(
+                "The auto reviewer was not sure that the user asked for this action, so it did \
+                 not run. {TELL_THE_USER}"
+            ),
+            Refusal::Critical => format!(
+                "efr did not run this action: the auto reviewer rated its risk as critical, and \
+                 auto never runs such an action. {TELL_THE_USER}"
+            ),
+            Refusal::Unasked => format!(
+                "efr did not run this action: it needs a clear request of the user, and the \
+                 auto reviewer found none. {TELL_THE_USER}"
+            ),
+        }
+    }
+
+    /// What the user reads as the reason, in a few words. For [`Refusal::Reviewer`] it
+    /// is the reviewer's own rationale; for efr's rules, the rule and then that
+    /// rationale, cut to the 300 characters of a rationale.
+    pub(crate) fn for_user(self, judgement: &Judgement) -> String {
+        let rule = match self {
+            Refusal::Reviewer => "",
+            Refusal::Unsure => "it was not sure",
+            Refusal::Critical => "auto never runs a critical action",
+            Refusal::Unasked => "no message of yours asks for this clearly",
+        };
+        let said = judgement.rationale.trim();
+        let text = match (rule.is_empty(), said.is_empty()) {
+            (true, _) => said.to_owned(),
+            (false, true) => rule.to_owned(),
+            (false, false) => format!("{rule} ({})", said.trim_end_matches('.')),
+        };
+        text.chars().take(RATIONALE_CHARS).collect()
+    }
+}
+
+/// The most characters of a rationale, as the reviewer's output form limits it. The
+/// daemon's judge holds the same limit for a model's answer (`MAX_RATIONALE_CHARS` in
+/// `efr-daemon`), which this crate cannot name.
+pub(crate) const RATIONALE_CHARS: usize = 300;
+
+/// Why an exit does not run and gets no review, while the reviewer decides alone: a
+/// rule of efr refuses it before any model reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unreviewed {
+    /// An exit of the highest risk that no user message names
+    /// ([`Approver::Guarded`]). `names` are the words that name it
+    /// ([`missing_names`]), so the user reads what to say.
+    Unnamed {
+        /// The words that name the exit.
+        names: Vec<String>,
+    },
+    /// A payload that the reviewer cannot read whole ([`Payload::judgeable`]), so the
+    /// reviewer never allows what it saw only in part.
+    Unread,
+}
+
+impl Unreviewed {
+    /// What the model reads.
+    pub(crate) fn for_model(&self) -> String {
+        match self {
+            Unreviewed::Unnamed { names } => format!(
+                "efr did not run this action: auto runs an action of this kind only when a \
+                 message of the user names it, and none does. A message names it with: {}. \
+                 {TELL_THE_USER}",
+                names.join(", ")
+            ),
+            Unreviewed::Unread => format!(
+                "efr did not run this action: the auto reviewer must read all of what it writes \
+                 to a file that runs code later, and it is longer than 8 KiB or efr could not \
+                 read it. Change fewer lines in one call. {TELL_THE_USER}"
+            ),
+        }
+    }
+
+    /// What the user reads as the reason, in a few words, cut to the 300 characters of
+    /// a rationale.
+    pub(crate) fn for_user(&self) -> String {
+        let text = match self {
+            Unreviewed::Unnamed { names } => format!(
+                "no message of yours names this action; a message names it with: {}",
+                names.join(", ")
+            ),
+            Unreviewed::Unread => "the change is too long to review whole".to_owned(),
+        };
+        text.chars().take(RATIONALE_CHARS).collect()
+    }
+}
+
+/// The most names of a guarded exit that a refusal shows.
+const SHOWN_NAMES: usize = 4;
+
+/// The words that name the guarded exits of `decision` that no message of `messages`
+/// names, for the refusal: at most [`SHOWN_NAMES`], each once, a word or a phrase
+/// before a path, because "publish" is easier to say than a path.
+pub(crate) fn missing_names(decision: &Decision, messages: &[String]) -> Vec<String> {
+    let guarded: Vec<&String> = decision
+        .exits()
+        .filter(|need| approver(need, messages) == Approver::Guarded)
+        .flat_map(|need| &need.names)
+        .collect();
+    let mut names: Vec<String> = Vec::new();
+    for path in [false, true] {
+        for name in guarded.iter().filter(|name| name.contains('/') == path) {
+            if names.len() < SHOWN_NAMES && !names.contains(name) {
+                names.push((*name).clone());
+            }
+        }
+    }
+    names
+}
+
+/// How many reviews with no answer in a row stop a turn: the reviewer's model or the
+/// provider is down, and each further exit would only wait and fail.
+pub(crate) const SILENT_LIMIT: u8 = 3;
+
+/// What a turn fails with after [`SILENT_LIMIT`] reviews with no answer in a row.
+pub(crate) fn reviewer_down() -> String {
+    format!(
+        "auto stopped this turn: the reviewer gave no answer {SILENT_LIMIT} times in a row. Look \
+         at the model of the reviewer and at your provider (efr status). To answer each action \
+         yourself, set classifier.enabled = false."
+    )
+}
+
+/// What the model reads after the denial that paused the reviewer, behind the reason of
+/// that denial: it must know that its next exit ends the turn, so that it writes its
+/// answer first.
+pub(crate) const PAUSED: &str = " This refusal reached the limit of this turn: the next action \
+                                 that leaves the sandbox ends the turn with an error, also one \
+                                 that the user asked for. Run no such action now. Finish only \
+                                 work that stays in the sandbox, then write your answer and name \
+                                 what did not run.";
 
 /// The registry exception of the naming rule (efr's auto spec, section 9.4): a package
 /// manager's fetch may reach the registries of its ecosystem without a user message that
@@ -283,19 +458,42 @@ pub(crate) fn source(decision: &Decision) -> ExitSource {
 /// judges only when a message names it goes to the classifier when one of `messages`
 /// names it, else to the user. `messages` must be the uncut messages of the naming
 /// window ([`UserMessages::naming`]), so the route and the record read the same names.
+///
+/// An exit of the highest risk ([`Approver::Guarded`]) that a message names becomes the
+/// user's; one that none names stays guarded, and the turn refuses it with no review
+/// while the reviewer decides alone.
 pub(crate) fn approver(need: &ExitNeed, messages: &[String]) -> Approver {
     match need.approver {
         Approver::ClassifierWhenNamed if exits::names_match(&need.names, messages) => {
             Approver::Classifier
         }
         Approver::ClassifierWhenNamed => Approver::User,
+        Approver::Guarded if exits::names_match(&need.names, messages) => Approver::User,
         approver => approver,
     }
 }
 
+/// True when `decision` writes or deletes a tree that only the user may give up: the
+/// home directory, a directory above or outside it, or one that holds efr's files, a
+/// secret, a file that runs code later, or two or more projects. The engine gives such
+/// an `above_root` exit to the user whatever the messages say, by the test that the
+/// delete guard of full mode reads. So the one question that full mode keeps is the
+/// one question about an exit that `auto` keeps while its reviewer decides alone: a
+/// mode with a sandbox must not delete a home directory with less care than the mode
+/// without one.
+pub(crate) fn guarded_tree(decision: &Decision) -> bool {
+    decision.exits().any(|need| need.kind == ExitKind::AboveRoot && need.approver == Approver::User)
+}
+
 /// Who approves the exits of `decision`: the strictest approver of its exits, after
-/// [`approver`]. A payload of a file tool edit that the classifier cannot judge whole
-/// ([`Payload::judgeable`]) gives the user. `None` for a decision without exits.
+/// [`approver`], so never [`Approver::ClassifierWhenNamed`]. A payload of a file tool
+/// edit that the classifier cannot judge whole ([`Payload::judgeable`]) gives at least
+/// the user. `None` for a decision without exits.
+///
+/// While the user answers the questions of `auto`, [`Approver::Classifier`] is the only
+/// route that the classifier judges. While the reviewer decides alone, it judges
+/// [`Approver::User`] too, under the request rule of [`effective`], and
+/// [`Approver::Guarded`] does not run.
 pub(crate) fn route(
     decision: &Decision,
     messages: &[String],
@@ -303,7 +501,7 @@ pub(crate) fn route(
 ) -> Option<Approver> {
     let approver = decision.exits().map(|need| approver(need, messages)).max()?;
     if payload.is_some_and(|payload| !payload.judgeable()) {
-        return Some(Approver::User);
+        return Some(approver.max(Approver::User));
     }
     Some(approver)
 }
@@ -324,17 +522,19 @@ pub(crate) struct Payload {
 
 impl Payload {
     /// What marks a payload that the record holds only in part.
-    const CUT: &'static str = "\n[efr cut the payload here: it is longer than 8 KiB, so the \
-                               user decides]";
+    const CUT: &'static str = "\n[efr cut the payload here: it is longer than 8 KiB, so no \
+                               reviewer judges it]";
 
     /// True when the classifier may judge it: efr read all of it, and it is at most
-    /// [`ActionFacts::MAX_EDIT_BYTES`]. A longer one goes to the user, so the
-    /// classifier never allows an edit that it saw only in part.
+    /// [`ActionFacts::MAX_EDIT_BYTES`]. A longer one gets no review: it does not run
+    /// while the reviewer decides alone ([`Unreviewed::Unread`]), and it goes to the
+    /// user while the user answers. So the classifier never allows an edit that it saw
+    /// only in part.
     pub(crate) fn judgeable(&self) -> bool {
         self.whole && self.text.len() <= ActionFacts::MAX_EDIT_BYTES
     }
 
-    /// The text for the record: all of it, or, for one that the user decides, its start
+    /// The text for the record: all of it, or, for one that no reviewer judges, its start
     /// and a marker, within [`ActionFacts::MAX_EDIT_BYTES`].
     pub(crate) fn recorded(&self) -> String {
         if self.text.len() <= ActionFacts::MAX_EDIT_BYTES {
@@ -484,43 +684,55 @@ fn resolve(raw: &str, home: &Path, cwd: &Path) -> PathBuf {
     normal
 }
 
-/// What efr does with the classifier's `judgement` about the exits of `record` (efr's
-/// auto spec, section 9.4).
+/// What efr does with the classifier's `judgement` about the exits of `record`, while
+/// the reviewer decides alone: `Ok` when the call runs, else why it does not. Nobody
+/// asks the user, so each case that once became a question is decided here.
 ///
-/// The allow rule: an `allow` stands only at a low or medium risk, or at a high risk
-/// when a user message authorizes it at least at medium; a critical risk never allows.
-/// The naming rule: an exit that writes, edits a file that runs code later or reaches
-/// above a root needs a user message that names each target that efr cannot rebuild
-/// (one outside a cache, build output and efr's trash, and outside the write roots);
-/// a host needs one that names it, except the registries of the package manager's
-/// fetch `fetch` when a user message asks to build, install, update or fetch
-/// ([`REGISTRY_EXCEPTION`]). An `allow` that breaks a rule becomes `ask_user`. The
-/// classes and the names come from efr's facts in the record, never from the line.
+/// The allow rule: a critical risk never allows, and a verdict that is not `allow` or
+/// `deny`, such as `ask_user` from a model that was not sure, does not run.
+///
+/// The request rule: an `allow` stands alone only for an action that is free of every
+/// mark below. With a mark, it stands only when the reviewer also found that a user
+/// message authorizes the action at least at medium (`user_authorization`). The marks:
+///
+/// - a high risk;
+/// - `strict`: the route of the call is [`Approver::User`], an exit that only the user
+///   approved while the user answered, such as `sudo`, an upload that no message names
+///   or a line that runs code that efr cannot read;
+/// - an exit that writes, edits a file that runs code later or reaches above a root,
+///   with a target that efr cannot rebuild (one outside a cache, build output and efr's
+///   trash, and outside the write roots) and that no user message names;
+/// - a host that no user message names, except the registries of the package manager's
+///   fetch `fetch` when a user message asks to build, install, update or fetch
+///   ([`REGISTRY_EXCEPTION`]).
+///
+/// The classes and the names come from efr's facts in the record, never from the line.
 pub(crate) fn effective(
     record: &ExitRecord,
     judgement: &Judgement,
     fetch: Option<Ecosystem>,
-) -> Verdict {
+    strict: bool,
+) -> Result<(), Refusal> {
     match judgement.verdict {
         Verdict::Allow => {}
-        Verdict::Deny => return Verdict::Deny,
-        _ => return Verdict::AskUser,
+        Verdict::Deny => return Err(Refusal::Reviewer),
+        _ => return Err(Refusal::Unsure),
     }
+    let marked = match judgement.risk {
+        Risk::Low | Risk::Medium => strict || !named(record, fetch),
+        Risk::High => true,
+        _ => return Err(Refusal::Critical),
+    };
     let authorized =
         matches!(judgement.user_authorization, UserAuthorization::Medium | UserAuthorization::High);
-    let risk_fits = match judgement.risk {
-        Risk::Low | Risk::Medium => true,
-        Risk::High => authorized,
-        _ => false,
-    };
-    if !risk_fits || !named(record, fetch) {
-        return Verdict::AskUser;
+    if marked && !authorized {
+        return Err(Refusal::Unasked);
     }
-    Verdict::Allow
+    Ok(())
 }
 
-/// True when the record's user messages name every target and host that the naming
-/// rule of [`effective`] asks a name for.
+/// True when the record's user messages name every target and host that the request
+/// rule of [`effective`] looks for a name of.
 fn named(record: &ExitRecord, fetch: Option<Ecosystem>) -> bool {
     let needs_targets =
         record.action.exits.iter().any(|kind| {
@@ -751,6 +963,8 @@ pub(crate) struct TurnExits {
     /// Why the classifier stopped for the rest of the turn, with the denials that the
     /// limit counted; `None` while it judges.
     pub(crate) paused: Option<(PauseReason, u8)>,
+    /// Reviews in a row that no model of the chain answered. Any answer sets it to 0.
+    pub(crate) silent_in_a_row: u8,
     /// Every exit of the turn so far with how it was judged.
     pub(crate) previous: Vec<(ExitKind, Verdict)>,
     /// The names that contained calls of the turn exported, never their values.
@@ -791,9 +1005,24 @@ impl TurnExits {
         self.denials_in_a_row = 0;
     }
 
-    /// Counts a classifier denial. When it reaches a limit, the classifier stops for
-    /// the rest of the turn, and the reason comes back once, with the denials that the
-    /// limit counted.
+    /// A model of the reviewer's chain answered: the reviews with no answer in a row
+    /// start again.
+    pub(crate) fn answered_by_reviewer(&mut self) {
+        self.silent_in_a_row = 0;
+    }
+
+    /// Counts a review that no model answered. True when the turn must stop
+    /// ([`SILENT_LIMIT`]).
+    pub(crate) fn silent(&mut self) -> bool {
+        self.silent_in_a_row = self.silent_in_a_row.saturating_add(1);
+        self.silent_in_a_row >= SILENT_LIMIT
+    }
+
+    /// Counts a denial of an exit while the reviewer decides alone: the reviewer's own,
+    /// or a refusal of efr's rules, with or without a review. When it reaches a limit,
+    /// the classifier stops for the rest of the turn, and the reason comes back once,
+    /// with the denials that the limit counted. An allow of the reviewer starts the
+    /// count in a row again, so "in a row" holds.
     pub(crate) fn denied(&mut self) -> Option<(PauseReason, u8)> {
         self.denials_in_a_row = self.denials_in_a_row.saturating_add(1);
         self.denials_this_turn = self.denials_this_turn.saturating_add(1);
@@ -822,11 +1051,6 @@ impl TurnExits {
         self.critical_expired >= CRITICAL_EXPIRIES
     }
 
-    /// True once the classifier stopped for the rest of the turn.
-    pub(crate) fn classifier_off(&self) -> bool {
-        self.paused.is_some()
-    }
-
     /// The counts that a turn which job notices start goes on with, from this one: the
     /// refusals and classifier denials, and the pause (phase C).
     pub(crate) fn carried(&self) -> TurnExits {
@@ -835,6 +1059,7 @@ impl TurnExits {
             denials_in_a_row: self.denials_in_a_row,
             denials_this_turn: self.denials_this_turn,
             paused: self.paused,
+            silent_in_a_row: self.silent_in_a_row,
             ..TurnExits::default()
         }
     }

@@ -86,7 +86,7 @@ printenv ANTHROPIC_API_KEY | efr login anthropic
 |---|---|
 | `manual` | Only what your own rules allow. |
 | `cautious` | The default: reads outside secrets, writes in `$SCRATCH` and in the turn's registered project, and read-only commands. |
-| `auto` | Every shell command, in a kernel sandbox (bubblewrap, Landlock and seccomp). A reviewer model decides most actions that leave the sandbox. |
+| `auto` | Every shell command, in a kernel sandbox (bubblewrap, Landlock and seccomp). A reviewer model decides each action that leaves the sandbox, so efr asks you nothing about it. |
 | `full` | Every command, as you, with no sandbox. You must allow it in `config.toml` first. efr still asks before `sudo` and a few other actions. |
 
 Register a project with `efr project add`, so that a turn there can write it. `efr sandbox check` tells whether `auto` can run on this machine. [Permission modes](docs/use/modes.md) tells more. [`docs/permissions.md`](docs/permissions.md) and [`docs/sandbox.md`](docs/sandbox.md) have every rule.

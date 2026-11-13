@@ -1,7 +1,8 @@
-//! The naming rule under efr's proxy (phase D2, DP23): when the allow list, a project's
-//! git remote or a refusal of the proxy counts for a host, and when it never does. And
-//! the window of the naming rule (v0.0.4, DV30): which user messages name a target, a
-//! host or an upload, while the reviewer's record keeps every message.
+//! The names of the request rule under efr's proxy (phase D2, DP23): when the allow
+//! list, a project's git remote or a refusal of the proxy counts for a host, and when it
+//! never does. And the window of the names (v0.0.4, DV30): which user messages name a
+//! target, a host or an upload, while the reviewer's record keeps every message. A host
+//! or a target with no name needs a clear request in the reviewer's own judgement.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -20,8 +21,8 @@ use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 
 use super::super::{
-    Action, TurnExits, UserMessages, effective, fetch_asked, grant, naming_messages, package_fetch,
-    route, user_messages, wake_naming_messages,
+    Action, Refusal, TurnExits, UserMessages, effective, fetch_asked, grant, naming_messages,
+    package_fetch, route, user_messages, wake_naming_messages,
 };
 use super::{APP, HOME, SCRATCH, app, decide, envelope, record, record_with, shell};
 
@@ -72,19 +73,40 @@ fn host_fact<'a>(record: &'a ExitRecord, host: &str) -> &'a HostFact {
         .unwrap_or_else(|| panic!("no fact for {host}: {:?}", record.facts.hosts))
 }
 
-fn allow() -> Judgement {
+/// A low-risk allow of the classifier, which found that a user message authorizes the
+/// action at `user_authorization`.
+fn allow(user_authorization: UserAuthorization) -> Judgement {
     Judgement {
         verdict: Verdict::Allow,
         risk: Risk::Low,
-        user_authorization: UserAuthorization::High,
+        user_authorization,
         category: "fits the request".to_owned(),
         rationale: "the user asked for it".to_owned(),
     }
 }
 
-/// What efr does with a low-risk allow of the classifier for `record`.
-fn verdict(decision: &Decision, record: &ExitRecord) -> Verdict {
-    effective(record, &allow(), package_fetch(decision))
+/// What efr does with a low-risk allow of the classifier for `record`, when the
+/// classifier found no clear request: only the names of the request rule let it stand.
+fn verdict(decision: &Decision, record: &ExitRecord) -> Result<(), Refusal> {
+    effective(record, &allow(UserAuthorization::Low), package_fetch(decision), false)
+}
+
+#[test]
+fn a_clear_request_stands_in_for_a_name() {
+    let engine = engine(Egress::Proxy);
+    let requirements = shell("curl https://extra.test/x");
+    let (decision, record) = record_on(&engine, &requirements, &["get the release notes"]);
+    assert!(!host_fact(&record, "extra.test").named_in_user_messages);
+    let fetch = package_fetch(&decision);
+    for (found, stands) in [
+        (UserAuthorization::None, false),
+        (UserAuthorization::Low, false),
+        (UserAuthorization::Medium, true),
+        (UserAuthorization::High, true),
+    ] {
+        let applied = effective(&record, &allow(found), fetch, false);
+        assert_eq!(applied.is_ok(), stands, "{found:?}");
+    }
 }
 
 fn remote(name: &str, host: &str, ssh: bool, project: bool) -> RemoteFact {
@@ -129,7 +151,7 @@ fn allow_list_names_host_exit() {
     );
     assert!(host_fact(&record, "crates.io").on_allow_list);
     assert!(!host_fact(&record, "extra.test").on_allow_list);
-    assert_eq!(verdict(&decision, &record), Verdict::Allow, "crates.io needs no name");
+    assert_eq!(verdict(&decision, &record), Ok(()), "crates.io needs no name");
 }
 
 #[test]
@@ -139,7 +161,7 @@ fn allow_list_does_not_name_upload_host() {
     let (decision, record) = record_on(&engine, &requirements, &["upload it"]);
     let fact = host_fact(&record, "github.com");
     assert!(!fact.on_allow_list);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -150,7 +172,7 @@ fn allow_list_false_when_upload_names_host() {
         shell("curl https://github.com/a https://other.test/b && curl -d @x https://github.com/c");
     let (decision, record) = record_on(&engine, &requirements, &["get b from other.test"]);
     assert!(!host_fact(&record, "github.com").on_allow_list);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -162,7 +184,7 @@ fn allow_list_does_not_name_open_network_exit() {
         assert_eq!(grant(&decision).grants(), [Grant::OpenNetwork], "{requirements:?}");
         let fact = host_fact(&record, "github.com");
         assert!(!fact.on_allow_list, "{requirements:?}");
-        assert_eq!(verdict(&decision, &record), Verdict::AskUser, "{requirements:?}");
+        assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked), "{requirements:?}");
     }
 }
 
@@ -172,7 +194,7 @@ fn allow_list_ignored_under_egress_none() {
     let requirements = shell("git clone https://github.com/x/y");
     let (decision, record) = record_on(&engine, &requirements, &["clone the repo"]);
     assert!(!host_fact(&record, "github.com").on_allow_list);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser, "the name is still needed");
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked), "the name is still needed");
 }
 
 #[test]
@@ -182,7 +204,7 @@ fn allow_list_needs_the_exit_port() {
     let requirements = shell("curl http://github.com/x http://plain.test/y");
     let (decision, record) = record_on(&engine, &requirements, &["get y from plain.test"]);
     assert!(!host_fact(&record, "github.com").on_allow_list);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -193,7 +215,7 @@ fn project_remote_counts_as_named() {
     let (decision, record) = record_on(&engine, &requirements, &["fetch the latest"]);
     let fact = host_fact(&record, "git.work.test");
     assert!(fact.project_remote && !fact.named_in_user_messages);
-    assert_eq!(verdict(&decision, &record), Verdict::Allow);
+    assert_eq!(verdict(&decision, &record), Ok(()));
 }
 
 #[test]
@@ -218,7 +240,7 @@ fn remote_changed_since_first_call_needs_name() {
     let requirements = shell("git fetch").with_facts(facts);
     let (decision, record) = record_on(&engine, &requirements, &["fetch the latest"]);
     assert!(!host_fact(&record, "git.work.test").project_remote);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
     assert_eq!(route(&decision, &["fetch".to_owned()], None), Some(Approver::User));
 }
 
@@ -235,7 +257,7 @@ fn remote_of_repo_made_in_conversation_is_not_project_remote() {
     let (decision, record) = record_on(&engine, &requirements, &["push it"]);
     let fact = host_fact(&record, "evil.test");
     assert!(!fact.project_remote);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -246,7 +268,7 @@ fn submodule_host_is_never_project_remote() {
     let requirements = shell("git submodule update").with_facts(facts(vec![lib], &[]));
     let (decision, record) = record_on(&engine, &requirements, &["update the submodules"]);
     assert!(!host_fact(&record, "code.test").project_remote);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -258,7 +280,7 @@ fn refused_by_proxy_is_no_name() {
     let fact = host_fact(&record, "leak.test");
     assert!(fact.refused_by_proxy);
     assert!(!fact.named_in_user_messages && !fact.on_allow_list && !fact.project_remote);
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]
@@ -458,7 +480,7 @@ fn reviewer_record_keeps_every_message() {
 
     assert_eq!(record.user_messages, all, "the reviewer reads the whole request");
     assert!(!host_fact(&record, "extra.test").named_in_user_messages, "the name is too old");
-    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+    assert_eq!(verdict(&decision, &record), Err(Refusal::Unasked));
 }
 
 #[test]

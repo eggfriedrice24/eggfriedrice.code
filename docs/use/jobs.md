@@ -25,8 +25,8 @@ when that command ends.
 A job can start in every mode:
 
 - In `auto`, the job's command line goes through the same checks as any line. A line
-  with no exit starts at once in the sandbox. An exit goes to the reviewer or to you,
-  and a grant lasts for the whole job.
+  with no exit starts at once in the sandbox. An exit goes to the reviewer, which
+  decides it alone, and a grant lasts for the whole job.
 - In `cautious` and `manual`, efr asks you before each job starts. An approved job
   runs outside the sandbox, with your rights.
 - In `full`, a job starts with no question and runs with your rights.

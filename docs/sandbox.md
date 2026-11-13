@@ -2,11 +2,14 @@
 
 In the `auto` mode, each shell command of the model runs in a kernel sandbox. A
 command that stays in the sandbox runs at once, with no question. An action that
-leaves the sandbox is an exit, and you answer each exit. This file tells what the
-sandbox allows, what it blocks, how an exit asks, what happens when the sandbox cannot
-run, and the limits that stay. [`docs/permissions.md`](permissions.md) has the rules
+leaves the sandbox is an exit. A reviewer model decides each exit alone, from what you
+asked: the action runs, or the model reads why it does not. efr asks you nothing about
+an exit, with one exception: a delete of a tree such as your home directory (see
+"Exits"). This file tells what the sandbox allows, what it blocks, who decides an exit,
+what happens when the sandbox cannot run, and the limits that stay. [`docs/permissions.md`](permissions.md) has the rules
 of the engine. [`docs/adr/0006-auto-sandbox.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0006-auto-sandbox.md) records the
-decision.
+decision for the sandbox, and [`docs/adr/0023-reviewer-decides-alone.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0023-reviewer-decides-alone.md) the decision that the
+reviewer decides each exit alone.
 
 ## What auto does
 
@@ -17,8 +20,9 @@ decision.
   system`, `Permission denied` or `Network is unreachable`.
 - efr reads the command line before it runs. When the line names an action outside
   the sandbox, such as `sudo`, `git push` or a write to `~/.zshrc`, that action is an
-  exit. A reviewer model decides most exits from your messages; the others, such as
-  `sudo`, ask you (see "Exits").
+  exit. A reviewer model decides each exit from your messages, also `sudo`, and efr
+  asks you nothing (see "Exits"). When the reviewer refuses an action that you want,
+  say so in your next message: your request is the permission.
 - The model tries what you asked first. After a failure, it can call the shell again
   with `needs`, for example a path to write or the network. That call is an exit too.
   efr tells the model to ask for the narrowest need: a write grant for one file, the
@@ -29,8 +33,10 @@ decision.
   `loginctl list-sessions`, run in the sandbox with no question. They reach the system
   or the session bus only through efr's bus filter, which lets through only read
   methods (see "The bus filter").
-- An `a` (always) answer at some exit questions saves a rule, so the same exit asks
-  nothing again (see "Always-allow rules").
+- An always-allow rule runs an exit with no review (see "Always-allow rules"). You
+  write one as a `[[sandbox.allow]]` table in `config.toml`, or, while you answer the
+  exits yourself (`classifier.enabled = false`), with an `a` (always) answer at a
+  question.
 - `read_file`, `write_file`, `edit` and `apply_patch` run in efrd, not in the sandbox.
   In `auto` they follow the rules of `cautious`, plus exits: a read of a sandbox mask,
   a write outside the project and `$SCRATCH`, and a write to a floor path are exits,
@@ -172,8 +178,9 @@ call cannot write. A mask covers the real target of a link too.
 | project `.env` files | `.env` and `.env.*` in each write root, to depth 3 (`sandbox.mask_globs`); not `.env.example`, `.env.sample` or `.env.template` |
 | your additions | `sandbox.mask` |
 
-A read of a mask is a `masked_read` exit. Only you can approve it, because the content
-then goes to the model provider. A secret of the engine never opens.
+A read of a mask is a `masked_read` exit. The reviewer allows it only with your clear
+request, because the content then goes to the model provider. A secret of the engine
+never opens.
 
 ## The floor
 
@@ -206,9 +213,9 @@ path names a file only as whole parts of the path: `bin/git` does not name
 `write_file`, `edit` or `apply_patch` of `~/.zshrc` that links into a dotfiles dir also
 writes the real file there; it takes the names of the link too, so "my zshrc" names
 both, also when the dotfiles dir is no registered project. Before the write, efr copies the
-file into its home store (below). Only you approve a dir, a link, the git surface and
-`sandbox.protect`, and a floor file that no message of yours names, except the named
-changes of units, cron and linger below.
+file into its home store (below). The reviewer allows a dir, a link, the git surface
+and `sandbox.protect`, and a floor file that no message of yours names, only with your
+clear request ("Exits"), except the named changes of units, cron and linger below.
 
 **Named changes of units, cron and linger.** These change no file that the line names,
 or they install the bytes of another file. The reviewer decides one only when a message
@@ -222,7 +229,7 @@ and the reviewer can read what it installs:
 | `crontab <file>`, `crontab -` fed a literal by `echo` or `printf`, `crontab -r` | a message names cron or the crontab; the file holds the rule of a unit file | the text of the crontab (`crontab -l`) |
 | `loginctl enable-linger`, `loginctl disable-linger`, with no user or with your own user (by name or uid) | a message names linger | the linger setting |
 
-Only you approve `systemctl --user link`, `edit`, `revert`, `enable <path>`,
+The reviewer needs your clear request for `systemctl --user link`, `edit`, `revert`, `enable <path>`,
 `set-environment`, `set-default`, `preset-all`, a unit that was not in a unit dir before
 the turn, a template unit (`foo@.service`), `crontab -e`, `crontab -` with any other
 input, `at`, `batch` and `systemd-run --user`. efr reads and sets the crontab and linger
@@ -345,8 +352,9 @@ when it gets an `outside` or `upload` exit.
   include files and hooks path, also of worktrees and submodules) are not writable,
   except while a running contained job has them in its write roots.
 - When a part is writable, or efrd could not check the code (git did not answer in
-  200 ms, git found no repository, the submodules lie too deep or behind a link), only
-  you approve, and the question names the file:
+  200 ms, git found no repository, the submodules lie too deep or behind a link), the
+  reviewer needs your clear request. While you answer the exits yourself, the question
+  names the file:
 
   ```
   git runs ~/p/app/vendor/x/.git/hooks/pre-push, which a sandboxed command can write
@@ -433,31 +441,53 @@ your password as before. Its question says that you may need to type your passwo
 
 ## Exits
 
-| Kind | Example | After a yes | Who can approve |
+efr asks you nothing about an exit. The last column of the table says who decides it:
+
+- **The reviewer**: the reviewer model's allow runs the action, and its refusal goes to
+  the model.
+- **The reviewer, with your clear request**: the same, but the allow stands only when
+  the reviewer also finds that a message of yours asks for this action, or for a goal
+  that needs it as a direct step. A name of the target in your message is not
+  necessary. Without a clear request the action does not run.
+- **Only by name**: the highest risks. efr refuses the action with no review unless a
+  message of yours names it. With the name, the reviewer decides it, with your clear
+  request. No text that the model read, such as a web page, can bring the name about.
+- **You**: the one question that stays, as in full mode.
+- **Nobody**: efr refuses it for everybody.
+
+When an action that you want does not run, say it in your next message, for example
+"push it" or "publish it". With `classifier.enabled = false`, you answer every exit
+yourself, and "the reviewer" in this file then means you.
+
+| Kind | Example | After an allow | Who decides |
 |---|---|---|---|
-| `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
-| `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5432`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
-| `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent, git's credential cache) and for an ssh control socket (one that an ssh process listens on, or one at a `ControlPath` of your ssh config; docs/permissions.md, "ssh control sockets"); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
-| `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
-| `bus` | `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `systemctl --user show-environment`, `notify-send --wait`; `hostnamectl`, `systemctl --failed` and `notify-send` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | for the system bus: the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd. For the session bus: only you, with the note `the whole session bus can start programs outside the sandbox` |
-| `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
-| `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
-| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`). An ssh line needs a message of yours that names the host, or a remote of your project; an ssh submodule URL, a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks only you. A git line, such as `git fetch` from an ssh remote, also asks only you when its git code is writable or not checked ("Git settings") |
-| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
-| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
-| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you. Only you for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml`, and for a git or gh line whose git code a sandboxed command can write ("Git settings") |
-| `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | only you |
-| `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor; else only you |
+| `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer; with your clear request when no message names the target and it is no cache, build output or trash |
+| `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5432`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer; with your clear request for a host that no message names, except the registries of a package fetch |
+| `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer. Only by name for the socket of a credential agent that efr knows from your environment (`$SSH_AUTH_SOCK`, `$GPG_AGENT_INFO`): its path, or the phrase "ssh agent", "gpg agent" or "credential agent"; and for a socket under a mask: only its path. With your clear request for a socket that looks like an agent's by a word of its path (a keyring, a password manager's agent, git's credential cache) and for an ssh control socket (one that an ssh process listens on, or one at a `ControlPath` of your ssh config; docs/permissions.md, "ssh control sockets"). Refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
+| `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; the reviewer, with your clear request, for the rest and for a desktop socket that the model names |
+| `bus` | `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `systemctl --user show-environment`, `notify-send --wait`; `hostnamectl`, `systemctl --failed` and `notify-send` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | for the system bus: the reviewer; with your clear request for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd. For the session bus: only by name ("session bus", "dbus" or "d-bus"), because the whole session bus can start programs outside the sandbox |
+| `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer |
+| `masked_read` | read a project `.env` | the sandbox, with that one mask removed | the reviewer, with your clear request |
+| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else the reviewer, with your clear request |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. With your clear request: when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
+| `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password |
+| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request |
+| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
+| `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | the reviewer, with your clear request |
+| `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too |
 | `secret` | a read or write of a secret | never: denied | nobody |
 | `config` | a write of efr's config, of efr's own programs or of efr's own dirs | never: denied | nobody |
 
-"Else you" means that the reviewer handed the question to you, or that it is off
-(`classifier.enabled = false`), paused, or failed at each step of its chain.
+When the reviewer is paused, or no model of its chain answers, the action does not
+run. efr never runs an exit that nobody reviewed.
 
-A grant lives for one call. The next call asks again, unless an always rule covers it
-(see "Always-allow rules").
+Three more questions can still come in `auto`, because they are no exits: a rule of
+yours with the effect `ask`, a change of efr's settings by the model, and a planted git
+setting that the surface guard found ("Git settings").
+
+A grant lives for one call. The next call gets its own review, unless an always rule
+covers it (see "Always-allow rules").
 
 **Desktop sockets.** A `desktop_ipc` exit opens the one control socket of the desktop
 that its program talks to, and sets the one variable that names it:
@@ -486,20 +516,32 @@ X cookie (`$XAUTHORITY` in your terminal or in efrd's environment, or
 masked. `ydotool` talks to its own daemon, so its exit opens nothing.
 
 **The reviewer.** In `auto`, the user's request is the permission. A reviewer model
-decides most exits before any question: it allows an action that fits what you asked,
-refuses an action that nothing you said relates to, and hands an unsure case to you.
+decides each exit, alone: it allows an action that fits what you asked, and it refuses
+an action that nothing you said relates to, or that it is not sure about. Its answer
+is `allow` or `deny`; it cannot hand a case to you.
 It reads your messages and efr's facts about the exit (the line, the targets with
 their class and whether the sandbox hides them as a credential store, the hosts, the programs, the counts, and for a file tool edit of a floor
 file the new text, at most 8 KiB), and never the output of a command, a project file
-or the model's reason. A longer edit asks you, so the reviewer never allows what it
-saw only in part. efr applies its own rules to each allow: a `critical` risk never
-allows, a `high` risk needs a message of yours that clearly authorizes it, a write
-needs a message that names each target unless the target is a tool cache, build
-output below a registered project or efr's trash, and a host that is not on the allow
-list needs a message that names it, except a package fetch of a request to build,
-install or update. The text of the line never changes this. A host is on the allow
-list only with the proxy, only for a grant of that one host, and only on its port; a
-grant of the whole network always needs the name. efr knows a host from the line (a
+or the model's reason. So a text that the model read, such as a web page or a file,
+never reaches the reviewer. A longer edit does not run, so the reviewer never allows
+what it saw only in part; the model then makes a smaller edit.
+
+efr applies its own rules to each allow. A `critical` risk never allows. And the
+request rule: with one of the marks below, the allow stands only when the reviewer
+also rates your authorization as `medium` or `high`. `high` means that a message of
+yours asks for this action itself. `medium` means that a message asks for a goal, and
+this action is a normal and direct step to it. The marks are:
+
+- a `high` risk;
+- an exit that the table above gives "with your clear request";
+- a write to a target that no message of yours names, unless the target is a tool
+  cache, build output below a registered project or efr's trash;
+- a host that is not on the allow list and that no message of yours names, except a
+  package fetch of a request to build, install or update.
+
+A name in your message is a fact that efr finds itself, so the text of the line never
+changes it. A host is on the allow list only with the proxy, only for a grant of that
+one host, and only on its port; a grant of the whole network has no such name. efr knows a host from the line (a
 URL, a remote operand, the destination of `ssh`) and, for `git fetch`, `git pull`,
 `git push` and `git submodule update`, from the remotes of the repository: every
 fetch and push URL behind the remote name. A remote of your registered project's own
@@ -510,11 +552,14 @@ proxy refused in the last command or a job is a fact for the reviewer
 after the proxy refused it.
 
 The reviewer is the small model of your provider (`classifier.model` picks another),
-then the turn's model at a low effort (`classifier.fallback_to_turn_model`), then you.
-A model that is missing or refuses is skipped for the rest of the conversation; a
-timeout (`classifier.timeout_secs`, 20 s for each step) is tried again at the next
-exit. An error never allows and never counts as a refusal. Within a turn, the same
-exit gets the same verdict without a second request.
+then the turn's model at a low effort (`classifier.fallback_to_turn_model`). When
+neither answers, the action does not run: `reviewer refused: <command>: no reviewer
+model answered (...)`, with the step that failed and why. A model that is missing or
+refuses is skipped for the rest of the conversation; a timeout
+(`classifier.timeout_secs`, 20 s for each step) is tried again at the next exit. An
+error never allows and never counts as a refusal. After 3 reviews in a row with no
+answer, the turn stops and tells you to look at the reviewer's model and your
+provider. Within a turn, the same exit gets the same verdict without a second request.
 
 ```
 reviewing: ./scripts/gen.sh                                (status row)
@@ -524,17 +569,21 @@ reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to
 ```
 
 - While it works, the status row shows `reviewing: <command>`.
-- An allow or a refusal is one dim line before the call. A refused call does not run,
-  and the model reads that the reviewer refused it and must not work around it.
-- An unsure verdict asks you. The question then has the dim row `reviewer: unsure;
-  <reason>`.
+- An allow or a refusal is one dim line before the call. A refused call does not run.
+  The model reads the reason, must not work around it, and tells you what it wanted to
+  do. To get the action, ask for it in your next message.
+- When a rule of efr refused the reviewer's allow, the line says which: `reviewer
+  refused: <command>: no message of yours asks for this clearly (...)`.
+- An action that runs only by name shows the words that name it: `refused: no message
+  of yours names this action; a message names it with: publish`.
 - The reason is the reviewer model's text. efr shows it safely, as it shows every text
   of a model.
-- After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
-  rest of the turn: `reviewer paused for this turn: it refused 3 actions in a row; efr
-  asks you for the rest`. Each later exit asks you. An allow or your answer starts
-  the count in a row again. When you are away, the turn stops instead: `auto stopped
-  this turn: the reviewer refused 3 actions in a row and nobody could decide`.
+- After 3 refusals in a row, or 10 in one turn, the reviewer pauses for the rest of
+  the turn: `reviewer paused for this turn: it refused 3 actions in a row; the next
+  action that needs it stops the turn`. The model can still finish the work that stays
+  in the sandbox. Its next exit stops the turn: `auto stopped this turn: 3 actions in a
+  row were refused. Read the answers, then send a new prompt that names what you
+  want.` An allow starts the count in a row again.
 - `efr history` shows each verdict, and `efr history --verbose` adds the model, the
   step of the chain, the time and the models that the chain skipped.
 
@@ -542,7 +591,8 @@ reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to
 `presence.away_after_minutes` (10) without input, or after `efr away` or `,away`. Input
 is a prompt, a steer, an answer or keys for the hidden shell; keys in the input row
 count only when you send them. The status row of a running turn shows `away`. Your
-next input ends it. While you are away, a question waits only `presence.away_wait_secs`
+next input ends it. The reviewer decides an exit in the same way while you are away.
+A question, of the few that are left, then waits only `presence.away_wait_secs`
 (300): `approval expired: nobody answered while you were away; the call did not run`.
 A question that already waits when you leave gets the same wait, from the moment efr
 sees that you are away (it looks every 15 seconds).
@@ -553,11 +603,16 @@ An exit that runs outside the sandbox runs with your full rights: your files, yo
 secrets and the network. So efr accepts only a narrow line for it. One simple command
 carries the exit, and every other command of the line must be a read-only helper that
 `cautious` allows, such as `echo`, or a `sudo -k` (also `-K`, `--reset-timestamp`)
-that only forgets the cached password, so `sudo -k; sudo true` asks once.
+that only forgets the cached password, so `sudo -k; sudo true` is one exit.
 `sudo -v && ./helper` gets no question; the model reads "a command that must run
 outside the sandbox must run alone; run the other parts in a separate call", and you
 see `refused: a command that must run outside the sandbox must run alone`. The
 processes of such a run stop when the call ends.
+
+**The question.** You see it for the trees that only you give up, and for every exit
+while you answer them yourself (`classifier.enabled = false`). In the sections below,
+"only you approve" and "asks you" about an exit describe that mode. While the reviewer
+is on, read them as "the reviewer, with your clear request" (see "Exits").
 
 The question shows the whole line, what leaves the sandbox, and how the call runs:
 
@@ -1021,9 +1076,10 @@ system or the session bus only through efr's bus filter, `xdg-dbus-proxy`, which
 through only a fixed list of methods. The filter runs while `dbus.proxy` is `true`,
 the default. When `dbus.proxy = false` turns it off, or `xdg-dbus-proxy` is missing,
 these commands need the whole bus again: the system bus queries go to the reviewer,
-and the session bus commands ask you.
+and the session bus commands run only by name.
 
-The whole session bus is always your own question, never the reviewer's. On that bus,
+The whole session bus runs only by name: efr refuses it with no review unless a
+message of yours names the bus ("session bus", "dbus" or "d-bus"). On that bus,
 the user manager (`systemd --user`) starts any program outside the sandbox
 (`StartTransientUnit`), and an unlocked keyring (the Secret Service,
 `org.freedesktop.secrets`) gives every secret with no prompt. The question says
@@ -1095,8 +1151,8 @@ Manager.StartUnit`. The record of the call and the end of a job keep the refused
 calls, at most 16 of them with a count.
 
 When the model then asks for `needs.bus`, that is a `bus` exit for the whole bus, for
-one call. For the system bus the reviewer or you decide; for the session bus only you
-decide. The next filtered call is filtered again.
+one call. The reviewer decides the system bus; the session bus runs only by name. The
+next filtered call is filtered again.
 
 ### `[[dbus.allow]]`
 
@@ -1177,7 +1233,13 @@ An added method does not make a new read form: `systemctl get-default` still has
 
 ## Always-allow rules
 
-At an exit question that offers it, `a` saves a standing answer. The card shows the
+An always-allow rule is your standing answer for one kind of exit: a `[[sandbox.allow]]`
+table in `config.toml` (see the example below). While the reviewer decides the exits,
+no question comes, so you write the table yourself. Use a rule for an exit that the
+reviewer refuses again and again although you want it.
+
+While you answer the exits yourself (`classifier.enabled = false`), a question can
+save the rule for you. At an exit question that offers it, `a` saves a standing answer. The card shows the
 key with the rule in words, such as `a always: write under ~/notes`. `a` does not
 answer at once: efr shows `save rule "write under ~/notes"? y/n`, and only `y` saves
 the rule and runs the call. Any other key goes back to the question. A key that you
@@ -1295,7 +1357,7 @@ background").
 A job can start in every mode.
 
 - In `auto`, the job's line goes through the exits like any line. A line with no exit
-  starts at once in the sandbox. An exit goes to the reviewer or to you, as for a
+  starts at once in the sandbox. An exit goes to the reviewer, as for a
   normal call, and the record tells the reviewer that the grants last for the whole
   job, up to its time limit. A covered delete in a job still goes to the reviewer,
   because undo of the start turn needs `--force`.
@@ -1775,8 +1837,8 @@ Only the `destructive` exit of that part goes; every other exit of the line keep
 route. In `manual` and `cautious`, efr still asks you for each delete.
 `sandbox.ask_destructive = "always"` keeps the review. `undo.enabled = false` or
 `snapshot.enabled = false` turns undo and the routine destructive lines off. With
-`snapshot.enabled = false`, a named floor file edit asks you again, because efr cannot
-copy it first.
+`snapshot.enabled = false`, a named floor file edit needs your clear request again,
+because efr cannot copy it first.
 
 ## When the sandbox cannot run
 
@@ -1831,7 +1893,7 @@ probe: `xdg-dbus-proxy --version` must say 0.1.9 or newer, and one filter with t
 built-in rules must start under the wrapper, write its ready byte and end cleanly. A
 failure here is a warning too: the filter is off, and the commands of "The bus filter"
 become `bus` exits, which is stricter, never looser: the system bus queries go to the
-reviewer, and the session bus commands ask you. `efr status` shows `bus filter on`, or
+reviewer, and the session bus commands run only by name. `efr status` shows `bus filter on`, or
 `bus filter off` with the reason. While a check runs after a reload, `efr status` keeps
 the state of the last check; it shows `off` only when the new check fails. A fresh
 efrd that never checked the filter shows `off` with no reason until its first check
@@ -2027,7 +2089,8 @@ The `[sandbox]` table of `config.toml` holds every key; [`docs/config.md`](confi
 lists them with their defaults. Each key applies from the next call or turn. A change
 of efr's settings through the settings tool still asks, in every mode.
 
-`[classifier]` controls the reviewer: `enabled` (`false` asks you about every exit),
+`[classifier]` controls the reviewer: `enabled` (`true`, the default, lets it decide
+each exit alone; `false` asks you about every exit),
 `model`, `fallback_to_turn_model`, `effort` and `timeout_secs`. `[presence]` controls
 when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (no phone
 client exists yet, so it does nothing today). Each key applies from the next
@@ -2061,6 +2124,8 @@ the config hold of full mode holds it.
 
 | Limit | What can happen | What efr does |
 |---|---|---|
+| the reviewer decides each exit alone, and it is a model | a wrong allow runs an action that you did not ask for, with no question before it; a wrong refusal costs you one more message | the reviewer reads only your messages and efr's own facts, never a file, a web page or a tool result; the request rule; the highest risks run only by name; a tree such as `~` still asks you; `efr undo` for what efr copied first; `classifier.enabled = false` gives the questions back |
+| the reviewer never reads a file: a line that runs a program that the sandbox wrote, or that installs a file that efr could not read, such as a link from your project into a unit dir | the reviewer decides from your request and the line; when you asked for the action, code that nobody read runs with your rights | the request rule; the record tells the reviewer that the program changed in this turn; the turn-end list of files that run code later; while you answered such a question yourself, you did not see the file either |
 | a bug in the kernel, bubblewrap or overlayfs | an escape | three layers; bubblewrap from your distribution; the probe at every start |
 | code that the model writes and you run later (a `Makefile`, a `build.rs`, a new dependency, a project `.cargo/config.toml`) | that code runs with your rights | the turn-end list of such files; `efr sandbox check` warnings |
 | a hard link that existed before, from a secret or an rc file into a write root | a write in the project changes the file outside | `efr sandbox check` warns about such files |
@@ -2070,10 +2135,10 @@ the config hold of full mode holds it.
 | the private `/tmp` | wrong paths for you or the model | the prompt text says so; share files through `$SCRATCH` |
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
-| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; only you can approve the whole session bus; with the proxy, a host that the line shows gets a grant of that one host; a read-only system query and `notify-send` get the bus filter instead |
+| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the record tells the reviewer; the whole session bus runs only by name; with the proxy, a host that the line shows gets a grant of that one host; a read-only system query and `notify-send` get the bus filter instead |
 | the bus filter checks no arguments | `Properties.Get` on an allowed path reads every property there, also the environment of a transient user unit | exact paths; no property of the user manager itself |
 | the bus filter runs outside the sandbox with your rights on the bus | a memory bug in `xdg-dbus-proxy` reaches your full bus rights, on the session bus also `StartTransientUnit` | the distribution's program, owned by root; its own Landlock domain, seccomp filter and fd limit; one filter per call that ends with it |
-| without `xdg-dbus-proxy`, or with `dbus.proxy = false`, each command that needs the session bus asks you | more questions, also for `notify-send` and `systemctl --user --failed` | install `xdg-dbus-proxy` 0.1.9 or later, so these commands run through the filter |
+| without `xdg-dbus-proxy`, or with `dbus.proxy = false`, each command that needs the session bus runs only when a message of yours names the bus | refusals, also for `notify-send` and `systemctl --user --failed` | install `xdg-dbus-proxy` 0.1.9 or later, so these commands run through the filter |
 | a call with the filtered session bus can send any notification | a notice can look like one from another program | the filter lets through only the calls of `notify-send`; it cannot read or close a notice |
 | a script that runs `systemctl --user` itself | it fails, because systemd looks only for its private socket | run `systemctl --user` on the line, where the sandbox's shell gives it the session bus |
 | a running job keeps the bus rules of its start | a removed `[[dbus.allow]]` entry or `dbus.proxy = false` does not reach it | `efr jobs stop` ends it |

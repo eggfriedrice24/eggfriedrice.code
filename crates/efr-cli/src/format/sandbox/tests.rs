@@ -1019,11 +1019,13 @@ fn explain_leaves_who_decides_to_the_reason_when_the_reviewer_may_judge_the_file
 fn the_paused_reviewer_and_the_away_expiry_say_what_happens_next() {
     assert_eq!(
         paused(PauseReason::InARow, 3),
-        "reviewer paused for this turn: it refused 3 actions in a row; efr asks you for the rest"
+        "reviewer paused for this turn: 3 actions in a row were refused; the next action that \
+         needs it stops the turn"
     );
     assert_eq!(
         paused(PauseReason::PerTurn, 10),
-        "reviewer paused for this turn: it refused 10 actions; efr asks you for the rest"
+        "reviewer paused for this turn: 10 actions of this turn were refused; the next action \
+         that needs it stops the turn"
     );
     assert_eq!(
         AWAY_EXPIRED,

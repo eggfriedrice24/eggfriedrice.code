@@ -79,10 +79,11 @@ impl Found {
 
     /// The `upload` of a package publish, which only the user may approve (v0.0.4,
     /// DV25): it runs project code with the user's rights, which a sandboxed command
-    /// can write, and `notes` say which.
+    /// can write, and `notes` say which. While the reviewer decides alone, it judges a
+    /// publish only when a user message names the verb ([`Approver::Guarded`]).
     fn publish(verb: &str, notes: &[&str]) -> Self {
         Found {
-            approver: Approver::User,
+            approver: Approver::Guarded,
             notes: notes.iter().map(|note| (*note).to_owned()).collect(),
             ..Found::upload(vec![verb.to_owned()])
         }

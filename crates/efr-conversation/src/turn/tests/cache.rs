@@ -11,7 +11,7 @@ use pretty_assertions::assert_eq;
 
 use super::review::{judgements, reviewed, shell};
 use crate::ToolOutcome;
-use crate::testing::{FakeJudge, Harness, Script, allows, denies};
+use crate::testing::{FakeJudge, Harness, Script, allows, denies, unanswered};
 
 /// A contained call's outcome that reports deletes of `paths` in its cache layer.
 fn deleted(paths: &[PathBuf]) -> ToolOutcome {
@@ -128,6 +128,57 @@ async fn denied_cache_delete_not_raised_again() {
     );
     assert_eq!(results[1].0, "done");
     assert_eq!(h.toolbox.invoked().len(), 2, "a denied delete never stops the call itself");
+}
+
+/// A review that no model answered is no refusal of the deletes: they stay private this
+/// time, and the next call raises the same paths again.
+#[tokio::test]
+async fn a_cache_delete_that_no_reviewer_answered_is_raised_again() {
+    let judge = FakeJudge::answering(vec![unanswered(), allows()]);
+    let (h, script, paths) = run(
+        Some(Arc::clone(&judge)),
+        "pip cache purge",
+        2,
+        &[".cache/pip/x"],
+        ApprovalDecision::Deny,
+    )
+    .await;
+
+    assert_eq!(judge.calls(), 2, "the second call raises the same paths again");
+    assert_eq!(h.toolbox.deleted.lock().unwrap().clone(), vec![paths]);
+    let results = script.results();
+    assert_eq!(
+        results[0].0,
+        "done\n[the deletes in the tool caches stayed private: nobody allowed them.]"
+    );
+    assert!(results[1].0.contains("efr deleted 1 path in the real tool caches"), "{results:?}");
+}
+
+/// After the pause, the next exit that the model tries stops the turn. The deletes of a
+/// command that stayed in the sandbox are no such exit: they stay private with no
+/// review, and the turn goes on.
+#[tokio::test]
+async fn a_cache_delete_of_a_paused_turn_stays_private_and_does_not_stop_it() {
+    let judge = FakeJudge::answering(vec![denies(), denies(), denies()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let path = setup.home().join(".cache/pip/x");
+    let push = shell("git push origin main");
+    let calls = vec![push.clone(), push.clone(), push, shell("pip cache purge")];
+    let script = Script::new(calls);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.outcomes.lock().unwrap().insert("pip cache purge".to_owned(), deleted(&[path]));
+    let sent = h.prompt("free some disk space").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "the turn goes on: {end:?}");
+    assert_eq!(judge.calls(), 3, "nobody reviews the deletes of a paused turn");
+    assert!(h.toolbox.deleted.lock().unwrap().is_empty());
+    let results = script.results();
+    assert!(results[2].0.ends_with(crate::exit::PAUSED), "the model reads the pause: {results:?}");
+    assert_eq!(
+        results[3].0,
+        "done\n[the deletes in the tool caches stayed private: nobody allowed them.]"
+    );
 }
 
 #[tokio::test]

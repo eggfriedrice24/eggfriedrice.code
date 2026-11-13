@@ -1070,7 +1070,8 @@ fn whole_session_bus_exit_is_user_only(#[case] line: &str) {
         assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
         let need = decision.exits().next().unwrap();
         assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }], "{line:?}");
-        assert_eq!(need.approver, Approver::User, "{line:?}");
+        assert_eq!(need.approver, Approver::Guarded, "{line:?}");
+        assert_eq!(need.names, ["session bus", "dbus", "d-bus"], "{line:?}");
         assert!(!need.runs_unsandboxed(), "{line:?}");
         assert_eq!(
             need.notes,
@@ -1084,13 +1085,13 @@ fn whole_session_bus_exit_is_user_only(#[case] line: &str) {
         let decision = engine.decide(&in_auto(shell("./x.sh").with_needs(asked.clone())));
         let need = decision.exits().next().unwrap();
         assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }]);
-        assert_eq!(need.approver, Approver::User);
+        assert_eq!(need.approver, Approver::Guarded);
         assert_eq!(need.notes.len(), 1, "{:?}", need.notes);
     }
     let socket = Needs { sockets: vec!["/run/user/1000/bus".to_owned()], ..Needs::default() };
     let decision = decide(shell("./x.sh").with_needs(socket));
     let need = decision.exits().next().unwrap();
-    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::User));
+    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::Guarded));
 }
 
 #[rstest]
@@ -1122,7 +1123,7 @@ fn notify_send_asks_you_without_the_filter(#[case] line: &str) {
     assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
     let need = decision.exits().next().unwrap();
     assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }], "{line:?}");
-    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.approver, Approver::Guarded, "{line:?}");
     // With the filter, a form that waits for a signal, or that only the shell can read,
     // keeps the exit: the filter lets no signal back.
     let with_proxy = bus_proxy_engine().decide(&in_auto(shell(line)));
@@ -1294,7 +1295,7 @@ fn exits_bus_read_forms_stay_exits_without_the_bus_proxy(#[case] line: &str, #[c
     let need = decision.exits().next().unwrap();
     assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
     // DV18: the whole session bus is the user's own question.
-    let approver = if bus == BusKind::Session { Approver::User } else { Approver::Classifier };
+    let approver = if bus == BusKind::Session { Approver::Guarded } else { Approver::Classifier };
     assert_eq!(need.approver, approver, "{line:?}");
 }
 
@@ -2520,8 +2521,9 @@ fn auto_network_need_is_a_host_exit_in_phase1_and_follows_the_list_with_the_prox
 #[case::keyring("/run/user/1000/keyring/ssh", ExitKind::Socket, Approver::User)]
 #[case::gcr("/run/user/1000/gcr/ssh", ExitKind::Socket, Approver::User)]
 #[case::password_manager("~/.1password/agent.sock", ExitKind::Socket, Approver::User)]
-#[case::from_the_environment("/run/user/1000/vault.sock", ExitKind::Socket, Approver::User)]
-#[case::masked("~/.zsh_history", ExitKind::Socket, Approver::User)]
+// A socket that efrd knows as a credential agent's, and one under a mask, are guarded.
+#[case::from_the_environment("/run/user/1000/vault.sock", ExitKind::Socket, Approver::Guarded)]
+#[case::masked("~/.zsh_history", ExitKind::Socket, Approver::Guarded)]
 #[case::other_app("/run/user/1000/app.sock", ExitKind::Socket, Approver::Classifier)]
 fn auto_credential_agent_sockets_are_floors_or_user(
     #[case] socket: &str,
@@ -2546,6 +2548,90 @@ fn auto_credential_agent_sockets_are_floors_or_user(
     }
 }
 
+/// A user message names a guarded socket by its path or by a phrase for a credential
+/// agent, whatever the path, and never by a common word such as "agent" alone: the
+/// socket of a password manager's ssh agent has no word of its role in its path.
+#[rstest]
+#[case::ssh_agent("use my ssh agent for this", true)]
+#[case::ssh_agent_dash("forward the ssh-agent", true)]
+#[case::gpg_agent("sign it with my gpg agent", true)]
+#[case::by_path("open ~/.1password/agent.sock", true)]
+#[case::agent_alone("you are a coding agent, fix it", false)]
+#[case::ssh_alone("push it over ssh", false)]
+#[case::not_named("fix the failing test", false)]
+fn guarded_socket_names(#[case] message: &str, #[case] named: bool) {
+    let locations = auto_locations().with_credential_socket("/home/u/.1password/agent.sock");
+    let needs = Needs { sockets: vec!["~/.1password/agent.sock".to_owned()], ..Needs::default() };
+    let decision = Engine::with_defaults(locations.unwrap())
+        .decide(&in_auto(shell("./x.sh").with_needs(needs)));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!(need.approver, Approver::Guarded);
+    assert_eq!(names_match(&need.names, &[message.to_owned()]), named, "{message:?}");
+}
+
+/// A socket under a mask is guarded too, but it can be anything, so only its own path
+/// names it: a phrase for an agent, said for another reason, must not open it.
+#[test]
+fn a_masked_socket_is_named_only_by_its_path() {
+    let needs = Needs { sockets: vec!["~/.zsh_history".to_owned()], ..Needs::default() };
+    let decision = decide(shell("./x.sh").with_needs(needs));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!(need.approver, Approver::Guarded);
+    assert!(need.names.iter().all(|name| name.contains('/')), "{:?}", need.names);
+    assert!(!names_match(&need.names, &["use my ssh agent for the push".to_owned()]));
+    assert!(names_match(&need.names, &["read ~/.zsh_history".to_owned()]));
+}
+
+/// A socket that only looks like an agent's, by a word of its path, is never guarded:
+/// a wrong guess costs a stricter review, and no refusal with no review. So a home
+/// directory or a project with such a word in its name loses nothing.
+#[rstest]
+#[case::home_with_the_word("/home/sshah/p/app/run/dev.sock")]
+#[case::project_with_the_word("/home/u/p/agent-tools/run/dev.sock")]
+#[case::runtime_dir("/run/user/1000/app-agent/app.sock")]
+fn a_socket_that_looks_like_an_agent_is_not_guarded(#[case] socket: &str) {
+    let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+    let decision = decide(shell("./x.sh").with_needs(needs));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!((need.kind, need.approver), (ExitKind::Socket, Approver::User), "{socket}");
+}
+
+/// The names of a plain upload never name a publish of the same line, and one publish
+/// verb never names another: each guarded exit stays an exit of its own.
+#[test]
+fn a_guarded_upload_does_not_merge_with_another_upload() {
+    let decision = decide(shell("git push origin main && npm publish"));
+    let uploads: Vec<_> = decision.exits().filter(|need| need.kind == ExitKind::Upload).collect();
+    let guarded: Vec<_> =
+        uploads.iter().filter(|need| need.approver == Approver::Guarded).collect();
+    let [publish] = guarded.as_slice() else { panic!("one guarded upload: {uploads:?}") };
+    assert_eq!(publish.names, ["publish"]);
+    assert!(!names_match(&publish.names, &["commit and push".to_owned()]));
+    assert_eq!(uploads.len(), 2, "{uploads:?}");
+
+    let decision = decide(shell("cargo yank --version 1.0.0 efx && cargo publish"));
+    let names: Vec<_> = decision
+        .exits()
+        .filter(|need| need.approver == Approver::Guarded)
+        .map(|need| need.names.clone())
+        .collect();
+    assert_eq!(names, [vec!["yank".to_owned()], vec!["publish".to_owned()]]);
+}
+
+/// A rule that gives an exit to the user never lowers a guarded exit of the same line:
+/// a line that also uses an ssh control socket, or whose git code efr could not check.
+#[rstest]
+#[case::control_socket("ssh -S /tmp/cm host true && npm publish")]
+#[case::git_code("git -c core.hooksPath=x pull && npm publish")]
+fn a_guarded_exit_stays_guarded_beside_a_user_rule(#[case] line: &str) {
+    let decision = decide(shell(line).with_network().with_interactive());
+    let publish = decision
+        .exits()
+        .find(|need| need.kind == ExitKind::Upload && need.names == ["publish"])
+        .unwrap_or_else(|| panic!("{line:?}: {:?}", decision.exits().collect::<Vec<_>>()));
+    assert_eq!(publish.approver, Approver::Guarded, "{line:?}");
+}
+
 /// A session bus at another path than `/run/user/<uid>/bus`, such as one of
 /// `dbus-launch` below `/tmp`, is the whole session bus too: only the user approves it
 /// (DV18, "in every case").
@@ -2556,7 +2642,7 @@ fn session_bus_at_a_custom_path_is_the_whole_session_bus() {
     let decision =
         Engine::with_defaults(locations).decide(&in_auto(shell("./x.sh").with_needs(needs)));
     let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
-    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::User));
+    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::Guarded));
     assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }]);
     // Another socket below `/tmp` stays a plain socket.
     let locations = auto_locations().with_session_bus("/tmp/dbus-AbCd1234").unwrap();

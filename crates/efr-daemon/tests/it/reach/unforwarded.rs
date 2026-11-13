@@ -73,17 +73,18 @@ async fn port_in_use_refuses_the_line_and_asks_nobody() {
     assert_eq!(results[0], (REFUSAL.to_owned(), true), "the model reads why");
     let [refused, other]: [Option<Launch>; 2] = launches(&events).try_into().unwrap();
     assert_eq!(refused, None, "the line of the job's port has no launch");
-    let other = other.expect("the question names the launch of the port of no job");
+    let other = other.expect("the call for the port of no job has its launch");
     assert!(other.grants().contains(&Grant::OpenNetwork), "{other:?}");
-    assert_eq!(foreground(&setup, conversation), 0, "neither call ran");
+    // The port of no job is an exit, which the reviewer decides: it allows it, so that
+    // one call runs. Nobody is asked about either line.
+    assert_eq!(foreground(&setup, conversation), 1, "only the port of no job ran");
     let questions: Vec<&Event> = events
         .iter()
         .map(|envelope| &envelope.event)
         .filter(|event| matches!(event, Event::ApprovalRequested { .. }))
         .collect();
-    assert_eq!(questions.len(), 1, "only the port of no job asks: {questions:?}");
+    assert!(questions.is_empty(), "{questions:?}");
     assert_eq!(results.len(), 2, "{results:?}");
-    assert!(results[1].1, "the user said no to the port of no job");
     release(&job_fifo).await;
     daemon.stop().await.unwrap();
 }

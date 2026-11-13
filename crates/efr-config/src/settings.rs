@@ -65,7 +65,7 @@ pub struct Settings {
     pub network: NetworkSettings,
     /// The filtered message bus of the `auto` mode.
     pub dbus: DbusSettings,
-    /// The reviewer model that decides most actions that leave the `auto` sandbox.
+    /// The reviewer model that decides each action that leaves the `auto` sandbox.
     pub classifier: ClassifierSettings,
     /// `efr undo`, which takes back the changes of a turn from efr's snapshots.
     pub undo: UndoSettings,

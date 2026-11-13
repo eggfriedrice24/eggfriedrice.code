@@ -26,8 +26,9 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    FAKE_LAUNCHER, REVIEWER_ALLOWS, ScriptedModel, completed, fake_launcher, judgements, kinds,
-    ready, real_launcher, reviewed_daemon, run_turn, skip, specs, with_zsh,
+    FAKE_LAUNCHER, REVIEWER_ALLOWS, REVIEWER_ALLOWS_LOOSELY, ScriptedModel, completed,
+    fake_launcher, judgements, kinds, ready, real_launcher, reviewed_daemon, run_turn, skip, specs,
+    with_zsh,
 };
 use crate::home::home_copies;
 use crate::support::zsh_enabled;
@@ -130,26 +131,25 @@ async fn named_floor_file_edit_end_to_end() {
 }
 
 #[tokio::test]
-async fn unnamed_floor_file_edit_end_to_end_asks_user() {
+async fn unnamed_floor_file_edit_end_to_end_needs_a_clear_request() {
+    // No message names the file, so the reviewer's allow needs a clear request of the
+    // user. A loose allow does not run, and nobody asks the user.
     let dirs = Arc::new(TestDirs::new().unwrap());
     let zshrc = dirs.home().join(".zshrc");
     std::fs::write(&zshrc, OLD_RC).unwrap();
     let patch = json!({ "input": ADD_ALIAS });
-    let model = ScriptedModel::reviewed(vec![("apply_patch", patch)], REVIEWER_ALLOWS);
+    let model = ScriptedModel::reviewed(vec![("apply_patch", patch)], REVIEWER_ALLOWS_LOOSELY);
     let daemon = reviewed_daemon(&dirs, Arc::clone(&model)).await;
 
     let (_, events) =
-        run_turn(&daemon, "set up kubectl for me", Mode::Auto, ApprovalDecision::Deny).await;
+        run_turn(&daemon, "set up kubectl for me", Mode::Auto, ApprovalDecision::Allow).await;
 
-    let exit = events.iter().find_map(|envelope| match &envelope.event {
-        Event::ApprovalRequested { exit, .. } => exit.clone(),
-        _ => None,
-    });
-    let exit = exit.unwrap();
-    assert_eq!(exit.kinds, [ExitKind::Persistence]);
-    assert!(exit.user_only, "no message names the file, so only the user decides");
-    assert_eq!(model.reviews.load(Ordering::SeqCst), 0);
-    assert_eq!(judgements(&events), [(JudgeKind::User, Verdict::Deny)]);
+    assert!(!kinds(&events).contains(&"approval_requested"), "{:?}", kinds(&events));
+    let [record] = records(&events).try_into().unwrap();
+    assert_eq!(record.action.exits, [ExitKind::Persistence]);
+    assert!(!record.facts.targets[0].named_in_user_messages);
+    assert_eq!(model.reviews.load(Ordering::SeqCst), 1);
+    assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Deny)]);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), OLD_RC);
     assert!(home_copies(&dirs).await.is_empty());
     assert!(changed(&events).is_empty());

@@ -202,7 +202,7 @@ and `snapshot.*` settings.
 
 | Setting | Default | What it sets |
 |---|---|---|
-| `undo.enabled` | `true` | `false` turns undo off. In `auto`, deletes then go to the reviewer or to you. |
+| `undo.enabled` | `true` | `false` turns undo off. In `auto`, deletes then go to the reviewer. |
 | `snapshot.enabled` | `true` | `false` takes no snapshot: no changed files, no `efr diff`, no undo. |
 | `snapshot.max_file_mib` | `10` | Files above this size stay out of a snapshot. |
 | `snapshot.ignored` | `"small"` | Which ignored files a snapshot takes: `none`, or `small` ones such as `.env`. |

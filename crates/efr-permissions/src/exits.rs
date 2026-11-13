@@ -119,6 +119,12 @@ pub const ONE_COMMAND: &str = "a command that must run outside the sandbox must 
 /// messages. The enum is deliberately exhaustive: the turn must route every approver.
 /// It is ordered from the freest to the strictest, so the approver of a call is the
 /// maximum of its exits.
+///
+/// The names say who answers while the user answers the questions of `auto`
+/// (`classifier.enabled = false`). While the reviewer decides alone, which is the
+/// default, nobody asks the user: a [`Approver::User`] exit goes to the reviewer too,
+/// whose allow then stands only with a clear request of the user, and a
+/// [`Approver::Guarded`] exit is refused with no review unless a user message names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Approver {
     /// The classifier judges it first, and may hand it to the user.
@@ -128,6 +134,12 @@ pub enum Approver {
     ClassifierWhenNamed,
     /// Only the user may approve it, whatever the messages say.
     User,
+    /// An exit of the highest risk: the socket of a credential agent that efr knows,
+    /// the whole session bus, a package publish. Only the user may approve
+    /// it, as [`Approver::User`]; and while the reviewer decides alone, the reviewer
+    /// may judge it only when a user message names one of [`ExitNeed::names`], so that
+    /// no text that the model read can bring it about.
+    Guarded,
 }
 
 /// One exit of a call: what it needs, what a "yes" opens, and who may approve it.
@@ -506,15 +518,17 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             // line can name it to the reviewer (OQS17).
             let control = control::makes_or_uses(command);
             for mut exit in programs::classify(command, input.support, input.hosts, reach) {
+                // NOTE: each rule here only raises the approver: a guarded exit, such
+                // as a publish on the same line, stays guarded.
                 if control {
-                    exit.approver = Approver::User;
+                    exit.approver = exit.approver.max(Approver::User);
                     exit.notes.push(control::CONTROL_NOTE.to_owned());
                 }
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
-                    exit.approver = Approver::User;
+                    exit.approver = exit.approver.max(Approver::User);
                 }
                 if exit.kind == ExitKind::Outside && !exit.hosts.is_empty() && ssh_env {
-                    exit.approver = Approver::User;
+                    exit.approver = exit.approver.max(Approver::User);
                 }
                 // NOTE: a read form of a systemd tool reads the filtered bus of its view
                 // (phase E, [`views`]); every other bus form keeps its exit.
@@ -554,7 +568,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                             need.hosts.push(host);
                         }
                         if (need.hosts.is_empty() && input.facts.is_some()) || ssh_env {
-                            need.approver = Approver::User;
+                            need.approver = need.approver.max(Approver::User);
                         }
                     }
                     found.push(need);
@@ -599,7 +613,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if let Some(need) = exit.as_mut().filter(|need| need.kind == ExitKind::Outside)
                     && ssh_env
                 {
-                    need.approver = Approver::User;
+                    need.approver = need.approver.max(Approver::User);
                 }
                 found.extend_from(exit);
             }
@@ -792,13 +806,23 @@ pub(crate) const WHOLE_SESSION_BUS_NOTE: &str =
 /// the sandbox (`StartTransientUnit`), and an unlocked keyring there (the Secret
 /// Service) hands out every secret with no prompt. efr does not look for a keyring
 /// first, because one that starts on demand has no owner yet. The system bus keeps its
-/// approver.
+/// approver. While the reviewer decides alone, it judges this exit only when a user
+/// message names the bus with a phrase of [`SESSION_BUS_NAMES`]
+/// ([`Approver::Guarded`]).
 fn whole_session_bus(need: &mut ExitNeed) {
-    need.approver = Approver::User;
+    need.approver = Approver::Guarded;
+    for name in SESSION_BUS_NAMES {
+        if !need.names.iter().any(|known| known == name) {
+            need.names.push((*name).to_owned());
+        }
+    }
     if !need.notes.iter().any(|note| note == WHOLE_SESSION_BUS_NOTE) {
         need.notes.push(WHOLE_SESSION_BUS_NOTE.to_owned());
     }
 }
+
+/// The phrases of a user message that name the whole session bus.
+pub const SESSION_BUS_NAMES: &[&str] = &["session bus", "dbus", "d-bus"];
 
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of
 /// the line, or a program that a wrapper runs, changed in this turn or lies in a real
@@ -1266,14 +1290,18 @@ pub fn tool_fact_requests(requirements: &Requirements, locations: &Locations) ->
     request
 }
 
-/// The exits found so far, each kind, grant set and target once.
+/// The exits found so far, each kind, grant set and target once. A guarded exit is one
+/// with its own names too, so it never takes the names of another exit.
 #[derive(Default)]
 struct Found {
     needs: Vec<ExitNeed>,
-    /// The kind, grants and target of each need of [`needs`](Self::needs), with its
-    /// place there.
-    known: HashMap<(ExitKind, Vec<Grant>, Option<PathBuf>), usize>,
+    /// The kind, grants and target of each need of [`needs`](Self::needs), and for a
+    /// guarded need its names, with its place there.
+    known: HashMap<FoundKey, usize>,
 }
+
+/// What makes two needs one exit: see [`Found::push`].
+type FoundKey = (ExitKind, Vec<Grant>, Option<PathBuf>, Option<Vec<String>>);
 
 impl Found {
     /// Adds `need` as [`Found::push`] does, when there is one.
@@ -1285,8 +1313,14 @@ impl Found {
 
     /// Adds `need`, or merges it into a known exit of the same kind, grants and target:
     /// the stricter approver of the two wins, and the names and hosts of both stay.
+    ///
+    /// A guarded need ([`Approver::Guarded`]) merges only with a guarded need of the
+    /// same names. So the names of a plain upload never name a publish of the same
+    /// line: "push" must not let `git push && npm publish` through, and `cargo yank`
+    /// must not name `cargo publish`.
     fn push(&mut self, need: ExitNeed) {
-        let key = (need.kind, need.grants.clone(), need.target.clone());
+        let guard = (need.approver == Approver::Guarded).then(|| need.names.clone());
+        let key = (need.kind, need.grants.clone(), need.target.clone(), guard);
         let known = match self.known.get(&key) {
             Some(at) => self.needs.get_mut(*at),
             None => None,

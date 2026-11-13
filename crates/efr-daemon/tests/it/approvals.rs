@@ -123,7 +123,8 @@ fn host_job() -> Value {
 }
 
 /// A daemon with efr's proxy and the fake launcher, whose model starts `jobs` host jobs
-/// in one turn and whose reviewer hands each exit to the user.
+/// in one turn. Its reviewer is off (`classifier.enabled = false`), so the user answers
+/// each exit: only a question can take the `a` answer that saves a rule.
 async fn proxy_daemon(dirs: &Arc<TestDirs>, jobs: usize) -> (TestDaemon, Arc<ScriptedModel>) {
     let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
     let env = BTreeMap::from([
@@ -137,6 +138,7 @@ async fn proxy_daemon(dirs: &Arc<TestDirs>, jobs: usize) -> (TestDaemon, Arc<Scr
         .sandbox_launcher(fake.path())
         .probe_override(SandboxStatus { proxy: true, ..ready() })
         .network_mode(NetworkMode::Proxy)
+        .config(|settings| settings.classifier.enabled = false)
         .job_env(env)
         .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
         .start()
@@ -229,9 +231,9 @@ async fn always_answer_writes_the_rule_and_the_next_exit_asks_nothing() {
             _ => None,
         })
         .collect();
-    assert_eq!(judges, vec![JudgeKind::Classifier, JudgeKind::User, JudgeKind::Always]);
+    assert_eq!(judges, vec![JudgeKind::User, JudgeKind::Always]);
     assert_eq!(kinds(&events).iter().filter(|kind| **kind == "approval_requested").count(), 1);
-    assert_eq!(model.reviews(), 1, "only the first exit went to the reviewer");
+    assert_eq!(model.reviews(), 0, "the reviewer is off");
     // The file keeps every comment and line, with the rule after them.
     let text = std::fs::read_to_string(&config).unwrap();
     assert!(text.starts_with(COMMENTED.trim_end()), "{text}");

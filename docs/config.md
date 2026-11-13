@@ -176,15 +176,15 @@ The filtered message bus of the `auto` mode.
 
 ## [classifier]
 
-The reviewer model that decides most actions that leave the `auto` sandbox.
+The reviewer model that decides each action that leaves the `auto` sandbox.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `enabled` | `true` | live | `true` lets a reviewer model decide most actions that leave the sandbox in `auto`, and hand the unsure ones to you. `false` asks you about every such action, as efr did before it had a reviewer. Each review is one more request to your provider. |
+| `enabled` | `true` | live | `true` lets a reviewer model decide each action that leaves the sandbox in `auto`, alone: the action runs, or the model reads why it does not, and efr asks you nothing about it. `false` asks you about every such action. Each review is one more request to your provider. |
 | `model` | unset | live | The model that reviews first. Unset: the small model of the turn's provider, such as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude. |
-| `fallback_to_turn_model` | `true` | live | `true` lets the turn's model review when the first model is missing, refuses, times out or gives an answer that does not fit. `false` then asks you. |
+| `fallback_to_turn_model` | `true` | live | `true` lets the turn's model review when the first model is missing, refuses, times out or gives an answer that does not fit. `false` then does not run the action. |
 | `effort` | `"low"` | live | The reasoning effort of each review, one lowercase word such as `low`, for the models that take an effort. |
-| `timeout_secs` | `20` | live | How long each model of the chain may take, in seconds, from 1 to 300. A slower answer goes to the next step. |
+| `timeout_secs` | `20` | live | How long each model of the chain may take, in seconds, from 1 to 300. A slower answer goes to the next step, and after the last step the action does not run. |
 
 ## [undo]
 

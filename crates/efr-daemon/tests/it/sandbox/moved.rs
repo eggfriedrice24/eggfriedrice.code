@@ -436,9 +436,12 @@ async fn moved_exit_child_call_is_swept_at_stop() {
         ("LANG".to_owned(), "C.UTF-8".to_owned()),
         ("XDG_RUNTIME_DIR".to_owned(), user_runtime.display().to_string()),
     ]);
+    // NOTE: the user answers the exit of this test, so the reviewer is off, in the file
+    // too: a reload of the file must not turn it on again.
     crate::full::write_config(
         &dirs,
-        "[permissions]\nmode = \"auto\"\n\n[jobs]\nmax_wakes_per_hour = 0\n",
+        "[permissions]\nmode = \"auto\"\n\n[jobs]\nmax_wakes_per_hour = 0\n\n[classifier]\n\
+         enabled = false\n",
     );
     let model = ScriptedModel::new(vec![
         json!({ "command": "scp notes.txt h:notes.txt", "timeout_seconds": 600 }),
@@ -454,6 +457,7 @@ async fn moved_exit_child_call_is_swept_at_stop() {
         .config(|config| {
             config.permissions.mode = Mode::Auto;
             config.jobs.max_wakes_per_hour = 0;
+            config.classifier.enabled = false;
         })
         .custom_provider(model)
         .start()

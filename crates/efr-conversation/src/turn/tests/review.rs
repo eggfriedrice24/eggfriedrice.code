@@ -1,5 +1,7 @@
-//! The classifier before the user in `auto`: which exits it judges, what the turn records
-//! around its answer, and what runs.
+//! The classifier that decides alone in `auto`: which exits it judges, what the turn
+//! records around its answer, what runs, and that no question follows. The user answers
+//! only without a judge, with the classifier off, for a tree that full mode guards too,
+//! and for a reason that is no exit.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,8 +17,14 @@ use efr_scope::{Basis, Derivation};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use crate::exit::{EXIT_DENIED, reviewer_denied};
+use crate::JudgeOutcome;
+use crate::exit::{EXIT_DENIED, Refusal, Unreviewed, reviewer_denied, reviewer_silent};
 use crate::testing::{DONE, FakeJudge, Harness, Script, Setup, allows, denies, judged, unanswered};
+
+/// An allow at a low risk for which the reviewer found no clear request of the user.
+fn allows_loosely() -> JudgeOutcome {
+    judged(Verdict::Allow, Risk::Low, UserAuthorization::Low)
+}
 
 fn app() -> ProjectId {
     "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap()
@@ -194,7 +202,7 @@ async fn one_exit_requested_per_reviewed_call() {
 
 #[tokio::test]
 async fn a_re_ask_of_the_judge_reaches_its_exit_judged() {
-    let judge = FakeJudge::answering(vec![crate::JudgeOutcome { reasked: true, ..allows() }]);
+    let judge = FakeJudge::answering(vec![JudgeOutcome { reasked: true, ..allows() }]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let (h, _) = run(setup, vec![shell("git push origin main")], "push this branch").await;
 
@@ -250,10 +258,12 @@ async fn push_after(
 }
 
 /// A pick-up by another terminal ends the naming window: "commit and push" said before
-/// it does not name the push of the prompt that picked the conversation up.
+/// it does not name the push of the prompt that picked the conversation up. So the push
+/// needs a clear request: an allow of a reviewer that found none does not stand, and
+/// nobody asks the user.
 #[tokio::test]
-async fn a_push_named_before_a_pick_up_asks_the_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
+async fn a_push_named_before_a_pick_up_needs_a_clear_request() {
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
     let attached = Event::TerminalAttached {
         tty: "/dev/pts/6".to_owned(),
         route: RouteScope::Outside,
@@ -262,26 +272,31 @@ async fn a_push_named_before_a_pick_up_asks_the_user() {
     };
     let said = ["commit and push", "now do it"];
     let (h, asked) = push_after(&judge, &said, Some(attached)).await;
-    assert!(asked, "the user decides");
-    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
+    assert!(!asked, "nobody asks the user");
+    assert_eq!(judge.calls(), 1);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Deny)]);
+    assert!(h.toolbox.ran().is_empty());
     assert_eq!(count(&h, "terminal_attached").await, 1);
 }
 
 /// The naming window through a turn (v0.0.4, DV30): "commit and push" three turns ago
-/// no longer names the push of "now do it", so the user decides; the turn before still
-/// counts, and then the reviewer decides with every message in its record.
+/// no longer names the push of "now do it", so the same loose allow of the reviewer does
+/// not stand; the turn before still counts, and then it stands. The reviewer reads every
+/// message in its record.
 #[tokio::test]
-async fn a_push_named_three_turns_ago_asks_the_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
+async fn a_push_named_three_turns_ago_needs_a_clear_request() {
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
     let said = ["commit and push", "fix the tests", "and the docs", "now do it"];
-    let (_h, asked) = push_after(&judge, &said, None).await;
-    assert!(asked, "the user decides");
-    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
+    let (h, asked) = push_after(&judge, &said, None).await;
+    assert!(!asked, "nobody asks the user");
+    assert_eq!(judge.calls(), 1);
+    assert!(h.toolbox.ran().is_empty(), "the old name does not make the allow stand");
 
-    let judge = FakeJudge::answering(vec![allows()]);
-    let (_h, asked) = push_after(&judge, &["commit and push", "now do it"], None).await;
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
+    let (h, asked) = push_after(&judge, &["commit and push", "now do it"], None).await;
     assert!(!asked, "the reviewer decides");
     assert_eq!(judge.calls(), 1);
+    assert_eq!(h.toolbox.ran().len(), 1, "the name of the turn before makes it stand");
     assert_eq!(judge.seen()[0].record.user_messages, ["commit and push", "now do it"]);
 }
 
@@ -300,26 +315,18 @@ async fn cached_verdict_records_no_review_start() {
 }
 
 #[tokio::test]
-async fn judge_outcome_without_verdict_asks_user() {
-    // An error, a timeout or a parse failure at each step of the chain: the user decides,
-    // and the question carries the one record of the call.
+async fn judge_outcome_without_verdict_does_not_run() {
+    // An error, a timeout or a parse failure at each step of the chain: an error never
+    // allows, nobody asks the user, and the model reads that the reviewer gave no answer.
     let judge = FakeJudge::answering(vec![unanswered()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
-    let (mut h, script, turn_id) =
-        start(setup, vec![shell("git push origin main")], "push it").await;
-    let (call_id, exit) = question(&mut h).await;
-    assert_eq!(exit.judged, None);
-    assert!(!exit.user_only, "the classifier may judge it; it only could not");
-    h.answer(call_id, ApprovalDecision::Allow).await;
-    h.wait_end(turn_id).await;
+    let (h, script) = run(setup, vec![shell("git push origin main")], "push it").await;
 
     assert_eq!(count(&h, "exit_requested").await, 1);
-    assert_eq!(
-        judgements(&h).await,
-        vec![(JudgeKind::Classifier, Verdict::AskUser), (JudgeKind::User, Verdict::Allow)]
-    );
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Deny)]);
     let events = h.events().await;
-    let Some(Event::ExitJudged { chain_step, skipped, model, .. }) =
+    let Some(Event::ExitJudged { chain_step, skipped, model, rationale, .. }) =
         events.iter().find(|e| matches!(e, Event::ExitJudged { .. }))
     else {
         panic!("the classifier's answer is recorded");
@@ -327,25 +334,32 @@ async fn judge_outcome_without_verdict_asks_user() {
     assert_eq!(*chain_step, Some(ChainStep::User));
     assert_eq!(skipped.len(), 2, "{skipped:?}");
     assert_eq!(*model, None);
-    assert_eq!(script.results(), vec![("done".to_owned(), false)]);
+    assert_eq!(
+        rationale.as_deref(),
+        Some(
+            "no reviewer model answered (small-model: timeout, test-model: error), so nothing ran"
+        ),
+        "the reason names the steps that failed"
+    );
+    assert!(h.toolbox.invoked().is_empty());
+    assert_eq!(script.results(), vec![(reviewer_silent(), true)]);
+    // It is no denial of the reviewer, so it does not count toward the pause.
+    assert_eq!(count(&h, "classifier_paused").await, 0);
 }
 
 #[tokio::test]
-async fn an_unsure_classifier_hands_its_answer_to_the_user() {
+async fn an_unsure_classifier_does_not_run_the_call() {
+    // A model that still answers `ask_user`: nobody asks the user, so it does not run.
     let unsure = judged(Verdict::AskUser, Risk::Medium, UserAuthorization::Low);
     let judge = FakeJudge::answering(vec![unsure.clone()]);
     let setup = reviewed(Some(judge));
-    let (mut h, _, turn_id) = start(setup, vec![shell("git push origin main")], "push").await;
-    let (call_id, exit) = question(&mut h).await;
-    assert_eq!(exit.judged, unsure.judgement);
-    h.answer(call_id, ApprovalDecision::Deny).await;
-    h.wait_end(turn_id).await;
+    let (h, script) = run(setup, vec![shell("git push origin main")], "push").await;
 
     assert_eq!(h.toolbox.invoked(), Vec::new());
-    assert_eq!(
-        judgements(&h).await,
-        vec![(JudgeKind::Classifier, Verdict::AskUser), (JudgeKind::User, Verdict::Deny)]
-    );
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Deny)]);
+    let read = Refusal::Unsure.for_model(unsure.judgement.as_ref().unwrap());
+    assert_eq!(script.results(), vec![(read, true)]);
 }
 
 #[tokio::test]
@@ -362,26 +376,39 @@ async fn a_classifier_deny_never_runs_and_the_model_reads_why() {
 }
 
 #[tokio::test]
-async fn an_allow_that_breaks_the_naming_rule_asks_the_user() {
-    // The classifier allows a write to a file that no message names: the user decides.
-    let judge = FakeJudge::answering(vec![allows()]);
+async fn an_allow_with_no_name_and_no_clear_request_does_not_run() {
+    // The classifier allows a write to a file that no message names. While it finds no
+    // clear request for it, the request rule refuses the allow; with one, it stands.
+    let asked = judged(Verdict::Allow, Risk::Low, UserAuthorization::Medium);
+    let judge = FakeJudge::answering(vec![allows_loosely(), asked]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let notes = setup.home().join("notes.txt");
     let call = ("write_file", json!({ "path": notes, "content": "x" }));
-    let (mut h, _, turn_id) = start(setup, vec![call], "keep a log of the build").await;
-    let (call_id, exit) = question(&mut h).await;
-    assert_eq!(exit.kinds, vec![ExitKind::Write]);
-    let judged = exit.judged.expect("the question shows the classifier's answer");
-    assert_eq!(judged.verdict, Verdict::AskUser, "efr applied the naming rule");
-    assert_eq!(judged.risk, Risk::Low, "the rest is the model's");
-    h.answer(call_id, ApprovalDecision::Deny).await;
-    h.wait_end(turn_id).await;
+    let (h, script) = run(setup, vec![call.clone(), call], "keep a log of the build").await;
 
-    assert_eq!(judge.calls(), 1);
+    assert_eq!(judge.calls(), 2);
+    assert_eq!(count(&h, "approval_requested").await, 0);
     assert_eq!(
         judgements(&h).await,
-        vec![(JudgeKind::Classifier, Verdict::AskUser), (JudgeKind::User, Verdict::Deny)]
+        vec![(JudgeKind::Classifier, Verdict::Deny), (JudgeKind::Classifier, Verdict::Allow)]
     );
+    let events = h.events().await;
+    let Some(Event::ExitJudged { risk, rationale, .. }) =
+        events.iter().find(|e| matches!(e, Event::ExitJudged { .. }))
+    else {
+        panic!("the classifier's answer is recorded");
+    };
+    assert_eq!(*risk, Some(Risk::Low), "the risk is the model's");
+    assert_eq!(
+        rationale.as_deref(),
+        Some("no message of yours asks for this clearly (the user asked for it)"),
+        "the event holds the rule that efr applied"
+    );
+    let results = script.results();
+    let loose = allows_loosely().judgement.unwrap();
+    assert_eq!(results[0], (Refusal::Unasked.for_model(&loose), true));
+    assert!(!results[1].1, "{results:?}");
+    assert_eq!(h.toolbox.invoked().len(), 1);
 }
 
 #[tokio::test]
@@ -394,13 +421,41 @@ async fn classifier_routes_named_upload() {
 }
 
 #[tokio::test]
-async fn unnamed_upload_asks_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
+async fn unnamed_upload_needs_a_clear_request() {
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let (h, question) = decided(setup, shell("git push origin main"), "fix the typo", None).await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
-    assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+    assert!(!question);
+    assert_eq!(judge.calls(), 1);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Deny)]);
+    assert!(h.toolbox.ran().is_empty());
+    // The reviewer finds a clear request in other words than the name: it runs.
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let (h, question) = decided(setup, shell("git push origin main"), "ship the fix", None).await;
+    assert!(!question);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Allow)]);
+    assert_eq!(h.toolbox.ran().len(), 1);
+}
+
+/// A call whose only exit is one that only the user approved while the user answered:
+/// the reviewer judges it under the request rule, and nobody asks the user. Returns the
+/// harness after a loose allow of the reviewer, which must not stand.
+async fn strict(
+    call: (&str, Value),
+    said: &str,
+    declared: impl FnOnce(&Setup) -> Option<(String, Requirements)>,
+) -> Harness {
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let declared = declared(&setup);
+    let declared = declared.as_ref().map(|(key, needs)| (key.as_str(), needs.clone()));
+    let (h, question) = decided(setup, call, said, declared).await;
+    assert!(!question, "nobody asks the user");
+    assert_eq!(judge.calls(), 1, "the reviewer judges it");
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Deny)]);
+    assert!(h.toolbox.invoked().is_empty(), "a loose allow does not stand");
+    h
 }
 
 #[tokio::test]
@@ -417,6 +472,8 @@ async fn classifier_routes_named_above_root_path() {
     assert_eq!(judge.calls(), 1);
 }
 
+/// A delete of the home directory is the one exit that stays the user's own question
+/// while the reviewer decides alone: the delete guard of full mode asks about it too.
 #[tokio::test]
 async fn above_root_home_asks_user() {
     let judge = FakeJudge::answering(vec![allows()]);
@@ -457,23 +514,14 @@ async fn desktop_ipc_read_form_goes_to_classifier() {
 }
 
 #[tokio::test]
-async fn desktop_ipc_exec_form_asks_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
-    let (_, question) =
-        decided(setup, shell("hyprctl dispatch exec kitty"), "open kitty", None).await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
+async fn desktop_ipc_exec_form_needs_a_clear_request() {
+    strict(shell("hyprctl dispatch exec kitty"), "open kitty", |_| None).await;
 }
 
 #[tokio::test]
-async fn desktop_ipc_unknown_form_asks_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
+async fn desktop_ipc_unknown_form_needs_a_clear_request() {
     let line = "hyprctl --batch 'clients; dispatch exec x'";
-    let (_, question) = decided(setup, shell(line), "list my windows", None).await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
+    strict(shell(line), "list my windows", |_| None).await;
 }
 
 /// A shell call of `line` that asks to run outside the sandbox.
@@ -491,17 +539,14 @@ fn outside_requirements(line: &str, cwd: &Path, facts: CallFacts) -> Requirement
 }
 
 #[tokio::test]
-async fn outside_with_program_changed_this_turn_asks_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
-    let script = setup.cwd.join("deploy.sh");
-    let facts = programs(&[("./deploy.sh", script.to_str().unwrap(), true)]);
-    let requirements = outside_requirements("./deploy.sh", &setup.cwd, facts);
-    let (_, question) =
-        decided(setup, outside("./deploy.sh"), "deploy it", Some(("./deploy.sh", requirements)))
-            .await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
+async fn outside_with_program_changed_this_turn_needs_a_clear_request() {
+    strict(outside("./deploy.sh"), "deploy it", |setup| {
+        let script = setup.cwd.join("deploy.sh");
+        let facts = programs(&[("./deploy.sh", script.to_str().unwrap(), true)]);
+        let requirements = outside_requirements("./deploy.sh", &setup.cwd, facts);
+        Some(("./deploy.sh".to_owned(), requirements))
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -523,10 +568,31 @@ async fn outside_with_cwd_in_root_goes_to_classifier() {
     assert_eq!(judge.calls(), 1);
 }
 
+/// `sudo` asks twice in the engine: as a privileged program and as a `privilege` exit.
+/// Both are the same fact, so the reviewer decides it, under the request rule; the
+/// user still types the password at the terminal when it runs.
 #[tokio::test]
-async fn user_only_kinds_skip_classifier() {
+async fn sudo_goes_to_the_reviewer_under_the_request_rule() {
+    strict(shell("sudo pacman -Syu"), "what is new", |_| None).await;
+
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
+    let (h, question) = decided(setup, shell("sudo pacman -Syu"), "update the system", None).await;
+    assert!(!question);
+    assert_eq!(judge.seen()[0].record.action.exits, vec![ExitKind::Privilege]);
+    let ran = h.toolbox.ran();
+    assert_eq!(ran.len(), 1);
+    assert_eq!(ran[0].launch, Launch::Unsandboxed);
+    assert_eq!(ran[0].approved_by, Some(efr_protocol::ApprovedBy::Reviewer));
+}
+
+/// While the user answers (`classifier.enabled = false`), the kinds that only the user
+/// approves show as such in the question.
+#[tokio::test]
+async fn user_only_kinds_say_so_in_the_question_while_the_user_answers() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let mut setup = reviewed(Some(Arc::clone(&judge)));
+    setup.config.classifier_enabled = false;
     let (h, question) = decided(setup, shell("sudo pacman -Syu"), "update the system", None).await;
     assert!(question);
     assert_eq!(judge.calls(), 0);
@@ -572,21 +638,21 @@ async fn settings_change_never_judged() {
 }
 
 #[tokio::test]
-async fn masked_read_never_judged() {
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
-    let history = setup.home().join(".zsh_history");
-    let line = format!("tail {}", history.display());
-    let requirements = Requirements::none().with_command(&line).with_read(&history);
-    let (_, question) = decided(
-        setup,
-        shell(&line),
-        "what did I run last in ~/.zsh_history",
-        Some((line.as_str(), requirements)),
-    )
+async fn masked_read_needs_a_clear_request() {
+    let h = strict(shell("tail ~/.zsh_history"), "what did I run last", |setup| {
+        let history = setup.home().join(".zsh_history");
+        let line = "tail ~/.zsh_history";
+        let requirements = Requirements::none().with_command(line).with_read(&history);
+        Some((line.to_owned(), requirements))
+    })
     .await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
+    let events = h.events().await;
+    let Some(Event::ExitRequested { kinds, .. }) =
+        events.iter().find(|e| matches!(e, Event::ExitRequested { .. }))
+    else {
+        panic!("the exit has its record");
+    };
+    assert_eq!(*kinds, vec![ExitKind::MaskedRead]);
 }
 
 #[tokio::test]
@@ -635,8 +701,8 @@ async fn named_floor_file_edit_goes_to_classifier() {
 }
 
 #[tokio::test]
-async fn unnamed_floor_file_edit_asks_user() {
-    let judge = FakeJudge::answering(vec![allows()]);
+async fn unnamed_floor_file_edit_needs_a_clear_request() {
+    let judge = FakeJudge::answering(vec![allows_loosely()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let zshrc = setup.home().join(".zshrc");
     let requirements = Requirements::none().with_write(&zshrc).with_facts(a_file(&zshrc));
@@ -644,15 +710,137 @@ async fn unnamed_floor_file_edit_asks_user() {
     let key = zshrc.to_str().unwrap().to_owned();
     let (h, question) =
         decided(setup, call, "tidy my dotfiles", Some((key.as_str(), requirements))).await;
-    assert!(question);
+    assert!(!question);
+    assert_eq!(judge.calls(), 1);
+    assert!(h.toolbox.invoked().is_empty());
+    let record = &judge.seen()[0].record;
+    assert_eq!(record.action.edit.as_deref(), Some("alias k=kubectl\n"), "the reviewer reads it");
+    assert!(!record.facts.targets[0].named_in_user_messages);
+}
+
+/// An edit of a file that runs code later that the reviewer cannot read whole does not
+/// run and gets no review: the reviewer never allows what it saw only in part.
+#[tokio::test]
+async fn floor_file_edit_over_the_limit_is_refused_with_no_review() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let zshrc = setup.home().join(".zshrc");
+    let requirements = Requirements::none().with_write(&zshrc).with_facts(a_file(&zshrc));
+    let long = "x".repeat(efr_protocol::ActionFacts::MAX_EDIT_BYTES + 1);
+    let call = ("write_file", json!({ "path": zshrc, "content": long }));
+    let key = zshrc.to_str().unwrap().to_owned();
+    let script = Script::new(vec![call]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.declared.lock().unwrap().insert(key, requirements);
+    let sent = h.prompt("rewrite my zshrc").await;
+    h.wait_end(sent.turn_id).await;
+
     assert_eq!(judge.calls(), 0);
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);
+    assert!(h.toolbox.invoked().is_empty());
+    assert_eq!(script.results(), vec![(Unreviewed::Unread.for_model(), true)]);
+}
+
+/// An exit of the highest risk: with no message that names it, it does not run and gets
+/// no review, so no text that the model read can bring it about. With its name in a
+/// message of the user, the reviewer judges it under the request rule.
+#[tokio::test]
+async fn a_publish_runs_only_when_a_message_names_it() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let (h, script) = run(setup, vec![shell("npm publish")], "release the new version").await;
+
+    assert_eq!(judge.calls(), 0, "no review");
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);
     let events = h.events().await;
-    let Some(Event::ExitRequested { record, .. }) =
-        events.iter().find(|e| matches!(e, Event::ExitRequested { .. }))
+    let Some(Event::ExitJudged { category, rationale, .. }) =
+        events.iter().find(|e| matches!(e, Event::ExitJudged { .. }))
     else {
-        panic!("the question has its record");
+        panic!("the refusal is recorded");
     };
-    assert_eq!(record.action.edit.as_deref(), Some("alias k=kubectl\n"), "the user sees it too");
+    assert_eq!(category.as_deref(), Some("upload"));
+    // The reason says which word opens it, for the user and for the model.
+    assert_eq!(
+        rationale.as_deref(),
+        Some("no message of yours names this action; a message names it with: publish")
+    );
+    assert!(h.toolbox.invoked().is_empty());
+    let unnamed = Unreviewed::Unnamed { names: vec!["publish".to_owned()] };
+    assert_eq!(script.results(), vec![(unnamed.for_model(), true)]);
+
+    // Named, a loose allow still does not stand, and a clear one does.
+    for (outcome, runs) in [(allows_loosely(), 0), (allows(), 1)] {
+        let judge = FakeJudge::answering(vec![outcome]);
+        let setup = reviewed(Some(Arc::clone(&judge)));
+        let (h, _) = run(setup, vec![shell("npm publish")], "bump it and publish").await;
+        assert_eq!(judge.calls(), 1);
+        assert_eq!(count(&h, "approval_requested").await, 0);
+        assert_eq!(h.toolbox.ran().len(), runs);
+    }
+}
+
+/// A refusal of efr's own rules counts as a denial, with the reviewer's: three in a row
+/// pause the turn, and its next exit stops it. An allow of the reviewer between them
+/// starts the count again, so three that are not in a row do not.
+#[tokio::test]
+async fn three_unnamed_guarded_exits_in_a_row_pause_and_then_stop_the_turn() {
+    let judge = FakeJudge::answering(Vec::new());
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let calls = vec![shell("npm publish"); 4];
+    let (h, script) = run(setup, calls, "release the new version").await;
+
+    assert_eq!(judge.calls(), 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny); 3]);
+    assert_eq!(count(&h, "classifier_paused").await, 1);
+    // The fourth exit stops the turn, so no model call reads its result.
+    assert_eq!(script.results().len(), 3);
+    let events = h.events().await;
+    let failed = events.iter().find_map(|e| match e {
+        Event::TurnFailed { error, .. } => Some(error.message.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        failed.as_deref(),
+        Some(
+            "auto stopped this turn: 3 actions in a row were refused. Read the answers, then \
+             send a new prompt that names what you want."
+        )
+    );
+
+    let judge = FakeJudge::answering(vec![allows(), allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let (publish, push) = (shell("npm publish"), shell("git push origin main"));
+    let calls = vec![publish.clone(), push.clone(), publish.clone(), push, publish];
+    let (h, script) = run(setup, calls, "push the new version").await;
+    assert_eq!(count(&h, "classifier_paused").await, 0, "never three in a row");
+    assert_eq!(script.results().len(), 5, "the turn went on to its end");
+    assert_eq!(h.toolbox.ran().len(), 2);
+}
+
+/// Three reviews in a row with no answer stop the turn: the reviewer's model or the
+/// provider is down, and each further exit would only wait for the chain and fail.
+#[tokio::test]
+async fn three_reviews_with_no_answer_stop_the_turn() {
+    let judge = FakeJudge::answering(vec![unanswered(), unanswered(), unanswered()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let calls = vec![shell("git push origin main"); 4];
+    let (h, script) = run(setup, calls, "push it").await;
+
+    assert_eq!(judge.calls(), 3);
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(count(&h, "classifier_paused").await, 0, "no answer is no denial");
+    // The turn ends after the third call, so no model call reads its result.
+    assert_eq!(script.results().len(), 2);
+    let events = h.events().await;
+    let failed = events.iter().find_map(|e| match e {
+        Event::TurnFailed { error, .. } => Some(error.message.clone()),
+        _ => None,
+    });
+    assert_eq!(failed.as_deref(), Some(crate::exit::reviewer_down().as_str()));
+    // Nobody judged those exits, so the record of the next one lists none as denied.
+    assert!(judge.seen()[2].record.facts.previous_exits_this_turn.is_empty());
 }
 
 #[tokio::test]
@@ -680,18 +868,13 @@ async fn classifier_record_has_floor_edit_payload() {
 }
 
 #[tokio::test]
-async fn named_persistence_command_asks_user_in_phase_a() {
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
-    let (_, question) = decided(
-        setup,
+async fn persistence_command_with_no_unit_fact_needs_a_clear_request() {
+    strict(
         shell("systemctl --user enable --now syncthing.service"),
         "enable syncthing for my user",
-        None,
+        |_| None,
     )
     .await;
-    assert!(question);
-    assert_eq!(judge.calls(), 0);
 }
 
 #[tokio::test]
@@ -844,22 +1027,38 @@ async fn home_file_changed_says_whether_the_home_store_covers_it() {
 }
 
 #[tokio::test]
-async fn an_ssh_control_socket_in_scratch_is_only_for_the_user() {
+async fn an_ssh_control_socket_in_scratch_needs_a_clear_request() {
     // OQS17 of the v0.0.4 shell items (v0.0.5): an ssh control socket is a logged-in
     // session, and the socket, not the host of the line, decides where the command
-    // runs. So the user alone approves such a line, also when a message names its host:
-    // the reviewer never sees it. On a machine with no proxy it is a `host` exit with the
-    // whole network for one contained call, and a question that the user may need to
-    // type (ssh is the hard flag). The DS13 hint of the shell tool stays.
-    let judge = FakeJudge::answering(vec![allows()]);
-    let setup = reviewed(Some(Arc::clone(&judge)));
+    // runs. So a name of the host in a message is not enough for such a line: the
+    // reviewer's allow stands only with a clear request. On a machine with no proxy it
+    // is a `host` exit with the whole network for one contained call.
     let line = "ssh -S $SCRATCH/cm host true";
-    let declared = Requirements::none()
-        .with_command(line)
-        .with_read(setup.cwd.join("host"))
-        .with_read(setup.cwd.join("true"))
-        .with_network()
-        .with_interactive();
+    let h = strict(shell(line), "log in to host", |setup| {
+        let declared = Requirements::none()
+            .with_command(line)
+            .with_read(setup.cwd.join("host"))
+            .with_read(setup.cwd.join("true"))
+            .with_network()
+            .with_interactive();
+        Some((line.to_owned(), declared))
+    })
+    .await;
+    let events = h.events().await;
+    let Some(Event::ExitRequested { kinds, grants, .. }) =
+        events.iter().find(|e| matches!(e, Event::ExitRequested { .. }))
+    else {
+        panic!("the exit has its record");
+    };
+    assert_eq!(*kinds, vec![ExitKind::Host]);
+    assert_eq!(*grants, vec![efr_protocol::Grant::OpenNetwork]);
+    assert!(h.toolbox.ran().is_empty());
+
+    // While the user answers, the question says that only the user approves it.
+    let judge = FakeJudge::answering(vec![allows()]);
+    let mut setup = reviewed(Some(Arc::clone(&judge)));
+    setup.config.classifier_enabled = false;
+    let declared = Requirements::none().with_command(line).with_network().with_interactive();
     let script = Script::new(vec![shell(line)]);
     let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
     h.toolbox.declared.lock().unwrap().insert(line.to_owned(), declared);
@@ -868,18 +1067,9 @@ async fn an_ssh_control_socket_in_scratch_is_only_for_the_user() {
     let Event::ApprovalRequested { call_id, interactive, exit: Some(exit), .. } = asked else {
         panic!("the question shows the exit: {asked:?}");
     };
-    assert_eq!(
-        (exit.kinds.clone(), exit.launch.clone(), interactive, exit.user_only),
-        (
-            vec![ExitKind::Host],
-            Launch::Contained { grants: vec![efr_protocol::Grant::OpenNetwork] },
-            true,
-            true
-        )
-    );
+    assert_eq!((interactive, exit.user_only), (true, true));
     assert!(exit.facts.iter().any(|fact| fact.contains("ssh control socket")), "{exit:?}");
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(sent.turn_id).await;
-    assert!(h.toolbox.ran().is_empty());
-    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
+    assert_eq!(judge.calls(), 0);
 }

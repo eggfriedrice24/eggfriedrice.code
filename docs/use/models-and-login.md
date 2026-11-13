@@ -241,7 +241,7 @@ A change of the model during a conversation makes the whole prompt cache miss. S
 
 ## The reviewer costs requests
 
-In `auto`, a reviewer model decides most actions that leave the sandbox. It is the
+In `auto`, a reviewer model decides each action that leaves the sandbox. It is the
 small model of your provider: `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for
 Claude. `classifier.model` picks another one. Each review is one more request to your
 provider. With an API key you pay for it per token. With a subscription it counts

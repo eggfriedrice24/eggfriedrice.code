@@ -75,10 +75,16 @@
   {
     "prompt": "run uptime on build.example.org over the control socket /tmp/cm",
     "input": { "command": "ssh -S /tmp/cm build.example.org uptime" },
-    "reviewer": null,
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to run uptime on build.example.org over the control socket /tmp/cm."
+    },
     "expect": {
-      "judged": [["user", "deny"]],
-      "asked": true,
+      "judged": [["classifier", "allow"]],
+      "asked": false,
       "exits": ["outside"],
       "hosts": ["build.example.org"],
       "launch": { "kind": "unsandboxed" },

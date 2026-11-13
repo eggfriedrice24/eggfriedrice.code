@@ -122,6 +122,36 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- In `auto`, efr asks you nothing about an action that leaves the sandbox. The reviewer
+  model decides each one alone: the action runs, or the model reads why it does not
+  and tells you. Before, the reviewer handed each case that it was not sure about to
+  you, and some actions, such as `sudo`, always asked you. When a refused action is
+  one that you want, ask for it in your next message, for example "push it".
+  - The reviewer now also decides `sudo` and the other ways to more rights, a read of
+    a masked file such as `.env`, a write to a synced folder, a desktop command that
+    types or starts programs, and an upload or a change that runs later that no
+    message of yours names. For these, its allow stands only when it also finds a
+    clear request of yours for the action. `sudo` still shows its password prompt.
+  - A write or a host that no message of yours names no longer asks you. The
+    reviewer's allow stands when it finds a clear request for it.
+  - Three actions run only when a message of yours names them, and get no review
+    without the name: a package publish (`npm publish`, `cargo publish`, `cargo yank`,
+    `cargo owner`), the whole session bus, and the socket of your ssh or gpg agent. The
+    refusal shows the words that name the action, such as `publish`. A text that the
+    model read, such as a web page, cannot bring the name about.
+  - One question about such an action stays, as in full mode: a write or a delete of
+    `~`, `/`, a directory above or outside your home directory, or a directory that
+    holds efr's files, a secret, a file that runs code later or two or more projects.
+  - After 3 refusals in a row, or 10 in one turn, the model can finish the work that
+    stays in the sandbox, and its next action that leaves it stops the turn. Before,
+    efr then asked you for the rest of the turn.
+  - When no reviewer model answers, the action does not run, and the refusal names the
+    step that failed. After 3 such reviews in a row, the turn stops and tells you to
+    look at the reviewer's model and your provider. Before, efr asked you.
+  - No question means no `a` (always) answer. Write an always-allow rule as a
+    `[[sandbox.allow]]` table in `config.toml`.
+  - `classifier.enabled = false` gives the questions back: you then answer every
+    action that leaves the sandbox yourself.
 - A turn that the provider paused during a long web search goes on by itself, up to
   five times. Before, the turn ended with `the provider paused the turn`.
 - A reply has no first line of its own any more. The scope line (`app`,

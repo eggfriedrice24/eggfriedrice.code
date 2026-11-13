@@ -273,12 +273,12 @@
         },
         "enabled": {
           "default": true,
-          "description": "`true` lets a reviewer model decide most actions that leave the sandbox in\n`auto`, and hand the unsure ones to you. `false` asks you about every such\naction, as efr did before it had a reviewer. Each review is one more request to\nyour provider.",
+          "description": "`true` lets a reviewer model decide each action that leaves the sandbox in\n`auto`, alone: the action runs, or the model reads why it does not, and efr asks\nyou nothing about it. `false` asks you about every such action. Each review is\none more request to your provider.",
           "type": "boolean"
         },
         "fallback_to_turn_model": {
           "default": true,
-          "description": "`true` lets the turn's model review when the first model is missing, refuses,\ntimes out or gives an answer that does not fit. `false` then asks you.",
+          "description": "`true` lets the turn's model review when the first model is missing, refuses,\ntimes out or gives an answer that does not fit. `false` then does not run the\naction.",
           "type": "boolean"
         },
         "model": {
@@ -291,7 +291,7 @@
         },
         "timeout_secs": {
           "default": 20,
-          "description": "How long each model of the chain may take, in seconds, from 1 to 300. A slower\nanswer goes to the next step.",
+          "description": "How long each model of the chain may take, in seconds, from 1 to 300. A slower\nanswer goes to the next step, and after the last step the action does not run.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -1899,7 +1899,7 @@
         "model": null,
         "timeout_secs": 20
       },
-      "description": "The reviewer model that decides most actions that leave the `auto` sandbox."
+      "description": "The reviewer model that decides each action that leaves the `auto` sandbox."
     },
     "compaction": {
       "$ref": "#/$defs/CompactionSettings",

@@ -26,10 +26,16 @@
   {
     "prompt": "restart nginx",
     "input": { "command": "systemctl restart nginx" },
-    "reviewer": null,
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to restart nginx."
+    },
     "expect": {
-      "judged": [["user", "deny"]],
-      "asked": true,
+      "judged": [["classifier", "allow"]],
+      "asked": false,
       "exits": ["privilege"],
       "launch": { "kind": "unsandboxed" },
       "max_minutes": null

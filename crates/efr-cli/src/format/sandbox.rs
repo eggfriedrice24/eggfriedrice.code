@@ -1096,13 +1096,18 @@ pub(crate) fn no_answer_row(skipped: &[String]) -> String {
 }
 
 /// The note when the reviewer stops for the rest of a turn after `denials` refusals
-/// (efr's auto spec, 9.5 and 14.7): each later exit then asks the user.
+/// (efr's auto spec, 9.5 and 14.7): the model can finish the work that stays in the
+/// sandbox, and its next exit stops the turn, because nobody asks the user.
 pub(crate) fn paused(reason: PauseReason, denials: u8) -> String {
+    // NOTE: the count holds the refusals of the reviewer and of efr's own rules, so the
+    // line does not say who refused.
     let refused = match reason {
-        PauseReason::InARow => format!("it refused {denials} actions in a row"),
-        _ => format!("it refused {denials} actions"),
+        PauseReason::InARow => format!("{denials} actions in a row were refused"),
+        _ => format!("{denials} actions of this turn were refused"),
     };
-    format!("reviewer paused for this turn: {refused}; efr asks you for the rest")
+    format!(
+        "reviewer paused for this turn: {refused}; the next action that needs it stops the turn"
+    )
 }
 
 /// The answer line of a question that nobody answered while the user was away
@@ -1421,7 +1426,9 @@ pub(crate) fn judge_details(
         let step = match step {
             ChainStep::ClassifierModel => "the reviewer model",
             ChainStep::TurnModel => "the turn's model",
-            ChainStep::User => "handed to you",
+            // NOTE: the chain ended with no answer. In a conversation older than efr
+            // 0.0.9 the exit then went to the user; now it does not run.
+            ChainStep::User => "no model answered",
             _ => "another step",
         };
         parts.push(step.to_owned());

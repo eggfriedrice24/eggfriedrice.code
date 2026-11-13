@@ -30,7 +30,7 @@ a full-screen program.
   directory where you stand.
 - **A sandbox for the agent.** In the `auto` mode, each command of the agent runs in a
   kernel sandbox. It can build and test your project with no question. A reviewer
-  model decides most actions that leave the sandbox.
+  model decides each action that leaves the sandbox, so efr asks you nothing about it.
   [The sandbox](use/sandbox-basics.md) tells more.
 - **No other agent below it.** efrd owns the model loop and talks to the model API
   directly. It does not wrap another coding agent.

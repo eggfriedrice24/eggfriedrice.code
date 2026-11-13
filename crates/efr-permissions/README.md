@@ -225,7 +225,14 @@ Modules:
   user approves such a line outside the sandbox), its declared paths, its network
   need, the model's `needs` and the daemon's `CallFacts`; each `ExitNeed` has a kind,
   the grants a "yes" opens, the bind of a write (`WriteBind`), its `Approver` (the
-  classifier, the classifier when a user message names the exit, or only the user),
+  classifier, the classifier when a user message names the exit, only the user, or
+  `Guarded`: an exit of the highest risk, which is the user's too, and which the
+  classifier may judge only when a user message names it, while it decides alone: a
+  package publish, the whole session bus, and a socket under a mask or of a credential
+  agent that efrd knows from the environment. A rule that gives an exit to the user
+  only raises the approver, so a guarded exit stays guarded, and a guarded exit merges
+  only with a guarded exit of the same names, so "push" never names the publish of
+  `git push && npm publish`),
   the `names` that name it, what efrd copies into its home store first (`copies`: a
   `Home` file, or a `HomeDir` with what it holds for a dir target, an `above_root`
   write and the parent that a `Parent` bind opens; `backup_before_write` when it
@@ -351,7 +358,7 @@ Modules:
   and `iwctl`, and the model's `needs.bus`. A `bus` exit for the whole session bus
   (`Grant::Bus { bus: Session }`, from a program, `needs.bus` or a socket need of the
   bus: `/run/user/*/bus` or a socket that `Locations::with_session_bus` added, which
-  efrd does for the `unix:path=` of `DBUS_SESSION_BUS_ADDRESS` and its real path) is `Approver::User` in every case, with the note `WHOLE_SESSION_BUS_NOTE` (`the
+  efrd does for the `unix:path=` of `DBUS_SESSION_BUS_ADDRESS` and its real path) is `Approver::Guarded` in every case, named by `SESSION_BUS_NAMES` ("session bus", "dbus", "d-bus"), with the note `WHOLE_SESSION_BUS_NOTE` (`the
   whole session bus can start programs outside the sandbox`): the user manager starts
   programs outside the sandbox, and an unlocked keyring gives its secrets. The engine
   does not look for a keyring owner first. The whole system bus keeps its approver. The rule is a fit, not a security layer: `systemctl --failed; ./x.sh`

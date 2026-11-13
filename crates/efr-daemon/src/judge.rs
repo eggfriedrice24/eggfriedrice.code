@@ -15,11 +15,14 @@
 //! the provider of new conversations. The chain: the classifier model
 //! (`classifier.model`, else the small model of that provider's company,
 //! [`Vendor::classifier_model`]), then the turn's model when
-//! `classifier.fallback_to_turn_model` is on, then the user. A step goes to the next one
+//! `classifier.fallback_to_turn_model` is on. A step goes to the next one
 //! when its model is missing, refuses, times out or gives an answer that does not fit
 //! the schema. A provider that refuses the credentials, or an account without quota,
-//! fails for every model, so the chain goes to the user at once. A judge never allows
-//! by failing: a chain that ends at the user has no judgement.
+//! fails for every model, so the chain ends at once. A judge never allows
+//! by failing: a chain that ends with no answer has no judgement, and the turn then
+//! does not run the call. The verdict is `allow` or `deny`: the judge decides alone,
+//! and nobody asks the user. A model that still answers `ask_user` gets a refusal from
+//! the turn.
 //!
 //! The answer must be exactly one JSON object with the five members of the schema and
 //! no other; efrd checks the lengths after the parse, because the providers take no
@@ -53,11 +56,11 @@
 //! the outcome, so `efr-conversation` needs no hash function.
 //!
 //! The judge returns the model's judgement as it is. The turn applies the allow rule and
-//! the naming rule of 9.4 (`efr-conversation`).
+//! the request rule (`efr_conversation`, `exit::effective`).
 //!
 //! efrd builds one judge over the providers of the conversations (`run.rs`) and passes
 //! it as `ConversationDeps::judge`. `classifier.enabled = false` keeps the turn from
-//! asking it.
+//! asking it; the user then answers each exit.
 
 use std::fmt;
 use std::sync::Arc;
@@ -564,7 +567,7 @@ pub(crate) fn schema() -> Value {
                 "type": "string",
                 "enum": ["none", "low", "medium", "high"],
             },
-            "verdict": {"type": "string", "enum": ["allow", "deny", "ask_user"]},
+            "verdict": {"type": "string", "enum": ["allow", "deny"]},
         },
         "required": ["category", "rationale", "risk", "user_authorization", "verdict"],
         "additionalProperties": false,

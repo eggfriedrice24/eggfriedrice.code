@@ -633,7 +633,7 @@ async fn away_wake_turn_question_expires() {
         vec![
             job(&blocked(&fifo, "echo ended")),
             None,
-            // The wake turn asks: the reviewer hands the exit to the user.
+            // The wake turn asks: the reviewer is off, so the user decides the exit.
             Some(("shell", outside)),
             None,
         ],
@@ -641,7 +641,10 @@ async fn away_wake_turn_question_expires() {
     );
     let daemon = setup
         .builder(Arc::clone(&model))
-        .config(|config| config.presence.away_wait_secs = 30)
+        .config(|config| {
+            config.presence.away_wait_secs = 30;
+            config.classifier.enabled = false;
+        })
         .start()
         .await
         .unwrap();

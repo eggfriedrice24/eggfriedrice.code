@@ -1186,7 +1186,7 @@ fn a_question_that_no_reviewer_judged_says_so() {
 }
 
 #[test]
-fn a_paused_reviewer_asks_the_user_for_the_rest_of_the_turn() {
+fn a_paused_reviewer_says_that_the_next_exit_stops_the_turn() {
     let paused = |reason, denials| Event::ClassifierPaused { turn_id: turn(), reason, denials };
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

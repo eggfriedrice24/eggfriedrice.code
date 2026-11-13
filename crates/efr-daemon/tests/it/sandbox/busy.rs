@@ -127,9 +127,12 @@ impl Place {
             ("LANG".to_owned(), "C.UTF-8".to_owned()),
             ("XDG_RUNTIME_DIR".to_owned(), user_runtime.display().to_string()),
         ]);
+        // NOTE: the user answers each exit of these tests, so the reviewer is off, in the
+        // file too: a project that a test adds makes efrd read the file again.
         crate::full::write_config(
             &self.dirs,
-            "[permissions]\nmode = \"auto\"\n\n[jobs]\nmax_wakes_per_hour = 0\n",
+            "[permissions]\nmode = \"auto\"\n\n[jobs]\nmax_wakes_per_hour = 0\n\n[classifier]\n\
+             enabled = false\n",
         );
         let answers: Vec<Answer> = vec![Some(("shell", input)), None];
         // NOTE: the clock starts after the files of the test were written, so no file of
@@ -144,6 +147,7 @@ impl Place {
             .config(|config| {
                 config.permissions.mode = Mode::Auto;
                 config.jobs.max_wakes_per_hour = 0;
+                config.classifier.enabled = false;
             })
             .custom_provider(Recorder::reviewed(answers, REVIEWER_ASKS))
             .start()

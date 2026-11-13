@@ -159,20 +159,31 @@ turns.
   the user alone, so the reviewer never reads a clean check as a reason to allow, and
   with only the writable parts; the engine's `ExitNeed::notes` (the writable git code, what a publish runs) join the
   question's facts.
-- The classifier (`turn/review.rs`) judges first when the turn runs in `auto`,
-  `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on, the
-  classifier has not stopped for the turn, every reason that asks is an exit, and every
-  exit goes to it. `exit_requested` and `exit_review_started` come in one batch, the
+- The classifier (`turn/review.rs`) decides alone when the turn runs in `auto`,
+  `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on and
+  every reason that asks is an exit (the ask of a privileged program such as `sudo`
+  counts as its `privilege` exit). Then no question follows: the call runs, or the
+  model reads why it does not. The route of the call (`exit::route`) no longer says
+  who answers; it says how strict efr is. `Approver::Classifier`: the allow stands
+  under the rules below. `Approver::User`: the request rule always applies.
+  `Approver::Guarded` (an exit of the highest risk that no user message names):
+  refused with no review, `exit_judged` with the judge `floor` and the words that name
+  it (`exit::Unreviewed`, `exit::missing_names`); a payload that the classifier cannot
+  read whole is refused the same way. One exit stays the user's own question: an
+  `above_root` exit of a tree that the delete guard of full mode covers too
+  (`exit::guarded_tree`). `exit_requested` and `exit_review_started` come in one batch, the
   judge runs while the user can still interrupt, and `exit_judged` (judge
   `classifier`, with the model, the latency, the step of the chain, the skipped models,
   the record's hash, `cached` and `reasked`, from `JudgeOutcome::reasked`: the judge
   asked its model again for a real reason) records the answer. A verdict from the judge's cache
   of the turn comes at once and records no `exit_review_started`. efr applies the allow
-  rule and the naming rule of the auto spec, section 9.4 (`exit::effective`): an allow
-  stands at a low or medium risk, or at a high risk that a user message authorizes; a
-  write, a floor file edit or an `above_root` exit needs a user message that names
-  each target outside a cache, build output, efr's trash and the write roots; a host
-  needs one that names it, except the registries of a package manager's fetch when a
+  rule and the request rule (`exit::effective`): a critical risk never allows, and a
+  verdict that is not `allow` or `deny` does not run. With a mark, an allow stands only
+  when the classifier also rates the user's authorization as medium or high. The marks
+  are a high risk; the route `Approver::User`; a write, a floor file edit or an
+  `above_root` exit with a target outside a cache, build output, efr's trash and the
+  write roots that no user message names; and a host that no user message names,
+  except the registries of a package manager's fetch when a
   message of the naming window asks to build, install, update or fetch
   (`exit::REGISTRY_EXCEPTION`, `exit::fetch_asked`). Under
   efr's network proxy (phase D2, DP23) a host needs no name when it is `on_allow_list`:
@@ -186,10 +197,12 @@ turns.
   exits' grants and `ExitNeed::hosts`, so the model's `needs.hosts` words reach the
   record in their normal form. An
   allow runs the call with its launch and `ApprovedBy::Reviewer`. A deny gives
-  the model the reviewer's text ("The auto reviewer refused this action ..."). Any
-  other answer, and a judge that gave none (every step of its chain failed), asks the
-  user with one `exit_requested` for the call, and the question shows the classifier's
-  answer in `ExitInfo::judged`.
+  the model the reviewer's text ("The auto reviewer refused this action ..."), and a
+  refusal of efr's rules gives it the rule (`exit::Refusal`); `exit_judged` holds the
+  verdict and the reason that efr applied. A judge that gave no answer (every step of
+  its chain failed) runs nothing, and `exit_judged` names the steps that failed; it is
+  no denial, and the third such review in a row stops the turn
+  (`exit::reviewer_down`).
 - Always-allow rules (phase E, `turn/always.rs`). They come after the floors and the
   user's rules, which the engine applied, and before the classifier. When the turn runs
   in `auto`, the launcher runs the call, and `efr_permissions::Engine::always` says that
@@ -236,13 +249,14 @@ turns.
   without a person's answer end the turn with `turn_failed` (`forbidden`, "auto stopped
   this turn: 3 actions were refused in a row. Read the answers, then send a new
   prompt."; in full mode the text starts with "full mode stopped this turn",
-  `exit::refusals_stopped`). A classifier allow does not reset that count. Classifier denials count
-  apart: at 3 in a row or 10 in the turn the classifier stops for the rest of the turn
-  (`classifier_paused`), each later exit that it would judge asks the user, and the
-  turn stops while the user is away ("auto stopped this turn: the reviewer refused 3
-  actions in a row and nobody could decide. ..."). A classifier allow or any answer of
-  the user resets the denials in a row; an error, a step of the chain and an expired
-  question count as none. The counts live in the turn, so the model cannot reset them.
+  `exit::refusals_stopped`). A classifier allow does not reset that count. The denials
+  of exits count apart: the classifier's own, a refusal of efr's rules after a review,
+  and a refusal with no review. At 3 in a row or 10 in the turn the classifier stops
+  for the rest of the turn (`classifier_paused`). The model can finish the work that
+  stays in the sandbox, and its next exit stops the turn ("auto stopped this turn: 3
+  actions in a row were refused. ...", `exit::reviewer_stopped`). A classifier allow
+  resets the denials in a row; an error and a step of the chain count as none. The
+  counts live in the turn, so the model cannot reset them.
 - Presence (`PresenceReader`, `ConversationDeps::presence`). A question reads it when
   it parks and again every 15 seconds while it waits (`PRESENCE_CHECK`), so a user who
   leaves or runs `efr away` after the question parked gets the away wait too, and a
