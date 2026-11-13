@@ -140,6 +140,8 @@ const FIXTURES: &[&str] = &[
     "web_search_failed.sse",
     "web_search_queries.sse",
     "web_search_no_action.sse",
+    "web_search_steps.sse",
+    "web_search_stored.sse",
 ];
 
 #[tokio::test]

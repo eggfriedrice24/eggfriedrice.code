@@ -158,6 +158,9 @@ fn without_the_web_tools_no_text_waits() {
 #[case::fetch("web_fetch.sse")]
 #[case::fetch_error("web_fetch_error.sse")]
 #[case::three("web_search_three.sse")]
+#[case::board("web_search_board.sse")]
+#[case::long_query("web_search_long_query.sse")]
+#[case::short("web_search_short.sse")]
 fn every_held_character_comes_once_and_the_raw_text_never_changes(#[case] name: &str) {
     for web in [false, true] {
         let completion = fixture_completion_with(name, web);

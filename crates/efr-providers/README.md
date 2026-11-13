@@ -422,7 +422,10 @@ developers.openai.com/api/reference/resources/responses/streaming-events (the
 Codex's `codex-rs/core/src/tools/hosted_spec.rs` for the subscription path. No real
 stream was recorded yet. The fixtures `web_search.sse`, `web_search_failed.sse`,
 `web_search_queries.sse` and `web_search_no_action.sse` are written from those pages,
-and the first comment line of each says so. The tests run them on the mapper, over
+and the first comment line of each says so. `web_search_steps.sse` (the search, open,
+find, open and search of the board TM-Web 5) and `web_search_stored.sse` (five searches
+of the stored copy, TM-Web 13) have the same shapes; efr-cli plays them through a whole
+turn. The tests run them on the mapper, over
 HTTP on both backends and over the WebSocket. What the docs do not show, and what the
 fixtures therefore only guess: whether the item of `response.output_item.added` has an
 action, when the annotation event comes and how the text cites a page, how a failed
@@ -777,7 +780,11 @@ block), `web_search_error.sse` (`too_many_requests`, `max_uses_exceeded`,
 with a call that has not run) and `web_search_continued.sse` (starts with its result),
 `web_search_with_tool_use.sse` (a search next to a client call), `web_fetch.sse`,
 `web_fetch_error.sse` and `web_search_three.sse` (three searches at once, then the
-answer of the board TM-Web 10 with three citations). The tests are in
+answer of the board TM-Web 10 with three citations). `web_search_board.sse` (the five
+searches of TM-Web 3 and 4, three at once with their results in another order, then the
+cited answer), `web_search_long_query.sse` (TM-Web 1: a query that is cut) and
+`web_search_short.sse` (TM-Web 13: one search) have the same shapes; efr-cli plays them
+through a whole turn. The tests are in
 `sse_events/tests/web.rs`, `convert/tests/web.rs` and `messages/tests.rs`. A recording
 of a real search replaces the fixture of its case, after a check that it holds no
 private text.

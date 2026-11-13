@@ -5,8 +5,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ContextUse, EffectiveSettings, Event, Mode, OverriddenSettings, Scope, Usage, WebAction,
-    WebError, WebResult, WebSource,
+    ContextUse, EffectiveSettings, Event, Mode, OverriddenSettings, Scope, TurnId, Usage,
+    WebAction, WebError, WebResult, WebSource,
 };
 use efr_test_support::design::{Depth, Frame};
 
@@ -29,7 +29,12 @@ const LOOK: Look = Look {
 /// A view of a turn on `work/claude-opus-5-5 high` in the home directory, with the
 /// scope in the status row (no prompt corner), as the frames of TM-Web draw it.
 fn play(depth: Depth, cols: u16) -> Play {
-    let mut view = TurnView::new(turn(), design_options(depth, cols))
+    play_of(turn(), depth, cols)
+}
+
+/// [`play`] of the turn `turn_id`.
+fn play_of(turn_id: TurnId, depth: Depth, cols: u16) -> Play {
+    let mut view = TurnView::new(turn_id, design_options(depth, cols))
         .with_look(LOOK)
         .with_home(Some(PathBuf::from("/home/user")))
         .with_scope(Some("\u{2302} ~".to_owned()));
@@ -46,7 +51,7 @@ fn play(depth: Depth, cols: u16) -> Play {
         default_effort: None,
     };
     let started = Event::TurnStarted {
-        turn_id: turn(),
+        turn_id,
         cwd: PathBuf::from("/home/user"),
         scope: Scope::Machine,
         settings: Some(settings),
@@ -331,3 +336,5 @@ fn through_a_pipe_the_rows_go_to_stderr_in_order() {
         "\u{2713} web a b  1 result\n\u{2713} web c d  2 results\n\n[1] https://areweanticheatyet.com/game/rob-run  ROB RUN \u{b7} Are We Anti-Cheat Yet?\n"
     );
 }
+
+mod turns;

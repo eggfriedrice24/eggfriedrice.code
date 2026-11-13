@@ -419,7 +419,9 @@ Replies:
   gives it, `0 results` too; a long query cut after its last whole word with `…`, the
   count and the time never cut), `✓ web open <host/path>  2s` (the page in `link`, an
   OSC 8 link to the whole URL, a long path cut in the middle), `! web <query>  too many
-  requests · 1s` (`!` and the reason in `warning`, no tail). A find never has a row. The
+  requests · 1s` (`!` and the reason in `warning`, no tail). A find never has a row; a
+  step that started as a search without a query (OpenAI names the action only at the
+  end) and ended as a find holds back no row after it. The
   report of the turn (`turn_web_report`) brings the list of the cited pages after the
   answer, one blank row before it: `[1] <URL>  <title>`, the number and the title
   muted, the URL whole in `link` (the title is cut, then left out, before a URL is
@@ -1316,6 +1318,13 @@ search, an open and a failure, the list of sources, the end lines and the rows o
 searches), `follow/view/tests/layout/design/web.rs` (whole turns through a real view:
 the order of three searches at once, the marks, the list and the count, a manual turn,
 a pipe) and `commands/history/tests/web.rs` (`efr history` and `--verbose`).
+`follow/view/tests/layout/design/web/turns.rs` joins the slices: the fixture streams of
+efr-providers go through the real provider and the real turn of a test daemon
+(`web/turns/daemon.rs`, against the fake servers of efr-test-daemon), and the turn's
+events through a real view and `efr history`, against TM-Web 1 to 5, 8, 10, 12 to 15,
+18 and 19, with the times of the board (the fake server sends a stream at once). It also
+checks the gate: in manual mode and with `web.search = "off"` no request names a web
+tool, on either provider.
 
 Unit tests cover argument parsing (with `efr --help` snapshots), output formatting
 (insta snapshots of status, listings, transcripts, config and rendered turns), the
