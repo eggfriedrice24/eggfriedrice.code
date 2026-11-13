@@ -1215,6 +1215,10 @@ async fn shell_a_turn_reports_its_surface_files_and_keeps_a_quarantined_change_o
     let model = ScriptedModel::new(vec![json!({
         "command": "printf 'all:\\n' > Makefile && echo hook > planted"
     })]);
+    // NOTE: the user answers here, in the file too: the project that the test adds makes
+    // efrd read the file again. While the reviewer decides alone, the plant stays in
+    // quarantine with no question.
+    crate::full::write_config(&dirs, "[classifier]\nenabled = false\n");
     let daemon = user_answers(with_zsh(TestDaemon::builder()))
         .dirs(Arc::clone(&dirs))
         .sandbox_launcher(&launcher)
