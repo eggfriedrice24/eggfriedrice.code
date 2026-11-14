@@ -4,8 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CompactionTrigger, ContextUse, ConversationId, ConversationSummary, EventEnvelope, PageCursor,
-    Seq, TurnId,
+    AccountLimits, CompactionTrigger, ContextUse, ConversationId, ConversationSummary,
+    EventEnvelope, PageCursor, Seq, TurnId,
 };
 
 /// The params of `conversation.subscribe`, a streaming method.
@@ -168,6 +168,16 @@ pub enum DraftPart {
         /// Why, in a few plain words that are safe to print, such as `the provider
         /// answered 503`.
         reason: String,
+    },
+    /// The limits of the turn's account changed: a model call of the turn carried new
+    /// values. A client shows the fullest window from 90 % while the turn runs, such
+    /// as `5-hour 92%`. A subscription that starts while the turn runs gets the newest
+    /// one first.
+    Limits {
+        /// The account, as a provider id such as `openai-subscription.b`.
+        provider: String,
+        /// The new values.
+        limits: AccountLimits,
     },
 }
 

@@ -4,6 +4,8 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::AccountLimits;
+
 /// The params of `models.list`. It takes none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ModelsList {}
@@ -20,8 +22,10 @@ pub struct ModelsListResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog: Option<CatalogStatus>,
     /// Where the catalog of each provider in `models` came from: the provider of new
-    /// conversations first, then each other provider with a login. Absent when the
-    /// daemon lists only the provider of new conversations, as before.
+    /// conversations first, then each other provider with a login, then each account
+    /// that `[accounts]` in `config.toml` names but that has no login
+    /// ([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent
+    /// when the daemon lists only the provider of new conversations, as before.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalogs: Vec<CatalogStatus>,
 }
@@ -40,6 +44,22 @@ pub struct CatalogStatus {
     /// the list built into efr.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fetched_at: Option<Timestamp>,
+    /// The user's name for the account, from `[accounts]` in `config.toml`. Absent when
+    /// the config gives none: a client then names the account by its kind and id, such
+    /// as `ChatGPT plan · b`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// True when the account has no login. efrd lists it with the models of its last
+    /// list, so that a client can show them dimmed; a turn on it fails until the user
+    /// logs in again. False when absent, as from an earlier daemon, which listed only
+    /// the accounts with a login.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub signed_out: bool,
+    /// How full the limits of the account are, from its last model call. Absent when
+    /// efr knows none: before the first call, for an API key that reached no limit,
+    /// and for an account that is signed out. `admin.status` carries the same value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<AccountLimits>,
 }
 
 /// Where a model catalog came from.

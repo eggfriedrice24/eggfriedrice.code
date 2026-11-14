@@ -1031,3 +1031,22 @@ No protocol version has shipped yet.
   absence; a stored record that holds it reads as before, because the record ignores a
   member that it does not know. `grants.json` now holds the two new grants, and
   `events/exit_requested.json` has no `git_code`.
+- Version 1, additive: accounts and their limits. New wire type `account_limits`
+  `{observed_at, windows?, reached?}`: the limits of one account from the last answer
+  of its provider that told them. A window is `{minutes?, used_percent, resets_at?}`
+  (`used_percent` is an integer from 0 to 100; a client names the window from
+  `minutes`, such as `5-hour` for 300 and `weekly` for 10080). `reached` is
+  `{kind, resets_at?}` with the new wire enum `limit_kind` (`usage`, `requests`,
+  `tokens`, `input_tokens`, `output_tokens`, `too_many_requests`, `credit`,
+  `spend_limit`, `unknown`; a value that a client does not know reads as `unknown`).
+  Each entry of `catalogs` in `models.list` gains an optional `label` (the user's name
+  for the account, from `[accounts]` in `config.toml`), `signed_out` (false when
+  absent; efrd now also lists an account that `[accounts]` names but that has no
+  login) and `limits`, so a phone, which has no `admin` scope, can show them. Each
+  `providers` entry of `admin.status` gains the same `label` and `limits`. A new draft
+  part `limits` `{provider, limits}` comes when a model call of the running turn
+  carried new values. efrd keeps the limits in memory only, removes a value after its
+  reset, and sends none for an account that is signed out. An older efrd sends none
+  of the new members. The fixtures `admin_status_result.json`,
+  `models_list_result.json` and `draft_parts.json` now hold them; new fixture
+  `limit_kinds.json`.

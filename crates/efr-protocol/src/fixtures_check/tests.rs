@@ -309,10 +309,11 @@ fn draft_part_index(part: &DraftPart) -> usize {
         DraftPart::Connecting => 5,
         DraftPart::Connected => 6,
         DraftPart::Retrying { .. } => 7,
+        DraftPart::Limits { .. } => 8,
     }
 }
 
-const DRAFT_PART_COUNT: usize = 8;
+const DRAFT_PART_COUNT: usize = 9;
 
 /// The position of a withdraw target in the enum, for the same purpose as
 /// `method_index`.

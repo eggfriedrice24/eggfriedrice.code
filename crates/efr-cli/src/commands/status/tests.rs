@@ -35,11 +35,16 @@ fn result() -> AdminStatusResult {
             key_hint: None,
             key_refused_at: None,
             key_checked_at: None,
+            label: None,
+            limits: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
             provider: None,
             origin: efr_protocol::CatalogOrigin::Cache,
             fetched_at: Some(now() - SignedDuration::from_hours(26)),
+            label: None,
+            signed_out: false,
+            limits: None,
         }),
         roots: None,
         config: None,
@@ -115,6 +120,9 @@ async fn the_models_row_names_the_list_of_each_account() {
         provider: Some(provider.to_owned()),
         origin,
         fetched_at: Some(now() - SignedDuration::from_mins(5)),
+        label: None,
+        signed_out: false,
+        limits: None,
     };
     let lists = ModelsListResult {
         catalogs: vec![
@@ -167,6 +175,8 @@ async fn a_logged_in_provider_needs_no_login_hint() {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
+        label: None,
+        limits: None,
     });
     let (exit, _, stderr) = status_of(&status).await;
     assert_eq!(exit, Exit::Success);
@@ -185,6 +195,8 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
+        label: None,
+        limits: None,
     };
     vec![
         ProviderStatus {

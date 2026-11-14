@@ -43,6 +43,9 @@ fn accounts() -> ModelsListResult {
         provider: Some(provider.to_owned()),
         origin,
         fetched_at: Some(now() - SignedDuration::from_mins(minutes)),
+        label: None,
+        signed_out: false,
+        limits: None,
     };
     let work = "anthropic-api.work";
     let personal = "anthropic-api.personal";
@@ -117,6 +120,9 @@ fn the_models_of_each_provider_with_a_login_are_listed_under_their_provider() {
         provider: Some(provider.to_owned()),
         origin: CatalogOrigin::Builtin,
         fetched_at: None,
+        label: None,
+        signed_out: false,
+        limits: None,
     };
     let mut list = models();
     list.catalog = Some(status("openai-subscription"));
@@ -165,6 +171,9 @@ fn an_account_with_no_list_yet_keeps_its_head() {
         provider: Some("anthropic-api.work".to_owned()),
         origin: CatalogOrigin::Missing,
         fetched_at: None,
+        label: None,
+        signed_out: false,
+        limits: None,
     };
     let list = ModelsListResult {
         models: Vec::new(),
@@ -207,6 +216,9 @@ fn the_listing_says_where_an_older_list_came_from() {
         provider: None,
         origin: CatalogOrigin::Cache,
         fetched_at: Some(now() - SignedDuration::from_hours(26)),
+        label: None,
+        signed_out: false,
+        limits: None,
     });
     let text = plain(&list, &[]);
     assert!(text.starts_with("from the cache, fetched 1d 2h ago\n* gpt-5.5 "), "{text}");
@@ -223,6 +235,9 @@ fn a_claude_list_names_its_provider_and_the_anthropic_table_of_the_config() {
         provider: Some("anthropic-api".to_owned()),
         origin: CatalogOrigin::Missing,
         fetched_at: None,
+        label: None,
+        signed_out: false,
+        limits: None,
     });
 
     insta::assert_snapshot!(plain(&list, &[]), @"
@@ -271,6 +286,8 @@ fn signed_out_status() -> AdminStatusResult {
             key_hint: None,
             key_refused_at: None,
             key_checked_at: None,
+            label: None,
+            limits: None,
         }],
         catalog: None,
         roots: None,

@@ -15,6 +15,7 @@
 import { z } from "zod";
 
 import type {
+  AccountLimits,
   ActionFacts,
   AdminConfigReload,
   AdminConfigReloadResult,
@@ -165,6 +166,9 @@ import type {
   Launch,
   LeaseReport,
   LeaseReportResult,
+  LimitKind,
+  LimitReached,
+  LimitWindow,
   LiveTurn,
   LoginKind,
   Method,
@@ -299,6 +303,35 @@ import type {
   WithdrawnPrompt,
   WithdrawnSteer,
 } from "./generated";
+
+export const limitKindSchema = z.enum([
+  "usage",
+  "requests",
+  "tokens",
+  "input_tokens",
+  "output_tokens",
+  "too_many_requests",
+  "credit",
+  "spend_limit",
+  "unknown",
+]) satisfies z.ZodType<LimitKind>;
+
+export const limitReachedSchema = z.object({
+  kind: limitKindSchema,
+  resets_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+}) satisfies z.ZodType<LimitReached>;
+
+export const limitWindowSchema = z.object({
+  minutes: z.uint32().nullable().exactOptional(),
+  resets_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+  used_percent: z.int().min(0).max(255),
+}) satisfies z.ZodType<LimitWindow>;
+
+export const accountLimitsSchema = z.object({
+  observed_at: z.iso.datetime({ offset: true }),
+  reached: limitReachedSchema.nullable().exactOptional(),
+  windows: z.array(limitWindowSchema).exactOptional(),
+}) satisfies z.ZodType<AccountLimits>;
 
 export const exitKindSchema = z.enum([
   "write",
@@ -522,8 +555,11 @@ export const catalogOriginSchema = z.enum([
 
 export const catalogStatusSchema = z.object({
   fetched_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+  label: z.string().nullable().exactOptional(),
+  limits: accountLimitsSchema.nullable().exactOptional(),
   origin: catalogOriginSchema,
   provider: z.string().nullable().exactOptional(),
+  signed_out: z.boolean().exactOptional(),
 }) satisfies z.ZodType<CatalogStatus>;
 
 export const heldConfigSchema = z.object({
@@ -580,6 +616,8 @@ export const providerStatusSchema = z.object({
   key_checked_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
   key_hint: z.string().nullable().exactOptional(),
   key_refused_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+  label: z.string().nullable().exactOptional(),
+  limits: accountLimitsSchema.nullable().exactOptional(),
   logged_in: z.boolean(),
   login: loginKindSchema.nullable().exactOptional(),
   provider: z.string(),
@@ -2272,6 +2310,7 @@ export const draftPartSchema = z.discriminatedUnion("kind", [
     status: z.int().min(0).max(65535).nullable().exactOptional(),
     wait_ms: z.int().nonnegative(),
   }),
+  z.object({ kind: z.literal("limits"), limits: accountLimitsSchema, provider: z.string() }),
 ]) satisfies z.ZodType<DraftPart>;
 
 export const draftSchema = z.object({

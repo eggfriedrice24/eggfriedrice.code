@@ -374,6 +374,9 @@ pub(crate) fn models() -> ModelsListResult {
             provider: Some("openai-subscription".to_owned()),
             origin: CatalogOrigin::Backend,
             fetched_at: Some(now() - jiff::SignedDuration::from_mins(5)),
+            label: None,
+            signed_out: false,
+            limits: None,
         }),
         catalogs: Vec::new(),
     }

@@ -1,0 +1,11 @@
+[
+  "usage",
+  "requests",
+  "tokens",
+  "input_tokens",
+  "output_tokens",
+  "too_many_requests",
+  "credit",
+  "spend_limit",
+  "unknown"
+]

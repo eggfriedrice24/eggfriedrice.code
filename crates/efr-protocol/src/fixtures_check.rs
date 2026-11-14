@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, json};
 
 use crate::{
-    ActionFacts, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
+    AccountLimits, ActionFacts, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
     AdminLoginApiKeyResult, AdminLoginOpenAi, AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult,
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
@@ -41,26 +41,27 @@ use crate::{
     ForwardOutcome, FullModeStatus, FullRefusal, GitCounts, Grant, HeldConfig, HeldReason, Hello,
     HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo,
     JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement,
-    LateSteer, Launch, LeaseReport, LeaseReportResult, LiveTurn, LoginKind, Method, Mode,
-    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall, NetworkMode,
-    NewReason, NotSavedReason, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
-    PageCursor, PairEnd, PairingId, PairingQr, PathClassName, PauseReason, PortForward, Presence,
-    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
-    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, ProveContext, ProveMessage, ProviderStatus, ProviderWarm,
-    ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
-    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
-    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, SwitchedModel,
-    TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    LateSteer, Launch, LeaseReport, LeaseReportResult, LimitKind, LimitReached, LimitWindow,
+    LiveTurn, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
+    ModelsListResult, MovedCall, NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName,
+    PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource,
+    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
+    ProviderStatus, ProviderWarm, ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
+    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
+    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
+    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
+    SurfaceChange, Switch, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo,
+    TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
+    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -158,6 +159,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("approved_bys.json", &ApprovedBy::ALL.to_vec()));
     fixtures.push(fixture("web_actions.json", &WebAction::ALL.to_vec()));
     fixtures.push(fixture("web_errors.json", &WebError::ALL.to_vec()));
+    fixtures.push(fixture("limit_kinds.json", &LimitKind::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
@@ -474,7 +476,40 @@ pub(crate) fn draft_part_samples() -> Vec<DraftPart> {
             status: Some(503),
             reason: "the provider answered 503".to_owned(),
         },
+        DraftPart::Limits { provider: "openai-subscription".to_owned(), limits: plan_limits() },
     ]
+}
+
+/// The limits of a ChatGPT plan: the 5-hour window at 92 % and the weekly one at 41 %.
+fn plan_limits() -> AccountLimits {
+    AccountLimits {
+        observed_at: at("2026-10-03T07:58:00Z"),
+        windows: vec![
+            LimitWindow {
+                minutes: Some(300),
+                used_percent: 92,
+                resets_at: Some(at("2026-10-03T12:20:00Z")),
+            },
+            LimitWindow {
+                minutes: Some(10_080),
+                used_percent: 41,
+                resets_at: Some(at("2026-10-06T07:00:00Z")),
+            },
+        ],
+        reached: None,
+    }
+}
+
+/// The limits of an API key that reached its requests limit: no windows.
+fn key_limits() -> AccountLimits {
+    AccountLimits {
+        observed_at: at("2026-10-03T07:59:00Z"),
+        windows: Vec::new(),
+        reached: Some(LimitReached {
+            kind: LimitKind::Requests,
+            resets_at: Some(at("2026-10-03T08:03:00Z")),
+        }),
+    }
 }
 
 /// How full the context of [`turn_id`] is: 43% of the trigger of a 272k window.
@@ -1463,6 +1498,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                         key_hint: None,
                         key_refused_at: None,
                         key_checked_at: None,
+                        label: None,
+                        limits: Some(plan_limits()),
                     },
                     ProviderStatus {
                         provider: "anthropic-api".into(),
@@ -1473,12 +1510,17 @@ fn answer_fixtures() -> Vec<Fixture> {
                         key_hint: Some("sk-ant-...a1b2".into()),
                         key_refused_at: Some(at("2026-10-03T07:45:00Z")),
                         key_checked_at: Some(at("2026-10-03T07:45:00Z")),
+                        label: Some("Work".into()),
+                        limits: Some(key_limits()),
                     },
                 ],
                 catalog: Some(CatalogStatus {
                     provider: Some("anthropic-api".into()),
                     origin: CatalogOrigin::Backend,
                     fetched_at: Some(at("2026-10-03T07:30:00Z")),
+                    label: None,
+                    signed_out: false,
+                    limits: None,
                 }),
                 roots: Some(daemon_roots()),
                 config: Some(ConfigStatus {
@@ -2249,8 +2291,28 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
             provider: Some("openai-subscription".into()),
             origin: CatalogOrigin::Cache,
             fetched_at: Some(at("2026-10-03T07:00:00Z")),
+            label: None,
+            signed_out: false,
+            limits: Some(plan_limits()),
         }),
-        catalogs: Vec::new(),
+        catalogs: vec![
+            CatalogStatus {
+                provider: Some("openai-subscription".into()),
+                origin: CatalogOrigin::Cache,
+                fetched_at: Some(at("2026-10-03T07:00:00Z")),
+                label: None,
+                signed_out: false,
+                limits: Some(plan_limits()),
+            },
+            CatalogStatus {
+                provider: Some("anthropic-api.personal".into()),
+                origin: CatalogOrigin::Missing,
+                fetched_at: None,
+                label: Some("Personal".into()),
+                signed_out: true,
+                limits: None,
+            },
+        ],
     }
 }
 

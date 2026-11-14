@@ -40,5 +40,24 @@
     "wait_ms": 2000,
     "status": 503,
     "reason": "the provider answered 503"
+  },
+  {
+    "kind": "limits",
+    "provider": "openai-subscription",
+    "limits": {
+      "observed_at": "2026-10-03T07:58:00Z",
+      "windows": [
+        {
+          "minutes": 300,
+          "used_percent": 92,
+          "resets_at": "2026-10-03T12:20:00Z"
+        },
+        {
+          "minutes": 10080,
+          "used_percent": 41,
+          "resets_at": "2026-10-06T07:00:00Z"
+        }
+      ]
+    }
   }
 ]

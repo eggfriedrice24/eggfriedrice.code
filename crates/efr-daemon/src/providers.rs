@@ -833,6 +833,10 @@ pub(crate) fn provider_status(
         key_hint,
         key_refused_at: None,
         key_checked_at: None,
+        // NOTE: a stub until efrd reads `[accounts]` and keeps the limits of each
+        // account.
+        label: None,
+        limits: None,
     }
 }
 

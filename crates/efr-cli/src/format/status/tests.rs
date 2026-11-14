@@ -32,6 +32,8 @@ fn provider(id: &str) -> ProviderStatus {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
+        label: None,
+        limits: None,
     }
 }
 
@@ -103,7 +105,14 @@ fn status_result() -> AdminStatusResult {
 }
 
 fn catalog(provider: &str, origin: CatalogOrigin, seconds: i64) -> CatalogStatus {
-    CatalogStatus { provider: Some(provider.to_owned()), origin, fetched_at: Some(before(seconds)) }
+    CatalogStatus {
+        provider: Some(provider.to_owned()),
+        origin,
+        fetched_at: Some(before(seconds)),
+        label: None,
+        signed_out: false,
+        limits: None,
+    }
 }
 
 /// The model lists of the two accounts with a login.
@@ -327,7 +336,14 @@ fn a_time_leaves_out_a_second_unit_of_zero() {
 
 #[test]
 fn a_list_says_where_it_came_from_and_when() {
-    let status = |origin, fetched_at| CatalogStatus { provider: None, origin, fetched_at };
+    let status = |origin, fetched_at| CatalogStatus {
+        provider: None,
+        origin,
+        fetched_at,
+        label: None,
+        signed_out: false,
+        limits: None,
+    };
     let backend = status(CatalogOrigin::Backend, Some(before(5 * 60)));
     assert_eq!(origin(&backend, now()), "from the backend, fetched 5m ago");
     let cache = status(CatalogOrigin::Cache, Some(before(26 * 3_600)));

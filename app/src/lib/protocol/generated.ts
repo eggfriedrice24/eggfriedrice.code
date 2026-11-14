@@ -2281,6 +2281,19 @@ export type CacheMode = "overlay" | "tmp" | "readonly";
  */
 export type NetworkMode = "none" | "proxy";
 /**
+ * Which limit an account reached.
+ */
+export type LimitKind =
+  | "usage"
+  | "requests"
+  | "tokens"
+  | "input_tokens"
+  | "output_tokens"
+  | "too_many_requests"
+  | "credit"
+  | "spend_limit"
+  | "unknown";
+/**
  * Where a model catalog came from.
  */
 export type CatalogOrigin = "backend" | "cache" | "builtin" | "missing";
@@ -2572,6 +2585,17 @@ export type DraftPart =
        * How long the daemon waits before the next attempt, in milliseconds.
        */
       wait_ms: number;
+    }
+  | {
+      kind: "limits";
+      /**
+       * The new values.
+       */
+      limits: AccountLimits;
+      /**
+       * The account, as a provider id such as `openai-subscription.b`.
+       */
+      provider: string;
     };
 /**
  * One item of a `conversations.watch` stream.
@@ -5843,6 +5867,18 @@ export interface CatalogStatus {
    */
   fetched_at?: string | null;
   /**
+   * The user's name for the account, from `[accounts]` in `config.toml`. Absent when
+   * the config gives none: a client then names the account by its kind and id, such
+   * as `ChatGPT plan · b`.
+   */
+  label?: string | null;
+  /**
+   * How full the limits of the account are, from its last model call. Absent when
+   * efr knows none: before the first call, for an API key that reached no limit,
+   * and for an account that is signed out. `admin.status` carries the same value.
+   */
+  limits?: AccountLimits | null;
+  /**
    * Where the list came from.
    */
   origin: CatalogOrigin;
@@ -5852,6 +5888,71 @@ export interface CatalogStatus {
    * could run more than one kind of provider.
    */
   provider?: string | null;
+  /**
+   * True when the account has no login. efrd lists it with the models of its last
+   * list, so that a client can show them dimmed; a turn on it fails until the user
+   * logs in again. False when absent, as from an earlier daemon, which listed only
+   * the accounts with a login.
+   */
+  signed_out?: boolean;
+}
+/**
+ * How full the limits of one account are, from the last answer of its provider that
+ * told efr. efrd removes a window or a [`reached`](Self::reached) after its reset
+ * time, sends none for an account that is signed out, and clears them at a login or a
+ * logout.
+ */
+export interface AccountLimits {
+  /**
+   * When efr learned the values: the time of the answer that carried them. A client
+   * shows the age of an old value, such as `12m ago`.
+   */
+  observed_at: string;
+  /**
+   * A limit that the account reached and that stops its calls until its reset, such
+   * as the requests limit of an API key. Absent while no limit stops the account.
+   */
+  reached?: LimitReached | null;
+  /**
+   * The usage windows of a plan, such as the 5-hour and the weekly window of a
+   * ChatGPT plan, in the order of the provider. Empty for an API key, whose provider
+   * tells no percent.
+   */
+  windows?: LimitWindow[];
+}
+/**
+ * A limit that an account reached.
+ */
+export interface LimitReached {
+  /**
+   * Which limit.
+   */
+  kind: LimitKind;
+  /**
+   * When the account can serve again. Absent when the provider does not tell it,
+   * such as for an account with no credit.
+   */
+  resets_at?: string | null;
+}
+/**
+ * One usage window of a plan.
+ */
+export interface LimitWindow {
+  /**
+   * The length of the window in minutes, such as 300 or 10080. A client names the
+   * window from it: `5-hour`, `daily`, `weekly` or `monthly`. Absent when the
+   * provider does not tell it.
+   */
+  minutes?: number | null;
+  /**
+   * When the window starts again. Absent when the provider does not tell it.
+   */
+  resets_at?: string | null;
+  /**
+   * How much of the window the account used, in percent, from 0 to 100. At 100 the
+   * account reached the limit of the window.
+   */
+  used_percent: number;
 }
 /**
  * The config file that the daemon reads, and the state of its last reload.
@@ -5943,6 +6044,16 @@ export interface ProviderStatus {
    * from an earlier daemon. A request with the key that works again removes it.
    */
   key_refused_at?: string | null;
+  /**
+   * The user's name for the account, as [`CatalogStatus::label`]. Absent when the
+   * config gives none, and from an earlier daemon.
+   */
+  label?: string | null;
+  /**
+   * How full the limits of the account are, as [`CatalogStatus::limits`]. Absent
+   * when efr knows none, and from an earlier daemon.
+   */
+  limits?: AccountLimits | null;
   /**
    * True when credentials are stored.
    */
@@ -6892,8 +7003,10 @@ export interface ModelsListResult {
   catalog?: CatalogStatus | null;
   /**
    * Where the catalog of each provider in `models` came from: the provider of new
-   * conversations first, then each other provider with a login. Absent when the
-   * daemon lists only the provider of new conversations, as before.
+   * conversations first, then each other provider with a login, then each account
+   * that `[accounts]` in `config.toml` names but that has no login
+   * ([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent
+   * when the daemon lists only the provider of new conversations, as before.
    */
   catalogs?: CatalogStatus[];
   /**
@@ -7617,6 +7730,7 @@ export const DRAFT_PART_KINDS = [
   "connecting",
   "connected",
   "retrying",
+  "limits",
 ] as const satisfies readonly DraftPart["kind"][];
 
 /** Every item kind of `conversation.subscribe`. */

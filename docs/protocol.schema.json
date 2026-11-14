@@ -1,5 +1,37 @@
 {
   "$defs": {
+    "AccountLimits": {
+      "description": "How full the limits of one account are, from the last answer of its provider that\ntold efr. efrd removes a window or a [`reached`](Self::reached) after its reset\ntime, sends none for an account that is signed out, and clears them at a login or a\nlogout.",
+      "properties": {
+        "observed_at": {
+          "description": "When efr learned the values: the time of the answer that carried them. A client\nshows the age of an old value, such as `12m ago`.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "reached": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LimitReached"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A limit that the account reached and that stops its calls until its reset, such\nas the requests limit of an API key. Absent while no limit stops the account."
+        },
+        "windows": {
+          "description": "The usage windows of a plan, such as the 5-hour and the weekly window of a\nChatGPT plan, in the order of the provider. Empty for an API key, whose provider\ntells no percent.",
+          "items": {
+            "$ref": "#/$defs/LimitWindow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "observed_at"
+      ],
+      "type": "object"
+    },
     "ActionFacts": {
       "description": "The action of an exit record.",
       "properties": {
@@ -1181,6 +1213,24 @@
             "null"
           ]
         },
+        "label": {
+          "description": "The user's name for the account, from `[accounts]` in `config.toml`. Absent when\nthe config gives none: a client then names the account by its kind and id, such\nas `ChatGPT plan · b`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How full the limits of the account are, from its last model call. Absent when\nefr knows none: before the first call, for an API key that reached no limit,\nand for an account that is signed out. `admin.status` carries the same value."
+        },
         "origin": {
           "$ref": "#/$defs/CatalogOrigin",
           "description": "Where the list came from."
@@ -1191,6 +1241,10 @@
             "string",
             "null"
           ]
+        },
+        "signed_out": {
+          "description": "True when the account has no login. efrd lists it with the models of its last\nlist, so that a client can show them dimmed; a turn on it fails until the user\nlogs in again. False when absent, as from an earlier daemon, which listed only\nthe accounts with a login.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -3776,6 +3830,29 @@
             "attempt",
             "wait_ms",
             "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The limits of the turn's account changed: a model call of the turn carried new\nvalues. A client shows the fullest window from 90 % while the turn runs, such\nas `5-hour 92%`. A subscription that starts while the turn runs gets the newest\none first.",
+          "properties": {
+            "kind": {
+              "const": "limits",
+              "type": "string"
+            },
+            "limits": {
+              "$ref": "#/$defs/AccountLimits",
+              "description": "The new values."
+            },
+            "provider": {
+              "description": "The account, as a provider id such as `openai-subscription.b`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "provider",
+            "limits"
           ],
           "type": "object"
         }
@@ -7932,6 +8009,110 @@
       ],
       "type": "object"
     },
+    "LimitKind": {
+      "description": "Which limit an account reached.",
+      "oneOf": [
+        {
+          "const": "usage",
+          "description": "The usage limit of a plan, such as a ChatGPT plan. The provider does not say\nwhich window, so a client names none.",
+          "type": "string"
+        },
+        {
+          "const": "requests",
+          "description": "The requests per minute of an API key.",
+          "type": "string"
+        },
+        {
+          "const": "tokens",
+          "description": "The tokens per minute of an API key.",
+          "type": "string"
+        },
+        {
+          "const": "input_tokens",
+          "description": "The input tokens per minute of an API key.",
+          "type": "string"
+        },
+        {
+          "const": "output_tokens",
+          "description": "The output tokens per minute of an API key.",
+          "type": "string"
+        },
+        {
+          "const": "too_many_requests",
+          "description": "The provider answered \"too many requests\" to each try of a model call and told\nno limit, so efr stopped trying. Only in the cause of a failed turn, never in\n[`AccountLimits`].",
+          "type": "string"
+        },
+        {
+          "const": "credit",
+          "description": "The account has no credit left, such as an API key with no balance. It has no\nreset.",
+          "type": "string"
+        },
+        {
+          "const": "spend_limit",
+          "description": "The account reached a spend limit: the limit of its tier, or the one that the\nuser set at the provider.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A limit that this build does not know.",
+          "type": "string"
+        }
+      ]
+    },
+    "LimitReached": {
+      "description": "A limit that an account reached.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/LimitKind",
+          "description": "Which limit."
+        },
+        "resets_at": {
+          "description": "When the account can serve again. Absent when the provider does not tell it,\nsuch as for an account with no credit.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "LimitWindow": {
+      "description": "One usage window of a plan.",
+      "properties": {
+        "minutes": {
+          "description": "The length of the window in minutes, such as 300 or 10080. A client names the\nwindow from it: `5-hour`, `daily`, `weekly` or `monthly`. Absent when the\nprovider does not tell it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "resets_at": {
+          "description": "When the window starts again. Absent when the provider does not tell it.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "used_percent": {
+          "description": "How much of the window the account used, in percent, from 0 to 100. At 100 the\naccount reached the limit of the window.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used_percent"
+      ],
+      "type": "object"
+    },
     "LiveTurn": {
       "description": "The state of a running turn in a [`ConversationSnapshot`]: what a client needs to\nshow the text and the reasoning so far after it joins in the middle of a message.\n\n`text` is the whole text of message `index` so far, from its start. Drafts and\n`assistant_message_updated` events of the same message that follow the snapshot\ncontinue it: one whose `offset` is at most `text_bytes` overlaps it, and a client\nkeeps the part past `text_bytes`. `reasoning` is the reasoning of the whole turn so\nfar in the same way, for the reasoning drafts.",
       "properties": {
@@ -9443,7 +9624,7 @@
           "description": "Where the provider's catalog came from. Absent when the daemon does not report\nit, as before the catalog came from the backend."
         },
         "catalogs": {
-          "description": "Where the catalog of each provider in `models` came from: the provider of new\nconversations first, then each other provider with a login. Absent when the\ndaemon lists only the provider of new conversations, as before.",
+          "description": "Where the catalog of each provider in `models` came from: the provider of new\nconversations first, then each other provider with a login, then each account\nthat `[accounts]` in `config.toml` names but that has no login\n([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent\nwhen the daemon lists only the provider of new conversations, as before.",
           "items": {
             "$ref": "#/$defs/CatalogStatus"
           },
@@ -10234,6 +10415,24 @@
             "string",
             "null"
           ]
+        },
+        "label": {
+          "description": "The user's name for the account, as [`CatalogStatus::label`]. Absent when the\nconfig gives none, and from an earlier daemon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How full the limits of the account are, as [`CatalogStatus::limits`]. Absent\nwhen efr knows none, and from an earlier daemon."
         },
         "logged_in": {
           "description": "True when credentials are stored.",

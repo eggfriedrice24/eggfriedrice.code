@@ -43,6 +43,7 @@ const LISTS: Readonly<Record<string, string>> = {
   job_stop_causes: "JobStopBy",
   judge_kinds: "JudgeKind",
   launches: "Launch",
+  limit_kinds: "LimitKind",
   modes: "Mode",
   not_saved_reasons: "NotSavedReason",
   notice_kinds: "NoticeKind",

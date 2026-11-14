@@ -12,7 +12,22 @@
       "provider": "openai-subscription",
       "logged_in": true,
       "expires_at": "2026-10-03T20:00:00Z",
-      "login": "subscription"
+      "login": "subscription",
+      "limits": {
+        "observed_at": "2026-10-03T07:58:00Z",
+        "windows": [
+          {
+            "minutes": 300,
+            "used_percent": 92,
+            "resets_at": "2026-10-03T12:20:00Z"
+          },
+          {
+            "minutes": 10080,
+            "used_percent": 41,
+            "resets_at": "2026-10-06T07:00:00Z"
+          }
+        ]
+      }
     },
     {
       "provider": "anthropic-api",
@@ -21,7 +36,15 @@
       "login": "api_key",
       "key_hint": "sk-ant-...a1b2",
       "key_refused_at": "2026-10-03T07:45:00Z",
-      "key_checked_at": "2026-10-03T07:45:00Z"
+      "key_checked_at": "2026-10-03T07:45:00Z",
+      "label": "Work",
+      "limits": {
+        "observed_at": "2026-10-03T07:59:00Z",
+        "reached": {
+          "kind": "requests",
+          "resets_at": "2026-10-03T08:03:00Z"
+        }
+      }
     }
   ],
   "catalog": {

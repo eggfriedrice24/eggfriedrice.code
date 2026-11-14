@@ -7,7 +7,8 @@
 //! changed and the undo of a turn, the
 //! context's use and its compactions, the search of conversations, the enrolled
 //! devices with their pairing and the message that a device signs to prove its key,
-//! the steps of the provider's web search and the pages that an answer cites,
+//! the steps of the provider's web search and the pages that an answer cites, the
+//! limits of an account and why an account could not serve a turn,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -22,6 +23,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod accounts;
 mod capabilities;
 mod changes;
 mod compaction;
@@ -51,6 +53,7 @@ mod undo;
 mod version;
 mod web;
 
+pub use accounts::{AccountLimits, LimitKind, LimitReached, LimitWindow};
 pub use capabilities::Capabilities;
 pub use changes::{
     ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,
