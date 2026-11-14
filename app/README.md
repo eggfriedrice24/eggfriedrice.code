@@ -22,6 +22,11 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   composer that answers, and the approval sheet (the route `/approval`, a form sheet
   that fits its content) with the full command or diff. The strip or the card opens the
   sheet; nothing opens it by itself.
+- Auto calls follow AU-Auto and errata 1, 6, 7 and 9 of round 6: the tool card shows
+  "reviewing", the verdict of the reviewer, of an always rule or of efr's own floor in
+  the words of the terminal (`src/features/conversation/model/exit-words.ts`), and what
+  the call got on the same line. The pause of the reviewer is one quiet line, and asks
+  nothing.
 - The app pairs with more than one machine and connects to all of them at the same time.
   The route of a conversation names its machine (`/c/<daemon id>/<conversation id>`).
 - Done and tested on Linux: the protocol types and their zod schemas, the WebSocket

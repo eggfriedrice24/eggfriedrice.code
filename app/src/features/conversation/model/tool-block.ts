@@ -14,6 +14,10 @@
 //   elapsed time; under a minute before the question expires, the seconds left. After
 //   the answer only the status word changes (S-Tools): `allowed`, then the usual loader,
 //   or `denied` or `expired`.
+// - In auto (AU-Auto): "reviewing" with the braille cell while the reviewer judges the
+//   exit of the call; "refused" when the reviewer or efr's own floor refused it; "did not
+//   run" when no reviewer answered, or when the pause of the reviewer stopped the turn at
+//   it. The line under the header (exit-words.ts) gives the verdict in efr's words.
 // - The word "error" in an output line is red (design: stderr "error" words).
 // - A step of the provider's web search (TM-Web) has the verb `web` and the query, or
 //   `open` and the page without `https://` and `www.`. Done: `✓ 10 results · 6s` (the
@@ -29,6 +33,7 @@ import type {
 } from "@/lib/stream/reducer";
 import { utf8Length } from "@/lib/stream/utf8";
 import { between, clockTime, elapsed } from "./durations";
+import { isNoAnswer, isRefused } from "./exit-words";
 import { size } from "./format";
 
 /** The lines of output of a collapsed block. */
@@ -77,8 +82,13 @@ export type ToolStatus =
   | { readonly kind: "running"; readonly elapsed: string | undefined }
   | { readonly kind: "done"; readonly detail: string }
   | { readonly kind: "failed"; readonly detail: string }
-  /** Its approval was denied or expired: the call did not run. */
-  | { readonly kind: "closed"; readonly word: "denied" | "expired" };
+  /** The reviewer judges its exit now (auto). */
+  | { readonly kind: "reviewing" }
+  /** It did not run: its approval was denied or expired, or efr refused its exit. */
+  | { readonly kind: "closed"; readonly word: ClosedWord };
+
+/** The status word of a call that did not run. */
+export type ClosedWord = "denied" | "expired" | "refused" | "did not run";
 
 /** The approval question of a call, as its tool block needs it. */
 export interface ToolApproval {
@@ -104,6 +114,7 @@ export function toolStatus(
   now: number,
   approval?: ToolApproval,
   left?: string,
+  stopped?: boolean,
 ): ToolStatus {
   if (call.web !== undefined) {
     return webStatus(call, call.web, turnEnded, now);
@@ -116,6 +127,21 @@ export function toolStatus(
       return { kind: "closed", word: "expired" };
     default:
       break;
+  }
+  const exit = call.exit;
+  if (exit !== undefined && approval === undefined) {
+    // In auto (AU-Auto): the reviewer judges, refuses, or gives no answer; after its
+    // pause, the next action that needs it does not run and stops the turn.
+    const judged = exit.judged;
+    if (judged !== undefined && isRefused(judged)) {
+      return { kind: "closed", word: isNoAnswer(judged) ? "did not run" : "refused" };
+    }
+    if (stopped === true || (judged === undefined && !call.done && turnEnded)) {
+      return { kind: "closed", word: "did not run" };
+    }
+    if (exit.reviewing && judged === undefined && !call.done && !turnEnded) {
+      return { kind: "reviewing" };
+    }
   }
   if (!call.done && !turnEnded) {
     if (approval?.status === "pending") {
@@ -386,10 +412,17 @@ export function toolLabel(header: ToolHeader, status: ToolStatus, approval?: Too
       return `${what.trim()}, waiting for approval${leftWords(status.left)}`;
     case "allowed":
       return `${what.trim()}, allowed${answeredWords(approval)}`;
+    case "reviewing":
+      return `${what.trim()}, the reviewer judges it`;
     case "closed":
-      return status.word === "denied"
-        ? `${what.trim()}, denied${answeredWords(approval)}`
-        : `${what.trim()}, expired, not answered`;
+      switch (status.word) {
+        case "denied":
+          return `${what.trim()}, denied${answeredWords(approval)}`;
+        case "expired":
+          return `${what.trim()}, expired, not answered`;
+        default:
+          return `${what.trim()}, ${status.word}`;
+      }
     case "running":
       return `${what.trim()}, running${status.elapsed === undefined ? "" : `, ${status.elapsed}`}`;
     case "done":

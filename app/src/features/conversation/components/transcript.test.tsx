@@ -10,6 +10,7 @@ import {
 import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, View } from "react-native";
 
 import { haptic } from "@/lib/native/haptics";
+import type { ExitRecord } from "@/lib/protocol/generated";
 import { EMPTY_STREAM } from "@/lib/stream/reducer";
 import {
   approvalRequested,
@@ -286,6 +287,61 @@ describe("the transcript", () => {
     const card = screen.getByRole("button", { name: "Command git push, waiting for approval" });
     await fireEvent.press(card);
     expect(calls).toEqual([{ action: "openApproval", callId: ASK }]);
+  });
+
+  it("shows the reviewer's verdict on the card and the pause as one quiet line", async () => {
+    const record: ExitRecord = {
+      version: 1,
+      user_messages: [],
+      action: {
+        tool: "shell",
+        line: "git push origin main",
+        cwd: "/home/me/code/efr",
+        scope: { kind: "project", value: NEXT },
+        exits: ["host"],
+        source: "predicted",
+      },
+      facts: {},
+    };
+    const state = run(
+      [
+        eventItem(7, promptQueued(NEXT, "Push it.")),
+        eventItem(8, turnStarted(NEXT)),
+        eventItem(9, toolCallStarted(NEXT, ASK, "shell", { command: "git push origin main" })),
+        eventItem(10, {
+          kind: "exit_requested",
+          turn_id: NEXT,
+          call_id: ASK,
+          kinds: ["host"],
+          source: "predicted",
+          record,
+        }),
+        eventItem(11, {
+          kind: "exit_judged",
+          turn_id: NEXT,
+          call_id: ASK,
+          judge: "classifier",
+          verdict: "deny",
+          risk: "high",
+          rationale: "the task names fix/steer-race, not main",
+        }),
+        eventItem(12, { kind: "classifier_paused", turn_id: NEXT, reason: "in_a_row", denials: 3 }),
+      ],
+      finishedTurn(),
+    );
+    const { scope } = testScope(state);
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    expect(screen.getByText("refused")).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "reviewer refused: git push origin main: the task names fix/steer-race, not main",
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.getByTestId("pause-line")).toHaveTextContent(
+      "reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn",
+    );
+    // A pause asks nothing.
+    expect(screen.queryByText("waiting for approval")).toBeNull();
   });
 
   it("shows the approval on the tool card of its call, with no row of its own", async () => {

@@ -23,6 +23,7 @@ import {
   type TerminalReason,
 } from "./approval-block";
 import { subjectLine, summaryParts, TIME_UP, type Subject } from "./approval-block-text";
+import { grantList, reviewerRow } from "./exit-words";
 
 /** The place of a question among the questions that wait. */
 export interface ApprovalQueue {
@@ -173,6 +174,11 @@ export interface ApprovalSheetModel {
   readonly diff: readonly DiffRow[] | undefined;
   /** `in ~/code/efr · pushes to a remote`: where it runs and why it asks. */
   readonly quiet: string | undefined;
+  /**
+   * The lines of an exit in efr's words, each only when it applies: what an allow gives
+   * the call, a run with full rights, what the reviewer thought, and efr's own facts.
+   */
+  readonly notes: readonly string[];
   /** The question still takes an answer. */
   readonly open:
     | {
@@ -193,6 +199,26 @@ export interface ApprovalSheetModel {
         readonly next: string | undefined;
       }
     | undefined;
+}
+
+/** The words of a run outside the sandbox, as efr's terminal has them. */
+const FULL_RIGHTS = "runs with your full rights: files, secrets, network";
+
+/** The lines of the exit of `approval` (`ExitInfo`), in efr's words. */
+function exitNotes(approval: ApprovalView): string[] {
+  const notes: string[] = [];
+  if (approval.grants.length > 0) {
+    notes.push(`an allow gives the call: ${grantList(approval.grants)}`);
+  }
+  if (approval.launch?.kind === "unsandboxed") {
+    notes.push(FULL_RIGHTS);
+  }
+  const judged = approval.judged;
+  if (judged !== undefined) {
+    notes.push(reviewerRow(judged.verdict, judged.rationale));
+  }
+  notes.push(...approval.facts);
+  return notes;
 }
 
 /** The sentence without its last full stop, for one part of a quiet line. */
@@ -235,6 +261,7 @@ export function approvalSheet(
     subject,
     diff,
     quiet: quiet.length === 0 ? undefined : quiet.join(" · "),
+    notes: exitNotes(approval),
   };
   if (model.kind === "open") {
     return {

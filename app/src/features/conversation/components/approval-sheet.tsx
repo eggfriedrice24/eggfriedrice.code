@@ -127,6 +127,11 @@ export function ApprovalSheetView(props: ApprovalSheetViewProps) {
               {model.quiet}
             </BodyText>
           )}
+          {model.notes.map((note) => (
+            <MonoText key={note} className="mt-4">
+              {note}
+            </MonoText>
+          ))}
         </View>
       </ScrollView>
       {open?.error === undefined ? null : (

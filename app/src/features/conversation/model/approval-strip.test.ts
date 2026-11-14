@@ -14,6 +14,11 @@ const PUSH: ApprovalView = {
   modelReason: undefined,
   exitKinds: [],
   always: undefined,
+  grants: [],
+  facts: [],
+  judged: undefined,
+  launch: undefined,
+  userOnly: false,
   localOnly: false,
   interactive: false,
   askedAt: 1_000,
@@ -109,6 +114,36 @@ describe("approvalSheet", () => {
     expect(sheet.open).toBeUndefined();
     expect(sheet.closed).toEqual({ parts: ["expired", "2 more waiting"], next: "c2" });
     expect(sheet.subject.kind).toBe("command");
+  });
+
+  it("names what an allow gives the call, a full-rights run, the reviewer and the facts", () => {
+    const sheet = approvalSheet(
+      {
+        ...PUSH,
+        grants: [
+          { kind: "host", host: "github.com", port: 443 },
+          { kind: "env", name: "GH_TOKEN" },
+        ],
+        launch: { kind: "unsandboxed" },
+        judged: {
+          category: "network",
+          rationale: "no message of yours names this host",
+          risk: "medium",
+          user_authorization: "low",
+          verdict: "ask_user",
+        },
+        facts: ["runs /usr/bin/git"],
+      },
+      CONTEXT,
+      [PUSH],
+    );
+    expect(sheet.notes).toEqual([
+      "an allow gives the call: github.com:443 reachable, the variable GH_TOKEN",
+      "runs with your full rights: files, secrets, network",
+      "reviewer: unsure; no message of yours names this host",
+      "runs /usr/bin/git",
+    ]);
+    expect(approvalSheet(PUSH, CONTEXT, [PUSH]).notes).toEqual([]);
   });
 
   it("says who answered a question that another surface answered", () => {

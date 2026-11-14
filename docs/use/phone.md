@@ -252,6 +252,26 @@ each change of its list of conversations to the app, so the strip and the dot sh
 new question at once. With an older efrd, the app asks every 10 seconds, so they can
 come up to 10 seconds late.
 
+### Auto mode on the phone
+
+In a conversation in `auto`, a reviewer model judges each call that needs more than the
+sandbox, and nothing asks you. The tool card shows it with a quiet line in efr's words,
+the same words as the terminal:
+
+- "reviewing" while the reviewer judges the call, with what the call asks for under it.
+- `reviewer allowed: ...`, then after a colon what the call got, such as
+  `github.com:443 reachable, the variable GH_TOKEN`. "full network" has a warning
+  glyph.
+- `allowed by your rule ...` for a call that one of your always rules covered.
+- "refused" and `reviewer refused: <command>: <reason>`, or `efr: <command>` when one of
+  efr's own rules refused it. The call did not run, and the model goes on.
+- "did not run" and `reviewer: no answer ...` when no reviewer model answered.
+
+After 3 refused actions in a row, or 10 in a turn, one quiet line says that the reviewer
+paused for this turn. A pause asks nothing. The next action that needs the reviewer
+does not run, and the turn stops with "auto stopped this turn". Send a new prompt that
+names what you want.
+
 ### When a machine is offline
 
 A line under the bar tells you when the machine of the conversation is offline, or

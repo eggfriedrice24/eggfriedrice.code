@@ -4,8 +4,9 @@
 
 import { useSelector } from "@tanstack/react-store";
 
-import type { StreamState } from "@/lib/stream/reducer";
+import type { ReviewerPause, StreamState } from "@/lib/stream/reducer";
 import { approvalCall, shortTimeLeft } from "../model/approval-strip";
+import { exitNote, stoppedByPause } from "../model/exit-words";
 import { rowFlag } from "../model/row-ui-state";
 import {
   compareShallow,
@@ -21,6 +22,10 @@ import { useTranscriptScope } from "./use-transcript-scope";
 
 function selectTurnEnded(turnId: string): (state: StreamState) => boolean {
   return (state) => state.turns.get(turnId)?.end !== undefined;
+}
+
+function selectPause(turnId: string): (state: StreamState) => ReviewerPause | undefined {
+  return (state) => state.turns.get(turnId)?.pause;
 }
 
 export interface ToolRowProps {
@@ -39,6 +44,7 @@ export function ToolRow(props: ToolRowProps) {
   });
   const expiresAt = useSelector(scope.store, selectToolExpiry(props.turnId, props.callId));
   const left = shortTimeLeft(useExpiryLabel(expiresAt));
+  const pause = useSelector(scope.store, selectPause(props.turnId));
   const expanded = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "expanded"));
   const allHunks = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "all_hunks"));
   if (call === undefined) {
@@ -47,6 +53,11 @@ export function ToolRow(props: ToolRowProps) {
   const rowKey = props.rowKey;
   const callId = props.callId;
   const toggle = (): void => scope.rowUi.toggle(rowKey, "expanded");
+  const stopped = stoppedByPause(call, pause, approval !== undefined, turnEnded);
+  const note =
+    call.exit === undefined || approval !== undefined
+      ? undefined
+      : exitNote(call.exit, call.summary, stopped ? pause : undefined);
   if (call.diff !== undefined && call.diff !== "") {
     return (
       <EditBlockView
@@ -68,6 +79,8 @@ export function ToolRow(props: ToolRowProps) {
       expanded={expanded}
       onToggle={toggle}
       onOpenApproval={() => scope.actions.openApproval(callId)}
+      note={note}
+      stopped={stopped}
     />
   );
 }

@@ -18,6 +18,8 @@ export type RowKind =
   | "tool"
   | "approval"
   | "steer"
+  /** The quiet line of the reviewer's pause in auto. */
+  | "pause"
   /** The running line of a turn that runs now. */
   | "status"
   | "end";
@@ -45,6 +47,7 @@ export type Row =
       readonly callId: string;
     }
   | { readonly kind: "steer"; readonly key: string; readonly turnId: string; readonly seq: number }
+  | { readonly kind: "pause"; readonly key: string; readonly turnId: string }
   | { readonly kind: "status"; readonly key: string; readonly turnId: string }
   | { readonly kind: "end"; readonly key: string; readonly turnId: string };
 
@@ -58,6 +61,7 @@ const KINDS: Readonly<Record<string, RowKind>> = {
   t: "tool",
   a: "approval",
   s: "steer",
+  x: "pause",
   w: "status",
   e: "end",
 };
@@ -186,6 +190,9 @@ function turnRows(turn: TurnView): Row[] {
           turnId,
           callId: part.callId,
         });
+        break;
+      case "pause":
+        rows.push({ kind: "pause", key: `x:${turnId}`, turnId });
         break;
       case "steer":
         // A steer that an interrupt sent again shows as the prompt of its new turn.

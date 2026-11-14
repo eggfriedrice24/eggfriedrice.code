@@ -120,7 +120,8 @@ describe("rowKindOf and sameRows", () => {
   it("reads the kind from the key, and compares row objects", () => {
     expect(rowKindOf("m:t:0")).toBe("message");
     expect(rowKindOf("w:t")).toBe("status");
-    expect(rowKindOf("x:t")).toBeUndefined();
+    expect(rowKindOf("x:t")).toBe("pause");
+    expect(rowKindOf("q:t")).toBeUndefined();
     const row = { kind: "end", key: "e:t", turnId: "t" } as const;
     expect(sameRows([row], [row])).toBe(true);
     expect(sameRows([row], [{ ...row }])).toBe(false);

@@ -20,6 +20,10 @@
 // - A step of the provider's web search (`web_call_started`, `web_call_completed`) is a
 //   tool call of the tool `web`, with its step in `web`: a search or an opened page. A
 //   find in a page makes none.
+// - The exit of a call (auto mode, ADR 0023) goes on its tool call: `exit_requested`
+//   gives what it needs and gets, `exit_review_started` that the reviewer judges it,
+//   `exit_judged` the verdict and `always_rule_saved` the rule of an "always" answer. A
+//   `classifier_paused` is a part of its turn: the reviewer stopped for the turn.
 // - The parts of a turn (messages, tool calls, approvals, steers) keep the order of
 //   their first sight.
 // - The first answer to an approval wins, from any client. A question that is open when
@@ -30,14 +34,22 @@
 //   moves the cursor on.
 
 import type {
+  AlwaysSaved,
   ApprovalDecision,
   ContextUse,
   ConversationSummary,
   ExitKind,
+  Grant,
+  JudgeKind,
+  Judgement,
+  Launch,
   Mode,
   Origin,
+  PauseReason,
+  Risk,
   StopReason,
   Usage,
+  Verdict,
   WebAction,
   WebError,
 } from "@/lib/protocol/generated";
@@ -95,6 +107,49 @@ export interface ToolCallView {
   readonly endedAt: number | undefined;
   /** A step of the provider's web search: the provider ran it, not efr. */
   readonly web?: WebStepView;
+  /** The exit of the sandbox that the call needs, and how efr judged it (auto). */
+  readonly exit?: ExitCallView;
+}
+
+/** The exit of a tool call: what it needs beyond the sandbox, and the verdict. */
+export interface ExitCallView {
+  readonly kinds: readonly ExitKind[];
+  /** Exactly what the call gets after an allow. */
+  readonly grants: readonly Grant[];
+  /** The line of the call, from the record; empty for a file tool. */
+  readonly line: string;
+  /** The call runs as a background job. */
+  readonly background: boolean;
+  /** The facts of the record that the words of the exit name. */
+  readonly hosts: readonly string[];
+  readonly targets: readonly string[];
+  readonly programs: readonly string[];
+  readonly outside: readonly string[];
+  readonly uploads: readonly string[];
+  /** The reviewer judges the exit now (`exit_review_started`). */
+  readonly reviewing: boolean;
+  /** How efr judged the exit (`exit_judged`). */
+  readonly judged: ExitVerdictView | undefined;
+  /** What became of the rule of an "always" answer (`always_rule_saved`). */
+  readonly saved: AlwaysSaved | undefined;
+}
+
+/** How efr judged an exit. */
+export interface ExitVerdictView {
+  readonly judge: JudgeKind;
+  readonly verdict: Verdict;
+  readonly risk: Risk | undefined;
+  readonly rationale: string | undefined;
+  /** The policy category, the floor's kind, or the place of an always rule. */
+  readonly category: string | undefined;
+  /** The models of the chain that gave no answer, each as `<model>: <reason>`. */
+  readonly skipped: readonly string[];
+}
+
+/** Why the reviewer stopped for the rest of a turn (`classifier_paused`). */
+export interface ReviewerPause {
+  readonly reason: PauseReason;
+  readonly denials: number;
 }
 
 /** The tool of a step of web search. */
@@ -139,6 +194,16 @@ export interface ApprovalView {
   readonly exitKinds: readonly ExitKind[];
   /** The rule that an "always" answer saves, in words, when one may cover the call. */
   readonly always: string | undefined;
+  /** Exactly what an allow opens; empty for an unsandboxed launch. */
+  readonly grants: readonly Grant[];
+  /** Facts that efr collected itself, one line each. */
+  readonly facts: readonly string[];
+  /** The reviewer's answer, when it judged first and handed the question over. */
+  readonly judged: Judgement | undefined;
+  /** How the call runs after an allow. */
+  readonly launch: Launch | undefined;
+  /** Only the user may approve this exit, never the reviewer. */
+  readonly userOnly: boolean;
   /** Only the user's own machine may answer: efrd refuses an answer from a phone. */
   readonly localOnly: boolean;
   /** The call may wait for input at the terminal, such as a `sudo` password. */
@@ -199,7 +264,9 @@ export type PartKey =
   | { readonly kind: "message"; readonly index: number }
   | { readonly kind: "tool"; readonly callId: string }
   | { readonly kind: "approval"; readonly callId: string }
-  | { readonly kind: "steer"; readonly seq: number };
+  | { readonly kind: "steer"; readonly seq: number }
+  /** The reviewer stopped for the rest of the turn. */
+  | { readonly kind: "pause" };
 
 /** One turn. */
 export interface TurnView {
@@ -232,6 +299,8 @@ export interface TurnView {
   readonly tools: ReadonlyMap<string, ToolCallView>;
   readonly approvals: ReadonlyMap<string, ApprovalView>;
   readonly steers: ReadonlyMap<number, SteerView>;
+  /** The reviewer stopped for the rest of the turn: its next exit stops the turn. */
+  readonly pause: ReviewerPause | undefined;
 }
 
 /** What the subscription of the stream does (the states of `SubscriptionStatus`). */
@@ -552,6 +621,53 @@ function applyEventBody(
               },
         ),
       );
+    case "exit_requested":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) => ({ ...call, exit: requestedExit(call, event) })),
+      );
+    case "exit_review_started":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) => {
+          const exit = call.exit ?? exitOf(event.kinds);
+          return exit.reviewing || exit.judged !== undefined
+            ? call
+            : { ...call, exit: { ...exit, reviewing: true } };
+        }),
+      );
+    case "exit_judged":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) => ({
+          ...call,
+          exit: {
+            ...(call.exit ?? exitOf([])),
+            reviewing: false,
+            judged: {
+              judge: event.judge,
+              verdict: event.verdict,
+              risk: event.risk ?? undefined,
+              rationale: event.rationale ?? undefined,
+              category: event.category ?? undefined,
+              skipped: event.skipped ?? [],
+            },
+          },
+        })),
+      );
+    case "always_rule_saved":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) => ({
+          ...call,
+          exit: { ...(call.exit ?? exitOf([])), saved: event.outcome },
+        })),
+      );
+    case "classifier_paused":
+      return updateTurn(state, event.turn_id, (turn) =>
+        turn.pause !== undefined
+          ? turn
+          : addPart(
+              { ...turn, pause: { reason: event.reason, denials: event.denials } },
+              { kind: "pause" },
+            ),
+      );
     case "approval_requested":
       return updateTurn(state, event.turn_id, (turn) => askApproval(turn, event, at));
     case "approval_resolved":
@@ -776,6 +892,41 @@ function webStep(
   return { ...call, tool: WEB_TOOL, summary: query ?? url ?? "", web };
 }
 
+/** An exit of `kinds` that efr knows nothing more of yet. */
+function exitOf(kinds: readonly ExitKind[]): ExitCallView {
+  return {
+    kinds,
+    grants: [],
+    line: "",
+    background: false,
+    hosts: [],
+    targets: [],
+    programs: [],
+    outside: [],
+    uploads: [],
+    reviewing: false,
+    judged: undefined,
+    saved: undefined,
+  };
+}
+
+/** The exit of `call` with the facts of `event`; what came after it stays. */
+function requestedExit(call: ToolCallView, event: EventOf<"exit_requested">): ExitCallView {
+  const { action, facts } = event.record;
+  return {
+    ...(call.exit ?? exitOf(event.kinds)),
+    kinds: event.kinds,
+    grants: event.grants ?? [],
+    line: action.line,
+    background: action.background === true,
+    hosts: (facts.hosts ?? []).map((host) => host.host),
+    targets: (facts.targets ?? []).map((target) => target.path),
+    programs: (facts.programs ?? []).map((program) => program.word),
+    outside: facts.outside_commands ?? [],
+    uploads: facts.upload_patterns ?? [],
+  };
+}
+
 function askApproval(
   turn: TurnView,
   event: EventOf<"approval_requested">,
@@ -795,6 +946,11 @@ function askApproval(
     modelReason: exit?.model_reason ?? undefined,
     exitKinds: exit?.kinds ?? [],
     always: exit?.always ?? undefined,
+    grants: exit?.grants ?? [],
+    facts: exit?.facts ?? [],
+    judged: exit?.judged ?? undefined,
+    launch: exit?.launch,
+    userOnly: exit?.user_only === true,
     localOnly: event.local_only === true,
     interactive: event.interactive === true,
     askedAt: at,
@@ -907,6 +1063,7 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     tools: mergeParts(old.tools, rebuilt.tools),
     approvals: mergeParts(old.approvals, approvals),
     steers: mergeParts(old.steers, rebuilt.steers),
+    pause: rebuilt.pause ?? old.pause,
   };
 }
 
@@ -976,6 +1133,8 @@ export function samePart(a: PartKey, b: PartKey): boolean {
       return b.kind === "tool" && a.callId === b.callId;
     case "approval":
       return b.kind === "approval" && a.callId === b.callId;
+    case "pause":
+      return b.kind === "pause";
     default:
       return false;
   }
@@ -1006,6 +1165,7 @@ function newTurn(turnId: string): TurnView {
     tools: new Map(),
     approvals: new Map(),
     steers: new Map(),
+    pause: undefined,
   };
 }
 

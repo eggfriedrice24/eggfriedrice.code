@@ -43,6 +43,7 @@ import {
   toolStatus,
   writingBlock,
 } from "../model/tool-block";
+import type { ExitNote } from "../model/exit-words";
 import { FadeIn } from "./fade-in";
 import { useNow } from "./use-now";
 
@@ -58,19 +59,23 @@ export interface ToolBlockViewProps {
   readonly onToggle: () => void;
   /** Opens the approval sheet of the call. */
   readonly onOpenApproval?: (() => void) | undefined;
+  /** The line about the exit of the call in auto: the verdict and what the call got. */
+  readonly note?: ExitNote | undefined;
+  /** True when the pause of the reviewer stopped the turn at this call. */
+  readonly stopped?: boolean | undefined;
 }
 
 /** A tool block. */
 export function ToolBlockView(props: ToolBlockViewProps) {
-  const { call, expanded, approval, left } = props;
-  const status0 = toolStatus(call, props.turnEnded, 0, approval, left);
+  const { call, expanded, approval, left, note, stopped } = props;
+  const status0 = toolStatus(call, props.turnEnded, 0, approval, left, stopped);
   // NOTE: "allowed" turns into the loader 2 s after the answer, so the clock runs then.
   const running = status0.kind === "running" || status0.kind === "allowed";
   const waiting = status0.kind === "waiting";
   const closed = status0.kind === "closed";
   const now = useNow(running);
   const header = toolHeader(call);
-  const status = toolStatus(call, props.turnEnded, now, approval, left);
+  const status = toolStatus(call, props.turnEnded, now, approval, left, stopped);
   const output = closed ? NO_OUTPUT : toolOutput(call, expanded);
   const more = moreLabel(output, expanded);
   const open = props.onOpenApproval;
@@ -133,6 +138,7 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             )}
             <StatusMark status={status} />
           </Pressable>
+          {note === undefined ? null : <ExitLine note={note} />}
           {output.lines.length > 0 ? (
             <>
               <Hairline />
@@ -166,6 +172,31 @@ export function ToolBlockView(props: ToolBlockViewProps) {
         </View>
       </View>
     </MenuView>
+  );
+}
+
+/**
+ * The line about the exit under the header (AU-Auto): mono 11, wrapped, never cut. The
+ * whole network, the loudest grant, leads with the warning glyph.
+ */
+function ExitLine(props: { readonly note: ExitNote }) {
+  const { note } = props;
+  return (
+    <View testID="exit-note" className="-mt-4 flex-row gap-4 px-12 pb-9">
+      {note.loud ? (
+        <View className="pt-2">
+          <SymbolIcon name="exclamationmark.triangle" size={11} tone="accent_primary" />
+        </View>
+      ) : null}
+      <Text
+        className={cn(
+          "flex-1 text-mono-xs",
+          note.tone === "text_muted" ? "text-text-muted" : "text-text-subtle",
+        )}
+      >
+        {note.text}
+      </Text>
+    </View>
   );
 }
 
@@ -216,6 +247,14 @@ export function StatusMark(props: { readonly status: ToolStatus }) {
           <Text className="text-mono-xs text-accent-primary">{status.left}</Text>
         )}
         <SymbolIcon name="chevron.right" size={10} tone="text_muted" weight="heavy" />
+      </View>
+    );
+  }
+  if (status.kind === "reviewing") {
+    return (
+      <View className="flex-row items-center gap-6">
+        <BrailleCell label="Reviewing" />
+        <Text className="text-mono-xs text-text-subtle">reviewing</Text>
       </View>
     );
   }

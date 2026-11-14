@@ -5,6 +5,7 @@
 
 import type { Row } from "../model/rows";
 import { MessageRow } from "./message-row";
+import { PauseRow } from "./pause-row";
 import { RunningRow } from "./running-line";
 import { ThoughtRow } from "./thought-row";
 import { ApprovalCardRow, ToolRow } from "./tool-row";
@@ -36,6 +37,8 @@ export function TranscriptRow(props: TranscriptRowProps) {
       return <ApprovalCardRow turnId={item.turnId} callId={item.callId} />;
     case "steer":
       return <SteerRow turnId={item.turnId} seq={item.seq} />;
+    case "pause":
+      return <PauseRow turnId={item.turnId} />;
     case "status":
       return <RunningRow turnId={item.turnId} />;
     case "end":
