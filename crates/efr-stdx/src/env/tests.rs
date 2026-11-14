@@ -145,6 +145,9 @@ fn all_lists_every_variant() {
         Var::BenchProject,
         Var::Mark,
         Var::RecordStreams,
+        Var::EvalCases,
+        Var::EvalOut,
+        Var::EvalAnthropicKey,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -176,6 +179,9 @@ fn all_lists_every_variant() {
             | Var::BenchProject
             | Var::Mark
             | Var::RecordStreams
+            | Var::EvalCases
+            | Var::EvalOut
+            | Var::EvalAnthropicKey
             | Var::Mode
             | Var::Model
             | Var::Effort
@@ -202,6 +208,7 @@ fn the_plugins_handover_variables_are_the_private_ones() {
     assert_eq!(
         private,
         [
+            "EFR_EVAL_ANTHROPIC_KEY",
             "EFR_CONTEXT",
             "EFR_LAST_COMMAND",
             "EFR_RECENT_COMMANDS",

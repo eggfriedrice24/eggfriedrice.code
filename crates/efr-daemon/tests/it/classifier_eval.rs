@@ -1338,3 +1338,234 @@ async fn bus_prompts_decide_as_expected() {
     let pids = std::fs::read_to_string(dirs.root().join("pids")).unwrap_or_default();
     assert_eq!(pids.lines().count(), filtered, "{pids}");
 }
+
+/// One case of the live reviewer eval (`just eval-reviewer`): what the user asks, the
+/// line that the model runs with its `needs`, and the verdict that efr must apply,
+/// `allow` or `deny`. `set` groups the cases in the report, such as `asked` and
+/// `unasked`.
+#[derive(Debug, Clone, Deserialize)]
+struct LiveCase {
+    id: String,
+    set: String,
+    prompt: String,
+    line: String,
+    #[serde(default)]
+    needs: Option<Value>,
+    expect: String,
+}
+
+/// The model of the live eval: a scripted turn that runs the current case's line, and a
+/// review that goes to the real reviewer model.
+#[derive(Debug)]
+struct LiveModel {
+    id: ProviderId,
+    cases: Vec<LiveCase>,
+    current: Mutex<usize>,
+    reviewer: Arc<dyn Provider>,
+    model: String,
+    /// The reviewer's raw answers in the current case, each with its time in ms.
+    answers: Mutex<Vec<(String, u128)>>,
+}
+
+impl LiveModel {
+    /// The turn of the current case: its one call, then the end.
+    fn step(&self, request: &Request) -> Vec<ProviderEvent> {
+        let case = &self.cases[*self.current.lock().unwrap()];
+        if calls_made(request) > 0 {
+            return end_turn();
+        }
+        let mut input = json!({ "command": case.line });
+        if let Some(needs) = &case.needs {
+            input["needs"] = needs.clone();
+        }
+        tool_call(0, "shell", &input)
+    }
+
+    /// `request`, a review, answered by the real reviewer model.
+    async fn review(&self, mut request: Request) -> Result<ProviderStream, ProviderError> {
+        use futures::StreamExt as _;
+        request.model = self.model.clone();
+        let watch = std::time::Instant::now();
+        let failed = |error: ProviderError| {
+            let text = format!("error: {error}");
+            self.answers.lock().unwrap().push((text, watch.elapsed().as_millis()));
+            error
+        };
+        let mut stream = self.reviewer.stream(request).await.map_err(failed)?;
+        let mut events = Vec::new();
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            let event = event.map_err(failed)?;
+            if let ProviderEvent::TextDelta { text: delta } = &event {
+                text.push_str(delta);
+            }
+            events.push(event);
+        }
+        self.answers.lock().unwrap().push((text, watch.elapsed().as_millis()));
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+#[async_trait]
+impl Provider for LiveModel {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        if is_review(&request) {
+            return self.review(request).await;
+        }
+        let events = self.step(&request);
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+/// What efr did with a case's exit: the reviewer's applied verdict, a refusal before
+/// any review (a floor, or the one-command rule), or no exit at all.
+fn live_outcome(events: &[EventEnvelope]) -> &'static str {
+    let judged = judgements(events);
+    if judged.contains(&(JudgeKind::Classifier, Verdict::Deny)) {
+        "deny"
+    } else if judged.iter().any(|(judge, _)| *judge == JudgeKind::Floor) {
+        "floor"
+    } else if judged.contains(&(JudgeKind::Classifier, Verdict::Allow)) {
+        "allow"
+    } else if records(events).is_empty() {
+        "no exit"
+    } else {
+        "no review"
+    }
+}
+
+/// The live eval of the reviewer's two sides, with the real reviewer model and no line
+/// that runs: each case of `EFR_EVAL_CASES` (a JSON array of [`LiveCase`]) is one turn
+/// of a test daemon in `auto` behind the proxy, whose scripted model runs the case's
+/// line; efrd's engine, facts and record go to the real reviewer, over the key of
+/// `EFR_EVAL_ANTHROPIC_KEY`. It writes one JSON line per case to `EFR_EVAL_OUT` and
+/// prints a table of the outcomes by set. It measures; it fails only when no review
+/// got an answer, such as for a wrong key.
+#[tokio::test]
+#[ignore = "asks the real reviewer model; `just eval-reviewer` runs it"]
+async fn reviewer_live_eval() {
+    use efr_stdx::env::Var;
+    let Some(cases_path) = efr_stdx::env::path(Var::EvalCases).unwrap() else {
+        eprintln!("skipped: EFR_EVAL_CASES is not set");
+        return;
+    };
+    let key = efr_stdx::env::var(Var::EvalAnthropicKey)
+        .unwrap()
+        .expect("EFR_EVAL_ANTHROPIC_KEY holds the Anthropic API key of the eval");
+    let out = efr_stdx::env::path(Var::EvalOut)
+        .unwrap()
+        .unwrap_or_else(|| cases_path.with_extension("out.jsonl"));
+    let cases: Vec<LiveCase> =
+        serde_json::from_slice(&std::fs::read(&cases_path).unwrap()).unwrap();
+    let clock: Arc<dyn efr_stdx::time::Clock> = Arc::new(efr_stdx::time::SystemClock);
+    let rng: Arc<dyn efr_stdx::rng::Rng> = Arc::new(efr_stdx::rng::SystemRng::new().unwrap());
+    let http = efr_http::HttpClient::new(
+        &efr_http::HttpConfig::default(),
+        Arc::clone(&clock),
+        Arc::clone(&rng),
+    )
+    .unwrap();
+    let tokens: Arc<dyn efr_provider::TokenSource> =
+        Arc::new(efr_provider::StaticToken::new(efr_provider::SecretString::from(key)));
+    // NOTE: the provider serves only the models of its list, as efrd's does, so the eval
+    // fetches the list with the same key first.
+    let list = efr_providers::anthropic::CatalogClient::new(
+        efr_providers::anthropic::AnthropicConfig::new(),
+        http.clone(),
+        Arc::clone(&tokens),
+        Arc::clone(&clock),
+        Arc::clone(&rng),
+    )
+    .fetch()
+    .await
+    .expect("the model list of the eval's key");
+    let reviewer = efr_providers::anthropic::AnthropicProvider::new(
+        ProviderId::new("anthropic").unwrap(),
+        efr_providers::anthropic::AnthropicConfig::new(),
+        http,
+        tokens,
+        clock,
+        rng,
+    )
+    .with_catalog(efr_providers::anthropic::ModelCatalog::with_catalog(list));
+    let model = Arc::new(LiveModel {
+        id: ProviderId::new("test").unwrap(),
+        cases: cases.clone(),
+        current: Mutex::new(0),
+        reviewer: Arc::new(reviewer),
+        model: efr_providers::anthropic::CLASSIFIER_MODEL.to_owned(),
+        answers: Mutex::new(Vec::new()),
+    });
+
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    for args in [
+        &["init", "-q"][..],
+        &["remote", "add", "origin", "https://github.com/example/project.git"],
+    ] {
+        let status = efr_stdx::process::command("git", &project)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+    std::fs::write(dirs.dirs().config().join("config.toml"), "[network]\nmode = \"proxy\"\n")
+        .unwrap();
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let holder = FakePtyHolder::new();
+    tokio::spawn(play_shells(Arc::clone(&holder)));
+    let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
+    let daemon = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .clock(efr_test_support::TestClock::starting_at(start))
+        .fake_pty(holder)
+        .sandbox_launcher(fake.path())
+        .probe_override(SandboxStatus { netview: true, proxy: true, ..ready() })
+        .network_mode(NetworkMode::Proxy)
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    add_project(&daemon, &project).await;
+
+    let mut lines = String::new();
+    let mut table: BTreeMap<(String, String, &'static str), usize> = BTreeMap::new();
+    let mut answered = 0;
+    for (n, case) in cases.iter().enumerate() {
+        *model.current.lock().unwrap() = n;
+        model.answers.lock().unwrap().clear();
+        let events = run_prompt(&daemon, n as u128 + 1, &case.prompt).await;
+        let outcome = live_outcome(&events);
+        let exits: Vec<ExitKind> =
+            records(&events).iter().flat_map(|record| record.action.exits.clone()).collect();
+        let answers = model.answers.lock().unwrap().clone();
+        answered += answers.iter().filter(|(text, _)| text.contains("verdict")).count();
+        let row = json!({
+            "id": case.id,
+            "set": case.set,
+            "expect": case.expect,
+            "outcome": outcome,
+            "exits": exits,
+            "answers": answers.iter().map(|(text, _)| text).collect::<Vec<_>>(),
+            "ms": answers.iter().map(|(_, ms)| ms).collect::<Vec<_>>(),
+        });
+        lines.push_str(&row.to_string());
+        lines.push('\n');
+        *table.entry((case.set.clone(), case.expect.clone(), outcome)).or_insert(0) += 1;
+    }
+    std::fs::write(&out, lines).unwrap();
+    daemon.stop().await.unwrap();
+    println!("set / expected / outcome: count");
+    for ((set, expect, outcome), count) in &table {
+        println!("{set} / {expect} / {outcome}: {count}");
+    }
+    println!("results: {}", out.display());
+    assert!(answered > 0, "no review got an answer: check the key");
+}

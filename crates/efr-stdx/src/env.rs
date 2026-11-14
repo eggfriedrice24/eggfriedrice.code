@@ -67,6 +67,15 @@ pub enum Var {
     /// body of each model request and the stream of its answer to private files below
     /// `<state dir>/streams/`, never a header. Off by default.
     RecordStreams,
+    /// `EFR_EVAL_CASES`: an absolute path to the cases of the live reviewer eval
+    /// (`just eval-reviewer`); without it, the eval does not run.
+    EvalCases,
+    /// `EFR_EVAL_OUT`: an absolute path where the live reviewer eval writes one result
+    /// line per case.
+    EvalOut,
+    /// `EFR_EVAL_ANTHROPIC_KEY`: the Anthropic API key with which the live reviewer eval
+    /// asks the real reviewer model. Private: see [`Var::PRIVATE`].
+    EvalAnthropicKey,
     /// `EFR_MODE`: the permission mode that `efr send`, `efr new` and `efr settings` ask
     /// for, `manual`, `cautious` or `auto`; a flag wins over it. The zsh plugin hands
     /// over the terminal's choice in it.
@@ -132,6 +141,9 @@ impl Var {
         Var::BenchProject,
         Var::Mark,
         Var::RecordStreams,
+        Var::EvalCases,
+        Var::EvalOut,
+        Var::EvalAnthropicKey,
         Var::Mode,
         Var::Model,
         Var::Effort,
@@ -152,7 +164,7 @@ impl Var {
     /// `/proc/<pid>/cmdline`, while `/proc/<pid>/environ` is readable only by the
     /// process's own user. So they stay out of every child process
     /// ([`process::command`](crate::process::command) removes them) and out of `Debug`
-    /// output.
+    /// output. The key of the live reviewer eval is private for the same reason.
     pub const PRIVATE: &'static [Var] = &[
         Var::Context,
         Var::LastCommand,
@@ -160,6 +172,7 @@ impl Var {
         Var::Prompt,
         Var::ResumeWords,
         Var::QueuedPrompts,
+        Var::EvalAnthropicKey,
     ];
 
     /// True for a variable in [`Var::PRIVATE`].
@@ -186,6 +199,9 @@ impl Var {
             Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mark => "EFR_MARK",
             Var::RecordStreams => "EFR_RECORD_STREAMS",
+            Var::EvalCases => "EFR_EVAL_CASES",
+            Var::EvalOut => "EFR_EVAL_OUT",
+            Var::EvalAnthropicKey => "EFR_EVAL_ANTHROPIC_KEY",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
             Var::Effort => "EFR_EFFORT",

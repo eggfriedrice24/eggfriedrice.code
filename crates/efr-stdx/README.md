@@ -96,6 +96,9 @@ table names the same set. An empty value counts as unset.
 | `EFR_BENCH_PROJECT` | An absolute path to the project in which efrd's bench `shell_call_phases_in_a_project` runs its calls. Without it, the bench makes a small git repository. |
 | `EFR_MARK` | An absolute path to a file. `efrd` and `efr` append their timing marks (`efr_stdx::mark`) to it, one line for each mark. The streaming benches set it for the processes that they start. Without it, the marks are off. |
 | `EFR_RECORD_STREAMS` | A flag. When it is on at the start of `efrd`, efrd writes the body of each model request and the stream of its answer to files below `<state dir>/streams/`, one directory for each start: `<n>.request.json`, `<n>.response.sse` and `index.jsonl`. It never writes a header, so no token, API key or cookie. The files hold your prompts, the output of tools and the answers, so they are private: the directory has mode 0700 and each file 0600. efr never sends them anywhere; delete them when you are done. Off by default. |
+| `EFR_EVAL_CASES` | An absolute path to the cases of the live reviewer eval (`just eval-reviewer`). Without it, the eval does not run. |
+| `EFR_EVAL_OUT` | An absolute path where the live reviewer eval writes one result line per case. |
+| `EFR_EVAL_ANTHROPIC_KEY` | The Anthropic API key with which the live reviewer eval asks the real reviewer model. It stays out of every child process. |
 | `EFR_MODE` | The permission mode that `efr send`, `efr new` and `efr settings` ask for: `manual`, `cautious` or `auto`. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_MODEL` | The model that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_EFFORT` | The reasoning effort that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |

@@ -87,6 +87,19 @@ test-full:
     cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci
     EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --profile ci --success-output immediate -E '{{ snapshot_gate }}'
 
+# The live eval of the reviewer: each case of `EFR_EVAL_CASES` (default
+# `research/auto-direction/eval/cases.json`) is one turn of a test daemon whose
+# scripted model runs the case's line; the real reviewer model judges its exit over
+# the key of `EFR_EVAL_ANTHROPIC_KEY`. No line runs. It writes one result line per case
+# to `EFR_EVAL_OUT` and prints a table. Each review is a billed request.
+eval-reviewer:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export EFR_EVAL_CASES="${EFR_EVAL_CASES:-$PWD/research/auto-direction/eval/cases.json}"
+    export EFR_EVAL_OUT="${EFR_EVAL_OUT:-${EFR_EVAL_CASES%.json}.out.jsonl}"
+    cargo nextest run -p efr-daemon --run-ignored only --success-output immediate \
+        -E 'test(/reviewer_live_eval/)'
+
 # The search benches in release, one at a time: the ignored `bench_search_*` tests of
 # the store and of efrd, then the cost of `efr search --picker` with its gate on. Each
 # prints its p50, p95 and max and fails when a budget fails. The numbers of a busy
