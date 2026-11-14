@@ -189,6 +189,7 @@ use fold::Fold;
 use input::{Input, Queued, user_message};
 use left::Left;
 use message::Message;
+pub(crate) use message::plain_marks;
 use newest::ToolInput;
 use reasoning::Reasoning;
 use status::{Model, State, Status};

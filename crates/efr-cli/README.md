@@ -431,7 +431,9 @@ Replies:
   web can be some days old · ,mode auto searches the live web` under it for the first
   such turn of a conversation. The citation marks are Markdown in the text that efrd
   writes (` [[1]](<url>)`); `efr-render` shows them as `[1]` in `link`. When stdout is
-  not a terminal, the rows and the list go to stderr, plain, in the same order. `efr
+  not a terminal, the rows and the list go to stderr, plain, in the same order, and
+  the raw markdown on stdout has each mark as ` [1]` too (`follow::plain_marks`; a
+  mark that a draft cut waits for its end), as has `efr history` off a terminal. `efr
   history` writes the same rows from the same events, with the whole query (a long one
   goes on in the next rows, 6 columns in), and `--verbose` adds under a search its
   first three results and `… 5 more · cited: 1, 3`, and under an open its finds.
@@ -731,8 +733,9 @@ Replies:
   (`turn_surface_report`) show as three dim lines.
 - Under `NO_COLOR` the blocks keep their structure and their marks, and the CLI's lines
   keep bold and dim, as the rest of the reply does, without a colour.
-- When stdout is not a terminal, the raw markdown is written, and notes, calls and
-  questions go to stderr, so stdout holds the reply alone.
+- When stdout is not a terminal, the raw markdown is written (with each citation mark
+  as ` [n]`), and notes, calls and questions go to stderr, so stdout holds the reply
+  alone.
 - `RenderOptions` come from the window size (`TIOCGWINSZ` through rustix), `NO_COLOR`
   (no colour), `COLORTERM=truecolor` or `24bit` (24-bit colour, otherwise 16), `TERM`
   and whether stdout is a terminal, the way the terminal counts widths, and the theme

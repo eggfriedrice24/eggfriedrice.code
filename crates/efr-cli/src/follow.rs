@@ -129,7 +129,9 @@ use crate::output::Output;
 use crate::row::Action;
 use view::{AnswerKind, Preview};
 
-pub(crate) use view::{Ask, Call, Look, Outcome, Step, TICK, TurnEnd, TurnView, spinner};
+pub(crate) use view::{
+    Ask, Call, Look, Outcome, Step, TICK, TurnEnd, TurnView, plain_marks, spinner,
+};
 
 /// What the input row sends with: the shell context, the last command line, the recent
 /// command lines and the turn settings that the plugin handed to this command, so a

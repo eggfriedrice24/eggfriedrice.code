@@ -184,6 +184,23 @@ fn a_failed_turn_shows_its_message_safely() {
     assert!(text.ends_with("\u{2717} failed\n  boom\u{241b}[2J\n"), "{text}");
 }
 
+#[test]
+fn a_raw_transcript_writes_a_citation_mark_as_its_number() {
+    let page = ConversationHistoryResult {
+        events: vec![envelope(
+            1,
+            Event::AssistantMessageCompleted {
+                turn_id: turn(),
+                index: 0,
+                text: "It runs [[1]](<https://a.org/>).".to_owned(),
+            },
+        )],
+        next_cursor: None,
+    };
+    let text = show(&page, &RenderOptions::new(60).with_terminal(false));
+    assert!(text.ends_with("  It runs [1].\n"), "{text}");
+}
+
 #[tokio::test]
 async fn history_without_a_conversation_lists_them() {
     let env = TestEnv::new();

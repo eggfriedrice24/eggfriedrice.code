@@ -213,6 +213,10 @@ title is cut, then left out; efr never cuts an address. An answer of an OpenAI m
 shows its links as the model wrote them, as normal Markdown links, and the list of
 the pages that it cites follows it in the same way.
 
+When the output is not a terminal, such as in a pipe or a file, the answer keeps its
+Markdown, but each mark is the plain text `[1]`. The list of pages goes to stderr and
+names each address.
+
 ### Questions
 
 When the agent asks for approval, a card shows below the reply, after one empty row:

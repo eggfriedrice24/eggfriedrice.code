@@ -58,7 +58,7 @@ use jiff::tz::TimeZone;
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::follow::{Call, Outcome};
+use crate::follow::{Call, Outcome, plain_marks};
 use crate::format::changes::HomeChange;
 use crate::format::route::Pieces;
 use crate::format::web::{self, End, Ended, Fit};
@@ -1348,10 +1348,15 @@ impl<'a> Transcript<'a> {
 
     /// The text of an answer at 2 columns under its prompt, as the rows of the turn, so
     /// a turn is one block and the prompts stand out at the left edge. The text is
-    /// rendered 2 columns narrower, so no row gets wider than the screen.
+    /// rendered 2 columns narrower, so no row gets wider than the screen. Off a
+    /// terminal, each citation mark is `[n]`, as a followed turn writes it.
     fn message(&mut self, text: &str) {
         self.out.push_str(self.spacing.before(Block::Message));
-        let mut rows = render(text, &self.inner);
+        let mut rows = if self.options.is_terminal() {
+            render(text, &self.inner)
+        } else {
+            render(&plain_marks(text, true).0, &self.inner)
+        };
         if !self.options.is_terminal() && !rows.ends_with('\n') {
             rows.push('\n');
         }

@@ -307,7 +307,8 @@ Anti-Cheat without Linux support.\n";
 }
 
 /// Without a terminal the rows go to stderr, plain and in the order of the starts, the
-/// answer alone to stdout, and the list of sources to stderr after it.
+/// answer alone to stdout with `[n]` for each citation mark, and the list of sources
+/// to stderr after it.
 #[test]
 fn through_a_pipe_the_rows_go_to_stderr_in_order() {
     let options = efr_render::RenderOptions::new(80).with_terminal(false);
@@ -330,7 +331,8 @@ fn through_a_pipe_the_rows_go_to_stderr_in_order() {
         out.push_str(&step.out);
         err.push_str(&step.err);
     }
-    assert_eq!(out, "It is [[1]](<https://a.org/>).\n");
+    // The citation mark is `[1]`, as a terminal shows it: the list names the URL.
+    assert_eq!(out, "It is [1].\n");
     assert_eq!(
         err,
         "\u{2713} web a b  1 result\n\u{2713} web c d  2 results\n\n[1] https://areweanticheatyet.com/game/rob-run  ROB RUN \u{b7} Are We Anti-Cheat Yet?\n"

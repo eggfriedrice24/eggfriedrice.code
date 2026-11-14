@@ -125,3 +125,66 @@ proptest! {
         assert_eq!(out, render(&text, &RenderOptions::new(40)));
     }
 }
+
+/// The message off a terminal.
+fn piped() -> Message {
+    Message::new(0, RenderOptions::new(40).with_terminal(false))
+}
+
+/// What a message off a terminal writes of `text`, pushed in pieces split at `cuts`.
+fn piped_out(text: &str, cuts: &[usize]) -> String {
+    let mut message = piped();
+    let mut out = String::new();
+    for &cut in cuts.iter().chain([&text.len()]) {
+        message.receive(&text[..cut]);
+        out.push_str(&message.push_all());
+    }
+    out.push_str(&message.finish());
+    out
+}
+
+#[test]
+fn off_a_terminal_a_citation_mark_is_its_number() {
+    let text = "It runs [[1]](<https://a.org/x%20y>) and [[12]](<https://b.org/>).\n";
+    assert_eq!(piped_out(text, &[]), "It runs [1] and [12].\n");
+}
+
+#[test]
+fn off_a_terminal_other_brackets_stay_as_they_are() {
+    for text in [
+        "a [[x]](<https://a.org/>) b",
+        "a [[]](<https://a.org/>) b",
+        "a [[1]](https://a.org/) b",
+        "a [[1]](<https://a.org/ b>) b",
+        "a [1](<https://a.org/>) b",
+        "a [[1]](<https://a.org/>",
+        "ends with [[1]](<",
+        "ends with [",
+    ] {
+        assert_eq!(piped_out(text, &[]), text, "{text:?}");
+    }
+}
+
+#[test]
+fn off_a_terminal_a_mark_cut_by_a_draft_waits_for_its_end() {
+    let text = "It runs [[1]](<https://a.org/>).";
+    let mut message = piped();
+    message.receive("It runs [[1]](<https://a.o");
+    assert_eq!(message.push_all(), "It runs");
+    message.receive(text);
+    assert_eq!(message.push_all(), " [1].");
+    assert_eq!(message.finish(), "");
+}
+
+proptest! {
+    /// Off a terminal, the text cut in any pieces writes what the whole text writes.
+    #[test]
+    fn off_a_terminal_any_cut_writes_the_same(
+        cuts in prop::collection::vec(0_usize..48, 0..6),
+    ) {
+        let text = "a [[1]](<https://a.org/>) b [[2]] c [[3]](<x>)\n";
+        let mut cuts: Vec<usize> = cuts.into_iter().map(|cut| cut.min(text.len())).collect();
+        cuts.sort_unstable();
+        assert_eq!(piped_out(text, &cuts), "a [1] b [[2]] c [3]\n");
+    }
+}
