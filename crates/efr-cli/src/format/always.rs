@@ -90,5 +90,11 @@ pub(crate) fn remove_question(index: usize, rule: &str) -> String {
     format!("remove {KEY}[{index}]: {}? y/n", one_line(rule))
 }
 
+/// The question of `efr sandbox allow add`: `add sandbox.allow: write under ~/notes?
+/// y/n`.
+pub(crate) fn add_question(rule: &str) -> String {
+    format!("add {KEY}: {}? y/n", one_line(rule))
+}
+
 #[cfg(test)]
 mod tests;

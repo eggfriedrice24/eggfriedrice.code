@@ -1,5 +1,10 @@
-//! `efr sandbox allow` and `efr sandbox allow remove N`: the always-allow rules of
-//! `config.toml` (`[[sandbox.allow]]`, phase E).
+//! `efr sandbox allow`, `efr sandbox allow add` and `efr sandbox allow remove N`: the
+//! always-allow rules of `config.toml` (`[[sandbox.allow]]`, phase E).
+//!
+//! `allow add` builds the rule from its arguments, asks `add sandbox.allow: <rule>?
+//! y/n` (or adds it at once with `--yes`), writes it through the same writer, and lets
+//! the daemon reload. efrd's floor check runs at that reload: a rule that fails it
+//! stays in the file, disabled, as a rule of an `a` answer would, and `add` says why.
 //!
 //! `allow` reads the file, as the daemon reads it, and lists each rule with its number
 //! and in words. A rule that efrd disabled, because it no longer passes a floor check,
@@ -20,6 +25,7 @@ use std::path::{Path, PathBuf};
 use efr_config::{AllowRule, ConfigError, ConfigFile, Settings};
 use efr_transport::client::ClientError;
 
+use crate::cli::AllowAddRule;
 use crate::commands::config::{self, config_path};
 use crate::commands::undo;
 use crate::context::Context;
@@ -131,6 +137,124 @@ pub(super) async fn remove(ctx: &Context, out: &mut Output, index: usize) -> Res
         format::one_line(&rule.describe())
     ))?;
     config::reload_after_change(ctx, out).await
+}
+
+/// The rule of `efr sandbox allow add`'s arguments: a relative path joins the current
+/// directory, and a host without a port gets 443.
+pub(super) fn rule_of(ctx: &Context, rule: &AllowAddRule) -> Result<AllowRule, CliError> {
+    // NOTE: a rule holds no `.` or `..` part, so `--project .` becomes the full path.
+    let absolute = |path: &Path| -> Result<String, CliError> {
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            ctx.cwd.as_ref().ok_or(CliError::NoWorkingDirectory)?.join(path)
+        };
+        let mut full = PathBuf::new();
+        for part in path.components() {
+            match part {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    full.pop();
+                }
+                other => full.push(other),
+            }
+        }
+        Ok(full.to_string_lossy().into_owned())
+    };
+    Ok(match rule {
+        AllowAddRule::Host { host } => {
+            let (name, port) = match host.rsplit_once(':') {
+                Some((name, port)) => {
+                    let port = port
+                        .parse()
+                        .map_err(|_| CliError::AllowAddPort { port: port.to_owned() })?;
+                    (name, port)
+                }
+                None => (host.as_str(), 443),
+            };
+            AllowRule::Host { host: name.to_owned(), port }
+        }
+        AllowAddRule::Write { dir, project } => AllowRule::Write {
+            under: absolute(dir)?,
+            project: project.as_deref().map(absolute).transpose()?,
+        },
+        AllowAddRule::Socket { path } => AllowRule::Socket { path: absolute(path)? },
+    })
+}
+
+/// `efr sandbox allow add`: adds `rule` after a question, or at once with `yes`. A rule
+/// that the file holds already changes nothing. The writer checks the whole file as a
+/// load does; efrd's floor check runs at the reload that follows, and a rule that fails
+/// it stays in the file, disabled, as a rule of an `a` answer would, with the reason.
+pub(super) async fn add(
+    ctx: &Context,
+    out: &mut Output,
+    rule: AllowRule,
+    yes: bool,
+) -> Result<(), CliError> {
+    let path = config_path(ctx);
+    let rules = read_rules(&path, out).await?;
+    if let Some(index) = rules.iter().position(|known| *known == rule) {
+        let text = format!("{}[{index}] is this rule already: {}", always::KEY, rule.describe());
+        return out.out(&format!("{}\n", format::one_line(&text)));
+    }
+    if !yes {
+        if !ctx.keys.available() {
+            return Err(CliError::AllowAddNeedsTerminal);
+        }
+        let options = ctx.render_options(effective_width(ctx.screen.size()));
+        let question = always::add_question(&rule.describe());
+        out.out(&format!("{}\n", format::paint(&question, Tone::Attention, &options)))?;
+        if !undo::answer(ctx).await? {
+            out.err(&format!("{}\n", format::paint("nothing changed", Tone::Dim, &options)));
+            return Ok(());
+        }
+    }
+    let mut attempt = 0;
+    let (target, index) = loop {
+        attempt += 1;
+        let (owned_path, owned_rule) = (path.clone(), rule.clone());
+        let added = tokio::task::spawn_blocking(move || add_rule(&owned_path, &owned_rule))
+            .await
+            .unwrap_or_else(|join| {
+                Err(ConfigError::Read { path: path.clone(), source: io::Error::other(join) })
+            });
+        match added {
+            Ok(added) => break added,
+            Err(ConfigError::Changed { .. }) if attempt < ATTEMPTS => {}
+            Err(error) => {
+                out.err(&format!("efr: {}: {}\n", path.display(), settings::describe(&error)));
+                return Err(CliError::ConfigInvalid);
+            }
+        }
+    };
+    out.out(&format!(
+        "{}: added {}[{index}]: {}\n",
+        target.display(),
+        always::KEY,
+        format::one_line(&rule.describe())
+    ))?;
+    config::reload_after_change(ctx, out).await?;
+    let disabled = disabled_rules(ctx, out, &path).await;
+    if let Some((_, reason)) = disabled.iter().find(|(at, _)| *at == index) {
+        let text = format!(
+            "efrd disables {}[{index}]: {reason}; it covers no call, and efr sandbox allow \
+             remove {index} takes it out",
+            always::KEY
+        );
+        out.err(&format!("{}\n", format::one_line(&text)));
+    }
+    Ok(())
+}
+
+/// Adds `rule` to `sandbox.allow` of the file at `path`, and returns the file written
+/// (the end of a link, or the file itself) and the rule's index.
+fn add_rule(path: &Path, rule: &AllowRule) -> Result<(PathBuf, usize), ConfigError> {
+    let file = ConfigFile::open(path)?;
+    let mut edit = file.edit()?;
+    let index = edit.add_table_entry(always::KEY, rule)?;
+    file.write(&edit)?;
+    Ok((file.target().to_path_buf(), index))
 }
 
 /// Why a removal did not happen.

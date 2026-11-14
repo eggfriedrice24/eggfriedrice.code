@@ -35,6 +35,9 @@ pub(crate) async fn run(
         SandboxCommand::Allow { command: Some(AllowCommand::Remove { index }) } => {
             allow::remove(ctx, out, *index).await
         }
+        SandboxCommand::Allow { command: Some(AllowCommand::Add { yes, rule }) } => {
+            allow::add(ctx, out, allow::rule_of(ctx, rule)?, *yes).await
+        }
     }
 }
 

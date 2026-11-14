@@ -201,3 +201,105 @@ async fn sandbox_allow_remove_confirms_and_checks_the_entry() {
     assert!(!left.contains(".zshrc"), "{left}");
     assert!(left.contains("# notes are mine") && left.contains("# downloads"), "{left}");
 }
+
+#[tokio::test]
+async fn sandbox_allow_add_confirms_and_keeps_the_file() {
+    let env = TestEnv::new();
+    let path = env.dirs.config().join("config.toml");
+    std::fs::write(&path, FILE).unwrap();
+    let ctx = env.context();
+
+    // Without a terminal and with no --yes there is no question, and nothing changes.
+    let (exit, _, stderr) = efr(&ctx, &["sandbox", "allow", "add", "host", "x.example"]).await;
+    assert_eq!(exit, Exit::Usage);
+    assert!(stderr.contains("needs a terminal for its question, or --yes"), "{stderr}");
+    // A port that is no number.
+    let (exit, _, stderr) =
+        efr(&ctx, &["sandbox", "allow", "add", "--yes", "host", "x.example:http"]).await;
+    assert_eq!(exit, Exit::Usage);
+    assert!(stderr.contains("\"http\" is no port"), "{stderr}");
+    // A rule that the file holds already changes nothing.
+    let (exit, stdout, _) =
+        efr(&ctx, &["sandbox", "allow", "add", "--yes", "host", "download.example.org"]).await;
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(stdout, "sandbox.allow[2] is this rule already: host download.example.org:443\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), FILE);
+
+    // `n` adds nothing.
+    let keys = Arc::new(ScriptedKeys::default());
+    let asking = Context { keys: keys.clone(), ..env.context() };
+    let ((exit, stdout, stderr), ()) = tokio::join!(
+        efr(&asking, &["sandbox", "allow", "add", "host", "x.example:8443"]),
+        keys.press(b'n')
+    );
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(stdout, "add sandbox.allow: host x.example:8443? y/n\n");
+    assert_eq!(stderr, "nothing changed\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), FILE);
+
+    // `--yes` adds it at the end, keeps every comment, and a daemon that is not running
+    // reads it when it starts. A relative path joins the current directory.
+    let cwd = ctx.cwd.clone().unwrap();
+    let (exit, stdout, _) =
+        efr(&ctx, &["sandbox", "allow", "add", "--yes", "write", "out", "--project", "."]).await;
+    assert_eq!(exit, Exit::Success);
+    assert!(
+        stdout.starts_with(&format!(
+            "{}: added sandbox.allow[3]: write under {}",
+            path.display(),
+            cwd.join("out").display()
+        )),
+        "{stdout}"
+    );
+    assert!(stdout.contains("the daemon is not running"), "{stdout}");
+    let now = std::fs::read_to_string(&path).unwrap();
+    assert!(now.starts_with(FILE.trim_end()), "{now}");
+    assert!(now.contains("kind = \"write\""), "{now}");
+    let settings = efr_config::Settings::parse(&path, Some(&now)).unwrap();
+    assert_eq!(
+        settings.sandbox.allow[3],
+        efr_config::AllowRule::Write {
+            under: cwd.join("out").to_string_lossy().into_owned(),
+            project: Some(cwd.to_string_lossy().into_owned()),
+        }
+    );
+}
+
+/// A rule that fails efrd's floor check stays in the file, disabled, as one of an `a`
+/// answer would, and `add` says why and how to take it out.
+#[tokio::test]
+async fn sandbox_allow_add_reports_a_rule_that_efrd_disables() {
+    let env = TestEnv::new();
+    let path = env.dirs.config().join("config.toml");
+    std::fs::write(&path, FILE).unwrap();
+    let ctx = env.context();
+    let daemon = env.listen();
+    let warning = "sandbox.allow[3] is disabled: it names a git dir (floor)";
+    let answer = status(&path, &[warning]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::AdminConfigReload(_)), "{}", method.name());
+        let reloaded = AdminConfigReloadResult {
+            applied: true,
+            error: None,
+            restart_needed: Vec::new(),
+            warnings: Vec::new(),
+        };
+        conn.reply(id, &reloaded).await;
+        conn.until_closed().await;
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::AdminStatus(_)), "{}", method.name());
+        conn.reply(id, &answer).await;
+        conn.until_closed().await;
+    };
+    let args = ["sandbox", "allow", "add", "--yes", "write", "/home/u/p/app/.git"];
+    let ((exit, _, stderr), ()) = tokio::join!(efr(&ctx, &args), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        stderr,
+        "efrd disables sandbox.allow[3]: it names a git dir (floor); it covers no call, and \
+         efr sandbox allow remove 3 takes it out\n"
+    );
+}

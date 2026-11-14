@@ -497,6 +497,15 @@ pub(crate) enum CliError {
     #[error("efr sandbox allow remove needs a terminal for its question; nothing changed")]
     AllowRemoveNeedsTerminal,
 
+    /// `efr sandbox allow add` cannot ask its question: stdin is no terminal, and
+    /// `--yes` was not given. It changed nothing.
+    #[error("efr sandbox allow add needs a terminal for its question, or --yes; nothing changed")]
+    AllowAddNeedsTerminal,
+
+    /// The port of `efr sandbox allow add host HOST:PORT` is no number from 1 to 65535.
+    #[error("{port:?} is no port; give HOST or HOST:PORT, such as example.com:8443")]
+    AllowAddPort { port: String },
+
     /// The rule at the index that `efr sandbox allow remove` showed is another rule now:
     /// the file changed after the question. Nothing changed.
     #[error("sandbox.allow[{index}] changed after the question; nothing changed")]
@@ -566,6 +575,8 @@ impl CliError {
             | CliError::DeleteNeedsYes
             | CliError::NoAllowRule { .. }
             | CliError::AllowRemoveNeedsTerminal
+            | CliError::AllowAddNeedsTerminal
+            | CliError::AllowAddPort { .. }
             | CliError::AmbiguousConversation { .. }
             | CliError::NoResumeRow { .. }
             | CliError::ResumeAmbiguous { .. }

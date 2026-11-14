@@ -584,7 +584,8 @@ crosses a floor stays in the file, disabled with its reason: efrd logs one warni
 `efr sandbox check` shows `sandbox.allow[N] is disabled: <reason>`, and
 `efr sandbox allow` shows `disabled: <reason>`. A reload whose only change is in `[[sandbox.allow]]` sends
 the new rules to the engine and starts no probe. `efr config check` checks only the
-shape. `efr sandbox allow remove N` takes a rule out.
+shape. `efr sandbox allow add` adds a rule after a question, and
+`efr sandbox allow remove N` takes a rule out.
 
 There are two allow lists. `[[sandbox.allow]]` covers shell calls in `auto`.
 `[[permissions.rules]]` with `write allow` (below, "Your rules") covers `write_file`

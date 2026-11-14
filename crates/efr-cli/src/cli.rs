@@ -237,7 +237,8 @@ pub(crate) enum SandboxCommand {
         #[arg(value_name = "PATH")]
         path: PathBuf,
     },
-    /// List the always-allow rules of config.toml ([[sandbox.allow]]), or remove one.
+    /// List the always-allow rules of config.toml ([[sandbox.allow]]), add one, or remove
+    /// one.
     Allow {
         #[command(subcommand)]
         command: Option<AllowCommand>,
@@ -247,11 +248,46 @@ pub(crate) enum SandboxCommand {
 /// The `efr sandbox allow` commands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum AllowCommand {
+    /// Add an always-allow rule to config.toml, after a question: a call that it covers
+    /// then runs with no review.
+    Add {
+        /// Add it with no question, such as from a script.
+        #[arg(long)]
+        yes: bool,
+        #[command(subcommand)]
+        rule: AllowAddRule,
+    },
     /// Remove rule N of sandbox.allow from config.toml, after a question.
     Remove {
         /// The number of the rule, as efr sandbox allow lists it.
         #[arg(value_name = "N")]
         index: usize,
+    },
+}
+
+/// The rule of `efr sandbox allow add`: one of the three kinds of `[[sandbox.allow]]`.
+#[derive(Debug, Subcommand)]
+pub(crate) enum AllowAddRule {
+    /// Reach one host through efr's proxy: HOST, or HOST:PORT (port 443 when none).
+    Host {
+        /// The host name, never an IP address or localhost.
+        #[arg(value_name = "HOST[:PORT]")]
+        host: String,
+    },
+    /// Write at or below one directory.
+    Write {
+        /// The directory; relative to the current directory.
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        /// Only for turns of this project (its root); relative to the current directory.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
+    },
+    /// Connect to one Unix socket, never a link.
+    Socket {
+        /// The socket; relative to the current directory.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
     },
 }
 

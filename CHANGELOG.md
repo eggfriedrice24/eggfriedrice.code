@@ -10,6 +10,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- `efr sandbox allow add` adds an always rule after a question: `host HOST[:PORT]`,
+  `write DIR [--project DIR]` or `socket PATH`. It keeps the comments of
+  `config.toml`, and it says when efrd disables the new rule. `--yes` adds it with no
+  question.
+
 ### Changed
 
 - In auto, a command that logs in, such as `git push`, `gh pr create` or

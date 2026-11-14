@@ -1245,8 +1245,22 @@ An added method does not make a new read form: `systemctl get-default` still has
 
 An always-allow rule is your standing answer for one kind of exit: a `[[sandbox.allow]]`
 table in `config.toml` (see the example below). While the reviewer decides the exits,
-no question comes, so you write the table yourself. Use a rule for an exit that the
-reviewer refuses again and again although you want it.
+no question comes, so you add the rule yourself. Use a rule for an exit that the
+reviewer refuses again and again although you want it:
+
+```
+efr sandbox allow add host download.example.org     # port 443
+efr sandbox allow add host registry.example.org:8443
+efr sandbox allow add write ~/notes --project ~/p/app
+efr sandbox allow add socket /run/user/1000/app.sock
+```
+
+`efr sandbox allow add` shows the rule in words and asks `add sandbox.allow: write
+under ~/notes? y/n`; `--yes` adds it with no question, such as from a script. A
+relative path joins the current directory. efr writes the rule at the end of the file
+and keeps every comment, and efrd reloads. A rule that fails efrd's floor check, such
+as a write of a git dir, stays in the file but covers no call; `add` says why, and
+`efr sandbox allow remove N` takes it out. You can also write the table by hand.
 
 While you answer the exits yourself (`classifier.enabled = false`), a question can
 save the rule for you. At an exit question that offers it, `a` saves a standing answer. The card shows the

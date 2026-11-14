@@ -223,8 +223,10 @@ runs the call. The answer line then names the rule: `✓ allowed always · saved
 sandbox.allow[2]: write under ~/notes`.
 
 ```sh
-efr sandbox allow           # list the rules with their index
-efr sandbox allow remove 2  # remove rule 2 after a question
+efr sandbox allow                       # list the rules with their index
+efr sandbox allow add write ~/notes     # add a rule after a question
+efr sandbox allow add host example.org  # a host on port 443
+efr sandbox allow remove 2              # remove rule 2 after a question
 ```
 
 ## When the sandbox cannot run
