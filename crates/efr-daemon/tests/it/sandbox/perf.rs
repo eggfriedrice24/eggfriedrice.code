@@ -1,6 +1,7 @@
 //! The bench of one shell call in `auto` on the real sandbox: calls of `true` in a git
 //! project of 100, 2,000 and 20,000 files, with 0, 1 and 4 contained jobs that run in
-//! the same project. Each `phase` line of efrd (docs/sandbox.md) is a measure of its
+//! the same project, and the same calls in full mode with no job, as the cost that the
+//! sandbox adds. Each `phase` line of efrd (docs/sandbox.md) is a measure of its
 //! own, with the time per call of each turn. A bench, ignored: `just bench-perf` runs
 //! it in release. It needs a real zsh (`EFR_TEST_ZSH=1`) and the real launcher
 //! (`EFR_TEST_SBX_BIN`), and reports why it skips without them.
@@ -214,13 +215,24 @@ async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Op
         ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
     ]);
     let model = Queue::new();
+    // NOTE: `admin.project_add` reloads `config.toml`, so the file holds what the
+    // builder sets.
+    std::fs::create_dir_all(dirs.dirs().config()).unwrap();
+    std::fs::write(
+        dirs.dirs().config().join("config.toml"),
+        "[permissions]\nallow_full = true\n\n[jobs]\nmax_running = 8\n",
+    )
+    .unwrap();
     let daemon = with_zsh(TestDaemon::builder())
         .dirs(Arc::clone(&dirs))
         .shell_env(env)
         .job_env(job_env)
         .sandbox_launcher(launcher)
         .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
-        .config(|settings| settings.jobs.max_running = 8)
+        .config(|settings| {
+            settings.jobs.max_running = 8;
+            settings.permissions.allow_full = true;
+        })
         .start()
         .await
         .unwrap();
@@ -243,6 +255,16 @@ async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Op
     debug_log();
     model.push(&call, CALLS as usize);
     turn_cost(&daemon, prompts.next(), &project, Mode::Auto, CALLS).await;
+    take_log();
+    // The same calls in full mode, which runs them with no sandbox: the cost that auto
+    // adds. The first full turn does not count, as the first auto turn above.
+    for count in [false, true] {
+        model.push(&call, CALLS as usize);
+        let per_call = turn_cost(&daemon, prompts.next(), &project, Mode::Full, CALLS).await;
+        if count {
+            report.time(&format!("{files} files full mode turn per call"), &[per_call]);
+        }
+    }
     take_log();
     let mut running = 0;
     let mut counted = Lines::new();
