@@ -1492,6 +1492,11 @@ async fn live_reviewer(key: String) -> Arc<dyn Provider> {
 /// got an answer, such as for a wrong key.
 #[tokio::test]
 #[ignore = "asks the real reviewer model; `just eval-reviewer` runs it"]
+#[expect(
+    clippy::print_stderr,
+    clippy::print_stdout,
+    reason = "the eval prints its progress and its table"
+)]
 async fn reviewer_live_eval() {
     use efr_stdx::env::Var;
     let Some(cases_path) = efr_stdx::env::path(Var::EvalCases).unwrap() else {
