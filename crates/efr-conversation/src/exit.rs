@@ -882,8 +882,7 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
     if let Some(fact) = narrower_than_outside(decision, home) {
         push(fact);
     }
-    // NOTE: the engine's own notes, such as the file of the git code that a sandboxed
-    // command can write, or what a publish runs (v0.0.4, B4).
+    // NOTE: the engine's own notes, such as what a login opens or what a publish runs.
     for need in decision.exits() {
         for note in &need.notes {
             push(note.clone());
