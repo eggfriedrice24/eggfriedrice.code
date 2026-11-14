@@ -1950,7 +1950,8 @@ _efr_complete_effort() {
   compadd -- default $efforts
 }
 
-# Reads the model ids with `efr models --names`, at most once a minute.
+# Reads what `,model` takes with `efr models --names`, at most once a minute: the model
+# ids, and with more than one account each model as account/model, such as b/gpt-6.1-sol.
 _efr_load_model_names() {
   (( ${#_efr_model_names} && EPOCHSECONDS - _efr_model_names_at < 60 )) && return 0
   _efr_model_names=(${(f)"$(efr models --names 2>/dev/null)"})

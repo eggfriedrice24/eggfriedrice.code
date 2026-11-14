@@ -100,7 +100,7 @@ fn a_pipe_gets_the_same_rows_without_colour() {
 #[test]
 fn the_listing_marks_the_default_and_names_the_efforts() {
     insta::assert_snapshot!(plain(&models(), &[]), @"
-    openai · openai-subscription · from the backend, fetched 5m ago
+    openai · ChatGPT plan · from the backend, fetched 5m ago
     * gpt-5.5            272k (up to 872k)  efforts low medium high xhigh
       gpt-5.4            128k               efforts low medium high
       my-model           window unknown     efforts unknown · from [openai] models
@@ -112,6 +112,43 @@ fn the_listing_marks_the_default_and_names_the_efforts() {
 #[test]
 fn names_are_the_ids_alone() {
     assert_eq!(names(&models()), "gpt-5.5\ngpt-5.4\nmy-model\n");
+}
+
+/// With more than one account, the completion of `,model` also offers each model of an
+/// account with a login as `account/model`; a signed-out account gets none.
+#[test]
+fn names_add_the_account_of_each_model_when_there_are_more_accounts() {
+    let mut list = accounts();
+    list.catalogs.push(CatalogStatus {
+        provider: Some("anthropic-api.personal".to_owned()),
+        origin: CatalogOrigin::Cache,
+        fetched_at: None,
+        label: None,
+        signed_out: true,
+        limits: None,
+    });
+    insta::assert_snapshot!(names(&list), @"
+    claude-opus-5-5
+    claude-sonnet-5
+    claude-haiku-4-5
+    gpt-5.5
+    work/claude-opus-5-5
+    work/claude-sonnet-5
+    work/claude-haiku-4-5
+    b/gpt-5.5
+    ");
+}
+
+/// A label of `[accounts.labels]` stands after the kind in the head of its account.
+#[test]
+fn the_head_of_an_account_names_its_label() {
+    let mut list = accounts();
+    list.catalogs[1].label = Some("Home plan".to_owned());
+    let out = plain(&list, &personal());
+    assert!(
+        out.contains("\nb · ChatGPT plan · Home plan · from the cache, fetched 2h 5m ago\n"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -136,18 +173,22 @@ fn the_models_of_each_provider_with_a_login_are_listed_under_their_provider() {
     list.models.push(again);
 
     insta::assert_snapshot!(plain(&list, &[]), @"
-    openai · openai-subscription · built into efr
+    openai · ChatGPT plan · built into efr
     * gpt-5.5            272k (up to 872k)  efforts low medium high xhigh
       gpt-5.4            128k               efforts low medium high
 
-    openai-api · openai-api · built into efr
+    openai-api · OpenAI API · built into efr
       my-model           window unknown     efforts unknown · from [openai] models
       gpt-5.5            272k (up to 872k)  efforts low medium high xhigh
 
     * the default · underlined: the default effort · ,model openai/gpt-5.4 picks one
     ");
-    // The completion offers each id once.
-    assert_eq!(names(&list), "gpt-5.5\ngpt-5.4\nmy-model\n");
+    // The completion offers each id once, then each model with its account.
+    assert_eq!(
+        names(&list),
+        "gpt-5.5\ngpt-5.4\nmy-model\nopenai/gpt-5.5\nopenai/gpt-5.4\nopenai-api/my-model\n\
+         openai-api/gpt-5.5\n"
+    );
 }
 
 #[test]
@@ -157,7 +198,7 @@ fn an_account_that_logged_out_keeps_its_head() {
     let out = plain(&list, &personal());
     assert!(
         out.ends_with(
-            "personal · anthropic-api · signed out\n\n* the default · underlined: the default \
+            "personal · Claude API · signed out\n\n* the default · underlined: the default \
              effort · ,model work/claude-sonnet-5 picks one\n"
         ),
         "{out}"
@@ -182,7 +223,7 @@ fn an_account_with_no_list_yet_keeps_its_head() {
     };
     assert_eq!(
         plain(&list, &[]),
-        "work · anthropic-api · no list yet; efrd fetches it in the background\n"
+        "work · Claude API · no list yet; efrd fetches it in the background\n"
     );
     // Next to an account that has its list, it stands after it, before the legend.
     let mut list = accounts();
@@ -190,7 +231,7 @@ fn an_account_with_no_list_yet_keeps_its_head() {
     let out = plain(&list, &personal());
     assert!(
         out.contains(
-            "\nopenai-api · openai-api · no list yet; efrd fetches it in the background\n\n"
+            "\nopenai-api · OpenAI API · no list yet; efrd fetches it in the background\n\n"
         ),
         "{out}"
     );
@@ -241,7 +282,7 @@ fn a_claude_list_names_its_provider_and_the_anthropic_table_of_the_config() {
     });
 
     insta::assert_snapshot!(plain(&list, &[]), @"
-    anthropic · anthropic-api · no list yet; efrd fetches it in the background
+    anthropic · Claude API · no list yet; efrd fetches it in the background
       claude-next        window unknown  efforts unknown · from [anthropic] models
 
     * the default · underlined: the default effort · ,model anthropic/claude-next picks one
@@ -318,7 +359,7 @@ async fn efr_models_asks_which_accounts_logged_out() {
     let line = command(&["models"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success, "{}", captured.stderr());
-    assert!(captured.stdout().contains("\npersonal · anthropic-api · signed out\n"));
+    assert!(captured.stdout().contains("\npersonal · Claude API · signed out\n"));
 }
 
 #[tokio::test]

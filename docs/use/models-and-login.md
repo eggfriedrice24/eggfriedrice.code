@@ -210,7 +210,8 @@ effort for the prompts of this terminal only:
 ```
 
 efr keeps a value only when the daemon accepts it. Otherwise efr lists the choices.
-Tab completes the models and the efforts of the model.
+Tab completes the models and the efforts of the model. With more than one account,
+Tab also completes each model with its account, such as `b/gpt-6.1-sol`.
 
 When two accounts list the same model, name the account before the model:
 
@@ -241,24 +242,25 @@ with `,effort` must be one that the model takes.
 ### List the models
 
 `efr models` lists the models by account, in the form that `,model` takes them. The
-head of each account names its provider and where its list came from. `*` marks the
-default. Each row shows the context window and the efforts of the model, with the
-default effort of the model underlined:
+head of each account names its kind, its label from `[accounts.labels]` when it has
+one, and where its list came from. `*` marks the default. Each row shows the context
+window and the efforts of the model, with the default effort of the model underlined:
 
 ```text
-work · anthropic-api · from the backend, fetched 5m ago
+work · Claude API · from the backend, fetched 5m ago
 * claude-opus-5-5    200k            efforts low medium high
   claude-sonnet-5    200k            efforts low medium high
   claude-haiku-4-5   200k            no efforts
 
-b · openai-subscription · from the cache, fetched 2h 5m ago
+b · ChatGPT plan · from the cache, fetched 2h 5m ago
   gpt-5.5            272k (up to 872k)  efforts minimal low medium high xhigh
 
 * the default · underlined: the default effort · ,model work/claude-sonnet-5 picks one
 ```
 
-An account that logged out keeps its head with `signed out`, and its rows are dim.
-`efr models --names` prints only the ids, one on each line.
+An account that is signed out keeps its head with `signed out`, and its rows are dim.
+`efr models --names` prints only what `,model` takes, one on each line: the ids, and
+with more than one account each model with its account.
 
 ### Where the list comes from
 

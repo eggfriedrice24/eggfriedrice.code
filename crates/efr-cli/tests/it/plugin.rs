@@ -2050,6 +2050,30 @@ fn e2e_completion_offers_the_modes_the_models_and_the_models_efforts() {
     assert_eq!(lists, [&vec!["models", "--names"]], "{args:?}");
 }
 
+/// With two accounts, `efr models --names` also lists `account/model`, and `,model`
+/// completes it as one word.
+#[test]
+fn e2e_completion_offers_a_model_with_its_account() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    home.output("models", "gpt-6.1-sol\nopenai/gpt-6.1-sol\nb/gpt-6.1-sol\n");
+    home.output("settings", SETTINGS);
+    type_lines(&home, &["autoload -Uz compinit; compinit -u -D", ",model b/\t", ",model op\t"]);
+    let calls = home.calls();
+    let args = args(&calls);
+    let checks: Vec<&Vec<&str>> =
+        args.iter().filter(|args| args.len() == 2 && args[0] == "settings").collect();
+    assert_eq!(
+        checks,
+        [
+            &vec!["settings", "--model=b/gpt-6.1-sol"],
+            &vec!["settings", "--model=openai/gpt-6.1-sol"]
+        ]
+    );
+}
+
 /// The uid that owns the temporary home, which is this process's.
 fn uid(home: &Home) -> u32 {
     use std::os::unix::fs::MetadataExt as _;

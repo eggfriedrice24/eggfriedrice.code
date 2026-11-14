@@ -28,7 +28,7 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::format::context::count;
 use crate::format::status::{account_of, origin, separator};
-use crate::format::{self, Tone, paint};
+use crate::format::{self, Tone, accounts, paint};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -68,14 +68,41 @@ pub(crate) async fn run(
     out.out(&listing(&list, &signed_out, ctx.clock.now(), &options))
 }
 
-/// Each id once, on a line of its own, in the order of the list.
+/// What `,model` takes, one on each line, for the completion of the zsh plugin: each id
+/// once, in the order of the list, then each model of an account with a login as
+/// `account/model`, such as `b/gpt-6.1-sol`, the way `,model` names an account. A
+/// signed-out account gets no entry: a turn on it fails until a login.
 pub(crate) fn names(list: &ModelsListResult) -> String {
     let mut seen = std::collections::HashSet::new();
-    list.models
+    let bare = list
+        .models
         .iter()
-        .filter(|model| seen.insert(model.id.as_str()))
-        .map(|model| format!("{}\n", format::one_line(&model.id)))
-        .collect()
+        .filter(|model| seen.insert(format::one_line(&model.id)))
+        .map(|model| format!("{}\n", format::one_line(&model.id)));
+    let signed_out = |id: &str| {
+        list.catalogs
+            .iter()
+            .any(|catalog| catalog.signed_out && catalog.provider.as_deref() == Some(id))
+    };
+    let usable: Vec<(&str, &ModelInfo)> = list
+        .models
+        .iter()
+        .filter_map(|model| Some((model.provider.as_deref()?, model)))
+        .filter(|(provider, _)| !signed_out(provider))
+        .collect();
+    // NOTE: with one account the bare ids say it all.
+    let kinds: std::collections::HashSet<&str> = usable.iter().map(|(id, _)| *id).collect();
+    let mut named = std::collections::HashSet::new();
+    let accounts: Vec<String> = usable
+        .iter()
+        .filter(|_| kinds.len() > 1)
+        .map(|(provider, model)| {
+            format!("{}/{}", account_of(provider).0, format::one_line(&model.id))
+        })
+        .filter(|name| named.insert(name.clone()))
+        .map(|name| format!("{name}\n"))
+        .collect();
+    bare.chain(accounts).collect()
 }
 
 /// One account of the listing: its provider id and its models.
@@ -94,16 +121,27 @@ pub(crate) fn listing(
     options: &RenderOptions,
 ) -> String {
     let fallback = list.catalog.as_ref().and_then(|catalog| catalog.provider.as_deref());
+    // NOTE: efrd marks an account that `[accounts]` names with no login in `models.list`;
+    // an older one lists only the accounts with a login, and `admin.status` names the
+    // others.
+    let is_out = |provider: Option<&str>| {
+        provider.is_some_and(|id| {
+            signed_out.iter().any(|out| out == id)
+                || list
+                    .catalogs
+                    .iter()
+                    .any(|catalog| catalog.signed_out && catalog.provider.as_deref() == Some(id))
+        })
+    };
     let mut accounts: Vec<Account<'_>> = Vec::new();
     for model in &list.models {
         let provider = model.provider.as_deref().or(fallback);
         match accounts.iter_mut().find(|account| account.provider == provider) {
             Some(account) => account.models.push(model),
-            None => accounts.push(Account {
-                provider,
-                models: vec![model],
-                signed_out: provider.is_some_and(|id| signed_out.iter().any(|out| out == id)),
-            }),
+            None => {
+                let signed_out = is_out(provider);
+                accounts.push(Account { provider, models: vec![model], signed_out });
+            }
         }
     }
     // An account whose list did not come yet has no model. It keeps its head, which says
@@ -111,11 +149,7 @@ pub(crate) fn listing(
     for catalog in list.catalogs.iter().chain(&list.catalog) {
         let provider = catalog.provider.as_deref();
         if !accounts.iter().any(|account| account.provider == provider) {
-            accounts.push(Account {
-                provider,
-                models: Vec::new(),
-                signed_out: provider.is_some_and(|id| signed_out.iter().any(|out| out == id)),
-            });
+            accounts.push(Account { provider, models: Vec::new(), signed_out: is_out(provider) });
         }
     }
     for id in signed_out {
@@ -156,7 +190,14 @@ fn block(
     };
     match account.provider {
         Some(id) => {
-            let (name, kind) = account_of(id);
+            let name = account_of(id).0;
+            // NOTE: the kind in words, as `efr status` names it (TM-Commands 2), and the
+            // user's own name of the account from `[accounts.labels]` after it.
+            let mut kind = accounts::kind_words(id);
+            let label = catalog.and_then(|catalog| catalog.label.as_deref()).map(format::one_line);
+            if let Some(label) = label.filter(|label| *label != name) {
+                let _ = write!(kind, "{dot}{label}");
+            }
             out.push_str(&paint(&name, Tone::TextBold, options));
             out.push(' ');
             let dot = dot.trim_start();
