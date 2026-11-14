@@ -35,7 +35,7 @@ use efr_stdx::paths::{Dirs, RootSource as StdxRootSource, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 use efr_store::recording::{Recordings, Retention};
-use efr_store::{Readers, Store, StoreConfig};
+use efr_store::{Readers, Store, StoreConfig, WriterHandle};
 use efr_transport::UnixListener;
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
@@ -1188,13 +1188,15 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
 /// segment of each shell that can still write stays, with at least the last
 /// [`MAX_REPLAY`](crate::methods::MAX_REPLAY) bytes, so a resume of a
 /// running shell always finds what it replays. The pass costs one read of the index
-/// and one listing of the files.
+/// and one listing of the files. The same pass deletes the rows that serve only a
+/// while ([`collect_rows`]).
 async fn collect_recordings(state: Arc<State>, stop: CancellationToken) {
     loop {
         tokio::select! {
             () = stop.cancelled() => return,
             () = state.clock.sleep(RECORDING_GC_INTERVAL) => {}
         }
+        collect_rows(&state.writer, ROWS_PER_STEP).await;
         let retention = recording_retention(&state.settings.borrow().recording);
         match state.recordings.collect(retention).await {
             Ok(collected) if collected.failed > 0 => {
@@ -1209,6 +1211,46 @@ async fn collect_recordings(state: Arc<State>, stop: CancellationToken) {
             Ok(_) => {}
             Err(error) => {
                 tracing::warn!(error = %efr_stdx::with_causes(&error), "the recordings could not be collected");
+            }
+        }
+    }
+}
+
+/// The rows that one writer job of [`collect_rows`] deletes at most, so the first pass
+/// over a long history holds the writer only for short jobs.
+const ROWS_PER_STEP: u32 = 2_000;
+
+/// Deletes the receipts older than 7 days (`efr_store::receipts::MAX_AGE`) and the
+/// outbox items that ended more than a day ago (`efr_store::outbox::ENDED_MAX_AGE`),
+/// at most `step` rows per writer job, and returns how many of each it deleted. A
+/// failure ends the pass; the next pass tries again.
+pub(crate) async fn collect_rows(writer: &WriterHandle, step: u32) -> (u64, u64) {
+    let receipts = collect_steps("receipts", step, || writer.receipts_collect(step)).await;
+    let outbox = collect_steps("outbox items", step, || writer.outbox_collect(step)).await;
+    if receipts + outbox > 0 {
+        tracing::debug!(receipts, outbox, "deleted old receipts and outbox items");
+    }
+    (receipts, outbox)
+}
+
+/// Runs `job` while it deletes `step` rows; the rows that it deleted.
+async fn collect_steps<F, Job>(what: &'static str, step: u32, mut job: F) -> u64
+where
+    F: FnMut() -> Job,
+    Job: Future<Output = Result<u64, efr_store::StoreError>>,
+{
+    let mut deleted = 0;
+    loop {
+        match job().await {
+            Ok(rows) => {
+                deleted += rows;
+                if rows < u64::from(step) {
+                    return deleted;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(what, error = %efr_stdx::with_causes(&error), "old rows could not be deleted");
+                return deleted;
             }
         }
     }

@@ -111,9 +111,13 @@ conversations or the daemon's socket. The config root stays readable and read-on
   truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
   `command_id` returns the stored result; a rejected one stays rejected; nothing is
-  replayed automatically after a reconnect.
+  replayed automatically after a reconnect. A receipt stays for 7 days
+  (`receipts::MAX_AGE`): the hourly pass of the recordings collector deletes older
+  ones, at most 2,000 rows per writer job. A retry after that runs as a new command.
 - `outbox(id, kind, payload, replay_safe INTEGER, claimed_at, done_at)`. Replay-safe
-  rows survive a restart; process-bound rows are cancelled at startup.
+  rows survive a restart; process-bound rows are cancelled at startup. A row that is
+  done or cancelled stays for 1 day (`outbox::ENDED_MAX_AGE`), then the same hourly
+  pass deletes it. An open row always stays.
 - `recording_segments(pty_id, start_seq, path, bytes, started_at, closed_at)` indexes
   the recording files. The collector reads all rows in one scan in the order of the
   primary key, with the `shells` row of each PTY, so it needs no index of its own. It

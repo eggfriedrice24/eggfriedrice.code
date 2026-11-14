@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use efr_protocol::{ErrorCode, Event};
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -234,4 +237,26 @@ async fn outcomes_are_stored_by_name() {
     .unwrap();
 
     assert_eq!(outcomes, ["accepted", "rejected"]);
+}
+
+#[tokio::test]
+async fn the_collector_deletes_receipts_older_than_seven_days_in_steps() {
+    let clock = TestClock::new();
+    let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
+    let receipt = |n| NewReceipt::accepted(testing::command(n), "presence.set", json!(null));
+    writer.append(Batch::new().receipt(receipt(1)).receipt(receipt(2))).await.unwrap();
+    clock.advance(Duration::from_secs(3600));
+    writer.append(Batch::new().receipt(receipt(3))).await.unwrap();
+
+    // Seven days after the first two: they are not older than the limit yet.
+    clock.advance(Duration::from_secs(7 * 24 * 3600 - 3600));
+    assert_eq!(writer.receipts_collect(10).await.unwrap(), 0);
+    clock.advance(Duration::from_secs(1));
+    assert_eq!(writer.receipts_collect(1).await.unwrap(), 1, "one step");
+    assert_eq!(writer.receipts_collect(10).await.unwrap(), 1);
+    assert_eq!(writer.receipts_collect(10).await.unwrap(), 0);
+
+    assert_eq!(stored(&writer, testing::command(1)).await, None);
+    assert_eq!(stored(&writer, testing::command(2)).await, None);
+    assert!(stored(&writer, testing::command(3)).await.is_some(), "an hour younger");
 }

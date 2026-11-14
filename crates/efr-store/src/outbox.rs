@@ -8,14 +8,22 @@
 //! cancels every unfinished process-bound item (a provider stream, a reply on a
 //! connection that no longer exists) and returns unfinished replay-safe items to the
 //! queue: nothing continues on its own after a restart except what is safe to repeat.
+//!
+//! An item that is done or cancelled stays for [`ENDED_MAX_AGE`], then efrd's hourly
+//! collector deletes it ([`WriterHandle::outbox_collect`]). An open item always stays.
+//!
+//! [`WriterHandle::outbox_collect`]: crate::WriterHandle::outbox_collect
 
 use std::fmt;
 
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, Row, params};
 use serde_json::Value;
 
 use crate::{StoreError, sql};
+
+/// How long an item stays after it is done or cancelled: 1 day.
+pub const ENDED_MAX_AGE: SignedDuration = SignedDuration::from_hours(24);
 
 const TABLE: &str = "outbox";
 
@@ -157,6 +165,21 @@ pub(crate) fn cancel_process_bound(
         [],
     )?;
     Ok(OutboxReconciled { cancelled: cancelled as u64, requeued: requeued as u64 })
+}
+
+/// Deletes at most `limit` items that were done or cancelled before `before`, the
+/// lowest ids first, and returns how many it deleted.
+pub(crate) fn delete_ended(
+    conn: &Connection,
+    before: Timestamp,
+    limit: u32,
+) -> Result<u64, StoreError> {
+    let deleted = conn.execute(
+        "DELETE FROM outbox WHERE id IN (SELECT id FROM outbox \
+         WHERE COALESCE(done_at, cancelled_at) < ?1 ORDER BY id LIMIT ?2)",
+        params![sql::micros(before), limit],
+    )?;
+    Ok(deleted as u64)
 }
 
 /// Every unfinished item, claimed or waiting, oldest first.

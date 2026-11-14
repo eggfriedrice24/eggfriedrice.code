@@ -1,6 +1,42 @@
-use pretty_assertions::assert_eq;
+use std::time::Duration;
 
-use crate::run::{os_name, recording_retention};
+use efr_protocol::CommandId;
+use efr_store::outbox::NewOutboxItem;
+use efr_store::receipts::{self, NewReceipt};
+use efr_store::{Batch, Store};
+use efr_test_support::TestClock;
+use pretty_assertions::assert_eq;
+use serde_json::Value;
+
+use crate::run::{collect_rows, os_name, recording_retention};
+
+fn command(n: u64) -> CommandId {
+    format!("0192f0c1-7a00-7000-8000-{n:012x}").parse().unwrap()
+}
+
+#[tokio::test]
+async fn the_hourly_pass_deletes_old_receipts_and_ended_outbox_items_in_steps() {
+    let clock = TestClock::new();
+    let store = Store::open_in_memory(clock.shared()).await.unwrap();
+    let writer = store.writer();
+    let mut batch = Batch::new();
+    for n in 1..=5 {
+        batch = batch.receipt(NewReceipt::accepted(command(n), "presence.set", Value::Null));
+    }
+    let batch = batch.enqueue(NewOutboxItem::replay_safe("notify", Value::Null));
+    writer.append(batch).await.unwrap();
+    let claimed = writer.outbox_claim(1).await.unwrap();
+    writer.outbox_done(claimed[0].id).await.unwrap();
+
+    clock.advance(Duration::from_secs(2 * 24 * 3600));
+    assert_eq!(collect_rows(writer, 2).await, (0, 1), "the outbox item ended 2 days ago");
+    clock.advance(Duration::from_secs(6 * 24 * 3600));
+    assert_eq!(collect_rows(writer, 2).await, (5, 0), "in steps of 2 rows");
+
+    let left = store.readers().with(move |conn| receipts::lookup(conn, command(1))).await;
+    assert_eq!(left.unwrap(), None);
+    store.close().await;
+}
 
 #[test]
 fn the_os_name_is_the_pretty_name_then_the_name() {
@@ -19,7 +55,7 @@ fn the_os_name_is_the_pretty_name_then_the_name() {
 fn the_recording_retention_follows_the_settings_and_zero_turns_a_limit_off() {
     let mut settings = efr_config::Settings::default().recording;
     let retention = recording_retention(&settings);
-    assert_eq!(retention.max_age, Some(std::time::Duration::from_secs(14 * 24 * 3600)));
+    assert_eq!(retention.max_age, Some(Duration::from_secs(14 * 24 * 3600)));
     assert_eq!(retention.max_bytes, Some(2 << 30));
     assert_eq!(retention.live_tail, crate::methods::MAX_REPLAY);
 

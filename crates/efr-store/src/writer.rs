@@ -184,6 +184,26 @@ impl WriterHandle {
         self.run(|state| state.write(outbox::cancel_process_bound)).await
     }
 
+    /// Deletes at most `limit` outbox items that ended (done or cancelled) more than
+    /// [`outbox::ENDED_MAX_AGE`] ago by the writer's clock, in one transaction, and
+    /// returns how many it deleted. The caller repeats it while it deletes `limit`.
+    pub async fn outbox_collect(&self, limit: u32) -> Result<u64, StoreError> {
+        self.run(move |state| {
+            state.write(|tx, at| outbox::delete_ended(tx, at - outbox::ENDED_MAX_AGE, limit))
+        })
+        .await
+    }
+
+    /// Deletes at most `limit` receipts older than [`receipts::MAX_AGE`] by the writer's
+    /// clock, in one transaction, and returns how many it deleted. The caller repeats it
+    /// while it deletes `limit`.
+    pub async fn receipts_collect(&self, limit: u32) -> Result<u64, StoreError> {
+        self.run(move |state| {
+            state.write(|tx, at| receipts::delete_older(tx, at - receipts::MAX_AGE, limit))
+        })
+        .await
+    }
+
     /// Throws the projections away and rebuilds them from the event log in one
     /// transaction. They are a function of the log, so the result equals what the
     /// writer built event by event; this is how a projection bug is repaired.

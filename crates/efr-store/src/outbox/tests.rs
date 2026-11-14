@@ -125,3 +125,39 @@ async fn an_item_is_enqueued_only_when_its_batch_commits() {
     assert!(failed.is_err());
     assert_eq!(on_writer(&writer, open_items).await.unwrap(), []);
 }
+
+#[tokio::test]
+async fn the_collector_deletes_items_a_day_after_they_ended_and_never_open_ones() {
+    let clock = TestClock::new();
+    let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
+    enqueue_all(
+        &writer,
+        vec![
+            NewOutboxItem::replay_safe("done", json!(1)),
+            NewOutboxItem::process_bound("cancelled", json!(2)),
+            NewOutboxItem::replay_safe("claimed", json!(3)),
+            NewOutboxItem::replay_safe("waiting", json!(4)),
+        ],
+    )
+    .await;
+    let claimed = writer.outbox_claim(2).await.unwrap();
+    writer.outbox_done(claimed[0].id).await.unwrap();
+    writer.outbox_cancel_process_bound().await.unwrap();
+    writer.outbox_claim(1).await.unwrap();
+
+    clock.advance(Duration::from_secs(24 * 3600));
+    assert_eq!(writer.outbox_collect(10).await.unwrap(), 0, "not older than a day yet");
+    clock.advance(Duration::from_secs(1));
+    assert_eq!(writer.outbox_collect(1).await.unwrap(), 1, "one step");
+    assert_eq!(writer.outbox_collect(10).await.unwrap(), 1);
+    assert_eq!(writer.outbox_collect(10).await.unwrap(), 0);
+
+    let left = on_writer(&writer, |conn| {
+        let mut stmt = conn.prepare("SELECT kind FROM outbox ORDER BY id")?;
+        let rows = stmt.query_map([], |row| row.get(0))?.collect::<Result<Vec<String>, _>>()?;
+        Ok(rows)
+    })
+    .await
+    .unwrap();
+    assert_eq!(left, ["claimed", "waiting"]);
+}

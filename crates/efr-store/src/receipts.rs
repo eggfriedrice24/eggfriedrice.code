@@ -10,13 +10,23 @@
 //! receipt exists exactly when the events do. Two racing requests with one command id
 //! cannot both commit: the later batch fails with [`StoreError::DuplicateCommand`],
 //! which carries the earlier receipt for the caller to answer with.
+//!
+//! A receipt stays for [`MAX_AGE`]: a client retries a command within seconds, and a
+//! phone that was away sends its queued commands when it comes back. efrd's hourly
+//! collector deletes older receipts ([`WriterHandle::receipts_collect`]); a retry after
+//! that runs as a new command.
+//!
+//! [`WriterHandle::receipts_collect`]: crate::WriterHandle::receipts_collect
 
 use efr_protocol::{CommandId, ErrorBody, EventEnvelope, Seq};
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 use serde_json::Value;
 
 use crate::{StoreError, sql};
+
+/// How long a receipt stays: 7 days.
+pub const MAX_AGE: SignedDuration = SignedDuration::from_hours(7 * 24);
 
 const TABLE: &str = "receipts";
 const ACCEPTED: &str = "accepted";
@@ -168,6 +178,21 @@ pub(crate) fn record(
         ],
     )?;
     Ok(())
+}
+
+/// Deletes at most `limit` receipts recorded before `before`, the oldest first, and
+/// returns how many it deleted.
+pub(crate) fn delete_older(
+    conn: &Connection,
+    before: Timestamp,
+    limit: u32,
+) -> Result<u64, StoreError> {
+    let deleted = conn.execute(
+        "DELETE FROM receipts WHERE rowid IN \
+         (SELECT rowid FROM receipts WHERE created_at < ?1 ORDER BY created_at LIMIT ?2)",
+        params![sql::micros(before), limit],
+    )?;
+    Ok(deleted as u64)
 }
 
 struct RawReceipt {

@@ -1541,7 +1541,9 @@ A model-side peer holds no `approve` scope at all.
   segment and at least the last 1 MiB (`MAX_REPLAY`) of each shell that can still
   write, so `pty.attach` of a running shell always finds what it replays. A resume of a
   recording whose first bytes went gets a later start: a screen snapshot for a running
-  shell, and what is left for an exited one.
+  shell, and what is left for an exited one. The same task deletes the receipts older
+  than 7 days and the outbox rows that ended more than a day ago (`collect_rows`), at
+  most 2,000 rows per writer job (`ROWS_PER_STEP`).
 - An hourly task keeps the refs of the newest `snapshot.keep_turns` turns of each
   conversation whole across every store, the home store too, keeps the mirrors of a
   store within four times `snapshot.mirror_max_mib`, and deletes a store without a
