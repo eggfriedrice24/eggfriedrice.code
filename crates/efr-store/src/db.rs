@@ -27,7 +27,7 @@ pub const JOURNAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
 /// Opens the database at `path` for reading and writing, creating it when it does not
 /// exist, and applies the pragmas: `journal_mode=WAL`, `synchronous=NORMAL`,
 /// `busy_timeout=5000`, `foreign_keys=ON`, `journal_size_limit=64MiB`,
-/// `temp_store=MEMORY`.
+/// `temp_store=MEMORY`, `secure_delete=ON`.
 ///
 /// A new database file is created with mode 0600 before SQLite opens it, and SQLite
 /// gives the `-wal` and `-shm` files the same mode, because conversations and command
@@ -93,6 +93,9 @@ fn configure(conn: &Connection) -> Result<(), StoreError> {
     set_pragma(conn, "foreign_keys", "ON")?;
     set_pragma(conn, "journal_size_limit", JOURNAL_SIZE_LIMIT)?;
     set_pragma(conn, "temp_store", "MEMORY")?;
+    // NOTE: a delete, such as of a conversation, writes zeros over the content that it
+    // frees, so the free pages of the file keep no text of it.
+    set_pragma(conn, "secure_delete", "ON")?;
     Ok(())
 }
 

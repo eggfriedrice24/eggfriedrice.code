@@ -49,7 +49,7 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 11, backup: None, rebuilt: false });
+    assert_eq!(report, MigrationReport::new(0, 11, None, false));
     assert!(report.applied());
     assert_eq!(Migrations::version(&conn).unwrap(), 11);
     assert_eq!(
@@ -88,7 +88,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 11, to: 11, backup: None, rebuilt: false });
+    assert_eq!(report, MigrationReport::new(11, 11, None, false));
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -108,10 +108,7 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(
-        report,
-        MigrationReport { from: 2, to: 11, backup: Some(backup.clone()), rebuilt: true }
-    );
+    assert_eq!(report, MigrationReport::new(2, 11, Some(backup.clone()), true));
     assert_eq!(Migrations::version(&conn).unwrap(), 11);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
@@ -138,6 +135,68 @@ fn a_leftover_temporary_backup_and_an_older_copy_are_replaced() {
     assert!(!backups.join(".efr.sqlite.1.tmp").exists());
     let copy = db::open(&backups.join("efr.sqlite.1")).unwrap();
     assert_eq!(Migrations::version(&copy).unwrap(), 1);
+}
+
+#[test]
+fn only_the_newest_copies_stay_after_a_migration() {
+    assert_eq!(KEPT_BACKUPS, 2);
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    fs::create_dir(&backups).unwrap();
+    for name in ["efr.sqlite.1", "efr.sqlite.3", "efr.sqlite.4", "efr.sqlite.x", "notes"] {
+        fs::write(backups.join(name), b"an older copy").unwrap();
+    }
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().steps.to_version(&mut conn, 5).unwrap();
+
+    let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+
+    // The new copy of version 5 and the newest one before it stay.
+    let mut pruned = report.pruned.clone();
+    pruned.sort();
+    assert_eq!(pruned, [backups.join("efr.sqlite.1"), backups.join("efr.sqlite.3")]);
+    assert_eq!(report.not_pruned, Vec::<PathBuf>::new());
+    let mut left: Vec<String> = fs::read_dir(&backups)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["efr.sqlite.4", "efr.sqlite.5", "efr.sqlite.x", "notes"]);
+}
+
+#[test]
+fn the_copy_just_taken_always_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    fs::create_dir(&backups).unwrap();
+    for name in ["efr.sqlite.8", "efr.sqlite.9"] {
+        fs::write(backups.join(name), b"a copy of another database").unwrap();
+    }
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().steps.to_version(&mut conn, 2).unwrap();
+
+    let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+
+    assert_eq!(report.pruned, [backups.join("efr.sqlite.8")]);
+    assert!(backups.join("efr.sqlite.2").exists() && backups.join("efr.sqlite.9").exists());
+}
+
+#[test]
+fn a_start_with_no_migration_prunes_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+    fs::create_dir(&backups).unwrap();
+    for version in [4, 7, 9] {
+        fs::write(backups.join(format!("efr.sqlite.{version}")), b"a copy").unwrap();
+    }
+
+    let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+
+    assert!(!report.applied());
+    assert_eq!(report.pruned, [backups.join("efr.sqlite.4")]);
+    assert!(backups.join("efr.sqlite.7").exists() && backups.join("efr.sqlite.9").exists());
 }
 
 #[test]

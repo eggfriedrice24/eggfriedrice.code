@@ -50,7 +50,7 @@ pub mod user_messages;
 mod writer;
 
 pub use error::StoreError;
-pub use migrations::{MigrationReport, Migrations};
+pub use migrations::{KEPT_BACKUPS, MigrationReport, Migrations};
 pub use reader::{DEFAULT_READERS, Readers};
 pub use store::{BACKUP_DIR, DATABASE_FILE, Store, StoreConfig};
 pub use writer::{

@@ -8,8 +8,9 @@ across a restart:
 - `db`: `open(path)` and `open_in_memory()`, the only calls to
   `rusqlite::Connection::open*` in the workspace (`clippy.toml` routes every other call
   here), with the pragmas `journal_mode=WAL`, `synchronous=NORMAL`,
-  `busy_timeout=5000`, `foreign_keys=ON`, `journal_size_limit=64MiB` and
-  `temp_store=MEMORY`. A new database file is created with mode 0600.
+  `busy_timeout=5000`, `foreign_keys=ON`, `journal_size_limit=64MiB`,
+  `temp_store=MEMORY` and `secure_delete=ON` (a delete writes zeros over the content
+  that it frees). A new database file is created with mode 0600.
 - `Migrations`: the forward-only SQL files in `src/migrations/`, embedded with
   `include_str!` and applied by `rusqlite_migration`, one transaction per file,
   tracked in `PRAGMA user_version`. Before migrating an existing database, a copy goes
@@ -17,6 +18,9 @@ across a restart:
   log, but only when an applied step adds or reshapes a projection (`REBUILDS`, one
   flag per step); `0009_search.sql` adds only the search tables, so the start after it
   does not replay the log. `MigrationReport::rebuilt` says whether a rebuild ran.
+  After the migrations, also when none ran, only the newest `KEPT_BACKUPS` (2) copies
+  by version stay in `backups/`, the copy of this start among them;
+  `MigrationReport::pruned` and `not_pruned` name the older copies.
 - `StoreWriter` and `WriterHandle`: the single writer. A thread owns the only
   read-write connection; `WriterHandle::append(Batch)` commits events, the projections
   derived from them, command receipts and outbox rows in one transaction, and then

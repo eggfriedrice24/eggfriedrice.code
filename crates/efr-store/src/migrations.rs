@@ -43,6 +43,11 @@ const _: () = assert!(REBUILDS.len() == STEPS.len(), "each step needs its rebuil
 /// The backups hold every conversation, like the database itself.
 const BACKUP_DIR_MODE: u32 = 0o700;
 
+/// How many copies `backups/` keeps: the newest by schema version. The copy of the last
+/// migration and the one before it let the user go back two schema versions; an older
+/// copy only keeps conversations that the user deleted after it was taken.
+pub const KEPT_BACKUPS: usize = 2;
+
 /// The store's schema as a sequence of migrations.
 #[derive(Debug, Clone)]
 pub struct Migrations {
@@ -65,9 +70,24 @@ pub struct MigrationReport {
     /// True when the projections were rebuilt from the log after the migrations,
     /// because one of them adds or reshapes a projection.
     pub rebuilt: bool,
+    /// The older copies of `backups/` that the prune removed, beyond the newest
+    /// [`KEPT_BACKUPS`].
+    pub pruned: Vec<PathBuf>,
+    /// The older copies that the prune could not remove, or the directory when it could
+    /// not be read. The next start tries again.
+    pub not_pruned: Vec<PathBuf>,
 }
 
 impl MigrationReport {
+    pub(crate) fn new(
+        from: u32,
+        to: u32,
+        backup: Option<PathBuf>,
+        rebuilt: bool,
+    ) -> MigrationReport {
+        MigrationReport { from, to, backup, rebuilt, pruned: Vec::new(), not_pruned: Vec::new() }
+    }
+
     /// True when at least one migration ran.
     pub fn applied(&self) -> bool {
         self.to > self.from
@@ -127,9 +147,26 @@ impl Migrations {
     /// `VACUUM INTO`, which also captures what is still in the write-ahead log). A new
     /// database, an in-memory one or a `None` directory gets no copy.
     ///
+    /// After the migrations, also when none was pending, the copies of the database's
+    /// file beyond the newest [`KEPT_BACKUPS`] go: a copy holds every conversation of its
+    /// time, also the ones that the user deleted later. A copy that cannot be removed
+    /// stays, and the report names it.
+    ///
     /// Fails with [`StoreError::SchemaTooNew`] for a database from a newer build,
     /// which this build must not touch.
     pub fn migrate(
+        &self,
+        conn: &mut Connection,
+        backups: Option<&Path>,
+    ) -> Result<MigrationReport, StoreError> {
+        let mut report = self.migrate_only(conn, backups)?;
+        if let Some(dir) = backups {
+            (report.pruned, report.not_pruned) = prune(conn, dir, report.backup.as_deref());
+        }
+        Ok(report)
+    }
+
+    fn migrate_only(
         &self,
         conn: &mut Connection,
         backups: Option<&Path>,
@@ -140,7 +177,7 @@ impl Migrations {
             return Err(StoreError::SchemaTooNew { found: from, supported: latest });
         }
         if from == latest {
-            return Ok(MigrationReport { from, to: from, backup: None, rebuilt: false });
+            return Ok(MigrationReport::new(from, from, None, false));
         }
         let backup = match backups {
             Some(dir) if from > 0 => backup(conn, dir, from)?,
@@ -161,8 +198,45 @@ impl Migrations {
             projection::rebuild(&tx)?;
             tx.commit()?;
         }
-        Ok(MigrationReport { from, to: latest, backup, rebuilt })
+        Ok(MigrationReport::new(from, latest, backup, rebuilt))
     }
+}
+
+/// Removes the copies of the database's file in `dir` beyond the newest
+/// [`KEPT_BACKUPS`] by schema version, where `taken`, the copy that this start took,
+/// counts as the newest: the removed ones, and the ones that could not be removed (or
+/// `dir` when it could not be read). Other files stay.
+fn prune(conn: &Connection, dir: &Path, taken: Option<&Path>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let Some(name) = database_file_name(conn) else {
+        return (Vec::new(), Vec::new());
+    };
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return (Vec::new(), Vec::new()),
+        Err(_) => return (Vec::new(), vec![dir.to_path_buf()]),
+    };
+    let prefix = format!("{name}.");
+    let mut copies: Vec<(u32, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let file = entry.file_name();
+            let version = file.to_str()?.strip_prefix(&prefix)?;
+            let digits = !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit());
+            let version = version.parse().ok().filter(|_| digits)?;
+            Some((version, entry.path()))
+        })
+        .collect();
+    copies.sort_unstable_by_key(|(version, path)| {
+        (Some(path.as_path()) != taken, std::cmp::Reverse(*version))
+    });
+    let (mut pruned, mut not_pruned) = (Vec::new(), Vec::new());
+    for (_, path) in copies.into_iter().skip(KEPT_BACKUPS) {
+        match fs::remove_file(&path) {
+            Ok(()) => pruned.push(path),
+            Err(_) => not_pruned.push(path),
+        }
+    }
+    (pruned, not_pruned)
 }
 
 /// Copies the database to `dir/<file name>.<version>` and returns the path, or `None`

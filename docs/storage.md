@@ -16,7 +16,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/snapshots/home.git` | efr's home store: before an approved write outside the project and `$SCRATCH` in `auto`, efrd copies each file that the call can change into it, and after the call it records the state after the call. Ref `refs/efr/<conversation>/<turn>/home/<n>` per copy: a commit "before" and a child commit "after", each with `files/<absolute path>` and a manifest `efr-home.json` (the state of each path, its mode, a link's target, the dirs above a missing path that were missing too). efrd streams the bytes to `git fast-import`, so git never reads a home path. At most 16 MiB per file; a directory with more than `snapshot.home_max_files` files or `snapshot.home_max_mib` MiB gets no copy. The collector keeps it with the turns of the root stores | `efr-snapshot/src/home.rs`, `efr-daemon/src/home.rs` |
 | `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (dirs 0700) | every file that `efr undo` overwrote or removed, written from the store before the write: `root/<root-id>/<path in the root>` and `home/<absolute path without the leading />`. A file keeps its mode without set-id bits. efr's own floor protects it, and the sandbox masks it. The collector deletes an undo dir older than `snapshot.max_age_days` | `efr-daemon/src/tools/undo.rs` |
 | `$XDG_DATA_HOME/efr/secrets/<provider>.json` (dir 0700, files 0600) | credential records | `efr-credentials/src/file_store.rs` |
-| `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration | `efr-store/src/migrations.rs` |
+| `$XDG_DATA_HOME/efr/backups/efr.sqlite.<user_version>` | copy taken before each migration. Each start of efrd keeps the newest 2 copies by version (`KEPT_BACKUPS`), with the copy of this start among them, and removes the older ones: a copy holds every conversation of its time, also the ones that you deleted later | `efr-store/src/migrations.rs` |
 | `$XDG_DATA_HOME/efr/file-backups/<conversation>/<turn>/<n>/<file name>`, `meta.json` (dirs 0700, files 0600) | legacy: the copies of floor files from before the home store. efrd writes no new copy here. The collector deletes a turn older than `snapshot.max_age_days`, and the dir when it is empty. An old event keeps its turn-end line `changed <path>; backup at <path>` | `efr-daemon/src/backups.rs` |
 | `$XDG_STATE_HOME/efr/logs/` | optional JSON log file | `efr-daemon/src/telemetry.rs` |
 | `$XDG_STATE_HOME/efr/streams/<UTC time>-<pid>/` (0700, files 0600) | only with `EFR_RECORD_STREAMS` on at efrd's start: one directory for each start. For model call `n`, `<n>.request.json` (`transport`, `method`, the URL without its query, and the body as sent: the prompts, the history and the output of tools), `<n>.response.sse` (the answer as it came; for a WebSocket, each message as an SSE event) and one line in `index.jsonl` (`n`, `at`, `transport`, `status`, `end`). Never a header, so no token, key or cookie, and no body of an answer with the status 401 or 403, which can quote a part of the key. Private: efr never sends the files anywhere and never deletes them; delete them yourself | `efr-daemon/src/stream_record.rs` |
@@ -76,7 +76,9 @@ conversations or the daemon's socket. The config root stays readable and read-on
 - `rusqlite` with the `bundled` feature, opened only through `efr_store::db::open`
   (clippy's `disallowed-methods` routes `rusqlite::Connection::open*` there).
 - Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`,
-  `foreign_keys=ON`, `journal_size_limit=64MiB`, `temp_store=MEMORY`.
+  `foreign_keys=ON`, `journal_size_limit=64MiB`, `temp_store=MEMORY` and, on the
+  connections that write, `secure_delete=ON`: a delete writes zeros over the content
+  that it frees. efr runs no `VACUUM`, so the file does not get smaller.
 - One writer: `StoreWriter` is an actor that owns the only read-write connection.
   `append(Batch) -> Seq` writes events, projections, receipts and outbox rows in one
   transaction, then broadcasts the new events. Publishing in commit order needs no
@@ -204,10 +206,12 @@ conversations or the daemon's socket. The config root stays readable and read-on
   events. A rebuild of the projections skips every event of a deleted conversation.
   The loose objects of the snapshot stores that only the deleted refs reached go with
   the prune of the delete when they are older than an hour, else at a later
-  collection. The database file keeps the deleted bytes in its free pages until
-  SQLite writes them again (no `secure_delete`), the FTS5 segments keep the tokens of
-  the deleted docs, which no query matches any more, until a merge, and each copy of
-  `backups/` from before the delete keeps the conversation.
+  collection. `secure_delete` writes zeros over the deleted rows in the database
+  file. The write-ahead log can keep a page from before the delete until a later
+  checkpoint writes over that part of the log. The FTS5 segments keep the tokens of
+  the deleted docs, which no query matches any more, until a merge. Each copy of
+  `backups/` from before the delete keeps the conversation, until a later start
+  removes that copy (only the newest 2 stay).
 
 - The enrolled devices (migration 11): `devices(device_id, name, public_key BLOB,
   key_fingerprint, node_stable_id, user_id, tailnet_stable_id, scopes JSON,
@@ -228,7 +232,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   with `include_str!` and applied by `rusqlite_migration` (tracked in
   `PRAGMA user_version`, forward-only, one transaction per file).
 - Before migrating, the daemon copies the database to `backups/`. The socket opens only
-  after migrations finish.
+  after migrations finish. Then, at each start, also with no migration, the newest 2
+  copies by version stay (`efr_store::KEPT_BACKUPS`), and the older copies go: with
+  the copy of the last migration and the one before it, you can go back two schema
+  versions. A copy that efrd cannot remove stays, and the log names it.
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
   `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of

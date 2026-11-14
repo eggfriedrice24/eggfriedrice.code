@@ -508,6 +508,12 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             "database migrated"
         );
     }
+    if !migration.pruned.is_empty() {
+        tracing::info!(pruned = ?migration.pruned, "old database backups removed");
+    }
+    if !migration.not_pruned.is_empty() {
+        tracing::warn!(not_pruned = ?migration.not_pruned, "old database backups could not be removed");
+    }
     let writer = store.writer().clone();
     let readers = store.readers().clone();
     // NOTE: the search indexer reads on a connection of its own, so a backfill never

@@ -20,6 +20,7 @@ fn assert_shared_pragmas(conn: &Connection) {
     assert_eq!(pragma_i64(conn, "busy_timeout"), 5000);
     assert_eq!(pragma_i64(conn, "journal_size_limit"), 64 * 1024 * 1024);
     assert_eq!(pragma_i64(conn, "temp_store"), 2);
+    assert_eq!(pragma_i64(conn, "secure_delete"), 1);
 }
 
 #[test]
@@ -28,6 +29,26 @@ fn open_sets_every_pragma() {
     let conn = open(&dir.path().join("efr.sqlite")).unwrap();
     assert_eq!(pragma_text(&conn, "journal_mode"), "wal");
     assert_shared_pragmas(&conn);
+}
+
+#[test]
+fn a_deleted_row_leaves_no_text_in_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("efr.sqlite");
+    let conn = open(&path).unwrap();
+    let secret = "zebra-secret-of-a-deleted-conversation";
+    conn.execute_batch("CREATE TABLE t (x TEXT)").unwrap();
+    conn.execute("INSERT INTO t VALUES (?1)", [secret]).unwrap();
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+    assert!(contains(&std::fs::read(&path).unwrap(), secret), "the row is in the file");
+
+    conn.execute_batch("DELETE FROM t; PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
+
+    assert!(!contains(&std::fs::read(&path).unwrap(), secret));
+}
+
+fn contains(bytes: &[u8], text: &str) -> bool {
+    bytes.windows(text.len()).any(|window| window == text.as_bytes())
 }
 
 #[test]
