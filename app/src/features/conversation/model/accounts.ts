@@ -250,6 +250,19 @@ export function limitLevel(
   return { kind: "warn", window: windowName(tightest.minutes), percent: tightest.used_percent };
 }
 
+/**
+ * The limit in the status line of a running turn (AC-Limits 3): the tightest window from
+ * 90 %, such as "5-hour 92%"; undefined below. The values come from the call that runs
+ * now, so they are new.
+ */
+export function statusLimit(limits: AccountLimits | null | undefined): string | undefined {
+  const tightest = tightestWindow(limits?.windows ?? []);
+  if (tightest === undefined || tightest.used_percent < LIMIT_STATUS_PERCENT) {
+    return undefined;
+  }
+  return `${windowName(tightest.minutes)} ${String(tightest.used_percent)}%`;
+}
+
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** When a limit resets: "resets 14:20" today, "resets Mon 09:00" on another day. */

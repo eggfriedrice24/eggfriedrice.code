@@ -14,6 +14,7 @@ import { LIQUID_GLASS } from "@/components/ui/material";
 import { roles } from "@/theme/roles";
 import { ROUTE_NAMES, conversationOfParams } from "../model/routes";
 import {
+  ACCOUNT_OPTIONS,
   APPROVAL_OPTIONS,
   CONVERSATIONS_OPTIONS,
   CONVERSATION_OPTIONS,
@@ -63,6 +64,7 @@ export function RootStack(props: RootStackProps) {
           <Stack.Screen name={ROUTE_NAMES.conversations} options={CONVERSATIONS_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.approval} options={APPROVAL_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.model} options={MODEL_OPTIONS} />
+          <Stack.Screen name={ROUTE_NAMES.account} options={ACCOUNT_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.pair} options={PAIR_OPTIONS} />
         </Stack>
       </MachineMenuContext>

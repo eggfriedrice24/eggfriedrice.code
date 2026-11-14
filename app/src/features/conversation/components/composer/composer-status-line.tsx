@@ -2,9 +2,10 @@
 // the top of the pill, mono 11 in text_subtle, no wrap. Its 16 pt sides line up with the
 // text of the field. The blank root has the line too (a choice of the user), with the
 // cwd and the mode of a new conversation. It shows the cwd in text_muted, the mode and
-// `ctx 42%`, then "waiting for you" in yolk while an approval waits here, and the grey
-// braille cell with "reconnecting…" while the connection opens. Later the line holds
-// chips and the mode and model pickers.
+// `ctx 42%`, from 90 % while a turn runs the warning glyph and the limit of its account
+// (`5-hour 92%`, AC-Limits 3), then "waiting for you" in yolk while an approval waits
+// here, and the grey braille cell with "reconnecting…" while the connection opens. The
+// model button stands at its end (composer-model-button.tsx).
 
 import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow, type Readable } from "@tanstack/store";
@@ -13,6 +14,7 @@ import { View } from "react-native";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { MonoText } from "@/components/ui/mono-text";
+import { SymbolIcon } from "@/components/ui/symbol";
 import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
 
 import { BLANK_STATUS, selectComposerStatus, statusParts } from "../../model/composer-state";
@@ -55,6 +57,9 @@ export function ComposerStatus(props: ComposerStatusProps) {
       {parts.map((part, index) => (
         <Fragment key={part.key}>
           {index > 0 ? <Dot /> : null}
+          {part.key === "limit" ? (
+            <SymbolIcon name="exclamationmark.triangle" size={10} tone="state_warning" />
+          ) : null}
           <MonoText
             tone={part.tone}
             numberOfLines={1}

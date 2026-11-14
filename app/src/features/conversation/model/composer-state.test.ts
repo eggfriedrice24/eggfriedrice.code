@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
+import type { DraftPart, Event } from "@/lib/protocol/wire";
 import { EMPTY_STREAM } from "@/lib/stream/reducer";
+import { draftItem, eventItem, run, turnCompleted, turnStarted } from "@/lib/stream/testing";
 import {
   BLANK_STATUS,
   capsuleLabel,
@@ -335,6 +337,21 @@ describe("the target of a send", () => {
   });
 });
 
+/** A `limits` draft of `provider` whose 5-hour window is at `used` percent. */
+function limits(used: number, provider = "openai-subscription"): DraftPart {
+  return {
+    kind: "limits",
+    provider,
+    limits: {
+      observed_at: "2026-11-14T13:00:00Z",
+      windows: [
+        { minutes: 300, used_percent: used },
+        { minutes: 10_080, used_percent: 41 },
+      ],
+    },
+  };
+}
+
 describe("the status line", () => {
   it("shows the cwd, the mode and the context", () => {
     expect(
@@ -343,6 +360,7 @@ describe("the status line", () => {
         mode: "cautious",
         context: { tokens: 42_000, limit: 100_000, window: 100_000 },
         waiting: "none",
+        limit: undefined,
       }),
     ).toEqual([
       { key: "cwd", text: "~/code/efr", tone: "text_muted" },
@@ -351,8 +369,38 @@ describe("the status line", () => {
     ]);
   });
 
+  it("adds the limit of the account after ctx, before the wait", () => {
+    expect(
+      statusParts({
+        cwd: undefined,
+        mode: "auto",
+        context: { tokens: 41_000, limit: 100_000, window: 100_000 },
+        waiting: "phone",
+        limit: "5-hour 92%",
+      }).map((part) => part.key),
+    ).toEqual(["mode", "context", "limit", "waiting"]);
+  });
+
+  it("takes the limit from 90 % of the account of the running turn only", () => {
+    const started: Event = {
+      ...turnStarted("t1"),
+      settings: { mode: "auto", model: "gpt-6.1-sol", provider: "openai-subscription" },
+    };
+    const running = run([eventItem(1, started)]);
+    const at = (part: DraftPart) => selectComposerStatus(run([draftItem("t1", 1, part)], running));
+    expect(at(limits(92)).limit).toBe("5-hour 92%");
+    expect(at(limits(89)).limit).toBeUndefined();
+    expect(at(limits(95, "openai-subscription.b")).limit).toBeUndefined();
+    // No running turn: no limit.
+    const ended = run(
+      [eventItem(2, turnCompleted("t1"))],
+      run([draftItem("t1", 1, limits(92))], running),
+    );
+    expect(selectComposerStatus(ended).limit).toBeUndefined();
+  });
+
   it("adds waiting for you in yolk, or the terminal in grey", () => {
-    const base = { cwd: undefined, mode: undefined, context: undefined } as const;
+    const base = { cwd: undefined, mode: undefined, context: undefined, limit: undefined } as const;
     expect(statusParts({ ...base, waiting: "phone" })).toEqual([
       { key: "waiting", text: "waiting for you", tone: "accent_primary" },
     ]);
@@ -375,6 +423,7 @@ describe("the status line", () => {
       mode: undefined,
       context: undefined,
       waiting: "none",
+      limit: undefined,
     });
   });
 });

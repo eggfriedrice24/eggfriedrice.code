@@ -251,6 +251,13 @@ account of a kind has no id. An account that is signed out has its rows dimmed, 
 you cannot pick them: log in on the machine. The check shows what the next message
 uses now.
 
+From 80 % of a usage limit, the header of the account shows a warning glyph and the
+fullest window, such as `5-hour 92%`. At 100 % it says `limit reached · resets 14:20`,
+with the age of the value when it is older than 5 minutes, and its rows dim. "limit
+reached" goes away after the reset time. efr learns the limits from the last call of
+each account. While a turn runs, the status line shows the limit of its account from
+90 %.
+
 - Tap a row to select it. The slider under the list sets the effort of the selected
   model. A dot marks the model's default. A model without efforts has no slider.
 - The quiet line under the slider shows the context window and whether the model is
@@ -333,6 +340,11 @@ the app connects again at once and gets what it missed.
 
 Settings shows each paired machine, with its connection and the version of its efrd.
 The menu of a row copies the node name, pairs the machine again, or forgets it.
+Under the machines, "Accounts on desktop" lists each account of a machine, named as
+in the model sheet, with its fullest limit: nothing below 80 %, the percent from 80 %,
+and "limit reached" at 100 %. Tap an account to see each of its limits with its reset
+time. An API key shows a limit only when the account hit it.
+
 Settings also has the switch "Ask before a costly model switch" (on by default). Turn
 it off, and a tap on a row of the model sheet switches at once, with no confirm.
 Settings also has the Haptics switch, which turns off all the haptics of the app, and

@@ -25,6 +25,10 @@ import type { AppServices } from "@/features/navigation/model/app-services";
 import { TEST_NOW, testServices } from "@/features/navigation/model/testing";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
+import { conversationKeys } from "@/features/conversation/conversation-queries";
+import { machineKeys } from "@/features/machines/machine-queries";
+import { accountParamsSchema } from "@/features/navigation/model/route-schemas";
+import { AccountScreen } from "./account-screen";
 import { SettingsScreen } from "./settings-screen";
 
 jest.mock("@/lib/native/clipboard", () => ({
@@ -98,8 +102,26 @@ function routes(services: AppServices | null, client: QueryClient) {
     index: () => <Text>root</Text>,
     "c/[machine]/[id]": () => <Text>conversation</Text>,
     settings: SettingsScreen,
+    account: AccountRoute,
     pair: Pair,
   };
+}
+
+/**
+ * True for the status query of a machine. A test refetches only those: the model list of
+ * the accounts would wait for an answer that the fake socket never sends.
+ */
+function isStatus(query: { readonly queryKey: readonly unknown[] }): boolean {
+  return (
+    JSON.stringify(query.queryKey) === JSON.stringify(machineKeys.status(DESKTOP)) ||
+    JSON.stringify(query.queryKey) === JSON.stringify(machineKeys.status(LAPTOP))
+  );
+}
+
+/** The account route, as src/app/account.tsx renders it. */
+function AccountRoute() {
+  const params = accountParamsSchema.safeParse(useLocalSearchParams());
+  return <AccountScreen target={params.success ? params.data : undefined} />;
 }
 
 /** Opens Settings over the root and, when `conversation` is given, over that conversation. */
@@ -160,7 +182,7 @@ describe("the machine rows", () => {
     expect(screen.getByText(/· laptop\.tail3f2a\.ts\.net$/)).toBeOnTheScreen();
     // The status query runs again on its own; here the test asks for it.
     await act(async () => {
-      await parts.client.refetchQueries();
+      await parts.client.refetchQueries({ predicate: isStatus });
     });
     // Query tells its observers on a timer of its own.
     expect(await screen.findByText("efrd 0.0.5 · protocol 1")).toBeOnTheScreen();
@@ -174,7 +196,7 @@ describe("the machine rows", () => {
     await openSettings(parts);
     await connect(parts, DESKTOP_URL, DESKTOP);
     await act(async () => {
-      await parts.client.refetchQueries();
+      await parts.client.refetchQueries({ predicate: isStatus });
     });
     expect(await screen.findByText("efrd 0.0.5 · protocol 1")).toBeOnTheScreen();
     await act(async () => {
@@ -315,6 +337,61 @@ describe("the other groups", () => {
     expect(parts.services.preferences.store.get().haptics).toBe(false);
     expect(screen.getByLabelText("Haptics").props.value).toBe(false);
     expect(screen.getByText("Haptics for taps, copies, scans and errors.")).toBeOnTheScreen();
+  });
+
+  it("switch Ask before a costly model switch, on by default", async () => {
+    const parts = await setup([machineRecord(DESKTOP)]);
+    await openSettings(parts);
+    expect(screen.getByRole("header", { name: "Models" })).toBeOnTheScreen();
+    const toggle = screen.getByLabelText("Ask before a costly model switch");
+    expect(toggle.props.value).toBe(true);
+    await fireEvent(toggle, "valueChange", false);
+    expect(parts.services.preferences.store.get().askCostlySwitch).toBe(false);
+  });
+
+  it("list the accounts of a machine with their fullest limit, and push the limits of one", async () => {
+    const parts = await setup([machineRecord(DESKTOP)]);
+    const now = Date.now();
+    const iso = (offset: number): string => new Date(now + offset).toISOString();
+    parts.client.setQueryData(conversationKeys.models(DESKTOP), {
+      models: [],
+      catalogs: [
+        { provider: "anthropic-api.work", origin: "backend" },
+        { provider: "anthropic-api.personal", origin: "cache", signed_out: true },
+        {
+          provider: "openai-subscription",
+          origin: "backend",
+          limits: {
+            observed_at: iso(-60_000),
+            windows: [{ minutes: 300, used_percent: 92, resets_at: iso(3_600_000) }],
+          },
+        },
+        {
+          provider: "openai-subscription.b",
+          origin: "backend",
+          limits: {
+            observed_at: iso(-60_000),
+            windows: [
+              { minutes: 300, used_percent: 100, resets_at: iso(600_000) },
+              { minutes: 10_080, used_percent: 63, resets_at: iso(86_400_000) },
+            ],
+          },
+        },
+      ],
+    });
+    await openSettings(parts);
+    expect(screen.getByRole("header", { name: "Accounts on desktop" })).toBeOnTheScreen();
+    expect(screen.getByText("signed out on desktop")).toBeOnTheScreen();
+    expect(screen.getByText("92%")).toBeOnTheScreen();
+    expect(screen.getByText("limit reached").props.className).toContain("text-state-error");
+    await fireEvent.press(screen.getByRole("button", { name: "ChatGPT plan · b, limit reached" }));
+    expect(screen).toHavePathname("/account");
+    expect(screen.getByText("On desktop")).toBeOnTheScreen();
+    expect(screen.getByText("5-hour")).toBeOnTheScreen();
+    expect(screen.getByText("weekly")).toBeOnTheScreen();
+    expect(screen.getByText(/^limit reached · resets /u).props.className).toContain(
+      "text-state-error",
+    );
   });
 
   it("show the version of the app", async () => {

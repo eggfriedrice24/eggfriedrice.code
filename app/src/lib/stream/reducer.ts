@@ -37,6 +37,7 @@
 //   moves the cursor on.
 
 import type {
+  AccountLimits,
   AccountOut,
   AlwaysSaved,
   ApprovalDecision,
@@ -370,6 +371,11 @@ export interface StreamState {
   readonly context: ContextUse | undefined;
   /** The running turn compacts the context now. */
   readonly compacting: boolean;
+  /**
+   * How full the limits of the account of the running turn are, from its newest `limits`
+   * draft (AC-Limits 3). Drafts come only while a turn runs.
+   */
+  readonly limits: AccountLimitsView | undefined;
   /** The summary of the last snapshot. */
   readonly summary: ConversationSummary | undefined;
   /** True once the cache or efrd gave events. */
@@ -384,6 +390,13 @@ export interface StreamState {
   readonly historyCursor: string | null | undefined;
 }
 
+/** The limits of one account, as a `limits` draft gives them. */
+export interface AccountLimitsView {
+  /** The account, as a provider id such as `openai-subscription.b`. */
+  readonly provider: string;
+  readonly limits: AccountLimits;
+}
+
 /** The state before the first item. */
 export const EMPTY_STREAM: StreamState = {
   lastSeq: 0,
@@ -391,6 +404,7 @@ export const EMPTY_STREAM: StreamState = {
   order: [],
   context: undefined,
   compacting: false,
+  limits: undefined,
   summary: undefined,
   loaded: false,
   link: "waiting",
@@ -518,6 +532,8 @@ function applyDraft(state: StreamState, draft: Draft): StreamState {
     }
     case "compacting":
       return state.compacting ? state : { ...state, compacting: true };
+    case "limits":
+      return { ...state, limits: { provider: part.provider, limits: part.limits } };
     default:
       return state;
   }
@@ -1105,6 +1121,7 @@ function keepPrevious(previous: StreamState, next: StreamState, waits: boolean):
     turns,
     order: [...older, ...next.order],
     context: next.context ?? previous.context,
+    limits: next.limits ?? previous.limits,
   };
 }
 

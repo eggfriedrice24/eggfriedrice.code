@@ -16,11 +16,12 @@
 // Pure TypeScript.
 
 import type { ContextUse, Mode } from "@/lib/protocol/generated";
-import type { StreamState } from "@/lib/stream/reducer";
+import { runningTurn, type StreamState } from "@/lib/stream/reducer";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { SendMode } from "@/features/settings/model/preferences";
 import { shortPath } from "@/features/conversations/model/list-format";
+import { statusLimit } from "./accounts";
 import { BLANK_ROOT, draftKey, type DraftKey } from "./drafts";
 import { contextGauge } from "./format";
 import type { ModelChoice } from "./model-choices";
@@ -337,6 +338,8 @@ export interface ComposerStatus {
   readonly mode: Mode | undefined;
   readonly context: ContextUse | undefined;
   readonly waiting: Waiting;
+  /** The tightest limit of the account of the running turn from 90 %: "5-hour 92%". */
+  readonly limit: string | undefined;
 }
 
 /** The cwd of a new conversation: it starts in the home directory (design note 6). */
@@ -359,16 +362,27 @@ export const BLANK_STATUS: ComposerStatus = {
   mode: BLANK_MODE,
   context: undefined,
   waiting: "none",
+  limit: undefined,
 };
 
 /** The status line selector of the stream store. Compare with `shallow`. */
 export function selectComposerStatus(state: StreamState): ComposerStatus {
   const status = selectStatus(state);
+  const running = runningTurn(state);
+  // The limit belongs to the account of the running turn; another account's says nothing.
+  const limits = state.limits;
+  const limit =
+    running !== undefined &&
+    limits !== undefined &&
+    (running.provider === undefined || running.provider === limits.provider)
+      ? statusLimit(limits.limits)
+      : undefined;
   return {
     cwd: status.cwd,
     mode: status.mode,
     context: status.context,
     waiting: status.waiting,
+    limit,
   };
 }
 
@@ -377,14 +391,16 @@ export type StatusTone = "text_muted" | "text_subtle" | "accent_primary";
 
 /** One part of the status line. The line puts a "·" between two parts. */
 export interface StatusPart {
-  readonly key: "cwd" | "mode" | "context" | "waiting";
+  /** `limit` leads with the warning glyph in state_warning. */
+  readonly key: "cwd" | "mode" | "context" | "limit" | "waiting";
   readonly text: string;
   readonly tone: StatusTone;
 }
 
 /**
- * The parts of the status line: the cwd, the mode, `ctx 42%`, and "waiting for you"
- * while an approval waits on this phone. A part without a value is not there.
+ * The parts of the status line: the cwd, the mode, `ctx 42%`, the limit of the account
+ * from 90 % while a turn runs (`5-hour 92%`), and "waiting for you" while an approval
+ * waits on this phone. A part without a value is not there.
  */
 export function statusParts(status: ComposerStatus): readonly StatusPart[] {
   const parts: StatusPart[] = [];
@@ -397,6 +413,9 @@ export function statusParts(status: ComposerStatus): readonly StatusPart[] {
   const gauge = status.context === undefined ? undefined : contextGauge(status.context);
   if (gauge !== undefined) {
     parts.push({ key: "context", text: gauge.text, tone: "text_subtle" });
+  }
+  if (status.limit !== undefined) {
+    parts.push({ key: "limit", text: status.limit, tone: "text_subtle" });
   }
   if (status.waiting === "phone") {
     parts.push({ key: "waiting", text: "waiting for you", tone: "accent_primary" });

@@ -49,6 +49,8 @@ import { zoneAt } from "@/features/machines/model/machine-status";
 import type { Runtime } from "@/features/machines/model/runtime";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { useNow } from "@/features/navigation/use-now";
+import { accountHref } from "@/features/navigation/model/routes";
+import { AccountsGroup } from "../components/accounts-group";
 import { MachineRow } from "../components/machine-row";
 import { forgetPlan } from "../model/forget-plan";
 import { DEFAULT_PREFERENCES, type PreferencesStore } from "../model/preferences";
@@ -180,9 +182,20 @@ function WiredSettings(props: WiredSettingsProps) {
     <LoadingRow key="loading" />
   );
 
+  const accounts = registry.machines.map((machine) => (
+    <AccountsGroup
+      key={machine.id}
+      caller={runtime}
+      machine={machine}
+      now={now}
+      onOpen={(provider) => router.push(accountHref(machine.id, provider))}
+    />
+  ));
+
   return (
     <SettingsList
       machines={machines}
+      accounts={accounts}
       haptics={haptics}
       onHapticsChange={(on) => preferences.setHaptics(on)}
       askCostly={askCostly}
@@ -226,6 +239,8 @@ function LoadingRow() {
 interface SettingsListProps {
   /** The rows of the paired machines, or null for none. */
   readonly machines: ReactNode;
+  /** The groups "Accounts on <machine>", one per machine whose list the app has. */
+  readonly accounts?: ReactNode;
   readonly haptics: boolean;
   readonly onHapticsChange: (on: boolean) => void;
   /** "Ask before a costly model switch". */
@@ -235,7 +250,7 @@ interface SettingsListProps {
   readonly onVersionLongPress?: (() => void) | undefined;
 }
 
-/** The groups of Settings: Machines, Models, Feedback and About. */
+/** The groups of Settings: Machines, the accounts of each machine, Models, Feedback, About. */
 function SettingsList(props: SettingsListProps) {
   return (
     <ScrollView
@@ -262,6 +277,7 @@ function SettingsList(props: SettingsListProps) {
           onPress={props.onPair}
         />
       </InsetGroup>
+      {props.accounts}
       <InsetGroup
         header="Models"
         footer="A switch that compacts the conversation waits for you to confirm. Off: picking a model switches at once."
