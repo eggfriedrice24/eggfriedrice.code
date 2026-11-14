@@ -1218,3 +1218,52 @@ fn an_account_of_a_provider_is_a_provider_of_the_config() {
         Some(crate::ModelCompany::Anthropic)
     );
 }
+
+#[test]
+fn account_labels_name_accounts_by_their_provider_id_and_apply_at_once() {
+    let text = "[accounts.labels]\n\"anthropic-api.work\" = \"Work\"\nopenai-subscription = \"Home plan\"\n";
+    let settings = parse(text).unwrap();
+
+    assert_eq!(settings.accounts.label("anthropic-api.work"), Some("Work"));
+    assert_eq!(settings.accounts.label("openai-subscription"), Some("Home plan"));
+    assert_eq!(settings.accounts.label("openai-api"), None);
+    let named: Vec<&str> = settings.accounts.named().collect();
+    assert_eq!(named, ["anthropic-api.work", "openai-subscription"]);
+    assert_eq!(settings.source("accounts.labels"), Source::File);
+    assert_eq!(crate::kind("accounts.labels"), Some(crate::Kind::Names));
+    assert_eq!(crate::Kind::Names.to_string(), "a table of names, each with a string");
+    assert_eq!(crate::Applies::of("accounts.labels"), crate::Applies::Live);
+    let inline = parse("[accounts]\nlabels = { \"openai-api.b\" = \"Side key\" }\n").unwrap();
+    assert_eq!(inline.accounts.label("openai-api.b"), Some("Side key"));
+    assert!(Settings::default().accounts.labels.is_empty());
+}
+
+#[test]
+fn an_account_label_of_no_provider_or_of_a_bad_form_is_refused_with_the_key() {
+    let long = "x".repeat(41);
+    let cases = [
+        ("[accounts.labels]\nopenai = \"Home\"\n".to_owned(), "\"openai\"".to_owned()),
+        (
+            "[accounts.labels]\n\"anthropic-api.Work\" = \"Work\"\n".to_owned(),
+            "\"anthropic-api.Work\"".to_owned(),
+        ),
+        ("[accounts.labels]\nopenai-api = \"\"\n".to_owned(), "\"\"".to_owned()),
+        ("[accounts.labels]\nopenai-api = \"   \"\n".to_owned(), "\"   \"".to_owned()),
+        ("[accounts.labels]\nopenai-api = \"a\\tb\"\n".to_owned(), "\"a\\tb\"".to_owned()),
+        (format!("[accounts.labels]\nopenai-api = \"{long}\"\n"), format!("\"{long}\"")),
+    ];
+    for (text, value) in &cases {
+        let error = parse(text).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                ConfigError::Invalid { key: "accounts.labels", value: found, .. } if found == value
+            ),
+            "{text}: {error:?}"
+        );
+    }
+    let fits = parse(&format!("[accounts.labels]\nopenai-api = \"{}\"\n", "é".repeat(40))).unwrap();
+    assert_eq!(fits.accounts.labels.len(), 1, "40 characters fit, whatever their bytes");
+    let error = parse("[accounts]\nlabel = { openai-api = \"Key\" }\n").unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+}

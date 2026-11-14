@@ -50,6 +50,13 @@ Modules:
   glob without `/` matches a file name, a glob that ends in `/` a directory) and the
   load checks of a name and a glob. The built-in groups (generated, tests, docs,
   code) are in `efr-cli`.
+- `tables/accounts`: `[accounts]` (`AccountsSettings`): `labels`, a name of the user's
+  own for each account, keyed by its provider id (`"anthropic-api.work" = "Work"`).
+  The load refuses a key that is no provider id and a label that is empty, only white
+  space, longer than 40 characters or holds a control character. It is `Kind::Names`
+  (a table of names, each with a string), so only an editor writes it. efrd reads it
+  live: the labels go into `models.list` and `admin.status`, and each account that
+  the table names is listed, also while it has no login.
 - `theme_file`: `ThemeFile`, the theme file that `render.palette` names: a `[colors]`
   table with the keys of `[render.colors]`, an optional `code_theme`, the path of a
   `.tmTheme` file (absolute, `~/...`, or relative to the theme file), and an optional

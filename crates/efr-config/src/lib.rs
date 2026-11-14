@@ -78,6 +78,7 @@ pub use model_company::{ForeignModel, ModelCompany};
 pub use reference::{reference, schema_text};
 pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
+pub use tables::accounts::AccountsSettings;
 pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
 pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};

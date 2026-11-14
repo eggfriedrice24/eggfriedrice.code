@@ -151,6 +151,7 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "anthropic.models",
         "anthropic.effort",
         "anthropic.workspace_id",
+        "accounts.labels",
         "permissions.secret_paths",
         "shell.program",
         "conversation.approval_timeout_secs",

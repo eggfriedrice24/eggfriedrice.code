@@ -12,7 +12,7 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
+    AccountsSettings, AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
     ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
     NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RecordingSettings,
     RemoteSettings, RenderColors, RenderSettings, ResumeSettings, SandboxSettings, Settings,
@@ -62,6 +62,9 @@ pub enum Kind {
     /// A table of names, each with a list of strings, such as `[diff.groups]`, which
     /// only an editor changes.
     Groups,
+    /// A table of names, each with a string, such as `[accounts.labels]`, which only an
+    /// editor changes.
+    Names,
 }
 
 impl fmt::Display for Kind {
@@ -78,6 +81,7 @@ impl fmt::Display for Kind {
             Kind::List => f.write_str("a list of strings"),
             Kind::Rules => f.write_str("a list of rules"),
             Kind::Groups => f.write_str("a table of names, each with a list of strings"),
+            Kind::Names => f.write_str("a table of names, each with a string"),
         }
     }
 }
@@ -111,6 +115,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "model" => fields::<ModelSettings>(),
         "openai" => fields::<OpenAiSettings>(),
         "anthropic" => fields::<AnthropicSettings>(),
+        "accounts" => fields::<AccountsSettings>(),
         "permissions" => fields::<PermissionSettings>(),
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
@@ -246,8 +251,11 @@ fn kind_of(schema: &Json, node: &Json) -> Option<Kind> {
         Some("string") => Some(Kind::String),
         Some("integer") => Some(Kind::Integer),
         Some("boolean") => Some(Kind::Boolean),
-        Some("object") if node.get("additionalProperties").is_some_and(Json::is_object) => {
-            Some(Kind::Groups)
+        Some("object") => {
+            let values = node.get("additionalProperties").filter(|values| values.is_object())?;
+            let strings =
+                resolve(schema, values).get("type").and_then(Json::as_str) == Some("string");
+            Some(if strings { Kind::Names } else { Kind::Groups })
         }
         Some("array") => {
             let items = node.get("items").map(|items| resolve(schema, items));

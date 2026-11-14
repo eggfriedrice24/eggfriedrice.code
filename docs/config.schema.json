@@ -1,5 +1,20 @@
 {
   "$defs": {
+    "AccountsSettings": {
+      "additionalProperties": false,
+      "description": "`[accounts]`: the user's names for the accounts. Every key applies at once.",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "A name of your own for each account, such as `\"anthropic-api.work\" = \"Work\"`. A\nkey is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for\nthe default account of a kind, or one of them with `.` and the account name.\nA label has 1 to 40 characters and no control characters. `efr status`, the\nmodel list and the phone show the label in place of the id. efr lists each\naccount that this table names, also while it has no login.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "Action": {
       "description": "What a requirement does, as a rule matches it.",
       "oneOf": [
@@ -1883,6 +1898,13 @@
   "additionalProperties": false,
   "description": "The effective settings: the built-in defaults, then `config.toml`, then whatever\nenvironment variables and flags the program applies with\n[`apply_override`](Self::apply_override).\n\nA missing file is an empty one, so every value is its default. The fields are\npublic so a test can start from [`Settings::default`] and change what it needs; a\nchanged field keeps the source it had.",
   "properties": {
+    "accounts": {
+      "$ref": "#/$defs/AccountsSettings",
+      "default": {
+        "labels": {}
+      },
+      "description": "Your own names for the accounts of the providers."
+    },
     "anthropic": {
       "$ref": "#/$defs/AnthropicSettings",
       "default": {

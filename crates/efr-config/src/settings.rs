@@ -13,9 +13,9 @@ use crate::keys::{self, Kind};
 use crate::location::{key_at, location, span_of, span_of_entry, span_of_rule};
 use crate::validate::{self, BadEntry, Invalid};
 use crate::{
-    AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
-    ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings, Location,
-    ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
+    AccountsSettings, AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError,
+    ContextSettings, ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings,
+    Location, ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
     RecordingSettings, RemoteSettings, RenderSettings, ResumeSettings, SandboxSettings,
     ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings, WebSettings,
 };
@@ -49,6 +49,8 @@ pub struct Settings {
     pub openai: OpenAiSettings,
     /// The Anthropic provider.
     pub anthropic: AnthropicSettings,
+    /// Your own names for the accounts of the providers.
+    pub accounts: AccountsSettings,
     /// The permission mode, extra secrets and the user's rules.
     pub permissions: PermissionSettings,
     /// How hidden shells start and when idle ones stop.
@@ -103,6 +105,7 @@ impl Default for Settings {
             model: ModelSettings::default(),
             openai: OpenAiSettings::default(),
             anthropic: AnthropicSettings::default(),
+            accounts: AccountsSettings::default(),
             permissions: PermissionSettings::default(),
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
@@ -283,7 +286,7 @@ pub(crate) fn value_from_text(kind: &Kind, text: &str) -> Option<toml_edit::Valu
             let words = trimmed.split(',').map(str::trim).filter(|word| !word.is_empty());
             Some(toml_edit::Value::Array(words.collect()))
         }
-        Kind::Rules | Kind::Groups => None,
+        Kind::Rules | Kind::Groups | Kind::Names => None,
     }
 }
 

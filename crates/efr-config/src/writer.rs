@@ -362,7 +362,9 @@ fn writable(key: &str) -> Result<Kind, ConfigError> {
         return Err(ConfigError::unknown_key(key));
     }
     match keys::kind(key) {
-        Some(Kind::Rules | Kind::Groups) => Err(ConfigError::NotWritable { key: key.to_owned() }),
+        Some(Kind::Rules | Kind::Groups | Kind::Names) => {
+            Err(ConfigError::NotWritable { key: key.to_owned() })
+        }
         Some(kind) => Ok(kind),
         None => Err(ConfigError::unknown_key(key)),
     }

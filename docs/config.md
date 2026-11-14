@@ -69,6 +69,14 @@ The Anthropic provider.
 | `cache_ttl` | `"auto"` | restart | How long the prompt cache keeps what a request writes: `auto` is efr's choice, today everything for an hour, `5m` keeps everything for five minutes, `1h` keeps everything for an hour. An hour costs more per write and survives a longer pause. Needs a restart. |
 | `workspace_id` | unset | restart | The workspace of your API key, sent as the `anthropic-workspace-id` header of every request. A key that is not scoped to one workspace needs it. Needs a restart. |
 
+## [accounts]
+
+Your own names for the accounts of the providers.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `labels` | `{}` | live | A name of your own for each account, such as `"anthropic-api.work" = "Work"`. A key is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for the default account of a kind, or one of them with `.` and the account name. A label has 1 to 40 characters and no control characters. `efr status`, the model list and the phone show the label in place of the id. efr lists each account that this table names, also while it has no login. |
+
 ## [permissions]
 
 The permission mode, extra secrets and the user's rules.

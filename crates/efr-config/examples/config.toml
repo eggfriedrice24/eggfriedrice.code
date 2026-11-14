@@ -104,6 +104,12 @@
 # request. A key that is not scoped to one workspace needs it. (restart)
 # workspace_id = "wrkspc_01AbC"
 
+[accounts]
+# A name of your own for each account: a provider id, then the label. efr status, the
+# model list and the phone show the label. efr also lists an account that this table
+# names while it has no login, as signed out. A label has 1 to 40 characters.
+# labels = { "anthropic-api.work" = "Work", openai-subscription = "Home plan" }
+
 [permissions]
 # The default permission mode of a turn: manual (every call asks, except what your
 # rules allow), cautious (read-only commands and reads run at once), auto (cautious

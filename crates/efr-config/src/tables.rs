@@ -12,6 +12,7 @@ use efr_protocol::Mode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 
+pub(crate) mod accounts;
 pub(crate) mod anthropic;
 pub(crate) mod classifier;
 pub(crate) mod compaction;

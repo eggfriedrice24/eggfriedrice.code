@@ -8,13 +8,14 @@ use std::slice;
 use efr_permissions::{HostError, HostList, PermissionsError, check_rules};
 use efr_protocol::Mode;
 
+use crate::tables::accounts::is_label;
 use crate::tables::diff::{check_glob, check_name};
 use crate::tables::render::{
     BACKGROUND_EXPECTED, BACKGROUND_ROLES, COLOR_EXPECTED, COLOR_ROLES, CONFIG_COLOR_KEYS,
 };
 use crate::{
-    ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
-    NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
+    AccountsSettings, ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings,
+    ModelEntry, NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
     SandboxSettings, Settings, SnapshotSettings,
 };
 
@@ -74,6 +75,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         model,
         openai,
         anthropic,
+        accounts,
         permissions,
         shell,
         conversation,
@@ -157,6 +159,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
             "a workspace id such as wrkspc_01AbC, without spaces",
         )?;
     }
+    check_accounts(accounts)?;
 
     // NOTE: full mode runs commands with no sandbox and no questions, so the file
     // names it as the default only next to the gate key that allows it at all.
@@ -493,6 +496,29 @@ fn check_sandbox(sandbox: &SandboxSettings) -> Result<(), Invalid> {
         .find(|name| name.is_empty() || name.contains(['/', '\0']) || *name == "." || *name == "..")
     {
         return Err(invalid("sandbox.rebuildable", text(name), "directory names such as target"));
+    }
+    Ok(())
+}
+
+/// The checks of `[accounts]`: each key of `labels` is a provider id, and each label
+/// has a form that a client can show on one row.
+fn check_accounts(accounts: &AccountsSettings) -> Result<(), Invalid> {
+    for (provider, label) in &accounts.labels {
+        if !crate::tables::is_provider(provider) {
+            return Err(invalid(
+                "accounts.labels",
+                text(provider),
+                "provider ids: openai-subscription, openai-api or anthropic-api, alone or with \
+                 an account such as anthropic-api.work",
+            ));
+        }
+        if !is_label(label) {
+            return Err(invalid(
+                "accounts.labels",
+                text(label),
+                "labels of 1 to 40 characters with no control characters",
+            ));
+        }
     }
     Ok(())
 }
