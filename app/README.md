@@ -114,7 +114,8 @@ It runs, in this order:
 7. `pnpm run check:protocol` (the generated protocol files are current)
 8. `pnpm run check:theme` (the generated theme CSS is current)
 9. `pnpm run bundle:check` (`expo export --platform ios`, the JavaScript bundle of the
-   app, with the React Compiler)
+   app, with the React Compiler, then `scripts/check-bundle.mjs`: the bundle holds no
+   dev tools)
 
 `pnpm run fmt` formats the files.
 
@@ -215,7 +216,11 @@ sets `APP_VARIANT`:
   goes up on each build.
 
 A build without `EXPO_PUBLIC_EFR_DEV_TOOLS` and without `__DEV__` sends each dev route to
-`/`.
+`/`, and its bundle does not hold the dev tools. The dev routes and the root layout
+require the gallery, the bench and the demo machines only under the full test of
+`src/lib/dev/dev-tools.ts`. Metro folds that test in such a build and drops the require.
+`pnpm run bundle:check` fails when the bundle holds a line of a recording or a title of
+the gallery (`scripts/check-bundle.mjs`).
 
 The bench reads `src/lib/dev/recordings.ts`, a copy of `test/recordings`. A test fails
 when the copy and the recordings differ. To write the copy again, run

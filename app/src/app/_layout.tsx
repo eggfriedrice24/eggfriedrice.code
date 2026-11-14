@@ -10,11 +10,11 @@ import { setHapticsEnabled } from "@/lib/native/haptics";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
-import { withDevMachines } from "@/features/demo/native/demo-machines";
 import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
 import { RootStack } from "@/features/navigation/components/root-stack";
 import { createAppServices } from "@/features/navigation/model/app-services";
+import type { PairingDeps } from "@/features/pairing/model/pair";
 import { nativePairingDeps } from "@/features/pairing/native/native-pairing";
 
 export { ErrorBoundary } from "expo-router";
@@ -25,6 +25,20 @@ export { ErrorBoundary } from "expo-router";
 
 /** A deep link to a conversation still has the blank root under it. */
 export const unstable_settings = { initialRouteName: "index" };
+
+/**
+ * The pairing effects with the demo machines on them, in a dev or preview build. The test
+ * is the one of lib/dev/dev-tools.ts, written here in full: Metro folds it in a build
+ * without the dev tools and drops the require, so the demo server stays out of that
+ * bundle.
+ */
+const withDevMachines: (pairing: PairingDeps | null) => PairingDeps | null =
+  (typeof __DEV__ === "boolean" && __DEV__) || process.env["EXPO_PUBLIC_EFR_DEV_TOOLS"] === "1"
+    ? (() => {
+        const demo: typeof import("@/features/demo/native/demo-machines") = require("@/features/demo/native/demo-machines");
+        return demo.withDevMachines;
+      })()
+    : (pairing) => pairing;
 
 /** Reports an error that the app goes on after. Only a dev build shows it. */
 function report(error: unknown): void {

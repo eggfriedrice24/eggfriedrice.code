@@ -35,11 +35,14 @@ interface Edge {
 const IMPORT = /^\s*(?:import|export)\b[^;]*?\bfrom\s*"([^"]+)"/gm;
 const BARE_IMPORT = /^\s*import\s*"([^"]+)"/gm;
 const DYNAMIC_IMPORT = /\bimport\(\s*"([^"]+)"\s*\)/g;
+// The dev routes require the dev tools only in a build that has them. A require of an
+// asset, such as the icon, names no source file, so only an `@/` require counts.
+const REQUIRE = /\brequire\(\s*"(@\/[^"]+)"\s*\)/g;
 
 /** The specifiers of every import of `code`. */
 function specifiers(code: string): string[] {
   const found: string[] = [];
-  for (const pattern of [IMPORT, BARE_IMPORT, DYNAMIC_IMPORT]) {
+  for (const pattern of [IMPORT, BARE_IMPORT, DYNAMIC_IMPORT, REQUIRE]) {
     for (const match of code.matchAll(pattern)) {
       if (match[1] !== undefined) {
         found.push(match[1]);

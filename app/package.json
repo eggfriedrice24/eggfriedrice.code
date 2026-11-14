@@ -15,7 +15,7 @@
     "check:protocol": "node scripts/gen-protocol.mjs --check",
     "gen:theme": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/gen-theme.mjs",
     "check:theme": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/gen-theme.mjs --check",
-    "bundle:check": "expo export --platform ios --output-dir dist",
+    "bundle:check": "expo export --platform ios --output-dir dist && node scripts/check-bundle.mjs",
     "dev:client": "APP_VARIANT=development expo start --dev-client --clear",
     "ios": "expo run:ios",
     "config:dev": "APP_VARIANT=development expo config",
