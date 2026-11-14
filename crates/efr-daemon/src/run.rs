@@ -597,8 +597,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let secrets = FileStore::in_data_dir(&dirs);
     let secret_root = secrets.dir().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(secrets);
-    // NOTE: an account runs when its credential is stored, such as anthropic-api.work.
-    let accounts = crate::providers::stored_accounts(Arc::clone(&secrets)).await;
+    // NOTE: an account runs when its credential is stored, such as anthropic-api.work,
+    // or when the config names it.
+    let accounts = crate::providers::accounts_to_run(&settings, Arc::clone(&secrets)).await;
     let providers = Providers::build(
         &settings,
         secrets,

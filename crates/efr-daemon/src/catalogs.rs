@@ -4,24 +4,35 @@
 //! The list holds the models of the provider of new conversations (`[model] provider`)
 //! first, with the default model marked; then the models of each other provider with
 //! a login, in the order of [`PROVIDERS`](crate::providers::PROVIDERS), never marked as
-//! the default. Without a login another provider's list cannot serve a turn, so it is
-//! left out. Each model names its provider.
+//! the default; then the models of each account that `[accounts]` names but that has
+//! no login, from its last list, so a client can show them as signed out. Without a
+//! login and a name in `[accounts]`, another provider's list is left out. Each model
+//! names its provider, and the status of each catalog carries the account's label, its
+//! login and the limits that it reached.
 //!
 //! The turns read the same list in the order of routing ([`Catalogs::routed`]): the
-//! provider of new conversations moves behind the others while it has no login, so a
-//! model id that two providers list, such as a GPT model of the ChatGPT plan and of an
-//! API key, goes to the first one that can serve it.
+//! providers without a login move behind the others, so a model id that two providers
+//! list, such as a GPT model of the ChatGPT plan and of an API key, goes to the first
+//! one that can serve it.
 //!
-//! The logins are read from the credential store once at start and then follow each
-//! login and logout of efrd, so the list comes from memory and never waits.
+//! The logins are read from the credential store at start, again before each answer
+//! of `models.list` and `admin.status` and after a reload
+//! (`Providers::sync_logins`), and follow each login and logout of efrd, so the list
+//! comes from memory and a turn never waits for it.
+//!
+//! When an account reaches a limit, [`Catalogs::account_out`] builds the cause of the
+//! failed turn with the other accounts that serve its model: the switch offer.
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use efr_config::Settings;
-use efr_protocol::{CatalogStatus, ModelInfo};
+use efr_protocol::{
+    AccountOut, AccountState, CatalogStatus, LimitReached, ModelInfo, OtherAccount,
+};
 
 use crate::catalog::Models;
+use crate::providers::LimitBook;
 
 /// The catalogs, each with its fetch, and the providers that have a login.
 #[derive(Debug)]
@@ -32,6 +43,8 @@ pub(crate) struct Catalogs {
     /// The first of `all`.
     first: Arc<Models>,
     logins: Mutex<BTreeSet<String>>,
+    /// The limits that each account reached, which its model calls note.
+    limits: Arc<LimitBook>,
 }
 
 /// The model list of the latest settings, with the status of each catalog in it.
@@ -44,10 +57,15 @@ pub(crate) struct Listed {
 
 impl Catalogs {
     /// The catalog `first` of the provider of new conversations and the catalogs
-    /// `others`, none of them with a login yet.
-    pub(crate) fn new(first: Arc<Models>, others: Vec<Arc<Models>>) -> Self {
+    /// `others`, none of them with a login yet, with the limits of the accounts in
+    /// `limits`.
+    pub(crate) fn new(
+        first: Arc<Models>,
+        others: Vec<Arc<Models>>,
+        limits: Arc<LimitBook>,
+    ) -> Self {
         let all = std::iter::once(Arc::clone(&first)).chain(others).collect();
-        Catalogs { all: RwLock::new(all), first, logins: Mutex::new(BTreeSet::new()) }
+        Catalogs { all: RwLock::new(all), first, logins: Mutex::new(BTreeSet::new()), limits }
     }
 
     /// Every catalog, each with its own fetch.
@@ -97,24 +115,104 @@ impl Catalogs {
         self.logins.lock().unwrap_or_else(PoisonError::into_inner).contains(provider)
     }
 
-    /// The model list of `settings`: the configured provider's models first, then
-    /// those of each other provider with a login.
-    pub(crate) fn listed(&self, settings: &Settings) -> Listed {
+    /// The limits that each account reached.
+    pub(crate) fn limits(&self) -> &Arc<LimitBook> {
+        &self.limits
+    }
+
+    /// The catalogs of the model list of `settings`, in its order: the configured
+    /// provider's first, then each other provider with a login, then each account that
+    /// `[accounts]` names but that has no login.
+    fn shown(&self, settings: &Settings) -> Vec<Arc<Models>> {
         let configured = self.configured(settings);
-        let mut models = configured.effective(settings);
-        let mut catalogs = vec![configured.status()];
-        for other in &self.all() {
-            if Arc::ptr_eq(other, &configured) || !self.logged_in(other.provider()) {
-                continue;
-            }
-            let mut listed = other.effective(settings);
-            for model in &mut listed {
-                model.default = false;
+        let all = self.all();
+        let others = all.iter().filter(|other| !Arc::ptr_eq(other, &configured));
+        let (logged_in, signed_out): (Vec<&Arc<Models>>, Vec<&Arc<Models>>) =
+            others.partition(|other| self.logged_in(other.provider()));
+        let named = signed_out
+            .into_iter()
+            .filter(|other| settings.accounts.label(other.provider()).is_some());
+        std::iter::once(Arc::clone(&configured))
+            .chain(logged_in.into_iter().chain(named).map(Arc::clone))
+            .collect()
+    }
+
+    /// Where the list of `models` came from, with the account's label from
+    /// `settings`, whether it has a login, and its limits.
+    pub(crate) fn status_of(&self, models: &Models, settings: &Settings) -> CatalogStatus {
+        let provider = models.provider();
+        let mut status = models.status();
+        status.label = settings.accounts.label(provider).map(str::to_owned);
+        status.signed_out = !self.logged_in(provider);
+        // NOTE: a signed-out account cannot run, so old limits would only mislead.
+        status.limits = if status.signed_out { None } else { self.limits.limits(provider) };
+        status
+    }
+
+    /// The model list of `settings`: the configured provider's models first, then
+    /// those of each other provider with a login, then those of each account that
+    /// `[accounts]` names but that has no login, from its last list.
+    pub(crate) fn listed(&self, settings: &Settings) -> Listed {
+        let mut models = Vec::new();
+        let mut catalogs = Vec::new();
+        for (at, shown) in self.shown(settings).iter().enumerate() {
+            let mut listed = shown.effective(settings);
+            if at > 0 {
+                for model in &mut listed {
+                    model.default = false;
+                }
             }
             models.extend(listed);
-            catalogs.push(other.status());
+            catalogs.push(self.status_of(shown, settings));
         }
         Listed { models, catalogs }
+    }
+
+    /// Why the account `provider` cannot serve a turn on `model`: it reached `reached`.
+    /// The offer names the other accounts of the model list that list `model`, in its
+    /// order: each one that is ready, each one that is signed out, and each one that is
+    /// full when its reset comes before the one of `reached`, or `reached` has none.
+    /// efrd never switches by itself; the user picks one.
+    pub(crate) fn account_out(
+        &self,
+        settings: &Settings,
+        provider: &str,
+        model: &str,
+        reached: LimitReached,
+    ) -> AccountOut {
+        let label = |id: &str| settings.accounts.label(id).map(str::to_owned);
+        let others = self
+            .shown(settings)
+            .iter()
+            .filter(|other| other.provider() != provider)
+            .filter(|other| other.effective(settings).iter().any(|info| info.id == model))
+            .filter_map(|other| {
+                let id = other.provider();
+                let (state, resets_at) = match self.limits.reached(id) {
+                    _ if !self.logged_in(id) => (AccountState::SignedOut, None),
+                    None => (AccountState::Ready, None),
+                    Some(full) => {
+                        let sooner = match (full.resets_at, reached.resets_at) {
+                            (Some(free), Some(stopped)) => free < stopped,
+                            (Some(_), None) => true,
+                            (None, _) => false,
+                        };
+                        if !sooner {
+                            return None;
+                        }
+                        (AccountState::Full, full.resets_at)
+                    }
+                };
+                Some(OtherAccount { provider: id.to_owned(), label: label(id), state, resets_at })
+            })
+            .collect();
+        AccountOut {
+            provider: provider.to_owned(),
+            label: label(provider),
+            model: model.to_owned(),
+            reached,
+            others,
+        }
     }
 
     /// The list of [`listed`](Self::listed) in the order of routing: the models of the

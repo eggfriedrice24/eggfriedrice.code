@@ -1170,7 +1170,9 @@ fn summary_code(error: &ProviderError) -> ErrorCode {
         ProviderError::Unauthorized { .. }
         | ProviderError::NotLoggedIn
         | ProviderError::Token { .. } => ErrorCode::Unauthorized,
-        ProviderError::RateLimited { .. } | ProviderError::Overloaded { .. } => ErrorCode::Busy,
+        ProviderError::RateLimited { .. }
+        | ProviderError::Overloaded { .. }
+        | ProviderError::LimitReached { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     }
@@ -1191,7 +1193,8 @@ fn shell_code(error: &ShellError) -> ErrorCode {
 fn key_check_code(error: &ProviderError) -> ErrorCode {
     match error {
         ProviderError::Unauthorized { .. }
-        | ProviderError::Api { status: Some(400 | 402 | 403), .. } => ErrorCode::Unauthorized,
+        | ProviderError::Api { status: Some(400 | 402 | 403), .. }
+        | ProviderError::LimitReached { .. } => ErrorCode::Unauthorized,
         ProviderError::RateLimited { .. } | ProviderError::Overloaded { .. } => ErrorCode::Busy,
         _ => ErrorCode::Internal,
     }

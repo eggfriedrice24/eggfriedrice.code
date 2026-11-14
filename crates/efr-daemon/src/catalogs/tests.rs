@@ -1,12 +1,15 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_config::Settings;
+use efr_protocol::{AccountOut, AccountState, LimitKind, LimitReached};
 use efr_providers::openai::{Backend, Catalog, ModelCatalog};
+use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 
 use super::Catalogs;
 use crate::catalog::{Models, ProviderCatalog};
-use crate::providers::{ANTHROPIC, API, SUBSCRIPTION};
+use crate::providers::{ANTHROPIC, API, LimitBook, SUBSCRIPTION};
 
 fn openai(provider: &str, backend: Backend) -> Arc<Models> {
     let catalog = ProviderCatalog::OpenAi(ModelCatalog::new(Catalog::builtin(backend)));
@@ -19,7 +22,124 @@ fn catalogs() -> Catalogs {
     Catalogs::new(
         openai(SUBSCRIPTION, Backend::Subscription),
         vec![openai(API, Backend::Api), openai(ANTHROPIC, Backend::Api)],
+        Arc::new(LimitBook::new(TestClock::new().shared())),
     )
+}
+
+/// The ChatGPT plan, its second account `b`, an account `c` and an API key, with the
+/// limits on `clock`.
+fn accounts(clock: &TestClock) -> Catalogs {
+    Catalogs::new(
+        openai(SUBSCRIPTION, Backend::Subscription),
+        vec![
+            openai(API, Backend::Api),
+            openai(PLAN_B, Backend::Subscription),
+            openai(PLAN_C, Backend::Subscription),
+        ],
+        Arc::new(LimitBook::new(clock.shared())),
+    )
+}
+
+const PLAN_B: &str = "openai-subscription.b";
+const PLAN_C: &str = "openai-subscription.c";
+
+/// A model that the built-in table of the ChatGPT plan lists.
+fn plan_model(catalogs: &Catalogs, settings: &Settings) -> String {
+    catalogs.configured(settings).effective(settings)[0].id.clone()
+}
+
+fn usage_until(clock: &TestClock, after: Duration) -> LimitReached {
+    LimitReached { kind: LimitKind::Usage, resets_at: Some(clock.shared().now() + after) }
+}
+
+/// Each account of an offer, with its state and its reset.
+fn offered(out: &AccountOut) -> Vec<(&str, AccountState, Option<jiff::Timestamp>)> {
+    out.others.iter().map(|other| (other.provider.as_str(), other.state, other.resets_at)).collect()
+}
+
+#[test]
+fn an_account_that_the_config_names_is_listed_last_as_signed_out_with_its_label() {
+    let clock = TestClock::new();
+    let catalogs = accounts(&clock);
+    let text =
+        "[accounts.labels]\n\"openai-subscription.c\" = \"Team\"\nopenai-subscription = \"Home\"\n";
+    let settings = Settings::parse(std::path::Path::new("/c/config.toml"), Some(text)).unwrap();
+    catalogs.set_logged_in(SUBSCRIPTION, true);
+    catalogs.set_logged_in(PLAN_B, true);
+
+    assert_eq!(providers(&catalogs, &settings), [SUBSCRIPTION, PLAN_B, PLAN_C]);
+    let listed = catalogs.listed(&settings);
+    let shown: Vec<(Option<&str>, Option<&str>, bool)> = listed
+        .catalogs
+        .iter()
+        .map(|status| (status.provider.as_deref(), status.label.as_deref(), status.signed_out))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            (Some(SUBSCRIPTION), Some("Home"), false),
+            (Some(PLAN_B), None, false),
+            (Some(PLAN_C), Some("Team"), true),
+        ]
+    );
+    assert!(
+        listed
+            .models
+            .iter()
+            .filter(|model| model.default)
+            .all(|model| { model.provider.as_deref() == Some(SUBSCRIPTION) })
+    );
+    // NOTE: a turn tries the accounts with a login first.
+    let routed = catalogs.routed(&settings);
+    assert_eq!(routed.last().unwrap().provider.as_deref(), Some(PLAN_C));
+
+    // A limit shows on an account with a login, never on a signed-out one.
+    catalogs.limits().note(PLAN_B, &usage_until(&clock, Duration::from_secs(600)));
+    catalogs.limits().note(PLAN_C, &usage_until(&clock, Duration::from_secs(600)));
+    let listed = catalogs.listed(&settings);
+    assert!(listed.catalogs[1].limits.as_ref().is_some_and(|limits| limits.reached.is_some()));
+    assert_eq!(listed.catalogs[2].limits, None);
+}
+
+#[test]
+fn the_offer_names_the_accounts_of_the_model_a_full_one_only_when_it_frees_up_first() {
+    let clock = TestClock::new();
+    let catalogs = accounts(&clock);
+    let text = "[accounts.labels]\n\"openai-subscription.c\" = \"Team\"\n";
+    let settings = Settings::parse(std::path::Path::new("/c/config.toml"), Some(text)).unwrap();
+    for provider in [SUBSCRIPTION, PLAN_B] {
+        catalogs.set_logged_in(provider, true);
+    }
+    let model = plan_model(&catalogs, &settings);
+    let stopped = usage_until(&clock, Duration::from_secs(3600));
+
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped.clone());
+    assert_eq!(out.provider, SUBSCRIPTION);
+    assert_eq!(out.model, model);
+    assert_eq!(out.reached, stopped);
+    // NOTE: the API key has no login, and `[accounts]` does not name it.
+    assert_eq!(
+        offered(&out),
+        [(PLAN_B, AccountState::Ready, None), (PLAN_C, AccountState::SignedOut, None)]
+    );
+    assert_eq!(out.others[1].label.as_deref(), Some("Team"));
+
+    // b is full too: it is named only while its reset comes first.
+    let sooner = usage_until(&clock, Duration::from_secs(600));
+    catalogs.limits().note(PLAN_B, &sooner);
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped.clone());
+    assert_eq!(offered(&out)[0], (PLAN_B, AccountState::Full, sooner.resets_at));
+    catalogs.limits().note(PLAN_B, &usage_until(&clock, Duration::from_secs(7200)));
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped);
+    assert_eq!(offered(&out), [(PLAN_C, AccountState::SignedOut, None)]);
+    // With no reset of the stopped account, any known reset comes first.
+    let credit = LimitReached { kind: LimitKind::Credit, resets_at: None };
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, credit);
+    assert_eq!(offered(&out)[0].1, AccountState::Full);
+
+    // An account that does not list the model is never named.
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, "no-such-model", sooner);
+    assert_eq!(out.others, []);
 }
 
 /// The providers of the listed models, each once, in their order.

@@ -15,6 +15,8 @@ pub(crate) async fn handle(
     responder: &Responder,
 ) -> Result<(), DaemonError> {
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    // NOTE: a credential that changed outside efrd shows at once.
+    state.providers.sync_logins().await;
     let settings = Arc::clone(&state.settings.borrow());
     let mut sandbox = state.sandbox.reported(&settings);
     // NOTE: a disabled always rule (phase E, DE44) is a warning of the sandbox, which
@@ -30,7 +32,7 @@ pub(crate) async fn handle(
         conversations: count(state.conversations.count()),
         shells: count(state.ptys.count()),
         providers: state.providers.status().await,
-        catalog: Some(state.providers.models().status()),
+        catalog: Some(state.providers.catalogs().status_of(&state.providers.models(), &settings)),
         roots: Some(state.roots.clone()),
         config: Some(reload::status(state).await),
         sandbox: Some(sandbox),

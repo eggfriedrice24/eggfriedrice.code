@@ -13,6 +13,11 @@
 //! one and records `logout_completed`, and `admin.status` lists every provider, with
 //! the time of a refused key. No key reaches a log line, an error, the event log or any
 //! file but its credential.
+//!
+//! A credential that appears or goes away outside efrd shows at once in `admin.status`,
+//! `models.list` and the next prompt, with no restart; an account that `[accounts]`
+//! names is listed signed out with its label, and a reload that names one more lists it
+//! at once.
 
 use std::sync::Arc;
 
@@ -671,5 +676,133 @@ async fn a_refused_openai_key_shows_in_the_status_with_the_time_of_the_refusal()
     let after = status(&client).await.providers;
     assert!(after.iter().all(|provider| provider.key_refused_at.is_none()), "{after:?}");
     drop((follow, client));
+    daemon.stop().await.unwrap();
+}
+
+/// Writes the credential of `provider` with `key` as the file store does, 0600 in its
+/// 0700 directory, without efrd.
+fn put_key(daemon: &TestDaemon, provider: &str, key: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let path = daemon.dirs().dirs().data().join(format!("secrets/{provider}.json"));
+    let text =
+        format!("{{\n  \"version\": 1,\n  \"kind\": \"api_key\",\n  \"key\": \"{key}\"\n}}\n");
+    std::fs::write(&path, text).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+/// Whether `provider` has a login in `admin.status`; `None` when efrd does not list it.
+async fn logged_in(client: &Client, provider: &str) -> Option<bool> {
+    let providers = status(client).await.providers;
+    providers.iter().find(|status| status.provider == provider).map(|status| status.logged_in)
+}
+
+/// The providers of the catalogs of `models.list`.
+async fn catalogs(client: &Client) -> Vec<String> {
+    let list: ModelsListResult =
+        client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+    let mut catalogs: Vec<String> =
+        list.catalogs.into_iter().filter_map(|status| status.provider).collect();
+    if catalogs.is_empty() {
+        catalogs.extend(list.catalog.and_then(|status| status.provider));
+    }
+    catalogs
+}
+
+#[tokio::test]
+async fn a_credential_put_in_place_or_removed_outside_efrd_shows_at_once() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    assert_eq!(logged_in(&client, "anthropic-api.home").await, None, "no such account yet");
+
+    // A key that no login of efrd stored: the account runs at once, with its list.
+    put_key(&daemon, "anthropic-api.home", ANTHROPIC_KEY);
+    assert_eq!(logged_in(&client, "anthropic-api.home").await, Some(true));
+    Wait::new("the list of the new account")
+        .until_some_async(async || {
+            let list: ModelsListResult =
+                client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+            list.models
+                .iter()
+                .any(|model| model.provider.as_deref() == Some("anthropic-api.home"))
+                .then_some(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(catalogs(&client).await, ["anthropic-api", "anthropic-api.home"]);
+    let home_key = format!("Bearer {ANTHROPIC_KEY}");
+    assert!(
+        messages
+            .models_requests()
+            .iter()
+            .any(|request| request.authorization.as_ref() == Some(&home_key)),
+        "the account fetched its list with its own key"
+    );
+
+    // The file goes away by hand: the account is signed out at once.
+    let file = daemon.dirs().dirs().data().join("secrets/anthropic-api.home.json");
+    std::fs::remove_file(file).unwrap();
+    assert_eq!(catalogs(&client).await, ["anthropic-api"]);
+    assert_eq!(logged_in(&client, "anthropic-api.home").await, Some(false));
+    let Method::PromptSend(mut prompt) = daemon.prompt(1, "hi", TTY) else { unreachable!() };
+    prompt.settings.provider = Some("home".to_owned());
+    let missing = client.call::<PromptSendResult>(Method::PromptSend(prompt)).await.unwrap_err();
+    assert!(refusal(missing).message.contains("no provider with a login"));
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_account_that_the_config_names_shows_signed_out_with_its_label_and_a_reload_adds_one() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = TestDaemon::builder()
+        .messages(&messages)
+        .config(|config| {
+            config.accounts.labels.insert("anthropic-api.work".to_owned(), "Work".to_owned());
+        })
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let shown = async || {
+        let list: ModelsListResult =
+            client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+        list.catalogs
+            .into_iter()
+            .map(|status| (status.provider.unwrap(), status.label, status.signed_out))
+            .collect::<Vec<_>>()
+    };
+    let default = ("anthropic-api".to_owned(), None, false);
+    let work = ("anthropic-api.work".to_owned(), Some("Work".to_owned()), true);
+    assert_eq!(shown().await, [default.clone(), work.clone()]);
+    let providers = status(&client).await.providers;
+    let named = providers.iter().find(|status| status.provider == "anthropic-api.work").unwrap();
+    assert_eq!((named.logged_in, named.label.as_deref()), (false, Some("Work")));
+
+    // A reload that names one more account lists it at once, with no restart.
+    let config = daemon.dirs().dirs().config();
+    std::fs::create_dir_all(config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        "[model]\nprovider = \"anthropic-api\"\n\n[accounts.labels]\n\
+         \"anthropic-api.work\" = \"Work\"\n\"anthropic-api.home\" = \"Home\"\n",
+    )
+    .unwrap();
+    let reloaded: efr_protocol::AdminConfigReloadResult = client
+        .call(Method::AdminConfigReload(efr_protocol::AdminConfigReload::default()))
+        .await
+        .unwrap();
+    assert!(reloaded.applied, "{reloaded:?}");
+    let home = ("anthropic-api.home".to_owned(), Some("Home".to_owned()), true);
+    assert_eq!(shown().await, [default.clone(), work, home.clone()]);
+
+    // A login moves the account up to the others with a login.
+    let _: AdminLoginApiKeyResult =
+        client.call(login("anthropic-api.work", ANTHROPIC_KEY, false)).await.unwrap();
+    let work = ("anthropic-api.work".to_owned(), Some("Work".to_owned()), false);
+    assert_eq!(shown().await, [default, work, home]);
+    drop(client);
     daemon.stop().await.unwrap();
 }

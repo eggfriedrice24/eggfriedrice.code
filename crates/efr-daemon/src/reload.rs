@@ -18,7 +18,9 @@
 //!   the always rules of `sandbox.allow` with their disabled marks (phase E), and the
 //!   trusted programs of the hidden shells when the table changed;
 //! - how new hidden shells start (`shell.program`, `shell.login`);
-//! - the log filter.
+//! - the log filter;
+//! - the accounts that efrd runs, when `[accounts]` or `[model] provider` changed:
+//!   an account that the file now names runs at once (`Providers::sync_logins`).
 //!
 //! A reloaded `[model] name` of another company than the running `[model] provider`
 //! gets a warning in the log, as at the start, but only when the reload changed it: a
@@ -684,8 +686,15 @@ async fn install(
         crate::full::warn_default(&settings, state.runs_as_root);
     }
     let forwards_off = running.jobs.forward_ports && !settings.jobs.forward_ports;
+    let accounts_changed =
+        settings.accounts != running.accounts || settings.model.provider != running.model.provider;
     if settings != *running {
         state.settings.send_replace(Arc::new(settings));
+    }
+    // NOTE: after the settings went out: an account that `[accounts]` or
+    // `[model] provider` now names runs at once, with no restart.
+    if accounts_changed {
+        state.providers.sync_logins().await;
     }
     // NOTE: after the settings went out: a job that read the old ones finds the count
     // of turn offs changed and forwards nothing (DL11).

@@ -58,10 +58,13 @@ use crate::catalogs::Catalogs;
 use crate::warmup::{Noted, Warmups};
 
 mod api_key;
+mod limits;
 mod refusals;
 mod routes;
 
 use self::api_key::{KeyChecks, takes_key};
+pub(crate) use self::limits::LimitBook;
+use self::limits::Limited;
 use self::refusals::Watched;
 pub(crate) use self::refusals::{KeyRefusals, KeySource};
 pub(crate) use self::routes::{Routes, SharedRoutes};
@@ -115,6 +118,13 @@ pub(crate) struct Providers {
     refusals: Arc<KeyRefusals>,
     /// When each provider last had a prompt or a warm-up of its HTTP pool.
     warmups: Arc<Warmups>,
+    /// Holds one change of the login set at a time: a login, a logout, or a read of the
+    /// credential store ([`sync_logins`](Self::sync_logins)), so a read that started
+    /// before a login cannot mark it as signed out after it.
+    ///
+    /// NOTE: a tokio mutex, because a change awaits the store and the start of an
+    /// account while it holds it.
+    changes: tokio::sync::Mutex<()>,
 }
 
 /// The start of the catalog of one provider: its list and its cache file.
@@ -189,6 +199,7 @@ impl Providers {
         let checks = KeyChecks::new(http.clone(), api.clone(), anthropic.clone());
         let refusals = Arc::new(KeyRefusals::new(Arc::clone(&clock)));
         let warmups = Arc::new(Warmups::new(Arc::clone(&clock)));
+        let limits = Arc::new(LimitBook::new(Arc::clone(&clock)));
         let provider = config.model.provider.as_str();
         let injected = factory.is_some();
         let credential = Arc::new(CredentialProviders {
@@ -232,7 +243,8 @@ impl Providers {
         let Some(models) = configured_models else {
             return Err(DaemonError::UnknownProvider { id: provider.to_owned() });
         };
-        let catalogs = Arc::new(Catalogs::new(Arc::clone(&models), other_models));
+        let catalogs =
+            Arc::new(Catalogs::new(Arc::clone(&models), other_models, Arc::clone(&limits)));
         let factory: Arc<dyn ProviderFactory> = match factory {
             Some(factory) => factory,
             None => Arc::clone(&credential) as Arc<dyn ProviderFactory>,
@@ -240,12 +252,8 @@ impl Providers {
         // NOTE: every provider with a catalog runs, also one without a login: its
         // credential is read at each request, so a later login serves it at once.
         let route = |id: &str| -> Result<(String, Arc<dyn Provider>), DaemonError> {
-            let mut provider: Arc<dyn Provider> =
-                Arc::new(Noted::new(factory.provider(id)?, id, Arc::clone(&warmups)));
-            if takes_key(id) {
-                provider = Arc::new(Watched::new(provider, id, Arc::clone(&refusals)));
-            }
-            Ok((id.to_owned(), provider))
+            let provider = factory.provider(id)?;
+            Ok((id.to_owned(), wrapped(provider, id, &warmups, &refusals, &limits)))
         };
         let active = route(provider)?;
         // NOTE: another provider that cannot be built, such as one with a bad value in
@@ -282,6 +290,7 @@ impl Providers {
             catalogs,
             refusals,
             warmups,
+            changes: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -294,8 +303,9 @@ impl Providers {
     }
 
     /// Runs the account `id`, such as `anthropic-api.work`, after a login stored its
-    /// key: its provider, its catalog from its cache file and its fetch. Nothing
-    /// changes when it runs already, or in a daemon whose provider a test injects.
+    /// key, or when the store or `[accounts]` names it: its provider, its catalog from
+    /// its cache file and its fetch. Nothing changes when it runs already, or in a
+    /// daemon whose provider a test injects. The caller holds `changes`.
     async fn add_account(&self, id: &str) -> Result<(), DaemonError> {
         let Some(credential) = &self.credential else {
             return Ok(());
@@ -303,18 +313,12 @@ impl Providers {
         if self.catalogs.of(id).is_some() {
             return Ok(());
         }
-        let settings = match &self.settings {
-            Some(settings) => Arc::clone(&settings.borrow()),
-            None => Arc::new(Settings::default()),
-        };
+        let settings = self.settings();
         let cache = catalog::cache_path_of(id, &self.state);
         let catalog = catalog::load_of(&settings, id, &cache).await;
         credential.add_catalog(id, catalog.clone());
-        let mut provider: Arc<dyn Provider> =
-            Arc::new(Noted::new(credential.provider(id)?, id, Arc::clone(&self.warmups)));
-        if takes_key(id) {
-            provider = Arc::new(Watched::new(provider, id, Arc::clone(&self.refusals)));
-        }
+        let limits = self.catalogs.limits();
+        let provider = wrapped(credential.provider(id)?, id, &self.warmups, &self.refusals, limits);
         let models = match credential.fetcher(id, &catalog)? {
             Some(fetcher) => {
                 let models = Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock));
@@ -353,12 +357,73 @@ impl Providers {
         }
     }
 
+    /// The latest settings, or the defaults before efrd hands them over.
+    fn settings(&self) -> Arc<Settings> {
+        match &self.settings {
+            Some(settings) => Arc::clone(&settings.borrow()),
+            None => Arc::new(Settings::default()),
+        }
+    }
+
     /// Reads from the credential store which providers have a login, for the model
-    /// list ([`Catalogs::listed`]). efrd calls it once at start; each login and logout
-    /// then keeps it current.
+    /// list ([`Catalogs::listed`]), at start: the first fetch of each list follows.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "the guard holds one change of the login set at a time, store reads included"
+    )]
     pub(crate) async fn load_logins(&self) {
+        let _change = self.changes.lock().await;
         for status in self.status().await {
             self.catalogs.set_logged_in(&status.provider, status.logged_in);
+        }
+    }
+
+    /// Reads the logins from the credential store again, so a change that efrd did not
+    /// make itself, such as a credential file put in place or removed by hand, and a
+    /// change of `[accounts]` or `[model] provider` show at once in `models.list`,
+    /// `admin.status` and the next turn, with no restart. It first runs each account
+    /// that the store, `[accounts]` or `[model] provider` names and that efrd does not
+    /// run yet. An account that gained a login fetches its list; one that lost it
+    /// keeps its last list, and its limits and the refusal of its key are gone. efrd
+    /// calls it before each answer of `models.list` and `admin.status`, and after each
+    /// reload.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "the guard holds one change of the login set at a time, store reads included"
+    )]
+    pub(crate) async fn sync_logins(&self) {
+        let _change = self.changes.lock().await;
+        let settings = self.settings();
+        for id in accounts_to_run(&settings, Arc::clone(&self.store)).await {
+            if let Err(error) = self.add_account(&id).await {
+                tracing::warn!(provider = %id, error = %error, "an account could not start; a turn on it fails");
+            }
+        }
+        for status in self.status().await {
+            let id = status.provider.as_str();
+            if self.catalogs.logged_in(id) == status.logged_in {
+                continue;
+            }
+            tracing::info!(provider = %id, logged_in = status.logged_in, "the credential store changed the login of a provider");
+            self.note_login(id, status.logged_in);
+        }
+    }
+
+    /// Records that `provider` has a login now, or no longer has one: a login fetches
+    /// its list, a logout drops what the old login told; either forgets the limits and
+    /// the refusal of the old login. The caller holds `changes`.
+    fn note_login(&self, provider: &str, logged_in: bool) {
+        self.catalogs.set_logged_in(provider, logged_in);
+        self.catalogs.limits().clear(provider);
+        if !logged_in {
+            self.refusals.reset(provider);
+        }
+        if let Some(models) = self.models_of(provider) {
+            if logged_in {
+                models.logged_in();
+            } else {
+                models.logged_out();
+            }
         }
     }
 
@@ -382,7 +447,7 @@ impl Providers {
     /// The router of the conversations: every provider that efrd runs, with the
     /// default from the latest `settings`.
     pub(crate) fn routes(&self, settings: watch::Receiver<Arc<Settings>>) -> Routes {
-        Routes::new(self.active.clone(), Arc::clone(&self.others), settings)
+        Routes::new(self.active.clone(), Arc::clone(&self.others), settings, self.catalogs())
     }
 
     /// The model catalog of the provider of new conversations, and its fetch.
@@ -609,23 +674,29 @@ impl Providers {
 
     /// Makes the provider of the ChatGPT login `provider` read the new login at its next
     /// request, runs it when it is a new account, and fetches its model catalog.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "the guard holds one change of the login set at a time, store reads included"
+    )]
     pub(crate) async fn login_completed(&self, provider: &str) -> Result<(), DaemonError> {
+        let _change = self.changes.lock().await;
         if let Some(credential) = &self.credential {
             credential.token_source(provider)?.clear_cache();
         } else if provider == SUBSCRIPTION {
             self.subscription.clear_cache();
         }
         self.add_account(provider).await?;
-        self.catalogs.set_logged_in(provider, true);
-        if let Some(models) = self.models_of(provider) {
-            models.logged_in();
-        }
+        self.note_login(provider, true);
         Ok(())
     }
 
     /// Checks `key` with `provider` unless `check` is false, and stores it as the
     /// provider's credential. The key reaches no error and no log line. The catalog of
     /// the active provider is fetched again, so a new key's list applies.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "the guard holds one change of the login set at a time, store reads included"
+    )]
     pub(crate) async fn login_api_key(
         &self,
         provider: &str,
@@ -652,6 +723,7 @@ impl Providers {
         let hint = api_key::hint(key.expose_secret());
         let id = credential(provider)?;
         let store = Arc::clone(&self.store);
+        let _change = self.changes.lock().await;
         tokio::task::spawn_blocking(move || store.save(&id, &CredentialRecord::ApiKey { key }))
             .await
             .map_err(|_| DaemonError::TaskPanicked { task: "store an API key" })?
@@ -663,10 +735,7 @@ impl Providers {
         let active = provider == self.configured();
         // NOTE: a new account runs from now on, with its own catalog and fetch.
         self.add_account(provider).await?;
-        self.catalogs.set_logged_in(provider, true);
-        if let Some(models) = self.models_of(provider) {
-            models.logged_in();
-        }
+        self.note_login(provider, true);
         Ok(KeyLogin { hint, active })
     }
 
@@ -696,12 +765,17 @@ impl Providers {
     }
 
     /// Deletes the credential of `provider`. False when none was stored.
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "the guard holds one change of the login set at a time, store reads included"
+    )]
     pub(crate) async fn logout(&self, provider: &str) -> Result<bool, DaemonError> {
         if !efr_config::is_provider(provider) {
             return Err(DaemonError::NoSuchProvider { provider: provider.to_owned() });
         }
         let id = credential(provider)?;
         let store = Arc::clone(&self.store);
+        let _change = self.changes.lock().await;
         let deleted = tokio::task::spawn_blocking(move || store.delete(&id))
             .await
             .map_err(|_| DaemonError::TaskPanicked { task: "delete a credential" })?
@@ -714,11 +788,7 @@ impl Providers {
             }
         }
         if deleted {
-            self.catalogs.set_logged_in(provider, false);
-            self.refusals.reset(provider);
-            if let Some(models) = self.models_of(provider) {
-                models.logged_out();
-            }
+            self.note_login(provider, false);
         }
         Ok(deleted)
     }
@@ -746,6 +816,7 @@ impl Providers {
             return Vec::new();
         };
         let configured = self.configured();
+        let settings = self.settings();
         loaded
             .into_iter()
             .map(|(id, record)| {
@@ -753,6 +824,10 @@ impl Providers {
                 if status.login == Some(LoginKind::ApiKey) {
                     status.key_refused_at = self.refusals.refused_at(&id);
                     status.key_checked_at = self.refusals.checked_at(&id);
+                }
+                status.label = settings.accounts.label(&id).map(str::to_owned);
+                if status.logged_in {
+                    status.limits = self.catalogs.limits().limits(&id);
                 }
                 status
             })
@@ -789,6 +864,23 @@ pub(crate) async fn stored_accounts(store: Arc<dyn SecretStore>) -> Vec<String> 
         .map(|id| id.as_str().to_owned())
         .filter(|id| id.contains('.') && efr_config::is_provider(id))
         .collect()
+}
+
+/// The accounts that efrd runs next to the providers of [`PROVIDERS`]: each one that
+/// `store` holds a credential of ([`stored_accounts`]), then each one that
+/// `[accounts]` names, then the one of `[model] provider`, each once. An account that
+/// has no login still runs, so a login later serves it at once and `models.list` can
+/// show it as signed out.
+pub(crate) async fn accounts_to_run(config: &Settings, store: Arc<dyn SecretStore>) -> Vec<String> {
+    let stored = stored_accounts(store).await;
+    let named = config.accounts.named().map(str::to_owned);
+    let mut accounts = Vec::new();
+    for id in stored.into_iter().chain(named).chain([config.model.provider.clone()]) {
+        if id.contains('.') && efr_config::is_provider(&id) && !accounts.contains(&id) {
+            accounts.push(id);
+        }
+    }
+    accounts
 }
 
 /// The catalog of every provider and of each of `accounts` to start with: the cache
@@ -833,8 +925,8 @@ pub(crate) fn provider_status(
         key_hint,
         key_refused_at: None,
         key_checked_at: None,
-        // NOTE: a stub until efrd reads `[accounts]` and keeps the limits of each
-        // account.
+        // NOTE: the label comes from `[accounts]` and the limits from the calls of the
+        // account; `Providers::status` adds them.
         label: None,
         limits: None,
     }
@@ -892,6 +984,24 @@ fn warn_unfit_defaults(config: &Settings, models: &Models) {
     {
         tracing::warn!(effort = %effort, model = %default, efforts = ?efforts, "model.effort is not an effort of the default model, so a turn on it that does not name its own effort uses the model's default effort");
     }
+}
+
+/// The provider `inner` of the account `id` as efrd runs it: its calls noted for the
+/// warm-ups, the limits of the account noted, and, with a stored key, the key's
+/// refusals watched.
+fn wrapped(
+    inner: Arc<dyn Provider>,
+    id: &str,
+    warmups: &Arc<Warmups>,
+    refusals: &Arc<KeyRefusals>,
+    limits: &Arc<LimitBook>,
+) -> Arc<dyn Provider> {
+    let noted: Arc<dyn Provider> = Arc::new(Noted::new(inner, id, Arc::clone(warmups)));
+    let mut provider: Arc<dyn Provider> = Arc::new(Limited::new(noted, id, Arc::clone(limits)));
+    if takes_key(id) {
+        provider = Arc::new(Watched::new(provider, id, Arc::clone(refusals)));
+    }
+    provider
 }
 
 fn credential(id: &str) -> Result<CredentialId, DaemonError> {

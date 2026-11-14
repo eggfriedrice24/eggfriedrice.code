@@ -293,7 +293,8 @@ pub(crate) fn builtin_models() -> Arc<crate::catalog::Models> {
 
 /// The catalogs of a daemon with only [`builtin_models`].
 pub(crate) fn builtin_catalogs() -> Arc<crate::catalogs::Catalogs> {
-    Arc::new(crate::catalogs::Catalogs::new(builtin_models(), Vec::new()))
+    let limits = crate::providers::LimitBook::new(Arc::new(efr_stdx::time::SystemClock));
+    Arc::new(crate::catalogs::Catalogs::new(builtin_models(), Vec::new(), Arc::new(limits)))
 }
 
 /// The dependencies of a daemon on `dirs`, with nothing taken from the machine.

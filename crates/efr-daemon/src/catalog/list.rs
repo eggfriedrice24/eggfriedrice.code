@@ -244,7 +244,7 @@ impl ModelList {
             origin: self.origin(),
             fetched_at: self.fetched_at(),
             // NOTE: the label, the login and the limits are the account's, not the
-            // list's; a stub until efrd fills them.
+            // list's: `Catalogs::status_of` adds them.
             label: None,
             signed_out: false,
             limits: None,

@@ -9,11 +9,17 @@
 //! `[model] provider` moves the next turn that names no model, with no restart. A
 //! `[model] name` of the other company runs on its provider when that one has a key. A
 //! login of a second account of a provider runs it at once, with its own key.
+//!
+//! An account that reaches a limit stops its turn with the cause on `turn_failed`: the
+//! limit with its reset, and the other accounts that serve the model, ready or signed
+//! out, with their labels; efrd never moves the turn.
 
 use efr_protocol::{
-    AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey, AdminLoginApiKeyResult,
-    AdminStatus, AdminStatusResult, ConversationId, Event, EventEnvelope, Method, ModelsList,
-    ModelsListResult, PromptSend, PromptSendResult, SecretText, ShellContext, TurnSettings,
+    AccountOut, AccountState, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
+    AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, AdminStatus, AdminStatusResult,
+    ConversationId, ErrorCode, Event, EventEnvelope, LimitKind, LimitReached, Method, ModelsList,
+    ModelsListResult, OtherAccount, PromptSend, PromptSendResult, SecretText, ShellContext,
+    TurnSettings,
 };
 use efr_test_daemon::{
     ANTHROPIC_API_KEY, ClientError, MessagesAnswer, MessagesServer, ResponsesAnswer,
@@ -440,4 +446,175 @@ async fn a_prompt_names_an_account_whose_list_is_still_missing() {
     messages.push(MessagesAnswer::text("work answer"));
     let sent: PromptSendResult = client.call(prompt(2, "work")).await.unwrap();
     assert_eq!(sent.settings.unwrap().provider.as_deref(), Some("anthropic-api.work"));
+}
+
+/// The third Anthropic key of the account tests.
+const HOME_KEY: &str = "sk-ant-api03-efr-home-e5f6";
+
+/// The answer of the Messages API for the usage limits that the user set in the
+/// Console.
+const USAGE_LIMITS: &str = "You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC.";
+
+/// A login with `key` for `provider`, with no check.
+fn login(provider: &str, key: &str) -> Method {
+    Method::AdminLoginApiKey(AdminLoginApiKey {
+        provider: provider.to_owned(),
+        key: SecretText::new(key),
+        check: false,
+    })
+}
+
+/// Sends prompt `n` with `model` on `provider` (none: as the prompt picks them) and
+/// waits for the end of its turn, whatever ended it; returns the turn's events.
+async fn ending(
+    daemon: &TestDaemon,
+    n: u128,
+    model: Option<&str>,
+    provider: Option<&str>,
+) -> (ConversationId, Vec<EventEnvelope>) {
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let mut context = ShellContext::new(daemon.cwd());
+    context.tty = Some(TTY.to_owned());
+    let prompt = Method::PromptSend(PromptSend {
+        command_id: command_id(n),
+        conversation_id: None,
+        new_conversation: false,
+        text: format!("prompt {n}"),
+        context: Some(context),
+        last_command: None,
+        recent_commands: Vec::new(),
+        settings: TurnSettings {
+            model: model.map(str::to_owned),
+            provider: provider.map(str::to_owned),
+            ..TurnSettings::default()
+        },
+    });
+    let sent: PromptSendResult = client.call(prompt).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let turn_id = sent.turn_id;
+    let events = events_until(&mut follow, |event| {
+        matches!(
+            event,
+            Event::TurnCompleted { turn_id: t, .. } | Event::TurnFailed { turn_id: t, .. }
+                if *t == turn_id
+        )
+    })
+    .await
+    .unwrap();
+    let events =
+        events.into_iter().filter(|envelope| envelope.event.turn_id() == Some(turn_id)).collect();
+    (sent.conversation_id, events)
+}
+
+/// Waits until `models.list` holds a model of each of `providers`.
+async fn lists_of(daemon: &TestDaemon, providers: &[&str]) {
+    Wait::new("the lists of the accounts")
+        .until_some_async(async || {
+            let listed = models(daemon).await.models;
+            providers
+                .iter()
+                .all(|id| listed.iter().any(|model| model.provider.as_deref() == Some(*id)))
+                .then_some(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_account_at_its_limit_stops_the_turn_and_offers_the_accounts_of_the_model() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let daemon = TestDaemon::builder()
+        .messages(&messages)
+        .config(|config| {
+            let labels = &mut config.accounts.labels;
+            labels.insert("anthropic-api.work".to_owned(), "Work".to_owned());
+            labels.insert("anthropic-api.home".to_owned(), "Home".to_owned());
+        })
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    for (provider, key) in [("anthropic-api.work", WORK_KEY), ("anthropic-api.home", HOME_KEY)] {
+        let _: AdminLoginApiKeyResult = client.call(login(provider, key)).await.unwrap();
+    }
+    lists_of(&daemon, &["anthropic-api", "anthropic-api.work", "anthropic-api.home"]).await;
+    // NOTE: home signs out; it keeps its last list, and `[accounts]` names it.
+    let logout = Method::AdminLogout(AdminLogout { provider: "anthropic-api.home".to_owned() });
+    let _: AdminLogoutResult = client.call(logout).await.unwrap();
+    let catalogs: Vec<(Option<String>, Option<String>, bool)> = models(&daemon)
+        .await
+        .catalogs
+        .into_iter()
+        .map(|status| (status.provider, status.label, status.signed_out))
+        .collect();
+    let some = |text: &str| Some(text.to_owned());
+    assert_eq!(
+        catalogs,
+        [
+            (some("anthropic-api"), None, false),
+            (some("anthropic-api.work"), some("Work"), false),
+            (some("anthropic-api.home"), some("Home"), true),
+        ]
+    );
+
+    messages.push(MessagesAnswer::error(400, "invalid_request_error", USAGE_LIMITS));
+    let (_, events) = ending(&daemon, 1, Some(CLAUDE), None).await;
+
+    let Event::TurnFailed { error, account_out, .. } = &events.last().unwrap().event else {
+        panic!("{events:#?}")
+    };
+    assert_eq!(error.code, ErrorCode::Busy);
+    assert_eq!(error.message, format!("the account reached its spend limit: {USAGE_LIMITS}"));
+    let reached = LimitReached {
+        kind: LimitKind::SpendLimit,
+        resets_at: Some("2026-12-01T00:00:00Z".parse().unwrap()),
+    };
+    let other = |provider: &str, label: &str, state| OtherAccount {
+        provider: provider.to_owned(),
+        label: some(label),
+        state,
+        resets_at: None,
+    };
+    assert_eq!(
+        account_out.as_ref(),
+        Some(&AccountOut {
+            provider: "anthropic-api".to_owned(),
+            label: None,
+            model: CLAUDE.to_owned(),
+            reached: reached.clone(),
+            others: vec![
+                other("anthropic-api.work", "Work", AccountState::Ready),
+                other("anthropic-api.home", "Home", AccountState::SignedOut),
+            ],
+        })
+    );
+    let keys: Vec<Option<String>> =
+        messages.received().into_iter().map(|request| request.authorization).collect();
+    assert_eq!(keys, [some(&format!("Bearer {ANTHROPIC_API_KEY}"))], "one try, no switch");
+    let listed = models(&daemon).await.catalogs;
+    let limits = |provider: &str| {
+        listed
+            .iter()
+            .find(|status| status.provider.as_deref() == Some(provider))
+            .and_then(|status| status.limits.clone())
+            .and_then(|limits| limits.reached)
+    };
+    assert_eq!(limits("anthropic-api"), Some(reached.clone()));
+    assert_eq!(limits("anthropic-api.work"), None);
+    let status: AdminStatusResult =
+        client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+    let account = |id: &str| status.providers.iter().find(|p| p.provider == id).unwrap();
+    assert_eq!(
+        account("anthropic-api").limits.as_ref().and_then(|l| l.reached.clone()),
+        Some(reached)
+    );
+    assert_eq!(account("anthropic-api.work").label.as_deref(), Some("Work"));
+
+    // The user switches by naming the account; its own key serves the turn.
+    messages.push(MessagesAnswer::text("work answer"));
+    let (_, events) = ending(&daemon, 2, Some(CLAUDE), Some("work")).await;
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    let sent = messages.received();
+    assert_eq!(sent.last().unwrap().authorization, some(&format!("Bearer {WORK_KEY}")));
 }
