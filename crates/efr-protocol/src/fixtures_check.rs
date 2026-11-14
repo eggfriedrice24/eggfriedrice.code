@@ -57,11 +57,12 @@ use crate::{
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
     SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
     ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, SwitchedModel,
-    TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, StoredCopyReason, SurfaceChange, Switch,
+    SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction,
+    UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict,
+    Watch, WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -162,6 +163,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("web_errors.json", &WebError::ALL.to_vec()));
     fixtures.push(fixture("limit_kinds.json", &LimitKind::ALL.to_vec()));
     fixtures.push(fixture("account_states.json", &AccountState::ALL.to_vec()));
+    fixtures.push(fixture("stored_copy_reasons.json", &StoredCopyReason::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
@@ -219,6 +221,7 @@ pub(crate) fn web_samples() -> Vec<(&'static str, Event)> {
                 searches: 1,
                 stored_copy: true,
                 stored_copy_note: true,
+                stored_copy_reason: Some(StoredCopyReason::Setting),
                 sources: Vec::new(),
             },
         ),
@@ -2683,6 +2686,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             searches: 5,
             stored_copy: false,
             stored_copy_note: false,
+            stored_copy_reason: None,
             sources: vec![
                 WebSource {
                     url: "https://areweanticheatyet.com/game/rob-run".into(),

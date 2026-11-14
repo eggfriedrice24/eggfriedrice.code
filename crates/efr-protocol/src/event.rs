@@ -16,8 +16,9 @@ use crate::{
     ExitSource, FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState,
     JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId,
     QuestionId, RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq,
-    ShellContext, SnapshotPhase, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnUndoInfo,
-    UndoId, UserAuthorization, Verdict, WebAction, WebError, WebResult, WebSource,
+    ShellContext, SnapshotPhase, StoredCopyReason, SurfaceChange, SwitchedModel, TurnId,
+    TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict, WebAction, WebError, WebResult,
+    WebSource,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -823,6 +824,11 @@ pub enum Event {
         /// client says once what the stored copy means. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         stored_copy_note: bool,
+        /// Why the searches read the stored copy, so the note names the setting that
+        /// gives the live web. Absent without `stored_copy`, and from an earlier daemon:
+        /// a client then takes it as [`StoredCopyReason::Mode`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stored_copy_reason: Option<StoredCopyReason>,
         /// The pages that the answer cites, in the order of their first citation: source
         /// `n` (the mark `[n]` in the text) is entry `n - 1`. At most
         /// [`MAX_WEB_SOURCES`](crate::MAX_WEB_SOURCES). Absent when the answer cites

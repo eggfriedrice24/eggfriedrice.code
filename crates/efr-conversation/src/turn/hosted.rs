@@ -219,6 +219,9 @@ impl WebState {
             searches: self.searches,
             stored_copy,
             stored_copy_note,
+            // NOTE: a stub until the plan keeps why it reads the stored copy; a client
+            // reads its absence as the mode, as before.
+            stored_copy_reason: None,
             sources: self.sources.clone(),
         })
     }

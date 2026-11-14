@@ -1062,3 +1062,10 @@ No protocol version has shipped yet.
   shows it as it is; efrd never switches by itself. `error` still holds the message,
   so a client that does not read `account_out` shows the failure as before. New
   fixtures `events/turn_failed_account_out.json` and `account_states.json`.
+- Version 1, additive: `turn_web_report` gains an optional `stored_copy_reason` with
+  the new wire enum `stored_copy_reason` (`mode`: a `cautious` turn with
+  `web.search = "mode"`; `setting`: `web.search = "cached"`; `unknown`). It is absent
+  without `stored_copy`, and from an older efrd: a client then reads it as `mode`, as
+  before. A client names the setting that gives the live web: `,mode auto` for `mode`,
+  the config for `setting`. The fixture `events/turn_web_report_stored_copy.json`
+  now sets it; new fixture `stored_copy_reasons.json`.

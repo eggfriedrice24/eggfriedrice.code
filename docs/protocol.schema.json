@@ -5856,6 +5856,17 @@
               "description": "True when this is the first turn of the conversation with `stored_copy`, so a\nclient says once what the stored copy means. False when absent.",
               "type": "boolean"
             },
+            "stored_copy_reason": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/StoredCopyReason"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the searches read the stored copy, so the note names the setting that\ngives the live web. Absent without `stored_copy`, and from an earlier daemon:\na client then takes it as [`StoredCopyReason::Mode`]."
+            },
             "turn_id": {
               "$ref": "#/$defs/TurnId",
               "description": "The turn."
@@ -12304,6 +12315,26 @@
         {
           "const": "pause_turn",
           "description": "The provider paused a long turn, which efr does not continue.",
+          "type": "string"
+        }
+      ]
+    },
+    "StoredCopyReason": {
+      "description": "Why the searches of a turn read the provider's stored copy of the web, so a client\ncan name the setting that gives the live web.",
+      "oneOf": [
+        {
+          "const": "mode",
+          "description": "The turn ran in `cautious` with `web.search = \"mode\"`: `,mode auto` searches the\nlive web.",
+          "type": "string"
+        },
+        {
+          "const": "setting",
+          "description": "The config sets `web.search = \"cached\"`: every turn reads the stored copy, in\neach mode.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A reason that this build does not know.",
           "type": "string"
         }
       ]

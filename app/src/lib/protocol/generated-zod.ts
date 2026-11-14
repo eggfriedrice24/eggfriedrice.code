@@ -273,6 +273,7 @@ import type {
   Size,
   SnapshotPhase,
   StopReason,
+  StoredCopyReason,
   StreamMethodName,
   SurfaceChange,
   Switch,
@@ -1706,6 +1707,12 @@ export const shellCommandEndSchema = z.enum([
 
 export const snapshotPhaseSchema = z.enum(["pre", "post"]) satisfies z.ZodType<SnapshotPhase>;
 
+export const storedCopyReasonSchema = z.enum([
+  "mode",
+  "setting",
+  "unknown",
+]) satisfies z.ZodType<StoredCopyReason>;
+
 export const switchedModelSchema = z.object({
   default_effort: z.string().nullable().exactOptional(),
   effort: z.string().nullable().exactOptional(),
@@ -2076,6 +2083,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     sources: z.array(webSourceSchema).exactOptional(),
     stored_copy: z.boolean().exactOptional(),
     stored_copy_note: z.boolean().exactOptional(),
+    stored_copy_reason: storedCopyReasonSchema.nullable().exactOptional(),
     turn_id: turnIdSchema,
   }),
   compactionSchema.extend({ kind: z.literal("conversation_compacted") }),

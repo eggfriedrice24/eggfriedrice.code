@@ -1406,6 +1406,12 @@ export type Event =
        */
       stored_copy_note?: boolean;
       /**
+       * Why the searches read the stored copy, so the note names the setting that
+       * gives the live web. Absent without `stored_copy`, and from an earlier daemon:
+       * a client then takes it as [`StoredCopyReason::Mode`].
+       */
+      stored_copy_reason?: StoredCopyReason | null;
+      /**
        * The turn.
        */
       turn_id: TurnId;
@@ -2126,6 +2132,11 @@ export type PauseReason = "in_a_row" | "per_turn";
  * What changed the presence of a conversation.
  */
 export type PresenceSource = "input" | "user" | "timeout";
+/**
+ * Why the searches of a turn read the provider's stored copy of the web, so a client
+ * can name the setting that gives the live web.
+ */
+export type StoredCopyReason = "mode" | "setting" | "unknown";
 /**
  * One compaction of a conversation's context: a `conversation_compacted` event.
  */

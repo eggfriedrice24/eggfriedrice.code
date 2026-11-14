@@ -109,6 +109,7 @@ fn page(steps: Vec<(f64, Event)>, sources: Vec<WebSource>) -> ConversationHistor
         searches: 5,
         stored_copy: false,
         stored_copy_note: false,
+        stored_copy_reason: None,
         sources,
     };
     events.push((108.0, report));
@@ -271,6 +272,7 @@ fn the_note_of_the_stored_copy_stands_under_the_reason_of_a_failure() {
         searches: 1,
         stored_copy: true,
         stored_copy_note: true,
+        stored_copy_reason: None,
         sources: Vec::new(),
     };
     page.events[len - 1].event = Event::TurnFailed {

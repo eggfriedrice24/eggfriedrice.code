@@ -179,5 +179,5 @@ pub use undo::{
 pub use version::PROTOCOL_VERSION;
 pub use web::{
     MAX_WEB_RESULTS, MAX_WEB_SOURCES, MAX_WEB_TEXT_CHARS, MAX_WEB_TITLE_CHARS, MAX_WEB_URL_CHARS,
-    WebAction, WebError, WebResult, WebSource,
+    StoredCopyReason, WebAction, WebError, WebResult, WebSource,
 };

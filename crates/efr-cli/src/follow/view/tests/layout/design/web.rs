@@ -117,7 +117,14 @@ fn sources(count: usize) -> Vec<WebSource> {
 }
 
 fn report(searches: u32, stored_copy: bool, note: bool, sources: Vec<WebSource>) -> Event {
-    Event::TurnWebReport { turn_id: turn(), searches, stored_copy, stored_copy_note: note, sources }
+    Event::TurnWebReport {
+        turn_id: turn(),
+        searches,
+        stored_copy,
+        stored_copy_note: note,
+        stored_copy_reason: None,
+        sources,
+    }
 }
 
 /// The end of the turn: `usage` and the context at `percent`.

@@ -55,6 +55,7 @@ const LISTS: Readonly<Record<string, string>> = {
   search_kinds: "SearchKind",
   search_partials: "SearchPartial",
   shell_command_ends: "ShellCommandEnd",
+  stored_copy_reasons: "StoredCopyReason",
   undo_actions: "UndoAction",
   undo_reasons: "UndoReason",
   web_actions: "WebAction",

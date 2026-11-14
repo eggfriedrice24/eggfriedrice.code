@@ -118,6 +118,29 @@ impl WebError {
     }
 }
 
+/// Why the searches of a turn read the provider's stored copy of the web, so a client
+/// can name the setting that gives the live web.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StoredCopyReason {
+    /// The turn ran in `cautious` with `web.search = "mode"`: `,mode auto` searches the
+    /// live web.
+    Mode,
+    /// The config sets `web.search = "cached"`: every turn reads the stored copy, in
+    /// each mode.
+    Setting,
+    /// A reason that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl StoredCopyReason {
+    /// Every reason, in the order of the enum.
+    pub const ALL: [StoredCopyReason; 3] =
+        [StoredCopyReason::Mode, StoredCopyReason::Setting, StoredCopyReason::Unknown];
+}
+
 /// One result of a search: a page that the provider found.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct WebResult {

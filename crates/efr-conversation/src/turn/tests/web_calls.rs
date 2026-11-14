@@ -529,6 +529,7 @@ async fn an_openai_answer_keeps_its_text_and_lists_its_unplaced_sources() {
             searches: 1,
             stored_copy: false,
             stored_copy_note: false,
+            stored_copy_reason: None,
             sources: vec![WebSource {
                 url: AREWE.to_owned(),
                 title: Some("ROB RUN · Are We Anti-Cheat Yet?".to_owned()),
