@@ -16,13 +16,16 @@
 //! never parsed, and each tool input draft carries the newest [`INPUT_TAIL`] of them.
 //! While the model call waits for its answer, its [`CallDrafts`] send at once what the
 //! provider says about it: a connect, the API that took it, and each wait before
-//! another attempt.
+//! another attempt. The limits of the turn's account that an answer tells, such as the
+//! usage windows of a ChatGPT plan, go at once too, as a `limits` draft.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use efr_protocol::{CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId};
+use efr_protocol::{
+    AccountLimits, CompactionTrigger, ContextUse, ConversationId, DraftPart, Seq, TurnId,
+};
 use efr_provider::{CallNotice, CallNotices, ProviderEvent};
 use jiff::Timestamp;
 use tokio::sync::broadcast;
@@ -350,6 +353,14 @@ impl Drafter {
     /// attaches later.
     pub(super) fn context(&self, context: ContextUse) {
         let draft = self.draft(DraftPart::Context(context));
+        self.status.hold(&draft);
+        self.send_draft(draft);
+    }
+
+    /// Sends the `limits` of the account `provider` that a model call of the turn
+    /// told, at once. The status keeps the newest for a client that attaches later.
+    pub(super) fn limits(&self, provider: &str, limits: AccountLimits) {
+        let draft = self.draft(DraftPart::Limits { provider: provider.to_owned(), limits });
         self.status.hold(&draft);
         self.send_draft(draft);
     }

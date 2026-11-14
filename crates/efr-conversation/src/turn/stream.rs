@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use efr_protocol::{CallId, Event};
+use efr_protocol::{AccountLimits, CallId, Event};
 use efr_provider::{CompletionBuilder, Message, ProviderError, ProviderEvent, Request, StopReason};
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
@@ -124,6 +124,12 @@ impl Turn {
                 item = stream.next() => match item {
                     None => break Streamed::Ended,
                     Some(Err(error)) => break Streamed::Failed(error),
+                    Some(Ok(ProviderEvent::Limits { windows })) => {
+                        // NOTE: the limits come from the headers of the answer, not from
+                        // the model, so they are no first event; nothing records them.
+                        let limits = AccountLimits { observed_at: clock.now(), windows, reached: None };
+                        self.drafter.limits(provider.id().as_str(), limits);
+                    }
                     Some(Ok(event)) => {
                         if let ProviderEvent::TextDelta { text } = &event
                             && !text.is_empty()

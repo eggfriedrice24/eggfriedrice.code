@@ -3,8 +3,9 @@
 //! A subscriber that reads slower than the turn drafts would lose drafts at its full
 //! room. Instead, the live side keeps the drafts that do not fit here, at most one per
 //! part: the text of one message, the reasoning of the turn, the input of one tool
-//! call, the `context` and the `compacting` status, and the wait of a model call
-//! (`connecting`, `connected`, `retrying`). A new draft of a part grows the
+//! call, the `context` and the `compacting` status, the wait of a model call
+//! (`connecting`, `connected`, `retrying`) and the `limits` of the turn's account. A
+//! new draft of a part grows the
 //! held one (text and reasoning, at their byte offsets) or replaces it (the others),
 //! and the merge goes at the next free place. The subscriber then gets fewer, larger
 //! drafts, and every byte of the text and the reasoning.
@@ -85,10 +86,11 @@ impl Boundary {
     /// Reasoning ends only with its turn. The next model call of the turn continues
     /// the reasoning text at the next offset, and reasoning is never in the event log,
     /// so a reasoning draft from before the end of a message or the start of a tool
-    /// call still holds bytes that the subscriber needs.
+    /// call still holds bytes that the subscriber needs. The limits of the account also
+    /// hold for the whole turn: the next model call may tell none.
     pub(super) fn ended(&self, draft: &ConversationDraft) -> bool {
         let boundary = match draft.part {
-            DraftPart::Reasoning { .. } => self.turn,
+            DraftPart::Reasoning { .. } | DraftPart::Limits { .. } => self.turn,
             _ => self.part,
         };
         draft.after_seq < boundary
@@ -230,6 +232,11 @@ impl PendingDrafts {
             // NOTE: only the newest word on the wait of a model call counts.
             part @ (DraftPart::Connecting | DraftPart::Connected | DraftPart::Retrying { .. }) => {
                 self.held.retain(|held| !is_call_wait(&held.part));
+                part
+            }
+            // NOTE: only the newest values of the account count.
+            part @ DraftPart::Limits { .. } => {
+                self.held.retain(|held| !matches!(held.part, DraftPart::Limits { .. }));
                 part
             }
             other => other,

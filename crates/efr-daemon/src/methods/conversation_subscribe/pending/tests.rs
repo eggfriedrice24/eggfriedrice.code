@@ -151,6 +151,41 @@ fn only_the_newest_word_on_the_wait_of_a_model_call_is_held() {
     assert_eq!(drain(&mut pending), vec![(1, DraftPart::Connected)]);
 }
 
+fn limits(percent: u8) -> DraftPart {
+    DraftPart::Limits {
+        provider: "openai-subscription".to_owned(),
+        limits: efr_protocol::AccountLimits {
+            observed_at: jiff::Timestamp::UNIX_EPOCH,
+            windows: vec![efr_protocol::LimitWindow {
+                minutes: Some(300),
+                used_percent: percent,
+                resets_at: None,
+            }],
+            reached: None,
+        },
+    }
+}
+
+#[test]
+fn only_the_newest_limits_are_held_and_they_stay_until_the_end_of_the_turn() {
+    let mut pending = PendingDrafts::default();
+    let mut boundary = Boundary::default();
+    pending.push(draft(1, limits(90)));
+    pending.push(draft(1, context(10)));
+    pending.push(draft(1, limits(92)));
+    assert_eq!(drain(&mut pending), vec![(1, context(10)), (1, limits(92))]);
+
+    pending.push(draft(1, limits(94)));
+    assert!(boundary.pass(&completed(0), Seq::new(5)));
+    pending.drop_ended(boundary);
+    assert_eq!(drain(&mut pending), vec![(1, limits(94))], "a message end keeps them");
+
+    pending.push(draft(5, limits(95)));
+    assert!(boundary.pass(&turn_completed(), Seq::new(6)));
+    pending.drop_ended(boundary);
+    assert!(pending.is_empty(), "the end of the turn ends them");
+}
+
 #[test]
 fn tool_input_keeps_the_newest_tail_of_each_call() {
     let tailed = |bytes: u64, tail: &str| DraftPart::ToolInput {

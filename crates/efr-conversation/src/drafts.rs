@@ -143,9 +143,10 @@ pub(crate) fn bold_title(line: &str) -> Option<&str> {
 
 /// The status of a conversation's running turn that a client which attaches while the
 /// turn runs must see at once, not only at the next draft: the newest `context` draft,
-/// the `compacting` draft while a compaction runs, and the newest `connecting` or
-/// `retrying` draft while a model call waits for its answer. It also holds the parts of
-/// the current model call ([`LiveTurn`]).
+/// the `compacting` draft while a compaction runs, the newest `connecting` or
+/// `retrying` draft while a model call waits for its answer, and the newest `limits`
+/// draft of the turn. It also holds the parts of the current model call
+/// ([`LiveTurn`]).
 #[derive(Debug, Default)]
 pub(crate) struct LiveStatus {
     held: Mutex<Held>,
@@ -157,6 +158,7 @@ struct Held {
     context: Option<ConversationDraft>,
     compacting: Option<ConversationDraft>,
     call: Option<ConversationDraft>,
+    limits: Option<ConversationDraft>,
 }
 
 impl LiveStatus {
@@ -172,6 +174,7 @@ impl LiveStatus {
             DraftPart::Compacting { .. } => held.compacting = Some(draft.clone()),
             DraftPart::Connecting | DraftPart::Retrying { .. } => held.call = Some(draft.clone()),
             DraftPart::Connected => held.call = None,
+            DraftPart::Limits { .. } => held.limits = Some(draft.clone()),
             _ => {}
         }
     }
@@ -190,6 +193,7 @@ impl LiveStatus {
             if !compacting_only {
                 held.context = None;
                 held.call = None;
+                held.limits = None;
             }
         }
         // NOTE: never with the other lock held, so the two locks have no order.
@@ -213,6 +217,12 @@ impl LiveStatus {
     /// The drafts of the status, in the order a client must apply them.
     pub(crate) fn drafts(&self) -> Vec<ConversationDraft> {
         let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        held.context.iter().chain(&held.compacting).chain(&held.call).cloned().collect()
+        held.context
+            .iter()
+            .chain(&held.compacting)
+            .chain(&held.call)
+            .chain(&held.limits)
+            .cloned()
+            .collect()
     }
 }

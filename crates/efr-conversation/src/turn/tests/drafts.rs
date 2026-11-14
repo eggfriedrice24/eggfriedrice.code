@@ -348,3 +348,50 @@ async fn a_client_that_attaches_during_a_call_gets_the_context_at_once() {
     assert!(h.handle.live_drafts().is_empty(), "an ended turn has no status");
     h.finish();
 }
+
+#[tokio::test]
+async fn the_limits_that_an_answer_tells_go_as_a_draft_of_the_account_and_never_to_the_log() {
+    use efr_protocol::{AccountLimits, LimitWindow};
+    let mut setup = Setup::new();
+    setup.config.draft_interval = Duration::ZERO;
+    let state = setup.live_state(&setup.cwd, "think");
+    let first = request(vec![setup.prompt(&state, "think")]);
+    let window = LimitWindow { minutes: Some(300), used_percent: 92, resets_at: None };
+    let records = vec![
+        expect_request(first),
+        answer(&[ProviderEvent::Limits { windows: vec![window.clone()] }, text("one")]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+    ];
+    let mut receiver = setup.drafts.subscribe();
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("think").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+
+    let limits = |drafts: Vec<ConversationDraft>| -> Vec<(String, AccountLimits)> {
+        drafts
+            .into_iter()
+            .filter_map(|draft| match draft.part {
+                DraftPart::Limits { provider, limits } => Some((provider, limits)),
+                _ => None,
+            })
+            .collect()
+    };
+    let sent_drafts = limits(drained(&mut receiver));
+    assert_eq!(sent_drafts.len(), 1, "{sent_drafts:?}");
+    let (provider, told) = &sent_drafts[0];
+    assert_eq!(provider, "replay", "the account of the turn");
+    assert_eq!((told.windows.clone(), told.reached.clone()), (vec![window], None));
+    assert_eq!(limits(h.handle.live_drafts()), sent_drafts, "a late client gets them at once");
+    h.provider.handled_through(3);
+    h.wait_end(sent.turn_id).await;
+    assert!(h.handle.live_drafts().is_empty(), "an ended turn has no status");
+    assert!(!h.kinds().await.iter().any(|kind| kind.contains("limit")), "no event");
+    let completed = h.events().await.into_iter().find_map(|event| match event {
+        Event::AssistantMessageCompleted { text, .. } => Some(text),
+        _ => None,
+    });
+    assert_eq!(completed.as_deref(), Some("one"));
+    h.finish();
+}

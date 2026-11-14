@@ -513,7 +513,10 @@ a model call waits for its answer, the turn passes the provider a `CallDrafts`
 draft interval: `connecting`, `connected`, and `retrying` with the attempt, the wait
 and a reason in plain words (`the provider answered 503`, `the connection failed`).
 The live status keeps the newest `connecting` or `retrying` draft until the call opens,
-so a client that attaches during the wait sees it. Drafts never reach the log, and a turn that nobody follows live
+so a client that attaches during the wait sees it. An answer that tells the usage
+windows of the account (`ProviderEvent::Limits`, a ChatGPT plan) sends a `limits` draft
+at once, with the account's provider id and the time of the answer; the live status
+keeps the newest one until the turn ends. Drafts never reach the log, and a turn that nobody follows live
 does no draft work and sets no timer. The drafter keeps the parts themselves in the
 conversation's live holder, also when nobody listens: `ConversationHandle::live_turn`
 gives a `LiveTurn` with the running turn, its `after_seq`, the index and the text so

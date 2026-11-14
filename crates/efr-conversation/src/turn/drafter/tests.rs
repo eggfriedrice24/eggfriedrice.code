@@ -448,6 +448,35 @@ fn a_retry_goes_at_once_and_the_status_keeps_it_until_the_call_opens() {
     assert!(status.drafts().is_empty(), "the call opened");
 }
 
+#[test]
+fn the_limits_of_the_account_go_at_once_and_the_status_keeps_the_newest_until_the_turn_ends() {
+    use efr_protocol::{AccountLimits, LimitWindow};
+    let (drafter, status, sender) = drafter_with_status();
+    let mut receiver = sender.subscribe();
+    let limits = |percent: u8| AccountLimits {
+        observed_at: Timestamp::UNIX_EPOCH,
+        windows: vec![LimitWindow { minutes: Some(300), used_percent: percent, resets_at: None }],
+        reached: None,
+    };
+    let part = |percent: u8| DraftPart::Limits {
+        provider: "openai-subscription.b".to_owned(),
+        limits: limits(percent),
+    };
+
+    drafter.limits("openai-subscription.b", limits(91));
+    drafter.limits("openai-subscription.b", limits(93));
+
+    assert_eq!(parts(&mut receiver), [part(91), part(93)]);
+    let held: Vec<DraftPart> = status.drafts().into_iter().map(|draft| draft.part).collect();
+    assert_eq!(held, [part(93)], "only the newest");
+    drafter.call_opened();
+    assert_eq!(status.drafts().len(), 1, "the limits hold past the start of the answer");
+    status.clear(true);
+    assert_eq!(status.drafts().len(), 1, "and past a compaction");
+    status.clear(false);
+    assert!(status.drafts().is_empty(), "the turn ended");
+}
+
 /// A step of the provider's web tool ends the message inside the model call: the text
 /// after it is the next message, whose live text and text drafts start again at offset
 /// 0 and equal the builder's text after the step.
