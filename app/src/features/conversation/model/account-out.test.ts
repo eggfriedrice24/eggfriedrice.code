@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AccountOut } from "@/lib/protocol/generated";
+import { fixtureEvent } from "@/lib/protocol/testing";
 
 import { accountOutReason, accountOutView } from "./account-out";
 
@@ -23,13 +24,31 @@ const ONE: AccountOut = {
 
 describe("the end of a turn whose account is out", () => {
   it("says why with the reset, and offers the same model on the other account", () => {
-    const view = accountOutView(ONE, "the ChatGPT plan reached its usage limit", LIVE);
+    const view = accountOutView(ONE, LIVE);
     expect(view).toEqual({
       reason: "the ChatGPT plan reached its usage limit · resets 14:20",
       switches: [{ label: "switch to ChatGPT plan · b", model: "gpt-6.1-sol", provider: PLAN_B }],
       notes: [],
       retry: false,
     });
+  });
+
+  it("names the account from account_out, not from the message of efrd", () => {
+    // NOTE: the message as efrd sends it: the Display of ProviderError::LimitReached,
+    // which names no account and carries the provider's own text.
+    const message =
+      "the account reached the usage limit of its plan: The usage limit has been reached";
+    const envelope = fixtureEvent("turn_failed_account_out", 1, {
+      error: { code: "busy", message },
+    });
+    const event = envelope.event;
+    if (event.kind !== "turn_failed" || event.account_out == null) {
+      throw new Error("the fixture is a turn_failed with account_out");
+    }
+    const now = Date.parse("2026-10-03T12:00:00Z");
+    const reason = accountOutView(event.account_out, { ...LIVE, now }).reason;
+    expect(reason).toMatch(/^the ChatGPT plan reached its usage limit · resets /u);
+    expect(reason).not.toContain("The usage limit has been reached");
   });
 
   it("offers each account that serves the model, and names no time without a reset", () => {
@@ -42,7 +61,7 @@ describe("the end of a turn whose account is out", () => {
         { provider: PLAN_B, state: "full", resets_at: at(14, 10) },
       ],
     };
-    const view = accountOutView(out, "the OpenAI API key has no credit left.", LIVE);
+    const view = accountOutView(out, LIVE);
     expect(view.reason).toBe("the OpenAI API key has no credit left");
     expect(view.switches.map((action) => action.label)).toEqual([
       "switch to ChatGPT plan",
@@ -56,7 +75,7 @@ describe("the end of a turn whose account is out", () => {
       model: "gpt-5.5",
       reached: { kind: "requests", resets_at: at(14, 3) },
     };
-    const view = accountOutView(out, "the OpenAI API key reached its rate limit", LIVE);
+    const view = accountOutView(out, LIVE);
     expect(view).toEqual({
       reason: "the OpenAI API key reached its rate limit · resets 14:03",
       switches: [],
@@ -72,7 +91,9 @@ describe("the end of a turn whose account is out", () => {
       reached: { kind: "too_many_requests" },
       others: [{ provider: "anthropic-api.personal", state: "signed_out" }],
     };
-    const view = accountOutView(out, 'the account work got "too many requests"', LIVE);
+    const view = accountOutView(out, LIVE);
+    // NOTE: errata 5 and 12: no count of tries, and the account by its name alone.
+    expect(view.reason).toBe('work got "too many requests", so efr stopped trying');
     expect(view.switches).toEqual([]);
     expect(view.notes).toEqual(["personal is signed out: efr login anthropic --account personal"]);
     expect(view.retry).toBe(true);
@@ -83,13 +104,13 @@ describe("the end of a turn whose account is out", () => {
       ...ONE,
       others: [{ provider: PLAN_B, label: "Family", state: "ready" }],
     };
-    expect(accountOutView(out, "x", LIVE).switches[0]?.label).toBe(
-      "switch to ChatGPT plan · Family",
-    );
+    expect(accountOutView(out, LIVE).switches[0]?.label).toBe("switch to ChatGPT plan · Family");
+    const labelled: AccountOut = { ...ONE, provider: PLAN_B, label: "Family" };
+    expect(accountOutReason(labelled, NOW)).toBe("Family reached its usage limit · resets 14:20");
   });
 
   it("offers retry after a switch to an offered account", () => {
-    const view = accountOutView(ONE, "x", {
+    const view = accountOutView(ONE, {
       ...LIVE,
       choice: { model: "gpt-6.1-sol", provider: PLAN_B, effort: "medium" },
     });
@@ -98,13 +119,13 @@ describe("the end of a turn whose account is out", () => {
   });
 
   it("keeps only the reason in the history, and offers retry after the reset", () => {
-    expect(accountOutView(ONE, "x", { ...LIVE, newest: false })).toEqual({
-      reason: "x · resets 14:20",
+    expect(accountOutView(ONE, { ...LIVE, newest: false })).toEqual({
+      reason: "the ChatGPT plan reached its usage limit · resets 14:20",
       switches: [],
       notes: [],
       retry: false,
     });
-    const later = accountOutView(ONE, "x", {
+    const later = accountOutView(ONE, {
       ...LIVE,
       now: new Date(2026, 10, 14, 14, 21).getTime(),
     });
@@ -115,13 +136,18 @@ describe("the end of a turn whose account is out", () => {
   it("writes a reset on another day with its day", () => {
     const out: AccountOut = {
       ...ONE,
+      provider: PLAN_B,
       reached: { kind: "usage", resets_at: new Date(2026, 10, 16, 9, 0).toISOString() },
     };
-    expect(accountOutReason(out, "the plan is full", NOW)).toBe(
-      "the plan is full · resets Mon 09:00",
-    );
-    expect(accountOutReason(out, undefined, NOW)).toBe(
-      "the account cannot serve this model now · resets Mon 09:00",
-    );
+    expect(accountOutReason(out, NOW)).toBe("b reached its usage limit · resets Mon 09:00");
+  });
+
+  it("names each other limit in the words of the terminal", () => {
+    const reason = (kind: AccountOut["reached"]["kind"], provider = "anthropic-api"): string =>
+      accountOutReason({ provider, model: "m", reached: { kind } }, NOW);
+    expect(reason("credit")).toBe("the Claude API key has no credit left");
+    expect(reason("spend_limit")).toBe("the Claude API key reached its spend limit");
+    expect(reason("tokens", "openai-api.ci")).toBe("ci reached its rate limit");
+    expect(reason("unknown", "other-kind")).toBe("the account other-kind reached a limit");
   });
 });

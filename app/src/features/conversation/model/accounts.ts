@@ -73,6 +73,21 @@ export function accountShort(provider: string, label?: string | null): string {
   return ownName(provider, label) ?? kindName(provider);
 }
 
+/** The default account of each kind inside a sentence, as the terminal says it. */
+const DEFAULT_SUBJECTS: Readonly<Record<string, string>> = {
+  "anthropic-api": "the Claude API key",
+  "openai-api": "the OpenAI API key",
+  "openai-subscription": "the ChatGPT plan",
+};
+
+/**
+ * The account as the subject of a sentence, as the terminal names it (errata 12): its
+ * label or id ("b", "Family"), else the default account of its kind ("the ChatGPT plan").
+ */
+export function accountSubject(provider: string, label?: string | null): string {
+  return ownName(provider, label) ?? DEFAULT_SUBJECTS[provider] ?? `the account ${provider}`;
+}
+
 /** The command that logs in to the account again: `efr login anthropic --account personal`. */
 export function loginCommand(provider: string): string {
   const kind = accountKind(provider);

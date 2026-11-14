@@ -2,9 +2,11 @@
 // words, and an offer of the same model on the other accounts. The phone never switches
 // by itself.
 //
-// - The reason is the sentence of efrd ("the ChatGPT plan reached its usage limit"),
-//   then "· resets 14:20" when the reset is known. efr does not know which window, so
-//   the line names none.
+// - The reason is built from the account and the kind of the limit, in the words of the
+//   terminal ("the ChatGPT plan reached its usage limit", "b has no credit left"), then
+//   "· resets 14:20" when the reset is known. The message of the error is not used: it
+//   names no account and can carry the provider's own text. efr does not know which
+//   window, so the line names none. Credit has no reset.
 // - The offer shows only under the newest turn of the conversation, before the reset:
 //   in the history it is old. One plain "switch to <account>" per account that serves
 //   the model (efrd lists only those that are ready, or full with an earlier reset).
@@ -15,8 +17,8 @@
 //
 // Pure TypeScript.
 
-import type { AccountOut, LimitReached } from "@/lib/protocol/generated";
-import { accountName, accountShort, loginCommand, resetText } from "./accounts";
+import type { AccountOut, LimitKind, LimitReached } from "@/lib/protocol/generated";
+import { accountName, accountShort, accountSubject, loginCommand, resetText } from "./accounts";
 import type { ModelChoice } from "./model-choices";
 import { modelName } from "./model-names";
 
@@ -57,24 +59,33 @@ function resetAt(reached: LimitReached): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+/** What the account did, after its name, as the terminal says it. */
+const LIMIT_SENTENCES: Readonly<Record<LimitKind, string>> = {
+  usage: "reached its usage limit",
+  requests: "reached its rate limit",
+  tokens: "reached its rate limit",
+  input_tokens: "reached its rate limit",
+  output_tokens: "reached its rate limit",
+  too_many_requests: 'got "too many requests", so efr stopped trying',
+  credit: "has no credit left",
+  spend_limit: "reached its spend limit",
+  unknown: "reached a limit",
+};
+
 /**
- * The sentence of `error` with the reset of `out`, as the turn end shows it: "resets
- * 14:20" today, "resets Mon 09:00" on another day.
+ * The reason of `out` as the turn end shows it: the account and what it did, with the
+ * reset, "resets 14:20" today, "resets Mon 09:00" on another day.
  */
-export function accountOutReason(out: AccountOut, error: string | undefined, now: number): string {
-  const sentence = (error ?? "").trim().replace(/\.$/u, "");
-  const base = sentence === "" ? "the account cannot serve this model now" : sentence;
-  const at = resetAt(out.reached);
+export function accountOutReason(out: AccountOut, now: number): string {
+  const subject = accountSubject(out.provider, out.label);
+  const base = `${subject} ${LIMIT_SENTENCES[out.reached.kind]}`;
+  const at = out.reached.kind === "credit" ? undefined : resetAt(out.reached);
   return at === undefined ? base : `${base} · ${resetText(at, now)}`;
 }
 
 /** The view of `out` under the end of its turn. */
-export function accountOutView(
-  out: AccountOut,
-  error: string | undefined,
-  context: AccountOutContext,
-): AccountOutView {
-  const reason = accountOutReason(out, error, context.now);
+export function accountOutView(out: AccountOut, context: AccountOutContext): AccountOutView {
+  const reason = accountOutReason(out, context.now);
   const reset = resetAt(out.reached);
   const others = out.others ?? [];
   const offerable = others.filter((other) => other.state === "ready" || other.state === "full");

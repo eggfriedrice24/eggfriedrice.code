@@ -104,7 +104,6 @@ export function TurnEndLineView(props: TurnEndLineViewProps) {
 export interface AccountOutEndProps {
   readonly view: TurnEndView;
   readonly out: AccountOut;
-  readonly error: string | undefined;
   /** The turn is the newest of the conversation: only it offers a switch. */
   readonly newest: boolean;
   readonly onRetry: (() => void) | undefined;
@@ -122,11 +121,7 @@ export function AccountOutEnd(props: AccountOutEndProps) {
   const choice = useSelector(scope.choice?.store ?? NO_CHOICES, (state) =>
     scope.choice === undefined ? undefined : state.choices.get(scope.choice.key),
   );
-  const offer = accountOutView(props.out, props.error, {
-    newest: props.newest,
-    now,
-    choice,
-  });
+  const offer = accountOutView(props.out, { newest: props.newest, now, choice });
   const onRetry = props.onRetry;
   const actions = offer.switches.length > 0 || (offer.retry && onRetry !== undefined);
   return (
@@ -240,7 +235,6 @@ export function TurnEndRow(props: TurnEndRowProps) {
         <AccountOutEnd
           view={view}
           out={out}
-          error={row.end.error}
           newest={row.newest}
           onRetry={onRetry}
           onSwitch={scope.actions.openModels}
