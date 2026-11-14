@@ -716,6 +716,22 @@ async fn a_used_up_quota_ends_the_chain_at_once() {
 }
 
 #[tokio::test]
+async fn a_limit_of_the_account_ends_the_chain_at_once() {
+    let limit = || ProviderError::LimitReached {
+        reached: efr_protocol::LimitReached {
+            kind: efr_protocol::LimitKind::Usage,
+            resets_at: None,
+        },
+        message: None,
+    };
+    let setup = setup(Scripted::new([Reply::Error(limit)]));
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.skipped, [format!("{SMALL}: quota")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL]);
+}
+
+#[tokio::test]
 async fn the_turn_model_is_asked_once_when_it_is_the_classifier_model() {
     let setup = setup_with(Scripted::new([Reply::Error(server_error)]), |settings| {
         settings.classifier.model = Some(TURN.to_owned());

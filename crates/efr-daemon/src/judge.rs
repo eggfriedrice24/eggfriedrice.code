@@ -457,7 +457,10 @@ impl Failure {
             ProviderError::Unauthorized { .. }
             | ProviderError::NotLoggedIn
             | ProviderError::Token { .. } => Failure::Credentials,
-            ProviderError::Api { status: Some(429), .. } => Failure::Quota,
+            // NOTE: a limit of the account fails every model of the chain the same.
+            ProviderError::Api { status: Some(429), .. } | ProviderError::LimitReached { .. } => {
+                Failure::Quota
+            }
             ProviderError::Api { status: Some(400), message, .. }
                 if with_format && names_the_format(message) =>
             {
