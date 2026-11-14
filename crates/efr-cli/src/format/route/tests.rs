@@ -294,16 +294,22 @@ fn a_switch_names_both_sides_as_model_takes_them() {
     let api = side(Some("openai-api"), "gpt-5.5", None);
     let old = side(None, "gpt-5.4", None);
     assert_eq!(plain(&model_line(&old, &api, None, glyphs)), "⇄ gpt-5.5  was gpt-5.4");
-    // The same model on another provider starts with a cold cache.
+    // The same model on another provider starts with a cold cache, and both sides name
+    // their account, as `,model` takes it (TM-Accounts 6).
     let subscription = side(Some("openai-subscription"), "gpt-5.5", None);
     assert_eq!(
         plain(&model_line(&subscription, &api, None, &Glyphs::ASCII)),
-        "<> gpt-5.5  was gpt-5.5 - cache starts cold"
+        "<> openai-api/gpt-5.5  was openai/gpt-5.5 - cache starts cold"
+    );
+    let b = side(Some("openai-subscription.b"), "gpt-5.5", None);
+    assert_eq!(
+        plain(&model_line(&subscription, &b, None, glyphs)),
+        "⇄ b/gpt-5.5  was openai/gpt-5.5 · cache starts cold"
     );
     // A compaction that came first stands on the line, in place of the cold cache.
     assert_eq!(
         plain(&model_line(&subscription, &api, Some((231_000, 24_000)), glyphs)),
-        "⇄ gpt-5.5  was gpt-5.5 · context compacted 231k → 24k"
+        "⇄ openai-api/gpt-5.5  was openai/gpt-5.5 · context compacted 231k → 24k"
     );
 }
 

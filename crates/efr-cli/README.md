@@ -120,7 +120,9 @@ Replies:
   event, else of `turn_started`). The `⇄` line waits in the live zone until the next
   block: when a compaction of the turn comes first, the line ends with `· context
   compacted 86k → 6k` and the compaction has no line of its own; else the line commits
-  as it is, with `· cache starts cold` when only the provider or the account changed.
+  as it is, with `· cache starts cold` when only the provider or the account changed;
+  then both sides name their account, the default one by its short name too (`was
+  openai/gpt-6.1-sol medium`, TM-Accounts 6).
   The settings that a prompt set get no line, and a full turn gets no line either. The
   view keeps the settings of the `prompt.send` result for the status row
   (`TurnView::with_settings`).

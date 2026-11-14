@@ -206,7 +206,11 @@ pub(crate) fn model_line(
     compacted: Option<(u64, u64)>,
     glyphs: &Glyphs,
 ) -> Pieces {
-    let mut rest = format!("was {}", side(from));
+    // NOTE: the same model on another account names the default account too, as
+    // `,model` takes it (TM-Accounts 6: `was openai/gpt-6.1-sol medium`); else the two
+    // sides read the same.
+    let both = from.model == to.model && from.provider != to.provider;
+    let mut rest = format!("was {}", side(from, both));
     if let Some((before, after)) = compacted {
         rest.push_str(&format!(
             " {} context compacted {} {} {}",
@@ -220,20 +224,24 @@ pub(crate) fn model_line(
     }
     vec![
         (glyphs.switch.to_owned(), Tone::Accent),
-        (format!(" {}  ", side(to)), Tone::Text),
+        (format!(" {}  ", side(to, both)), Tone::Text),
         (rest, Tone::Dim),
     ]
 }
 
 /// One side of a switch as `,model` takes it: `work/claude-opus-5-5 high`, the account
 /// of the provider id (`anthropic-api.work` names `work`), the model and the effort.
-/// A provider id with no account gives the model alone. A turn that sent no effort
-/// gives the model's default effort, as `,model` names it, else no effort.
-fn side(model: &SwitchedModel) -> String {
+/// A provider id with no account gives the model alone, or with `named` its short name
+/// (`openai/gpt-6.1-sol`). A turn that sent no effort gives the model's default effort,
+/// as `,model` names it, else no effort.
+fn side(model: &SwitchedModel, named: bool) -> String {
     let account = model.provider.as_deref().and_then(|provider| provider.split_once('.'));
-    let mut text = match account {
-        Some((_, account)) if !account.is_empty() => {
+    let mut text = match (account, model.provider.as_deref()) {
+        (Some((_, account)), _) if !account.is_empty() => {
             format!("{}/{}", one_line(account), one_line(&model.model))
+        }
+        (None, Some(provider)) if named => {
+            format!("{}/{}", super::status::account_of(provider).0, one_line(&model.model))
         }
         _ => one_line(&model.model),
     };

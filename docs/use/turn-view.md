@@ -348,7 +348,9 @@ goes. A line comes only when something changed:
 - `⇄` tells that the turn runs on another model, provider or account. When the switch
   made efr compact the context first, the line says so. When only the account or the
   provider changed, it ends with `cache starts cold`: the new provider has no prompt
-  cache for the conversation yet.
+  cache for the conversation yet. Then both sides name their account as `,model`
+  takes it, also the default one: `⇄ b/gpt-6.1-sol medium  was openai/gpt-6.1-sol
+  medium · cache starts cold`.
 - When both changed, `↪` comes first.
 
 A prompt that sets its own mode, model or effort gets no line for it. A turn in full
