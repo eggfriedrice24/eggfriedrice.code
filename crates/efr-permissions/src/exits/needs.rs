@@ -49,8 +49,9 @@ pub(super) fn exits(
     let locations = envelope.locations();
     let mut found = Vec::new();
     let cx = WriteFacts { facts, support, linked: &[], installs: &[] };
+    let resolve = |word: &str| resolve(&expand(word, facts)?, dir, locations);
     for word in needs.write.iter().take(Needs::MAX_WRITE) {
-        let Some(path) = resolve(word, dir, locations) else { continue };
+        let Some(path) = resolve(word) else { continue };
         let exit = envelope.write_exit(&path, facts, made);
         found.extend(write_need(
             envelope,
@@ -82,7 +83,7 @@ pub(super) fn exits(
         found.push(need);
     }
     for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
-        let Some(path) = resolve(word, dir, locations) else { continue };
+        let Some(path) = resolve(word) else { continue };
         let ssh = facts.is_some_and(|facts| facts.ssh_sockets.contains(&path));
         found.push(socket(envelope, path, source, ssh));
     }
@@ -100,7 +101,7 @@ pub(super) fn exits(
         found.push(need);
     }
     for word in needs.unmask.iter().take(Needs::MAX_UNMASK) {
-        let Some(path) = resolve(word, dir, locations) else { continue };
+        let Some(path) = resolve(word) else { continue };
         let part = format!("needs.unmask {}", path.display());
         let need = if envelope.is_floor_secret(&path) {
             let mut need = ExitNeed::new(ExitKind::Secret, part, source);
@@ -140,6 +141,65 @@ pub(super) fn exits(
         found.push(need);
     }
     found
+}
+
+/// The variable that `word`, a path of `needs`, starts with, and the rest of the word:
+/// `("SSH_AUTH_SOCK", "")` for `$SSH_AUTH_SOCK` and `${SSH_AUTH_SOCK}`, `("XDG_DATA_HOME",
+/// "/app")` for `$XDG_DATA_HOME/app`. `None` for a word that starts with no variable
+/// name.
+pub(crate) fn variable_word(word: &str) -> Option<(&str, &str)> {
+    let word = word.trim();
+    let rest = word.strip_prefix('$')?;
+    let (name, rest) = match rest.strip_prefix('{') {
+        Some(braced) => braced.split_once('}')?,
+        None => {
+            let end =
+                rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
+            rest.split_at(end)
+        }
+    };
+    let valid = !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    (valid && (rest.is_empty() || rest.starts_with('/'))).then_some((name, rest))
+}
+
+/// `word` with the variable that it starts with ([`variable_word`]) replaced by its
+/// value in the hidden shell; the word itself when it starts with none; `None` when
+/// efrd gave no value, so the word names nothing ([`variable_notes`] tells the model).
+fn expand<'w>(word: &'w str, facts: Option<&Facts<'_>>) -> Option<std::borrow::Cow<'w, str>> {
+    let Some((name, rest)) = variable_word(word) else {
+        return Some(std::borrow::Cow::Borrowed(word));
+    };
+    let value = facts?.variable(name)?;
+    Some(std::borrow::Cow::Owned(format!("{}{rest}", value.display())))
+}
+
+/// The notes for the model about the paths of `needs` that start with a variable that
+/// efr could not fill in: the hidden shell has no such variable, its value is no
+/// absolute path, or its name looks like a secret.
+pub(crate) fn variable_notes(needs: &Needs, facts: Option<&Facts<'_>>) -> Vec<String> {
+    let words = needs
+        .write
+        .iter()
+        .take(Needs::MAX_WRITE)
+        .chain(needs.sockets.iter().take(Needs::MAX_SOCKETS))
+        .chain(needs.unmask.iter().take(Needs::MAX_UNMASK));
+    let mut notes = Vec::new();
+    for word in words {
+        let Some((name, _)) = variable_word(word) else { continue };
+        if facts.and_then(|facts| facts.variable(name)).is_some() {
+            continue;
+        }
+        let note = format!(
+            "[efr: ${name} in needs names no path: the user's shell has no such variable, or \
+             its value is no absolute path. Name the path itself.]"
+        );
+        if !notes.contains(&note) {
+            notes.push(note);
+        }
+    }
+    notes
 }
 
 /// The note on the question about the keyring.

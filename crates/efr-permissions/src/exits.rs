@@ -26,7 +26,7 @@ mod critical;
 mod envelope;
 mod facts;
 mod names;
-mod needs;
+pub(crate) mod needs;
 mod persist;
 mod programs;
 mod remotes;
@@ -772,12 +772,21 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
 }
 
 /// The notes for the model about the entries of the call's `needs` that [`predict`]
-/// dropped: a host that is no host name in ASCII, and under efr's proxy a host that the
-/// allow list holds or the user's config denies (spec 7.3, DP21).
+/// dropped: a host that is no host name in ASCII, under efr's proxy a host that the
+/// allow list holds or the user's config denies (spec 7.3, DP21), and a path that starts
+/// with a variable that efr could not fill in.
 pub fn notes(input: &ExitInput<'_>) -> Vec<String> {
     let reach = input.facts.map_or(&[][..], |facts| &facts.reach_ports[..]);
     let cx = needs::NeedsContext { support: input.support, hosts: input.hosts, reach };
-    input.needs.map(|asked| needs::host_notes(asked, &cx)).unwrap_or_default()
+    let facts = input.facts.map(Facts::new);
+    input
+        .needs
+        .map(|asked| {
+            let mut notes = needs::host_notes(asked, &cx);
+            notes.extend(needs::variable_notes(asked, facts.as_ref()));
+            notes
+        })
+        .unwrap_or_default()
 }
 
 /// The views of the host that the shell call of `input` gets with no exit, no
@@ -1050,6 +1059,10 @@ pub struct FactRequest {
     /// joined. The answers go to [`CallFacts::real_paths`]; an always-allow rule covers
     /// no grant whose path has no answer.
     pub real_paths: Vec<PathBuf>,
+    /// The variables that a path of `needs` starts with, such as `SSH_AUTH_SOCK` for
+    /// `$SSH_AUTH_SOCK` ([`FactRequest::with_needs`]): the model cannot read them in the
+    /// sandbox, so efrd gives their values in [`CallFacts::variables`].
+    pub variables: Vec<String>,
     /// The sockets of `needs.sockets` ([`FactRequest::with_needs`]), for which efrd
     /// tells whether an ssh process listens there: an ssh control socket (OQS17). The
     /// answers go to [`CallFacts::ssh_sockets`].
@@ -1184,7 +1197,23 @@ impl FactRequest {
         let mut real: HashSet<PathBuf> = self.real_paths.iter().cloned().collect();
         let mut targets: HashSet<PathBuf> = self.targets.iter().cloned().collect();
         let mut asks = Vec::new();
-        for word in needs.write.iter().take(Needs::MAX_WRITE) {
+        // NOTE: a path that starts with a variable has no facts of its own: efrd first
+        // gives the variable's value, and the exit reads its other facts as missing.
+        let words = needs
+            .write
+            .iter()
+            .take(Needs::MAX_WRITE)
+            .chain(needs.sockets.iter().take(Needs::MAX_SOCKETS))
+            .chain(needs.unmask.iter().take(Needs::MAX_UNMASK));
+        for word in words {
+            if let Some((name, _)) = needs::variable_word(word)
+                && !self.variables.iter().any(|known| known == name)
+            {
+                self.variables.push(name.to_owned());
+            }
+        }
+        let plain = |word: &&String| needs::variable_word(word).is_none();
+        for word in needs.write.iter().take(Needs::MAX_WRITE).filter(plain) {
             if let Some(path) = resolve(word, start.as_deref(), locations) {
                 asks.extend(cover::write_asks(&path, locations.home()));
                 add_real_paths(&mut self.real_paths, &mut real, &path, locations.home());
@@ -1192,7 +1221,7 @@ impl FactRequest {
             }
         }
         self.add_covers(asks);
-        for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
+        for word in needs.sockets.iter().take(Needs::MAX_SOCKETS).filter(plain) {
             if let Some(path) = resolve(word, start.as_deref(), locations) {
                 if !self.sockets.contains(&path) {
                     self.sockets.push(path.clone());

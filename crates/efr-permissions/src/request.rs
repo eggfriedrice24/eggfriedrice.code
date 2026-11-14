@@ -248,6 +248,11 @@ pub struct CallFacts {
     /// makes no exit. Empty when efrd forwards nothing for the conversation; the fact
     /// only predicts, the sandbox enforces.
     pub reach_ports: Vec<u16>,
+    /// The values of the variables of [`FactRequest::variables`](crate::FactRequest) in
+    /// the hidden shell: only a value that is an absolute path, of a name that does not
+    /// look like a secret. A `$NAME` of a `needs` path expands to it, such as
+    /// `$SSH_AUTH_SOCK`, which the sandbox removes.
+    pub variables: Vec<(String, PathBuf)>,
     /// The sockets of [`FactRequest::sockets`](crate::FactRequest) that an ssh process
     /// listens on: ssh control sockets, each a logged-in session (OQS17). Only the user
     /// approves a socket grant of one. efrd lists every socket of the request here when

@@ -23,8 +23,22 @@ use efr_test_support::{TestClock, TestRng, TestStore};
 
 use super::{
     HostFacts, JobInput, MOUNT_VIEW_FAILED, NOT_PROBED, PrepareInput, SandboxService, Seams,
-    ServiceParts,
+    ServiceParts, path_variables,
 };
+
+/// A `$NAME` of a `needs` path expands only to a value that is an absolute path, of a
+/// name that does not look like a secret: a token never becomes a path.
+#[test]
+fn only_a_path_of_a_harmless_name_fills_in_a_needs_variable() {
+    let env = b"SSH_AUTH_SOCK=/tmp/ssh-x/agent.1\0GH_TOKEN=/looks/like/a/path\0\
+                RELATIVE=sock\0OTHER=/not/asked\0EMPTY=\0";
+    let names: Vec<String> =
+        ["SSH_AUTH_SOCK", "GH_TOKEN", "RELATIVE", "EMPTY", "MISSING"].map(str::to_owned).to_vec();
+    assert_eq!(
+        path_variables(env, &names),
+        [("SSH_AUTH_SOCK".to_owned(), PathBuf::from("/tmp/ssh-x/agent.1"))]
+    );
+}
 
 struct Fixture {
     _dir: tempfile::TempDir,

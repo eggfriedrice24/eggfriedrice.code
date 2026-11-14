@@ -2853,6 +2853,43 @@ fn ssh_control_sockets_are_user_only(
     assert_eq!(noted, approver == Approver::User, "{socket}");
 }
 
+/// A path of `needs` that starts with a variable, such as `$SSH_AUTH_SOCK`, which the
+/// sandbox removes, gets the value that efrd gives from the hidden shell; with no value
+/// it names nothing, and the model reads why.
+#[test]
+fn a_needs_path_with_a_variable_gets_its_value_from_the_hidden_shell() {
+    assert_eq!(crate::exits::needs::variable_word("$SSH_AUTH_SOCK"), Some(("SSH_AUTH_SOCK", "")));
+    assert_eq!(
+        crate::exits::needs::variable_word("${XDG_DATA_HOME}/x"),
+        Some(("XDG_DATA_HOME", "/x"))
+    );
+    for word in ["~/x", "$", "$1", "$A-b", "${A", "x$A"] {
+        assert_eq!(crate::exits::needs::variable_word(word), None, "{word}");
+    }
+    let needs = Needs { sockets: vec!["$SSH_AUTH_SOCK".to_owned()], ..Needs::default() };
+    let locations = auto_locations();
+    let request = crate::exits::fact_requests("ssh-add -l", Some(APP.as_ref()), &locations)
+        .with_needs(Some(&needs), Some(APP.as_ref()), &locations);
+    assert_eq!(request.variables, ["SSH_AUTH_SOCK"]);
+    assert!(request.sockets.is_empty(), "no socket before the value is known");
+    let agent = PathBuf::from("/tmp/ssh-x/agent.1");
+    let facts = CallFacts {
+        variables: vec![("SSH_AUTH_SOCK".to_owned(), agent.clone())],
+        ..CallFacts::default()
+    };
+    let decision = decide(shell("ssh-add -l").with_needs(needs.clone()).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Socket).unwrap();
+    assert_eq!(need.grants, [Grant::Socket { path: agent }]);
+    assert_eq!(need.approver, Approver::User);
+    // No value: nothing is granted, and the model reads why.
+    let decision =
+        decide(shell("ssh-add -l").with_needs(needs.clone()).with_facts(CallFacts::default()));
+    assert!(!decision.exits().any(|need| need.kind == ExitKind::Socket));
+    let notes = crate::exits::needs::variable_notes(&needs, None);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("$SSH_AUTH_SOCK"), "{notes:?}");
+}
+
 #[test]
 fn auto_needs_become_exits() {
     let needs = Needs {

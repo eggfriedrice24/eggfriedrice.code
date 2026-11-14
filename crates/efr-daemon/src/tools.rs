@@ -608,6 +608,7 @@ impl DaemonToolbox {
         let conversation = call.context.conversation_id;
         facts.remotes = sandbox.remote_facts(conversation, &request.remotes).await;
         facts.refused_hosts = sandbox.proxy().refused_hosts(conversation, turn_began);
+        facts.variables = sandbox.shell_variables(conversation, &request.variables).await;
         // NOTE: a contained call reaches the forwarded ports of its conversation's jobs
         // on loopback (DS43); a line that checks a job that just started waits a moment
         // for its forward (DS44).

@@ -201,6 +201,12 @@ efr does not know which login a tool uses. The model names it in `needs`:
 | `keyring` | the Secret Service on the call's filtered session bus; the call can read every unlocked entry |
 | `hosts` | the host of the upload, when the proxy does not list it; port 22 gives the host's network, because the proxy carries no ssh |
 
+A path of `needs` may start with a variable, such as `$SSH_AUTH_SOCK` or
+`${XDG_RUNTIME_DIR}/app.sock`. The sandbox removes such variables, so the model cannot
+read them. efr fills in the value from the hidden shell, but only a value that is an
+absolute path, of a name that does not look like a secret. With no such value the path
+names nothing, and the model reads why.
+
 - Only you, or the reviewer when you asked for the action, approve a login. The
   question says what the grant opens.
 - A line that gets a login must be one command, as a line that runs outside the

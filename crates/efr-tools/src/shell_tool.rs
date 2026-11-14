@@ -262,8 +262,9 @@ const NEEDS_MEMBERS: &[(&str, &str)] = &[
     ),
     (
         "sockets",
-        "Unix sockets to connect to, such as a tool's own socket or the ssh agent's \
-         ($SSH_AUTH_SOCK).",
+        "Unix sockets to connect to, such as a tool's own socket, or the ssh agent's as \
+         $SSH_AUTH_SOCK. A path of needs may start with a variable of the user's shell, \
+         which the sandbox can hide; efr fills in its value.",
     ),
     (
         "bus",
@@ -572,7 +573,8 @@ impl Tool for ShellTool {
              in, such as git push, gh or a publish, runs in the sandbox: on the first call, \
              name in needs the login that it uses (unmask, sockets, env or keyring) and its \
              host when the proxy does not list it. git over ssh needs the ssh agent's \
-             socket or ~/.ssh, and the host on port 22. A command that runs outside the \
+             socket (name it as $SSH_AUTH_SOCK) or ~/.ssh, and the host on port 22. A \
+             command that runs outside the \
              sandbox, such as sudo, does not see exports or functions that sandboxed \
              commands made. Such a command, and a command that gets a login, must be alone \
              in its line apart from read-only helpers such as echo or tail. Write its \

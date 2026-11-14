@@ -220,7 +220,8 @@ fn shell_tool_auto_text_says_try_first() {
         "A command that logs in, such as git push, gh or a publish, runs in the sandbox: on \
          the first call, name in needs the login that it uses (unmask, sockets, env or \
          keyring)",
-        "git over ssh needs the ssh agent's socket or ~/.ssh, and the host on port 22",
+        "git over ssh needs the ssh agent's socket (name it as $SSH_AUTH_SOCK) or ~/.ssh, \
+         and the host on port 22",
         "A command that runs outside the sandbox, such as sudo, does not see exports or \
          functions that sandboxed commands made",
         "Such a command, and a command that gets a login, must be alone in its line apart \

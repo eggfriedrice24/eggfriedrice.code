@@ -234,6 +234,19 @@ pub(crate) struct JobInput<'a> {
     pub(crate) env: &'a [u8],
 }
 
+/// The variables of `names` in the `env` file bytes `env` (NUL-separated `NAME=value`
+/// entries) whose value is an absolute path, of a name that does not look like a
+/// secret ([`SandboxService::shell_variables`]).
+fn path_variables(env: &[u8], names: &[String]) -> Vec<(String, PathBuf)> {
+    env.split(|byte| *byte == 0)
+        .filter_map(|entry| std::str::from_utf8(entry).ok()?.split_once('='))
+        .filter(|(name, _)| names.iter().any(|wanted| wanted == name))
+        .filter(|(name, _)| !efr_sandbox::secret_like(name))
+        .map(|(name, value)| (name.to_owned(), PathBuf::from(value)))
+        .filter(|(_, value)| value.is_absolute())
+        .collect()
+}
+
 /// The bus views of a call ([`SandboxService::bus_views`]).
 struct BusViews {
     /// The launch without the views that efrd cannot serve, and with the keyring as
@@ -642,6 +655,31 @@ impl SandboxService {
         &self,
         conversation: ConversationId,
     ) -> Option<std::collections::BTreeMap<String, String>> {
+        self.shell_env_file(conversation)
+            .await
+            .map(|bytes| proxy::tokens::HelperFacts::gh_env(&bytes))
+    }
+
+    /// The values of the variables `names` in the conversation's hidden shell, from the
+    /// same `env` file as [`shell_gh_env`](Self::shell_gh_env), for a path of `needs`
+    /// that starts with one, such as `$SSH_AUTH_SOCK`, which the sandbox removes. Only a
+    /// value that is an absolute path, of a name that does not look like a secret: a
+    /// token must never become a path that a question, a record or the model shows.
+    pub(crate) async fn shell_variables(
+        &self,
+        conversation: ConversationId,
+        names: &[String],
+    ) -> Vec<(String, PathBuf)> {
+        if names.is_empty() {
+            return Vec::new();
+        }
+        let Some(bytes) = self.shell_env_file(conversation).await else { return Vec::new() };
+        path_variables(&bytes, names)
+    }
+
+    /// The bytes of the `env` file of the conversation's hidden shell, or before its
+    /// first prompt the newest one of any hidden shell ([`shell_gh_env`](Self::shell_gh_env)).
+    async fn shell_env_file(&self, conversation: ConversationId) -> Option<Vec<u8>> {
         let own = self.shell_dir(conversation).join(efr_sandbox::ENV_FILE);
         let shells = self.inner.dirs.runtime().join(plan::SHELL_DIR);
         tokio::task::spawn_blocking(move || {
@@ -663,7 +701,6 @@ impl SandboxService {
         .await
         .ok()
         .flatten()
-        .map(|bytes| proxy::tokens::HelperFacts::gh_env(&bytes))
     }
 
     /// The launcher's copy, `$R/bin/efr-sbx`, which starts every job.

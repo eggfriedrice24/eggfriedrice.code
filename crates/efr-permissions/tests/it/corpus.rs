@@ -360,6 +360,7 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
         reach_ports: Vec::new(),
+        variables: Vec::new(),
         ssh_sockets: Vec::new(),
     })
 }

@@ -35,6 +35,13 @@ impl<'a> Facts<'a> {
         }
     }
 
+    /// The value of the variable `name` in the hidden shell, when efrd gave one
+    /// ([`CallFacts::variables`]).
+    pub(crate) fn variable(&self, name: &str) -> Option<&'a Path> {
+        let facts: &'a CallFacts = self.facts;
+        facts.variables.iter().find(|(known, _)| known == name).map(|(_, value)| value.as_path())
+    }
+
     /// [`CallFacts::target`]: what `path` is, `Some(None)` when it does not exist, or
     /// `None` when no fact says.
     pub(crate) fn target(&self, path: &Path) -> Option<Option<TargetKind>> {

@@ -18,6 +18,9 @@ into the GitHub release notes, and it stops when the section is missing.
   (`needs.sockets`), a token variable (the new `needs.env`) or the keyring (the new
   `needs.keyring`). The reviewer allows a login only when you asked for the action.
   Before, the whole line ran outside the sandbox with all your rights.
+- A path in `needs` may start with a variable of your shell, such as `$SSH_AUTH_SOCK`,
+  which the sandbox hides from the model. efr fills in its value, but only a value that
+  is an absolute path, of a name that does not look like a secret.
 - A line that gets a login must be one command, as a line that runs outside the
   sandbox. efr refuses `just check && git push` with a login, with no question, and
   the model splits it.

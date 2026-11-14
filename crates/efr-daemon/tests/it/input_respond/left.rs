@@ -65,6 +65,13 @@ impl Place {
         json!({ "command": line, "timeout_seconds": TIMEOUT })
     }
 
+    /// [`call`](Self::call), run outside the sandbox at the model's request: since
+    /// phase 3 an upload such as `scp` runs in the sandbox, so only `needs.outside` puts
+    /// it in the exit child, where a program may ask for a password.
+    fn call_outside(line: &str) -> serde_json::Value {
+        json!({ "command": line, "timeout_seconds": TIMEOUT, "needs": { "outside": true } })
+    }
+
     /// A daemon over a real zsh in this tree.
     fn builder(&self) -> TestDaemonBuilder {
         TestDaemon::builder().local_pty().dirs(Arc::clone(&self.dirs)).persistent()
@@ -513,7 +520,7 @@ async fn shell_reviewer_approved_orphan_wait_is_stopped_with_a_notice() {
     let place = Place::new();
     // An upload that may ask for a password, of a fake scp; the reviewer allows it.
     let line = place.fake_scp(GETPASS);
-    let daemon = place.auto_daemon(Place::call(line)).await;
+    let daemon = place.auto_daemon(Place::call_outside(line)).await;
     let sender = daemon.client_for_tty(TTY).await.unwrap();
     let watcher = daemon.client().await.unwrap();
     let (conversation_id, mut stream) =
@@ -729,7 +736,7 @@ async fn shell_reviewed_exit_with_may_prompt_gets_the_limit() {
     // client that can answer follows, the call runs past its timeout, also with no
     // wait.
     let line = place.fake_scp("echo efr-after");
-    let daemon = place.auto_daemon(Place::call(line)).await;
+    let daemon = place.auto_daemon(Place::call_outside(line)).await;
     let client = daemon.client_for_tty(TTY).await.unwrap();
     let (conversation_id, mut stream) =
         start(&daemon, &client, &client, Some(Mode::Auto), true).await;
