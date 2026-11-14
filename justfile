@@ -97,7 +97,7 @@ eval-reviewer:
     set -euo pipefail
     export EFR_EVAL_CASES="${EFR_EVAL_CASES:-$PWD/research/auto-direction/eval/cases.json}"
     export EFR_EVAL_OUT="${EFR_EVAL_OUT:-${EFR_EVAL_CASES%.json}.out.jsonl}"
-    cargo nextest run -p efr-daemon --run-ignored only --success-output immediate \
+    cargo nextest run -p efr-daemon --run-ignored only --no-capture \
         -E 'test(/reviewer_live_eval/)'
 
 # The search benches in release, one at a time: the ignored `bench_search_*` tests of

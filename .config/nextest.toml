@@ -43,6 +43,12 @@ filter = 'test(/bench_search_/)'
 test-group = "search-bench"
 slow-timeout = { period = "60s", terminate-after = 10 }
 
+# The live reviewer eval (`just eval-reviewer`) waits for about a hundred reviews of a
+# real model, one after another.
+[[profile.default.overrides]]
+filter = 'test(/reviewer_live_eval/)'
+slow-timeout = { period = "60s", terminate-after = 30 }
+
 # The perf benches (`just bench-perf`) measure times: they run one at a time, and a
 # bench that builds a long conversation, a big fixture or its corpus file for the first
 # time needs more than the default minute.

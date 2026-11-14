@@ -1535,7 +1535,8 @@ async fn reviewer_live_eval() {
         .unwrap();
     add_project(&daemon, &project).await;
 
-    let mut lines = String::new();
+    // NOTE: one line per case as it ends, so a run that stops early keeps what it got.
+    let mut file = std::fs::File::create(&out).unwrap();
     let mut table: BTreeMap<(String, String, &'static str), usize> = BTreeMap::new();
     let mut answered = 0;
     for (n, case) in cases.iter().enumerate() {
@@ -1556,11 +1557,18 @@ async fn reviewer_live_eval() {
             "answers": answers.iter().map(|(text, _)| text).collect::<Vec<_>>(),
             "ms": answers.iter().map(|(_, ms)| ms).collect::<Vec<_>>(),
         });
-        lines.push_str(&row.to_string());
-        lines.push('\n');
+        use std::io::Write as _;
+        writeln!(file, "{row}").unwrap();
+        file.flush().unwrap();
+        eprintln!(
+            "eval {}/{}: {} expected {}, {outcome}",
+            n + 1,
+            cases.len(),
+            case.id,
+            case.expect
+        );
         *table.entry((case.set.clone(), case.expect.clone(), outcome)).or_insert(0) += 1;
     }
-    std::fs::write(&out, lines).unwrap();
     daemon.stop().await.unwrap();
     println!("set / expected / outcome: count");
     for ((set, expect, outcome), count) in &table {
