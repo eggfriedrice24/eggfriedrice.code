@@ -34,6 +34,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - gh, `gem push`, `twine upload`, `scp` and `rsync` are no longer uploads by their
   verb: the grant of their login is the exit. `git push`, curl and wget uploads and a
   publish stay uploads.
+- The reviewer no longer reads a question as a request for an action: "did the build
+  ship?" allows no push. A live eval of the reviewer with real lines from daily use
+  found this case (`just eval-reviewer`).
 - A line that the model asks to run outside the sandbox (`needs.outside`) now gets the
   strict review, and the question says that it runs the code that it starts with all
   your rights.
