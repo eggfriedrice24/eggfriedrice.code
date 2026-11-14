@@ -14,6 +14,11 @@ const PLAN = "openai-subscription";
 const PLAN_B = "openai-subscription.b";
 const LIVE = { newest: true, now: NOW, choice: undefined };
 
+/** The reason of a turn on `provider` whose account reached a limit of kind `kind`. */
+function reasonOf(kind: AccountOut["reached"]["kind"], provider = "anthropic-api"): string {
+  return accountOutReason({ provider, model: "m", reached: { kind } }, NOW);
+}
+
 /** AC-Out 1: the ChatGPT plan at its usage limit, b ready. */
 const ONE: AccountOut = {
   provider: PLAN,
@@ -143,11 +148,9 @@ describe("the end of a turn whose account is out", () => {
   });
 
   it("names each other limit in the words of the terminal", () => {
-    const reason = (kind: AccountOut["reached"]["kind"], provider = "anthropic-api"): string =>
-      accountOutReason({ provider, model: "m", reached: { kind } }, NOW);
-    expect(reason("credit")).toBe("the Claude API key has no credit left");
-    expect(reason("spend_limit")).toBe("the Claude API key reached its spend limit");
-    expect(reason("tokens", "openai-api.ci")).toBe("ci reached its rate limit");
-    expect(reason("unknown", "other-kind")).toBe("the account other-kind reached a limit");
+    expect(reasonOf("credit")).toBe("the Claude API key has no credit left");
+    expect(reasonOf("spend_limit")).toBe("the Claude API key reached its spend limit");
+    expect(reasonOf("tokens", "openai-api.ci")).toBe("ci reached its rate limit");
+    expect(reasonOf("unknown", "other-kind")).toBe("the account other-kind reached a limit");
   });
 });
