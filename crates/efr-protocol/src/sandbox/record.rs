@@ -60,9 +60,11 @@ pub struct ActionFacts {
     /// the new strings, or the hunks of that file. For a named persistence form of a
     /// shell line that installs another file, such as a link into a unit dir: the path
     /// and the text of that file, which efrd read outside every write root. At most
-    /// [`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES); the user decides a longer payload. The
-    /// model or the files it chose wrote it, so it can hold attacker text, as `line`
-    /// can.
+    /// [`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES): of a longer payload the record holds
+    /// the start and a note at the cut, and no reviewer judges it. While the reviewer
+    /// decides alone, such a call does not run; with the reviewer off, the user decides
+    /// it. The model or the files it chose wrote it, so it can hold attacker text, as
+    /// `line` can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit: Option<String>,
     /// True when the call starts a background job: its grants then last for the whole

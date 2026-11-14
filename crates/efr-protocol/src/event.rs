@@ -685,8 +685,9 @@ pub enum Event {
         kinds: Vec<ExitKind>,
     },
 
-    /// The classifier stopped for the rest of the turn after too many denials: each
-    /// later exit asks the user, or stops the turn while the user is away.
+    /// The classifier stopped for the rest of the turn after too many denials (ADR
+    /// 0023): the model can finish the work that stays in the sandbox, and its next
+    /// exit stops the turn with an error, also one that the user asked for.
     ClassifierPaused {
         /// The turn.
         turn_id: TurnId,

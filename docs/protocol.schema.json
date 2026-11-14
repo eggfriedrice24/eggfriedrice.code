@@ -12,7 +12,7 @@
           "type": "string"
         },
         "edit": {
-          "description": "The payload of a `write_file`, `edit` or `apply_patch` call that edits a floor\nfile, which efr copies to its home store first: the new content, the old and\nthe new strings, or the hunks of that file. For a named persistence form of a\nshell line that installs another file, such as a link into a unit dir: the path\nand the text of that file, which efrd read outside every write root. At most\n[`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES); the user decides a longer payload. The\nmodel or the files it chose wrote it, so it can hold attacker text, as `line`\ncan.",
+          "description": "The payload of a `write_file`, `edit` or `apply_patch` call that edits a floor\nfile, which efr copies to its home store first: the new content, the old and\nthe new strings, or the hunks of that file. For a named persistence form of a\nshell line that installs another file, such as a link into a unit dir: the path\nand the text of that file, which efrd read outside every write root. At most\n[`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES): of a longer payload the record holds\nthe start and a note at the cut, and no reviewer judges it. While the reviewer\ndecides alone, such a call does not run; with the reviewer off, the user decides\nit. The model or the files it chose wrote it, so it can hold attacker text, as\n`line` can.",
           "type": [
             "string",
             "null"
@@ -5394,7 +5394,7 @@
           "type": "object"
         },
         {
-          "description": "The classifier stopped for the rest of the turn after too many denials: each\nlater exit asks the user, or stops the turn while the user is away.",
+          "description": "The classifier stopped for the rest of the turn after too many denials (ADR\n0023): the model can finish the work that stays in the sandbox, and its next\nexit stops the turn with an error, also one that the user asked for.",
           "properties": {
             "denials": {
               "description": "The denials that the limit counted: in a row, or in the turn.",
