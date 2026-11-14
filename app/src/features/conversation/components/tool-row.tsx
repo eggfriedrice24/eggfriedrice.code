@@ -6,7 +6,7 @@ import { useSelector } from "@tanstack/react-store";
 
 import type { ReviewerPause, StreamState } from "@/lib/stream/reducer";
 import { approvalCall, shortTimeLeft } from "../model/approval-strip";
-import { exitNote, stoppedByPause } from "../model/exit-words";
+import { exitNote, stoppedByPause, surfaceLines } from "../model/exit-words";
 import { rowFlag } from "../model/row-ui-state";
 import {
   compareShallow,
@@ -28,6 +28,10 @@ function selectPause(turnId: string): (state: StreamState) => ReviewerPause | un
   return (state) => state.turns.get(turnId)?.pause;
 }
 
+function selectCwd(turnId: string): (state: StreamState) => string | undefined {
+  return (state) => state.turns.get(turnId)?.cwd;
+}
+
 export interface ToolRowProps {
   readonly rowKey: string;
   readonly turnId: string;
@@ -45,6 +49,7 @@ export function ToolRow(props: ToolRowProps) {
   const expiresAt = useSelector(scope.store, selectToolExpiry(props.turnId, props.callId));
   const left = shortTimeLeft(useExpiryLabel(expiresAt));
   const pause = useSelector(scope.store, selectPause(props.turnId));
+  const cwd = useSelector(scope.store, selectCwd(props.turnId));
   const expanded = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "expanded"));
   const allHunks = useSelector(scope.rowUi.store, rowFlag(props.rowKey, "all_hunks"));
   if (call === undefined) {
@@ -81,6 +86,7 @@ export function ToolRow(props: ToolRowProps) {
       onOpenApproval={() => scope.actions.openApproval(callId)}
       note={note}
       stopped={stopped}
+      surface={call.surface === undefined ? undefined : surfaceLines(call.surface, cwd)}
     />
   );
 }

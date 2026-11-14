@@ -267,6 +267,14 @@ the same words as the terminal:
   efr's own rules refused it. The call did not run, and the model goes on.
 - "did not run" and `reviewer: no answer ...` when no reviewer model answered.
 
+When a command changes git settings or another file that runs programs, efr moves the
+dangerous ones to quarantine, where nothing reads them. With the reviewer on (the
+default), nothing asks you: the card of the command has one quiet line for each file,
+such as `.git/config (core.fsmonitor); moved to quarantine` or
+`.envrc (a new agent or editor config); left in place`. With the reviewer off, efr asks
+whether to keep the changes. The phone cannot answer that question yet: answer it in
+the terminal.
+
 After 3 refused actions in a row, or 10 in a turn, one quiet line says that the reviewer
 paused for this turn. A pause asks nothing. The next action that needs the reviewer
 does not run, and the turn stops with "auto stopped this turn". Send a new prompt that

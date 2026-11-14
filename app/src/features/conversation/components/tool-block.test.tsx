@@ -145,6 +145,58 @@ describe("a tool block whose approval waits", () => {
   });
 });
 
+describe("a tool block in auto", () => {
+  it("shows reviewing with the loader, and the line of what the call asks for", async () => {
+    await render(
+      <ToolBlockView
+        call={call({
+          exit: {
+            kinds: ["host"],
+            grants: [{ kind: "host", host: "api.github.com", port: 443 }],
+            line: "gh pr create",
+            background: false,
+            hosts: ["api.github.com"],
+            targets: [],
+            programs: [],
+            outside: [],
+            uploads: [],
+            reviewing: true,
+            judged: undefined,
+            saved: undefined,
+          },
+        })}
+        turnEnded={false}
+        expanded={false}
+        onToggle={jest.fn()}
+        note={{ text: "api.github.com:443 reachable", tone: "text_subtle", loud: false }}
+      />,
+    );
+    expect(screen.getByText("reviewing")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Reviewing", HIDDEN)).toBeOnTheScreen();
+    expect(screen.getByTestId("exit-note")).toHaveTextContent("api.github.com:443 reachable");
+  });
+
+  it("lists the files that run code which the call changed, one quiet line each", async () => {
+    await render(
+      <ToolBlockView
+        call={call({ done: true, exitCode: 0, endedAt: NOW + 1_400 })}
+        turnEnded={false}
+        expanded={false}
+        onToggle={jest.fn()}
+        surface={[
+          ".git/config (core.fsmonitor); moved to quarantine",
+          ".envrc (a new agent or editor config); left in place",
+        ]}
+      />,
+    );
+    expect(screen.getByText(".git/config (core.fsmonitor); moved to quarantine")).toBeOnTheScreen();
+    expect(
+      screen.getByText(".envrc (a new agent or editor config); left in place"),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText("waiting for approval")).toBeNull();
+  });
+});
+
 describe("a running tool block", () => {
   it("shows the verb, the command and the yolk loader", async () => {
     await render(

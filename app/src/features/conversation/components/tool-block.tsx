@@ -16,6 +16,9 @@
 //   opens the approval sheet; it never opens by itself. After the answer only the status
 //   word changes: "allowed", then the usual loader, or "denied" or "expired" with the
 //   command in text_muted. Who answered and when are for VoiceOver.
+// - In auto, a quiet mono line under the header gives the verdict on the exit of the
+//   call and what it got (AU-Auto), and one line per changed file that runs code says
+//   whether it moved to quarantine or stayed in place (Q-Quarantine 7).
 // - The writing block shows a tool input that the model still writes: "writing patch",
 //   the braille cell and the size that grows.
 
@@ -63,6 +66,8 @@ export interface ToolBlockViewProps {
   readonly note?: ExitNote | undefined;
   /** True when the pause of the reviewer stopped the turn at this call. */
   readonly stopped?: boolean | undefined;
+  /** The quiet lines of the files that run code which the call changed (quarantine). */
+  readonly surface?: readonly string[] | undefined;
 }
 
 /** A tool block. */
@@ -139,6 +144,15 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             <StatusMark status={status} />
           </Pressable>
           {note === undefined ? null : <ExitLine note={note} />}
+          {props.surface === undefined || props.surface.length === 0 ? null : (
+            <View testID="surface-lines" className="-mt-4 px-12 pb-9">
+              {props.surface.map((line) => (
+                <Text key={line} className="text-mono-xs text-text-subtle">
+                  {line}
+                </Text>
+              ))}
+            </View>
+          )}
           {output.lines.length > 0 ? (
             <>
               <Hairline />

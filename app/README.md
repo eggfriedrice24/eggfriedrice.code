@@ -27,6 +27,9 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   the words of the terminal (`src/features/conversation/model/exit-words.ts`), and what
   the call got on the same line. The pause of the reviewer is one quiet line, and asks
   nothing.
+- Quarantine with the reviewer on (Q-Quarantine 7): one quiet line per changed file
+  that runs code on the card of its call, "moved to quarantine" or "left in place". The
+  question of the reviewer off (`surface_question_requested`) has no view yet.
 - The app pairs with more than one machine and connects to all of them at the same time.
   The route of a conversation names its machine (`/c/<daemon id>/<conversation id>`).
 - Done and tested on Linux: the protocol types and their zod schemas, the WebSocket

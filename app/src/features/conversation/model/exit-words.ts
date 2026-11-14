@@ -13,8 +13,10 @@
 // - No reviewer model answered: `reviewer: no answer (skipped <model>: <why>); nothing ran`.
 // - The pause of the reviewer is one quiet line of its turn. It asks nothing; the next
 //   action that needs the reviewer stops the turn (errata 6).
+// - A change to a git setting or another file that runs code is one quiet line of the
+//   card of its call: moved to quarantine, or left in place (Q-Quarantine 7).
 
-import type { Grant, PauseReason, Risk } from "@/lib/protocol/generated";
+import type { Grant, PauseReason, Risk, SurfaceChange } from "@/lib/protocol/generated";
 import type {
   ExitCallView,
   ExitVerdictView,
@@ -342,6 +344,58 @@ export function reviewerRow(verdict: string, rationale: string): string {
         : "unsure";
   const why = oneLine(rationale).trim();
   return why === "" ? `reviewer: ${opinion}` : `reviewer: ${opinion}; ${why}`;
+}
+
+/**
+ * What a change to a git setting or another file that runs code does, as efr names it
+ * (`SurfaceChange::what` of efr-protocol): the code key it sets, else its rule in words.
+ */
+export function surfaceWhat(change: SurfaceChange): string {
+  if (change.key !== undefined && change.key !== null) {
+    return change.key;
+  }
+  return SURFACE_RULES[change.rule] ?? change.rule.replace(/_/g, " ");
+}
+
+const SURFACE_RULES: Readonly<Record<string, string>> = {
+  commondir_in_main_git_dir: "a commondir that points git at another config",
+  config_worktree_appeared: "a new config.worktree",
+  worktree_config_worktree_appeared: "a new config.worktree",
+  worktree_commondir_elsewhere: "a commondir that points away from its main git dir",
+  config_code_key: "a key that runs a program",
+  config_unreadable: "a config that git cannot read",
+  commondir_outside_repo: "a commondir that points outside the repository",
+  hook_planted: "a new hook",
+  module_code_key: "a submodule key that runs a program",
+  module_hook: "a new submodule hook",
+  module_link: "a link to a submodule git dir that efr cannot pin",
+  modules_too_deep: "submodule git dirs deeper than efr checks",
+  alternates_changed: "git objects from another place",
+  protected_name_created: "a new agent or editor config",
+};
+
+/**
+ * The quiet lines of the changes that a call made to files that run code (Q-Quarantine
+ * 7, the reviewer on): one per change, `.git/config (core.fsmonitor); moved to
+ * quarantine` or `.envrc (a new agent or editor config); left in place`. A path in the
+ * working directory `cwd` of the turn is relative to it.
+ */
+export function surfaceLines(changes: readonly SurfaceChange[], cwd: string | undefined): string[] {
+  return changes.map((change) => {
+    const where = change.quarantined ? "moved to quarantine" : "left in place";
+    return `${placeOf(change.path, cwd)} (${oneLine(surfaceWhat(change))}); ${where}`;
+  });
+}
+
+/** `path` relative to `cwd` when it lies in it, else with `~` for the home directory. */
+function placeOf(path: string, cwd: string | undefined): string {
+  if (cwd !== undefined && cwd !== "") {
+    const root = cwd.endsWith("/") ? cwd : `${cwd}/`;
+    if (path.startsWith(root) && path.length > root.length) {
+      return path.slice(root.length);
+    }
+  }
+  return shortPath(path);
 }
 
 /** `text` on one line: each run of white space, a line break too, is one space. */

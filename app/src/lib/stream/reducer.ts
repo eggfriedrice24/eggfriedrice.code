@@ -23,7 +23,9 @@
 // - The exit of a call (auto mode, ADR 0023) goes on its tool call: `exit_requested`
 //   gives what it needs and gets, `exit_review_started` that the reviewer judges it,
 //   `exit_judged` the verdict and `always_rule_saved` the rule of an "always" answer. A
-//   `classifier_paused` is a part of its turn: the reviewer stopped for the turn.
+//   `classifier_paused` is a part of its turn: the reviewer stopped for the turn. The git
+//   settings and other files that run code which a call changed
+//   (`sandbox_surface_changed`) go on its tool call too.
 // - The parts of a turn (messages, tool calls, approvals, steers) keep the order of
 //   their first sight.
 // - The first answer to an approval wins, from any client. A question that is open when
@@ -48,6 +50,7 @@ import type {
   PauseReason,
   Risk,
   StopReason,
+  SurfaceChange,
   Usage,
   Verdict,
   WebAction,
@@ -109,6 +112,8 @@ export interface ToolCallView {
   readonly web?: WebStepView;
   /** The exit of the sandbox that the call needs, and how efr judged it (auto). */
   readonly exit?: ExitCallView;
+  /** The git settings and other files that run code which the call changed (auto). */
+  readonly surface?: readonly SurfaceChange[];
 }
 
 /** The exit of a tool call: what it needs beyond the sandbox, and the verdict. */
@@ -657,6 +662,13 @@ function applyEventBody(
         updateTool(turn, event.call_id, (call) => ({
           ...call,
           exit: { ...(call.exit ?? exitOf([])), saved: event.outcome },
+        })),
+      );
+    case "sandbox_surface_changed":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) => ({
+          ...call,
+          surface: [...(call.surface ?? []), ...event.changes],
         })),
       );
     case "classifier_paused":
