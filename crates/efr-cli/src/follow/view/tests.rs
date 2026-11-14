@@ -1899,7 +1899,7 @@ fn a_network_exit_question_runs_in_the_sandbox_with_full_network() {
     let (_, err, _) = feed(&mut view, &exit_events("npm ci", ExitFacts::default(), info), true);
     assert_eq!(
         err,
-        " ?  allow full network for this call
+        " ?  allow host network for this call
     npm ci
     why  network
     y allow   n deny
@@ -1958,7 +1958,7 @@ fn an_exit_without_its_record_keeps_the_summary() {
     let (_, err, _) = feed(&mut view, &[approval], false);
     assert!(
         err.starts_with(
-            " ?  allow full network for this call\n    run `npm ci`\n    why  network\n"
+            " ?  allow host network for this call\n    run `npm ci`\n    why  network\n"
         ),
         "{err}"
     );
@@ -1982,7 +1982,7 @@ fn an_exit_without_its_record_says_why_once() {
     let (_, err, _) = feed(&mut view, &[contained_started("npm ci"), approval], false);
     assert_eq!(
         err,
-        " ?  allow full network for this call\n    npm ci\n    why  network\n    \
+        " ?  allow host network for this call\n    npm ci\n    why  network\n    \
              waiting for another client to answer\n"
     );
 }

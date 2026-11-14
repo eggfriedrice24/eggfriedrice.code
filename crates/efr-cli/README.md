@@ -717,11 +717,17 @@ Replies:
   call in the sandbox never gets it. Every part passes through `format::one_line`, and
   each line of a command through `format::command_line`, so a control or format
   character shows as a stand-in.
-- The reviewer of `auto` (an `exit_judged` with the judge `classifier`). An allow is
-  one muted line, `reviewer allowed: write ~/.local/share/app for this call (low risk;
-  you asked to run the generator)`, and a refusal one muted line, `reviewer refused:
-  <line>: <rationale>`; the call's rows follow either at once, as they follow an
-  answer, and a refused call has no result. The deletes of a tool cache count their
+- The reviewer of `auto` (an `exit_judged` with the judge `classifier`; TM-Calls 22
+  to 30, errata 1 and 9, `format::sandbox::judged_row`). An allow is one muted line,
+  `reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run
+  the generator): ~/.local/share/app writable`: what the call got stands on the same
+  line after `: `, apart by `, `, and `host network` (the call has no network
+  namespace) in `warning`. A refusal is one muted row after `!` in `warning` (bold in
+  NO_COLOR): `! reviewer refused: <line>: <rationale>`; with no answer of any model of
+  the chain (no risk) `! reviewer: no answer (skipped gpt-6-luna: timeout): <line> did
+  not run`; and a refusal of efr's own floor (judge `floor`) `! efr: write
+  ~/.ssh/config`, with `: <text>` only when efrd sends one. The call's rows follow
+  each at once, as they follow an answer, and a refused call has no result. The deletes of a tool cache count their
   paths: `reviewer allowed: delete 12 paths in ~/.cache/go-build for this call`. For
   a background job the line ends with `for the whole job`, because the grants stay
   open until the job ends. An unsure verdict gets no line: the card of the question that follows has the muted row
@@ -729,9 +735,10 @@ Replies:
   verdict. The rationale is the reviewer model's text, so it passes through
   `format::one_line`. A verdict from the turn's cache has no `exit_review_started`, so
   the status row never says `reviewing` for it.
-- When the reviewer stops for the rest of a turn (`classifier_paused`), one muted note
-  says so: `reviewer paused for this turn: it refused 3 actions in a row; efr asks you
-  for the rest`, or `it refused 10 actions` for the limit of the turn. When efrd deleted
+- When the reviewer stops for the rest of a turn (`classifier_paused`), one muted row
+  after `!` in `warning` says so: `! reviewer paused for this turn: 3 actions in a row
+  were refused; the next action that needs it stops the turn`, or `10 actions of this
+  turn were refused` for the limit of the turn. When efrd deleted
   in the real tool caches what a call deleted in its private layer
   (`cache_delete_applied`), one muted note says what that freed: `freed 1.2 GB in
   ~/.cache/go-build (12 paths)`, with the dir that holds every path. Both show whole,
@@ -1024,7 +1031,8 @@ is read-only; the command ran once`, or, when efrd wrote the rule but did not re
 file again in time, that a later command can ask once more. When stdout is not a
 terminal, the answer line `✓ allowed always` comes first, then one line of the rule,
 and the first rows of the call wait for that line. A call that an always rule covers asks nothing: one dim line,
-`allowed by your rule sandbox.allow[2]: write under ~/notes`, comes before its rows, as
+`allowed by your rule sandbox.allow[2]: write under ~/notes: ~/notes writable` (what the
+call got after `: `, as for an allow of the reviewer), comes before its rows, as
 a reviewer's allow does, and `efr history` shows the same line.
 
 Answers to a running command work the same way. `conversation.subscribe` sends

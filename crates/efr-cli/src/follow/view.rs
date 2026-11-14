@@ -1677,9 +1677,28 @@ impl TurnView {
                 rationale,
                 ..
             } => {
-                let line = format::always::covered(category.as_deref(), rationale.as_deref());
-                self.covered(*call_id, &line, size)
+                let judged = sandbox::Judged {
+                    judge: JudgeKind::Always,
+                    verdict: Verdict::Allow,
+                    risk: None,
+                    category: category.as_deref(),
+                    rationale: rationale.as_deref(),
+                    skipped: &[],
+                };
+                let exit = self.exits.get(call_id);
+                let glyphs = self.options.glyphs();
+                let row = sandbox::judged_row(&judged, exit, self.home.as_deref(), glyphs)
+                    .unwrap_or_default();
+                self.covered(*call_id, &row, size)
             }
+            // NOTE: efr's own floor refused the exit before any review (TM-Calls 25).
+            Event::ExitJudged {
+                call_id,
+                judge: JudgeKind::Floor,
+                verdict: Verdict::Deny,
+                rationale,
+                ..
+            } => self.floor_refused(*call_id, rationale.as_deref(), size),
             // NOTE: full mode lets an exit through with no review and no question; the
             // end of the turn lists what it let through, once.
             Event::ExitJudged {
@@ -1771,7 +1790,8 @@ impl TurnView {
                 Step::default()
             }
             Event::ClassifierPaused { reason, denials, .. } => {
-                self.whole_note(&sandbox::paused(*reason, *denials), size)
+                let row = sandbox::paused_row(*reason, *denials, self.options.glyphs());
+                self.rendered_after(String::new(), |options| piece_rows(&row, options), size)
             }
             Event::JobStarted { call_id, job, .. } => {
                 if job.moved_from.is_some() {
@@ -2733,10 +2753,14 @@ fn echo_edit(shown: &str, text: &str) -> String {
 /// than the screen goes on in the next one, indented [`GOES_ON`] columns more, so a long
 /// line of efr's own never wraps where the terminal chooses.
 fn rows(text: &str, tone: Tone, options: &RenderOptions) -> String {
-    let pieces = [(text.to_owned(), tone)];
+    piece_rows(&[(text.to_owned(), tone)], options)
+}
+
+/// [`rows`] of `pieces`, each in its own tone.
+fn piece_rows(pieces: &[(String, Tone)], options: &RenderOptions) -> String {
     let rows = match format::columns(options) {
         Some((width, method)) => {
-            format::wrap_spans(&pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
+            format::wrap_spans(pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
         }
         None => vec![pieces.to_vec()],
     };

@@ -517,7 +517,8 @@ model, an error, a timeout or an answer that does not fit goes to the next step,
 never allows. When no step answers, the action does not run, and after 3 such reviews
 in a row the turn stops. The `[classifier]` keys turn the reviewer off, choose the model, the
 effort and the timeout. While it works, the status row shows `reviewing: <command>`,
-and its answer shows as one line, `reviewer allowed: ...` or `reviewer refused: ...`.
+and its answer shows as one line, `reviewer allowed: ...` with what the call gets, or
+`! reviewer refused: ...`.
 
 After 3 refusals in a row, or 10 in one turn, the reviewer pauses for the rest of the
 turn. The model can finish the work that stays in the sandbox, and its next exit stops

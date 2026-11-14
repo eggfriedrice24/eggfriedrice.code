@@ -4,7 +4,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 ---
 === 40 columns, colour
 [asked]
-\e[1;7;33m ? \e[0m \e[1;33mallow full network for this call\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow host network for this call\e[0m
     curl -LO https://example.com/tool.t\e[2m↩\e[0m
     ar.gz
     \e[2mwhy\e[0m  network
@@ -21,7 +21,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 40 columns, NO_COLOR
 [asked]
-\e[1m ? \e[0m \e[1mallow full network for this call\e[0m
+\e[1m ? \e[0m \e[1mallow host network for this call\e[0m
     curl -LO https://example.com/tool.t\e[2m↩\e[0m
     ar.gz
     \e[2mwhy\e[0m  network
@@ -38,7 +38,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 80 columns, colour
 [asked]
-\e[1;7;33m ? \e[0m \e[1;33mallow full network for this call\e[0m
+\e[1;7;33m ? \e[0m \e[1;33mallow host network for this call\e[0m
     curl -LO https://example.com/tool.tar.gz
     \e[2mwhy\e[0m  network
     \e[2mreviewer: unsure; no message of yours names this host\e[0m
@@ -52,7 +52,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 
 === 80 columns, NO_COLOR
 [asked]
-\e[1m ? \e[0m \e[1mallow full network for this call\e[0m
+\e[1m ? \e[0m \e[1mallow host network for this call\e[0m
     curl -LO https://example.com/tool.tar.gz
     \e[2mwhy\e[0m  network
     \e[2mreviewer: unsure; no message of yours names this host\e[0m
@@ -68,7 +68,7 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\
 [asked]
 stdout:
 stderr:
- ?  allow full network for this call
+ ?  allow host network for this call
     curl -LO https://example.com/tool.tar.gz
     why  network
     reviewer: unsure; no message of yours names this host
@@ -77,7 +77,7 @@ stderr:
 [end]
 stdout:
 stderr:
- ?  allow full network for this call
+ ?  allow host network for this call
     curl -LO https://example.com/tool.tar.gz
     why  network
     reviewer: unsure; no message of yours names this host

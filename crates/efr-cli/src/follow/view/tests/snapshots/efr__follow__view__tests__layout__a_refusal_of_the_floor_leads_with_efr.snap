@@ -1,0 +1,77 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "format!(\"### with a text\\n{}\\n### with none\\n{}\",\nevery_way(&events(Some(\"auto never writes under ~/.ssh\"))),\nevery_way(&events(None)))"
+---
+### with a text
+=== 40 columns, colour
+[end]
+\e[33m!\e[0m \e[2mefr: write ~/.ssh/config: auto never\e[0m
+  \e[2mwrites under ~/.ssh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m!\e[0m \e[2mefr: write ~/.ssh/config: auto never\e[0m
+  \e[2mwrites under ~/.ssh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m!\e[0m \e[2mefr: write ~/.ssh/config: auto never writes under ~/.ssh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m!\e[0m \e[2mefr: write ~/.ssh/config: auto never writes under ~/.ssh\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+! efr: write ~/.ssh/config: auto never writes under ~/.ssh
+· $ echo x >> ~/.ssh/config  did not run
+
+### with none
+=== 40 columns, colour
+[end]
+\e[33m!\e[0m \e[2mefr: write ~/.ssh/config\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m!\e[0m \e[2mefr: write ~/.ssh/config\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[end]
+\e[33m!\e[0m \e[2mefr: write ~/.ssh/config\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m!\e[0m \e[2mefr: write ~/.ssh/config\e[0m
+\e[2m·\e[0m \e[2m$\e[0m \e[2mecho x >> ~/.ssh/config\e[0m  \e[2mdid not run\e[0m
+
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+! efr: write ~/.ssh/config
+· $ echo x >> ~/.ssh/config  did not run

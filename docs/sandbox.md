@@ -555,8 +555,8 @@ after the proxy refused it.
 
 The reviewer is the small model of your provider (`classifier.model` picks another),
 then the turn's model at a low effort (`classifier.fallback_to_turn_model`). When
-neither answers, the action does not run: `reviewer refused: <command>: no reviewer
-model answered (...)`, with the step that failed and why. A model that is missing or
+neither answers, the action does not run: `! reviewer: no answer (skipped gpt-6-luna:
+timeout): <command> did not run`, with the step that failed and why. A model that is missing or
 refuses is skipped for the rest of the conversation; a timeout
 (`classifier.timeout_secs`, 20 s for each step) is tried again at the next exit. An
 error never allows and never counts as a refusal. After 3 reviews in a row with no
@@ -565,24 +565,29 @@ provider. Within a turn, the same exit gets the same verdict without a second re
 
 ```
 reviewing: ./scripts/gen.sh                                (status row)
-reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
-· $ ./scripts/gen.sh
-  ✓ 1.4s
+reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator):
+  ~/.local/share/app writable
+✓ $ ./scripts/gen.sh  1.4s
 ```
 
 - While it works, the status row shows `reviewing: <command>`.
-- An allow or a refusal is one dim line before the call. A refused call does not run.
-  The model reads the reason, must not work around it, and tells you what it wanted to
-  do. To get the action, ask for it in your next message.
-- When a rule of efr refused the reviewer's allow, the line says which: `reviewer
+- An allow is one dim line before the call. What the call gets stands on the same line
+  after a colon, such as `github.com:443 reachable, the variable GH_TOKEN`. `host
+  network`, the whole network of your computer, is in the warning colour.
+- A refusal is one dim line with a `!` before it. A refused call does not run. The
+  model reads the reason, must not work around it, and tells you what it wanted to do.
+  To get the action, ask for it in your next message.
+- When a rule of efr refused the reviewer's allow, the line says which: `! reviewer
   refused: <command>: no message of yours asks for this clearly (...)`.
+- A refusal of efr's own floor leads with `efr:`, such as `! efr: write
+  ~/.ssh/config`.
 - An action that runs only by name shows the words that name it: `refused: no message
   of yours names this action; a message names it with: publish`.
 - The reason is the reviewer model's text. efr shows it safely, as it shows every text
   of a model.
 - After 3 refusals in a row, or 10 in one turn, the reviewer pauses for the rest of
-  the turn: `reviewer paused for this turn: it refused 3 actions in a row; the next
-  action that needs it stops the turn`. The model can still finish the work that stays
+  the turn: `! reviewer paused for this turn: 3 actions in a row were refused; the
+  next action that needs it stops the turn`. The model can still finish the work that stays
   in the sandbox. Its next exit stops the turn: `auto stopped this turn: 3 actions in a
   row were refused. Read the answers, then send a new prompt that names what you
   want.` An allow starts the count in a row again.
@@ -637,7 +642,7 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 ```
 
 ```
-? allow full network for this call
+? allow host network for this call
 │ nslookup example.com
 │ why: network
 │ y allow · n deny

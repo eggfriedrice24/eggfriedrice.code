@@ -4,13 +4,13 @@
 //! TurnView` block next to `view.rs`.
 
 use efr_protocol::{
-    ApprovalDecision, CallId, ExitKind, JobId, JobInfo, Launch, Origin, QuestionId, Risk,
-    SurfaceChange, Verdict,
+    ApprovalDecision, CallId, ExitKind, JobId, JobInfo, JudgeKind, Launch, Origin, QuestionId,
+    Risk, SurfaceChange, Verdict,
 };
 use jiff::Timestamp;
 
 use super::status::State;
-use super::{About, Ask, BLOCKING, GOES_ON, Preview, Request, Shown, Step, TurnView, rows};
+use super::{About, Ask, BLOCKING, Preview, Request, Shown, Step, TurnView, piece_rows};
 use crate::format::card::{self, Card, Footer};
 use crate::format::{self, Block, Tone, jobs, sandbox};
 use crate::live::{effective_width, fits, rows_of};
@@ -321,11 +321,12 @@ impl TurnView {
         Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
     }
 
-    /// The reviewer judged the exit of call `call_id`. An allow or a refusal is one muted
-    /// line, which the call's rows follow at once, as they follow an answer; an unsure
-    /// verdict shows on the card of the question that comes next. A verdict without a
-    /// risk is one that no reviewer model gave: every step of the chain failed, which
-    /// the card says with the steps in `skipped`.
+    /// The reviewer judged the exit of call `call_id`. An allow is one muted line with
+    /// what the call got, and a refusal one `!` row (TM-Calls 22 to 26), which the call's
+    /// rows follow at once, as they follow an answer; an unsure verdict shows on the card
+    /// of the question that comes next. A verdict without a risk is one that no reviewer
+    /// model gave: every step of the chain failed, which the row or the card says with
+    /// the steps in `skipped`.
     pub(super) fn judged(
         &mut self,
         call_id: CallId,
@@ -337,8 +338,16 @@ impl TurnView {
     ) -> Step {
         let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
         let exit = self.exits.get(&call_id);
-        let Some(line) = sandbox::reviewed(verdict, risk, rationale, exit, self.home.as_deref())
-        else {
+        let judged = sandbox::Judged {
+            judge: JudgeKind::Classifier,
+            verdict,
+            risk,
+            category: None,
+            rationale,
+            skipped,
+        };
+        let glyphs = self.options.glyphs();
+        let Some(line) = sandbox::judged_row(&judged, exit, self.home.as_deref(), glyphs) else {
             let row = if risk.is_none() {
                 sandbox::no_answer_row(skipped)
             } else {
@@ -368,12 +377,41 @@ impl TurnView {
             }
             _ => self.state(State::Model),
         }
-        self.verdict_line(ours.then_some(call_id), &line, size)
+        self.verdict_pieces(ours.then_some(call_id), &line, size)
+    }
+
+    /// efr's own floor refused the exit of call `call_id` before any review or question
+    /// (TM-Calls 25, errata 9): one `!` row that leads with `efr:`.
+    pub(super) fn floor_refused(
+        &mut self,
+        call_id: CallId,
+        rationale: Option<&str>,
+        size: Size,
+    ) -> Step {
+        let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
+        let judged = sandbox::Judged {
+            judge: JudgeKind::Floor,
+            verdict: Verdict::Deny,
+            risk: None,
+            category: None,
+            rationale,
+            skipped: &[],
+        };
+        let exit = self.exits.get(&call_id);
+        let glyphs = self.options.glyphs();
+        let Some(row) = sandbox::judged_row(&judged, exit, self.home.as_deref(), glyphs) else {
+            return Step::default();
+        };
+        if let Some(call) = self.call.as_mut().filter(|_| ours) {
+            call.awaiting = false;
+        }
+        self.refused.insert(call_id);
+        self.verdict_pieces(ours.then_some(call_id), &row, size)
     }
 
     /// An always rule covered every exit of call `call_id`, which runs with no question
-    /// and no review (phase E): one muted `line` before its rows, as a reviewer's allow.
-    pub(super) fn covered(&mut self, call_id: CallId, line: &str, size: Size) -> Step {
+    /// and no review (phase E): one muted `row` before its rows, as a reviewer's allow.
+    pub(super) fn covered(&mut self, call_id: CallId, row: &[(String, Tone)], size: Size) -> Step {
         let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
         if ours {
             if let Some(call) = self.call.as_mut() {
@@ -383,15 +421,26 @@ impl TurnView {
                 self.tools.get(&call_id).map_or_else(String::new, |tool| format::one_line(tool));
             self.state(State::Tool(tool));
         }
-        self.verdict_line(ours.then_some(call_id), line, size)
+        self.verdict_pieces(ours.then_some(call_id), row, size)
     }
 
     /// The muted line of a verdict: right before the rows of call `call`, which follow
     /// it at once, or a note when it is about no running call, such as the deletes of
     /// a tool cache after the call.
     pub(super) fn verdict_line(&mut self, call: Option<CallId>, line: &str, size: Size) -> Step {
+        self.verdict_pieces(call, &[(line.to_owned(), Tone::Dim)], size)
+    }
+
+    /// The line of a verdict as `pieces`, such as a refusal with its `!` in `warning`:
+    /// where [`verdict_line`](Self::verdict_line) puts it.
+    pub(super) fn verdict_pieces(
+        &mut self,
+        call: Option<CallId>,
+        pieces: &[(String, Tone)],
+        size: Size,
+    ) -> Step {
         let options = self.options_at(size);
-        let text = rows(line, Tone::Dim, &options);
+        let text = piece_rows(pieces, &options);
         let block = if call.is_some() { Block::Settled } else { Block::Note };
         if !self.terminal() {
             let mut err = self.err_spacing.before(block).to_owned();
@@ -716,26 +765,4 @@ pub(super) fn answer_text(good: bool, line: &str, options: &efr_render::RenderOp
         (format::one_line(line), Tone::Dim),
     ];
     piece_rows(&pieces, options)
-}
-
-/// `pieces` as rows with their newlines: on a terminal, a row wider than the screen goes
-/// on in the next one, indented [`GOES_ON`] columns more, as `view::rows` does.
-fn piece_rows(pieces: &[(String, Tone)], options: &efr_render::RenderOptions) -> String {
-    let rows = match format::columns(options) {
-        Some((width, method)) => {
-            format::wrap_spans(pieces, width.max(1), width.saturating_sub(GOES_ON).max(1), method)
-        }
-        None => vec![pieces.to_vec()],
-    };
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        if at > 0 {
-            out.push_str(&" ".repeat(GOES_ON));
-        }
-        for (text, tone) in row {
-            out.push_str(&format::paint(text, *tone, options));
-        }
-        out.push('\n');
-    }
-    out
 }

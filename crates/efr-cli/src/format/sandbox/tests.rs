@@ -535,7 +535,7 @@ fn history_joins_the_exit_lines_on_one_line() {
     let info = info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
     assert_eq!(
         exit_summary(&info, Some(&record("npm ci")), home()),
-        "leaves the sandbox: network; runs in the sandbox with full network for this call"
+        "leaves the sandbox: network; runs in the sandbox with host network for this call"
     );
 }
 
@@ -965,7 +965,7 @@ fn a_handed_over_question_says_what_the_reviewer_thought() {
     };
     assert_eq!(
         exit_summary(&info, Some(&record("curl -LO https://example.com/tool.tar.gz")), home()),
-        "leaves the sandbox: network; runs in the sandbox with full network for this call; \
+        "leaves the sandbox: network; runs in the sandbox with host network for this call; \
          reviewer: unsure; no message of yours names this host"
     );
 }

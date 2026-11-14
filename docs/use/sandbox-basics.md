@@ -108,11 +108,12 @@ While it works, the status row shows `reviewing  <command>`. Its answer stays as
 dim line, such as:
 
 ```text
-reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
-reviewer refused: git push origin main: no message of yours asks for this clearly (...)
+reviewer allowed: git push for this call (low risk; you asked to push the fix): github.com:443 reachable
+! reviewer refused: git push origin main: no message of yours asks for this clearly (...)
 ```
 
-An allow opens exactly that path, host, socket or device for one call. The next call
+An allow names what the call gets after the colon. An allow opens exactly that path,
+host, socket or device for one call. The next call
 gets its own review, unless an always rule covers it. After 3 refusals in a row, or 10
 in one turn, the reviewer pauses: the model can finish the work that stays in the
 sandbox, and its next exit stops the turn.
@@ -210,7 +211,7 @@ project = "~/p/app"
 There are three kinds: `host` (one host and port through the proxy), `write` (a
 directory and, if you want, only in one project) and `socket` (one socket). A later call
 that a rule covers runs with no question and no review, and shows a dim line such as
-`allowed by your rule sandbox.allow[2]: write under ~/notes`.
+`allowed by your rule sandbox.allow[2]: write under ~/notes: ~/notes writable`.
 
 A rule never covers `sudo`, an upload, a change that runs later, a masked read, the
 bus or a file tool. A rule that crosses a floor stays in the file but is disabled.

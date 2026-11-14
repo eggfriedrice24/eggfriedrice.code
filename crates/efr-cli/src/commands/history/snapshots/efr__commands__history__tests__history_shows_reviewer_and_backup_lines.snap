@@ -4,10 +4,10 @@ expression: "format!(\"{plain}---\\n{verbose}\")"
 ---
 (no title) · 019a9b1c · 0 turns
 
-  reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
+  reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc): ~/.zshrc writable
   changed ~/.zshrc · backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
-  reviewer refused: git push: no message of yours names a push
-  reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn
+  ! reviewer refused: git push: no message of yours names a push
+  ! reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn
   approval expired: nobody answered while you were away; the call did not run
   freed 52.0 MB in ~/.cache/go-build (1 path)
   away (efr away)
@@ -18,7 +18,7 @@ expression: "format!(\"{plain}---\\n{verbose}\")"
     line: echo 'alias k=kubectl' >> ~/.zshrc
     cwd: ~/project
     user messages: 1
-  reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc)
+  reviewer allowed: write ~/.zshrc for this call (low risk; you named your zshrc): ~/.zshrc writable
   exit allowed by the reviewer: file edit
     model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
   changed ~/.zshrc · backup at ~/.local/share/efr/file-backups/c1/t1/1/.zshrc
@@ -26,10 +26,10 @@ expression: "format!(\"{plain}---\\n{verbose}\")"
     line: git push
     cwd: ~/project
     user messages: 1
-  reviewer refused: git push: no message of yours names a push
+  ! reviewer refused: git push: no message of yours names a push
   exit denied by the reviewer: file edit
     model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing
-  reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn
+  ! reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn
   approval expired: nobody answered while you were away; the call did not run
   exit denied by nobody, while you were away: file edit
     model gpt-6-luna; the reviewer model; 1830 ms; skipped claude-haiku-5-5: missing

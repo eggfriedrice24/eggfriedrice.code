@@ -21,6 +21,7 @@ use efr_protocol::{
 use efr_render::Glyphs;
 
 use super::card::{self, Card, Row};
+use super::route::Pieces;
 use super::{Tone, command_line, numbered_lines, one_line, run_heading};
 
 /// The line under an unsandboxed exit: the exit child runs the whole line with every
@@ -330,7 +331,9 @@ fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
     match grant {
         Grant::Write { path } => format!("{} writable", tilde(path, home)),
         Grant::Host { host, port } => format!("{}:{port} reachable", one_line(host)),
-        Grant::OpenNetwork => "full network".to_owned(),
+        // NOTE: the words of the design (TM-Calls 27, 28): no network namespace, so the
+        // host's whole network.
+        Grant::OpenNetwork => "host network".to_owned(),
         Grant::Socket { path } => format!("the socket {}", tilde(path, home)),
         Grant::Bus { bus } => bus_words(*bus).to_owned(),
         Grant::Desktop { desktop } => desktop_words(*desktop),
@@ -1055,12 +1058,7 @@ pub(crate) fn reviewed(
             Some(line)
         }
         Verdict::Deny => {
-            let subject = match exit {
-                Some(exit) if !exit.record.action.line.trim().is_empty() => {
-                    one_line(exit.record.action.line.trim())
-                }
-                _ => what,
-            };
+            let subject = subject(exit, home);
             Some(match rationale {
                 Some(rationale) => format!("reviewer refused: {subject}: {rationale}"),
                 None => format!("reviewer refused: {subject}"),
@@ -1068,6 +1066,109 @@ pub(crate) fn reviewed(
         }
         _ => None,
     }
+}
+
+/// What a refusal names: the line of the call, else what the exit opens.
+fn subject(exit: Option<&Requested>, home: Option<&Path>) -> String {
+    match exit {
+        Some(exit) if !exit.record.action.line.trim().is_empty() => {
+            one_line(exit.record.action.line.trim())
+        }
+        Some(exit) => exit_what(exit, home),
+        None => "this call".to_owned(),
+    }
+}
+
+/// A verdict of `exit_judged` that stands as a row before its call.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Judged<'a> {
+    pub(crate) judge: JudgeKind,
+    pub(crate) verdict: Verdict,
+    pub(crate) risk: Option<Risk>,
+    /// The policy category of the reviewer, or the place of an always rule.
+    pub(crate) category: Option<&'a str>,
+    pub(crate) rationale: Option<&'a str>,
+    /// The models that the chain of the reviewer skipped, each as `<model>: <reason>`.
+    pub(crate) skipped: &'a [String],
+}
+
+/// The row of a verdict before its call (TM-Calls 22 to 27, errata 1 and 9), muted:
+/// an allow of the reviewer or of an always rule with what the call got after a colon
+/// on the same line (`: github.com:443 reachable, the variable GH_TOKEN`, `host
+/// network` in `warning`); a refusal as one `!` row (the mark in `warning`): the
+/// reviewer's, `reviewer: no answer (skipped ...): <line> did not run` when no model of
+/// its chain answered, and efr's own floor after `efr:`, with its text only when efrd
+/// sends one. `None` for a verdict that a question's card shows.
+pub(crate) fn judged_row(
+    judged: &Judged<'_>,
+    exit: Option<&Requested>,
+    home: Option<&Path>,
+    glyphs: &Glyphs,
+) -> Option<Pieces> {
+    let refusal = |line: String| {
+        vec![
+            (glyphs.refused.to_owned(), Tone::Attention),
+            (" ".to_owned(), Tone::Plain),
+            (line, Tone::Dim),
+        ]
+    };
+    match (judged.judge, judged.verdict) {
+        (JudgeKind::Classifier, Verdict::Allow) => {
+            let line = reviewed(judged.verdict, judged.risk, judged.rationale, exit, home)?;
+            let mut row = vec![(line, Tone::Dim)];
+            row.extend(granted(exit, home));
+            Some(row)
+        }
+        // NOTE: no model of the chain answered, so the verdict has no risk.
+        (JudgeKind::Classifier, Verdict::Deny) if judged.risk.is_none() => {
+            let subject = subject(exit, home);
+            Some(refusal(format!("{}: {subject} did not run", no_answer_row(judged.skipped))))
+        }
+        (JudgeKind::Classifier, Verdict::Deny) => {
+            reviewed(judged.verdict, judged.risk, judged.rationale, exit, home).map(refusal)
+        }
+        (JudgeKind::Always, Verdict::Allow) => {
+            let line = super::always::covered(judged.category, judged.rationale);
+            let mut row = vec![(line, Tone::Dim)];
+            row.extend(granted(exit, home));
+            Some(row)
+        }
+        // NOTE: a floor names what the exit opens, as TM-Calls 25 does (`write
+        // ~/.ssh/config`): the line can hide it.
+        (JudgeKind::Floor, Verdict::Deny) => {
+            let subject = exit.map_or_else(|| subject(None, home), |exit| exit_what(exit, home));
+            let rationale = judged.rationale.map(one_line).filter(|text| !text.trim().is_empty());
+            Some(refusal(match rationale {
+                Some(rationale) => format!("efr: {subject}: {rationale}"),
+                None => format!("efr: {subject}"),
+            }))
+        }
+        _ => None,
+    }
+}
+
+/// What an allowed call got, after the verdict on its line (errata 1): `: ` and each
+/// grant of its exit, apart by `, `; the host's whole network in `warning`, the loudest
+/// grant. Nothing for an exit with no grant.
+fn granted(exit: Option<&Requested>, home: Option<&Path>) -> Pieces {
+    let grants = exit.map(|exit| exit.grants.as_slice()).unwrap_or_default();
+    let mut pieces = Vec::new();
+    for (at, grant) in grants.iter().enumerate() {
+        pieces.push(((if at == 0 { ": " } else { ", " }).to_owned(), Tone::Dim));
+        let tone = if *grant == Grant::OpenNetwork { Tone::Attention } else { Tone::Dim };
+        pieces.push((grant_words(grant, home), tone));
+    }
+    pieces
+}
+
+/// The row when the reviewer stops for the rest of a turn (TM-Calls 29, TM-Questions
+/// 14): `!` in `warning`, then [`paused`] muted.
+pub(crate) fn paused_row(reason: PauseReason, denials: u8, glyphs: &Glyphs) -> Pieces {
+    vec![
+        (glyphs.refused.to_owned(), Tone::Attention),
+        (" ".to_owned(), Tone::Plain),
+        (paused(reason, denials), Tone::Dim),
+    ]
 }
 
 /// The row of a question's card that says what the reviewer thought before it handed

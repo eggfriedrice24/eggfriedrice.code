@@ -47,9 +47,8 @@ use efr_config::DiffGroups;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
-    Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin, PageCursor, Seq,
-    StoredCopyReason, SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict, WebAction, WebResult,
-    WebSource,
+    Event, EventEnvelope, FileChanges, Launch, Method, Origin, PageCursor, Seq, StoredCopyReason,
+    SwitchedModel, TurnId, TurnUndoInfo, Usage, WebAction, WebResult, WebSource,
 };
 use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -944,23 +943,21 @@ impl<'a> Transcript<'a> {
                 reasked,
                 ..
             } => {
-                // NOTE: the reviewer's allow or refusal shows as the follow view shows
-                // it; how it came to it only with `--verbose`.
-                if *judge == JudgeKind::Classifier
-                    && let Some(line) = sandbox::reviewed(
-                        *verdict,
-                        *risk,
-                        rationale.as_deref(),
-                        self.exits.get(call_id),
-                        self.home,
-                    )
-                {
-                    self.note(&line);
-                }
-                // NOTE: a call that an always rule covered had no question: the line
-                // names the rule, as the follow view does.
-                if *judge == JudgeKind::Always && *verdict == Verdict::Allow {
-                    self.note(&format::always::covered(category.as_deref(), rationale.as_deref()));
+                // NOTE: the allow or the refusal of the reviewer, of an always rule (with
+                // no question) and of efr's floor shows as the follow view shows it; how
+                // the reviewer came to it only with `--verbose`.
+                let judged = sandbox::Judged {
+                    judge: *judge,
+                    verdict: *verdict,
+                    risk: *risk,
+                    category: category.as_deref(),
+                    rationale: rationale.as_deref(),
+                    skipped,
+                };
+                let exit = self.exits.get(call_id);
+                let glyphs = self.options.glyphs();
+                if let Some(row) = sandbox::judged_row(&judged, exit, self.home, glyphs) {
+                    self.pieces(&row);
                 }
                 if self.verbose {
                     self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
@@ -1038,7 +1035,7 @@ impl<'a> Transcript<'a> {
                 self.note(if *away { sandbox::AWAY_EXPIRED } else { "the approval expired" });
             }
             Event::ClassifierPaused { reason, denials, .. } => {
-                self.note(&sandbox::paused(*reason, *denials));
+                self.pieces(&sandbox::paused_row(*reason, *denials, self.options.glyphs()));
             }
             Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
                 self.note(&sandbox::cache_freed(paths, *freed_bytes, self.home));

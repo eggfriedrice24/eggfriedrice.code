@@ -2,5 +2,5 @@
 source: crates/efr-cli/src/follow/view/tests/always.rs
 expression: err
 ---
-allowed by your rule sandbox.allow[2]: write under ~/notes
+allowed by your rule sandbox.allow[2]: write under ~/notes: ~/notes writable
 ✓ $ echo hi > ~/notes/x
