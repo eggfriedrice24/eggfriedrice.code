@@ -24,6 +24,7 @@ const NO_ACTIONS: TranscriptActions = {
   editAndResend: () => undefined,
   resend: () => undefined,
   openApproval: () => undefined,
+  openModels: () => undefined,
 };
 
 /** The scope of a sheet of `kind`; with `expanded`, every tool block shows in full. */

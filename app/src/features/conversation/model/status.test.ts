@@ -28,6 +28,7 @@ function end(fields: Partial<TurnEnd> & Pick<TurnEnd, "outcome">): TurnEnd {
     at: undefined,
     context: undefined,
     error: undefined,
+    accountOut: undefined,
     stop: undefined,
     usage: undefined,
     ...fields,

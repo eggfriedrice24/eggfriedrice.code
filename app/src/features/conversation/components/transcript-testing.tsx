@@ -19,7 +19,8 @@ export type ActionCall =
   | { readonly action: "retry"; readonly turnId: string; readonly text: string }
   | { readonly action: "editAndResend"; readonly text: string }
   | { readonly action: "resend"; readonly key: string }
-  | { readonly action: "openApproval"; readonly callId: string };
+  | { readonly action: "openApproval"; readonly callId: string }
+  | { readonly action: "openModels"; readonly model: string; readonly provider: string };
 
 /** A scope for a test, and what it records. */
 export interface TestScope {
@@ -38,6 +39,7 @@ export function testScope(state: StreamState): TestScope {
     editAndResend: (text) => calls.push({ action: "editAndResend", text }),
     resend: (key) => calls.push({ action: "resend", key }),
     openApproval: (callId) => calls.push({ action: "openApproval", callId }),
+    openModels: (model, provider) => calls.push({ action: "openModels", model, provider }),
   };
   return {
     store,

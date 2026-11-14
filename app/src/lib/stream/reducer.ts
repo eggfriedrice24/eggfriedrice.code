@@ -37,6 +37,7 @@
 //   moves the cursor on.
 
 import type {
+  AccountOut,
   AlwaysSaved,
   ApprovalDecision,
   ContextUse,
@@ -262,6 +263,11 @@ export interface TurnEnd {
   readonly context: ContextUse | undefined;
   /** The error's sentence, for a failed turn. */
   readonly error: string | undefined;
+  /**
+   * The cause of a failed turn whose account could not serve it, with the other accounts
+   * that serve the same model (AC-Out).
+   */
+  readonly accountOut: AccountOut | undefined;
   /** Why the model stopped, for a completed turn that did not stop at its end. */
   readonly stop: StopReason | undefined;
   readonly usage: Usage | undefined;
@@ -820,6 +826,7 @@ function applyEventBody(
         ...endOf("failed", at),
         context: event.context ?? undefined,
         error: event.error.message,
+        accountOut: event.account_out ?? undefined,
         usage: event.usage ?? undefined,
       });
     case "turn_interrupted":
@@ -897,6 +904,7 @@ function endOf(outcome: TurnOutcome, at: number | undefined): TurnEnd {
     at,
     context: undefined,
     error: undefined,
+    accountOut: undefined,
     stop: undefined,
     usage: undefined,
   };

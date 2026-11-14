@@ -722,6 +722,26 @@ describe("the model of a turn", () => {
     expect(later.turns.get(TURN)?.switched?.compacted).toBe(false);
   });
 
+  it("keeps the cause of a turn whose account is out", () => {
+    const accountOut = {
+      provider: "openai-subscription",
+      model: "gpt-6.1",
+      reached: { kind: "usage" as const },
+      others: [{ provider: "openai-subscription.b", state: "ready" as const }],
+    };
+    const state = run([
+      event(1, turnStarted(TURN)),
+      event(2, {
+        kind: "turn_failed",
+        turn_id: TURN,
+        error: { code: "busy", message: "the ChatGPT plan reached its usage limit" },
+        account_out: accountOut,
+      }),
+    ]);
+    expect(state.turns.get(TURN)?.end?.accountOut).toEqual(accountOut);
+    expect(state.turns.get(TURN)?.end?.error).toBe("the ChatGPT plan reached its usage limit");
+  });
+
   it("keeps the turn object when a start says nothing new", () => {
     const once = run([event(1, turnStarted(TURN), at(1))]);
     const twice = reduce(once, event(2, turnStarted(TURN), at(1)));

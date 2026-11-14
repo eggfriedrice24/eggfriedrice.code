@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
+import type { Event } from "@/lib/protocol/wire";
 import { run, eventItem, promptQueued, turnStarted, at } from "@/lib/stream/testing";
 
 import { InScope, testScope } from "./transcript-testing";
@@ -30,6 +31,7 @@ describe("the turn end line", () => {
         at: START + 188_000,
         context: undefined,
         error: undefined,
+        accountOut: undefined,
         stop: undefined,
         usage: { input_tokens: 15_000, output_tokens: 3_400 },
       },
@@ -50,6 +52,7 @@ describe("the turn end line", () => {
         at: START + 62_000,
         context: undefined,
         error: undefined,
+        accountOut: undefined,
         stop: undefined,
         usage: undefined,
       },
@@ -70,6 +73,7 @@ describe("the turn end line", () => {
         at: START + 22_000,
         context: undefined,
         error: "model error: overloaded, the provider asked to retry later",
+        accountOut: undefined,
         stop: undefined,
         usage: undefined,
       },
@@ -113,6 +117,42 @@ describe("the turn end row", () => {
     expect(screen.getByText("model error")).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole("button", { name: "Retry the turn" }));
     expect(calls).toEqual([{ action: "retry", turnId: TURN, text: "Upgrade to Expo SDK 58." }]);
+  });
+
+  it("offers the same model on another account when the account is out, never by itself", async () => {
+    const failed: Event = {
+      kind: "turn_failed",
+      turn_id: TURN,
+      error: { code: "busy", message: "the ChatGPT plan reached its usage limit" },
+      account_out: {
+        provider: "openai-subscription",
+        model: "gpt-6.1-sol",
+        reached: { kind: "usage" },
+        others: [
+          { provider: "openai-subscription.b", state: "ready" },
+          { provider: "openai-subscription.c", state: "signed_out" },
+        ],
+      },
+    };
+    const state = run([
+      eventItem(1, promptQueued(TURN, "And the docs for the new store.")),
+      eventItem(2, turnStarted(TURN), at(0)),
+      eventItem(3, failed, at(130)),
+    ]);
+    const { scope, calls } = testScope(state);
+    await render(
+      <InScope scope={scope}>
+        <TurnEndRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(screen.getByText("the ChatGPT plan reached its usage limit")).toBeOnTheScreen();
+    expect(screen.getByText("c is signed out: efr login openai --account c")).toBeOnTheScreen();
+    // A switch stands, so no retry and no copy error.
+    expect(screen.queryByRole("button", { name: "Retry the turn" })).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "switch to ChatGPT plan · b" }));
+    expect(calls).toEqual([
+      { action: "openModels", model: "gpt-6.1-sol", provider: "openai-subscription.b" },
+    ]);
   });
 
   it("lists the cited sources, counts the searches and says what a stored copy means", async () => {

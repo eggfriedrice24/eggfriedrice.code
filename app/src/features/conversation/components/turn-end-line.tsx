@@ -9,6 +9,10 @@
 //   "retry" and "copy error", 18 pt apart. Retry sends the turn's prompt again as a new
 //   prompt (decision D8). The composer goes back to idle by itself.
 //
+// - A turn whose account is out (AC-Out): the reason with its reset, then under the newest
+//   turn the offer of the same model on the other accounts ("switch to ChatGPT plan · b",
+//   which opens the model sheet with that row selected), a quiet line for a signed-out
+//   account or for none, and "retry" when no switch stands. model/account-out.ts.
 // - A turn that searched the web (TM-Web 10 to 13, kept minimal on the phone): the
 //   sources that the answer cites, one quiet line each above the end line, the count of
 //   the searches last on the end line, and under the first turn of a conversation that
@@ -18,6 +22,7 @@
 // conversation is on screen.
 
 import { useSelector } from "@tanstack/react-store";
+import { createStore } from "@tanstack/store";
 import { Pressable, Text, View } from "react-native";
 
 import { MonoText } from "@/components/ui/mono-text";
@@ -25,9 +30,12 @@ import { PlainButton } from "@/components/ui/plain-button";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import { openLink } from "@/lib/native/links";
-import type { Origin } from "@/lib/protocol/generated";
+import type { AccountOut, Origin } from "@/lib/protocol/generated";
 import type { StreamState, TurnEnd, TurnWebView } from "@/lib/stream/reducer";
+import { useNow } from "@/features/navigation/use-now";
+import { accountOutView } from "../model/account-out";
 import { linkAction } from "../model/links";
+import type { ModelChoicesState } from "../model/model-choices";
 import { compareShallow } from "../model/selectors";
 import {
   errorText,
@@ -38,6 +46,12 @@ import {
   turnEndView,
 } from "../model/turn-end";
 import { useTranscriptScope } from "./use-transcript-scope";
+
+/** The choices of a transcript without a composer: none. */
+const NO_CHOICES = createStore<ModelChoicesState>({
+  choices: new Map(),
+  quiet: new Set<string>(),
+});
 
 export interface TurnEndLineViewProps {
   readonly view: TurnEndView;
@@ -87,6 +101,63 @@ export function TurnEndLineView(props: TurnEndLineViewProps) {
   );
 }
 
+export interface AccountOutEndProps {
+  readonly view: TurnEndView;
+  readonly out: AccountOut;
+  readonly error: string | undefined;
+  /** The turn is the newest of the conversation: only it offers a switch. */
+  readonly newest: boolean;
+  readonly onRetry: (() => void) | undefined;
+  readonly onSwitch: (model: string, provider: string) => void;
+}
+
+/**
+ * The end of a turn whose account is out (AC-Out): "✗ turn failed", the reason with its
+ * reset, then the offer: "switch to ChatGPT plan · b" per account that serves the model,
+ * a quiet line for a signed-out account or for none, and "retry" when no switch stands.
+ */
+export function AccountOutEnd(props: AccountOutEndProps) {
+  const scope = useTranscriptScope();
+  const now = useNow();
+  const choice = useSelector(scope.choice?.store ?? NO_CHOICES, (state) =>
+    scope.choice === undefined ? undefined : state.choices.get(scope.choice.key),
+  );
+  const offer = accountOutView(props.out, props.error, {
+    newest: props.newest,
+    now,
+    choice,
+  });
+  const onRetry = props.onRetry;
+  const actions = offer.switches.length > 0 || (offer.retry && onRetry !== undefined);
+  return (
+    <View testID="account-out">
+      <TurnEndLineView
+        view={{ ...props.view, reason: offer.reason, canRetry: false }}
+        onRetry={undefined}
+      />
+      {offer.notes.map((note) => (
+        <MonoText key={note} tone="text_subtle" className="mt-2">
+          {note}
+        </MonoText>
+      ))}
+      {actions ? (
+        <View className="mt-2 flex-row flex-wrap gap-x-18">
+          {offer.switches.map((action) => (
+            <PlainButton
+              key={action.provider}
+              label={action.label}
+              onPress={() => props.onSwitch(action.model, action.provider)}
+            />
+          ))}
+          {offer.retry && onRetry !== undefined ? (
+            <PlainButton label="retry" accessibilityLabel="Retry the turn" onPress={onRetry} />
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export interface SourcesViewProps {
   readonly rows: readonly SourceRow[];
 }
@@ -125,6 +196,8 @@ interface EndRowView {
   readonly interruptedBy: Origin | undefined;
   readonly prompt: string | undefined;
   readonly web: TurnWebView | undefined;
+  /** No later turn: a switch offer stands only under the newest turn. */
+  readonly newest: boolean;
 }
 
 function selectEndRow(turnId: string): (state: StreamState) => EndRowView {
@@ -136,6 +209,7 @@ function selectEndRow(turnId: string): (state: StreamState) => EndRowView {
       interruptedBy: turn?.interruptedBy,
       prompt: turn?.prompt?.text,
       web: turn?.web,
+      newest: state.order[state.order.length - 1] === turnId,
     };
   };
 }
@@ -155,13 +229,23 @@ export function TurnEndRow(props: TurnEndRowProps) {
   const turnId = props.turnId;
   const prompt = row.prompt;
   const sources = sourceRows(row.web);
+  const onRetry = prompt === undefined ? undefined : () => scope.actions.retry(turnId, prompt);
+  const out = row.end.outcome === "failed" ? row.end.accountOut : undefined;
   return (
     <View>
       {sources.length === 0 ? null : <SourcesView rows={sources} />}
-      <TurnEndLineView
-        view={view}
-        onRetry={prompt === undefined ? undefined : () => scope.actions.retry(turnId, prompt)}
-      />
+      {out === undefined ? (
+        <TurnEndLineView view={view} onRetry={onRetry} />
+      ) : (
+        <AccountOutEnd
+          view={view}
+          out={out}
+          error={row.end.error}
+          newest={row.newest}
+          onRetry={onRetry}
+          onSwitch={scope.actions.openModels}
+        />
+      )}
       {row.web?.storedCopyNote === true ? (
         <MonoText tone="text_muted" className="mt-2">
           {STORED_COPY_NOTE}

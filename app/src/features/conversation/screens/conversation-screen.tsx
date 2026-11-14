@@ -196,12 +196,14 @@ function ConversationView(props: ConversationViewProps) {
       outbox.retry(key);
     },
     openApproval,
+    openModels: (model, provider) => openModels({ model, provider }),
   };
   const scope: { -readonly [K in keyof TranscriptScope]: TranscriptScope[K] } = {
     store: held.store,
     rowUi: held.rowUi,
     machineName,
     actions,
+    choice: { store: modelChoices.store, key: composerDraftKey(target) },
   };
   if (models !== undefined) {
     scope.catalog = { models: models.models, catalogs: models.catalogs ?? [] };

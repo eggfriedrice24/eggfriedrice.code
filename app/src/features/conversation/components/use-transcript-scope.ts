@@ -7,6 +7,8 @@ import type { Readable } from "@tanstack/store";
 import { createContext, use } from "react";
 
 import type { StreamState } from "@/lib/stream/reducer";
+import type { DraftKey } from "../model/drafts";
+import type { ModelChoicesState } from "../model/model-choices";
 import type { RowUiStore } from "../model/row-ui-state";
 import type { SwitchCatalog } from "../model/switch-line";
 
@@ -25,6 +27,17 @@ export interface TranscriptActions {
   readonly resend: (key: string) => void;
   /** Opens the approval sheet of the question of tool call `callId`. */
   readonly openApproval: (callId: string) => void;
+  /**
+   * Opens the model sheet with `model` on account `provider` selected: a switch action
+   * of a turn whose account is out (AC-Out).
+   */
+  readonly openModels: (model: string, provider: string) => void;
+}
+
+/** The model choice of the composer of the transcript: a switch offer reads it. */
+export interface ScopeChoice {
+  readonly store: Readable<ModelChoicesState>;
+  readonly key: DraftKey;
 }
 
 /** What the rows of one transcript share. */
@@ -41,6 +54,8 @@ export interface TranscriptScope {
    * ⇄ line names the account of a model that runs on two.
    */
   readonly catalog?: SwitchCatalog;
+  /** The model choice of the composer: after a switch, the offer becomes "retry". */
+  readonly choice?: ScopeChoice;
 }
 
 /** The context of the rows. Transcript gives it. */

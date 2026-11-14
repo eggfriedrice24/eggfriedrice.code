@@ -206,6 +206,16 @@ streams in.
   they are there when you open the app again.
 - A failed turn shows the reason, with "retry" and "copy error". Retry sends the prompt
   of the turn again.
+- When the account of a turn reached a limit or has no credit left, the turn end says
+  so, with the time of the reset when efr knows it: `the ChatGPT plan reached its usage
+  limit · resets 14:20`. Under the newest turn, the app offers the same model on each
+  other account that can serve it, such as "switch to ChatGPT plan · b". The app never
+  switches by itself. A tap opens the model sheet with that model on that account
+  selected; after you confirm, the offer becomes "retry". An account that is signed out
+  gets one quiet line with the command that logs in to it on the machine. When no other
+  account runs the model, the line says so. A turn from the phone runs at most in
+  `cautious`, so a retry of a conversation in `auto` shows `cautious` in the status
+  line.
 
 ### Send a prompt
 
