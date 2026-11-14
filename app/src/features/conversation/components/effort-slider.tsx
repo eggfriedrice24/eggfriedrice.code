@@ -19,7 +19,7 @@ const STYLES = StyleSheet.create({ slider: { height: 28 } });
 
 export interface EffortSliderProps {
   readonly effort: EffortView;
-  /** Picks the effort of step `index`. */
+  /** Picks `effort`, one of the steps, after a slide or a tap on its label. */
   readonly onChange: (effort: string) => void;
   /** True to draw the row of buttons, as a build without the native slider does. */
   readonly fallback?: boolean;
