@@ -1031,10 +1031,11 @@ typeset -gi _efr_warmed
 # background, with no wait and no output, and only while the daemon's socket exists.
 # Until then it costs a few tests of a variable, with no fork. `efr warm` sends the
 # terminal, the directory and the terminal's model, never the typed text, and efrd
-# runs no model for it.
+# runs no model for it. EFR_WARM=0 turns the warm-up off; the hook reads it for each
+# line, so a change in a shell that runs counts from the next line.
 _efr_warm_line() {
   (( _efr_warmed )) && return 0
-  [[ $CONTEXT == start && -n $BUFFER ]] || return 0
+  [[ $CONTEXT == start && -n $BUFFER && ${EFR_WARM-} != 0 ]] || return 0
   emulate -L zsh -o extended_glob
   if [[ $BUFFER != ,(new|)[[:space:]]##[^[:space:]]* ]]; then
     (( _efr_sticky )) && [[ $BUFFER == [^!,[:space:]]* ]] || return 0

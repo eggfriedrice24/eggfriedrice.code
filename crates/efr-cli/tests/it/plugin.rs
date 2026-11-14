@@ -3485,4 +3485,43 @@ fn e2e_no_warm_up_runs_while_the_daemon_has_no_socket() {
     assert_eq!(home.calls().len(), 1, "only the prompt ran efr");
 }
 
+#[test]
+fn e2e_efr_warm_0_turns_the_warm_up_off_from_the_next_line() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let runtime = home.path().join("efr");
+    std::fs::create_dir(&runtime).unwrap();
+    let _socket = std::os::unix::net::UnixListener::bind(runtime.join("daemon.sock")).unwrap();
+
+    type_slowly(
+        &home,
+        &[
+            "EFR_WARM=0",
+            "\r",
+            ", one",
+            " more",
+            "\r",
+            "<C-Space>",
+            "explain",
+            " this",
+            "\r",
+            "<C-Space>",
+            "unset EFR_WARM",
+            "\r",
+            ", go",
+            " on",
+            "\r",
+        ],
+    );
+
+    let all: Vec<Vec<String>> = home.calls().into_iter().map(|call| call.args).collect();
+    assert_eq!(warms(&home).len(), 1, "only `, go on` warms: {all:?}");
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    for prompt in ["one more", "explain this", "go on"] {
+        assert!(prompts.contains(&Some(prompt.to_owned())), "{prompt}: {all:?} {prompts:?}");
+    }
+}
+
 mod look;

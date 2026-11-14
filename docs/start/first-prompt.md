@@ -1,4 +1,4 @@
-<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_corner, efr_prompt_info); crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
+<!-- sources: README.md "Use", "First use"; shell/zsh/efr.plugin.zsh (header, _efr_toggle_sticky, bindkey ^@, the ,word rules, efr_corner, efr_prompt_info, _efr_warm_line); crates/efr-cli/src/commands/send.rs, new.rs; crates/efr-cli/src/format/route.rs; crates/efr-cli/src/error.rs; docs/permissions.md "Permission modes" -->
 
 # Your first prompt
 
@@ -29,6 +29,12 @@ and history keeps the line as you typed it. A prompt of several lines stays one 
 A paste of several lines that all start with `,` sends one prompt for each line. The
 first runs, and the others wait behind it in their order. A paste with any other line
 stays one prompt.
+
+While you type a prompt line, efr makes the connection to the model provider ready,
+so the reply does not wait for a handshake after Enter. This sends the terminal, the
+directory and the model, but no text of the prompt, and it runs no model. To turn it
+off, set `EFR_WARM=0`, for example `export EFR_WARM=0` in `.zshrc`. The plugin reads
+the variable for each line, so a change applies from the next line.
 
 ## What you see
 
