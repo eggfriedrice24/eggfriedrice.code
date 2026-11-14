@@ -214,6 +214,7 @@ pub(crate) fn spec() -> crate::SandboxSpec {
         runtime,
         job: None,
         reach: None,
+        owned_copies: Vec::new(),
     }
 }
 

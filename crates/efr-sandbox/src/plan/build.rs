@@ -645,6 +645,25 @@ impl Builder<'_> {
                 _ => {}
             }
         }
+        self.owned_copies()
+    }
+
+    /// efrd's copy of each root-owned file of ssh's drop-in dir, bound read-only over
+    /// the real file (`SandboxSpec::owned_copies`), so ssh in the sandbox reads a file
+    /// that the user owns. A copy that efrd did not write, or a target that is no file,
+    /// leaves the real file.
+    fn owned_copies(&mut self) -> Result<(), SandboxError> {
+        let runtime = &self.spec.runtime;
+        for (index, target) in self.spec.owned_copies.iter().enumerate() {
+            let source =
+                self.resolve(&runtime.call_dir.join(crate::spec::owned_copy_file(index)))?;
+            let target = self.resolve(target)?;
+            if source.kind == Some(FileKind::File) && target.kind == Some(FileKind::File) {
+                let op =
+                    MountOp::Bind { source: source.path, target: target.path, writable: false };
+                self.push(op, OpKind::Floor, MountOrigin::Asset);
+            }
+        }
         Ok(())
     }
 

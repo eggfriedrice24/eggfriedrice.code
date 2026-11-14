@@ -138,6 +138,27 @@ pub struct SandboxSpec {
     /// call with a network namespace of its own. `None` for every other call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reach: Option<ReachPlan>,
+    /// The root-owned files of [`SSH_CONFIG_DROP_IN_DIR`] that the plan replaces with
+    /// a copy owned by the user: entry `i` is the target, and `owned-<i>` in the call
+    /// dir is efrd's copy ([`owned_copy_file`]). In the sandbox's user namespace a file
+    /// that root owns shows as owned by `nobody`, and ssh refuses an included config
+    /// file that neither root nor the user owns, so with the real files git over ssh,
+    /// `scp` and `rsync` fail before they connect. At most [`MAX_OWNED_COPIES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owned_copies: Vec<PathBuf>,
+}
+
+/// The directory of ssh's system config drop-in files, which `/etc/ssh/ssh_config`
+/// includes ([`SandboxSpec::owned_copies`]).
+pub const SSH_CONFIG_DROP_IN_DIR: &str = "/etc/ssh/ssh_config.d";
+
+/// The most entries of [`SandboxSpec::owned_copies`].
+pub const MAX_OWNED_COPIES: usize = 32;
+
+/// The name in the call dir of efrd's copy of entry `index` of
+/// [`SandboxSpec::owned_copies`].
+pub fn owned_copy_file(index: usize) -> String {
+    format!("owned-{index}")
 }
 
 /// The reach of a contained foreground call: the reach helper in the call listens on
@@ -756,6 +777,14 @@ impl SandboxSpec {
             && (job.max_seconds == 0 || job.nice > MAX_NICE || job.fsize_bytes == 0)
         {
             return Err(SandboxError::SpecJob);
+        }
+        // NOTE: a copy replaces a file of ssh's drop-in dir and nothing else, so a spec
+        // can never put efrd's bytes over another file of the host.
+        let drop_ins = Path::new(SSH_CONFIG_DROP_IN_DIR);
+        if self.owned_copies.len() > MAX_OWNED_COPIES
+            || self.owned_copies.iter().any(|target| target.parent() != Some(drop_ins))
+        {
+            return Err(SandboxError::OwnedCopy);
         }
         // NOTE: a filtered bus beside the whole bus of the same bus would bind two
         // sockets at one place. efrd's `view_fits` drops the view first; the launcher

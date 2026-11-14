@@ -218,6 +218,12 @@ names nothing, and the model reads why.
   without the keyring, and the output says so.
 - A file tool never reads a login. Only a shell call gets one.
 
+In the sandbox, a file that root owns shows as owned by `nobody`, because no
+unprivileged sandbox can map root. ssh refuses an included config file that neither
+root nor you own, so efrd copies each root-owned file of `/etc/ssh/ssh_config.d` into
+the call's dir and binds the copy, with the same bytes, read-only over the real file.
+The copy goes with the call's dir when the call ends.
+
 A login opens more than the one action: every program of the call can use it, such as
 a git hook of the repository or the build of a publish, and for an ssh host the call
 has the host's network. That is narrower than before, when the whole line ran outside

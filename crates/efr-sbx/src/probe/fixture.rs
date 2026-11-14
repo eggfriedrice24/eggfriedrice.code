@@ -216,6 +216,7 @@ impl Fixture {
             runtime,
             job: None,
             reach: None,
+            owned_copies: Vec::new(),
         };
         Ok(Fixture {
             outside: root.join("outside-file"),

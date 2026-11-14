@@ -300,6 +300,8 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         runtime,
         job: input.job.clone(),
         reach: None,
+        // NOTE: efrd fills these in with the files that it copies (`ssh_drop_ins`).
+        owned_copies: Vec::new(),
     };
     Planned { spec, notes }
 }

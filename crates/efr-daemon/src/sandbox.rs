@@ -20,6 +20,7 @@
 //! whose ports efrd forwards gets a reach plan and its reach socket `$CALL/reach.sock`
 //! (`jobs/forward/reach.rs`, v0.0.4 shell items DS34-DS42).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Write as _;
 use std::os::unix::fs::DirBuilderExt as _;
@@ -232,6 +233,32 @@ pub(crate) struct JobInput<'a> {
     pub(crate) line: &'a str,
     /// The job's environment, the bytes of `$CALL/env`.
     pub(crate) env: &'a [u8],
+}
+
+/// The most bytes of one ssh drop-in file that efrd copies.
+const MAX_DROP_IN_BYTES: u64 = 64 * 1024;
+
+/// The files of ssh's drop-in dir `dir` that root owns, each with its bytes, sorted by
+/// name, at most [`efr_sandbox::MAX_OWNED_COPIES`] (`SandboxSpec::owned_copies`). In the
+/// sandbox's user namespace root shows as `nobody`, and ssh refuses an included config
+/// file that neither root nor the user owns; the copy, which efrd writes as the user,
+/// has the same bytes. A link counts by its target. A file over
+/// [`MAX_DROP_IN_BYTES`], one that efrd cannot read, and one that the user owns stay as
+/// they are. It blocks.
+fn ssh_drop_ins(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    use std::os::unix::fs::MetadataExt as _;
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let meta = std::fs::metadata(&path).ok()?;
+            let root_file = meta.is_file() && meta.uid() == 0 && meta.len() <= MAX_DROP_IN_BYTES;
+            root_file.then(|| Some((path.clone(), std::fs::read(&path).ok()?))).flatten()
+        })
+        .take(efr_sandbox::MAX_OWNED_COPIES)
+        .collect()
 }
 
 /// The variables of `names` in the `env` file bytes `env` (NUL-separated `NAME=value`
@@ -1107,6 +1134,16 @@ impl SandboxService {
         let planned = plan::build(&plan_input);
         tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
         let mut spec = planned.spec;
+        let drop_ins = if spec.launch == SpecLaunch::Contained {
+            tokio::task::spawn_blocking(|| {
+                ssh_drop_ins(Path::new(efr_sandbox::SSH_CONFIG_DROP_IN_DIR))
+            })
+            .await
+            .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        spec.owned_copies = drop_ins.iter().map(|(target, _)| target.clone()).collect();
         // NOTE: a contained foreground call of a conversation with a forwarding job
         // reaches the forwarded ports in its own namespace (DS34); a job never does.
         let reach_forwards = input.reach.filter(|_| job.is_none());
@@ -1134,14 +1171,18 @@ impl SandboxService {
         if job.is_some() {
             dirs.push(spec.runtime.job_state_dir(call.call_id));
         }
-        let mut files: Vec<(&'static str, Vec<u8>)> =
-            vec![(SPEC_FILE, bytes), (NONCE_FILE, nonce_hex(&nonce).into_bytes())];
+        let mut files: Vec<(Cow<'static, str>, Vec<u8>)> =
+            vec![(SPEC_FILE.into(), bytes), (NONCE_FILE.into(), nonce_hex(&nonce).into_bytes())];
         if let Some(job) = &job {
-            files.push((efr_sandbox::LINE_FILE, job.line.as_bytes().to_vec()));
-            files.push((efr_sandbox::ENV_FILE, job.env.to_vec()));
+            files.push((efr_sandbox::LINE_FILE.into(), job.line.as_bytes().to_vec()));
+            files.push((efr_sandbox::ENV_FILE.into(), job.env.to_vec()));
         }
         if let Some(snapshot) = snapshot {
-            files.extend(mount_files(snapshot, &spec, &mut notes).await);
+            let mounts = mount_files(snapshot, &spec, &mut notes).await;
+            files.extend(mounts.into_iter().map(|(name, bytes)| (name.into(), bytes)));
+        }
+        for (index, (_, bytes)) in drop_ins.into_iter().enumerate() {
+            files.push((efr_sandbox::owned_copy_file(index).into(), bytes));
         }
         let dir = call_dir.clone();
         let stamp = spec.runtime.sandbox_dir.join(gc::LAST_CALL_FILE);
@@ -1625,7 +1666,7 @@ async fn make_targets(exits: &[ExitNeed]) -> Result<(), DaemonError> {
 fn write_call_dir(
     dirs: &[PathBuf],
     call_dir: &Path,
-    files: &[(&str, Vec<u8>)],
+    files: &[(Cow<'static, str>, Vec<u8>)],
 ) -> Result<(), DaemonError> {
     for dir in dirs {
         std::fs::DirBuilder::new()
@@ -1635,7 +1676,7 @@ fn write_call_dir(
             .map_err(|source| DaemonError::Io { path: dir.clone(), source })?;
     }
     for (name, bytes) in files {
-        let path = call_dir.join(name);
+        let path = call_dir.join(name.as_ref());
         let mut file = efr_stdx::fs::create_private(&path).map_err(|source| DaemonError::Io {
             path: path.clone(),
             source: std::io::Error::other(source),

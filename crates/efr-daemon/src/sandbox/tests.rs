@@ -26,6 +26,17 @@ use super::{
     ServiceParts, path_variables,
 };
 
+/// efrd copies only a drop-in file that root owns: a test cannot make one, so this
+/// checks that the user's own file, a dir and a missing dir give no copy.
+#[test]
+fn ssh_drop_ins_copy_no_file_that_the_user_owns() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("10-mine.conf"), "Host x\n").unwrap();
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    assert!(super::ssh_drop_ins(dir.path()).is_empty());
+    assert!(super::ssh_drop_ins(&dir.path().join("missing")).is_empty());
+}
+
 /// A `$NAME` of a `needs` path expands only to a value that is an absolute path, of a
 /// name that does not look like a secret: a token never becomes a path.
 #[test]

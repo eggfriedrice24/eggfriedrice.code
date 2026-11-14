@@ -330,6 +330,7 @@ impl Fixture {
             },
             job: None,
             reach: None,
+            owned_copies: Vec::new(),
         };
         let mut env = BTreeMap::new();
         for (name, value) in [

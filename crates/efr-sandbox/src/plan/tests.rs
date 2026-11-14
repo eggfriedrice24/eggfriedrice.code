@@ -647,6 +647,36 @@ fn plan_drops_the_overlay_of_a_cache_that_a_floor_covers() {
     assert!(!plan.write_dirs().iter().any(|dir| dir == Path::new("/home/u/.cargo")));
 }
 
+/// A root-owned file of ssh's drop-in dir shows as owned by `nobody` in the sandbox,
+/// which ssh refuses, so the plan binds efrd's copy, owned by the user, over it,
+/// read-only. A copy that efrd did not write leaves the real file; a target outside the
+/// drop-in dir refuses the spec.
+#[test]
+fn plan_binds_the_copy_of_an_ssh_drop_in_file_over_it() {
+    let target = "/etc/ssh/ssh_config.d/20-proxy.conf";
+    let mut spec = spec();
+    spec.owned_copies = vec![target.into(), "/etc/ssh/ssh_config.d/30-none.conf".into()];
+    let copy = spec.runtime.call_dir.join(crate::spec::owned_copy_file(0));
+    let mut fs = world();
+    fs.file(target, "Host x\n")
+        .file("/etc/ssh/ssh_config.d/30-none.conf", "")
+        .file(&copy.to_string_lossy(), "Host x\n");
+    let plan = plan(&spec, &fs);
+    let bind = MountOp::Bind { source: copy, target: target.into(), writable: false };
+    assert!(has_mount(&plan, &bind));
+    let copies = plan
+        .mounts()
+        .iter()
+        .filter(|mount| {
+            matches!(&mount.op, MountOp::Bind { target, .. } if target.starts_with("/etc/ssh"))
+        })
+        .count();
+    assert_eq!(copies, 1, "no copy of the second file, so it stays");
+    let mut outside = crate::testing::spec();
+    outside.owned_copies = vec!["/etc/passwd".into()];
+    assert!(matches!(MountPlan::build(&outside, &world()), Err(SandboxError::OwnedCopy)));
+}
+
 #[test]
 fn plan_unmasks_one_mask_but_never_an_engine_secret() {
     let mut spec = spec();

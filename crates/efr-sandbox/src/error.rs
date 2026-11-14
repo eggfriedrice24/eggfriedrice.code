@@ -181,6 +181,10 @@ pub enum SandboxError {
     #[error("the sandbox spec has a grant that this build does not know")]
     UnknownGrant,
 
+    /// The spec names an owned copy outside ssh's drop-in dir, or too many.
+    #[error("the sandbox spec replaces a file that only ssh's drop-in files may be")]
+    OwnedCopy,
+
     /// The spec holds `Grant::NetView` beside a grant other than `Write` or `Unmask`.
     /// The call would keep the host's network namespace with that grant, such as a
     /// device like `/dev/net/tun`, which can send with no `socket()` call.

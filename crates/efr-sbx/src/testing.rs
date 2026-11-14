@@ -92,6 +92,7 @@ impl TestCall {
             },
             job: None,
             reach: None,
+            owned_copies: Vec::new(),
         };
         private_dir(&runtime.join("bin"));
         private_dir(&runtime.join("zsh"));

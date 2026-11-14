@@ -28,7 +28,9 @@ into the GitHub release notes, and it stops when the section is missing.
   open. Every other secret is now a login that a reviewed grant can open for one call,
   also the socket of the ssh agent, which before needed a message that named it.
 - git over ssh, `scp` and `rsync` to a remote run in the sandbox with the host's
-  network, because efr's proxy carries no ssh.
+  network, because efr's proxy carries no ssh. A root-owned file in
+  `/etc/ssh/ssh_config.d`, such as the one that systemd ships, no longer stops ssh in
+  the sandbox: the sandbox reads a copy of it that you own.
 - gh, `gem push`, `twine upload`, `scp` and `rsync` are no longer uploads by their
   verb: the grant of their login is the exit. `git push`, curl and wget uploads and a
   publish stay uploads.
