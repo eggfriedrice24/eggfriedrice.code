@@ -624,23 +624,35 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   (`Catalogs::listed`). The turns try the accounts with a login first
   (`Catalogs::routed`).
 - The limits of each account live in memory only (`LimitBook`). Every provider that
-  efrd runs goes through `Limited`, which notes a `ProviderError::LimitReached` of a
-  model call (the usage limit of a plan, no credit, a spend limit) and clears it at the
-  first event of a later call that works; a limit with a reset ends at its reset time,
-  and a login or a logout clears it. "Too many requests" is never noted. Both
-  `models.list` and `admin.status` carry the noted limit as `limits.reached` (with
-  `observed_at`, and no `windows` yet), never for a signed-out account.
+  efrd runs goes through `Limited`, the calls of the reviewer included. It notes the
+  usage windows that an answer of a ChatGPT plan tells (`ProviderEvent::Limits`, from
+  the `x-codex-*` headers or the `codex.rate_limits` message), each report in place of
+  the last, with the time it came, and passes the event on. It notes a
+  `ProviderError::LimitReached` of a model call (the usage limit of a plan, no credit,
+  a spend limit) and a `ProviderError::RateLimited` whose headers named the bucket of
+  an API key that ran out (`requests`, `tokens`, `input_tokens`, `output_tokens`),
+  and clears that limit at the first event of a later call that works; the windows
+  stay. A window or a limit with a reset ends at its reset time, and a login or a
+  logout clears all of it. "Too many requests" with no bucket is never noted, so a key
+  shows a rate limit only when it was hit. Both `models.list` and `admin.status` carry
+  them as `limits` (`observed_at` is the time of the windows while there are any, else
+  that of the limit), never for a signed-out account. For the switch offer, a window
+  at 100 % makes its account full until the last full window resets.
 - A turn whose model call fails for a limit of the account gets the cause on
   `turn_failed` (`account_out`): the turn asks the router (`Routes::account_out`, the
   daemon's `ProviderRouter`) and `Catalogs::account_out` builds it from the model
   list of the latest settings: the account with its label, the model, the limit with
-  its reset (a rate limit that outlived the retries is `too_many_requests`, with the
-  end of the provider's wait), and the other accounts of the list that list the same
+  its reset (a rate limit that outlived the retries is the bucket that ran out, else
+  `too_many_requests`, with the end of the provider's wait), and the other accounts of
+  the list that list the same
   model, in the order of `catalogs`: each one that is ready, each one that is signed
   out (named in `[accounts]`), and each one that is full when its reset comes before
   the reset of the stopped account (or the stopped one has none). efrd never moves the
-  turn to another account. No `limits` draft goes out yet, and `turn_web_report` has
-  no `stored_copy_reason` yet (`efr-protocol`, `src/accounts.rs`).
+  turn to another account. A running turn sends the windows of its account as a
+  `limits` draft (`efr-conversation`), and a subscriber that joins gets the newest one
+  of its status; a slow subscriber keeps only the newest one, until the end of the
+  turn (`conversation_subscribe/pending.rs`). `turn_web_report` has no
+  `stored_copy_reason` yet (`efr-protocol`, `src/accounts.rs`).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
   and no provider with a login lists it (checked after the wait for a first list):

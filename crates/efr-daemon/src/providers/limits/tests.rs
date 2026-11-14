@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::{AccountLimits, LimitKind, LimitReached};
+use efr_protocol::{AccountLimits, LimitKind, LimitReached, LimitWindow};
 use efr_provider::{
     EditTool, ModelInfo, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
     Request, StopReason, WebSupport,
@@ -22,6 +22,115 @@ fn book(clock: &TestClock) -> Arc<LimitBook> {
 
 fn usage(clock: &TestClock, after: Duration) -> LimitReached {
     LimitReached { kind: LimitKind::Usage, resets_at: Some(clock.shared().now() + after) }
+}
+
+/// A window of `minutes` at `percent` that resets `after` from now.
+fn window(clock: &TestClock, minutes: u32, percent: u8, after: Duration) -> LimitWindow {
+    LimitWindow {
+        minutes: Some(minutes),
+        used_percent: percent,
+        resets_at: Some(clock.shared().now() + after),
+    }
+}
+
+#[test]
+fn the_windows_of_a_plan_show_with_their_time_and_each_goes_at_its_reset() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    let short = window(&clock, 300, 92, hour);
+    let long = window(&clock, 10080, 41, hour * 24);
+    let learned = clock.shared().now();
+
+    book.note_windows(PROVIDER, &[short.clone(), long.clone()]);
+    clock.advance(Duration::from_secs(720));
+
+    assert_eq!(
+        book.limits(PROVIDER),
+        Some(AccountLimits {
+            observed_at: learned,
+            windows: vec![short, long.clone()],
+            reached: None,
+        })
+    );
+    assert_eq!(book.reached(PROVIDER), None, "a window under 100 % stops nothing");
+    assert_eq!(book.limits("openai-subscription"), None, "each account has its own");
+    clock.advance(hour);
+    assert_eq!(
+        book.limits(PROVIDER).map(|limits| limits.windows),
+        Some(vec![long]),
+        "the short window reset"
+    );
+    clock.advance(hour * 24);
+    assert_eq!(book.limits(PROVIDER), None, "no window left");
+}
+
+#[test]
+fn a_newer_report_replaces_the_windows_and_an_empty_one_changes_nothing() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    book.note_windows(PROVIDER, &[window(&clock, 300, 40, hour)]);
+    clock.advance(Duration::from_secs(60));
+    let newer = window(&clock, 300, 55, hour);
+    let learned = clock.shared().now();
+
+    book.note_windows(PROVIDER, std::slice::from_ref(&newer));
+    book.note_windows(PROVIDER, &[]);
+
+    let limits = book.limits(PROVIDER).unwrap();
+    assert_eq!(limits.windows, vec![newer]);
+    assert_eq!(limits.observed_at, learned);
+}
+
+#[test]
+fn a_full_window_stops_the_account_until_the_last_full_one_resets() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    let short = window(&clock, 300, 100, hour);
+    let long = window(&clock, 10080, 100, hour * 30);
+    book.note_windows(PROVIDER, &[short.clone(), long.clone()]);
+
+    assert_eq!(
+        book.reached(PROVIDER),
+        Some(LimitReached { kind: LimitKind::Usage, resets_at: long.resets_at })
+    );
+    assert_eq!(book.limits(PROVIDER).unwrap().reached, None, "the windows show it");
+
+    let open = LimitWindow { minutes: None, used_percent: 100, resets_at: None };
+    book.note_windows(PROVIDER, &[short, open]);
+    assert_eq!(
+        book.reached(PROVIDER),
+        Some(LimitReached { kind: LimitKind::Usage, resets_at: None }),
+        "a full window with no reset ends at no known time"
+    );
+}
+
+#[test]
+fn a_call_that_works_keeps_the_windows_and_a_login_clears_everything() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    let short = window(&clock, 300, 92, hour);
+    book.note_windows(PROVIDER, std::slice::from_ref(&short));
+    book.note(PROVIDER, &usage(&clock, hour));
+    clock.advance(Duration::from_secs(60));
+
+    book.served(PROVIDER);
+
+    assert_eq!(
+        book.limits(PROVIDER),
+        Some(AccountLimits {
+            observed_at: clock.shared().now() - Duration::from_secs(60),
+            windows: vec![short],
+            reached: None,
+        })
+    );
+    book.note(PROVIDER, &usage(&clock, hour));
+    book.clear(PROVIDER);
+    assert_eq!(book.limits(PROVIDER), None);
+    assert_eq!(book.reached(PROVIDER), None);
 }
 
 #[test]
@@ -143,4 +252,54 @@ async fn a_limited_provider_notes_a_limit_and_a_call_that_works_clears_it() {
     assert_eq!(book.reached(PROVIDER), Some(reached.clone()));
     assert!(call(&provider).await);
     assert_eq!(book.reached(PROVIDER), Some(reached), "another error changes nothing");
+}
+
+#[tokio::test]
+async fn a_limited_provider_notes_the_windows_and_the_empty_bucket_of_a_rate_limit() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    let short = window(&clock, 300, 92, hour);
+    let bucket = LimitReached {
+        kind: LimitKind::Requests,
+        resets_at: Some(clock.shared().now() + Duration::from_secs(180)),
+    };
+    let limits = || Ok(ProviderEvent::Limits { windows: vec![short.clone()] });
+    let inner = Arc::new(Scripted {
+        id: ProviderId::new(PROVIDER).unwrap(),
+        answers: Mutex::new(
+            vec![
+                Ok(vec![limits(), done()]),
+                Err(ProviderError::RateLimited { retry_after: None, limit: None }),
+                Err(ProviderError::RateLimited { retry_after: None, limit: Some(bucket.clone()) }),
+                Ok(vec![limits(), done()]),
+            ]
+            .into(),
+        ),
+    });
+    let provider = Limited::new(inner, PROVIDER, Arc::clone(&book));
+
+    let events = provider.stream(Request::new("gpt-6.1-sol")).await.unwrap();
+    let events: Vec<_> = events.collect().await;
+    assert!(
+        matches!(events.first(), Some(Ok(ProviderEvent::Limits { .. }))),
+        "the windows go on to the turn: {events:?}"
+    );
+    assert_eq!(book.limits(PROVIDER).unwrap().windows, vec![short.clone()]);
+
+    assert!(call(&provider).await);
+    assert_eq!(book.reached(PROVIDER), None, "too many requests with no bucket is no limit");
+    assert!(call(&provider).await);
+    assert_eq!(book.reached(PROVIDER), Some(bucket.clone()), "the bucket that ran out");
+    assert_eq!(book.limits(PROVIDER).unwrap().reached, Some(bucket));
+    assert!(!call(&provider).await);
+    assert_eq!(
+        book.limits(PROVIDER),
+        Some(AccountLimits {
+            observed_at: clock.shared().now(),
+            windows: vec![short],
+            reached: None
+        }),
+        "the key serves again"
+    );
 }
