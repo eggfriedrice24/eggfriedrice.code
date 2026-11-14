@@ -54,8 +54,8 @@ use crate::scratch;
 use crate::{
     CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
     ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
-    ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoBusyReason,
-    UndoRequest, draft_channel,
+    ProviderRouter, ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges,
+    UndoBusyReason, UndoRequest, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -793,24 +793,32 @@ impl Setup {
         start: ConversationStart,
         store: Option<TestStore>,
     ) -> Harness {
-        self.launch(Arc::clone(&provider), provider, start, store).await
+        let router = Arc::new(crate::OneProvider::new(Arc::clone(&provider) as Arc<dyn Provider>));
+        self.launch(provider, router, start, store).await
     }
 
     /// Starts a new conversation whose model calls go to `model`, a provider that the
     /// test wrote, for requests too many to write out. The harness's replay provider has
     /// no exchanges.
     pub(crate) async fn start_model(self, model: Arc<dyn Provider>) -> Harness {
-        let replay = ReplayProvider::new(&Transcript::from_records(Vec::new())).expect("replay");
-        let start = ConversationStart::New { origin: Origin::Shell, tty: None, route: None };
-        self.launch(Arc::new(replay), model, start, None).await
+        self.start_router(Arc::new(crate::OneProvider::new(model))).await
     }
 
-    /// Starts the actor with `model` answering its model calls, and `replay` as the
-    /// harness's provider.
+    /// Starts a new conversation whose model calls go to the providers of `router`,
+    /// such as two accounts of one kind. The harness's replay provider has no
+    /// exchanges.
+    pub(crate) async fn start_router(self, router: Arc<dyn ProviderRouter>) -> Harness {
+        let replay = ReplayProvider::new(&Transcript::from_records(Vec::new())).expect("replay");
+        let start = ConversationStart::New { origin: Origin::Shell, tty: None, route: None };
+        self.launch(Arc::new(replay), router, start, None).await
+    }
+
+    /// Starts the actor with the providers of `router` answering its model calls, and
+    /// `replay` as the harness's provider.
     async fn launch(
         self,
         replay: Arc<ReplayProvider>,
-        model: Arc<dyn Provider>,
+        router: Arc<dyn ProviderRouter>,
         start: ConversationStart,
         store: Option<TestStore>,
     ) -> Harness {
@@ -829,7 +837,7 @@ impl Setup {
         let engine = watch::channel(Arc::new(engine)).1;
         let (sandbox, sandbox_receiver) = watch::channel(self.sandbox);
         let deps = ConversationDeps {
-            providers: Arc::new(crate::OneProvider::new(model)),
+            providers: router,
             toolbox: toolbox.clone(),
             engine,
             scope: Arc::new(self.scope),
@@ -939,8 +947,9 @@ impl Harness {
             engine: None,
             rng_seed: 8,
         };
+        let router = Arc::new(crate::OneProvider::new(model));
         let mut harness =
-            setup.launch(replay, model, ConversationStart::Existing, Some(self.store)).await;
+            setup.launch(replay, router, ConversationStart::Existing, Some(self.store)).await;
         harness.next_command = self.next_command;
         harness
     }

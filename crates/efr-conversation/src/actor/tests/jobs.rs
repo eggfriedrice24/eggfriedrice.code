@@ -820,3 +820,98 @@ async fn wake_turn_runs_on_the_newest_pick_not_on_the_model_of_the_jobs_turn() {
 
     assert_eq!(started_settings(&h, woke).await.model, "test-model-2");
 }
+
+/// One account of a [`Script`]: the script under the provider id `id`, so two
+/// accounts of one kind answer from one script, in order.
+#[derive(Debug)]
+struct Account {
+    id: efr_provider::ProviderId,
+    script: Arc<Script>,
+}
+
+#[async_trait::async_trait]
+impl efr_provider::Provider for Account {
+    fn id(&self) -> &efr_provider::ProviderId {
+        &self.id
+    }
+
+    async fn stream(
+        &self,
+        request: Request,
+    ) -> Result<efr_provider::ProviderStream, efr_provider::ProviderError> {
+        self.script.stream(request).await
+    }
+}
+
+/// Two accounts of one kind: `replay`, the default, and `replay.work`.
+#[derive(Debug)]
+struct TwoAccounts {
+    default: Arc<dyn efr_provider::Provider>,
+    work: Arc<dyn efr_provider::Provider>,
+}
+
+impl crate::ProviderRouter for TwoAccounts {
+    fn default_provider(&self) -> Arc<dyn efr_provider::Provider> {
+        Arc::clone(&self.default)
+    }
+
+    fn get(&self, id: &str) -> Option<Arc<dyn efr_provider::Provider>> {
+        match id {
+            "replay" => Some(Arc::clone(&self.default)),
+            "replay.work" => Some(Arc::clone(&self.work)),
+            _ => None,
+        }
+    }
+}
+
+#[tokio::test]
+async fn wake_turn_runs_on_the_account_of_the_newest_pick() {
+    let mut setup = auto();
+    let listed = |provider: &str| {
+        let mut info: efr_protocol::ModelInfo =
+            serde_json::from_value(json!({ "id": crate::testing::MODEL, "source": "builtin" }))
+                .unwrap();
+        info.provider = Some(provider.to_owned());
+        info.default = provider == "replay";
+        info
+    };
+    setup.config.models = vec![listed("replay"), listed("replay.work")];
+    let script = Script::new(vec![
+        job("npm run dev"),
+        (DONE, Value::Null),
+        (DONE, Value::Null),
+        (DONE, Value::Null),
+    ]);
+    let work = Account {
+        id: efr_provider::ProviderId::new("replay.work").unwrap(),
+        script: Arc::clone(&script),
+    };
+    let router = TwoAccounts { default: Arc::clone(&script) as _, work: Arc::new(work) };
+    assert_eq!(router.work.id().as_str(), "replay.work");
+    let mut h = setup.start_router(Arc::new(router)).await;
+    let sent = h.prompt("run the dev server and tell me when it crashes").await;
+    h.wait_end(sent.turn_id).await;
+    assert_eq!(started_settings(&h, sent.turn_id).await.provider.as_deref(), Some("replay"));
+
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "go on with the work account");
+    params.settings = TurnSettings {
+        model: Some(crate::testing::MODEL.to_owned()),
+        provider: Some("replay.work".to_owned()),
+        ..TurnSettings::default()
+    };
+    let sent = h.handle.send_prompt(params, efr_protocol::Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+    assert_eq!(started_settings(&h, sent.turn_id).await.provider.as_deref(), Some("replay.work"));
+    h.presence.set_followed(true);
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let woke = wake(&mut h).await;
+
+    let settings = started_settings(&h, woke).await;
+    assert_eq!(
+        (settings.model.as_str(), settings.provider.as_deref()),
+        (crate::testing::MODEL, Some("replay.work")),
+        "the wake turn keeps the account of the newest pick, not the one of the job's turn"
+    );
+}
