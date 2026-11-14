@@ -373,7 +373,8 @@ export interface StreamState {
   readonly compacting: boolean;
   /**
    * How full the limits of the account of the running turn are, from its newest `limits`
-   * draft (AC-Limits 3). Drafts come only while a turn runs.
+   * draft (AC-Limits 3). Drafts come only while a turn runs. The end of a turn clears
+   * them, as the terminal starts each turn with no limit; they count only for their turn.
    */
   readonly limits: AccountLimitsView | undefined;
   /** The summary of the last snapshot. */
@@ -392,6 +393,8 @@ export interface StreamState {
 
 /** The limits of one account, as a `limits` draft gives them. */
 export interface AccountLimitsView {
+  /** The turn whose call told the limits. */
+  readonly turnId: string;
   /** The account, as a provider id such as `openai-subscription.b`. */
   readonly provider: string;
   readonly limits: AccountLimits;
@@ -533,7 +536,10 @@ function applyDraft(state: StreamState, draft: Draft): StreamState {
     case "compacting":
       return state.compacting ? state : { ...state, compacting: true };
     case "limits":
-      return { ...state, limits: { provider: part.provider, limits: part.limits } };
+      return {
+        ...state,
+        limits: { turnId: draft.turn_id, provider: part.provider, limits: part.limits },
+      };
     default:
       return state;
   }
@@ -911,7 +917,8 @@ function turnEnded(state: StreamState, turnId: string, end: TurnEnd): StreamStat
     return state;
   }
   const context = end.context ?? next.context;
-  return { ...next, compacting: false, context };
+  const limits = next.limits?.turnId === turnId ? undefined : next.limits;
+  return { ...next, compacting: false, context, limits };
 }
 
 function endOf(outcome: TurnOutcome, at: number | undefined): TurnEnd {

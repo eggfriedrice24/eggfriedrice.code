@@ -267,11 +267,14 @@ export function limitLevel(
 
 /**
  * The limit in the status line of a running turn (AC-Limits 3): the tightest window from
- * 90 %, such as "5-hour 92%"; undefined below. The values come from the call that runs
- * now, so they are new.
+ * 90 %, such as "5-hour 92%"; undefined below. Only the windows that still count at
+ * `now` (`limitsNow`): a window whose reset passed says nothing.
  */
-export function statusLimit(limits: AccountLimits | null | undefined): string | undefined {
-  const tightest = tightestWindow(limits?.windows ?? []);
+export function statusLimit(
+  limits: AccountLimits | null | undefined,
+  now: number,
+): string | undefined {
+  const tightest = tightestWindow(limitsNow(limits, now)?.windows ?? []);
   if (tightest === undefined || tightest.used_percent < LIMIT_STATUS_PERCENT) {
     return undefined;
   }

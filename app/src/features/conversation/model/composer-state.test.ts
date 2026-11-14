@@ -337,15 +337,29 @@ describe("the target of a send", () => {
   });
 });
 
-/** A `limits` draft of `provider` whose 5-hour window is at `used` percent. */
-function limits(used: number, provider = "openai-subscription"): DraftPart {
+/** The start of turn `turnId` on the ChatGPT plan. */
+function planTurnStarted(turnId: string): Event {
+  return {
+    ...turnStarted(turnId),
+    settings: { mode: "auto", model: "gpt-6.1-sol", provider: "openai-subscription" },
+  };
+}
+
+/** 2026-11-14 at 13:05 UTC, just after the limits drafts below. */
+const LIMITS_NOW = Date.parse("2026-11-14T13:05:00Z");
+
+/**
+ * A `limits` draft of `provider` whose 5-hour window is at `used` percent and resets at
+ * `resets` (none when undefined).
+ */
+function limits(used: number, provider = "openai-subscription", resets?: string): DraftPart {
   return {
     kind: "limits",
     provider,
     limits: {
       observed_at: "2026-11-14T13:00:00Z",
       windows: [
-        { minutes: 300, used_percent: used },
+        { minutes: 300, used_percent: used, resets_at: resets ?? null },
         { minutes: 10_080, used_percent: 41 },
       ],
     },
@@ -387,7 +401,8 @@ describe("the status line", () => {
       settings: { mode: "auto", model: "gpt-6.1-sol", provider: "openai-subscription" },
     };
     const running = run([eventItem(1, started)]);
-    const at = (part: DraftPart) => selectComposerStatus(run([draftItem("t1", 1, part)], running));
+    const at = (part: DraftPart) =>
+      selectComposerStatus(run([draftItem("t1", 1, part)], running), LIMITS_NOW);
     expect(at(limits(92)).limit).toBe("5-hour 92%");
     expect(at(limits(89)).limit).toBeUndefined();
     expect(at(limits(95, "openai-subscription.b")).limit).toBeUndefined();
@@ -396,7 +411,35 @@ describe("the status line", () => {
       [eventItem(2, turnCompleted("t1"))],
       run([draftItem("t1", 1, limits(92))], running),
     );
-    expect(selectComposerStatus(ended).limit).toBeUndefined();
+    expect(selectComposerStatus(ended, LIMITS_NOW).limit).toBeUndefined();
+    expect(ended.limits).toBeUndefined();
+  });
+
+  it("starts each turn with no limit, as the terminal does", () => {
+    const first = run([
+      eventItem(1, planTurnStarted("t1")),
+      draftItem("t1", 1, limits(95)),
+      eventItem(2, turnCompleted("t1")),
+    ]);
+    // The next turn on the same account: nothing until its own call tells the limits.
+    const next = run([eventItem(3, planTurnStarted("t2"))], first);
+    expect(selectComposerStatus(next, LIMITS_NOW).limit).toBeUndefined();
+    const told = run([draftItem("t2", 3, limits(93))], next);
+    expect(selectComposerStatus(told, LIMITS_NOW).limit).toBe("5-hour 93%");
+  });
+
+  it("drops a window whose reset passed", () => {
+    const started: Event = {
+      ...turnStarted("t1"),
+      settings: { mode: "auto", model: "gpt-6.1-sol", provider: "openai-subscription" },
+    };
+    const state = run([
+      eventItem(1, started),
+      draftItem("t1", 1, limits(96, "openai-subscription", "2026-11-14T14:20:00Z")),
+    ]);
+    expect(selectComposerStatus(state, LIMITS_NOW).limit).toBe("5-hour 96%");
+    const after = Date.parse("2026-11-14T14:21:00Z");
+    expect(selectComposerStatus(state, after).limit).toBeUndefined();
   });
 
   it("adds waiting for you in yolk, or the terminal in grey", () => {
@@ -418,7 +461,7 @@ describe("the status line", () => {
   });
 
   it("reads the stream store", () => {
-    expect(selectComposerStatus(EMPTY_STREAM)).toEqual({
+    expect(selectComposerStatus(EMPTY_STREAM, LIMITS_NOW)).toEqual({
       cwd: undefined,
       mode: undefined,
       context: undefined,

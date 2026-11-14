@@ -365,8 +365,12 @@ export const BLANK_STATUS: ComposerStatus = {
   limit: undefined,
 };
 
-/** The status line selector of the stream store. Compare with `shallow`. */
-export function selectComposerStatus(state: StreamState): ComposerStatus {
+/**
+ * The status line selector of the stream store at `now`. Compare with `shallow`. The
+ * limit counts only for the running turn whose call told it, on that turn's account, and
+ * a window whose reset passed counts no more.
+ */
+export function selectComposerStatus(state: StreamState, now: number): ComposerStatus {
   const status = selectStatus(state);
   const running = runningTurn(state);
   // The limit belongs to the account of the running turn; another account's says nothing.
@@ -374,8 +378,9 @@ export function selectComposerStatus(state: StreamState): ComposerStatus {
   const limit =
     running !== undefined &&
     limits !== undefined &&
+    limits.turnId === running.turnId &&
     (running.provider === undefined || running.provider === limits.provider)
-      ? statusLimit(limits.limits)
+      ? statusLimit(limits.limits, now)
       : undefined;
   return {
     cwd: status.cwd,

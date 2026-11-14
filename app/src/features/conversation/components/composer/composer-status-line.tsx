@@ -15,6 +15,7 @@ import { View } from "react-native";
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { MonoText } from "@/components/ui/mono-text";
 import { SymbolIcon } from "@/components/ui/symbol";
+import { useNow } from "@/features/navigation/use-now";
 import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
 
 import { BLANK_STATUS, selectComposerStatus, statusParts } from "../../model/composer-state";
@@ -49,7 +50,13 @@ export interface ComposerStatusProps {
 /** The words of the status line, from the stream store and the connection. */
 export function ComposerStatus(props: ComposerStatusProps) {
   const model = use(ComposerContext);
-  const status = useSelector(props.store ?? NO_STREAM, selectComposerStatus, { compare: shallow });
+  // NOTE: the minute clock drops a window of the limit once its reset passed.
+  const now = useNow();
+  const status = useSelector(
+    props.store ?? NO_STREAM,
+    (state) => selectComposerStatus(state, now),
+    { compare: shallow },
+  );
   const parts = statusParts(model?.isBlankRoot === true ? BLANK_STATUS : status);
   const reconnecting = model?.state.kind === "reconnecting";
   return (
