@@ -30,4 +30,11 @@ export const outboxEntrySchema = z.object({
       queued: z.boolean(),
     })
     .nullable(),
+  settings: z
+    .object({
+      model: z.string(),
+      provider: z.string().exactOptional(),
+      effort: z.string().exactOptional(),
+    })
+    .exactOptional(),
 }) satisfies z.ZodType<OutboxEntry>;

@@ -77,6 +77,16 @@ export interface OutboxEntry {
   readonly retryAt: number;
   readonly error: OutboxError | null;
   readonly sent: OutboxSent | null;
+  /** The model, account and effort that the user chose; absent: what efrd runs. */
+  readonly settings?: OutboxSettings;
+}
+
+/** The model settings of a prompt, as the model sheet chose them. */
+export interface OutboxSettings {
+  readonly model: string;
+  /** The account, as `TurnSettings.provider` names it, such as `openai-subscription.b`. */
+  readonly provider?: string;
+  readonly effort?: string;
 }
 
 /** The state of the outbox. */
@@ -124,6 +134,7 @@ export interface OutboxInput {
   readonly machine: DaemonId;
   readonly target: OutboxTarget;
   readonly text: string;
+  readonly settings?: OutboxSettings;
 }
 
 /** The outbox of all machines. */
@@ -266,18 +277,28 @@ export function drainPlan(snapshot: OutboxSnapshot, machine: DaemonId, now: numb
  * alias of its new target, or `new_conversation` when efrd did not make it yet.
  */
 export function sendParams(snapshot: OutboxSnapshot, entry: OutboxEntry): PromptSend {
+  const params: PromptSend = { command_id: entry.commandId, text: entry.text };
   if (entry.target.kind === "conversation") {
-    return {
-      command_id: entry.commandId,
-      text: entry.text,
-      conversation_id: entry.target.conversationId,
-    };
+    params.conversation_id = entry.target.conversationId;
+  } else {
+    const alias = resolveAlias(snapshot, entry.machine, entry.target.localId);
+    if (alias === undefined) {
+      params.new_conversation = true;
+    } else {
+      params.conversation_id = alias;
+    }
   }
-  const alias = resolveAlias(snapshot, entry.machine, entry.target.localId);
-  if (alias !== undefined) {
-    return { command_id: entry.commandId, text: entry.text, conversation_id: alias };
+  const settings = entry.settings;
+  if (settings !== undefined) {
+    params.settings = { model: settings.model };
+    if (settings.provider !== undefined) {
+      params.settings.provider = settings.provider;
+    }
+    if (settings.effort !== undefined) {
+      params.settings.effort = settings.effort;
+    }
   }
-  return { command_id: entry.commandId, text: entry.text, new_conversation: true };
+  return params;
 }
 
 /** The aliases that the sent entries of `entries` name. */
@@ -459,7 +480,7 @@ export function createOutbox(deps: OutboxDeps): Outbox {
           target = { kind: "conversation", conversationId: alias };
         }
       }
-      const entry: OutboxEntry = {
+      const entry: { -readonly [K in keyof OutboxEntry]: OutboxEntry[K] } = {
         commandId: deps.newId(),
         machine: input.machine,
         target,
@@ -472,6 +493,9 @@ export function createOutbox(deps: OutboxDeps): Outbox {
         error: null,
         sent: null,
       };
+      if (input.settings !== undefined) {
+        entry.settings = input.settings;
+      }
       store.setState((state) => ({ entries: [...state.entries, entry], aliases: state.aliases }));
       write((disk) => disk.put(entry));
       return entry;

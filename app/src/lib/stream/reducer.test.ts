@@ -644,6 +644,54 @@ describe("snapshots", () => {
   });
 });
 
+describe("the model of a turn", () => {
+  it("takes the model, the account and the effort from the settings of its start", () => {
+    const started: Event = {
+      ...turnStarted(TURN),
+      settings: {
+        mode: "auto",
+        model: "gpt-6.1-sol",
+        provider: "openai-subscription.b",
+        default_effort: "medium",
+      },
+    };
+    const turn = run([event(1, started)]).turns.get(TURN);
+    expect(turn?.model).toBe("gpt-6.1-sol");
+    expect(turn?.provider).toBe("openai-subscription.b");
+    // The turn sent no effort: the model's default stands for it.
+    expect(turn?.effort).toBe("medium");
+    const sent: Event = {
+      ...turnStarted(TURN),
+      settings: { mode: "auto", model: "claude-opus-5-5", effort: "high", default_effort: "low" },
+    };
+    expect(run([event(1, sent)]).turns.get(TURN)?.effort).toBe("high");
+  });
+
+  it("follows a model_switched to the new model and account", () => {
+    const state = run([
+      event(1, {
+        ...turnStarted(TURN),
+        settings: { mode: "cautious", model: "gpt-6.1-sol", provider: "openai-subscription" },
+      }),
+      event(2, {
+        kind: "model_switched",
+        turn_id: TURN,
+        from: { model: "gpt-6.1-sol", provider: "openai-subscription", effort: "medium" },
+        to: { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "high" },
+      }),
+    ]);
+    const turn = state.turns.get(TURN);
+    expect(turn?.provider).toBe("openai-subscription.b");
+    expect(turn?.effort).toBe("high");
+  });
+
+  it("keeps the turn object when a start says nothing new", () => {
+    const once = run([event(1, turnStarted(TURN), at(1))]);
+    const twice = reduce(once, event(2, turnStarted(TURN), at(1)));
+    expect(twice.turns.get(TURN)).toBe(once.turns.get(TURN));
+  });
+});
+
 describe("underlay", () => {
   it("puts cached turns under what the subscription gave, and changes nothing without them", () => {
     const older = "019a9b1c-3d00-7a10-8b20-000000000003";

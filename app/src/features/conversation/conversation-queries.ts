@@ -14,7 +14,7 @@
 //   itself.
 // - The app never answers "always allow": efrd refuses it from a phone.
 
-import { infiniteQueryOptions, mutationOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, mutationOptions, queryOptions } from "@tanstack/react-query";
 
 import { conversationsKeys } from "@/features/conversations/conversations-queries";
 import { conversationScope, machineKey, type ConversationAddress } from "@/lib/query/keys";
@@ -40,7 +40,25 @@ export const conversationKeys = {
     [...machineKey(ref.machine), "conversation", ref.id, "turn.interrupt"] as const,
   withdraw: (ref: ConversationAddress) =>
     [...machineKey(ref.machine), "conversation", ref.id, "prompt.withdraw"] as const,
+  /** The models and accounts of a machine (`models.list`), for the model sheet. */
+  models: (machine: string) => [...machineKey(machine), "models.list"] as const,
 };
+
+/** How long a model list counts as new. The sheet asks again each time it opens. */
+export const MODELS_STALE_MS = 60_000;
+
+/**
+ * The models and the accounts of `machine`. The list is small, so it goes to the disk:
+ * the model button and the sheet show the last list at once, also offline.
+ */
+export function modelsQueryOptions(caller: MachineCaller, machine: string) {
+  return queryOptions({
+    queryKey: conversationKeys.models(machine),
+    queryFn: ({ signal }) => caller.call(machine, "models.list", {}, signal),
+    staleTime: MODELS_STALE_MS,
+    meta: { persist: true },
+  });
+}
 
 /**
  * The page param of a history page. `conversation.history` pages go only to older

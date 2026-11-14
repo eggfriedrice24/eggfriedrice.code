@@ -38,6 +38,7 @@ import {
   type ConversationStream,
 } from "@/features/conversation/model/conversation-stream";
 import { createDrafts, type Drafts } from "@/features/conversation/model/drafts";
+import { createModelChoices, type ModelChoices } from "@/features/conversation/model/model-choices";
 import {
   createOutbox,
   type Outbox,
@@ -77,6 +78,8 @@ export interface AppServices {
   readonly outbox: Outbox;
   readonly drafts: Drafts;
   readonly preferences: PreferencesStore;
+  /** The model and effort chosen per composer. */
+  readonly modelChoices: ModelChoices;
   /** Settles when the runtime read the paired machines. It never rejects. */
   readonly loaded: Promise<void>;
   /** Stops every connection, drain and listener. */
@@ -144,6 +147,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
 
   const preferences = createPreferences({ storage: deps.keyValue, onStorageError: onError });
   const drafts = createDrafts({ storage: deps.keyValue, onStorageError: onError });
+  const modelChoices = createModelChoices({ storage: deps.keyValue, onStorageError: onError });
   const outbox = createOutbox({
     storage: deferredOutboxStorage(async () => deps.openOutboxStorage(await openDatabase())),
     now: deps.now,
@@ -157,6 +161,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     (machine) => outbox.removeMachine(machine),
     (machine) => {
       drafts.removeMachine(machine);
+      modelChoices.removeMachine(machine);
     },
     (machine) => {
       preferences.forgetMachine(machine);
@@ -218,6 +223,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     outbox,
     drafts,
     preferences,
+    modelChoices,
     loaded,
     dispose(): void {
       for (const stop of stops.splice(0)) {

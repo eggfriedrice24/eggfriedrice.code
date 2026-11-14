@@ -87,6 +87,37 @@ describe("the outbox", () => {
     });
   });
 
+  it("sends the chosen model, account and effort as settings, and keeps them on the disk", async () => {
+    const storage = new MemoryOutboxStorage();
+    const { outbox } = testOutbox(storage);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "a",
+      settings: { model: "claude-sonnet-5", provider: "anthropic-api.work", effort: "medium" },
+    });
+    const plain = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "b",
+      settings: { model: "claude-haiku-4-5" },
+    });
+    const snapshot = outbox.store.get();
+    expect(sendParams(snapshot, entry)).toEqual({
+      command_id: entry.commandId,
+      text: "a",
+      conversation_id: CONVERSATION_A,
+      settings: { model: "claude-sonnet-5", provider: "anthropic-api.work", effort: "medium" },
+    });
+    expect(sendParams(snapshot, plain).settings).toEqual({ model: "claude-haiku-4-5" });
+    await outbox.flush();
+    const loaded = await storage.load();
+    expect(loaded.map((saved) => saved.settings)).toEqual([
+      { model: "claude-sonnet-5", provider: "anthropic-api.work", effort: "medium" },
+      { model: "claude-haiku-4-5" },
+    ]);
+  });
+
   it("resolves the local id of a new conversation once efrd made it", () => {
     const { outbox } = testOutbox();
     const target = outbox.newConversation();

@@ -6,6 +6,7 @@
 import { createContext, use } from "react";
 
 import type { Drafts } from "@/features/conversation/model/drafts";
+import type { ModelChoices } from "@/features/conversation/model/model-choices";
 import type { Outbox } from "@/features/conversation/model/outbox";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import type { AppRuntime, AppServices } from "./model/app-services";
@@ -35,6 +36,11 @@ export function useOutbox(): Outbox {
 /** The drafts of the composer. */
 export function useDrafts(): Drafts {
   return useAppServices().drafts;
+}
+
+/** The model and effort chosen per composer. */
+export function useModelChoices(): ModelChoices {
+  return useAppServices().modelChoices;
 }
 
 /** The preferences. */

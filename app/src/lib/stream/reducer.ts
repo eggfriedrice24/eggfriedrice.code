@@ -285,6 +285,14 @@ export interface TurnView {
   /** The working directory and the mode that the turn runs with. */
   readonly cwd: string | undefined;
   readonly mode: Mode | undefined;
+  /**
+   * The model, the account and the effort that the turn runs with, from its settings
+   * and a `model_switched`. The effort is the one that the turn sent, else the model's
+   * default, for display only.
+   */
+  readonly model: string | undefined;
+  readonly provider: string | undefined;
+  readonly effort: string | undefined;
   /** The surface that asked to stop the turn. */
   readonly interruptedBy: Origin | undefined;
   readonly end: TurnEnd | undefined;
@@ -565,11 +573,42 @@ function applyEventBody(
     case "turn_started":
       return updateTurn(state, event.turn_id, (turn) => {
         const cwd = event.cwd;
-        const mode = event.settings?.mode ?? turn.mode;
-        if (turn.started && turn.cwd === cwd && turn.mode === mode && turn.startedAt === at) {
+        const settings = event.settings ?? undefined;
+        const mode = settings?.mode ?? turn.mode;
+        const model = settings?.model ?? turn.model;
+        const provider = settings?.provider ?? turn.provider;
+        const effort = settings?.effort ?? settings?.default_effort ?? turn.effort;
+        if (
+          turn.started &&
+          turn.cwd === cwd &&
+          turn.mode === mode &&
+          turn.model === model &&
+          turn.provider === provider &&
+          turn.effort === effort &&
+          turn.startedAt === at
+        ) {
           return turn;
         }
-        return { ...turn, started: true, startedAt: at ?? turn.startedAt, cwd, mode };
+        return {
+          ...turn,
+          started: true,
+          startedAt: at ?? turn.startedAt,
+          cwd,
+          mode,
+          model,
+          provider,
+          effort,
+        };
+      });
+    case "model_switched":
+      return updateTurn(state, event.turn_id, (turn) => {
+        const to = event.to;
+        const provider = to.provider ?? turn.provider;
+        const effort = to.effort ?? to.default_effort ?? turn.effort;
+        if (turn.model === to.model && turn.provider === provider && turn.effort === effort) {
+          return turn;
+        }
+        return { ...turn, model: to.model, provider, effort };
       });
     case "assistant_message_updated":
       return updateTurn(state, event.turn_id, (turn) =>
@@ -1092,6 +1131,9 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     startedAt: rebuilt.startedAt ?? old.startedAt,
     cwd: rebuilt.cwd ?? old.cwd,
     mode: rebuilt.mode ?? old.mode,
+    model: rebuilt.model ?? old.model,
+    provider: rebuilt.provider ?? old.provider,
+    effort: rebuilt.effort ?? old.effort,
     interruptedBy: rebuilt.interruptedBy ?? old.interruptedBy,
     parts,
     messages,
@@ -1192,6 +1234,9 @@ function newTurn(turnId: string): TurnView {
     startedAt: undefined,
     cwd: undefined,
     mode: undefined,
+    model: undefined,
+    provider: undefined,
+    effort: undefined,
     interruptedBy: undefined,
     end: undefined,
     parts: [],
