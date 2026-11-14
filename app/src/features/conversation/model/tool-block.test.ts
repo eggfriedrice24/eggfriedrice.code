@@ -69,11 +69,19 @@ describe("toolStatus", () => {
   });
 
   it("waits with no time while its approval waits, then counts from the answer", () => {
-    expect(toolStatus(call(), false, 60_000, { pending: true, closedAt: undefined })).toEqual({
+    const waiting = { status: "pending", closedAt: undefined, answeredBy: undefined } as const;
+    expect(toolStatus(call(), false, 60_000, waiting)).toEqual({
       kind: "waiting",
+      left: undefined,
     });
-    const answered = { pending: false, closedAt: 50_000 };
-    expect(toolStatus(call(), false, 51_000, answered)).toEqual({
+    expect(toolStatus(call(), false, 60_000, waiting, "42s")).toEqual({
+      kind: "waiting",
+      left: "42s",
+    });
+    const answered = { status: "allowed", closedAt: 50_000, answeredBy: "phone" } as const;
+    // Only the status word changes at first: "allowed", then the usual loader.
+    expect(toolStatus(call(), false, 51_000, answered)).toEqual({ kind: "allowed" });
+    expect(toolStatus(call({ bytes: 12 }), false, 51_000, answered)).toEqual({
       kind: "running",
       elapsed: undefined,
     });
@@ -83,6 +91,14 @@ describe("toolStatus", () => {
     });
     const done = call({ done: true, exitCode: 0, endedAt: 53_000 });
     expect(toolStatus(done, false, 0, answered)).toEqual({ kind: "done", detail: "0 · 3s" });
+  });
+
+  it("says denied or expired for a call whose approval closed without an allow", () => {
+    const denied = { status: "denied", closedAt: 50_000, answeredBy: "shell" } as const;
+    const failed = call({ done: true, isError: true, refusal: "denied by the user" });
+    expect(toolStatus(failed, false, 0, denied)).toEqual({ kind: "closed", word: "denied" });
+    const expired = { status: "expired_away", closedAt: 50_000, answeredBy: undefined } as const;
+    expect(toolStatus(call(), true, 0, expired)).toEqual({ kind: "closed", word: "expired" });
   });
 
   it("gives the exit code and the time when done", () => {
@@ -208,6 +224,34 @@ describe("the small texts", () => {
     );
     expect(toolLabel(header, { kind: "running", elapsed: undefined })).toBe(
       "Command cargo test -p efr-daemon, running",
+    );
+  });
+
+  it("tells VoiceOver the state of the approval, who answered and when", () => {
+    const header = toolHeader(call());
+    expect(toolLabel(header, { kind: "waiting", left: undefined })).toBe(
+      "Command cargo test -p efr-daemon, waiting for approval",
+    );
+    expect(toolLabel(header, { kind: "waiting", left: "42s" })).toBe(
+      "Command cargo test -p efr-daemon, waiting for approval, 42s left",
+    );
+    const at = new Date(2026, 10, 14, 14, 32).getTime();
+    expect(
+      toolLabel(
+        header,
+        { kind: "allowed" },
+        { status: "allowed", closedAt: at, answeredBy: "phone" },
+      ),
+    ).toBe("Command cargo test -p efr-daemon, allowed on a phone at 14:32");
+    expect(
+      toolLabel(
+        header,
+        { kind: "closed", word: "denied" },
+        { status: "denied", closedAt: at, answeredBy: "shell" },
+      ),
+    ).toBe("Command cargo test -p efr-daemon, denied in a terminal at 14:32");
+    expect(toolLabel(header, { kind: "closed", word: "expired" })).toBe(
+      "Command cargo test -p efr-daemon, expired, not answered",
     );
   });
 });

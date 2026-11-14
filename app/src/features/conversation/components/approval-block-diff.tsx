@@ -54,6 +54,8 @@ const SPOKEN = {
 
 export interface ApprovalDiffProps {
   readonly rows: readonly DiffRow[];
+  /** The approval sheet draws the diff full width, with no frame (AP-Sheets). */
+  readonly bare?: boolean;
 }
 
 /** The diff box. */
@@ -61,7 +63,10 @@ export function ApprovalDiff(props: ApprovalDiffProps) {
   return (
     <View
       testID="approval-diff"
-      className="mt-10 flex-row overflow-hidden rounded-inner border border-border-subtle py-4"
+      className={cn(
+        "mt-10 flex-row overflow-hidden py-4",
+        props.bare !== true && "rounded-inner border border-border-subtle",
+      )}
     >
       <View>
         {props.rows.map((row) => (

@@ -8,17 +8,12 @@ import { useHeaderHeight } from "expo-router/react-navigation";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { StreamState } from "@/lib/stream/reducer";
-import { ApprovalBlockView } from "@/features/conversation/components/approval-block";
 import { Transcript } from "@/features/conversation/components/transcript";
 import type {
-  ApprovalRowRef,
   TranscriptActions,
   TranscriptScope,
 } from "@/features/conversation/components/use-transcript-scope";
-import { approvalBlock, NO_ANSWER } from "@/features/conversation/model/approval-block";
 import { createRowUiStore } from "@/features/conversation/model/row-ui-state";
-import { selectApproval } from "@/features/conversation/model/selectors";
 import { demoConversation, type DemoConversationKind } from "../model/demo-conversations";
 import { staticState } from "../model/static-stream";
 
@@ -28,23 +23,8 @@ const NO_ACTIONS: TranscriptActions = {
   retry: () => undefined,
   editAndResend: () => undefined,
   resend: () => undefined,
+  openApproval: () => undefined,
 };
-
-/** The approval block of a row of `state`. */
-function approvalRow(state: StreamState, row: ApprovalRowRef) {
-  const approval = selectApproval(row.turnId, row.callId)(state);
-  if (approval === undefined) {
-    return null;
-  }
-  const model = approvalBlock(approval, {
-    machine: "desktop",
-    cwd: state.turns.get(row.turnId)?.cwd,
-    connected: true,
-    expiry: undefined,
-    answer: NO_ANSWER,
-  });
-  return <ApprovalBlockView model={model} onAnswer={() => undefined} linked />;
-}
 
 /** The scope of a sheet of `kind`; with `expanded`, every tool block shows in full. */
 export function sheetScope(kind: DemoConversationKind, expanded: boolean): TranscriptScope {
@@ -67,7 +47,6 @@ export function sheetScope(kind: DemoConversationKind, expanded: boolean): Trans
     rowUi,
     machineName: "desktop",
     actions: NO_ACTIONS,
-    renderApproval: (row) => approvalRow(state, row),
   };
 }
 

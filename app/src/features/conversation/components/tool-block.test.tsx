@@ -50,41 +50,98 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
+const WAITING = { status: "pending", closedAt: undefined, answeredBy: undefined } as const;
+
 describe("a tool block whose approval waits", () => {
-  it("shows the yolk dot and the words, no loader and no time, an accent outline and a link", async () => {
+  it("shows the yolk dot and the words, no loader and no time, and an accent outline", async () => {
     await render(
       <ToolBlockView
         call={call()}
         turnEnded={false}
-        approval={{ pending: true, closedAt: undefined }}
+        approval={WAITING}
         expanded={false}
         onToggle={jest.fn()}
       />,
     );
     expect(screen.getByText("waiting for approval")).toBeOnTheScreen();
     expect(screen.queryByLabelText("Running", HIDDEN)).toBeNull();
-    expect(
-      screen.getByRole("button", {
-        name: "Command cargo test -p efr-daemon, waiting for approval",
-      }),
-    ).toBeOnTheScreen();
+    const card = screen.getByRole("button", {
+      name: "Command cargo test -p efr-daemon, waiting for approval",
+    });
+    expect(card.props.accessibilityHint).toBe("Opens the approval.");
     expect(screen.getByTestId("tool-block").props.className).toContain("border-border-accent");
-    expect(screen.getByTestId("approval-link", HIDDEN)).toBeOnTheScreen();
   });
 
-  it("drops the outline and the link once answered, and runs again", async () => {
+  it("opens the approval sheet on a tap, and never toggles the output", async () => {
+    const onOpen = jest.fn<() => void>();
+    const onToggle = jest.fn<() => void>();
     await render(
       <ToolBlockView
         call={call()}
         turnEnded={false}
-        approval={{ pending: false, closedAt: NOW }}
+        approval={WAITING}
+        expanded={false}
+        onToggle={onToggle}
+        onOpenApproval={onOpen}
+      />,
+    );
+    await fireEvent.press(screen.getByRole("button", { name: /waiting for approval/ }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("shows the seconds left under a minute", async () => {
+    await render(
+      <ToolBlockView
+        call={call()}
+        turnEnded={false}
+        approval={WAITING}
+        left="42s"
         expanded={false}
         onToggle={jest.fn()}
       />,
     );
-    expect(screen.getByLabelText("Running", HIDDEN)).toBeOnTheScreen();
+    expect(screen.getByText("42s")).toBeOnTheScreen();
+    expect(
+      screen.getByRole("button", { name: /waiting for approval, 42s left/ }),
+    ).toBeOnTheScreen();
+  });
+
+  it("says allowed once answered, then runs with the loader", async () => {
+    await render(
+      <ToolBlockView
+        call={call()}
+        turnEnded={false}
+        approval={{ status: "allowed", closedAt: NOW, answeredBy: "phone" }}
+        expanded={false}
+        onToggle={jest.fn()}
+      />,
+    );
+    expect(screen.getByText("allowed")).toBeOnTheScreen();
     expect(screen.getByTestId("tool-block").props.className).toContain("border-border-subtle");
-    expect(screen.queryByTestId("approval-link", HIDDEN)).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(3_000);
+    });
+    expect(screen.queryByText("allowed")).toBeNull();
+    expect(screen.getByLabelText("Running", HIDDEN)).toBeOnTheScreen();
+  });
+
+  it("says denied with the command in text_muted and no output", async () => {
+    await render(
+      <ToolBlockView
+        call={call({ done: true, isError: true, refusal: "the user denied it" })}
+        turnEnded={false}
+        approval={{ status: "denied", closedAt: NOW, answeredBy: "shell" }}
+        expanded={false}
+        onToggle={jest.fn()}
+      />,
+    );
+    expect(screen.getByText("denied")).toBeOnTheScreen();
+    expect(screen.getByText("cargo test -p efr-daemon").props.className).toContain(
+      "text-text-muted",
+    );
+    expect(screen.queryByText("the user denied it")).toBeNull();
+    expect(screen.queryByText("✗")).toBeNull();
   });
 });
 

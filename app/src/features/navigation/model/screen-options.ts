@@ -84,6 +84,19 @@ export const CONVERSATIONS_OPTIONS: NativeStackNavigationOptions = {
   scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },
 };
 
+/**
+ * The approval sheet (AP-Sheets): a custom detent that fits the content, the grabber
+ * only, no bar. Swipe down or a tap outside closes it. A long diff scrolls inside the
+ * sheet, which then grows to the full height.
+ */
+export const APPROVAL_OPTIONS: NativeStackNavigationOptions = {
+  presentation: "formSheet",
+  sheetAllowedDetents: "fitToContents",
+  sheetGrabberVisible: true,
+  headerShown: false,
+  contentStyle: { backgroundColor: roles.surface_1 },
+};
+
 /** Pairing, full screen, with its own nav row. */
 export const PAIR_OPTIONS: NativeStackNavigationOptions = {
   presentation: "fullScreenModal",

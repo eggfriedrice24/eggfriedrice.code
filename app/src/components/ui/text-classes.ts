@@ -24,6 +24,7 @@ export const TYPE_CLASS = {
   button: "text-button",
   buttonLarge: "text-button-large",
   capsule: "text-capsule",
+  buttonSmall: "text-button-small",
   monoXs: "text-mono-xs",
   monoXsTight: "text-mono-xs-tight",
   monoDiff: "text-mono-diff",

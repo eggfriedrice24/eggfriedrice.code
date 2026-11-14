@@ -23,6 +23,16 @@ export const conversationsParamsSchema = z.object({
   section: z.literal("waiting").exactOptional(),
 });
 
+/** The params of `approval` (the approval sheet). */
+export const approvalParamsSchema = z.object({
+  /** The daemon id of the machine. */
+  machine: z.guid(),
+  /** The conversation id. */
+  id: z.guid(),
+  /** The tool call whose question the sheet shows. */
+  call: z.string().min(1),
+});
+
 /** The params of `pair`. */
 export const pairParamsSchema = z.object({
   /** The daemon id of the machine that the user pairs again. */

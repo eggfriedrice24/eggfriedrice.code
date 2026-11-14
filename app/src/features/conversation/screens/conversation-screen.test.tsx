@@ -345,6 +345,43 @@ describe("the conversation screen", () => {
     expect(view?.getSearchParams()).not.toHaveProperty("focus");
   });
 
+  it("docks the approval strip in the composer, and its tap opens the sheet", async () => {
+    await open(`/c/${DESKTOP}/${CONVERSATION}`);
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [
+        snapshotItem(
+          CONVERSATION,
+          "awaiting_approval",
+          [
+            envelope(1, promptQueued(NEXT, "Push it.")),
+            envelope(2, turnStarted(NEXT)),
+            envelope(3, approvalRequested(NEXT, CALL, 'shell: run "git push"')),
+          ],
+          3,
+        ),
+      ]);
+    });
+    // Nothing opens by itself.
+    expect(view?.getPathname()).toBe(`/c/${DESKTOP}/${CONVERSATION}`);
+    expect(screen.getByTestId("approval-strip")).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole("button", { name: "Approval needed: git push" }));
+    await act(flush);
+    expect(view?.getPathname()).toBe("/approval");
+    expect(view?.getSearchParams()).toMatchObject({
+      machine: DESKTOP,
+      id: CONVERSATION,
+      call: CALL,
+    });
+    expect(screen.getByTestId("approval-sheet")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeOnTheScreen();
+    // A swipe down closes the sheet.
+    await act(async () => {
+      router.back();
+    });
+    await act(flush);
+    expect(view?.getPathname()).toBe(`/c/${DESKTOP}/${CONVERSATION}`);
+  });
+
   it("fetches the older history when the reader gets to the top", async () => {
     const OLDER = "019a9b1c-3d00-7a10-8b20-0000000000f4";
     await open(`/c/${DESKTOP}/${CONVERSATION}`);

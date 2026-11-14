@@ -181,6 +181,12 @@
   font-weight: 600;
 }
 
+@utility text-button-small {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
 @utility text-mono-xs {
   font-family: ui-monospace;
   font-size: 11px;

@@ -14,8 +14,12 @@ import { flush } from "@/lib/net/testing";
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import { machineRecord } from "@/features/machines/model/testing";
 import { lastSocket, type TestServices } from "@/features/navigation/model/testing";
-import { conversationParamsSchema } from "@/features/navigation/model/route-schemas";
+import {
+  approvalParamsSchema,
+  conversationParamsSchema,
+} from "@/features/navigation/model/route-schemas";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
+import { ApprovalSheetScreen } from "./approval-sheet-screen";
 import { BlankRootScreen } from "./blank-root-screen";
 import { ConversationScreen } from "./conversation-screen";
 
@@ -53,8 +57,15 @@ export function screenRoutes(test: TestServices) {
     _layout: Layout,
     index: () => <BlankRootScreen noMachine={<Text>no machine root</Text>} />,
     "c/[machine]/[id]": ConversationRoute,
+    approval: ApprovalRoute,
     settings: () => <Text>settings</Text>,
   };
+}
+
+/** The approval sheet route, as src/app/approval.tsx renders it. */
+export function ApprovalRoute() {
+  const params = approvalParamsSchema.safeParse(useLocalSearchParams());
+  return <ApprovalSheetScreen target={params.success ? params.data : undefined} />;
 }
 
 /** The socket of `machine` that the app uses now. */

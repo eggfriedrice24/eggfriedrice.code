@@ -272,18 +272,36 @@ describe("the transcript", () => {
     ).toEqual(["cell-o:cmd-9", "cell-end"]);
   });
 
-  it("draws an approval with the view that the screen gives", async () => {
+  it("draws a question without its call as a waiting card that opens the sheet", async () => {
     const state = run(
       [
         eventItem(7, promptQueued(NEXT, "Push it.")),
         eventItem(8, turnStarted(NEXT)),
-        eventItem(9, approvalRequested(NEXT, ASK, "git push")),
+        eventItem(9, approvalRequested(NEXT, ASK, 'shell: run "git push"')),
+      ],
+      finishedTurn(),
+    );
+    const { scope, calls } = testScope(state);
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    const card = screen.getByRole("button", { name: "Command git push, waiting for approval" });
+    await fireEvent.press(card);
+    expect(calls).toEqual([{ action: "openApproval", callId: ASK }]);
+  });
+
+  it("shows the approval on the tool card of its call, with no row of its own", async () => {
+    const state = run(
+      [
+        eventItem(7, promptQueued(NEXT, "Push it.")),
+        eventItem(8, turnStarted(NEXT)),
+        eventItem(9, toolCallStarted(NEXT, ASK, "shell", { command: "git push" })),
+        eventItem(10, approvalRequested(NEXT, ASK, 'shell: run "git push"')),
       ],
       finishedTurn(),
     );
     const { scope } = testScope(state);
     await render(<Transcript scope={scope} insets={INSETS} />);
-    expect(screen.getByText(`approval ${ASK}`)).toBeOnTheScreen();
+    expect(screen.getAllByText("waiting for approval")).toHaveLength(1);
+    expect(screen.queryByTestId(`cell-a:${NEXT}:${ASK}`)).toBeNull();
   });
 });
 

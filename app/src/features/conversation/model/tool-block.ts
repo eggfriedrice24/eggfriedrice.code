@@ -10,17 +10,25 @@
 // - Collapsed, the block shows the last 3 lines of the output; expanded, the whole
 //   output, at most 200 lines. Each line has a key from its byte offset in the whole
 //   output, so a line keeps its view (and fades in only once) while the output grows.
-// - While the call's approval waits, the status is "waiting for approval", with no time.
+// - While the call's approval waits, the status is "waiting for approval", with no
+//   elapsed time; under a minute before the question expires, the seconds left. After
+//   the answer only the status word changes (S-Tools): `allowed`, then the usual loader,
+//   or `denied` or `expired`.
 // - The word "error" in an output line is red (design: stderr "error" words).
 // - A step of the provider's web search (TM-Web) has the verb `web` and the query, or
 //   `open` and the page without `https://` and `www.`. Done: `✓ 10 results · 6s` (the
 //   count only when the provider gives it) or `✓ 5s`. Failed: the reason in words, such
 //   as `too many requests · 1s`. It has no output.
 
-import type { WebAction, WebError } from "@/lib/protocol/generated";
-import type { ToolCallView, ToolInputView, WebStepView } from "@/lib/stream/reducer";
+import type { Origin, WebAction, WebError } from "@/lib/protocol/generated";
+import type {
+  ApprovalStatus,
+  ToolCallView,
+  ToolInputView,
+  WebStepView,
+} from "@/lib/stream/reducer";
 import { utf8Length } from "@/lib/stream/utf8";
-import { between, elapsed } from "./durations";
+import { between, clockTime, elapsed } from "./durations";
 import { size } from "./format";
 
 /** The lines of output of a collapsed block. */
@@ -62,39 +70,62 @@ export function toolHeader(call: Pick<ToolCallView, "tool" | "summary" | "web">)
 
 /** The status of a tool block: what runs, or how it ended. */
 export type ToolStatus =
-  | { readonly kind: "waiting" }
+  /** Its approval waits; `left` is the time left under a minute, such as `42s`. */
+  | { readonly kind: "waiting"; readonly left: string | undefined }
+  /** Its approval was allowed a moment ago, and it has no output yet. */
+  | { readonly kind: "allowed" }
   | { readonly kind: "running"; readonly elapsed: string | undefined }
   | { readonly kind: "done"; readonly detail: string }
-  | { readonly kind: "failed"; readonly detail: string };
+  | { readonly kind: "failed"; readonly detail: string }
+  /** Its approval was denied or expired: the call did not run. */
+  | { readonly kind: "closed"; readonly word: "denied" | "expired" };
 
 /** The approval question of a call, as its tool block needs it. */
 export interface ToolApproval {
-  /** The question still waits for an answer. */
-  readonly pending: boolean;
-  /** When it was answered, in ms since the epoch. */
+  readonly status: ApprovalStatus;
+  /** When it was answered or expired, in ms since the epoch. */
   readonly closedAt: number | undefined;
+  /** The surface that answered. */
+  readonly answeredBy: Origin | undefined;
 }
 
 /**
- * The status of `call` at `now`. `turnEnded` is true when its turn has ended.
+ * The status of `call` at `now`. `turnEnded` is true when its turn has ended. `left` is
+ * the time left to answer its approval under a minute (`shortTimeLeft`).
  *
- * While its approval waits, the call is paused: it shows no timer (design R4 item 5).
- * After an answer, the time counts from the answer, not from the start of the call.
+ * While its approval waits, the call is paused: it shows no loader and no elapsed time
+ * (design R4 item 5, S-Tools). After an answer only the status word changes: `allowed`,
+ * then the usual loader and exit code, or `denied` or `expired`. The time counts from
+ * the answer, not from the start of the call.
  */
 export function toolStatus(
   call: ToolCallView,
   turnEnded: boolean,
   now: number,
   approval?: ToolApproval,
+  left?: string,
 ): ToolStatus {
   if (call.web !== undefined) {
     return webStatus(call, call.web, turnEnded, now);
   }
+  switch (approval?.status) {
+    case "denied":
+      return { kind: "closed", word: "denied" };
+    case "expired":
+    case "expired_away":
+      return { kind: "closed", word: "expired" };
+    default:
+      break;
+  }
   if (!call.done && !turnEnded) {
-    if (approval?.pending === true) {
-      return { kind: "waiting" };
+    if (approval?.status === "pending") {
+      return { kind: "waiting", left };
     }
-    return { kind: "running", elapsed: elapsed(approval?.closedAt ?? call.startedAt, now) };
+    const time = elapsed(approval?.closedAt ?? call.startedAt, now);
+    if (approval?.status === "allowed" && call.bytes === 0 && time === undefined) {
+      return { kind: "allowed" };
+    }
+    return { kind: "running", elapsed: time };
   }
   // NOTE: after an approval the time counts from the answer, as the loader did.
   const time = between(approval?.closedAt ?? call.startedAt, call.endedAt);
@@ -316,13 +347,49 @@ export function writingBlock(input: ToolInputView): WritingBlock {
   return { verb, size: size(input.bytes) };
 }
 
+/**
+ * Who answered an approval and when, for VoiceOver (S-Approvals): ` on a phone at 14:32`,
+ * ` in a terminal at 14:33`, or only the time.
+ */
+export function answeredWords(approval: ToolApproval | undefined): string {
+  let where = "";
+  switch (approval?.answeredBy) {
+    case "phone":
+      where = " on a phone";
+      break;
+    case "shell":
+    case "cli":
+    case "proxy":
+      where = " in a terminal";
+      break;
+    default:
+      break;
+  }
+  const at = approval?.closedAt === undefined ? "" : ` at ${clockTime(approval.closedAt)}`;
+  return `${where}${at}`;
+}
+
+/** The time left for VoiceOver: `, 42s left`, `, time is up`, or nothing. */
+function leftWords(left: string | undefined): string {
+  if (left === undefined) {
+    return "";
+  }
+  return /^\d+s$/.test(left) ? `, ${left} left` : `, ${left}`;
+}
+
 /** The VoiceOver label of a tool block: what ran and how it ended. */
-export function toolLabel(header: ToolHeader, status: ToolStatus): string {
+export function toolLabel(header: ToolHeader, status: ToolStatus, approval?: ToolApproval): string {
   const what =
     header.verb === "$" ? `Command ${header.subject}` : `${header.verb} ${header.subject}`;
   switch (status.kind) {
     case "waiting":
-      return `${what.trim()}, waiting for approval`;
+      return `${what.trim()}, waiting for approval${leftWords(status.left)}`;
+    case "allowed":
+      return `${what.trim()}, allowed${answeredWords(approval)}`;
+    case "closed":
+      return status.word === "denied"
+        ? `${what.trim()}, denied${answeredWords(approval)}`
+        : `${what.trim()}, expired, not answered`;
     case "running":
       return `${what.trim()}, running${status.elapsed === undefined ? "" : `, ${status.elapsed}`}`;
     case "done":

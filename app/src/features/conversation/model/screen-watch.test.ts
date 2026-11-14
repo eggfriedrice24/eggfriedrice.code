@@ -12,6 +12,7 @@ import {
   promptQueued,
   run,
   snapshotItem,
+  toolCallStarted,
   turnCompleted,
   turnStarted,
 } from "@/lib/stream/testing";
@@ -139,7 +140,15 @@ describe("followApprovalFocus", () => {
       event(turnStarted("t2")),
       event(approvalRequested("t2", "c1", "git push")),
     );
-    expect(waitingApprovalKey(asked)).toBe(approvalRowKey("t2", "c1"));
+    expect(waitingApprovalKey(asked)).toBe(approvalRowKey(asked, "t2", "c1"));
+    // The tool card of the call shows the approval when the turn holds the call.
+    const withTool = apply(
+      loaded(),
+      event(turnStarted("t3")),
+      event(toolCallStarted("t3", "c3", "shell", { command: "git push" })),
+      event(approvalRequested("t3", "c3", "git push")),
+    );
+    expect(waitingApprovalKey(withTool)).toBe("t:t3:c3");
     const test = follow(asked);
     expect(test.scrolled).toEqual([]);
     test.frames.frame();

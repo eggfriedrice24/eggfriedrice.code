@@ -1,10 +1,10 @@
 // What every row of one transcript reads: the stream store of the conversation, its row
-// state, the name of its machine, the actions of the rows and the view of an approval.
+// state, the name of its machine and the actions of the rows.
 // The screen gives it once, through context, so a row takes only its own key as a prop
 // and renders only when its own part of the store changes.
 
 import type { Readable } from "@tanstack/store";
-import { createContext, type ReactNode, use } from "react";
+import { createContext, use } from "react";
 
 import type { StreamState } from "@/lib/stream/reducer";
 import type { RowUiStore } from "../model/row-ui-state";
@@ -22,13 +22,8 @@ export interface TranscriptActions {
   readonly editAndResend: (text: string) => void;
   /** Sends the prompt of the outbox entry `key` again, after it failed to send. */
   readonly resend: (key: string) => void;
-}
-
-/** The approval row with `key`, for the view of the approval block. */
-export interface ApprovalRowRef {
-  readonly key: string;
-  readonly turnId: string;
-  readonly callId: string;
+  /** Opens the approval sheet of the question of tool call `callId`. */
+  readonly openApproval: (callId: string) => void;
 }
 
 /** What the rows of one transcript share. */
@@ -40,8 +35,6 @@ export interface TranscriptScope {
   /** The name of the machine, for "in a terminal on desktop". */
   readonly machineName: string;
   readonly actions: TranscriptActions;
-  /** The view of an approval row: the approval block (another package builds it). */
-  readonly renderApproval: (row: ApprovalRowRef) => ReactNode;
 }
 
 /** The context of the rows. Transcript gives it. */

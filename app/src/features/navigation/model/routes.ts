@@ -14,6 +14,7 @@ export const ROUTE_NAMES = {
   conversation: "c/[machine]/[id]",
   settings: "settings",
   conversations: "conversations",
+  approval: "approval",
   pair: "pair",
 } as const;
 
@@ -56,6 +57,11 @@ export function conversationParams(
 /** The link to the conversation `ref`. */
 export function conversationHref(ref: ConversationRef, options: OpenOptions = {}): Href {
   return { pathname: "/c/[machine]/[id]", params: { ...conversationParams(ref, options) } };
+}
+
+/** The link to the approval sheet of the question of tool call `call` in `ref`. */
+export function approvalHref(ref: ConversationRef, call: string): Href {
+  return { pathname: "/approval", params: { machine: ref.machine, id: ref.id, call } };
 }
 
 /** The link to Settings. */

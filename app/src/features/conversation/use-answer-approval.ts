@@ -46,6 +46,8 @@ export interface AnswerApprovalOptions {
   readonly approval: ApprovalView | undefined;
   /** Makes the command id of a new answer. The default is a v4 UUID of expo-crypto. */
   readonly newId?: () => string;
+  /** Called when efrd took an answer of this view, such as to close the approval sheet. */
+  readonly onAnswered?: () => void;
 }
 
 /** The answer of the phone to one question. */
@@ -86,7 +88,11 @@ export function useAnswerApproval(options: AnswerApprovalOptions): AnswerApprova
       failed !== undefined && failed.decision === decision
         ? failed.commandId
         : (options.newId ?? newCommandId)();
-    mutation.mutate({ callId: approval.callId, decision, commandId });
+    const onAnswered = options.onAnswered;
+    mutation.mutate(
+      { callId: approval.callId, decision, commandId },
+      onAnswered === undefined ? undefined : { onSuccess: () => onAnswered() },
+    );
   };
   return { state, answer };
 }

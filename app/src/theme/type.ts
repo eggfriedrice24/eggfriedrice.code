@@ -67,6 +67,8 @@ export const TYPE = {
   buttonLarge: { fontSize: 16, ...semibold },
   /** The Steer and Queue capsules of the composer. */
   capsule: { fontSize: 14, ...semibold },
+  /** Allow, Deny, Close and Next of the approval strip and sheet (S-Approvals). */
+  buttonSmall: { fontSize: 13, lineHeight: 18, ...semibold },
 
   // SF Mono.
   /** The minimum: tool and approval headers, output, the status line, hints and tags. */

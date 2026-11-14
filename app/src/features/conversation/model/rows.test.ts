@@ -30,13 +30,15 @@ describe("createRowBuilder", () => {
       draft(textPart(0, 0, "Hello")),
       event(toolCallStarted(TURN, "c", "shell", { command: "ls" })),
       event(approvalRequested(TURN, "c", "run ls")),
+      event(approvalRequested(TURN, "d", "run df")),
       event({ kind: "turn_steered", turn_id: TURN, text: "and /tmp" }),
     ]);
+    // The tool card of `c` shows its approval; `d` has no call, so it has its own row.
     expect(build(state).map((row) => row.key)).toEqual([
       "p:t1",
       "m:t1:0",
       "t:t1:c",
-      "a:t1:c",
+      "a:t1:d",
       `s:t1:${seq}`,
       "w:t1",
     ]);

@@ -10,10 +10,12 @@
 //   recycles row views.
 // - New output lines fade in at the bottom; with Reduce Motion they appear at once.
 // - A long press opens Copy command and Copy output.
-// - While the call's approval waits (design R4 item 5): a still yolk dot and "waiting for
-//   approval" where the loader and the time go, the border_accent outline, and a 12 pt
-//   border_accent line down to the approval block under it. After an answer the
-//   outline and the line go, and the time counts from the answer.
+// - While the call's approval waits (design R4 item 5, S-Tools round 8): the border_accent
+//   outline, a still yolk dot, "waiting for approval" and a chevron where the loader and
+//   the time go, and the seconds left under a minute. The whole card is a button that
+//   opens the approval sheet; it never opens by itself. After the answer only the status
+//   word changes: "allowed", then the usual loader, or "denied" or "expired" with the
+//   command in text_muted. Who answered and when are for VoiceOver.
 // - The writing block shows a tool input that the model still writes: "writing patch",
 //   the braille cell and the size that grows.
 
@@ -26,6 +28,7 @@ import { Hairline } from "@/components/ui/hairline";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
 import { PlainButton } from "@/components/ui/plain-button";
+import { SymbolIcon } from "@/components/ui/symbol";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import type { ToolCallView, ToolInputView } from "@/lib/stream/reducer";
@@ -49,21 +52,28 @@ export interface ToolBlockViewProps {
   readonly turnEnded: boolean;
   /** The approval question of the call, if efrd asked one. */
   readonly approval?: ToolApproval | undefined;
+  /** The time left to answer under a minute, such as `42s`. */
+  readonly left?: string | undefined;
   readonly expanded: boolean;
   readonly onToggle: () => void;
+  /** Opens the approval sheet of the call. */
+  readonly onOpenApproval?: (() => void) | undefined;
 }
 
 /** A tool block. */
 export function ToolBlockView(props: ToolBlockViewProps) {
-  const { call, expanded } = props;
-  const status0 = toolStatus(call, props.turnEnded, 0, props.approval);
-  const running = status0.kind === "running";
+  const { call, expanded, approval, left } = props;
+  const status0 = toolStatus(call, props.turnEnded, 0, approval, left);
+  // NOTE: "allowed" turns into the loader 2 s after the answer, so the clock runs then.
+  const running = status0.kind === "running" || status0.kind === "allowed";
   const waiting = status0.kind === "waiting";
+  const closed = status0.kind === "closed";
   const now = useNow(running);
   const header = toolHeader(call);
-  const status = toolStatus(call, props.turnEnded, now, props.approval);
-  const output = toolOutput(call, expanded);
+  const status = toolStatus(call, props.turnEnded, now, approval, left);
+  const output = closed ? NO_OUTPUT : toolOutput(call, expanded);
   const more = moreLabel(output, expanded);
+  const open = props.onOpenApproval;
   const outputText = call.output ?? call.tail;
   const entries: MenuEntry[] = [
     {
@@ -91,23 +101,32 @@ export function ToolBlockView(props: ToolBlockViewProps) {
         >
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={toolLabel(header, status)}
-            accessibilityState={{ expanded }}
-            accessibilityHint={expanded ? "Shows less output." : "Shows all the output."}
-            onPress={props.onToggle}
+            accessibilityLabel={toolLabel(header, status, approval)}
+            accessibilityState={waiting ? {} : { expanded }}
+            accessibilityHint={
+              waiting
+                ? "Opens the approval."
+                : expanded
+                  ? "Shows less output."
+                  : "Shows all the output."
+            }
+            onPress={waiting ? open : props.onToggle}
             className={cn(
               "flex-row gap-8 px-12",
               header.wraps ? "items-start py-9" : "min-h-34 items-center",
+              waiting && "active:bg-selection-bg",
             )}
           >
             <Text className="text-mono-xs text-text-subtle">{header.verb}</Text>
             {header.wraps ? (
-              <Text className="flex-1 text-mono-xs text-text-bright">{header.subject}</Text>
+              <Text className={cn("flex-1 text-mono-xs", subjectTone(closed))}>
+                {header.subject}
+              </Text>
             ) : (
               <Text
                 numberOfLines={1}
                 ellipsizeMode="middle"
-                className="flex-1 text-mono-xs text-text-bright"
+                className={cn("flex-1 text-mono-xs", subjectTone(closed))}
               >
                 {header.subject}
               </Text>
@@ -145,17 +164,17 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             </>
           )}
         </View>
-        {waiting ? (
-          // The row gap of the transcript is 12 pt: the line fills it down to the block.
-          <View
-            testID="approval-link"
-            pointerEvents="none"
-            className="absolute -bottom-12 left-15 h-12 w-px bg-border-accent"
-          />
-        ) : null}
       </View>
     </MenuView>
   );
+}
+
+/** A call that did not run shows no output. */
+const NO_OUTPUT = { lines: [], total: 0, capped: false } as const;
+
+/** The command of a call that did not run is text_muted. */
+function subjectTone(closed: boolean): string {
+  return closed ? "text-text-muted" : "text-text-bright";
 }
 
 function OutputText(props: { readonly line: OutputLine; readonly wraps: boolean }) {
@@ -193,7 +212,18 @@ export function StatusMark(props: { readonly status: ToolStatus }) {
       <View className="flex-row items-center gap-6">
         <Dot size="large" />
         <Text className="text-mono-xs text-accent-primary">waiting for approval</Text>
+        {status.left === undefined ? null : (
+          <Text className="text-mono-xs text-accent-primary">{status.left}</Text>
+        )}
+        <SymbolIcon name="chevron.right" size={10} tone="text_muted" weight="heavy" />
       </View>
+    );
+  }
+  if (status.kind === "allowed" || status.kind === "closed") {
+    return (
+      <Text className="text-mono-xs text-text-muted">
+        {status.kind === "allowed" ? "allowed" : status.word}
+      </Text>
     );
   }
   if (status.kind === "running") {

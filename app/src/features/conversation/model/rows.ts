@@ -175,6 +175,11 @@ function turnRows(turn: TurnView): Row[] {
         rows.push({ kind: "tool", key: `t:${turnId}:${part.callId}`, turnId, callId: part.callId });
         break;
       case "approval":
+        // The tool card of the call shows its approval (S-Tools); a question needs its
+        // own row only when the turn does not hold its call.
+        if (turn.tools.has(part.callId)) {
+          break;
+        }
         rows.push({
           kind: "approval",
           key: `a:${turnId}:${part.callId}`,

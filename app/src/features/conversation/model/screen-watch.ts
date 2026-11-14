@@ -73,15 +73,22 @@ export function watchFocusedStream(
   return () => subscription.unsubscribe();
 }
 
-/** The key of the approval row of `turnId` and `callId`, as model/rows.ts makes it. */
-export function approvalRowKey(turnId: string, callId: string): string {
-  return `a:${turnId}:${callId}`;
+/**
+ * The key of the row that shows the approval of `turnId` and `callId`, as model/rows.ts
+ * makes it: the tool card of the call, or the approval row when the turn does not hold
+ * the call.
+ */
+export function approvalRowKey(state: StreamState, turnId: string, callId: string): string {
+  const tool = state.turns.get(turnId)?.tools.has(callId) === true;
+  return `${tool ? "t" : "a"}:${turnId}:${callId}`;
 }
 
 /** The row key of the oldest approval that waits, or undefined when none waits. */
 export function waitingApprovalKey(state: StreamState): string | undefined {
   const approval = pendingApprovals(state)[0];
-  return approval === undefined ? undefined : approvalRowKey(approval.turnId, approval.callId);
+  return approval === undefined
+    ? undefined
+    : approvalRowKey(state, approval.turnId, approval.callId);
 }
 
 /** What a request to scroll to the waiting approval needs. */

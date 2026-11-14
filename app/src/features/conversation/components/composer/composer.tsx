@@ -2,6 +2,7 @@
 // from the pure functions of model/composer-state.ts.
 //
 //   <Composer.Root deps={deps} target={target} connection={connection} machineName="laptop">
+//     {strip}                                  the approval strip while a question waits
 //     <Composer.StatusLine>                    slot A: cwd · mode · ctx · waiting / reconnecting
 //       <Composer.Status store={stream.store} />
 //     </Composer.StatusLine>
@@ -66,13 +67,16 @@ export interface DockedComposerProps extends Omit<ComposerRootProps, "children">
    * where the line shows the cwd and the mode of a new conversation.
    */
   readonly stream?: Readable<StreamState>;
+  /** The row above the status line: the approval strip while a question waits. */
+  readonly strip?: ReactNode;
 }
 
-/** The composer of v1: the status line, the field and the trailing action. */
+/** The composer of v1: the strip, the status line, the field and the trailing action. */
 export function DockedComposer(props: DockedComposerProps) {
-  const { stream, ...root } = props;
+  const { stream, strip, ...root } = props;
   return (
     <ComposerRoot {...root}>
+      {strip}
       <ComposerStatusLine>
         {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
       </ComposerStatusLine>

@@ -14,9 +14,14 @@ The app is a preview. It is not in the App Store. It ran as a dev build on an iP
 with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet work.
 
 - The screens follow the design canvas of the app: a blank conversation as the root,
-  the conversation with its transcript, composer and approval block, the All
-  conversations sheet, Settings, and the pairing screens with each error. Each screen
-  and each state of the canvas is in the code.
+  the conversation with its transcript and composer, the All conversations sheet,
+  Settings, and the pairing screens with each error. Each screen and each state of the
+  canvas is in the code.
+- Approvals follow round 8 "minimal" (boards C-Waiting, S-Approvals, AP-Sheets,
+  R-Approval): the waiting tool card in the transcript, a one-line strip in the
+  composer that answers, and the approval sheet (the route `/approval`, a form sheet
+  that fits its content) with the full command or diff. The strip or the card opens the
+  sheet; nothing opens it by itself.
 - The app pairs with more than one machine and connects to all of them at the same time.
   The route of a conversation names its machine (`/c/<daemon id>/<conversation id>`).
 - Done and tested on Linux: the protocol types and their zod schemas, the WebSocket
@@ -367,6 +372,20 @@ not a test that pretends.
     app uses Menlo.
 29. The app icon at 60 pt and at 29 pt. Make an Icon Composer `.icon` bundle from the
     layers of `assets/icon/` (this needs a Mac).
+
+### The approvals
+
+30. The strip is the first row of the composer pill, 44 pt high. A tap on Deny or Allow
+    answers, a tap on the rest of the row opens the sheet, and the touch areas of the
+    two buttons do not overlap. With the keyboard up, the strip moves with the
+    composer and still takes taps.
+31. The approval sheet (`sheetAllowedDetents: "fitToContents"`) fits a short command,
+    and a long diff makes it grow to the full height and scroll, with the answer row
+    pinned at the bottom. Swipe down closes it. The conversation under it keeps its
+    stream, and the strip shows the next question after an answer in the sheet.
+32. The waiting tool card shows the pressed fill (selection_bg) and opens the sheet.
+    VoiceOver reads "waiting for approval" and "Opens the approval." on the card, and
+    reaches Deny and Allow of the strip as their own buttons.
 
 ## Rules of the app
 

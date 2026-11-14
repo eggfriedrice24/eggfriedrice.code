@@ -5,7 +5,9 @@
 //   transparent bar. The content clears the bar, and the strip while the slot under the
 //   bar shows (an approval elsewhere, or the offline line).
 // - The docked composer at the bottom. Its height is the bottom inset of the transcript,
-//   so "Jump to latest" sits 12 pt above it.
+//   so "Jump to latest" sits 12 pt above it. While a question waits, the approval strip
+//   is its first row; a tap on the strip or on the waiting tool card opens the approval
+//   sheet (C-Waiting, R-Approval). Nothing opens it by itself.
 // - The screen holds the stream while it is in the stack, and keeps the subscription up
 //   only while it has the focus (use-screen-stream.ts). With the focus it also gives the
 //   VoiceOver announcements, the error haptic of a failed turn and the scroll to the
@@ -21,7 +23,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, type Readable } from "@tanstack/store";
-import { useIsFocused } from "expo-router";
+import { useIsFocused, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useRef, useState } from "react";
 import { View } from "react-native";
@@ -33,7 +35,7 @@ import { SPACING } from "@/theme/metrics";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
-import type { ConversationFocus } from "@/features/navigation/model/routes";
+import { approvalHref, type ConversationFocus } from "@/features/navigation/model/routes";
 import {
   useDrafts,
   useOutbox,
@@ -42,7 +44,7 @@ import {
 } from "@/features/navigation/use-app-services";
 import { useHeaderSlot } from "@/features/navigation/use-header-slot";
 import { useMachineConnections, useMachines } from "@/features/navigation/use-machines";
-import { ApprovalBlock } from "../components/approval-block";
+import { ApprovalStrip } from "../components/approval-strip";
 import { DockedComposer } from "../components/composer/composer";
 import { Transcript } from "../components/transcript";
 import type { TranscriptListHandle } from "../components/transcript-list";
@@ -141,6 +143,11 @@ function ConversationView(props: ConversationViewProps) {
   const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.float + SPACING.strip);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_HEIGHT);
   const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
+  const router = useRouter();
+  // The sheet opens only from a tap on the strip or on the waiting card (round 8).
+  const openApproval = (callId: string): void => {
+    router.push(approvalHref(ref, callId));
+  };
 
   const target: ComposerTarget = { machine, id: route.id, isBlankRoot: false };
   const deps: ComposerDeps = { caller: runtime, outbox, drafts, preferences, newCommandId };
@@ -154,25 +161,25 @@ function ConversationView(props: ConversationViewProps) {
     resend: (key) => {
       outbox.retry(key);
     },
+    openApproval,
   };
   const scope: TranscriptScope = {
     store: held.store,
     rowUi: held.rowUi,
     machineName,
     actions,
-    renderApproval: (row) => (
-      <ApprovalBlock
-        stream={held.store}
+  };
+  const strip =
+    stream === undefined ? undefined : (
+      <ApprovalStrip
+        stream={stream.store}
         conversation={ref}
-        turnId={row.turnId}
-        callId={row.callId}
         machineName={machineName}
         connected={connected}
         caller={runtime}
-        linked
+        onOpen={openApproval}
       />
-    ),
-  };
+    );
   const composer: { stream?: Readable<StreamState>; runningTurnId?: string } = {};
   if (stream !== undefined) {
     composer.stream = stream.store;
@@ -201,6 +208,7 @@ function ConversationView(props: ConversationViewProps) {
       <View pointerEvents="box-none" className="absolute inset-0 justify-end">
         <DockedComposer
           {...composer}
+          strip={strip}
           deps={deps}
           target={target}
           connection={props.connection}

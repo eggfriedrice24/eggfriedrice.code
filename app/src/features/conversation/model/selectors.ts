@@ -91,7 +91,22 @@ export function selectToolApproval(
     const approval = state.turns.get(turnId)?.approvals.get(callId);
     return approval === undefined
       ? undefined
-      : { pending: approval.status === "pending", closedAt: approval.closedAt };
+      : {
+          status: approval.status,
+          closedAt: approval.closedAt,
+          answeredBy: approval.answeredBy,
+        };
+  };
+}
+
+/** When the approval of a tool call stops waiting, in ms since the epoch, while it waits. */
+export function selectToolExpiry(
+  turnId: string,
+  callId: string,
+): (state: StreamState) => number | undefined {
+  return (state) => {
+    const approval = state.turns.get(turnId)?.approvals.get(callId);
+    return approval?.status === "pending" ? approval.expiresAt : undefined;
   };
 }
 

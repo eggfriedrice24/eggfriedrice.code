@@ -4,12 +4,10 @@
 
 import { createStore, type Store } from "@tanstack/store";
 import type { ReactNode } from "react";
-import { Text } from "react-native";
 
 import type { StreamState } from "@/lib/stream/reducer";
 import { createRowUiStore } from "../model/row-ui-state";
 import {
-  type ApprovalRowRef,
   type TranscriptActions,
   type TranscriptScope,
   TranscriptScopeContext,
@@ -20,7 +18,8 @@ export type ActionCall =
   | { readonly action: "withdraw"; readonly turnId: string }
   | { readonly action: "retry"; readonly turnId: string; readonly text: string }
   | { readonly action: "editAndResend"; readonly text: string }
-  | { readonly action: "resend"; readonly key: string };
+  | { readonly action: "resend"; readonly key: string }
+  | { readonly action: "openApproval"; readonly callId: string };
 
 /** A scope for a test, and what it records. */
 export interface TestScope {
@@ -29,7 +28,7 @@ export interface TestScope {
   readonly calls: ActionCall[];
 }
 
-/** A scope over `state` on the machine "desktop". The approval block is a plain text. */
+/** A scope over `state` on the machine "desktop". */
 export function testScope(state: StreamState): TestScope {
   const store = createStore(state);
   const calls: ActionCall[] = [];
@@ -38,17 +37,12 @@ export function testScope(state: StreamState): TestScope {
     retry: (turnId, text) => calls.push({ action: "retry", turnId, text }),
     editAndResend: (text) => calls.push({ action: "editAndResend", text }),
     resend: (key) => calls.push({ action: "resend", key }),
+    openApproval: (callId) => calls.push({ action: "openApproval", callId }),
   };
   return {
     store,
     calls,
-    scope: {
-      store,
-      rowUi: createRowUiStore(),
-      machineName: "desktop",
-      actions,
-      renderApproval: (row: ApprovalRowRef) => <Text>{`approval ${row.callId}`}</Text>,
-    },
+    scope: { store, rowUi: createRowUiStore(), machineName: "desktop", actions },
   };
 }
 

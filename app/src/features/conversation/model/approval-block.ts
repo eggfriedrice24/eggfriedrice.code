@@ -1,6 +1,6 @@
-// What an approval block shows in each state of the design (3.11 and the board
+// What an approval question shows in each state of the design (3.11 and the board
 // S-Approvals), on the one approval type of the stream reducer. Pure, so each state has a
-// test; approval-block.tsx only draws the model.
+// test. approval-strip.ts makes the strip and the sheet of round 8 from this model.
 //
 // - Open: the gold outline, the header, the command (or the edit line and the diff), the
 //   cwd and the optional reason, then Deny and Allow. Allow shows the braille cell while

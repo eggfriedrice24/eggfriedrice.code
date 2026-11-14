@@ -94,12 +94,13 @@ async function showBoard(name: string, extra: Record<string, string> = {}) {
 }
 
 describe("the component boards of the gallery", () => {
-  it("shows every state of the approval block", async () => {
+  it("shows every state of the approval strip and sheet", async () => {
     await showBoard("S-Approvals");
     for (const one of approvalCases(() => "0199d3e0-de3a-7000-8000-000000000001")) {
-      expect(screen.getByText(one.name)).toBeOnTheScreen();
+      expect(screen.getAllByText(one.name).length).toBeGreaterThan(0);
     }
-    expect(screen.getAllByTestId("approval-block").length).toBeGreaterThan(5);
+    expect(screen.getAllByTestId("approval-sheet").length).toBeGreaterThan(5);
+    expect(screen.getAllByTestId("approval-strip").length).toBeGreaterThan(3);
   });
 
   it("gives the docked composer the state that the user picks", async () => {

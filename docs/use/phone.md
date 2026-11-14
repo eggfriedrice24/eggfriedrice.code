@@ -226,15 +226,24 @@ conversation.
 
 ### Answer a question
 
-A question of the agent shows the command, or the file and its diff, the directory,
-and a line that tells why the permission mode asks. Answer with Allow or Deny. The
-choices are the same as in the terminal, except "always allow".
+When the agent asks a question, its tool card in the conversation says "waiting for
+approval", and a strip in the composer shows the command with Deny and Allow. Answer
+in the strip. When more than one question waits, the strip shows "1 of 3", and the
+next question takes its place after your answer. The choices are the same as in the
+terminal, except "always allow".
+
+Tap the strip or the tool card to open the full question in a sheet: the whole
+command, or the file and its diff, the directory, and why the permission mode asks.
+The sheet never opens by itself. Swipe down to close it.
 
 The first answer wins. When you answer a question on the phone, the terminal shows
-the answer, and the reverse.
+the answer, and the reverse. After the answer, the tool card says "allowed", "denied"
+or "expired". VoiceOver tells who answered and when.
 
-A question shows how long it can wait. When nobody answers in time, it shows
-"expired", or "expired while you were away". The call did not run in both cases.
+In the last minute before a question expires, the strip and the tool card show the
+seconds left. When nobody answers in time, the card says "expired". The call did not
+run. When a question closes while its sheet is open, the sheet tells how it ended and
+how many more wait, and Next shows the next one.
 
 When another conversation waits for an answer, a strip under the bar tells you. Tap it
 to open that conversation at the question. When two or more wait, the strip opens the
@@ -272,8 +281,8 @@ so a changed app cannot get past them:
   [Permission modes](modes.md).
 - Only your own computer answers some questions: a command that runs as another user
   (`sudo`, `doas`, `su`, `pkexec`, `run0`), a background job, and a delete that full
-  mode guards. The app shows "answer on" and the name of the machine, with the reason,
-  and no buttons. The turn waits for your answer there.
+  mode guards. The strip shows "answer on" and the name of the machine in place of the
+  buttons, and the sheet tells the reason. The turn waits for your answer there.
 - The phone cannot choose "always allow". An always-allow rule changes your config.
   When a question offers it, the app shows Allow and Deny, and tells that the rule is
   set in the terminal.
