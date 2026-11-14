@@ -1050,3 +1050,15 @@ No protocol version has shipped yet.
   of the new members. The fixtures `admin_status_result.json`,
   `models_list_result.json` and `draft_parts.json` now hold them; new fixture
   `limit_kinds.json`.
+- Version 1, additive: the cause of a turn whose account is out. `turn_failed` gains
+  an optional `account_out` `{provider, label?, model, reached, others?}`: the
+  account of the turn reached a limit or has no credit (`reached` as in
+  `account_limits`, with `too_many_requests` when the provider answered "too many
+  requests" to each try and told no limit). `others` lists the other accounts that
+  list the same model, in the order of `catalogs`, each
+  `{provider, label?, state, resets_at?}` with the new wire enum `account_state`
+  (`ready`, `signed_out`, `full`, `unknown`). efrd lists a full account only when its
+  reset comes before the reset of `reached`. efrd decides the list, so a client
+  shows it as it is; efrd never switches by itself. `error` still holds the message,
+  so a client that does not read `account_out` shows the failure as before. New
+  fixtures `events/turn_failed_account_out.json` and `account_states.json`.

@@ -48,6 +48,7 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
     let approval = Event::ApprovalRequested {
         turn_id: turn(),
@@ -86,6 +87,7 @@ fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
 
     assert_eq!(
@@ -132,6 +134,7 @@ fn the_login_hint_survives_a_long_title() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
     let title = "x".repeat(400);
 
@@ -470,6 +473,7 @@ fn wake_turn_finished_names_the_job() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
     assert_eq!(
         line(&failed, Some("fix nginx"), Some(&wake)).as_deref(),

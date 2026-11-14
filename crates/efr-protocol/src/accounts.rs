@@ -74,7 +74,7 @@ pub enum LimitKind {
     /// The output tokens per minute of an API key.
     OutputTokens,
     /// The provider answered "too many requests" to each try of a model call and told
-    /// no limit, so efr stopped trying. Only in the cause of a failed turn, never in
+    /// no limit, so efr stopped trying. Only in [`AccountOut`], never in
     /// [`AccountLimits`].
     TooManyRequests,
     /// The account has no credit left, such as an API key with no balance. It has no
@@ -101,6 +101,73 @@ impl LimitKind {
         LimitKind::SpendLimit,
         LimitKind::Unknown,
     ];
+}
+
+/// Why the account of a turn could not serve it, the cause of a
+/// [`Event::TurnFailed`](crate::Event::TurnFailed), with the other accounts that serve
+/// the same model. efrd decides the list when the turn fails, so a client shows it as
+/// it is. efrd never switches the account by itself: the user switches with
+/// `,model <account>/<model>` or the model sheet of the phone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AccountOut {
+    /// The account of the turn, as a provider id such as `openai-subscription`.
+    pub provider: String,
+    /// The user's name for the account, as in `models.list`. Absent when the config
+    /// gives none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The model of the turn, such as `gpt-6.1-sol`.
+    pub model: String,
+    /// The limit that stopped the account, with its reset when the provider told it.
+    pub reached: LimitReached,
+    /// The other accounts that list [`model`](Self::model), in the order of `catalogs`
+    /// in `models.list`: each one that is [ready](AccountState::Ready), each one that
+    /// is [signed out](AccountState::SignedOut) (a client names its login command and
+    /// offers no switch), and each one that is [full](AccountState::Full) whose reset
+    /// comes before the reset of [`reached`](Self::reached), or any known reset when
+    /// `reached` has none. Empty when no other account runs the model: a client says
+    /// so and offers nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub others: Vec<OtherAccount>,
+}
+
+/// Another account that lists the model of a failed turn.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OtherAccount {
+    /// The account, as a provider id such as `openai-subscription.b`.
+    pub provider: String,
+    /// The user's name for the account, as in `models.list`. Absent when the config
+    /// gives none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Whether the account can serve the model now.
+    pub state: AccountState,
+    /// For a [full](AccountState::Full) account: when it can serve again. Absent for
+    /// the other states.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<Timestamp>,
+}
+
+/// Whether an account can serve a model now, as efrd knows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AccountState {
+    /// It has a login and reached no limit that efr knows of.
+    Ready,
+    /// It has no login. A turn on it fails until the user logs in.
+    SignedOut,
+    /// It reached a limit, which ends at its `resets_at`.
+    Full,
+    /// A state that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl AccountState {
+    /// Every state, in the order of the enum.
+    pub const ALL: [AccountState; 4] =
+        [AccountState::Ready, AccountState::SignedOut, AccountState::Full, AccountState::Unknown];
 }
 
 #[cfg(test)]

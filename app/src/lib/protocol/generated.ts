@@ -1004,6 +1004,15 @@ export type Event =
     }
   | {
       /**
+       * The cause, when the turn's account could not serve it: it reached a limit
+       * or has no credit. It names the other accounts that serve the same model.
+       * `error` still holds the message for a client that does not read it. A
+       * client shows the offer only at the end of a turn that it follows: in the
+       * history the offer is old, so it shows the reason alone. Absent for every
+       * other failure, and in turns recorded before efr reported it.
+       */
+      account_out?: AccountOut | null;
+      /**
        * The files that the turn changed before it failed, as for
        * [`Event::TurnCompleted`]. Absent when nothing changed, and in turns recorded
        * before efr reported it.
@@ -2028,6 +2037,23 @@ export type ExitKind =
  */
 export type StopReason = "end_turn" | "max_tokens" | "refusal" | "content_filter" | "pause_turn";
 /**
+ * Whether an account can serve a model now, as efrd knows it.
+ */
+export type AccountState = "ready" | "signed_out" | "full" | "unknown";
+/**
+ * Which limit an account reached.
+ */
+export type LimitKind =
+  | "usage"
+  | "requests"
+  | "tokens"
+  | "input_tokens"
+  | "output_tokens"
+  | "too_many_requests"
+  | "credit"
+  | "spend_limit"
+  | "unknown";
+/**
  * Where an exit came from.
  */
 export type ExitSource = "predicted" | "needs" | "cache_delete";
@@ -2280,19 +2306,6 @@ export type CacheMode = "overlay" | "tmp" | "readonly";
  * What network a contained call has.
  */
 export type NetworkMode = "none" | "proxy";
-/**
- * Which limit an account reached.
- */
-export type LimitKind =
-  | "usage"
-  | "requests"
-  | "tokens"
-  | "input_tokens"
-  | "output_tokens"
-  | "too_many_requests"
-  | "credit"
-  | "spend_limit"
-  | "unknown";
 /**
  * Where a model catalog came from.
  */
@@ -4769,6 +4782,79 @@ export interface TurnStop {
   reason: StopReason;
 }
 /**
+ * Why the account of a turn could not serve it, the cause of a
+ * [`Event::TurnFailed`](crate::Event::TurnFailed), with the other accounts that serve
+ * the same model. efrd decides the list when the turn fails, so a client shows it as
+ * it is. efrd never switches the account by itself: the user switches with
+ * `,model <account>/<model>` or the model sheet of the phone.
+ */
+export interface AccountOut {
+  /**
+   * The user's name for the account, as in `models.list`. Absent when the config
+   * gives none.
+   */
+  label?: string | null;
+  /**
+   * The model of the turn, such as `gpt-6.1-sol`.
+   */
+  model: string;
+  /**
+   * The other accounts that list [`model`](Self::model), in the order of `catalogs`
+   * in `models.list`: each one that is [ready](AccountState::Ready), each one that
+   * is [signed out](AccountState::SignedOut) (a client names its login command and
+   * offers no switch), and each one that is [full](AccountState::Full) whose reset
+   * comes before the reset of [`reached`](Self::reached), or any known reset when
+   * `reached` has none. Empty when no other account runs the model: a client says
+   * so and offers nothing.
+   */
+  others?: OtherAccount[];
+  /**
+   * The account of the turn, as a provider id such as `openai-subscription`.
+   */
+  provider: string;
+  /**
+   * The limit that stopped the account, with its reset when the provider told it.
+   */
+  reached: LimitReached;
+}
+/**
+ * Another account that lists the model of a failed turn.
+ */
+export interface OtherAccount {
+  /**
+   * The user's name for the account, as in `models.list`. Absent when the config
+   * gives none.
+   */
+  label?: string | null;
+  /**
+   * The account, as a provider id such as `openai-subscription.b`.
+   */
+  provider: string;
+  /**
+   * For a [full](AccountState::Full) account: when it can serve again. Absent for
+   * the other states.
+   */
+  resets_at?: string | null;
+  /**
+   * Whether the account can serve the model now.
+   */
+  state: AccountState;
+}
+/**
+ * A limit that an account reached.
+ */
+export interface LimitReached {
+  /**
+   * Which limit.
+   */
+  kind: LimitKind;
+  /**
+   * When the account can serve again. Absent when the provider does not tell it,
+   * such as for an account with no credit.
+   */
+  resets_at?: string | null;
+}
+/**
  * The body of an error: a code to act on, a message for a person, and optional data
  * whose shape depends on the code.
  */
@@ -5919,20 +6005,6 @@ export interface AccountLimits {
    * tells no percent.
    */
   windows?: LimitWindow[];
-}
-/**
- * A limit that an account reached.
- */
-export interface LimitReached {
-  /**
-   * Which limit.
-   */
-  kind: LimitKind;
-  /**
-   * When the account can serve again. Absent when the provider does not tell it,
-   * such as for an account with no credit.
-   */
-  resets_at?: string | null;
 }
 /**
  * One usage window of a plan.

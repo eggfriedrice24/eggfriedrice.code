@@ -176,6 +176,7 @@ fn a_failed_turn_shows_its_message_safely() {
                 context: None,
                 changes: None,
                 undo: None,
+                account_out: None,
             },
         )],
         next_cursor: None,

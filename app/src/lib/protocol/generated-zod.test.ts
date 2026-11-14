@@ -24,6 +24,7 @@ const RECORDINGS = import.meta.glob<string>("../../../test/recordings/*.ndjson",
 
 /** The fixtures that hold a list of values of one definition, by file name. */
 const LISTS: Readonly<Record<string, string>> = {
+  account_states: "AccountState",
   always_saved: "AlwaysSaved",
   approval_decisions: "ApprovalDecision",
   approved_bys: "ApprovedBy",

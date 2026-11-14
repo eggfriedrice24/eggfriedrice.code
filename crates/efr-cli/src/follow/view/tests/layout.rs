@@ -1320,7 +1320,7 @@ fn old_backup_event_keeps_its_line() {
                 data: None,
             },
             usage: None,
-            context: None, changes: None, undo: None,
+            context: None, changes: None, undo: None, account_out: None,
         },
     ));
     insta::assert_snapshot!(format!(
@@ -1420,6 +1420,7 @@ fn floor_edit_turn_end_line_names_path() {
             context: None,
             changes: None,
             undo: Some(undo),
+            account_out: None,
         },
     ));
     insta::assert_snapshot!(format!(

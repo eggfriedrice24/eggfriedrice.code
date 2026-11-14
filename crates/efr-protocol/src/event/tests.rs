@@ -225,6 +225,7 @@ fn a_known_event_reads_back_as_itself() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
     let back: Event = serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
     assert_eq!(back, event);

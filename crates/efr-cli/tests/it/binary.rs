@@ -375,6 +375,7 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                             context: None,
                             changes: None,
                             undo: None,
+                            account_out: None,
                         },
                     ),
                 );

@@ -275,6 +275,7 @@ fn a_steer_that_no_model_call_read_is_left_out() {
             context: None,
             changes: None,
             undo: None,
+            account_out: None,
         },
     ];
     let interrupted = [
@@ -392,6 +393,7 @@ fn a_failed_turn_is_rebuilt_with_the_failed_marker() {
             context: None,
             changes: None,
             undo: None,
+            account_out: None,
         },
     ];
     assert_eq!(
@@ -531,6 +533,7 @@ async fn only_finished_turns_other_than_the_current_one_count() {
                 context: None,
                 changes: None,
                 undo: None,
+                account_out: None,
             },
         ),
         vec![
@@ -1000,6 +1003,7 @@ async fn a_turn_that_never_started_is_not_counted_as_omitted() {
                 context: None,
                 changes: None,
                 undo: None,
+                account_out: None,
             },
         ],
         whole_turn(

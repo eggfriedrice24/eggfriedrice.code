@@ -256,6 +256,7 @@ async fn a_failed_turn_is_an_error_with_the_daemons_message() {
                     context: None,
                     changes: None,
                     undo: None,
+                    account_out: None,
                 },
             ),
         )
@@ -1965,6 +1966,7 @@ async fn every_way_out_shows_the_cursor_and_clears_the_progress_bar() {
                                 context: None,
                                 changes: None,
                                 undo: None,
+                                account_out: None,
                             },
                         ),
                     )

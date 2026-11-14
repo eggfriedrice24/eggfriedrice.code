@@ -319,6 +319,7 @@ fn failed(error: ErrorBody) -> Event {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     }
 }
 

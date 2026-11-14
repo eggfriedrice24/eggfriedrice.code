@@ -280,6 +280,7 @@ fn the_note_of_the_stored_copy_stands_under_the_reason_of_a_failure() {
         context: None,
         changes: None,
         undo: None,
+        account_out: None,
     };
     let rows = shown(&page, Depth::NoColor, false);
     let text: Vec<String> = rows.iter().map(|row| bare(row)).collect();

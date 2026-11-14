@@ -415,6 +415,7 @@ pub(super) async fn random_conversation(seed: u64) -> (TestStore, Option<TurnId>
                 context,
                 changes: None,
                 undo: None,
+                account_out: None,
             },
             1 => Event::TurnInterrupted { turn_id: t, usage, context, changes: None, undo: None },
             2 => Event::TurnCancelled { turn_id: t },

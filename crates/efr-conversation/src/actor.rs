@@ -1409,6 +1409,7 @@ impl ConversationActor {
             context: None,
             changes: None,
             undo: None,
+            account_out: None,
         });
         let batch = events
             .into_iter()

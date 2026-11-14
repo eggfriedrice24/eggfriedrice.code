@@ -11,13 +11,13 @@ use serde_json::{Map, Value};
 
 use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
-    AttachHow, Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction, ContextUse,
-    ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource,
-    FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind,
-    Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId,
-    RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext,
-    SnapshotPhase, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnUndoInfo, UndoId,
-    UserAuthorization, Verdict, WebAction, WebError, WebResult, WebSource,
+    AccountOut, AttachHow, Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction,
+    ContextUse, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord,
+    ExitSource, FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState,
+    JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId,
+    QuestionId, RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq,
+    ShellContext, SnapshotPhase, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnUndoInfo,
+    UndoId, UserAuthorization, Verdict, WebAction, WebError, WebResult, WebSource,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -540,6 +540,14 @@ pub enum Event {
         /// snapshot, and in turns recorded before undo.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         undo: Option<TurnUndoInfo>,
+        /// The cause, when the turn's account could not serve it: it reached a limit
+        /// or has no credit. It names the other accounts that serve the same model.
+        /// `error` still holds the message for a client that does not read it. A
+        /// client shows the offer only at the end of a turn that it follows: in the
+        /// history the offer is old, so it shows the reason alone. Absent for every
+        /// other failure, and in turns recorded before efr reported it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_out: Option<AccountOut>,
     },
 
     /// A turn that was running or waiting when the daemon stopped was cancelled at the

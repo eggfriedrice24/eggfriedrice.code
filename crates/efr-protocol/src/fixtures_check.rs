@@ -16,52 +16,52 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, json};
 
 use crate::{
-    AccountLimits, ActionFacts, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
-    AdminLoginApiKeyResult, AdminLoginOpenAi, AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult,
-    AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
-    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ApprovedBy, AttachHow, Base64Bytes,
-    BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary,
-    CallBackground, CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell,
-    ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction,
-    CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError,
-    ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse, ConversationCompact,
-    ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDelete,
-    ConversationDeleteResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
-    ConversationHistoryResult, ConversationId, ConversationResume, ConversationResumeResult,
-    ConversationSearch, ConversationSearchResult, ConversationSnapshot, ConversationStatus,
-    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
-    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
-    ConversationsSearchResult, ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor,
-    DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult,
-    DeviceId, DeviceInfo, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
-    DevicePairStart, DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke,
-    DeviceRevokeResult, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
-    ForwardOutcome, FullModeStatus, FullRefusal, GitCounts, Grant, HeldConfig, HeldReason, Hello,
-    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo,
-    JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement,
-    LateSteer, Launch, LeaseReport, LeaseReportResult, LimitKind, LimitReached, LimitWindow,
-    LiveTurn, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, MovedCall, NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin,
-    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName,
-    PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource,
-    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
-    ProviderStatus, ProviderWarm, ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
-    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
-    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
-    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
-    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
-    SurfaceChange, Switch, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo,
-    TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
-    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    AccountLimits, AccountOut, AccountState, ActionFacts, AdminConfigReload,
+    AdminConfigReloadResult, AdminLoginApiKey, AdminLoginApiKeyResult, AdminLoginOpenAi,
+    AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult, AdminProjectAdd, AdminProjectAddResult,
+    AdminProjectRemove, AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult,
+    AdminStatus, AdminStatusResult, AlwaysSaved, ApprovalDecision, ApprovalRespond,
+    ApprovalRespondResult, ApprovedBy, AttachHow, Base64Bytes, BlockReason, Blocked, BusKind,
+    BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary, CallBackground,
+    CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep,
+    ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction, CompactionBrief,
+    CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError, ConfigStatus, ContextItem,
+    ContextPart, ContextPartKind, ContextUse, ConversationCompact, ConversationCompactResult,
+    ConversationContext, ConversationContextResult, ConversationDelete, ConversationDeleteResult,
+    ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
+    ConversationId, ConversationResume, ConversationResumeResult, ConversationSearch,
+    ConversationSearchResult, ConversationSnapshot, ConversationStatus, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationSummary, ConversationsList, ConversationsListResult,
+    ConversationsRecent, ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult,
+    ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor, DaemonId, DaemonPaths,
+    DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo,
+    DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult, DevicePairStart,
+    DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke, DeviceRevokeResult, Draft,
+    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus,
+    FullRefusal, GitCounts, Grant, HeldConfig, HeldReason, Hello, HelloResult, HostFact,
+    InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo, JobState, JobStopBy,
+    JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch,
+    LeaseReport, LeaseReportResult, LimitKind, LimitReached, LimitWindow, LiveTurn, LoginKind,
+    Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall,
+    NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin, OtherAccount, OverriddenSettings,
+    PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName, PauseReason,
+    PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId,
+    ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProveContext, ProveMessage, ProviderStatus, ProviderWarm,
+    ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
+    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
+    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
+    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
+    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, SwitchedModel,
+    TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
+    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
+    WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -125,6 +125,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures
         .push(fixture("events/approval_requested_local_only.json", &local_only_approval_sample()));
     fixtures.push(fixture("events/approval_requested_reason.json", &reason_approval_sample()));
+    fixtures.push(fixture("events/turn_failed_account_out.json", &account_out_sample()));
     fixtures.extend(web_samples().iter().map(|(path, event)| fixture(*path, event)));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
@@ -160,6 +161,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("web_actions.json", &WebAction::ALL.to_vec()));
     fixtures.push(fixture("web_errors.json", &WebError::ALL.to_vec()));
     fixtures.push(fixture("limit_kinds.json", &LimitKind::ALL.to_vec()));
+    fixtures.push(fixture("account_states.json", &AccountState::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
@@ -497,6 +499,48 @@ fn plan_limits() -> AccountLimits {
             },
         ],
         reached: None,
+    }
+}
+
+/// A turn whose ChatGPT plan reached its usage limit, with one other plan that is
+/// ready, one that is signed out and an API key that is full but frees up first.
+pub(crate) fn account_out_sample() -> Event {
+    Event::TurnFailed {
+        turn_id: turn_id(),
+        error: ErrorBody::new(ErrorCode::Busy, "the ChatGPT plan reached its usage limit"),
+        usage: None,
+        context: Some(context_use()),
+        changes: None,
+        undo: None,
+        account_out: Some(AccountOut {
+            provider: "openai-subscription".into(),
+            label: None,
+            model: "gpt-6.1".into(),
+            reached: LimitReached {
+                kind: LimitKind::Usage,
+                resets_at: Some(at("2026-10-03T12:20:00Z")),
+            },
+            others: vec![
+                OtherAccount {
+                    provider: "openai-subscription.b".into(),
+                    label: Some("Second plan".into()),
+                    state: AccountState::Ready,
+                    resets_at: None,
+                },
+                OtherAccount {
+                    provider: "openai-subscription.c".into(),
+                    label: None,
+                    state: AccountState::SignedOut,
+                    resets_at: None,
+                },
+                OtherAccount {
+                    provider: "openai-api".into(),
+                    label: None,
+                    state: AccountState::Full,
+                    resets_at: Some(at("2026-10-03T12:03:00Z")),
+                },
+            ],
+        }),
     }
 }
 
@@ -2513,6 +2557,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             context: Some(context_use()),
             changes: Some(file_changes()),
             undo: Some(turn_undo_info()),
+            account_out: None,
         },
         Event::TurnCancelled { turn_id: turn_id() },
         Event::ShellStarted { pty_id: pty_id(), cwd: "/home/me".into(), pid: Some(6060) },

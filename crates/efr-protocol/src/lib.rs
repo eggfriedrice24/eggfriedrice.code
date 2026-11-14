@@ -53,7 +53,9 @@ mod undo;
 mod version;
 mod web;
 
-pub use accounts::{AccountLimits, LimitKind, LimitReached, LimitWindow};
+pub use accounts::{
+    AccountLimits, AccountOut, AccountState, LimitKind, LimitReached, LimitWindow, OtherAccount,
+};
 pub use capabilities::Capabilities;
 pub use changes::{
     ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,

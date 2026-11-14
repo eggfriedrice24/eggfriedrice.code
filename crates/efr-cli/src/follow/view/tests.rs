@@ -477,6 +477,7 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
                 context: None,
                 changes: None,
                 undo: None,
+                account_out: None,
             },
             SIZE,
             false,
@@ -2589,6 +2590,7 @@ fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
             context: None,
             changes: None,
             undo: None,
+            account_out: None,
         },
         3_000,
     );

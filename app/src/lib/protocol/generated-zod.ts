@@ -16,6 +16,8 @@ import { z } from "zod";
 
 import type {
   AccountLimits,
+  AccountOut,
+  AccountState,
   ActionFacts,
   AdminConfigReload,
   AdminConfigReloadResult,
@@ -187,6 +189,7 @@ import type {
   NotSavedReason,
   NoticeKind,
   Origin,
+  OtherAccount,
   OverriddenSettings,
   PageCursor,
   PairEnd,
@@ -332,6 +335,28 @@ export const accountLimitsSchema = z.object({
   reached: limitReachedSchema.nullable().exactOptional(),
   windows: z.array(limitWindowSchema).exactOptional(),
 }) satisfies z.ZodType<AccountLimits>;
+
+export const accountStateSchema = z.enum([
+  "ready",
+  "signed_out",
+  "full",
+  "unknown",
+]) satisfies z.ZodType<AccountState>;
+
+export const otherAccountSchema = z.object({
+  label: z.string().nullable().exactOptional(),
+  provider: z.string(),
+  resets_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+  state: accountStateSchema,
+}) satisfies z.ZodType<OtherAccount>;
+
+export const accountOutSchema = z.object({
+  label: z.string().nullable().exactOptional(),
+  model: z.string(),
+  others: z.array(otherAccountSchema).exactOptional(),
+  provider: z.string(),
+  reached: limitReachedSchema,
+}) satisfies z.ZodType<AccountOut>;
 
 export const exitKindSchema = z.enum([
   "write",
@@ -1922,6 +1947,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     usage: usageSchema.nullable().exactOptional(),
   }),
   z.object({
+    account_out: accountOutSchema.nullable().exactOptional(),
     changes: fileChangesSchema.nullable().exactOptional(),
     context: contextUseSchema.nullable().exactOptional(),
     error: errorBodySchema,

@@ -32,6 +32,68 @@
       ],
       "type": "object"
     },
+    "AccountOut": {
+      "description": "Why the account of a turn could not serve it, the cause of a\n[`Event::TurnFailed`](crate::Event::TurnFailed), with the other accounts that serve\nthe same model. efrd decides the list when the turn fails, so a client shows it as\nit is. efrd never switches the account by itself: the user switches with\n`,model <account>/<model>` or the model sheet of the phone.",
+      "properties": {
+        "label": {
+          "description": "The user's name for the account, as in `models.list`. Absent when the config\ngives none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "The model of the turn, such as `gpt-6.1-sol`.",
+          "type": "string"
+        },
+        "others": {
+          "description": "The other accounts that list [`model`](Self::model), in the order of `catalogs`\nin `models.list`: each one that is [ready](AccountState::Ready), each one that\nis [signed out](AccountState::SignedOut) (a client names its login command and\noffers no switch), and each one that is [full](AccountState::Full) whose reset\ncomes before the reset of [`reached`](Self::reached), or any known reset when\n`reached` has none. Empty when no other account runs the model: a client says\nso and offers nothing.",
+          "items": {
+            "$ref": "#/$defs/OtherAccount"
+          },
+          "type": "array"
+        },
+        "provider": {
+          "description": "The account of the turn, as a provider id such as `openai-subscription`.",
+          "type": "string"
+        },
+        "reached": {
+          "$ref": "#/$defs/LimitReached",
+          "description": "The limit that stopped the account, with its reset when the provider told it."
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "reached"
+      ],
+      "type": "object"
+    },
+    "AccountState": {
+      "description": "Whether an account can serve a model now, as efrd knows it.",
+      "oneOf": [
+        {
+          "const": "ready",
+          "description": "It has a login and reached no limit that efr knows of.",
+          "type": "string"
+        },
+        {
+          "const": "signed_out",
+          "description": "It has no login. A turn on it fails until the user logs in.",
+          "type": "string"
+        },
+        {
+          "const": "full",
+          "description": "It reached a limit, which ends at its `resets_at`.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A state that this build does not know.",
+          "type": "string"
+        }
+      ]
+    },
     "ActionFacts": {
       "description": "The action of an exit record.",
       "properties": {
@@ -5039,6 +5101,17 @@
         {
           "description": "A turn ended with an error, such as a provider failure.",
           "properties": {
+            "account_out": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AccountOut"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The cause, when the turn's account could not serve it: it reached a limit\nor has no credit. It names the other accounts that serve the same model.\n`error` still holds the message for a client that does not read it. A\nclient shows the offer only at the end of a turn that it follows: in the\nhistory the offer is old, so it shows the reason alone. Absent for every\nother failure, and in turns recorded before efr reported it."
+            },
             "changes": {
               "anyOf": [
                 {
@@ -8039,7 +8112,7 @@
         },
         {
           "const": "too_many_requests",
-          "description": "The provider answered \"too many requests\" to each try of a model call and told\nno limit, so efr stopped trying. Only in the cause of a failed turn, never in\n[`AccountLimits`].",
+          "description": "The provider answered \"too many requests\" to each try of a model call and told\nno limit, so efr stopped trying. Only in [`AccountOut`], never in\n[`AccountLimits`].",
           "type": "string"
         },
         {
@@ -9849,6 +9922,39 @@
           "type": "string"
         }
       ]
+    },
+    "OtherAccount": {
+      "description": "Another account that lists the model of a failed turn.",
+      "properties": {
+        "label": {
+          "description": "The user's name for the account, as in `models.list`. Absent when the config\ngives none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "description": "The account, as a provider id such as `openai-subscription.b`.",
+          "type": "string"
+        },
+        "resets_at": {
+          "description": "For a [full](AccountState::Full) account: when it can serve again. Absent for\nthe other states.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/AccountState",
+          "description": "Whether the account can serve the model now."
+        }
+      },
+      "required": [
+        "provider",
+        "state"
+      ],
+      "type": "object"
     },
     "OverriddenSettings": {
       "description": "Which of a turn's [`EffectiveSettings`] the prompt set; the others are the config's.\nEach flag is left out when it is false.",

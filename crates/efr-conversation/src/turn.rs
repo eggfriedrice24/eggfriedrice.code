@@ -957,9 +957,17 @@ impl Turn {
                 stop: self.final_stop,
                 undo,
             },
-            Ending::Failed(error) => {
-                Event::TurnFailed { turn_id, error, usage, context, changes, undo }
-            }
+            // NOTE: a stub until the turn knows the account and its limits: the cause
+            // of an account that cannot serve the turn, with the switch offer.
+            Ending::Failed(error) => Event::TurnFailed {
+                turn_id,
+                error,
+                usage,
+                context,
+                changes,
+                undo,
+                account_out: None,
+            },
             Ending::Interrupted => {
                 Event::TurnInterrupted { turn_id, usage, context, changes, undo }
             }

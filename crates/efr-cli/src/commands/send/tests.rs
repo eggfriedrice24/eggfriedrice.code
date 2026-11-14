@@ -526,6 +526,7 @@ async fn a_turn_without_a_login_ends_with_the_login_that_fixes_it() {
                     context: None,
                     changes: None,
                     undo: None,
+                    account_out: None,
                 },
             ),
         )
