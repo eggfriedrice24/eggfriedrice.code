@@ -8,6 +8,7 @@ import { createContext, use } from "react";
 
 import type { StreamState } from "@/lib/stream/reducer";
 import type { RowUiStore } from "../model/row-ui-state";
+import type { SwitchCatalog } from "../model/switch-line";
 
 /** The actions that the rows of a transcript start. The screen wires them. */
 export interface TranscriptActions {
@@ -35,6 +36,11 @@ export interface TranscriptScope {
   /** The name of the machine, for "in a terminal on desktop". */
   readonly machineName: string;
   readonly actions: TranscriptActions;
+  /**
+   * The models and accounts of the machine (`models.list`), when the app has them: the
+   * ⇄ line names the account of a model that runs on two.
+   */
+  readonly catalog?: SwitchCatalog;
 }
 
 /** The context of the rows. Transcript gives it. */

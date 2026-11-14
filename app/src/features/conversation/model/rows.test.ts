@@ -114,6 +114,22 @@ describe("createRowBuilder", () => {
     );
     expect(build(after).map((row) => row.key)).toEqual(["e:t1", "p:t2"]);
   });
+
+  it("puts the switch line of a turn above its prompt", () => {
+    const build = createRowBuilder();
+    const state = run([
+      event(promptQueued(TURN, "review it", "phone")),
+      event(turnStarted(TURN)),
+      event({
+        kind: "model_switched",
+        turn_id: TURN,
+        from: { model: "claude-opus-5-5" },
+        to: { model: "gpt-6.1-sol" },
+      }),
+      event(messageCompleted(TURN, 0, "One spot.")),
+    ]);
+    expect(build(state).map((row) => row.key)).toEqual(["v:t1", "p:t1", "m:t1:0", "w:t1"]);
+  });
 });
 
 describe("rowKindOf and sameRows", () => {
@@ -121,6 +137,7 @@ describe("rowKindOf and sameRows", () => {
     expect(rowKindOf("m:t:0")).toBe("message");
     expect(rowKindOf("w:t")).toBe("status");
     expect(rowKindOf("x:t")).toBe("pause");
+    expect(rowKindOf("v:t")).toBe("switch");
     expect(rowKindOf("q:t")).toBeUndefined();
     const row = { kind: "end", key: "e:t", turnId: "t" } as const;
     expect(sameRows([row], [row])).toBe(true);
@@ -144,6 +161,9 @@ describe("rowGap", () => {
     expect(rowGap("e:t1", "p:t2")).toBe("turn");
     expect(rowGap("e:t1", "o:k1")).toBe("turn");
     expect(rowGap("o:k1", "o:k2")).toBe("turn");
+    // The switch line starts the turn; its prompt follows it as any row.
+    expect(rowGap("e:t1", "v:t2")).toBe("turn");
+    expect(rowGap("v:t2", "p:t2")).toBe("item");
   });
 
   it("keeps the 12 pt of the design between the other rows", () => {

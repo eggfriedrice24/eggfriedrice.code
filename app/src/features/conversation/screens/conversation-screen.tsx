@@ -20,7 +20,7 @@
 //
 // The header belongs to the root stack (features/navigation), so this screen sets none.
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, type Readable } from "@tanstack/store";
 import { useIsFocused, useRouter } from "expo-router";
@@ -49,7 +49,7 @@ import { DockedComposer } from "../components/composer/composer";
 import { Transcript } from "../components/transcript";
 import type { TranscriptListHandle } from "../components/transcript-list";
 import type { TranscriptActions, TranscriptScope } from "../components/use-transcript-scope";
-import { withdrawPromptMutationOptions } from "../conversation-queries";
+import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversation-queries";
 import { composerDraftKey, outboxTargetOf, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
@@ -143,6 +143,7 @@ function ConversationView(props: ConversationViewProps) {
   const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.float + SPACING.strip);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_HEIGHT);
   const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
+  const models = useQuery(modelsQueryOptions(runtime, machine)).data;
   const router = useRouter();
   // The sheet opens only from a tap on the strip or on the waiting card (round 8).
   const openApproval = (callId: string): void => {
@@ -163,12 +164,15 @@ function ConversationView(props: ConversationViewProps) {
     },
     openApproval,
   };
-  const scope: TranscriptScope = {
+  const scope: { -readonly [K in keyof TranscriptScope]: TranscriptScope[K] } = {
     store: held.store,
     rowUi: held.rowUi,
     machineName,
     actions,
   };
+  if (models !== undefined) {
+    scope.catalog = { models: models.models, catalogs: models.catalogs ?? [] };
+  }
   const strip =
     stream === undefined ? undefined : (
       <ApprovalStrip

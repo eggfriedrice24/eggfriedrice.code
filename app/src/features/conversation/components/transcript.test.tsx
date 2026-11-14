@@ -344,6 +344,27 @@ describe("the transcript", () => {
     expect(screen.queryByText("waiting for approval")).toBeNull();
   });
 
+  it("shows the switch line above the prompt of the turn on the new model", async () => {
+    const state = run(
+      [
+        eventItem(7, promptQueued(NEXT, "Review the fix.")),
+        eventItem(8, turnStarted(NEXT)),
+        eventItem(9, {
+          kind: "model_switched",
+          turn_id: NEXT,
+          from: { model: "gpt-6.1-sol", provider: "openai-subscription", effort: "medium" },
+          to: { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "medium" },
+        }),
+      ],
+      finishedTurn(),
+    );
+    const { scope } = testScope(state);
+    await render(<Transcript scope={scope} insets={INSETS} />);
+    const line = screen.getByTestId("switch-line");
+    expect(line).toHaveTextContent("⇄ GPT-6.1 Sol on b · medium");
+    expect(line).toHaveAccessibleName("Switched to GPT-6.1 Sol on b, medium effort");
+  });
+
   it("shows the approval on the tool card of its call, with no row of its own", async () => {
     const state = run(
       [

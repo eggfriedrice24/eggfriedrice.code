@@ -7,6 +7,7 @@ import type { Row } from "../model/rows";
 import { MessageRow } from "./message-row";
 import { PauseRow } from "./pause-row";
 import { RunningRow } from "./running-line";
+import { SwitchRow } from "./switch-row";
 import { ThoughtRow } from "./thought-row";
 import { ApprovalCardRow, ToolRow } from "./tool-row";
 import { TurnEndRow } from "./turn-end-line";
@@ -25,6 +26,8 @@ export interface TranscriptRowProps {
 export function TranscriptRow(props: TranscriptRowProps) {
   const item = props.item;
   switch (item.kind) {
+    case "switch":
+      return <SwitchRow turnId={item.turnId} />;
     case "prompt":
       return <PromptRow turnId={item.turnId} />;
     case "reasoning":

@@ -683,6 +683,43 @@ describe("the model of a turn", () => {
     const turn = state.turns.get(TURN);
     expect(turn?.provider).toBe("openai-subscription.b");
     expect(turn?.effort).toBe("high");
+    expect(turn?.switched).toEqual({
+      from: { model: "gpt-6.1-sol", provider: "openai-subscription", effort: "medium" },
+      to: { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "high" },
+      compacted: false,
+    });
+  });
+
+  it("marks the switch compacted when the turn compacts before anything else", () => {
+    const switched: Event = {
+      kind: "model_switched",
+      turn_id: TURN,
+      from: { model: "claude-opus-5-5" },
+      to: { model: "gpt-5.5", effort: "medium" },
+    };
+    const compacted: Event = {
+      kind: "conversation_compacted",
+      compaction_id: "019a9b1c-3d00-7a10-8b20-0000000000c1",
+      kept_turns: 1,
+      limit: 100,
+      model: "gpt-5.5",
+      through_turn: TURN,
+      tokens_after: 10,
+      tokens_before: 90,
+      trigger: "auto",
+      turn_id: TURN,
+      window: 100,
+    };
+    const first = run([event(1, turnStarted(TURN)), event(2, switched), event(3, compacted)]);
+    expect(first.turns.get(TURN)?.switched?.compacted).toBe(true);
+    // A compaction later in the turn is not the cost of the switch.
+    const later = run([
+      event(1, turnStarted(TURN)),
+      event(2, switched),
+      event(3, messageCompleted(TURN, 0, "a")),
+      event(4, compacted),
+    ]);
+    expect(later.turns.get(TURN)?.switched?.compacted).toBe(false);
   });
 
   it("keeps the turn object when a start says nothing new", () => {

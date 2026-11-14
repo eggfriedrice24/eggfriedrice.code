@@ -52,6 +52,7 @@ import type {
   Risk,
   StopReason,
   SurfaceChange,
+  SwitchedModel,
   Usage,
   Verdict,
   WebAction,
@@ -293,6 +294,8 @@ export interface TurnView {
   readonly model: string | undefined;
   readonly provider: string | undefined;
   readonly effort: string | undefined;
+  /** The turn runs on another model or account than the turn before (`model_switched`). */
+  readonly switched: SwitchView | undefined;
   /** The surface that asked to stop the turn. */
   readonly interruptedBy: Origin | undefined;
   readonly end: TurnEnd | undefined;
@@ -318,6 +321,14 @@ export interface TurnView {
   readonly pause: ReviewerPause | undefined;
   /** The web search of the turn, from its `turn_web_report`. */
   readonly web: TurnWebView | undefined;
+}
+
+/** A switch of model or account at the start of a turn (MS-Switched). */
+export interface SwitchView {
+  readonly from: SwitchedModel;
+  readonly to: SwitchedModel;
+  /** The turn compacted the conversation before anything else: the new model needed it. */
+  readonly compacted: boolean;
 }
 
 /** The web search of a turn (`turn_web_report`). */
@@ -602,13 +613,14 @@ function applyEventBody(
       });
     case "model_switched":
       return updateTurn(state, event.turn_id, (turn) => {
+        if (turn.switched !== undefined) {
+          return turn;
+        }
         const to = event.to;
         const provider = to.provider ?? turn.provider;
         const effort = to.effort ?? to.default_effort ?? turn.effort;
-        if (turn.model === to.model && turn.provider === provider && turn.effort === effort) {
-          return turn;
-        }
-        return { ...turn, model: to.model, provider, effort };
+        const switched: SwitchView = { from: event.from, to, compacted: false };
+        return { ...turn, model: to.model, provider, effort, switched };
       });
     case "assistant_message_updated":
       return updateTurn(state, event.turn_id, (turn) =>
@@ -818,8 +830,26 @@ function applyEventBody(
       });
     case "turn_cancelled":
       return turnEnded(state, event.turn_id, endOf("cancelled", at));
-    case "conversation_compacted":
-      return state.compacting ? { ...state, compacting: false } : state;
+    case "conversation_compacted": {
+      const next = state.compacting ? { ...state, compacting: false } : state;
+      const turnId = event.turn_id ?? undefined;
+      const turn = turnId === undefined ? undefined : next.turns.get(turnId);
+      // A compaction that comes before anything else of a turn that switched is the cost
+      // of the switch: the switch row says "compacted", as the terminal's line does.
+      if (
+        turnId === undefined ||
+        turn?.switched === undefined ||
+        turn.switched.compacted ||
+        turn.parts.length > 0
+      ) {
+        return next;
+      }
+      const switched = turn.switched;
+      return updateTurn(next, turnId, (found) => ({
+        ...found,
+        switched: { ...switched, compacted: true },
+      }));
+    }
     default:
       return state;
   }
@@ -1134,6 +1164,7 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     model: rebuilt.model ?? old.model,
     provider: rebuilt.provider ?? old.provider,
     effort: rebuilt.effort ?? old.effort,
+    switched: rebuilt.switched ?? old.switched,
     interruptedBy: rebuilt.interruptedBy ?? old.interruptedBy,
     parts,
     messages,
@@ -1237,6 +1268,7 @@ function newTurn(turnId: string): TurnView {
     model: undefined,
     provider: undefined,
     effort: undefined,
+    switched: undefined,
     interruptedBy: undefined,
     end: undefined,
     parts: [],

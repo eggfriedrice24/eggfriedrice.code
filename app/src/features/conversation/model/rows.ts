@@ -12,6 +12,8 @@ import type { StreamState, TurnView } from "@/lib/stream/reducer";
 
 /** The kinds of rows. */
 export type RowKind =
+  /** The quiet ⇄ line of a switch of model or account, above the prompt of its turn. */
+  | "switch"
   | "prompt"
   | "reasoning"
   | "message"
@@ -26,6 +28,7 @@ export type RowKind =
 
 /** One row of the transcript. */
 export type Row =
+  | { readonly kind: "switch"; readonly key: string; readonly turnId: string }
   | { readonly kind: "prompt"; readonly key: string; readonly turnId: string }
   | { readonly kind: "reasoning"; readonly key: string; readonly turnId: string }
   | {
@@ -55,6 +58,7 @@ export type Row =
 export type RowBuilder = (state: StreamState) => readonly Row[];
 
 const KINDS: Readonly<Record<string, RowKind>> = {
+  v: "switch",
   p: "prompt",
   r: "reasoning",
   m: "message",
@@ -76,6 +80,7 @@ export function rowKindOf(key: string): RowKind | undefined {
  * 8.3). The answer starts 16 pt under your prompt, and a new turn starts 20 pt under the
  * end of the turn before it, so that each turn reads as one group. The end line of a turn
  * sits 4 pt under the last row of its turn, as the terminal prints it under the answer.
+ * The ⇄ line of a switch starts its turn, and the prompt follows it as any other row.
  */
 export type RowGap = "item" | "afterPrompt" | "turn" | "end";
 
@@ -84,15 +89,15 @@ function isPromptKey(key: string): boolean {
   return key.startsWith("p:") || key.startsWith("s:") || key.startsWith("o:");
 }
 
-/** True for the first row of a turn: a prompt, or a prompt of the outbox. */
+/** True for the first row of a turn: a switch, a prompt, or a prompt of the outbox. */
 function startsTurn(key: string): boolean {
-  return key.startsWith("p:") || key.startsWith("o:");
+  return key.startsWith("v:") || key.startsWith("p:") || key.startsWith("o:");
 }
 
 /** The space between the row `above` and the row `below`, by their keys. */
 export function rowGap(above: string, below: string): RowGap {
   if (startsTurn(below)) {
-    return "turn";
+    return above.startsWith("v:") ? "item" : "turn";
   }
   if (below.startsWith("e:")) {
     return "end";
@@ -157,6 +162,9 @@ export function createRowBuilder(): RowBuilder {
 function turnRows(turn: TurnView): Row[] {
   const turnId = turn.turnId;
   const rows: Row[] = [];
+  if (turn.switched !== undefined) {
+    rows.push({ kind: "switch", key: `v:${turnId}`, turnId });
+  }
   if (turn.prompt !== undefined) {
     rows.push({ kind: "prompt", key: `p:${turnId}`, turnId });
   }
