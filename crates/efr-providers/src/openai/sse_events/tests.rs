@@ -267,7 +267,7 @@ fn a_failed_response_with_a_rate_limit_carries_the_wait() {
     let (mapped, error) = map_all(&fixture_events("failed_rate_limit.sse"));
     assert!(mapped.is_empty());
     match error {
-        Some(ProviderError::RateLimited { retry_after }) => {
+        Some(ProviderError::RateLimited { retry_after, limit: None }) => {
             assert_eq!(retry_after, Some(Duration::from_millis(11_054)));
         }
         other => panic!("not a rate limit: {other:?}"),
@@ -616,4 +616,27 @@ fn custom_input_deltas_may_name_only_the_call() {
             },
         ]
     );
+}
+
+#[test]
+fn a_rate_limits_message_of_a_plan_gives_its_windows_before_the_answer() {
+    let mut mapper = EventMapper::new();
+    let limits = json!({
+        "type": "codex.rate_limits",
+        "rate_limits": {"primary": {"used_percent": 92.4, "window_minutes": 300}},
+    });
+    let mapped = mapper.map_message(&limits).unwrap();
+    assert_eq!(
+        mapped,
+        vec![ProviderEvent::Limits {
+            windows: vec![efr_provider::LimitWindow {
+                minutes: Some(300),
+                used_percent: 92,
+                resets_at: None,
+            }],
+        }]
+    );
+    let empty = json!({"type": "codex.rate_limits", "rate_limits": {}});
+    assert_eq!(mapper.map_message(&empty).unwrap(), Vec::new(), "no window, no event");
+    assert!(!mapper.is_done());
 }

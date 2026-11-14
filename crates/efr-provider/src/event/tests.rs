@@ -82,6 +82,22 @@ fn events_have_a_kind_and_data() {
             json!({"kind": "raw", "data": {"type": "response.queued"}}),
         ),
         (ProviderEvent::Raw(json!("keep-alive")), json!({"kind": "raw", "data": "keep-alive"})),
+        (
+            ProviderEvent::Limits {
+                windows: vec![
+                    crate::LimitWindow {
+                        minutes: Some(300),
+                        used_percent: 92,
+                        resets_at: Some("2026-11-14T14:20:00Z".parse().unwrap()),
+                    },
+                    crate::LimitWindow { minutes: None, used_percent: 41, resets_at: None },
+                ],
+            },
+            json!({"kind": "limits", "data": {"windows": [
+                {"minutes": 300, "used_percent": 92, "resets_at": "2026-11-14T14:20:00Z"},
+                {"used_percent": 41},
+            ]}}),
+        ),
     ];
     for (event, wire) in cases {
         assert_eq!(serde_json::to_value(&event).unwrap(), wire);

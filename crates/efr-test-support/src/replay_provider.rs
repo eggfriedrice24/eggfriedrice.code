@@ -379,6 +379,7 @@ impl ErrorRecord {
             ErrorRecord::Unauthorized { message } => ProviderError::Unauthorized { message },
             ErrorRecord::RateLimited { retry_after_ms } => ProviderError::RateLimited {
                 retry_after: retry_after_ms.map(Duration::from_millis),
+                limit: None,
             },
             ErrorRecord::NotLoggedIn {} => ProviderError::NotLoggedIn,
             ErrorRecord::Incomplete {} => ProviderError::Incomplete,

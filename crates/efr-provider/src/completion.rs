@@ -84,7 +84,7 @@ impl CompletionBuilder {
 
     /// Adds one event.
     pub fn push(&mut self, event: &ProviderEvent) -> Result<(), ProviderError> {
-        if let ProviderEvent::Raw(_) = event {
+        if let ProviderEvent::Raw(_) | ProviderEvent::Limits { .. } = event {
             return Ok(());
         }
         if self.done.is_some() {
@@ -135,7 +135,7 @@ impl CompletionBuilder {
             ProviderEvent::Done { stop_reason, provider_raw } => {
                 self.done = Some((*stop_reason, provider_raw.clone()));
             }
-            ProviderEvent::Raw(_) => {}
+            ProviderEvent::Raw(_) | ProviderEvent::Limits { .. } => {}
         }
         Ok(())
     }

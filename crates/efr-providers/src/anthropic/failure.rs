@@ -19,7 +19,7 @@
 //! | 404 `not_found_error` for the model | `UnknownModel` | no |
 //! | 413 `request_too_large` (a body over 32 MB) | `Api`, built here and not through `ProviderError::api`, which reads 413 as an overflow | no |
 //! | 429 with `error.details.error_code: "enforced_spend_limit_reached"` | `LimitReached` (`spend_limit`) | no |
-//! | any other 429 | `RateLimited { retry_after }` from `retry-after` | yes, after that wait |
+//! | any other 429 | `RateLimited { retry_after, limit }` from `retry-after`, with the empty bucket of the `anthropic-ratelimit-*` headers | yes, after that wait |
 //! | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
 //! | 529 `overloaded_error` | `Overloaded` after the last try | yes, with backoff |
 //! | any other status | `Api` with the server's message | no |
@@ -276,7 +276,8 @@ impl Class {
             (Class::UnknownModel, Some(model)) => {
                 ProviderError::UnknownModel { model: model.to_owned() }
             }
-            (Class::RateLimited, _) => ProviderError::RateLimited { retry_after },
+            // NOTE: the bucket that ran out is in the headers, which the caller reads.
+            (Class::RateLimited, _) => ProviderError::RateLimited { retry_after, limit: None },
             (Class::Overloaded, _) => ProviderError::Overloaded { status, message },
             (Class::SpendCap, _) => ProviderError::LimitReached {
                 reached: LimitReached { kind: LimitKind::SpendLimit, resets_at: None },

@@ -18,6 +18,10 @@
 //! reviews an action of efr's `auto` sandbox first. [`check_key`] checks an API key with one
 //! request that runs no model, before a login stores the key.
 //!
+//! An API key tells no usage windows, so the provider sends no `ProviderEvent::Limits`.
+//! A 429 that outlived the retries and whose headers show an empty bucket names that
+//! bucket in `ProviderError::RateLimited` (module `limits`).
+//!
 //! This module uses nothing of the module `openai`. What does not belong here: how a key is stored or entered (`efr-credentials`,
 //! `efr-daemon`, `efr-cli`; the key arrives through `efr_provider::TokenSource`), the
 //! conversation's turn loop and history (`efr-conversation`), and composing providers
@@ -28,6 +32,7 @@ mod config;
 mod convert;
 mod error;
 mod failure;
+mod limits;
 mod messages;
 mod models;
 mod sse_events;

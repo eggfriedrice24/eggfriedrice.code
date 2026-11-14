@@ -559,11 +559,90 @@ async fn a_rate_limit_reports_the_wait_from_the_header() {
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     match error {
-        ProviderError::RateLimited { retry_after } => {
+        ProviderError::RateLimited { retry_after, limit } => {
             assert_eq!(retry_after, Some(Duration::from_secs(120)));
+            assert_eq!(limit, None, "no header names an empty bucket");
         }
         other => panic!("not a rate limit: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn a_rate_limit_names_the_empty_bucket_of_the_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "20")
+                .insert_header("x-ratelimit-remaining-requests", "0")
+                .insert_header("x-ratelimit-reset-requests", "3m0s")
+                .insert_header("x-ratelimit-remaining-tokens", "29000")
+                .set_body_raw(
+                    r#"{"error":{"message":"Rate limit reached.","type":"requests","code":"rate_limit_exceeded"}}"#,
+                    "application/json",
+                ),
+        )
+        .mount(&server)
+        .await;
+    let config = OpenAiConfig::api().with_retry(RetryPolicy::none());
+    let setup = setup(&server, config, FakeTokens::new(&["sk-test"]));
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    let ProviderError::RateLimited { limit: Some(limit), .. } = error else {
+        panic!("not a rate limit with its bucket: {error:?}");
+    };
+    assert_eq!(limit.kind, LimitKind::Requests);
+    let start = crate::openai::testing::start();
+    assert_eq!(limit.resets_at.map(|at| at.as_second()), Some(start.as_second() + 180));
+}
+
+#[tokio::test]
+async fn a_plan_answer_starts_with_the_usage_windows_of_its_headers() {
+    let server = MockServer::start().await;
+    let resets_at = crate::openai::testing::start().as_second() + 1200;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(
+            sse_response("plain_text.sse")
+                .insert_header("x-codex-primary-used-percent", "92.0")
+                .insert_header("x-codex-primary-window-minutes", "300")
+                .insert_header("x-codex-primary-reset-at", resets_at.to_string().as_str())
+                .insert_header("x-codex-secondary-used-percent", "41.0")
+                .insert_header("x-codex-secondary-window-minutes", "10080"),
+        )
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+
+    let events = setup.provider.stream(request("Hi")).await.unwrap().collect::<Vec<_>>().await;
+
+    let Some(Ok(ProviderEvent::Limits { windows })) = events.first() else {
+        panic!("no limits first: {events:?}");
+    };
+    let shown: Vec<_> = windows.iter().map(|w| (w.minutes, w.used_percent)).collect();
+    assert_eq!(shown, vec![(Some(300), 92), (Some(10080), 41)]);
+    assert_eq!(windows[0].resets_at.map(|at| at.as_second()), Some(resets_at));
+    let limits = events.iter().filter(|e| matches!(e, Ok(ProviderEvent::Limits { .. }))).count();
+    assert_eq!(limits, 1);
+}
+
+#[tokio::test]
+async fn an_api_answer_with_plan_headers_tells_no_windows() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(
+            sse_response("plain_text.sse").insert_header("x-codex-primary-used-percent", "50"),
+        )
+        .mount(&server)
+        .await;
+    let setup = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+
+    let events = setup.provider.stream(request("Hi")).await.unwrap().collect::<Vec<_>>().await;
+
+    assert!(!events.iter().any(|e| matches!(e, Ok(ProviderEvent::Limits { .. }))), "{events:?}");
 }
 
 #[tokio::test]

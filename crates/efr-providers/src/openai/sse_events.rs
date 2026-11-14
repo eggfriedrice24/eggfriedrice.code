@@ -17,6 +17,8 @@
 //!   ends the answer with the usage and those items as the message's `provider_raw`;
 //! - `response.incomplete` ends it at the output limit or the content filter;
 //!   `response.failed` and `error` fail the stream with the provider's error;
+//! - `codex.rate_limits`, which a ChatGPT plan sends on the WebSocket, is
+//!   [`ProviderEvent::Limits`] with the usage windows of the plan (module `limits`);
 //! - events that only repeat what other events carry (`response.created`,
 //!   `response.output_text.done` and the like) are consumed; any other event type is
 //!   passed on as [`ProviderEvent::Raw`] and logged at debug, never dropped silently.
@@ -58,6 +60,7 @@ use efr_provider::{
 use serde_json::Value;
 
 use crate::openai::convert::{OutputItem, provider_raw};
+use crate::openai::limits;
 
 /// The longest event type the debug log shows, so a hostile stream cannot flood it.
 const MAX_LOGGED_TYPE: usize = 128;
@@ -334,6 +337,12 @@ impl EventMapper {
                     .and_then(|annotation| UrlCitation::parse(annotation, content_index))
                 {
                     self.annotations.push((location(event), citation));
+                }
+            }
+            "codex.rate_limits" => {
+                let windows = limits::plan_windows_message(event).unwrap_or_default();
+                if !windows.is_empty() {
+                    out.push(ProviderEvent::Limits { windows });
                 }
             }
             "response.completed" => self.completed(event, &mut out),
@@ -782,7 +791,7 @@ fn provider_error(error: Option<&Value>, shape: ErrorShape, fallback: &str) -> P
     let code = field("code").or(class).map(str::to_owned);
     let message = field("message").filter(|message| !message.trim().is_empty()).unwrap_or(fallback);
     if code.as_deref().is_some_and(|code| RATE_LIMIT_CODES.contains(&code)) {
-        return ProviderError::RateLimited { retry_after: retry_hint(message) };
+        return ProviderError::RateLimited { retry_after: retry_hint(message), limit: None };
     }
     ProviderError::api(None, code, message.to_owned())
 }

@@ -2042,8 +2042,10 @@ fn provider_errors_map_to_codes_a_client_can_act_on() {
     assert_eq!(unknown.code, ErrorCode::Invalid);
     assert_eq!(unknown.data, Some(json!({ "model": "m" })));
     assert_eq!(provider_failure(&ProviderError::Incomplete).code, ErrorCode::Internal);
-    let limited =
-        provider_failure(&ProviderError::RateLimited { retry_after: Some(Duration::from_secs(2)) });
+    let limited = provider_failure(&ProviderError::RateLimited {
+        retry_after: Some(Duration::from_secs(2)),
+        limit: None,
+    });
     assert_eq!(limited.code, ErrorCode::Busy);
     assert_eq!(limited.data, Some(json!({ "retry_after_ms": 2000 })));
     let overloaded = ProviderError::Overloaded { status: Some(529), message: "Overloaded".into() };
@@ -2072,7 +2074,8 @@ fn a_limit_of_the_account_is_the_cause_and_other_failures_have_none() {
         provider_failure(&used_up).message,
         "the account reached the usage limit of its plan"
     );
-    let waited = ProviderError::RateLimited { retry_after: Some(Duration::from_secs(90)) };
+    let waited =
+        ProviderError::RateLimited { retry_after: Some(Duration::from_secs(90)), limit: None };
     assert_eq!(
         super::account_limit(&waited, now),
         Some(LimitReached {
@@ -2080,11 +2083,20 @@ fn a_limit_of_the_account_is_the_cause_and_other_failures_have_none() {
             resets_at: Some("2026-11-14T12:01:30Z".parse().unwrap()),
         })
     );
-    let unsaid = ProviderError::RateLimited { retry_after: None };
+    let unsaid = ProviderError::RateLimited { retry_after: None, limit: None };
     assert_eq!(
         super::account_limit(&unsaid, now),
         Some(LimitReached { kind: LimitKind::TooManyRequests, resets_at: None })
     );
+    let bucket = LimitReached {
+        kind: LimitKind::Requests,
+        resets_at: Some("2026-11-14T12:03:00Z".parse().unwrap()),
+    };
+    let named = ProviderError::RateLimited {
+        retry_after: Some(Duration::from_secs(20)),
+        limit: Some(bucket.clone()),
+    };
+    assert_eq!(super::account_limit(&named, now), Some(bucket), "the bucket that ran out");
     let overloaded = ProviderError::Overloaded { status: Some(529), message: "Overloaded".into() };
     assert_eq!(super::account_limit(&overloaded, now), None);
     assert_eq!(super::account_limit(&ProviderError::NotLoggedIn, now), None);

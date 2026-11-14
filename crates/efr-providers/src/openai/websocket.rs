@@ -637,6 +637,8 @@ impl Answer {
         loop {
             if let Some(item) = self.pending.pop_front() {
                 match &item {
+                    // NOTE: the limits of the plan say nothing of the model's speed.
+                    Ok(ProviderEvent::Limits { .. }) => {}
                     Ok(_) => self.timing.first_event(),
                     // NOTE: an error ends the answer, so this line comes once per call. A
                     // call on the websocket has no request id of its own.

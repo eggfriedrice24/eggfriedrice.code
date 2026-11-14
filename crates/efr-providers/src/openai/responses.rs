@@ -25,6 +25,7 @@ use crate::openai::OpenAiConfig;
 use crate::openai::catalog::{Catalog, ModelCatalog, with_extra};
 use crate::openai::config::Backend;
 use crate::openai::convert::{ResponsesBody, request_body};
+use crate::openai::limits;
 use crate::openai::sse_events::{EventMapper, retry_hint};
 use crate::openai::timing::Timing;
 use crate::openai::websocket::{
@@ -248,9 +249,8 @@ impl OpenAiProvider {
             let response = match self.send(&request, notices).await? {
                 Answer::Response(response) => response,
                 Answer::TooManyRequests { headers, body, .. } => {
-                    let header_wait = efr_http::retry_after(&headers, self.clock.now());
                     let status = StatusCode::TOO_MANY_REQUESTS;
-                    return Err(self.answer_error(status, header_wait, &body, model));
+                    return Err(self.answer_error(status, &headers, &body, model));
                 }
             };
             if let Some(id) =
@@ -342,12 +342,12 @@ impl OpenAiProvider {
     /// The error for a response that is neither a success nor a 401.
     async fn status_error(&self, response: HttpResponse, model: &str) -> ProviderError {
         let status = response.status();
-        let header_wait = efr_http::retry_after(response.headers(), self.clock.now());
+        let headers = response.headers().clone();
         let body = match response.text().await {
             Ok(body) => body,
             Err(error) => return transport(error),
         };
-        self.answer_error(status, header_wait, &body, model)
+        self.answer_error(status, &headers, &body, model)
     }
 
     /// The error for an `error` event with an HTTP error status on the WebSocket: the
@@ -369,21 +369,22 @@ impl OpenAiProvider {
                 }
             }
         }
-        let header_wait = efr_http::retry_after(&headers, self.clock.now());
         let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_REQUEST);
-        self.answer_error(status, header_wait, &event.to_string(), model)
+        self.answer_error(status, &headers, &event.to_string(), model)
     }
 
-    /// The error for an error answer with `status` and `body`; `header_wait` is the
-    /// wait that its headers ask for.
+    /// The error for an error answer with `status`, `headers` and `body`. A 429 that
+    /// is no limit of the plan or the money is a rate limit: it waits as its headers
+    /// ask, and names the bucket of the key that ran out when the headers show one.
     fn answer_error(
         &self,
         status: StatusCode,
-        header_wait: Option<Duration>,
+        headers: &HeaderMap,
         body: &str,
         model: &str,
     ) -> ProviderError {
         let now = self.clock.now();
+        let header_wait = efr_http::retry_after(headers, now);
         let details = ErrorDetails::parse(body);
         if let Some(reached) = details.limit_reached(now) {
             return ProviderError::LimitReached { reached, message: details.message };
@@ -397,7 +398,8 @@ impl OpenAiProvider {
                 .or(reset_wait)
                 .or(details.resets_in_seconds.map(Duration::from_secs))
                 .or_else(|| details.message.as_deref().and_then(retry_hint));
-            return ProviderError::RateLimited { retry_after };
+            let limit = limits::exhausted_bucket(headers, now, retry_after);
+            return ProviderError::RateLimited { retry_after, limit };
         }
         if details.names_unknown_model(status) {
             return ProviderError::UnknownModel { model: model.to_owned() };
@@ -490,7 +492,11 @@ impl Provider for OpenAiProvider {
         span.in_scope(|| {
             tracing::debug!(status = response.status().as_u16(), "the response is streaming")
         });
-        Ok(events(response, span, timing))
+        let windows = match self.config.backend() {
+            Backend::Subscription => limits::plan_windows(response.headers()),
+            Backend::Api => Vec::new(),
+        };
+        Ok(events(response, windows, span, timing))
     }
 
     /// Refreshes a token that ends soon (a login's, not an API key), and for a model
@@ -714,17 +720,27 @@ pub(crate) fn sign(
     Ok(request)
 }
 
-/// The events of a streaming response, until the answer is done or fails.
-fn events(response: HttpResponse, span: tracing::Span, timing: Timing) -> ProviderStream {
+/// The events of a streaming response, until the answer is done or fails: first the
+/// usage `windows` of the plan that its headers told, when they told any.
+fn events(
+    response: HttpResponse,
+    windows: Vec<efr_provider::LimitWindow>,
+    span: tracing::Span,
+    timing: Timing,
+) -> ProviderStream {
     let request_id = response
         .headers()
         .get(REQUEST_ID_HEADER)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let mut pending = VecDeque::new();
+    if !windows.is_empty() {
+        pending.push_back(Ok(ProviderEvent::Limits { windows }));
+    }
     let state = EventState {
         sse: Some(response.into_sse()),
         mapper: EventMapper::new(),
-        pending: VecDeque::new(),
+        pending,
         timing,
         request_id,
     };
@@ -750,6 +766,8 @@ impl EventState {
         loop {
             if let Some(item) = self.pending.pop_front() {
                 match &item {
+                    // NOTE: the limits come from the headers, not from the model.
+                    Ok(ProviderEvent::Limits { .. }) => {}
                     Ok(_) => self.timing.first_event(),
                     // NOTE: an error ends the answer, so this line comes once per call.
                     Err(error) => tracing::info!(

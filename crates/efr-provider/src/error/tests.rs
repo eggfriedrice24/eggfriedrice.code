@@ -96,7 +96,7 @@ fn rate_limits_name_the_delay_rounded_up_in_its_two_largest_units() {
         ),
     ];
     for (retry_after, expected) in cases {
-        assert_eq!(ProviderError::RateLimited { retry_after }.to_string(), expected);
+        assert_eq!(ProviderError::RateLimited { retry_after, limit: None }.to_string(), expected);
     }
 }
 

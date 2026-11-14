@@ -38,6 +38,7 @@ use tracing::Instrument as _;
 use crate::anthropic::catalog::with_extra;
 use crate::anthropic::convert::{MessagesBody, request_body};
 use crate::anthropic::failure::{self, Answered, Failure, transport, without_key};
+use crate::anthropic::limits;
 use crate::anthropic::sse_events::EventMapper;
 use crate::anthropic::timing::Timing;
 use crate::anthropic::{ANTHROPIC_VERSION, AnthropicConfig, ModelCatalog};
@@ -196,9 +197,15 @@ impl AnthropicProvider {
         if status.is_success() {
             return Ok(Answered(response));
         }
-        let retry_after = efr_http::retry_after(response.headers(), self.clock.now());
+        let now = self.clock.now();
+        let retry_after = efr_http::retry_after(response.headers(), now);
+        let headers = response.headers().clone();
         let body = response.text().await.map_err(Failure::transport)?;
-        let failure = failure::answer(status, retry_after, &without_key(&body, key), Some(model));
+        let mut failure =
+            failure::answer(status, retry_after, &without_key(&body, key), Some(model));
+        if let ProviderError::RateLimited { retry_after, limit } = &mut failure.error {
+            *limit = limits::exhausted_bucket(&headers, now, *retry_after);
+        }
         tracing::debug!(
             attempt,
             status = status.as_u16(),

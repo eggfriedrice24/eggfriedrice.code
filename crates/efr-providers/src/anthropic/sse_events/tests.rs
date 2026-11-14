@@ -387,7 +387,7 @@ fn an_error_event_has_the_class_of_its_type(#[case] error: Value, #[case] class:
         (Some(ProviderError::Unauthorized { message: text }), "unauthorized") => {
             assert_eq!(text, Some(message));
         }
-        (Some(ProviderError::RateLimited { retry_after: None }), "rate_limited") => {}
+        (Some(ProviderError::RateLimited { retry_after: None, limit: None }), "rate_limited") => {}
         (Some(ProviderError::Overloaded { status: None, message: text }), "overloaded") => {
             assert_eq!(text, message);
         }

@@ -215,7 +215,7 @@ async fn error_events_end_the_answer_with_a_provider_error() {
             matches!(e, ProviderError::Overloaded { status: Some(529), .. })
         }),
         (r#"{"kind":"rate_limited","retry_after_ms":1500}"#, |e| {
-            matches!(e, ProviderError::RateLimited { retry_after: Some(d) }
+            matches!(e, ProviderError::RateLimited { retry_after: Some(d), limit: None }
                 if *d == Duration::from_millis(1500))
         }),
         (r#"{"kind":"api","status":500,"code":"server_error","message":"down in <CWD>"}"#, |e| {

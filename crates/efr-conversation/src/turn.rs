@@ -2258,7 +2258,7 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
     }
     let body = ErrorBody::new(code, message);
     match error {
-        ProviderError::RateLimited { retry_after: Some(delay) } => {
+        ProviderError::RateLimited { retry_after: Some(delay), .. } => {
             let millis = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
             body.with_data(serde_json::json!({ "retry_after_ms": millis }))
         }
@@ -2275,13 +2275,15 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
 }
 
 /// The limit that stopped the account of a turn whose model call failed with `error`,
-/// for the cause on `turn_failed`: the limit that the provider named, or `too many
-/// requests` with the end of the provider's wait from `now` when its rate limit outlived
-/// the retries. `None` for any other failure.
+/// for the cause on `turn_failed`: the limit that the provider named, the rate limit
+/// that ran out when the headers named it, or `too many requests` with the end of the
+/// provider's wait from `now` when its rate limit outlived the retries. `None` for any
+/// other failure.
 pub(crate) fn account_limit(error: &ProviderError, now: jiff::Timestamp) -> Option<LimitReached> {
     match error {
-        ProviderError::LimitReached { reached, .. } => Some(reached.clone()),
-        ProviderError::RateLimited { retry_after } => {
+        ProviderError::LimitReached { reached, .. }
+        | ProviderError::RateLimited { limit: Some(reached), .. } => Some(reached.clone()),
+        ProviderError::RateLimited { retry_after, limit: None } => {
             let resets_at = retry_after
                 .and_then(|wait| jiff::SignedDuration::try_from(wait).ok())
                 .and_then(|wait| now.checked_add(wait).ok());

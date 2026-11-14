@@ -786,7 +786,7 @@ async fn an_error_status_before_the_answer_fails_the_call_as_on_http_without_a_p
 
     assert!(overflow.is_context_overflow(), "{overflow:?}");
     assert!(
-        matches!(limited, ProviderError::RateLimited { retry_after: Some(wait) } if wait == Duration::from_secs(7)),
+        matches!(limited, ProviderError::RateLimited { retry_after: Some(wait), .. } if wait == Duration::from_secs(7)),
         "{limited:?}"
     );
     // The server answered each request, so neither went out a second time over HTTP,

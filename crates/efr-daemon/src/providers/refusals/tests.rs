@@ -44,7 +44,7 @@ fn a_refusal_keeps_its_time_until_a_request_with_the_key_works() {
     refusals.start(PROVIDER, KeySource::Call).failed(&ProviderError::NotLoggedIn);
     refusals
         .start(PROVIDER, KeySource::Call)
-        .failed(&ProviderError::RateLimited { retry_after: None });
+        .failed(&ProviderError::RateLimited { retry_after: None, limit: None });
     assert!(refusals.refused_at(PROVIDER).is_some(), "other errors say nothing about the key");
 
     refusals.start(PROVIDER, KeySource::Call).worked();
@@ -59,7 +59,7 @@ fn each_answer_about_the_key_marks_it_checked_and_a_login_starts_unchecked() {
 
     refusals
         .start(PROVIDER, KeySource::Call)
-        .failed(&ProviderError::RateLimited { retry_after: None });
+        .failed(&ProviderError::RateLimited { retry_after: None, limit: None });
     assert_eq!(refusals.checked_at(PROVIDER), None, "a rate limit says nothing about the key");
 
     let start = clock.shared().now();

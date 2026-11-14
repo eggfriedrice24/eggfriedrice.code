@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{HostedAction, HostedOutcome, TokenUsage};
+use crate::{HostedAction, HostedOutcome, LimitWindow, TokenUsage};
 
 /// One event of a model's streamed answer, in canonical form.
 ///
@@ -25,7 +25,7 @@ use crate::{HostedAction, HostedOutcome, TokenUsage};
 ///   `provider_raw`;
 /// - `Usage` comes at most once, before `Done` (if it comes twice, the last counts);
 /// - `Done` comes exactly once and is the last event;
-/// - `Raw` may come anywhere.
+/// - `Limits` and `Raw` may come anywhere; `Limits` mostly comes first.
 ///
 /// A stream that yields an error ends there.
 ///
@@ -125,6 +125,16 @@ pub enum ProviderEvent {
         /// stores as [`Message::provider_raw`](crate::Message::provider_raw).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider_raw: Option<Value>,
+    },
+
+    /// How full the usage windows of the account are, as the provider told it for
+    /// this call, such as the 5-hour and the weekly window of a ChatGPT plan. The
+    /// values describe the account at the start of the call. efrd keeps them for the
+    /// account, and a turn sends them to its clients. A consumer that does not need
+    /// them ignores them.
+    Limits {
+        /// The windows, in the order of the provider.
+        windows: Vec<LimitWindow>,
     },
 
     /// A provider event with no canonical form, passed on instead of being dropped

@@ -282,10 +282,30 @@ async fn a_rate_limit_that_lasts_is_reported_with_its_wait() {
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     assert!(
-        matches!(error, ProviderError::RateLimited { retry_after: Some(wait) } if wait == Duration::from_secs(120)),
+        matches!(error, ProviderError::RateLimited { retry_after: Some(wait), limit: None } if wait == Duration::from_secs(120)),
         "{error:?}"
     );
     assert_eq!(seen(&server).await.len(), 1, "a wait above the policy's longest ends the loop");
+}
+
+#[tokio::test]
+async fn a_rate_limit_that_lasts_names_the_empty_bucket_of_the_key() {
+    let server = MockServer::start().await;
+    let limited = error_answer(429, "rate_limit_error", "slow down")
+        .insert_header("retry-after", "120")
+        .insert_header("anthropic-ratelimit-requests-remaining", "40")
+        .insert_header("anthropic-ratelimit-output-tokens-remaining", "0")
+        .insert_header("anthropic-ratelimit-output-tokens-reset", "2026-11-14T14:03:00Z");
+    mount(&server, limited).await;
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+
+    let error = setup.provider.complete(request("Hi")).await.unwrap_err();
+
+    let ProviderError::RateLimited { limit: Some(limit), .. } = error else {
+        panic!("not a rate limit with its bucket: {error:?}");
+    };
+    assert_eq!(limit.kind, efr_provider::LimitKind::OutputTokens);
+    assert_eq!(limit.resets_at, Some("2026-11-14T14:03:00Z".parse().unwrap()));
 }
 
 #[tokio::test]

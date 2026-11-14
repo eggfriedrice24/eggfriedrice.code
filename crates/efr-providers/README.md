@@ -212,7 +212,18 @@ Failures:
   the organization and project spend and usage limit codes are `spend_limit`. A
   plan without access (`usage_not_included`) is an `Api` error;
 - any other 429 is `RateLimited`, with the wait from `Retry-After`, from the
-  subscription's `resets_at` (on the injected clock), or from the message;
+  subscription's `resets_at` (on the injected clock), or from the message. When the
+  headers of the last 429 show an empty bucket of the key
+  (`x-ratelimit-remaining-requests`, `-tokens` or `-project-tokens` at `0`), its
+  `limit` names that bucket, with the reset from its `x-ratelimit-reset-*` wait (such
+  as `6m0s`), else from the wait of the answer; of two empty buckets, the one that
+  resets last counts (module `limits`);
+- the subscription backend tells the usage windows of the plan in the headers of each
+  answer (`x-codex-primary-used-percent`, `-window-minutes`, `-reset-at`, and the same
+  for `secondary`): the stream starts with `ProviderEvent::Limits` with them, the
+  percent rounded down into 0 to 100. Only the default family `x-codex-*` counts. On
+  the WebSocket, the `codex.rate_limits` message of the default family is the same
+  event. The API backend sends no such event;
 - an error answer, as a response or as an event, goes through `ProviderError::api`:
   the code `context_length_exceeded` and HTTP 413 are `ContextOverflow`, which no
   retry sends again;
@@ -876,7 +887,7 @@ at `message_stop`.
 | 404 `not_found_error` for the model | `UnknownModel` | no |
 | 413 `request_too_large` | `Api` (not `ContextOverflow`: a body over 32 MB) | no |
 | 429 with `error.details.error_code` `enforced_spend_limit_reached` | `LimitReached` (`spend_limit`) | no |
-| any other 429 | `RateLimited { retry_after }` | yes, after `retry-after` |
+| any other 429 | `RateLimited { retry_after, limit }`; `limit` is the empty bucket of the `anthropic-ratelimit-<bucket>-remaining` headers (`requests`, `tokens`, `input-tokens`, `output-tokens`) with the RFC 3339 time of its `-reset` header | yes, after `retry-after` |
 | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
 | 529 `overloaded_error` | `Overloaded` after the last try | yes, with backoff |
 | any other status | `Api` with the server's message | no |

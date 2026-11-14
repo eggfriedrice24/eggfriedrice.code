@@ -27,6 +27,10 @@ pub enum ProviderError {
     RateLimited {
         /// How long the provider asked the client to wait, when it said.
         retry_after: Option<Duration>,
+        /// The rate limit of the account that ran out, such as its requests per
+        /// minute, with its reset, when the headers of the answer named one. `None`
+        /// when they did not: the provider only said "too many requests".
+        limit: Option<efr_protocol::LimitReached>,
     },
 
     /// The account reached a limit that a short wait does not end: the usage limit of a

@@ -31,7 +31,7 @@ fn class(error: &ProviderError) -> String {
         ProviderError::ContextOverflow { status, .. } => format!("overflow {status:?}"),
         ProviderError::Unauthorized { .. } => "unauthorized".to_owned(),
         ProviderError::UnknownModel { model } => format!("unknown model {model}"),
-        ProviderError::RateLimited { retry_after } => format!("rate limited {retry_after:?}"),
+        ProviderError::RateLimited { retry_after, .. } => format!("rate limited {retry_after:?}"),
         ProviderError::Overloaded { status, .. } => format!("overloaded {status:?}"),
         ProviderError::Api { status, code, .. } => format!("api {status:?} {code:?}"),
         ProviderError::LimitReached { reached, .. } => {
@@ -198,7 +198,7 @@ fn a_wait_from_the_headers_goes_to_the_rate_limit_and_to_the_policy() {
     let failure = answer(status(429), wait, &body("rate_limit_error", "slow down"), Some(MODEL));
 
     assert!(
-        matches!(failure.error, ProviderError::RateLimited { retry_after } if retry_after == wait)
+        matches!(failure.error, ProviderError::RateLimited { retry_after, .. } if retry_after == wait)
     );
     assert_eq!(failure.outcome(start()), Outcome::Transient { retry_after: wait });
 }

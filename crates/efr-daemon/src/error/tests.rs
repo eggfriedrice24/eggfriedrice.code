@@ -322,7 +322,7 @@ fn a_missing_model_list_says_why_and_what_to_do() {
         offline.message,
         "efr could not fetch Claude's model list: the request to the provider failed in transit: connection refused"
     );
-    let limited = fetch(ProviderError::RateLimited { retry_after: None });
+    let limited = fetch(ProviderError::RateLimited { retry_after: None, limit: None });
     assert_eq!(code(limited), ErrorCode::Busy);
 
     let slow = frame(DaemonError::NoModelList { list, reason: "the fetch did not end in time" });

@@ -17,6 +17,11 @@
 //! [`CLASSIFIER_MODEL`] names the small model that reviews an action of efr's `auto`
 //! sandbox first.
 //!
+//! A ChatGPT plan tells how full its usage windows are with each answer: the provider
+//! passes them on as the first event of the stream (`ProviderEvent::Limits`). A 429
+//! of an API key whose headers show an empty bucket names that bucket in
+//! `ProviderError::RateLimited` (module `limits`).
+//!
 //! This module uses nothing of the module `anthropic`. What does not belong here: how
 //! a token is obtained or refreshed (`efr-oauth-openai`, which this crate must never
 //! depend on; tokens arrive through `efr_provider::TokenSource`), the conversation's turn loop and history
@@ -27,6 +32,7 @@ mod catalog;
 mod config;
 mod convert;
 mod error;
+mod limits;
 mod models;
 mod responses;
 mod sse_events;

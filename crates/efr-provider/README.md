@@ -46,7 +46,10 @@ Modules:
   (`input`), from `freeform_input_schema`.
 - `event`: `ProviderEvent` (`TextDelta`, `ReasoningDelta`, `ToolCallStart`,
   `ToolCallDelta`, `ToolCallEnd`, the hosted steps `HostedCallStart` and
-  `HostedCallEnd`, `Citation`, `Usage`, `Done`, `Raw`) and `StopReason`. The order a
+  `HostedCallEnd`, `Citation`, `Usage`, `Done`, `Limits`, `Raw`) and `StopReason`.
+  `Limits { windows }` tells how full the usage windows of the account were at the
+  start of the call (a ChatGPT plan), as the wire type `efr_protocol::LimitWindow`
+  (re-exported here); it mostly comes first, and `CompletionBuilder` ignores it. The order a
   provider keeps is documented on the type: a tool call is start, deltas, end (with
   the complete arguments); a hosted step is one start, then at most one end with the
   complete action, and an end may come without a start in the same answer (its start
@@ -123,7 +126,8 @@ Modules:
   `TokenSource::invalidate` and retry, or at the first 401 from a source that is not
   `refreshable`; `message` is the server's own text when it sent one (an expired key,
   a missing scope), never text from the request. `RateLimited` carries the delay the
-  provider asked for. `Overloaded` says that the provider took no new request because
+  provider asked for and, when the headers of the answer showed it, the bucket of the
+  key that ran out (`limit`, such as `requests` with its reset). `Overloaded` says that the provider took no new request because
   it is overloaded (Anthropic's 529), after the provider's own retries; it is not a
   limit of the account. `LimitReached { reached, message }` is a limit of the account
   that a short wait does not end: the usage limit of a plan, no credit left, or a spend
