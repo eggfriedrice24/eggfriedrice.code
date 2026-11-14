@@ -1,0 +1,37 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout/accounts.rs
+expression: "every_way(&[Sent(0, turn_started()), failed(12_000, plan_out(vec![]))])"
+---
+=== 40 columns, colour
+[end]
+\e[1;31m✗\e[0m \e[1;31mfailed\e[0m  \e[2m12s\e[0m
+  the ChatGPT plan reached its usage
+    limit. It resets at 14:20.
+  \e[2mno other account runs gpt-6.1-sol\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[1m✗\e[0m \e[1mfailed\e[0m  \e[2m12s\e[0m
+  the ChatGPT plan reached its usage
+    limit. It resets at 14:20.
+  \e[2mno other account runs gpt-6.1-sol\e[0m
+
+=== 80 columns, colour
+[end]
+\e[1;31m✗\e[0m \e[1;31mfailed\e[0m  \e[2m12s\e[0m
+  the ChatGPT plan reached its usage limit. It resets at 14:20.
+  \e[2mno other account runs gpt-6.1-sol\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[1m✗\e[0m \e[1mfailed\e[0m  \e[2m12s\e[0m
+  the ChatGPT plan reached its usage limit. It resets at 14:20.
+  \e[2mno other account runs gpt-6.1-sol\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+✗ failed
+  the ChatGPT plan reached its usage limit. It resets at 14:20.
+  no other account runs gpt-6.1-sol

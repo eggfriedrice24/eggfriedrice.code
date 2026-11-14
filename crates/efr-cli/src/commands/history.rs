@@ -62,7 +62,9 @@ use crate::follow::{Call, Outcome, plain_marks};
 use crate::format::changes::HomeChange;
 use crate::format::route::Pieces;
 use crate::format::web::{self, End, Ended, Fit};
-use crate::format::{self, Block, Spacing, Tone, changes, context, ending, jobs, resume, sandbox};
+use crate::format::{
+    self, Block, Spacing, Tone, accounts, changes, context, ending, jobs, resume, sandbox,
+};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -598,18 +600,23 @@ impl<'a> Transcript<'a> {
     /// The outcome line of a turn's end with the count of its searches last on its
     /// cost, then the note of the stored copy of the first such turn (TM-Web 13).
     fn outcome(&mut self, line: Pieces) {
-        let note = self.outcome_line(line);
+        let note = self.outcome_line(line, None);
         self.stored_copy_note(note);
     }
 
     /// The outcome line of a turn's end with the count of its searches last on its
-    /// cost; true when the note of the stored copy belongs under it.
-    fn outcome_line(&mut self, mut line: Pieces) -> bool {
+    /// cost, then `reason` muted after two spaces; true when the note of the stored
+    /// copy belongs under it.
+    fn outcome_line(&mut self, mut line: Pieces, reason: Option<String>) -> bool {
         let report = self.web.report.take();
         let glyphs = self.options.glyphs();
         let count = report.and_then(|(searches, stored, _)| web::count(searches, stored));
         if let Some(count) = &count {
             web::add_count(&mut line, count, glyphs);
+        }
+        if let Some(reason) = reason {
+            line.push(("  ".to_owned(), Tone::Plain));
+            line.push((reason, Tone::Dim));
         }
         self.pieces(&line);
         count.is_some() && report.is_some_and(|(_, stored, note)| stored && note)
@@ -1117,13 +1124,24 @@ impl<'a> Transcript<'a> {
                 self.outcome(line);
                 self.usage(usage.as_ref());
             }
-            Event::TurnFailed { error, changes, undo, usage, .. } => {
+            Event::TurnFailed { error, changes, undo, usage, account_out, .. } => {
                 self.flush_calls();
                 self.undo_lines(changes.as_ref(), undo.as_ref());
+                let failed = ending::failed_line(self.took(), self.options.glyphs());
+                // NOTE: an account that was out keeps its reason on the row of the
+                // outcome; the offer is not repeated: it is stale once a switch or a
+                // reset happened (TM-Accounts 7).
+                if let Some(out) = account_out {
+                    let now = self.at.unwrap_or_else(Timestamp::now);
+                    let reason = accounts::history_reason(out, now, self.zone);
+                    let note = self.outcome_line(failed, Some(reason));
+                    self.stored_copy_note(note);
+                    self.usage(usage.as_ref());
+                    return;
+                }
                 // NOTE: the reason stands under the outcome and the note of the stored
                 // copy under both, as in the turn (`follow::view::ending`).
-                let note =
-                    self.outcome_line(ending::failed_line(self.took(), self.options.glyphs()));
+                let note = self.outcome_line(failed, None);
                 self.note(&format::one_line(&error.message));
                 self.stored_copy_note(note);
                 self.usage(usage.as_ref());

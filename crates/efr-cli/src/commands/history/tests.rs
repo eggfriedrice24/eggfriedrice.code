@@ -202,6 +202,55 @@ fn a_raw_transcript_writes_a_citation_mark_as_its_number() {
     assert!(text.ends_with("  It runs [1].\n"), "{text}");
 }
 
+/// TM-Accounts 7: the reason of an account that was out stays on the row of the
+/// outcome, muted; the offer is not repeated.
+#[test]
+fn a_turn_whose_account_was_out_keeps_its_reason_and_not_the_offer() {
+    let out = efr_protocol::AccountOut {
+        provider: "openai-subscription".to_owned(),
+        label: None,
+        model: "gpt-6.1-sol".to_owned(),
+        reached: efr_protocol::LimitReached {
+            kind: efr_protocol::LimitKind::Usage,
+            resets_at: Some(now() + jiff::SignedDuration::from_mins(140)),
+        },
+        others: vec![efr_protocol::OtherAccount {
+            provider: "openai-subscription.b".to_owned(),
+            label: None,
+            state: efr_protocol::AccountState::Ready,
+            resets_at: None,
+        }],
+    };
+    let page = ConversationHistoryResult {
+        events: vec![envelope(
+            1,
+            Event::TurnFailed {
+                turn_id: turn(),
+                error: ErrorBody::new(ErrorCode::Busy, "the account reached the usage limit"),
+                usage: None,
+                context: None,
+                changes: None,
+                undo: None,
+                account_out: Some(out),
+            },
+        )],
+        next_cursor: None,
+    };
+    let piped = show(&page, &RenderOptions::new(100).with_terminal(false));
+    assert!(
+        piped.ends_with(
+            "\u{2717} failed  the ChatGPT plan reached its usage limit (resets 14:20)\n"
+        ),
+        "{piped}"
+    );
+    assert!(!piped.contains(",model"), "{piped}");
+    insta::assert_snapshot!(readable(&show(&page, &RenderOptions::new(100))), @r"
+    \e[1m(no title)\e[0m \e[2m· 019a9b1c · 0 turns\e[0m
+
+      \e[1;31m✗\e[0m \e[1;31mfailed\e[0m  \e[2mthe ChatGPT plan reached its usage limit (resets 14:20)\e[0m
+    ");
+}
+
 #[tokio::test]
 async fn history_without_a_conversation_lists_them() {
     let env = TestEnv::new();

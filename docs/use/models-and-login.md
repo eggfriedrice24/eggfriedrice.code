@@ -275,7 +275,21 @@ action and your messages. [Providers](../providers.md#the-reviewer) tells more.
   of the reset when the provider tells it, and the other accounts that serve the same
   model: each one with a login, and each signed-out one that `[accounts]` names, with
   its login command. A full account is named only when its reset comes first. efr
-  never switches by itself: switch with `,model <account>/<model>`.
+  never switches by itself: switch with `,model <account>/<model>`. Each command
+  stands alone on its row, so a triple click copies it:
+
+  ```text
+  ✗ failed  2m 10s
+    the ChatGPT plan reached its usage limit. It resets at 14:20.
+    gpt-6.1-sol also runs on b:
+    ,model b/gpt-6.1-sol
+  ```
+
+  With no other account, one muted line says `no other account runs gpt-5.5`. A
+  signed-out account gets one muted line with its login, such as `personal is signed
+  out: efr login anthropic --account personal`. `efr history` keeps the reason on the
+  row of the failure, such as `✗ failed  2m 10s  the ChatGPT plan reached its usage
+  limit (resets 14:20)`, but not the offer: after a switch or a reset it is old.
 - **`unauthorized`.** The provider of `[model]` has no login, or it refused the key.
   efr says how to log in, such as `efr login openai`. A key can expire, such as a
   Console key with an expiry date. Make a new key and log in again.

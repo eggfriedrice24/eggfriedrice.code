@@ -68,8 +68,8 @@ pub(crate) fn login_hint(provider: &str) -> &'static str {
 }
 
 /// The command that logs in to the model provider `provider` (an id of `[model]
-/// provider`, or the provider of a turn), such as `efr login anthropic-api`; an
-/// account's id, such as `anthropic-api.work`, gives `--account work`.
+/// provider`, or the provider of a turn), such as `efr login anthropic`; an account's
+/// id, such as `anthropic-api.work`, gives `--account work` (TM-Accounts 5).
 pub(crate) fn login_command(provider: &str) -> String {
     let (kind, account) = match provider.split_once('.') {
         Some((kind, account)) if !account.is_empty() => (kind, Some(account)),
@@ -77,11 +77,13 @@ pub(crate) fn login_command(provider: &str) -> String {
     };
     let name = match kind {
         "openai-api" => "openai-api",
-        "anthropic-api" => "anthropic-api",
+        "anthropic-api" => "anthropic",
         _ => "openai",
     };
     match account {
-        Some(account) => format!("efr login {name} --account {account}"),
+        Some(account) => {
+            format!("efr login {name} --account {}", crate::format::one_line(account))
+        }
         None => format!("efr login {name}"),
     }
 }

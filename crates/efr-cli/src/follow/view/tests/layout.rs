@@ -1687,5 +1687,6 @@ fn a_moved_call_shows_its_job_in_place_of_a_result() {
     ]));
 }
 
+mod accounts;
 mod design;
 mod whole;

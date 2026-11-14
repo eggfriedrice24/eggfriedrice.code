@@ -281,9 +281,17 @@ Replies:
   "use TurnState" goes again as a new prompt` under it, 2 columns in, muted, when the
   interrupt sent unread steers again. A failed turn: `✗ failed  9s` in `error` bold,
   then, 2 columns in, the daemon's message in `text` and the fix: a command in `code`
-  (`efr login anthropic-api` for an `unauthorized` turn, the login of the provider that
+  (`efr login anthropic` for an `unauthorized` turn, the login of the provider that
   ran it; `,compact` or `efr new` for a full context), or a muted sentence
-  (`error::turn_failure`). The command then prints no message of its own.
+  (`error::turn_failure`). A turn whose `turn_failed` carries `account_out` names the
+  limit in `text` (`the ChatGPT plan reached its usage limit. It resets at 14:20.`,
+  the reset in the user's time zone, `on Mon at 09:00` on another day), then the offer
+  of efrd: a muted line `gpt-6.1-sol also runs on b:` and each `,model b/gpt-6.1-sol`
+  alone on its row in `code`; a full account whose reset comes first as `gpt-6.1-sol
+  runs again on the ChatGPT plan at 14:20, before b:` and its command; a muted `personal
+  is signed out: efr login anthropic --account personal` for each signed-out one; `no
+  other account runs <model>` when efrd names none (`format::accounts`, TM-Accounts 1
+  to 5 and 17). The command then prints no message of its own.
   `render.turn_summary = false` leaves out the time and the cost, and the line of a
   done turn. Piped output writes the same rows on stderr, plain.
 - When `turn_completed` carries `stop`, a line before the end says why the model

@@ -75,8 +75,8 @@ fn the_login_fix_names_the_command_of_the_provider_and_its_account() {
             "efr login openai",
             "efr login openai --account b",
             "efr login openai-api",
-            "efr login anthropic-api",
-            "efr login anthropic-api --account work",
+            "efr login anthropic",
+            "efr login anthropic --account work",
             "efr login openai",
         ]
     );

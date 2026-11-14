@@ -386,8 +386,13 @@ a row of its own, so you can copy it with a double click:
 ```text
 ✗ failed  9s
   the login of anthropic-api expired at 14:02
-  efr login anthropic-api
+  efr login anthropic
 ```
+
+When the account of the turn is out, such as a ChatGPT plan at its usage limit, the
+rows name the other accounts that serve the same model, each with its `,model`
+command on a row of its own. efr never switches by itself. See
+[Models and login](models-and-login.md#when-a-prompt-fails).
 
 `efr` then exits with code 1 and prints no other message.
 

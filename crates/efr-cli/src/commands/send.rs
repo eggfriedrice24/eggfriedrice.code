@@ -263,7 +263,8 @@ async fn send_and_follow(
         // counts as no corner: the row then shows the scope, which is never wrong.
         .with_corner(ctx.env.flag(Var::Corner).unwrap_or(false))
         .with_settings(result.settings.clone())
-        .with_model(result.settings.as_ref());
+        .with_model(result.settings.as_ref())
+        .with_zone(ctx.time_zone.clone());
     if reader.is_some() {
         view = view.with_input();
     }

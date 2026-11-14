@@ -19,6 +19,8 @@ use efr_protocol::{
     EffectiveSettings, Event, FileChanges, Mode, Scope, SwitchedModel, TurnUndoInfo,
 };
 use efr_render::RenderOptions;
+use jiff::Timestamp;
+use jiff::tz::TimeZone;
 
 use super::input::{Input, user_message};
 use super::reasoning::Reasoning;
@@ -28,7 +30,7 @@ use crate::format::changes::HomeChange;
 use crate::format::context::{self as gauge};
 use crate::format::ending::{self as end_lines, UNDER};
 use crate::format::route::{self, Pieces};
-use crate::format::{self, Block, Tone, sandbox};
+use crate::format::{self, Block, Tone, accounts, sandbox};
 use crate::progress;
 use crate::terminal::Size;
 
@@ -100,6 +102,12 @@ impl TurnView {
     /// frame (TM-Sequence 1).
     pub(crate) fn with_settings(mut self, settings: Option<EffectiveSettings>) -> TurnView {
         self.ending.settings = settings;
+        self
+    }
+
+    /// The same view, which says the reset of a limit in the time zone `zone`.
+    pub(crate) fn with_zone(mut self, zone: TimeZone) -> TurnView {
+        self.ending.zone = Some(zone);
         self
     }
 
@@ -226,14 +234,30 @@ impl TurnView {
     }
 
     /// The end of a failed turn (TM-Endings 21, 22): `✗ failed` with its time, then the
-    /// reason and what fixes it. The command then ends with no message of its own.
+    /// reason and what fixes it. The command then ends with no message of its own. A turn
+    /// whose account is out names the other accounts that serve its model and the
+    /// command of each (TM-Accounts 1 to 5, TM-Endings 25, 26); efr never switches by
+    /// itself.
     pub(super) fn turn_failed(&mut self, event: &Event, size: Size) -> Step {
-        let Event::TurnFailed { error, changes, undo, .. } = event else {
+        let Event::TurnFailed { error, changes, undo, account_out, .. } = event else {
             return Step::default();
         };
         self.ended_with(changes.as_ref(), undo.as_ref());
         let took = self.took().filter(|_| self.summary());
         let outcome = end_lines::failed_line(took, self.options.glyphs());
+        if let Some(out) = account_out {
+            let zone = self.ending.zone.clone().unwrap_or(TimeZone::UTC);
+            let now = self.event_at.unwrap_or_else(Timestamp::now);
+            let mut under = vec![vec![(accounts::stop_reason(out, now, &zone), Tone::Text)]];
+            under.extend(accounts::offer_rows(out, now, &zone));
+            return self.end(
+                TurnEnd::Failed(error.clone()),
+                Vec::new(),
+                Some(outcome),
+                under,
+                size,
+            );
+        }
         // NOTE: a login fix names the login of the provider that ran the turn.
         let provider = self
             .ending
@@ -494,6 +518,8 @@ pub(super) struct Ending {
     settings: Option<EffectiveSettings>,
     /// The `⇄` line of the turn, while it waits in the live zone.
     switch: Option<Box<Switch>>,
+    /// The time zone of the user, for the reset of a limit; UTC when the view has none.
+    zone: Option<TimeZone>,
 }
 
 /// A switch of model that waits in the live zone for the next block.
