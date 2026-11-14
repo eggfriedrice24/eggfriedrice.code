@@ -107,11 +107,12 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallBackground, CallBackgroundResult,
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSubscribe,
     ConversationSubscribeItem, ErrorCode, Event, EventEnvelope, InputRespond, InputRespondResult,
-    JobId, JobState, JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method, Origin,
-    PageCursor, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId,
-    RecentCommand, SandboxSurfaceRespond, SandboxSurfaceRespondResult, SecretText, Seq,
-    ShellContext, ShellInterrupt, ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    JobId, JobState, JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method,
+    ModelsList, ModelsListResult, Origin, PageCursor, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, QuestionId, RecentCommand, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, ShellInterrupt,
+    ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use efr_transport::client::{Client, ClientError, ItemStream};
@@ -194,6 +195,10 @@ const CTRL_B: u8 = 0x02;
 /// How long the background key waits for efrd's answer: efrd answers a move once the
 /// job is recorded, and gives up itself after 10 s.
 const MOVE_WAIT: Duration = Duration::from_secs(15);
+
+/// How long the end of a turn whose account is out waits for `models.list`: efrd
+/// answers it from memory and never waits for a fetch.
+const PROVIDERS_WAIT: Duration = Duration::from_secs(2);
 
 /// How long a shell call that reports no wait prints nothing before the view offers
 /// `Ctrl+\` to type an input for it.
@@ -921,6 +926,25 @@ impl Follower<'_> {
         self.again.as_ref().unwrap_or(self.first)
     }
 
+    /// The providers that `models.list` names, for the commands of the offer of a turn
+    /// whose account is out (`accounts::offer_rows`): an account that shares its name
+    /// with another one gets its full id. Empty when efrd does not answer within
+    /// [`PROVIDERS_WAIT`]; the offer then knows only the accounts of the event.
+    async fn providers(&self) -> Vec<String> {
+        let call = self.client().call::<ModelsListResult>(Method::ModelsList(ModelsList {}));
+        match self.ctx.clock.timeout(PROVIDERS_WAIT, call).await {
+            Ok(Ok(list)) => crate::format::accounts::listed_providers(&list),
+            Ok(Err(error)) => {
+                tracing::debug!(error = %error, "the providers for the offer could not be read");
+                Vec::new()
+            }
+            Err(_) => {
+                tracing::debug!("efrd did not tell the providers for the offer in time");
+                Vec::new()
+            }
+        }
+    }
+
     /// Connects to the daemon again, as the command connected, up to
     /// [`RECONNECT_TRIES`] times: efrd may be restarting. True when the view has a
     /// connection that is open; nothing is done when it has one already.
@@ -1083,6 +1107,9 @@ impl Follower<'_> {
                 continue;
             }
             self.last_seen = envelope.seq;
+            if view.wants_providers(&envelope.event) {
+                view.set_providers(self.providers().await);
+            }
             let step = view.envelope(&envelope, self.ctx.screen.size(), self.ctx.keys.available());
             if let Some(end) = self.apply(step, out, view, true).await? {
                 return Ok(Some(end));

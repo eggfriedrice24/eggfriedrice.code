@@ -111,6 +111,21 @@ impl TurnView {
         self
     }
 
+    /// True when `event` ends the followed turn because its account is out, and the
+    /// view does not know the providers yet. The follow loop then asks efrd for them
+    /// ([`TurnView::set_providers`]), so a command of the offer names each account as
+    /// `,model` takes it.
+    pub(crate) fn wants_providers(&self, event: &Event) -> bool {
+        self.ending.providers.is_none()
+            && matches!(event, Event::TurnFailed { turn_id, account_out: Some(_), .. } if *turn_id == self.turn)
+    }
+
+    /// The providers that `models.list` names (`accounts::listed_providers`); empty when
+    /// efrd did not tell them.
+    pub(crate) fn set_providers(&mut self, providers: Vec<String>) {
+        self.ending.providers = Some(providers);
+    }
+
     /// The settings of the followed turn: from its `turn_started`, else from the
     /// `prompt.send` result.
     // NOTE: the live slice of the terminal look names the model in the status row.
@@ -249,7 +264,8 @@ impl TurnView {
             let zone = self.ending.zone.clone().unwrap_or(TimeZone::UTC);
             let now = self.event_at.unwrap_or_else(Timestamp::now);
             let mut under = vec![vec![(accounts::stop_reason(out, now, &zone), Tone::Text)]];
-            under.extend(accounts::offer_rows(out, now, &zone));
+            let providers = self.ending.providers.as_deref().unwrap_or_default();
+            under.extend(accounts::offer_rows(out, providers, now, &zone));
             return self.end(
                 TurnEnd::Failed(error.clone()),
                 Vec::new(),
@@ -520,6 +536,10 @@ pub(super) struct Ending {
     switch: Option<Box<Switch>>,
     /// The time zone of the user, for the reset of a limit; UTC when the view has none.
     zone: Option<TimeZone>,
+    /// The providers that `models.list` names, for the commands of the offer of a turn
+    /// whose account is out (`accounts::offer_rows`); `None` until the follow loop
+    /// asked efrd, and empty when efrd did not tell.
+    providers: Option<Vec<String>>,
 }
 
 /// A switch of model that waits in the live zone for the next block.

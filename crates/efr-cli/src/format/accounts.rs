@@ -9,7 +9,9 @@
 //! as `the ChatGPT plan`. efrd decides which accounts the offer names; this file only
 //! says them. A command row holds the command alone, so a triple click copies it.
 
-use efr_protocol::{AccountLimits, AccountOut, AccountState, LimitKind, LimitWindow, OtherAccount};
+use efr_protocol::{
+    AccountLimits, AccountOut, AccountState, LimitKind, LimitWindow, ModelsListResult, OtherAccount,
+};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
@@ -58,10 +60,29 @@ pub(crate) fn short_name(id: &str) -> String {
     account_name(id).unwrap_or_else(|| default_name(id))
 }
 
-/// The command that switches the terminal to `model` on the account `id`: `,model
-/// b/gpt-6.1-sol`.
-pub(crate) fn model_command(id: &str, model: &str) -> String {
-    format!(",model {}/{}", account_of(id).0, one_line(model))
+/// The name that `,model` takes for the provider `id` among the providers `ids`: its
+/// short name (`b`, `openai`) when that names `id` alone
+/// ([`efr_protocol::provider_id_named`]), else the id itself, such as
+/// `openai-api.work` when `anthropic-api.work` runs too. `ids` must hold `id`.
+pub(crate) fn command_name(id: &str, ids: &[&str]) -> String {
+    let short = account_of(id).0;
+    if efr_protocol::provider_id_named(&short, ids) == Some(id) { short } else { one_line(id) }
+}
+
+/// The providers that `,model` picks among: those of the models of `list`, as
+/// `efr settings model` reads a name (`efr_protocol::provider_named`).
+pub(crate) fn listed_providers(list: &ModelsListResult) -> Vec<String> {
+    let mut ids: Vec<String> =
+        list.models.iter().filter_map(|model| model.provider.clone()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// The command that switches the terminal to `model` on the account `id`, among the
+/// providers `ids`: `,model b/gpt-6.1-sol` (see [`command_name`]).
+pub(crate) fn model_command(id: &str, model: &str, ids: &[&str]) -> String {
+    format!(",model {}/{}", command_name(id, ids), one_line(model))
 }
 
 /// When a limit resets, in the time zone `zone` at `now`: `14:20` on the same day,
@@ -140,15 +161,31 @@ fn and_list(names: &[String]) -> String {
 /// one; a full account whose reset comes first with its own line and row; a muted line
 /// with the login command for each account that is signed out; and `no other account
 /// runs <model>` when efrd names none. efr never switches by itself.
-pub(crate) fn offer_rows(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> Vec<Pieces> {
+///
+/// `providers` holds the providers that `models.list` names ([`listed_providers`]),
+/// and is empty when efrd did not tell them: a command names an account by its short
+/// name only when no other of them, or of `out`, has that name.
+pub(crate) fn offer_rows(
+    out: &AccountOut,
+    providers: &[String],
+    now: Timestamp,
+    zone: &TimeZone,
+) -> Vec<Pieces> {
     let model = one_line(&out.model);
     let of = |state: AccountState| -> Vec<&OtherAccount> {
         out.others.iter().filter(|other| other.state == state).collect()
     };
     let (ready, full, signed_out) =
         (of(AccountState::Ready), of(AccountState::Full), of(AccountState::SignedOut));
+    let ids: Vec<&str> = providers
+        .iter()
+        .map(String::as_str)
+        .chain([out.provider.as_str()])
+        .chain(out.others.iter().map(|other| other.provider.as_str()))
+        .collect();
     let muted = |text: String| vec![(text, Tone::Dim)];
-    let command = |other: &OtherAccount| vec![(model_command(&other.provider, &model), Tone::Code)];
+    let command =
+        |other: &OtherAccount| vec![(model_command(&other.provider, &model, &ids), Tone::Code)];
     let mut rows = Vec::new();
     if ready.is_empty() && full.is_empty() && signed_out.is_empty() {
         rows.push(muted(format!("no other account runs {model}")));

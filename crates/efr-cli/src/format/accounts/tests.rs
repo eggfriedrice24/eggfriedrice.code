@@ -6,8 +6,8 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{
-    LimitRow, history_reason, kind_words, limit_rows, offer_rows, reset_time, short_name,
-    status_note, stop_reason, window_name,
+    LimitRow, command_name, history_reason, kind_words, limit_rows, offer_rows, reset_time,
+    short_name, status_note, stop_reason, window_name,
 };
 use crate::format::Tone;
 use crate::format::ending::plain;
@@ -39,9 +39,15 @@ fn out(provider: &str, model: &str, kind: LimitKind, resets_at: Option<Timestamp
 
 /// The stop and its offer as rows of plain text, with the tone of each row.
 fn shown(out: &AccountOut) -> Vec<String> {
+    shown_among(out, &[])
+}
+
+/// [`shown`], with `providers` as the providers that `models.list` names.
+fn shown_among(out: &AccountOut, providers: &[&str]) -> Vec<String> {
     let zone = TimeZone::UTC;
+    let providers: Vec<String> = providers.iter().map(|id| (*id).to_owned()).collect();
     let mut rows = vec![stop_reason(out, now(), &zone)];
-    for row in offer_rows(out, now(), &zone) {
+    for row in offer_rows(out, &providers, now(), &zone) {
         let tones: Vec<&str> = row
             .iter()
             .map(|(_, tone)| match tone {
@@ -98,6 +104,33 @@ fn two_other_accounts_each_get_a_row_and_no_reset_gives_no_time() {
             ",model b/gpt-6.1 [code]",
         ]
     );
+}
+
+/// An account whose name another kind shares (`anthropic-api.work` next to
+/// `openai-api.work`): `,model work/...` names neither, so its command takes the full
+/// id. An account name that no other provider has stays short.
+#[test]
+fn a_shared_account_name_gives_the_full_id_in_the_command() {
+    let mut out = out("openai-subscription", "gpt-6.1", LimitKind::Usage, None);
+    out.others = vec![
+        other("openai-api.work", AccountState::Ready, None),
+        other("openai-subscription.b", AccountState::Ready, None),
+    ];
+    let providers =
+        ["openai-subscription", "openai-subscription.b", "openai-api.work", "anthropic-api.work"];
+    assert_eq!(
+        shown_among(&out, &providers),
+        [
+            "the ChatGPT plan reached its usage limit.",
+            "gpt-6.1 also runs on work and b: [muted]",
+            ",model openai-api.work/gpt-6.1 [code]",
+            ",model b/gpt-6.1 [code]",
+        ]
+    );
+    // NOTE: without the list, the names of the event decide.
+    assert_eq!(shown(&out)[2], ",model work/gpt-6.1 [code]");
+    assert_eq!(command_name("openai-subscription", &providers), "openai");
+    assert_eq!(command_name("anthropic-api.work", &["anthropic-api.work"]), "work");
 }
 
 /// TM-Accounts 3 and 4: no other account says so and offers nothing.

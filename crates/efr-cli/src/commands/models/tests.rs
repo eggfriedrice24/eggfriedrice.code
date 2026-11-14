@@ -139,6 +139,24 @@ fn names_add_the_account_of_each_model_when_there_are_more_accounts() {
     ");
 }
 
+/// Two kinds with an account of the same name: `,model work/...` names neither of them
+/// (`efr_protocol::provider_named`), so each gets its full id, and the entry works.
+#[test]
+fn an_account_name_that_two_kinds_share_gets_the_full_id() {
+    let mut list = accounts();
+    list.models.push(ModelInfo { id: "gpt-6.1".to_owned(), ..claude("", "openai-api.work", &[]) });
+    let names = names(&list);
+    for entry in ["anthropic-api.work/claude-opus-5-5", "openai-api.work/gpt-6.1", "b/gpt-5.5"] {
+        assert!(names.lines().any(|line| line == entry), "{entry} in {names}");
+    }
+    assert!(!names.lines().any(|line| line.starts_with("work/")), "{names}");
+    let models: Vec<ModelInfo> = list.models.clone();
+    for entry in names.lines().filter(|line| line.contains('/')) {
+        let (name, _) = entry.split_once('/').unwrap();
+        assert!(efr_protocol::provider_named(name, &models).is_some(), "{entry} resolves");
+    }
+}
+
 /// A label of `[accounts.labels]` stands after the kind in the head of its account.
 #[test]
 fn the_head_of_an_account_names_its_label() {

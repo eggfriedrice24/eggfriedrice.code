@@ -268,6 +268,55 @@ async fn a_failed_turn_is_an_error_with_the_daemons_message() {
     assert_eq!(body.message, "the provider is down");
 }
 
+/// The end of a turn whose account is out asks efrd for the providers first: a
+/// command of the offer names an account whose name another kind shares by its full
+/// id, so `,model` takes it.
+#[tokio::test]
+async fn the_offer_of_an_account_that_is_out_names_each_account_as_model_takes_it() {
+    use efr_protocol::{AccountOut, AccountState, LimitKind, LimitReached, OtherAccount};
+    let env = TestEnv::new();
+    let ctx = env.context();
+    let (result, _, err) = run(&env, &ctx, |mut conn, _| async move {
+        let id = subscribed(&mut conn, 10).await;
+        let out = AccountOut {
+            provider: "openai-subscription".to_owned(),
+            label: None,
+            model: "gpt-6.1".to_owned(),
+            reached: LimitReached { kind: LimitKind::Usage, resets_at: None },
+            others: vec![OtherAccount {
+                provider: "openai-api.work".to_owned(),
+                label: None,
+                state: AccountState::Ready,
+                resets_at: None,
+            }],
+        };
+        let failed = Event::TurnFailed {
+            turn_id: turn(),
+            error: ErrorBody::new(
+                ErrorCode::Busy,
+                "the account reached the usage limit of its plan",
+            ),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+            account_out: Some(out),
+        };
+        conn.item(id, &item(11, failed)).await;
+        let mut list = crate::testing::models();
+        let mut model = list.models[0].clone();
+        for provider in ["openai-subscription", "openai-api.work", "anthropic-api.work"] {
+            model.provider = Some(provider.to_owned());
+            list.models.push(model.clone());
+        }
+        conn.answer_models(&list).await;
+        conn.until_closed().await;
+    })
+    .await;
+    assert!(matches!(result, Err(CliError::TurnFailed { .. })), "{result:?}");
+    assert!(err.contains("\n  ,model openai-api.work/gpt-6.1\n"), "{err}");
+}
+
 #[tokio::test]
 async fn a_key_answers_the_approval() {
     let env = TestEnv::new();

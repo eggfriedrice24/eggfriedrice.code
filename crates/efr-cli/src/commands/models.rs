@@ -70,9 +70,13 @@ pub(crate) async fn run(
 
 /// What `,model` takes, one on each line, for the completion of the zsh plugin: each id
 /// once, in the order of the list, then each model of an account with a login as
-/// `account/model`, such as `b/gpt-6.1-sol`, the way `,model` names an account. A
-/// signed-out account gets no entry: a turn on it fails until a login.
+/// `account/model`, such as `b/gpt-6.1-sol`, the way `,model` names an account. An
+/// account that shares its name with another provider of the list gets its full id
+/// (`openai-api.work/gpt-6.1`), which `,model` takes. A signed-out account gets no
+/// entry: a turn on it fails until a login.
 pub(crate) fn names(list: &ModelsListResult) -> String {
+    let providers = accounts::listed_providers(list);
+    let ids: Vec<&str> = providers.iter().map(String::as_str).collect();
     let mut seen = std::collections::HashSet::new();
     let bare = list
         .models
@@ -97,7 +101,7 @@ pub(crate) fn names(list: &ModelsListResult) -> String {
         .iter()
         .filter(|_| kinds.len() > 1)
         .map(|(provider, model)| {
-            format!("{}/{}", account_of(provider).0, format::one_line(&model.id))
+            format!("{}/{}", accounts::command_name(provider, &ids), format::one_line(&model.id))
         })
         .filter(|name| named.insert(name.clone()))
         .map(|name| format!("{name}\n"))
@@ -295,15 +299,17 @@ fn efforts(model: &ModelInfo) -> Vec<(String, Tone, bool)> {
 }
 
 /// The muted last line: what `*` and the underline mean, and how `,model` picks a model,
-/// with the first model that is not the default as the example.
+/// with the first model that is not the default as the example. Its account has the
+/// name that `,model` takes (`accounts::command_name`).
 fn legend(accounts: &[Account<'_>], options: &RenderOptions) -> String {
     let dot = separator(options);
     let mut line = format!("* the default{dot}underlined: the default effort");
+    let ids: Vec<&str> = accounts.iter().filter_map(|account| account.provider).collect();
     let example = accounts.iter().filter(|account| !account.signed_out).find_map(|account| {
         let model = account.models.iter().find(|model| !model.default)?;
         let id = format::one_line(&model.id);
         Some(match account.provider {
-            Some(provider) => format!("{}/{id}", account_of(provider).0),
+            Some(provider) => format!("{}/{id}", accounts::command_name(provider, &ids)),
             None => id,
         })
     });
