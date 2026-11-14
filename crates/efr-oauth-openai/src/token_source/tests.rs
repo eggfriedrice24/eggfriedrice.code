@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_credentials::CredentialRecord;
+use efr_credentials::{CredentialRecord, SecretStore as _};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource};
 use efr_test_support::TestClock;
 use futures::future::join_all;
@@ -326,6 +326,106 @@ async fn debug_shows_no_token() {
     assert!(!debug.contains("access-secret"), "{debug}");
     assert!(!debug.contains("rt-secret"), "{debug}");
     assert!(debug.contains("openai-subscription"), "{debug}");
+}
+
+/// The ChatGPT account of the second login, `openai-subscription.b`.
+const ACCOUNT_B: &str = "0d9e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a";
+
+/// The answer of the token endpoint to the refresh grant of the second login: a new
+/// access token of [`ACCOUNT_B`] and a rotated refresh token.
+fn refreshed_b() -> serde_json::Value {
+    let claims = serde_json::json!({
+        "exp": at(7200).as_second(),
+        "https://api.openai.com/auth": {"chatgpt_account_id": ACCOUNT_B},
+    });
+    serde_json::json!({
+        "access_token": crate::testing::jwt(&claims),
+        "refresh_token": "rt_b_rotated",
+        "token_type": "Bearer",
+    })
+}
+
+#[tokio::test]
+async fn each_chatgpt_account_refreshes_its_own_login_and_saves_it_under_its_own_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=rt-1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("refresh_token.json"), "application/json"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=rt_fixture_rotated"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(fixture("refresh_token.json"), "application/json"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .and(body_string_contains("refresh_token=rt-b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(refreshed_b()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let clock = TestClock::new();
+    let store = MemoryStore::with_tokens(tokens("access-1", Some("rt-1"), Some(at(60))));
+    let b = efr_credentials::CredentialId::new("openai-subscription.b").unwrap();
+    let mut login_b = tokens("access-b", Some("rt-b"), Some(at(3600)));
+    login_b.account_id = Some(ACCOUNT_B.to_owned());
+    store.save(&b, &CredentialRecord::OAuth(login_b)).unwrap();
+    let first = source(&server, store.clone(), &clock);
+    let second = OpenAiTokenSource::new(
+        config(&server),
+        http(&clock),
+        store.clone(),
+        b.clone(),
+        clock.shared(),
+    );
+
+    // The default login ends soon and refreshes; b has an hour left and does not.
+    let token = first.access_token().await.unwrap();
+    assert!(is_refreshed(token.secret().expose_secret()));
+    assert_eq!(token.account_id(), Some(ACCOUNT));
+    let token = second.access_token().await.unwrap();
+    assert_eq!(token.secret().expose_secret(), "access-b");
+    assert_eq!(token.account_id(), Some(ACCOUNT_B));
+
+    // A 401 on b refreshes b with its own refresh token, and only b.
+    second.invalidate().await;
+    let token = second.access_token().await.unwrap();
+    assert_eq!(token.account_id(), Some(ACCOUNT_B), "b keeps its account");
+    let Some(CredentialRecord::OAuth(saved_b)) = store.load(&b).unwrap() else {
+        panic!("b keeps its login");
+    };
+    assert_eq!(saved_b.access_token.expose_secret(), token.secret().expose_secret());
+    assert_eq!(saved_b.refresh_token.unwrap().expose_secret(), "rt_b_rotated");
+    assert_eq!(saved_b.account_id.as_deref(), Some(ACCOUNT_B));
+    let saved = store.tokens().unwrap();
+    assert!(is_refreshed(saved.access_token.expose_secret()), "the default login is its own");
+    assert_eq!(saved.account_id.as_deref(), Some(ACCOUNT));
+    assert!(is_refreshed(&secret_of(&first).await), "b's refresh left the default alone");
+
+    // The default login's rotated refresh token is the one it sends next.
+    first.invalidate().await;
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2, "one refresh of each login so far");
+    let _ = first.access_token().await;
+    let bodies: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| String::from_utf8(request.body.clone()).unwrap())
+        .collect();
+    assert!(bodies[2].contains("refresh_token=rt_fixture_rotated"), "{}", bodies[2]);
 }
 
 #[test]
