@@ -12,14 +12,17 @@
 //!
 //! An account that reaches a limit stops its turn with the cause on `turn_failed`: the
 //! limit with its reset, and the other accounts that serve the model, ready or signed
-//! out, with their labels; efrd never moves the turn.
+//! out, with their labels; efrd never moves the turn. `conversation.switch_preview`
+//! says what a switch costs: nothing for the same model on the same account, a cold
+//! cache for another account or model, and a compaction for a window that the context
+//! does not fit.
 
 use efr_protocol::{
     AccountOut, AccountState, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
     AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult, AdminStatus, AdminStatusResult,
-    ConversationId, ErrorCode, Event, EventEnvelope, LimitKind, LimitReached, Method, ModelsList,
-    ModelsListResult, OtherAccount, PromptSend, PromptSendResult, SecretText, ShellContext,
-    TurnSettings,
+    ConversationId, ConversationSwitchPreview, ConversationSwitchPreviewResult, ErrorCode, Event,
+    EventEnvelope, LimitKind, LimitReached, Method, ModelsList, ModelsListResult, OtherAccount,
+    PromptSend, PromptSendResult, SecretText, ShellContext, SwitchCost, TurnSettings,
 };
 use efr_test_daemon::{
     ANTHROPIC_API_KEY, ClientError, MessagesAnswer, MessagesServer, ResponsesAnswer,
@@ -617,4 +620,58 @@ async fn an_account_at_its_limit_stops_the_turn_and_offers_the_accounts_of_the_m
     assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
     let sent = messages.received();
     assert_eq!(sent.last().unwrap().authorization, some(&format!("Bearer {WORK_KEY}")));
+}
+
+#[tokio::test]
+async fn a_switch_preview_names_the_cost_of_the_target() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let tiny: efr_config::ModelEntry =
+        serde_json::from_value(json!({ "id": "claude-tiny", "context_window": 1000 })).unwrap();
+    let daemon = TestDaemon::builder()
+        .messages(&messages)
+        .config(move |config| config.anthropic.models = Some(vec![tiny]))
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let _: AdminLoginApiKeyResult =
+        client.call(login("anthropic-api.work", WORK_KEY)).await.unwrap();
+    lists_of(&daemon, &["anthropic-api", "anthropic-api.work"]).await;
+    messages.push(MessagesAnswer::text("claude answer"));
+    let (conversation_id, events) = ending(&daemon, 1, Some(CLAUDE), None).await;
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    let preview = async |model: &str, provider: Option<&str>| {
+        let method = Method::ConversationSwitchPreview(ConversationSwitchPreview {
+            conversation_id,
+            model: model.to_owned(),
+            provider: provider.map(str::to_owned),
+        });
+        let result: ConversationSwitchPreviewResult = client.call(method).await.unwrap();
+        (result.cost, result.provider)
+    };
+    let on = |provider: &str| Some(provider.to_owned());
+
+    assert_eq!(preview(CLAUDE, None).await, (SwitchCost::None, on("anthropic-api")));
+    assert_eq!(preview(CLAUDE, Some("anthropic")).await, (SwitchCost::None, on("anthropic-api")));
+    assert_eq!(
+        preview(CLAUDE, Some("work")).await,
+        (SwitchCost::ColdCache, on("anthropic-api.work")),
+        "the same model on another account"
+    );
+    assert_eq!(
+        preview("claude-tiny", None).await,
+        (SwitchCost::Compacts, on("anthropic-api")),
+        "the context does not fit a window of 1000 tokens"
+    );
+    assert_eq!(preview(CLAUDE, Some("nobody")).await, (SwitchCost::Unknown, None));
+    let unknown = Method::ConversationSwitchPreview(ConversationSwitchPreview {
+        conversation_id: ConversationId::from_uuid(uuid::Uuid::nil()),
+        model: CLAUDE.to_owned(),
+        provider: None,
+    });
+    let refused = client.call::<ConversationSwitchPreviewResult>(unknown).await.unwrap_err();
+    let ClientError::Server { body } = refused else { panic!("{refused:?}") };
+    assert_eq!(body.code, ErrorCode::NotFound);
+    assert_eq!(messages.received().len(), 1, "a preview sends no model call");
 }

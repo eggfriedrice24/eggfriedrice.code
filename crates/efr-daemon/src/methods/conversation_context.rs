@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use efr_protocol::{ConversationContext, ConversationId, Event};
+use efr_protocol::{ConversationContext, ConversationId, EffectiveSettings, Event};
 use efr_transport::Responder;
 
 use crate::DaemonError;
@@ -52,6 +52,15 @@ pub(crate) async fn newest_provider(
     state: &State,
     conversation_id: ConversationId,
 ) -> Option<String> {
+    newest_settings(state, conversation_id).await.and_then(|settings| settings.provider)
+}
+
+/// The settings of the newest turn of `conversation_id`, as its `turn_started`
+/// recorded them; `None` before the first turn, or when the log cannot be read.
+pub(crate) async fn newest_settings(
+    state: &State,
+    conversation_id: ConversationId,
+) -> Option<EffectiveSettings> {
     // NOTE: by kind, so a long turn with many events after its start still counts.
     let newest = state
         .readers
@@ -59,7 +68,7 @@ pub(crate) async fn newest_provider(
         .await
         .ok()??;
     match newest.event {
-        Event::TurnStarted { settings: Some(settings), .. } => settings.provider,
+        Event::TurnStarted { settings, .. } => settings,
         _ => None,
     }
 }

@@ -633,7 +633,7 @@ impl Dispatcher for Methods {
                     provider_warm::handle(state, &context, params, &responder).await
                 }
                 Method::ConversationSwitchPreview(params) => {
-                    conversation_switch_preview::handle(params, &responder).await
+                    conversation_switch_preview::handle(state, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

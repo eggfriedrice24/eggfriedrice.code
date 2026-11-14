@@ -598,6 +598,14 @@ impl Providers {
             .unwrap_or_else(|| configured.provider().to_owned()))
     }
 
+    /// The provider that a prompt with `model` alone goes to now, without a wait for a
+    /// list: the first provider whose list names it in the order of routing, else the
+    /// provider of new conversations.
+    pub(crate) fn provider_of_model(&self, settings: &Settings, model: &str) -> String {
+        self.listed_provider(settings, model)
+            .unwrap_or_else(|| self.catalogs.configured(settings).provider().to_owned())
+    }
+
     /// The first provider whose list names `model`, in the order of routing.
     fn listed_provider(&self, settings: &Settings, model: &str) -> Option<String> {
         self.catalogs
