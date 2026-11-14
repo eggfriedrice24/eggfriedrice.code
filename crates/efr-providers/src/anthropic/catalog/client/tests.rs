@@ -237,7 +237,7 @@ async fn a_spend_cap_fails_the_fetch_after_one_request() {
 
     let error = client.fetch().await.unwrap_err();
 
-    assert!(matches!(error, ProviderError::Api { status: Some(429), .. }), "{error:?}");
+    assert!(matches!(error, ProviderError::LimitReached { .. }), "{error:?}");
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
     assert!(clock.sleeps().is_empty());
 }

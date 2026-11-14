@@ -34,6 +34,10 @@ fn class(error: &ProviderError) -> String {
         ProviderError::RateLimited { retry_after } => format!("rate limited {retry_after:?}"),
         ProviderError::Overloaded { status, .. } => format!("overloaded {status:?}"),
         ProviderError::Api { status, code, .. } => format!("api {status:?} {code:?}"),
+        ProviderError::LimitReached { reached, .. } => {
+            let resets = reached.resets_at.map(|at| at.to_string());
+            format!("limit {:?} {resets:?}", reached.kind)
+        }
         other => format!("{other:?}"),
     }
 }
@@ -51,7 +55,22 @@ fn class(error: &ProviderError) -> String {
         "invalid_request_error",
         "You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC."
     ),
-    "api Some(400) Some(\"invalid_request_error\")",
+    "limit SpendLimit Some(\"2026-11-01T00:00:00Z\")",
+    Again::Never
+)]
+#[case::usage_limits_with_no_date(
+    400,
+    body("invalid_request_error", "You have reached your specified API usage limits."),
+    "limit SpendLimit None",
+    Again::Never
+)]
+#[case::no_credit(
+    400,
+    body(
+        "invalid_request_error",
+        "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."
+    ),
+    "limit Credit None",
     Again::Never
 )]
 #[case::workspace_missing(
@@ -72,6 +91,12 @@ fn class(error: &ProviderError) -> String {
 #[case::billing(
     402,
     body("billing_error", "Your credit balance is too low."),
+    "limit Credit None",
+    Again::Never
+)]
+#[case::other_billing(
+    402,
+    body("billing_error", "Your card was declined."),
     "api Some(402) Some(\"billing_error\")",
     Again::Never
 )]
@@ -155,11 +180,15 @@ fn a_spend_cap_is_never_sent_again() {
 
     assert_eq!(failure.again, Again::Never);
     match failure.error {
-        ProviderError::Api { status: Some(429), code, message } => {
-            assert_eq!(code.as_deref(), Some("enforced_spend_limit_reached"));
-            assert_eq!(message, "This request would exceed your organization's spend limit.");
+        ProviderError::LimitReached { reached, message } => {
+            assert_eq!(reached.kind, efr_provider::LimitKind::SpendLimit);
+            assert_eq!(reached.resets_at, None);
+            assert_eq!(
+                message.as_deref(),
+                Some("This request would exceed your organization's spend limit.")
+            );
         }
-        other => panic!("not an API error: {other:?}"),
+        other => panic!("not the limit of the account: {other:?}"),
     }
 }
 

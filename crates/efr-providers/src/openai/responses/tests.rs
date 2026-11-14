@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use efr_http::{HeaderMap, HttpClient, HttpConfig, Record, Recorder, RetryPolicy};
 use efr_provider::{
-    ContentBlock, HostedTool, Message, ModelInfo, Provider, ProviderError, ProviderEvent,
-    ProviderId, Request, StopReason, ToolDefinition, WebAccess, WebSupport,
+    ContentBlock, HostedTool, LimitKind, LimitReached, Message, ModelInfo, Provider, ProviderError,
+    ProviderEvent, ProviderId, Request, StopReason, ToolDefinition, WebAccess, WebSupport,
 };
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
@@ -580,19 +580,67 @@ async fn a_used_up_subscription_reports_when_it_resets() {
                 "resets_at": resets_at,
             },
         })))
+        .expect(1)
         .mount(&server)
         .await;
-    let config = OpenAiConfig::subscription().with_retry(RetryPolicy::none());
-    let setup = setup(&server, config, subscription_tokens());
+    // NOTE: the default policy: a usage limit is never sent again.
+    let setup = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
 
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     match error {
-        ProviderError::RateLimited { retry_after } => {
-            assert_eq!(retry_after, Some(Duration::from_secs(3600)));
+        ProviderError::LimitReached { reached, message } => {
+            assert_eq!(reached.kind, LimitKind::Usage);
+            assert_eq!(reached.resets_at.map(|at| at.as_second()), Some(resets_at));
+            assert_eq!(message.as_deref(), Some("You have hit your usage limit."));
         }
-        other => panic!("not a rate limit: {other:?}"),
+        other => panic!("not the limit of the account: {other:?}"),
     }
+    assert!(setup.clock.sleeps().is_empty(), "{:?}", setup.clock.sleeps());
+}
+
+#[tokio::test]
+async fn a_usage_limit_with_a_wait_resets_after_it_and_a_spend_limit_names_its_kind() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(SUBSCRIPTION_PATH))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "error": { "type": "usage_limit_reached", "resets_in_seconds": 600 },
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(API_PATH))
+        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
+            "error": { "message": "Spend cap.", "code": "project_spend_limit_exceeded" },
+        })))
+        .mount(&server)
+        .await;
+    let plan = setup(&server, OpenAiConfig::subscription(), subscription_tokens());
+    let key = setup(&server, OpenAiConfig::api(), FakeTokens::new(&["sk-test"]));
+
+    let usage = plan.provider.complete(request("Hi")).await.unwrap_err();
+    let spend = key.provider.complete(request("Hi")).await.unwrap_err();
+
+    let start = crate::openai::testing::start().as_second();
+    assert!(
+        matches!(
+            &usage,
+            ProviderError::LimitReached { reached, message: None }
+                if reached.kind == LimitKind::Usage
+                    && reached.resets_at.map(|at| at.as_second()) == Some(start + 600)
+        ),
+        "{usage:?}"
+    );
+    assert!(
+        matches!(
+            &spend,
+            ProviderError::LimitReached { reached, .. }
+                if reached.kind == LimitKind::SpendLimit && reached.resets_at.is_none()
+        ),
+        "{spend:?}"
+    );
+    assert_eq!(spend.to_string(), "the account reached its spend limit: Spend cap.");
 }
 
 #[tokio::test]
@@ -615,11 +663,11 @@ async fn an_exhausted_quota_is_not_a_rate_limit() {
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     match error {
-        ProviderError::Api { status: Some(429), code, message } => {
-            assert_eq!(code.as_deref(), Some("insufficient_quota"));
-            assert_eq!(message, "You exceeded your current quota.");
+        ProviderError::LimitReached { reached, message } => {
+            assert_eq!(reached, LimitReached { kind: LimitKind::Credit, resets_at: None });
+            assert_eq!(message.as_deref(), Some("You exceeded your current quota."));
         }
-        other => panic!("not an API error: {other:?}"),
+        other => panic!("not the limit of the account: {other:?}"),
     }
 }
 
@@ -638,7 +686,7 @@ async fn an_exhausted_quota_is_never_sent_again() {
 
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
-    assert!(matches!(error, ProviderError::Api { status: Some(429), .. }), "{error:?}");
+    assert!(matches!(error, ProviderError::LimitReached { .. }), "{error:?}");
     assert_eq!(seen(&server).await.len(), 1, "the default policy did not try again");
     assert!(setup.clock.sleeps().is_empty(), "{:?}", setup.clock.sleeps());
 }

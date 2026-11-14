@@ -2,9 +2,31 @@ use std::error::Error as _;
 use std::io;
 use std::time::Duration;
 
+use efr_protocol::{LimitKind, LimitReached};
 use pretty_assertions::assert_eq;
 
 use super::ProviderError;
+
+#[test]
+fn a_limit_of_the_account_says_which_limit_with_the_servers_text() {
+    let limit = |kind, message: Option<&str>| ProviderError::LimitReached {
+        reached: LimitReached { kind, resets_at: None },
+        message: message.map(str::to_owned),
+    };
+    let cases = [
+        (
+            limit(LimitKind::Usage, Some("The usage limit has been reached")),
+            "the account reached the usage limit of its plan: The usage limit has been reached",
+        ),
+        (limit(LimitKind::Credit, None), "the account has no credit left"),
+        (limit(LimitKind::SpendLimit, None), "the account reached its spend limit"),
+        (limit(LimitKind::Requests, None), "the account reached its rate limit"),
+        (limit(LimitKind::Unknown, None), "the account reached a limit"),
+    ];
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
+}
 
 #[test]
 fn messages_name_what_failed_in_one_sentence() {

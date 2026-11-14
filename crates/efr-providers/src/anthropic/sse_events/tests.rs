@@ -359,13 +359,14 @@ fn a_call_that_is_not_whole_fails_the_stream(#[case] input: Option<&str>) {
 #[case::other_400(json!({"type": "invalid_request_error", "message": "messages: text content blocks must be non-empty"}), "api")]
 #[case::authentication(json!({"type": "authentication_error", "message": "invalid x-api-key"}), "unauthorized")]
 #[case::permission(json!({"type": "permission_error", "message": "no access"}), "api")]
-#[case::billing(json!({"type": "billing_error", "message": "credit balance is too low"}), "api")]
+#[case::billing(json!({"type": "billing_error", "message": "credit balance is too low"}), "limit")]
+#[case::other_billing(json!({"type": "billing_error", "message": "card declined"}), "api")]
 #[case::not_found(json!({"type": "not_found_error", "message": "model: claude-x"}), "api")]
 #[case::too_large(json!({"type": "request_too_large", "message": "Request exceeds the maximum size"}), "api")]
 #[case::rate_limit(json!({"type": "rate_limit_error", "message": "slow down"}), "rate_limited")]
 #[case::spend_limit(
     json!({"type": "rate_limit_error", "message": "spend limit", "details": {"error_code": "enforced_spend_limit_reached"}}),
-    "api"
+    "limit"
 )]
 #[case::api(json!({"type": "api_error", "message": "Internal server error"}), "api")]
 #[case::timeout(json!({"type": "timeout_error", "message": "Timeout"}), "api")]
@@ -391,9 +392,11 @@ fn an_error_event_has_the_class_of_its_type(#[case] error: Value, #[case] class:
             assert_eq!(text, message);
         }
         (Some(ProviderError::Api { status: None, code, message: text }), "api") => {
-            let code = code.unwrap();
-            assert!(code == kind || code == "enforced_spend_limit_reached", "{code}");
+            assert_eq!(code.as_deref(), Some(kind.as_str()));
             assert_eq!(text, message);
+        }
+        (Some(ProviderError::LimitReached { message: text, .. }), "limit") => {
+            assert_eq!(text, Some(message));
         }
         (other, _) => panic!("{class}: {other:?}"),
     }

@@ -29,6 +29,18 @@ pub enum ProviderError {
         retry_after: Option<Duration>,
     },
 
+    /// The account reached a limit that a short wait does not end: the usage limit of a
+    /// plan, no credit left, or a spend limit. The same request fails again until the
+    /// reset, so a provider never sends it again, and efrd offers the other accounts
+    /// that serve the model.
+    #[error("{}{}", limit_text(.reached.kind), server_text(.message.as_deref()))]
+    LimitReached {
+        /// Which limit, with its reset when the provider told it.
+        reached: efr_protocol::LimitReached,
+        /// The provider's own message, when it sent one.
+        message: Option<String>,
+    },
+
     /// The provider is overloaded and took no new request, after the provider's own
     /// retries, such as Anthropic's 529 `overloaded_error`. It is not a rate limit of
     /// the account: waiting a short time helps, and nothing in the request was wrong.
@@ -158,6 +170,22 @@ impl ProviderError {
     /// True for [`ProviderError::ContextOverflow`].
     pub fn is_context_overflow(&self) -> bool {
         matches!(self, ProviderError::ContextOverflow { .. })
+    }
+}
+
+/// What [`ProviderError::LimitReached`] says of the limit `kind`.
+fn limit_text(kind: efr_protocol::LimitKind) -> &'static str {
+    use efr_protocol::LimitKind;
+    match kind {
+        LimitKind::Usage => "the account reached the usage limit of its plan",
+        LimitKind::Credit => "the account has no credit left",
+        LimitKind::SpendLimit => "the account reached its spend limit",
+        LimitKind::Requests
+        | LimitKind::Tokens
+        | LimitKind::InputTokens
+        | LimitKind::OutputTokens
+        | LimitKind::TooManyRequests => "the account reached its rate limit",
+        _ => "the account reached a limit",
     }
 }
 

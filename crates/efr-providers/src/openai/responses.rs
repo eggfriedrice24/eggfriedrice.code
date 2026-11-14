@@ -10,8 +10,9 @@ use efr_http::{
     HttpResponse, Outcome, Retryable, SseStream, StatusCode, WebSocket, header,
 };
 use efr_provider::{
-    AccessToken, CallNotice, CallNotices, ModelInfo, NoNotices, Provider, ProviderError,
-    ProviderEvent, ProviderId, ProviderStream, Request, TokenSource, Warmup, WebSupport,
+    AccessToken, CallNotice, CallNotices, LimitKind, LimitReached, ModelInfo, NoNotices, Provider,
+    ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, TokenSource, Warmup,
+    WebSupport,
 };
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
@@ -66,8 +67,9 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 const MAX_ERROR_MESSAGE: usize = 1000;
 
 /// Error codes of a 429 that mean money or plan, not pace: waiting does not help, so
-/// they are reported as API errors rather than as rate limiting, and such a 429 is
-/// never sent again (the list Codex maps to `QuotaExceeded` and `UsageNotIncluded` in
+/// they are reported as the limit of the account ([`LIMIT_CODES`]) or as API errors
+/// rather than as rate limiting, and such a 429 is never sent again (the list Codex maps
+/// to `QuotaExceeded`, `UsageNotIncluded` and `UsageLimitReached` in
 /// `codex-rs/codex-api/src/api_bridge.rs`).
 const QUOTA_CODES: &[&str] = &[
     "insufficient_quota",
@@ -76,6 +78,20 @@ const QUOTA_CODES: &[&str] = &[
     "organization_spend_limit_exceeded",
     "project_spend_limit_exceeded",
     "organization_usage_limit_exceeded",
+    "usage_limit_reached",
+];
+
+/// The error codes that say which limit the account reached, for
+/// [`ProviderError::LimitReached`]: the usage limit of a ChatGPT plan, with the time of
+/// its reset, no credit left, or a spend limit. `usage_not_included`, a plan without
+/// Codex, is no limit with a reset: it stays an API error.
+const LIMIT_CODES: &[(&str, LimitKind)] = &[
+    ("usage_limit_reached", LimitKind::Usage),
+    ("insufficient_quota", LimitKind::Credit),
+    ("credit_balance_exhausted", LimitKind::Credit),
+    ("organization_spend_limit_exceeded", LimitKind::SpendLimit),
+    ("project_spend_limit_exceeded", LimitKind::SpendLimit),
+    ("organization_usage_limit_exceeded", LimitKind::SpendLimit),
 ];
 
 /// A [`Provider`] over OpenAI's Responses API, on the ChatGPT subscription backend or
@@ -369,6 +385,9 @@ impl OpenAiProvider {
     ) -> ProviderError {
         let now = self.clock.now();
         let details = ErrorDetails::parse(body);
+        if let Some(reached) = details.limit_reached(now) {
+            return ProviderError::LimitReached { reached, message: details.message };
+        }
         if status == StatusCode::TOO_MANY_REQUESTS && !details.is_quota() {
             let reset_wait = details.resets_at.map(|at| {
                 let seconds = at.saturating_sub(now.as_second());
@@ -612,6 +631,25 @@ impl ErrorDetails {
     /// True when the error is about money or plan, which waiting does not fix.
     fn is_quota(&self) -> bool {
         self.codes().any(|code| QUOTA_CODES.contains(&code))
+    }
+
+    /// The limit that the account reached, by the first code of [`LIMIT_CODES`], with its
+    /// reset: `resets_at` as Unix seconds, else `resets_in_seconds` from `now`; none for
+    /// a credit.
+    fn limit_reached(&self, now: Timestamp) -> Option<LimitReached> {
+        let kind = self.codes().find_map(|code| {
+            LIMIT_CODES.iter().find(|(known, _)| *known == code).map(|(_, kind)| *kind)
+        })?;
+        let resets_at = self
+            .resets_at
+            .and_then(|at| Timestamp::from_second(at).ok())
+            .or_else(|| {
+                let seconds = i64::try_from(self.resets_in_seconds?).ok()?;
+                now.checked_add(jiff::SignedDuration::from_secs(seconds)).ok()
+            })
+            // NOTE: credit comes back with a payment, not at a time.
+            .filter(|_| kind != LimitKind::Credit);
+        Some(LimitReached { kind, resets_at })
     }
 
     /// True when the server says it does not serve the requested model. A message that

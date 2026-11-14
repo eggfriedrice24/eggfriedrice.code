@@ -202,11 +202,17 @@ Failures:
   or 503), so a model call never runs twice. The provider runs the policy itself
   (`RetryPolicy::run_reporting`, with the injected clock and generator) and reads the body of a
   429 before the policy decides: a 429 for a used-up quota or a plan without access
-  (`insufficient_quota`, `usage_not_included`, `credit_balance_exhausted` and the
-  spend and usage limit codes) is never sent again;
-- a 429 is `RateLimited`, with the wait from `Retry-After`, from the subscription's
-  `resets_at` (on the injected clock), or from the message; a 429 for a used-up quota
-  or a plan without access is an `Api` error, because waiting does not help;
+  (`insufficient_quota`, `usage_not_included`, `credit_balance_exhausted`, the
+  plan's `usage_limit_reached` and the spend and usage limit codes) is never sent
+  again;
+- an answer that names a limit of the account is `LimitReached`, because waiting a
+  short time does not help: `usage_limit_reached` is `usage`, with its reset from
+  `resets_at` (Unix seconds) or `resets_in_seconds` (on the injected clock);
+  `insufficient_quota` and `credit_balance_exhausted` are `credit`, with no reset;
+  the organization and project spend and usage limit codes are `spend_limit`. A
+  plan without access (`usage_not_included`) is an `Api` error;
+- any other 429 is `RateLimited`, with the wait from `Retry-After`, from the
+  subscription's `resets_at` (on the injected clock), or from the message;
 - an error answer, as a response or as an event, goes through `ProviderError::api`:
   the code `context_length_exceeded` and HTTP 413 are `ContextOverflow`, which no
   retry sends again;
@@ -862,13 +868,14 @@ at `message_stop`.
 | Answer | `ProviderError` | Sent again |
 |---|---|---|
 | 400 whose message starts `prompt is too long` | `ContextOverflow` | no; the conversation compacts |
-| 400 whose message starts `You have reached your specified API usage limits` | `Api` | no |
+| 400 whose message starts `You have reached your specified API usage limits` | `LimitReached` (`spend_limit`, the reset from `regain access on <date> at <time> UTC`) | no |
+| 400 or 402 whose message holds `credit balance is too low` | `LimitReached` (`credit`) | no |
 | any other 400 | `Api` with the server's message | no |
 | 401 `authentication_error` | `Unauthorized { message }`, at once | no |
-| 402 `billing_error`, 403 `permission_error` | `Api` | no |
+| any other 402 `billing_error`, 403 `permission_error` | `Api` | no |
 | 404 `not_found_error` for the model | `UnknownModel` | no |
 | 413 `request_too_large` | `Api` (not `ContextOverflow`: a body over 32 MB) | no |
-| 429 with `error.details.error_code` `enforced_spend_limit_reached` | `Api` | no |
+| 429 with `error.details.error_code` `enforced_spend_limit_reached` | `LimitReached` (`spend_limit`) | no |
 | any other 429 | `RateLimited { retry_after }` | yes, after `retry-after` |
 | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
 | 529 `overloaded_error` | `Overloaded` after the last try | yes, with backoff |

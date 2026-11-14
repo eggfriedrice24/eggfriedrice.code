@@ -307,7 +307,7 @@ async fn a_spend_cap_is_sent_once() {
 
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
-    assert!(matches!(error, ProviderError::Api { status: Some(429), .. }), "{error:?}");
+    assert!(matches!(error, ProviderError::LimitReached { .. }), "{error:?}");
     assert_eq!(seen(&server).await.len(), 1);
     assert!(setup.clock.sleeps().is_empty());
 }

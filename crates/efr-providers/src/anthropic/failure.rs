@@ -11,13 +11,14 @@
 //! | Answer | `ProviderError` | Again |
 //! |---|---|---|
 //! | 400 `invalid_request_error` whose message starts `prompt is too long` | `ContextOverflow` | no; the conversation compacts |
-//! | 400 whose message starts `You have reached your specified API usage limits` | `Api` | no |
+//! | 400 whose message starts `You have reached your specified API usage limits` | `LimitReached` (`spend_limit`, the reset from `regain access on <date> at <time> UTC`) | no |
+//! | 400 or 402 whose message holds `credit balance is too low` | `LimitReached` (`credit`) | no |
 //! | any other 400, such as a missing `anthropic-workspace-id` | `Api` with the server's message | no |
 //! | 401 `authentication_error` | `Unauthorized { message }`, at once (a key cannot refresh) | no |
-//! | 402 `billing_error`, 403 `permission_error` | `Api` | no |
+//! | any other 402 `billing_error`, 403 `permission_error` | `Api` | no |
 //! | 404 `not_found_error` for the model | `UnknownModel` | no |
 //! | 413 `request_too_large` (a body over 32 MB) | `Api`, built here and not through `ProviderError::api`, which reads 413 as an overflow | no |
-//! | 429 with `error.details.error_code: "enforced_spend_limit_reached"` | `Api` | no |
+//! | 429 with `error.details.error_code: "enforced_spend_limit_reached"` | `LimitReached` (`spend_limit`) | no |
 //! | any other 429 | `RateLimited { retry_after }` from `retry-after` | yes, after that wait |
 //! | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
 //! | 529 `overloaded_error` | `Overloaded` after the last try | yes, with backoff |
@@ -36,7 +37,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use efr_http::{HttpError, HttpResponse, Outcome, Retryable, StatusCode};
-use efr_provider::{ExposeSecret as _, ProviderError, SecretString};
+use efr_provider::{ExposeSecret as _, LimitKind, LimitReached, ProviderError, SecretString};
 use jiff::Timestamp;
 use serde_json::Value;
 
@@ -49,6 +50,17 @@ const KEY_PLACEHOLDER: &str = "<the key>";
 /// The `error.details.error_code` of a 429 for a spend cap of the account's tier: it
 /// fails again until the cap resets, so waiting does not help.
 const SPEND_LIMIT_CODE: &str = "enforced_spend_limit_reached";
+
+/// The start of the message of a 400 for the usage limits that the user set in the
+/// Console: the same request fails again until the date that the message names.
+const USAGE_LIMITS_MESSAGE: &str = "You have reached your specified API usage limits";
+
+/// The words of a usage limits message before the date of the reset.
+const REGAIN_ACCESS: &str = "regain access on ";
+
+/// A part of the message of a 400 for an account with no credit left, such as `Your
+/// credit balance is too low to access the Anthropic API.`
+const NO_CREDIT_MESSAGE: &str = "credit balance is too low";
 
 /// The `error.type` of a 404 for a model that the API does not serve to the key.
 const NOT_FOUND: &str = "not_found_error";
@@ -213,6 +225,10 @@ enum Class {
     TooLarge,
     /// The account's tier reached its spend cap.
     SpendCap,
+    /// The account reached the usage limits that the user set in the Console.
+    UsageLimits,
+    /// The account has no credit left.
+    NoCredit,
     /// The account sends too fast.
     RateLimited,
     /// The API failed; another copy may pass.
@@ -229,6 +245,8 @@ impl Class {
             413 => Class::TooLarge,
             429 if details.error_code.as_deref() == Some(SPEND_LIMIT_CODE) => Class::SpendCap,
             429 => Class::RateLimited,
+            400 if details.message_starts(USAGE_LIMITS_MESSAGE) => Class::UsageLimits,
+            400 | 402 if details.message_holds(NO_CREDIT_MESSAGE) => Class::NoCredit,
             500 | 502 | 503 | 504 => Class::ServerError,
             OVERLOADED => Class::Overloaded,
             _ => Class::Refused,
@@ -260,9 +278,21 @@ impl Class {
             }
             (Class::RateLimited, _) => ProviderError::RateLimited { retry_after },
             (Class::Overloaded, _) => ProviderError::Overloaded { status, message },
-            (Class::SpendCap, _) => {
-                ProviderError::Api { status, code: details.error_code.or(code), message }
+            (Class::SpendCap, _) => ProviderError::LimitReached {
+                reached: LimitReached { kind: LimitKind::SpendLimit, resets_at: None },
+                message: Some(message),
+            },
+            (Class::UsageLimits, _) => {
+                let resets_at = regains_access_at(&message);
+                ProviderError::LimitReached {
+                    reached: LimitReached { kind: LimitKind::SpendLimit, resets_at },
+                    message: Some(message),
+                }
             }
+            (Class::NoCredit, _) => ProviderError::LimitReached {
+                reached: LimitReached { kind: LimitKind::Credit, resets_at: None },
+                message: Some(message),
+            },
             // NOTE: ProviderError::api reads a 413 as an overflow of the window, but on
             // this API it is a body over 32 MB that compaction may not shrink.
             (Class::TooLarge | Class::ServerError | Class::UnknownModel, _) => {
@@ -307,6 +337,36 @@ impl Details {
             error_code: text(error.get("details").and_then(|details| details.get("error_code"))),
         }
     }
+}
+
+impl Details {
+    /// True when `error.message` starts with `start`, in any case.
+    fn message_starts(&self, start: &str) -> bool {
+        self.message.as_deref().is_some_and(|message| {
+            message
+                .trim_start()
+                .get(..start.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(start))
+        })
+    }
+
+    /// True when `error.message` holds `part`, in any case.
+    fn message_holds(&self, part: &str) -> bool {
+        self.message.as_deref().is_some_and(|message| {
+            message.to_ascii_lowercase().contains(&part.to_ascii_lowercase())
+        })
+    }
+}
+
+/// When the account can serve again, from the message of its usage limits, such as
+/// `You will regain access on 2026-12-01 at 00:00 UTC.`; `None` when it does not say.
+fn regains_access_at(message: &str) -> Option<Timestamp> {
+    let start = message.find(REGAIN_ACCESS)? + REGAIN_ACCESS.len();
+    let when = message.get(start..)?;
+    let when = when.get(..when.find(" UTC")? + " UTC".len())?;
+    let parsed = jiff::fmt::strtime::parse("%Y-%m-%d at %H:%M UTC", when).ok()?;
+    let datetime = parsed.to_datetime().ok()?;
+    datetime.to_zoned(jiff::tz::TimeZone::UTC).ok().map(|zoned| zoned.timestamp())
 }
 
 fn clip(message: &str) -> String {

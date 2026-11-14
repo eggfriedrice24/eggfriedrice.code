@@ -47,6 +47,9 @@ mod unoffered;
 mod usage;
 
 pub use completion::{Completion, CompletionBuilder};
+// NOTE: the limit of an account in `ProviderError::LimitReached` is the wire type, so
+// a provider crate names it without a dependency of its own on the protocol.
+pub use efr_protocol::{LimitKind, LimitReached};
 pub use error::ProviderError;
 pub use event::{ProviderEvent, StopReason};
 pub use hosted::{

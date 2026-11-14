@@ -125,7 +125,12 @@ Modules:
   a missing scope), never text from the request. `RateLimited` carries the delay the
   provider asked for. `Overloaded` says that the provider took no new request because
   it is overloaded (Anthropic's 529), after the provider's own retries; it is not a
-  limit of the account. The conversation fails a turn with the code `busy` for both. `ContextOverflow` says that the request does not fit in the model's
+  limit of the account. `LimitReached { reached, message }` is a limit of the account
+  that a short wait does not end: the usage limit of a plan, no credit left, or a spend
+  limit, as the wire type `efr_protocol::LimitReached` (re-exported here with
+  `LimitKind`) with its reset when the provider told it; a provider never sends such
+  a request again, and efrd offers the other accounts that serve the model. The
+  conversation fails a turn with the code `busy` for all three. `ContextOverflow` says that the request does not fit in the model's
   context window; it is never transient, and the conversation compacts before it sends
   again. A provider builds an error answer of its API with `ProviderError::api`, which
   picks `ContextOverflow` for the code `context_length_exceeded`, HTTP 413 or a message
