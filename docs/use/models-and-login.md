@@ -103,6 +103,25 @@ A model that two accounts list goes to the provider of new conversations first. 
 never moves a turn to another account by itself, also when a key has no credits
 left. To log out of an account, name it: `efr logout anthropic --account work`.
 
+A login, a logout and a change of a stored credential apply at once, with no restart
+of efrd. This is also true for a credential file that you copy into place or remove
+yourself.
+
+### Name your accounts
+
+Give an account a name of your own in `config.toml`. The key is the provider id of
+the account:
+
+```toml
+[accounts.labels]
+"anthropic-api.work" = "Work"
+openai-subscription = "Home plan"
+```
+
+The model list and the phone show the label. efr also lists an account that this
+table names while it has no login, as signed out, so you see that you can log in to
+it. A label has 1 to 40 characters. efrd reads the change at once.
+
 ## Change the provider
 
 A login does not change the provider of new conversations. But after a login,
@@ -250,6 +269,13 @@ action and your messages. [Providers](../providers.md#the-reviewer) tells more.
 
 ## When a prompt fails
 
+- **An account at its limit.** The ChatGPT plan reached its usage limit, a key has no
+  credit left, a key reached its spend limit, or the provider answered "too many
+  requests" until efr stopped trying. The turn stops. efr names the limit, the time
+  of the reset when the provider tells it, and the other accounts that serve the same
+  model: each one with a login, and each signed-out one that `[accounts]` names, with
+  its login command. A full account is named only when its reset comes first. efr
+  never switches by itself: switch with `,model <account>/<model>`.
 - **`unauthorized`.** The provider of `[model]` has no login, or it refused the key.
   efr says how to log in, such as `efr login openai`. A key can expire, such as a
   Console key with an expiry date. Make a new key and log in again.

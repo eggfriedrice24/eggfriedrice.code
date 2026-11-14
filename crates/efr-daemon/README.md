@@ -593,13 +593,54 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   of the prompt, and only logs a failure at debug level.
 - `conversation.switch_preview` (`methods/conversation_switch_preview.rs`, scope
   `operate`, for the model sheet of the phone) says what a switch of the model or the
-  account would cost the next turn of a conversation: `none`, `cold_cache` or
-  `compacts`. It changes nothing and records nothing. It is a stub for now: it
-  answers `none` with no provider.
-- The accounts on the wire are stubs for now: `models.list` and `admin.status` send
-  no `label`, no `limits` and no `signed_out`, `turn_failed` has no `account_out`, no
-  `limits` draft goes out, and `turn_web_report` has no `stored_copy_reason`
-  (`efr-protocol`, `src/accounts.rs`).
+  account would cost the next turn of a conversation. The target is the model on the
+  account that `provider` names (one with a login, as a prompt names it), else on the
+  provider that a prompt with the model alone takes (`Providers::provider_of_model`);
+  the answer names it. efrd compares it with the model and the provider of the
+  newest `turn_started`: `none` for the same pair or a conversation with no turn,
+  `cold_cache` for another model or account, `compacts` when the estimate of the next
+  request on the target model (the context view of the actor) reaches the trigger of
+  the target's window (with `compaction.auto`) or passes its hard cap. The window is
+  the one of the target's own entry in the model list. A name of no account with a
+  login is `unknown` with no provider; a conversation that does not exist is
+  `not_found`. It changes nothing, records nothing and sends no model call.
+- The accounts (`providers.rs`, `catalogs.rs`, `providers/limits.rs`). efrd runs each
+  account that the credential store holds, that `[accounts.labels]` names, or that
+  `[model] provider` names (`accounts_to_run`), also one with no login, so a login
+  serves it at once. `Providers::sync_logins` reads the store again before each answer
+  of `models.list` and `admin.status` and after a reload that changed `[accounts]` or
+  `[model] provider`: it starts each account that it finds new, and an account whose
+  credential appeared or went away outside efrd (a file put in place or removed by
+  hand) gains or loses its login at once, as a login or a logout of efrd does
+  (`note_login`: a login fetches its list; a logout drops the key's refusal; either
+  drops the limits of the old login). One tokio mutex (`changes`) holds
+  one change of the login set at a time, so a read that started before a login cannot
+  mark it as signed out after it. The keys of `[openai]` and `[anthropic]` that need a
+  restart (`efr_config::RESTART_KEYS`) still do.
+- `models.list` and `admin.status` carry the account's `label` from
+  `[accounts.labels]`; each catalog of `models.list` says whether its account is
+  `signed_out`, and an account that `[accounts]` names but that has no login is listed
+  after the others with a login, with the models of its last list
+  (`Catalogs::listed`). The turns try the accounts with a login first
+  (`Catalogs::routed`).
+- The limits of each account live in memory only (`LimitBook`). Every provider that
+  efrd runs goes through `Limited`, which notes a `ProviderError::LimitReached` of a
+  model call (the usage limit of a plan, no credit, a spend limit) and clears it at the
+  first event of a later call that works; a limit with a reset ends at its reset time,
+  and a login or a logout clears it. "Too many requests" is never noted. Both
+  `models.list` and `admin.status` carry the noted limit as `limits.reached` (with
+  `observed_at`, and no `windows` yet), never for a signed-out account.
+- A turn whose model call fails for a limit of the account gets the cause on
+  `turn_failed` (`account_out`): the turn asks the router (`Routes::account_out`, the
+  daemon's `ProviderRouter`) and `Catalogs::account_out` builds it from the model
+  list of the latest settings: the account with its label, the model, the limit with
+  its reset (a rate limit that outlived the retries is `too_many_requests`, with the
+  end of the provider's wait), and the other accounts of the list that list the same
+  model, in the order of `catalogs`: each one that is ready, each one that is signed
+  out (named in `[accounts]`), and each one that is full when its reset comes before
+  the reset of the stopped account (or the stopped one has none). efrd never moves the
+  turn to another account. No `limits` draft goes out yet, and `turn_web_report` has
+  no `stored_copy_reason` yet (`efr-protocol`, `src/accounts.rs`).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
   and no provider with a login lists it (checked after the wait for a first list):
@@ -623,8 +664,13 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   says why. The contract is in the README of efr-conversation, section "Context".
   `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`, and
   `[web]` as `WebConfig`.
+  Before it compacts, it waits for a model list as a prompt does
+  (`Providers::ready_for`): the list of the provider of new conversations, and the one
+  of the provider of the conversation's newest `turn_started`, such as an account.
 - `conversation.context` (`methods/conversation_context.rs`, scope `read`) waits for a
-  model list as a prompt does, starts the conversation's actor when none runs (a
+  model list as a prompt does (`Providers::ready_for`: the list of the provider of new
+  conversations, the one of the provider of the newest turn, and the first one that
+  lists the model of the params), starts the conversation's actor when none runs (a
   conversation that does not exist is `not_found`), and answers with what the actor
   measured: the parts of the next request, the largest items, the newest count, the
   compactions and the cache use. It records nothing and answers while a turn runs. The

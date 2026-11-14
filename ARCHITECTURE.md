@@ -526,6 +526,18 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   provider with a login, which `models.list` shows and the turns check against, in
   `crates/efr-daemon/src/catalogs.rs`; which provider a turn goes to in
   `crates/efr-conversation/src/router.rs` and `crates/efr-daemon/src/providers/routes.rs`.
+- Accounts: which accounts efrd runs and the read of the logins from the credential
+  store before `models.list` and `admin.status` (`accounts_to_run`,
+  `Providers::sync_logins`) in `crates/efr-daemon/src/providers.rs`; the labels of
+  `[accounts]` in `crates/efr-config/src/tables/accounts.rs`; the limits that each
+  account reached, in memory, and the wrapper that notes them in
+  `crates/efr-daemon/src/providers/limits.rs`; the answers that are a limit of the
+  account (`ProviderError::LimitReached`) in
+  `crates/efr-providers/src/openai/responses.rs` and
+  `crates/efr-providers/src/anthropic/failure.rs`; the cause and the switch offer of
+  `turn_failed` in `crates/efr-conversation/src/turn.rs` (`Turn::model_failure`) and
+  `crates/efr-daemon/src/catalogs.rs` (`Catalogs::account_out`); the cost of a switch
+  in `crates/efr-daemon/src/methods/conversation_switch_preview.rs`.
 - Logins with an API key: where `efr` reads a key (a hidden prompt, stdin or
   `--from-env`) in `crates/efr-cli/src/commands/login/key.rs`; the method in
   `crates/efr-daemon/src/methods/admin_login_api_key.rs`; the checks of the key's text,

@@ -539,8 +539,13 @@ text and no tool call or stopped for another reason than `end_turn`, such as
 "Web search in a turn"), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
-`retry_after_ms`, an overloaded provider to `busy` without it, an unknown model to `invalid` with the `model`, the rest to
-`internal`) or
+`retry_after_ms`, an overloaded provider to `busy` without it, a limit of the account
+(`ProviderError::LimitReached`: a usage limit, no credit, a spend limit) to `busy`, an unknown model to `invalid` with the `model`, the rest to
+`internal`; when a limit of the account or a rate limit that outlived the retries
+stopped the model call, `account_out` carries the cause: `Turn::model_failure` asks
+`ProviderRouter::account_out` for the label and the other accounts that serve the
+model, and the turn never moves to one of them by itself; a router with one provider
+names none) or
 `turn_interrupted`. A failed turn writes one `info` line, `the turn failed`, with its code
 and message, and an interrupted one `the user interrupted the turn`. The turn builds that batch and hands it to the actor. The actor
 clears the running turn first and records the batch after. It answers one request at
@@ -934,11 +939,14 @@ parts `context` and `compacting`, `conversation.compact`).
 ### Words
 
 - The window: the context window of the turn's model, in tokens. It is the
-  `context_window` of the model in `ConversationConfig::models` (the provider's model
-  catalog, from the backend, its cache or, for OpenAI only, efr's built-in list; or the
-  model's entry in `[openai] models` or `[anthropic] models`, which the daemon cuts
-  down to the model's largest window). When it is not known, efr counts with
-  `DEFAULT_CONTEXT_WINDOW` (128000).
+  `context_window` of the entry of the model that the turn's provider lists in
+  `ConversationConfig::models`, else of the model's first entry
+  (`router::context_window`; two accounts can list one model with other windows). A
+  manual compaction and the context view take the window of their provider the same
+  way. The entries come from the provider's model catalog (from the backend, its cache
+  or, for OpenAI only, efr's built-in list) or from the model's entry in `[openai]
+  models` or `[anthropic] models`, which the daemon cuts down to the model's largest
+  window. When it is not known, efr counts with `DEFAULT_CONTEXT_WINDOW` (128000).
 - The context: the tokens of one request plus its answer.
 - The trigger: `auto_at` percent of the window, rounded down (`[compaction] auto_at`,
   default 76; 206720 tokens on a window of 272000). An auto compaction runs at the
