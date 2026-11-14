@@ -115,6 +115,42 @@ describe("the turn end row", () => {
     expect(calls).toEqual([{ action: "retry", turnId: TURN, text: "Upgrade to Expo SDK 58." }]);
   });
 
+  it("lists the cited sources, counts the searches and says what a stored copy means", async () => {
+    const state = run([
+      eventItem(1, promptQueued(TURN, "Does ROB RUN work on Linux?")),
+      eventItem(2, turnStarted(TURN), at(0)),
+      eventItem(3, {
+        kind: "turn_web_report",
+        turn_id: TURN,
+        searches: 5,
+        sources: [
+          {
+            url: "https://areweanticheatyet.com/game/rob-run",
+            title: "ROB RUN · Are We Anti-Cheat Yet?",
+          },
+          { url: "https://www.protondb.com/app/2384710" },
+        ],
+        stored_copy: true,
+        stored_copy_note: true,
+      }),
+      eventItem(4, { kind: "turn_completed", turn_id: TURN }, at(12)),
+    ]);
+    const { scope } = testScope(state);
+    await render(
+      <InScope scope={scope}>
+        <TurnEndRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(
+      screen.getByRole("link", {
+        name: "Source 1: ROB RUN · Are We Anti-Cheat Yet?, areweanticheatyet.com/game/rob-run",
+      }),
+    ).toBeOnTheScreen();
+    expect(screen.getByText("protondb.com/app/2384710")).toBeOnTheScreen();
+    expect(screen.getByText(/5 searches, stored copy/)).toBeOnTheScreen();
+    expect(screen.getByText("a stored copy of the web can be some days old")).toBeOnTheScreen();
+  });
+
   it("shows nothing before the turn ends", async () => {
     const { scope } = testScope(run([eventItem(1, promptQueued(TURN, "Hi"))]));
     await render(

@@ -9,20 +9,34 @@
 //   "retry" and "copy error", 18 pt apart. Retry sends the turn's prompt again as a new
 //   prompt (decision D8). The composer goes back to idle by itself.
 //
+// - A turn that searched the web (TM-Web 10 to 13, kept minimal on the phone): the
+//   sources that the answer cites, one quiet line each above the end line, the count of
+//   the searches last on the end line, and under the first turn of a conversation that
+//   read the provider's stored copy of the web, one quiet line that says what it means.
+//
 // The error haptic of a failed turn belongs to the screen: it plays only when the
 // conversation is on screen.
 
 import { useSelector } from "@tanstack/react-store";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { MonoText } from "@/components/ui/mono-text";
 import { PlainButton } from "@/components/ui/plain-button";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
+import { openLink } from "@/lib/native/links";
 import type { Origin } from "@/lib/protocol/generated";
-import type { StreamState, TurnEnd } from "@/lib/stream/reducer";
+import type { StreamState, TurnEnd, TurnWebView } from "@/lib/stream/reducer";
+import { linkAction } from "../model/links";
 import { compareShallow } from "../model/selectors";
-import { errorText, type TurnEndView, turnEndView } from "../model/turn-end";
+import {
+  errorText,
+  type SourceRow,
+  sourceRows,
+  STORED_COPY_NOTE,
+  type TurnEndView,
+  turnEndView,
+} from "../model/turn-end";
 import { useTranscriptScope } from "./use-transcript-scope";
 
 export interface TurnEndLineViewProps {
@@ -73,12 +87,44 @@ export function TurnEndLineView(props: TurnEndLineViewProps) {
   );
 }
 
+export interface SourcesViewProps {
+  readonly rows: readonly SourceRow[];
+}
+
+/**
+ * The sources that the answer cites, above the end line: the mark in text_subtle, the
+ * page in accent_ui, then the title in text_subtle, one mono 11 line each. A tap asks,
+ * then opens the page (the link rule of the app).
+ */
+export function SourcesView(props: SourcesViewProps) {
+  return (
+    <View testID="web-sources" className="mb-4">
+      {props.rows.map((row) => (
+        <Pressable
+          key={row.mark}
+          accessibilityRole="link"
+          accessibilityLabel={`Source ${row.mark.slice(1, -1)}: ${row.title ?? row.page}, ${row.page}`}
+          onPress={() => openLink(linkAction(row.url))}
+          className="min-h-22 justify-center active:opacity-60"
+        >
+          <Text numberOfLines={1} className="text-mono-xs text-text-subtle">
+            {`${row.mark} `}
+            <Text className="text-accent-ui">{row.page}</Text>
+            {row.title === undefined ? null : `  ${row.title}`}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 /** What the turn end row reads of its turn. */
 interface EndRowView {
   readonly end: TurnEnd | undefined;
   readonly startedAt: number | undefined;
   readonly interruptedBy: Origin | undefined;
   readonly prompt: string | undefined;
+  readonly web: TurnWebView | undefined;
 }
 
 function selectEndRow(turnId: string): (state: StreamState) => EndRowView {
@@ -89,6 +135,7 @@ function selectEndRow(turnId: string): (state: StreamState) => EndRowView {
       startedAt: turn?.startedAt,
       interruptedBy: turn?.interruptedBy,
       prompt: turn?.prompt?.text,
+      web: turn?.web,
     };
   };
 }
@@ -104,13 +151,22 @@ export function TurnEndRow(props: TurnEndRowProps) {
   if (row.end === undefined) {
     return null;
   }
-  const view = turnEndView(row.end, row.startedAt, row.interruptedBy, scope.machineName);
+  const view = turnEndView(row.end, row.startedAt, row.interruptedBy, scope.machineName, row.web);
   const turnId = props.turnId;
   const prompt = row.prompt;
+  const sources = sourceRows(row.web);
   return (
-    <TurnEndLineView
-      view={view}
-      onRetry={prompt === undefined ? undefined : () => scope.actions.retry(turnId, prompt)}
-    />
+    <View>
+      {sources.length === 0 ? null : <SourcesView rows={sources} />}
+      <TurnEndLineView
+        view={view}
+        onRetry={prompt === undefined ? undefined : () => scope.actions.retry(turnId, prompt)}
+      />
+      {row.web?.storedCopyNote === true ? (
+        <MonoText tone="text_muted" className="mt-2">
+          {STORED_COPY_NOTE}
+        </MonoText>
+      ) : null}
+    </View>
   );
 }

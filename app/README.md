@@ -45,7 +45,10 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   status says `✓ 10 results · 6s` (the count only when the provider gives it), `✓ 5s`,
   or why the step failed, such as `too many requests · 1s`. A find in a page has no
   block. The citation marks of an answer (`[1]`) show as links through the Markdown of
-  the reply. The app shows no list of sources yet.
+  the reply. From `turn_web_report`, the end of the turn lists the sources that the
+  answer cites (`[1] protondb.com/app/2384710  ROB RUN · ProtonDB`, a tap asks and then
+  opens the page), counts the searches on the end line (`· 5 searches`, `, stored copy`)
+  and, under the first turn with a stored copy, says that it can be some days old.
 - The app hears of the foreground from AppState, and of a change of the network path
   (such as from Wi-Fi to cellular) from NetInfo. Then each machine connects again at
   once.
@@ -319,7 +322,8 @@ not a test that pretends.
 13. A turn that searched the web: each search and each opened page is one tool block
     (`web` and the query, or `open` and the page), in the order of their starts, with
     its count of results and its time; a failed one names its reason. The marks `[1]`
-    of an answer of a Claude model are links that open their page.
+    of an answer of a Claude model are links that open their page. The sources over the
+    end line fit on one line each, and a tap on one asks, then opens its page.
 14. A reply with an image (`![x](https://example.com/x.png)`) and an HTML block
     (`<video src="https://example.com/v.mp4">`): the image shows as "!" and the link
     "x", the video line shows as text, and nothing loads (watch the log of a proxy, or

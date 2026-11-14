@@ -194,6 +194,9 @@ streams in.
 
 - Tap a reasoning row or a tool block to open it.
 - Touch and hold a message to copy its text. A code block has its own copy button.
+- When the agent searched the web, the end of the turn lists the pages that the answer
+  cites (`[1]` and the page), and the end line counts the searches. "stored copy" there
+  means that the provider searched its own copy of the web, which can be some days old.
 - The app asks before it opens a link. A web page then opens in the app. An image in
   a reply shows as a link, and HTML shows as text, so the app loads nothing that you
   did not tap.

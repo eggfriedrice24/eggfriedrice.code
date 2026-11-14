@@ -19,7 +19,8 @@
 //   draft made before it is dropped.
 // - A step of the provider's web search (`web_call_started`, `web_call_completed`) is a
 //   tool call of the tool `web`, with its step in `web`: a search or an opened page. A
-//   find in a page makes none.
+//   find in a page makes none. The `turn_web_report` of a turn gives its count of
+//   searches, the sources that its answer cites and whether it read a stored copy.
 // - The exit of a call (auto mode, ADR 0023) goes on its tool call: `exit_requested`
 //   gives what it needs and gets, `exit_review_started` that the reviewer judges it,
 //   `exit_judged` the verdict and `always_rule_saved` the rule of an "always" answer. A
@@ -55,6 +56,7 @@ import type {
   Verdict,
   WebAction,
   WebError,
+  WebSource,
 } from "@/lib/protocol/generated";
 import type {
   Draft,
@@ -306,6 +308,20 @@ export interface TurnView {
   readonly steers: ReadonlyMap<number, SteerView>;
   /** The reviewer stopped for the rest of the turn: its next exit stops the turn. */
   readonly pause: ReviewerPause | undefined;
+  /** The web search of the turn, from its `turn_web_report`. */
+  readonly web: TurnWebView | undefined;
+}
+
+/** The web search of a turn (`turn_web_report`). */
+export interface TurnWebView {
+  /** The searches that ran without an error. */
+  readonly searches: number;
+  /** The pages that the answer cites: source `n` (the mark `[n]`) is entry `n - 1`. */
+  readonly sources: readonly WebSource[];
+  /** The searches read the provider's stored copy of the web, not the live web. */
+  readonly storedCopy: boolean;
+  /** The first turn of the conversation with a stored copy: say once what it means. */
+  readonly storedCopyNote: boolean;
 }
 
 /** What the subscription of the stream does (the states of `SubscriptionStatus`). */
@@ -664,6 +680,16 @@ function applyEventBody(
           exit: { ...(call.exit ?? exitOf([])), saved: event.outcome },
         })),
       );
+    case "turn_web_report":
+      return updateTurn(state, event.turn_id, (turn) => ({
+        ...turn,
+        web: {
+          searches: event.searches,
+          sources: event.sources ?? [],
+          storedCopy: event.stored_copy === true,
+          storedCopyNote: event.stored_copy_note === true,
+        },
+      }));
     case "sandbox_surface_changed":
       return updateTurn(state, event.turn_id, (turn) =>
         updateTool(turn, event.call_id, (call) => ({
@@ -1076,6 +1102,7 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     approvals: mergeParts(old.approvals, approvals),
     steers: mergeParts(old.steers, rebuilt.steers),
     pause: rebuilt.pause ?? old.pause,
+    web: rebuilt.web ?? old.web,
   };
 }
 
@@ -1178,6 +1205,7 @@ function newTurn(turnId: string): TurnView {
     approvals: new Map(),
     steers: new Map(),
     pause: undefined,
+    web: undefined,
   };
 }
 

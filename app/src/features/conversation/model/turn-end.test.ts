@@ -1,7 +1,52 @@
 import { describe, expect, it } from "vitest";
 
-import type { TurnEnd } from "@/lib/stream/reducer";
-import { errorText, turnEndView } from "./turn-end";
+import type { TurnEnd, TurnWebView } from "@/lib/stream/reducer";
+import { errorText, searchCount, sourceRows, turnEndView } from "./turn-end";
+
+const WEB: TurnWebView = {
+  searches: 1,
+  sources: [
+    { url: " https://www.protondb.com/app/2384710 ", title: "ROB RUN\n· ProtonDB" },
+    { url: "https://areweanticheatyet.com/game/rob-run", title: " " },
+  ],
+  storedCopy: false,
+  storedCopyNote: false,
+};
+
+describe("the web search of a turn", () => {
+  it("counts the searches last on the end line, with the stored copy", () => {
+    expect(searchCount(undefined)).toBeUndefined();
+    expect(searchCount({ ...WEB, searches: 0 })).toBeUndefined();
+    expect(searchCount(WEB)).toBe("1 search");
+    expect(searchCount({ ...WEB, searches: 5, storedCopy: true })).toBe("5 searches, stored copy");
+    const view = turnEndView(
+      end({ usage: { input_tokens: 15_000, output_tokens: 3_400 } }),
+      START,
+      undefined,
+      "desktop",
+      { ...WEB, searches: 5 },
+    );
+    expect(view.detail).toMatch(/ · 5 searches$/);
+  });
+
+  it("numbers the sources in the order of the answer, by their page", () => {
+    expect(sourceRows(WEB)).toEqual([
+      {
+        mark: "[1]",
+        page: "protondb.com/app/2384710",
+        title: "ROB RUN · ProtonDB",
+        url: "https://www.protondb.com/app/2384710",
+      },
+      {
+        mark: "[2]",
+        page: "areweanticheatyet.com/game/rob-run",
+        title: undefined,
+        url: "https://areweanticheatyet.com/game/rob-run",
+      },
+    ]);
+    expect(sourceRows(undefined)).toEqual([]);
+  });
+});
 
 const START = new Date(2026, 9, 26, 14, 29, 24).getTime();
 
