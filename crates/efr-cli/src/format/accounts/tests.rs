@@ -127,7 +127,7 @@ fn a_signed_out_account_gets_its_login_command_and_no_offer() {
     assert_eq!(
         shown(&out),
         [
-            "the account work got \"too many requests\", so efr stopped trying.",
+            "work got \"too many requests\", so efr stopped trying.",
             "personal is signed out: efr login anthropic --account personal [muted]",
         ]
     );
@@ -141,7 +141,7 @@ fn a_full_account_whose_reset_comes_first_says_when_it_runs_again() {
     assert_eq!(
         shown(&out),
         [
-            "the account b reached its usage limit. It resets at 16:05.",
+            "b reached its usage limit. It resets at 16:05.",
             "gpt-6.1-sol runs again on the ChatGPT plan at 14:20, before b: [muted]",
             ",model openai/gpt-6.1-sol [code]",
         ]
@@ -170,6 +170,9 @@ fn the_history_reason_keeps_the_reset_in_brackets() {
         history_reason(&out, now(), &zone),
         "the ChatGPT plan reached its usage limit (resets 14:20)"
     );
+    // NOTE: errata 12: a named account by its name alone, as the offer and `efr status`.
+    let named = AccountOut { provider: "openai-subscription.b".to_owned(), ..out };
+    assert_eq!(history_reason(&named, now(), &zone), "b reached its usage limit (resets 14:20)");
 }
 
 #[test]

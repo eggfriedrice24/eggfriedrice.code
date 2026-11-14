@@ -58,15 +58,6 @@ pub(crate) fn short_name(id: &str) -> String {
     account_name(id).unwrap_or_else(|| default_name(id))
 }
 
-/// The account `id` as the subject of a stop: `the account b`, or the default account
-/// of its kind, such as `the ChatGPT plan`.
-fn subject(id: &str) -> String {
-    match account_name(id) {
-        Some(name) => format!("the account {name}"),
-        None => default_name(id),
-    }
-}
-
 /// The command that switches the terminal to `model` on the account `id`: `,model
 /// b/gpt-6.1-sol`.
 pub(crate) fn model_command(id: &str, model: &str) -> String {
@@ -114,9 +105,10 @@ fn limit_words(kind: LimitKind) -> &'static str {
 
 /// The reason under `✗ failed` when the account of the turn is out (TM-Accounts 1 to
 /// 5): `the ChatGPT plan reached its usage limit. It resets at 14:20.` A known reset is
-/// its own sentence; with none, no time.
+/// its own sentence; with none, no time. The account has the name of the offer rows and
+/// of `efr status` (errata 12): `b reached its usage limit.`, not `the account b`.
 pub(crate) fn stop_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> String {
-    let mut reason = format!("{} {}.", subject(&out.provider), limit_words(out.reached.kind));
+    let mut reason = format!("{} {}.", short_name(&out.provider), limit_words(out.reached.kind));
     if let Some(at) = out.reached.resets_at.filter(|_| out.reached.kind != LimitKind::Credit) {
         reason.push_str(&format!(" It resets {}.", reset_phrase(at, now, zone)));
     }
@@ -127,7 +119,7 @@ pub(crate) fn stop_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> 
 /// (TM-Accounts 7): `the ChatGPT plan reached its usage limit (resets 14:20)`. The
 /// offer is not repeated: it is stale once a switch or a reset happened.
 pub(crate) fn history_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> String {
-    let mut reason = format!("{} {}", subject(&out.provider), limit_words(out.reached.kind));
+    let mut reason = format!("{} {}", short_name(&out.provider), limit_words(out.reached.kind));
     if let Some(at) = out.reached.resets_at.filter(|_| out.reached.kind != LimitKind::Credit) {
         reason.push_str(&format!(" (resets {})", reset_time(at, now, zone)));
     }
