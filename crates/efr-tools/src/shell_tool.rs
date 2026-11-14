@@ -572,7 +572,8 @@ impl Tool for ShellTool {
              ~/.ssh, agent sockets, token variables and the keyring. A command that logs \
              in, such as git push, gh or a publish, runs in the sandbox: on the first call, \
              name in needs the login that it uses (unmask, sockets, env or keyring) and its \
-             host when the proxy does not list it. git over ssh needs the ssh agent's \
+             host when the proxy does not list it. gh needs api.github.com, which the \
+             proxy does not list. git over ssh needs the ssh agent's \
              socket (name it as $SSH_AUTH_SOCK), ~/.ssh for its known_hosts, and the host \
              on port 22. A command that runs outside the \
              sandbox, such as sudo, does not see exports or functions that sandboxed \
