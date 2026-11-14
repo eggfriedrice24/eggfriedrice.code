@@ -33,6 +33,7 @@ use efr_transport::{ConnectionContext, Responder};
 use serde_json::Value;
 
 use crate::conversations;
+use crate::methods::search;
 use crate::state::State;
 use crate::{DaemonError, deletes, receipts};
 
@@ -64,9 +65,7 @@ async fn delete(
     params: ConversationDelete,
 ) -> Result<Value, DaemonError> {
     let ConversationDelete { command_id, conversation_id, force, stop } = params;
-    let summary = state
-        .readers
-        .with(move |conn| efr_store::conversations::get(conn, conversation_id))
+    let summary = search::shown_summary(state, conversation_id)
         .await?
         .ok_or(DaemonError::ConversationNotFound { conversation_id })?;
     let asking = state.connections.tty(context.conn_id());

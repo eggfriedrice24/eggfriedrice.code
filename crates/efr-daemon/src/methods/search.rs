@@ -21,7 +21,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use efr_protocol::{PageCursor, RecentConversation, SearchHit, SearchPartial};
+use efr_protocol::{
+    ConversationId, ConversationSummary, PageCursor, RecentConversation, SearchHit, SearchPartial,
+};
 use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use efr_store::StoreError;
 use efr_store::search::{DocKind, FoundHit, SearchStop};
@@ -219,8 +221,51 @@ pub(crate) fn titled(
     mut conversation: RecentConversation,
     search_title: Option<String>,
 ) -> RecentConversation {
-    conversation.summary.title = shown_title(search_title, conversation.summary.title.as_deref());
+    conversation.summary = summary_titled(conversation.summary, search_title);
     conversation
+}
+
+/// `summary` with the title that a line about the conversation shows: [`shown_title`]
+/// of `search_title` and the projection's title.
+pub(crate) fn summary_titled(
+    mut summary: ConversationSummary,
+    search_title: Option<String>,
+) -> ConversationSummary {
+    summary.title = shown_title(search_title, summary.title.as_deref());
+    summary
+}
+
+/// `summaries` with the titles that the lines about them show, as
+/// [`summary_titled`]; `titles` holds the search title of each, in the same order.
+pub(crate) fn summaries_titled(
+    summaries: Vec<ConversationSummary>,
+    titles: Vec<Option<String>>,
+) -> Vec<ConversationSummary> {
+    summaries
+        .into_iter()
+        .zip(titles)
+        .map(|(summary, title)| summary_titled(summary, title))
+        .collect()
+}
+
+/// The summary of `conversation_id` with the title that a line about it shows, as
+/// [`summary_titled`]: the `,resume` and the delete answers, the moved note and the
+/// switch lines of a prompt. `None` when the conversation does not exist.
+pub(crate) async fn shown_summary(
+    state: &State,
+    conversation_id: ConversationId,
+) -> Result<Option<ConversationSummary>, DaemonError> {
+    let read = state
+        .readers
+        .with(move |conn| {
+            let Some(summary) = efr_store::conversations::get(conn, conversation_id)? else {
+                return Ok(None);
+            };
+            let title = efr_store::search::titles(conn, &[conversation_id])?.pop().flatten();
+            Ok(Some((summary, title)))
+        })
+        .await?;
+    Ok(read.map(|(summary, title)| summary_titled(summary, title)))
 }
 
 fn redacted_title(title: &str) -> Option<String> {

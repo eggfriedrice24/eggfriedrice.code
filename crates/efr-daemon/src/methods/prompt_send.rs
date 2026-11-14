@@ -61,7 +61,7 @@ use efr_transport::{ConnectionContext, Responder};
 use serde_json::Value;
 
 use crate::conversations::{self, Slot};
-use crate::methods::conversation_resume;
+use crate::methods::{conversation_resume, search};
 use crate::routing::{self, Before, Candidate, Outcome, Verdict};
 use crate::state::State;
 use crate::warmup;
@@ -539,7 +539,13 @@ async fn pick_up(
     let route = key.clone();
     let Some(newest) = state
         .readers
-        .with(move |conn| efr_store::conversations::newest_of_route(conn, &route))
+        .with(move |conn| {
+            let Some(newest) = efr_store::conversations::newest_of_route(conn, &route)? else {
+                return Ok(None);
+            };
+            let title = efr_store::search::titles(conn, &[newest.id])?.pop().flatten();
+            Ok(Some(search::summary_titled(newest, title)))
+        })
         .await?
     else {
         return Ok(None);
@@ -585,11 +591,13 @@ fn slot_label(
     routing::label(registry, key, &dir)
 }
 
+/// The summary of `conversation_id` with the title that its switch line and its moved
+/// note show (`search::shown_summary`).
 async fn summary(
     state: &State,
     conversation_id: ConversationId,
 ) -> Result<Option<ConversationSummary>, DaemonError> {
-    Ok(state.readers.with(move |conn| efr_store::conversations::get(conn, conversation_id)).await?)
+    search::shown_summary(state, conversation_id).await
 }
 
 /// The project registry as the file holds it now, and `pwd` with its links resolved,
@@ -679,7 +687,11 @@ pub(crate) async fn ensure_exists(
     state: &State,
     conversation_id: ConversationId,
 ) -> Result<(), DaemonError> {
-    let exists = summary(state, conversation_id).await?.is_some();
+    let exists = state
+        .readers
+        .with(move |conn| efr_store::conversations::get(conn, conversation_id))
+        .await?
+        .is_some();
     if exists { Ok(()) } else { Err(DaemonError::ConversationNotFound { conversation_id }) }
 }
 

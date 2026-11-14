@@ -1699,6 +1699,9 @@ uses too).
   80 characters, the row loses its last word too, so a key that the cut made too short
   to be recognised never shows. `conversations.recent` shows the same title
   (`methods::search::titled`), so the list without the picker hides the same secrets.
+  So do `conversations.list`, the `resumed` and `held` answers of `conversation.resume`,
+  the answers of `conversation.delete`, the moved note and the switch lines of
+  `prompt.send` (`methods::search::shown_summary`): no line shows the raw title.
 - **Hits.** A hit has its kind, its event, its turn, its time and a `history_cursor`
   whose `conversation.history` page ends at the hit. `index.percent` shows while the
   indexer is more than 5,000 events behind the log.

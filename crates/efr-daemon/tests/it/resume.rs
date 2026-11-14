@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use efr_daemon::ChildStatus;
 use efr_protocol::{
-    AttachHow, ConversationId, ConversationResume, ConversationResumeResult, ConversationsRecent,
-    ConversationsRecentResult, ErrorCode, Event, JobsStop, JobsStopResult, Method, Mode, NewReason,
-    Origin, RouteScope, ShellContext, Switch,
+    AttachHow, ConversationId, ConversationResume, ConversationResumeResult, ConversationsList,
+    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ErrorCode, Event,
+    JobsStop, JobsStopResult, Method, Mode, NewReason, Origin, RouteScope, ShellContext, Switch,
 };
 use efr_test_daemon::{
     ClientError, FakeLauncher, PROMPT, TestDaemon, TestDaemonBuilder, command_id, events_until,
@@ -26,6 +26,7 @@ use pretty_assertions::assert_eq;
 use crate::jobs_wake::Recorder;
 use crate::routing::{Place, app, switch, tree};
 use crate::sandbox::ready;
+use crate::search::KEY;
 
 /// The params of a resume of `conversation` from the shell `pid` of `tty` in `pwd`.
 fn params(
@@ -233,6 +234,41 @@ async fn resume_of_a_held_conversation_answers_held_and_moves_nothing() {
     assert_eq!(place.attaches(one.conversation_id).await, Vec::<Event>::new());
     assert_eq!(place.held_by("pts-1").await, [one.conversation_id]);
     assert_eq!(place.held_by("pts-2").await, Vec::<ConversationId>::new());
+    place.stop().await;
+}
+
+#[tokio::test]
+async fn resume_lines_and_the_list_show_the_redacted_title() {
+    let place = Place::start().await;
+    let mut prompt = Place::prompt(1, &place.app, "pts-1", 100);
+    prompt.text = format!("deploy with {KEY} to staging");
+    let one = place.send(prompt).await;
+    let shown = Some("deploy with [***] to staging".to_owned());
+    place.procs.peer_on_tty("pts-2");
+
+    let held = place.resume(params(1, one.conversation_id, &place.app, "pts-2", 200, false)).await;
+    let taken = place.resume(params(2, one.conversation_id, &place.app, "pts-2", 200, true)).await;
+
+    assert_eq!(
+        held.unwrap(),
+        ConversationResumeResult::Held { tty: "pts-1".to_owned(), title: shown.clone() }
+    );
+    let ConversationResumeResult::Resumed { title, .. } = taken.unwrap() else { panic!() };
+    assert_eq!(title, shown, "the resumed line");
+    // The rows of `conversations.list`, which `efr resume` prints for an id start
+    // that names more than one conversation.
+    let client = place.daemon.client().await.unwrap();
+    for tty in [None, Some("pts-2".to_owned())] {
+        let method =
+            Method::ConversationsList(ConversationsList { tty, ..ConversationsList::default() });
+        let list: ConversationsListResult = client.call(method).await.unwrap();
+        assert_eq!(list.conversations[0].title, shown, "the list");
+    }
+    // The moved note of the terminal that held it.
+    let next = place.at(3, &place.app, "pts-1", 100).await;
+    let reason = NewReason::Moved { tty: "pts-2".to_owned(), title: shown.clone() };
+    assert_eq!(switch(&next), Some(&Switch::New { from: None, reason }));
+    drop(client);
     place.stop().await;
 }
 

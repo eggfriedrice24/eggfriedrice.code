@@ -44,6 +44,7 @@ use serde_json::Value;
 
 use crate::conversations::{self, Slot};
 use crate::methods::prompt_send::read_place;
+use crate::methods::search;
 use crate::routing;
 use crate::state::State;
 use crate::{DaemonError, receipts};
@@ -83,9 +84,7 @@ async fn resume(
     if !conversations::peer_on_tty(state, context, &tty) {
         return Err(DaemonError::ResumeOffTerminal { tty });
     }
-    let summary = state
-        .readers
-        .with(move |conn| efr_store::conversations::get(conn, conversation_id))
+    let summary = search::shown_summary(state, conversation_id)
         .await?
         .ok_or(DaemonError::ConversationNotFound { conversation_id })?;
     let route = state

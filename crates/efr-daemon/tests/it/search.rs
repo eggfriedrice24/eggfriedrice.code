@@ -343,7 +343,7 @@ async fn query_never_finds_a_heredoc_body() {
 }
 
 /// A key of a form that the redaction recognises.
-const KEY: &str = "sk-ant-AbCdEfGhIjKlMnOpQrStUvWxYz0123";
+pub(crate) const KEY: &str = "sk-ant-AbCdEfGhIjKlMnOpQrStUvWxYz0123";
 
 #[tokio::test]
 async fn rows_show_the_redacted_title() {

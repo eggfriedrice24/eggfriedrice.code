@@ -26,7 +26,7 @@ use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
 
 use crate::routing::{Place, tree};
-use crate::search::indexed;
+use crate::search::{KEY, indexed};
 
 /// `conversation.delete` of `conversation` with the command id `n`.
 fn params(n: u128, conversation: ConversationId, force: bool, stop: bool) -> Method {
@@ -258,6 +258,28 @@ async fn a_conversation_that_another_terminal_holds_is_deleted_only_with_force()
     assert_eq!(deleted(&answer).0, theirs.conversation_id);
     assert_eq!(listed(&place.daemon).await, Vec::<ConversationId>::new());
     assert_eq!(place.held_by("pts-1").await, Vec::<ConversationId>::new());
+    drop(client);
+    place.stop().await;
+}
+
+#[tokio::test]
+async fn delete_answers_show_the_redacted_title() {
+    let place = Place::start().await;
+    let mut prompt = Place::prompt(1, &place.app, "pts-1", 100);
+    prompt.text = format!("deploy with {KEY} to staging");
+    let theirs = place.send(prompt).await;
+    let client = place.daemon.client_for_tty("pts-2").await.unwrap();
+    let shown = Some("deploy with [***] to staging".to_owned());
+
+    let held = delete(&client, 1, theirs.conversation_id, false).await.unwrap();
+    let forced = delete(&client, 2, theirs.conversation_id, true).await.unwrap();
+
+    assert_eq!(
+        held,
+        ConversationDeleteResult::Held { tty: "pts-1".to_owned(), title: shown.clone() }
+    );
+    let ConversationDeleteResult::Deleted { title, .. } = forced else { panic!("{forced:?}") };
+    assert_eq!(title, shown);
     drop(client);
     place.stop().await;
 }

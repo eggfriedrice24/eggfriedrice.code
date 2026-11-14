@@ -267,7 +267,8 @@ impl Routes {
     /// Completes a claim whose `terminal_attached` and prompt committed, with the
     /// newest of them `routed_seq`: every other slot that held the conversation lets it
     /// go, as the projection's rule does, and remembers where it went, with its
-    /// `title`, for the line of that terminal's next prompt.
+    /// `title`, for the line of that terminal's next prompt. `title` is the shown title
+    /// (`methods::search::shown_title`), never the raw title of the projection.
     pub(crate) fn attached(
         &mut self,
         tty: &str,
