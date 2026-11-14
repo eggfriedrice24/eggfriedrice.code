@@ -4,12 +4,16 @@
 //! The conversation's actor builds the request that the next model call would send and
 //! measures it part by part, also while a turn runs; it records nothing. A conversation
 //! without a live actor gets one, which reads the history from the log; a conversation
-//! that does not exist is `not_found`. While the model catalog has no list yet, it
-//! first waits for the first fetch after a start or a login, as a prompt does, so the
-//! window is the model's own. The
+//! that does not exist is `not_found`. While a model catalog that it reads has no list
+//! yet, it first waits for the first fetch after a start or a login, as a prompt does,
+//! so the window is the model's own: the catalog of the provider of new conversations,
+//! the one of the provider of the conversation's newest turn (such as an account), and
+//! the first one that lists the model that the params name. The
 //! rules of the context are in the README of efr-conversation, section "Context".
 
-use efr_protocol::ConversationContext;
+use std::sync::Arc;
+
+use efr_protocol::{ConversationContext, ConversationId, Event};
 use efr_transport::Responder;
 
 use crate::DaemonError;
@@ -24,7 +28,9 @@ pub(crate) async fn handle(
     responder: &Responder,
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
-    state.providers.models().ready().await;
+    let settings = Arc::clone(&state.settings.borrow());
+    let newest = newest_provider(state, conversation_id).await;
+    state.providers.ready_for(&settings, params.model.as_deref(), newest.as_deref()).await;
     let handle = match state.conversations.live(conversation_id) {
         Some(handle) => handle,
         None => {
@@ -37,4 +43,23 @@ pub(crate) async fn handle(
         .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?;
     responder.item(&answer).await?;
     Ok(())
+}
+
+/// The provider of the newest turn of `conversation_id`, such as the account
+/// `anthropic-api.work`, as its `turn_started` recorded it; `None` before the first
+/// turn, or when the log cannot be read.
+pub(crate) async fn newest_provider(
+    state: &State,
+    conversation_id: ConversationId,
+) -> Option<String> {
+    // NOTE: by kind, so a long turn with many events after its start still counts.
+    let newest = state
+        .readers
+        .with(move |conn| efr_store::events::newest_of_kind(conn, conversation_id, "turn_started"))
+        .await
+        .ok()??;
+    match newest.event {
+        Event::TurnStarted { settings: Some(settings), .. } => settings.provider,
+        _ => None,
+    }
 }

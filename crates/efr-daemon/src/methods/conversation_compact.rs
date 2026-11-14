@@ -7,8 +7,9 @@
 //! compaction runs, and when nothing lies before the tail, it is refused with
 //! `conflict`; a conversation that does not exist is `not_found`. A prompt that arrives
 //! meanwhile queues behind it. A retried command id answers from its receipt. While the
-//! model catalog has no list yet, it first waits for the first fetch after a start or a
-//! login, as a prompt does. The
+//! model catalog of the provider of new conversations, or the one of the provider of
+//! the conversation's newest turn (such as an account), has no list yet, it first waits
+//! for the first fetch after a start or a login, as a prompt does. The
 //! contract is in the README of efr-conversation, section "Context".
 
 use efr_conversation::ConversationError;
@@ -47,8 +48,12 @@ async fn compact(
 ) -> Result<serde_json::Value, DaemonError> {
     let conversation_id = params.conversation_id;
     tracing::info!(%conversation_id, focus = params.focus.is_some(), "manual compaction");
-    // NOTE: the summary is a model call, which needs the model's limits like a turn.
-    state.providers.models().ready().await;
+    // NOTE: the summary is a model call, which needs the model's limits like a turn,
+    // from the list of the provider that runs it.
+    let settings = std::sync::Arc::clone(&state.settings.borrow());
+    let newest =
+        crate::methods::conversation_context::newest_provider(state, conversation_id).await;
+    state.providers.ready_for(&settings, None, newest.as_deref()).await;
     // NOTE: a conversation without a live actor has no running turn; its actor starts
     // here and reads the history from the log.
     let handle = match state.conversations.live(conversation_id) {

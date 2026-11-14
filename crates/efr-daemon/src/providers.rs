@@ -455,6 +455,27 @@ impl Providers {
         self.catalogs.of(&self.configured()).unwrap_or_else(|| self.catalogs.first())
     }
 
+    /// Waits, as a prompt does ([`Models::ready`]), for the first fetch of each catalog
+    /// that a manual compaction or the context view of a conversation reads: the one of
+    /// the provider of new conversations, the one of `newest`, the provider of the
+    /// conversation's newest turn, such as an account, and the first one that lists
+    /// `model`, the model that the context view names. A catalog with a list, or one
+    /// that efrd does not fetch, holds nothing.
+    pub(crate) async fn ready_for(
+        &self,
+        settings: &Settings,
+        model: Option<&str>,
+        newest: Option<&str>,
+    ) {
+        self.catalogs.configured(settings).ready().await;
+        let listed = model.and_then(|model| self.listed_provider(settings, model));
+        for id in newest.into_iter().chain(listed.as_deref()) {
+            if let Some(models) = self.models_of(id) {
+                models.ready().await;
+            }
+        }
+    }
+
     /// Every catalog and the logins: the model list of `models.list` and of the turns.
     pub(crate) fn catalogs(&self) -> Arc<Catalogs> {
         Arc::clone(&self.catalogs)
