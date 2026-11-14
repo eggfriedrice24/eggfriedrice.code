@@ -32,6 +32,7 @@ pub(crate) mod conversation_history;
 pub(crate) mod conversation_resume;
 pub(crate) mod conversation_search;
 pub(crate) mod conversation_subscribe;
+pub(crate) mod conversation_switch_preview;
 pub(crate) mod conversations_list;
 pub(crate) mod conversations_recent;
 pub(crate) mod conversations_search;

@@ -31,7 +31,8 @@ use crate::{
     ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
     ConversationId, ConversationResume, ConversationResumeResult, ConversationSearch,
     ConversationSearchResult, ConversationSnapshot, ConversationStatus, ConversationSubscribe,
-    ConversationSubscribeItem, ConversationSummary, ConversationsList, ConversationsListResult,
+    ConversationSubscribeItem, ConversationSummary, ConversationSwitchPreview,
+    ConversationSwitchPreviewResult, ConversationsList, ConversationsListResult,
     ConversationsRecent, ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult,
     ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor, DaemonId, DaemonPaths,
     DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo,
@@ -58,10 +59,10 @@ use crate::{
     SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
     ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
     ShellStatusResult, Size, SnapshotPhase, StopReason, StoredCopyReason, SurfaceChange, Switch,
-    SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
-    TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction,
-    UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict,
-    Watch, WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt,
+    SwitchCost, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
+    Verdict, Watch, WebAction, WebError, WebResult, WebSource, WithdrawTarget, WithdrawnPrompt,
     WithdrawnSteer,
 };
 
@@ -164,6 +165,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("limit_kinds.json", &LimitKind::ALL.to_vec()));
     fixtures.push(fixture("account_states.json", &AccountState::ALL.to_vec()));
     fixtures.push(fixture("stored_copy_reasons.json", &StoredCopyReason::ALL.to_vec()));
+    fixtures.push(fixture("switch_costs.json", &SwitchCost::ALL.to_vec()));
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
@@ -1263,6 +1265,11 @@ pub(crate) fn method_samples() -> Vec<Method> {
             provider: Some("work".into()),
             new_conversation: true,
         }),
+        Method::ConversationSwitchPreview(ConversationSwitchPreview {
+            conversation_id: conversation_id(),
+            model: "gpt-6.1-sol".into(),
+            provider: Some("b".into()),
+        }),
     ]
 }
 
@@ -1708,6 +1715,13 @@ fn answer_fixtures() -> Vec<Fixture> {
                     stopped: true,
                     ended: Some(at("2026-10-11T09:30:00Z")),
                 }],
+            },
+        ),
+        fixture(
+            "conversation_switch_preview_result.json",
+            &ConversationSwitchPreviewResult {
+                cost: SwitchCost::Compacts,
+                provider: Some("openai-subscription.b".into()),
             },
         ),
         fixture(

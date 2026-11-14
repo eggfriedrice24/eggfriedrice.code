@@ -591,6 +591,15 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   default (it does not read the pick, so it adds no store read to the prompt's), and
   runs in a task, so it holds no prompt. A warm-up records nothing, never sends a model request, carries no text
   of the prompt, and only logs a failure at debug level.
+- `conversation.switch_preview` (`methods/conversation_switch_preview.rs`, scope
+  `operate`, for the model sheet of the phone) says what a switch of the model or the
+  account would cost the next turn of a conversation: `none`, `cold_cache` or
+  `compacts`. It changes nothing and records nothing. It is a stub for now: it
+  answers `none` with no provider.
+- The accounts on the wire are stubs for now: `models.list` and `admin.status` send
+  no `label`, no `limits` and no `signed_out`, `turn_failed` has no `account_out`, no
+  `limits` draft goes out, and `turn_web_report` has no `stored_copy_reason`
+  (`efr-protocol`, `src/accounts.rs`).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
   and no provider with a login lists it (checked after the wait for a first list):

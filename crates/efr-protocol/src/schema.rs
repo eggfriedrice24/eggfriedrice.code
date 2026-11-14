@@ -20,7 +20,8 @@ use crate::{
     ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDelete,
     ConversationDeleteResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
     ConversationHistoryResult, ConversationResume, ConversationResumeResult, ConversationSearch,
-    ConversationSearchResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
+    ConversationSearchResult, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSwitchPreview, ConversationSwitchPreviewResult, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
     ConversationsSearchResult, ConversationsWatch, ConversationsWatchItem, DeviceEnroll,
     DeviceEnrollResult, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
@@ -253,6 +254,11 @@ fn methods(generator: &mut SchemaGenerator) -> Vec<Entry> {
             ScopeName::Read,
         ),
         unary::<ProviderWarm, ProviderWarmResult>(generator, "provider.warm", ScopeName::Operate),
+        unary::<ConversationSwitchPreview, ConversationSwitchPreviewResult>(
+            generator,
+            "conversation.switch_preview",
+            ScopeName::Operate,
+        ),
     ]
 }
 

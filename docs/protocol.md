@@ -1069,3 +1069,14 @@ No protocol version has shipped yet.
   before. A client names the setting that gives the live web: `,mode auto` for `mode`,
   the config for `setting`. The fixture `events/turn_web_report_stored_copy.json`
   now sets it; new fixture `stored_copy_reasons.json`.
+- Version 1, additive: new method `conversation.switch_preview` (scope `operate`,
+  unary, no command id), for the model sheet of the phone. Its params are the
+  `conversation_id`, the target `model` and an optional `provider` (as in
+  `TurnSettings`). The result has `cost` with the new wire enum `switch_cost`
+  (`none`: the same model on the same account; `cold_cache`: another model or the
+  same model on another account, so the provider's cache does not serve the next
+  request; `compacts`: the context does not fit the target's window, so efrd compacts
+  before the next turn; `unknown`) and an optional `provider`, the id that the target
+  names. It changes nothing and records nothing. An older efrd refuses the unknown
+  method. New fixtures `conversation_switch_preview_params.json`,
+  `conversation_switch_preview_result.json` and `switch_costs.json`.

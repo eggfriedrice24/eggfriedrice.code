@@ -104,6 +104,9 @@ pub use methods::conversation_subscribe::{
     ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
     LiveTurn,
 };
+pub use methods::conversation_switch_preview::{
+    ConversationSwitchPreview, ConversationSwitchPreviewResult, SwitchCost,
+};
 pub use methods::conversations_list::{
     ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
 };

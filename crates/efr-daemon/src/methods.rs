@@ -54,6 +54,7 @@ mod conversation_history;
 mod conversation_resume;
 mod conversation_search;
 mod conversation_subscribe;
+mod conversation_switch_preview;
 mod conversations_list;
 mod conversations_recent;
 mod conversations_search;
@@ -166,6 +167,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::DeviceRevoke(_) => ScopeName::Admin,
         Method::ConversationsWatch(_) => ScopeName::Read,
         Method::ProviderWarm(_) => ScopeName::Operate,
+        Method::ConversationSwitchPreview(_) => ScopeName::Operate,
     }
 }
 
@@ -252,6 +254,9 @@ impl Input {
             | Method::ConversationsWatch(_) => None,
             // NOTE: typing is not yet input in a conversation: the prompt is.
             Method::ProviderWarm(_) => None,
+            // NOTE: a look at the sheet is not yet input: the switch comes with the
+            // next prompt.
+            Method::ConversationSwitchPreview(_) => None,
             // NOTE: a delete is the user's act, but a deleted conversation records no
             // presence: the store refuses its events.
             Method::ConversationDelete(_) => None,
@@ -626,6 +631,9 @@ impl Dispatcher for Methods {
                 }
                 Method::ProviderWarm(params) => {
                     provider_warm::handle(state, &context, params, &responder).await
+                }
+                Method::ConversationSwitchPreview(params) => {
+                    conversation_switch_preview::handle(params, &responder).await
                 }
             };
             state.presence.record(touched).await;

@@ -8,12 +8,12 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
     ConversationCompact, ConversationContext, ConversationDelete, ConversationDiff,
     ConversationHistory, ConversationResume, ConversationSearch, ConversationSubscribe,
-    ConversationsList, ConversationsRecent, ConversationsSearch, ConversationsWatch, DeviceEnroll,
-    DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve, DeviceRevoke, Hello, InputRespond,
-    JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend,
-    PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer,
-    TurnUndo,
+    ConversationSwitchPreview, ConversationsList, ConversationsRecent, ConversationsSearch,
+    ConversationsWatch, DeviceEnroll, DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve,
+    DeviceRevoke, Hello, InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet,
+    ProjectsList, PromptSend, PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt,
+    TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -186,6 +186,10 @@ pub enum Method {
     /// user types it.
     #[serde(rename = "provider.warm")]
     ProviderWarm(ProviderWarm),
+    /// `conversation.switch_preview`: what a switch of the model or the account of a
+    /// conversation would cost its next turn.
+    #[serde(rename = "conversation.switch_preview")]
+    ConversationSwitchPreview(ConversationSwitchPreview),
 }
 
 impl Method {
@@ -242,6 +246,7 @@ impl Method {
             Method::DeviceRevoke(_) => "device.revoke",
             Method::ConversationsWatch(_) => "conversations.watch",
             Method::ProviderWarm(_) => "provider.warm",
+            Method::ConversationSwitchPreview(_) => "conversation.switch_preview",
         }
     }
 
@@ -298,7 +303,8 @@ impl Method {
             | Method::DeviceList(_)
             | Method::DeviceRevoke(_)
             | Method::ConversationsWatch(_)
-            | Method::ProviderWarm(_) => None,
+            | Method::ProviderWarm(_)
+            | Method::ConversationSwitchPreview(_) => None,
         }
     }
 
@@ -354,7 +360,8 @@ impl Method {
             | Method::DeviceProve(_)
             | Method::DeviceList(_)
             | Method::DeviceRevoke(_)
-            | Method::ProviderWarm(_) => false,
+            | Method::ProviderWarm(_)
+            | Method::ConversationSwitchPreview(_) => false,
         }
     }
 }
@@ -401,7 +408,10 @@ impl ScopeName {
             | Method::TurnUndo(_)
             | Method::JobsStop(_)
             | Method::ConversationResume(_)
-            | Method::ProviderWarm(_) => ScopeName::Operate,
+            | Method::ProviderWarm(_)
+            // NOTE: it changes nothing, but it answers for the next prompt, so it needs
+            // the scope of a prompt.
+            | Method::ConversationSwitchPreview(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

@@ -96,6 +96,8 @@ import type {
   ConversationSubscribe,
   ConversationSubscribeItem,
   ConversationSummary,
+  ConversationSwitchPreview,
+  ConversationSwitchPreviewResult,
   ConversationsList,
   ConversationsListResult,
   ConversationsRecent,
@@ -277,6 +279,7 @@ import type {
   StreamMethodName,
   SurfaceChange,
   Switch,
+  SwitchCost,
   SwitchedModel,
   TargetFact,
   TextRange,
@@ -970,6 +973,12 @@ export const conversationSubscribeSchema = z.object({
   drafts: z.boolean().exactOptional(),
 }) satisfies z.ZodType<ConversationSubscribe>;
 
+export const conversationSwitchPreviewSchema = z.object({
+  conversation_id: conversationIdSchema,
+  model: z.string(),
+  provider: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<ConversationSwitchPreview>;
+
 export const conversationsListSchema = z.object({
   cursor: pageCursorSchema.nullable().exactOptional(),
   limit: z.uint32().nullable().exactOptional(),
@@ -1253,6 +1262,10 @@ export const methodSchema = z.discriminatedUnion("method", [
   z.object({ method: z.literal("device.revoke"), params: deviceRevokeSchema }),
   z.object({ method: z.literal("conversations.watch"), params: conversationsWatchSchema }),
   z.object({ method: z.literal("provider.warm"), params: providerWarmSchema }),
+  z.object({
+    method: z.literal("conversation.switch_preview"),
+    params: conversationSwitchPreviewSchema,
+  }),
 ]) satisfies z.ZodType<Method>;
 
 export const clientRequestSchema = z.intersection(
@@ -2359,6 +2372,18 @@ export const conversationSubscribeItemSchema = z.discriminatedUnion("kind", [
   draftSchema.extend({ kind: z.literal("draft") }),
 ]) satisfies z.ZodType<ConversationSubscribeItem>;
 
+export const switchCostSchema = z.enum([
+  "none",
+  "cold_cache",
+  "compacts",
+  "unknown",
+]) satisfies z.ZodType<SwitchCost>;
+
+export const conversationSwitchPreviewResultSchema = z.object({
+  cost: switchCostSchema,
+  provider: z.string().nullable().exactOptional(),
+}) satisfies z.ZodType<ConversationSwitchPreviewResult>;
+
 export const conversationsListResultSchema = z.object({
   conversations: z.array(conversationSummarySchema),
   next_cursor: pageCursorSchema.nullable().exactOptional(),
@@ -2583,6 +2608,7 @@ export const methodNameSchema = z.enum([
   "device.revoke",
   "conversations.watch",
   "provider.warm",
+  "conversation.switch_preview",
 ]) satisfies z.ZodType<MethodName>;
 
 export const methodParamsSchema = z.strictObject({
@@ -2604,6 +2630,7 @@ export const methodParamsSchema = z.strictObject({
   "conversation.resume": conversationResumeSchema,
   "conversation.search": conversationSearchSchema,
   "conversation.subscribe": conversationSubscribeSchema,
+  "conversation.switch_preview": conversationSwitchPreviewSchema,
   "conversations.list": conversationsListSchema,
   "conversations.recent": conversationsRecentSchema,
   "conversations.search": conversationsSearchSchema,
@@ -2871,6 +2898,7 @@ export const methodResultsSchema = z.strictObject({
   "conversation.resume": conversationResumeResultSchema,
   "conversation.search": conversationSearchResultSchema,
   "conversation.subscribe": conversationSubscribeItemSchema,
+  "conversation.switch_preview": conversationSwitchPreviewResultSchema,
   "conversations.list": conversationsListResultSchema,
   "conversations.recent": conversationsRecentResultSchema,
   "conversations.search": conversationsSearchResultSchema,

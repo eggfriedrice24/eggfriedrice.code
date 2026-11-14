@@ -2798,6 +2798,51 @@
       ],
       "type": "object"
     },
+    "ConversationSwitchPreview": {
+      "description": "The params of `conversation.switch_preview`, a unary method with the scope that\n`prompt.send` needs. It changes nothing: efrd says what the next turn of the\nconversation would cost on the target, from the conversation's context now.",
+      "properties": {
+        "conversation_id": {
+          "$ref": "#/$defs/ConversationId",
+          "description": "The conversation."
+        },
+        "model": {
+          "description": "The target model, as `settings.model` of a prompt names it, such as\n`gpt-6.1-sol`.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider or account of `model`, as `TurnSettings::provider` names it, such\nas `openai-subscription.b` or `b`. Absent: the provider that a prompt with\n`model` alone would take.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "conversation_id",
+        "model"
+      ],
+      "type": "object"
+    },
+    "ConversationSwitchPreviewResult": {
+      "description": "The result of `conversation.switch_preview`.",
+      "properties": {
+        "cost": {
+          "$ref": "#/$defs/SwitchCost",
+          "description": "What the switch costs."
+        },
+        "provider": {
+          "description": "The provider id that the target names, such as `openai-subscription.b`. Absent\nwhen efrd cannot tell it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cost"
+      ],
+      "type": "object"
+    },
     "ConversationsList": {
       "description": "The params of `conversations.list`.",
       "properties": {
@@ -9098,6 +9143,23 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "`conversation.switch_preview`: what a switch of the model or the account of a\nconversation would cost its next turn.",
+          "properties": {
+            "method": {
+              "const": "conversation.switch_preview",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/ConversationSwitchPreview"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -9152,7 +9214,8 @@
         "device.list",
         "device.revoke",
         "conversations.watch",
-        "provider.warm"
+        "provider.warm",
+        "conversation.switch_preview"
       ],
       "type": "string"
     },
@@ -9213,6 +9276,9 @@
         },
         "conversation.subscribe": {
           "$ref": "#/$defs/ConversationSubscribe"
+        },
+        "conversation.switch_preview": {
+          "$ref": "#/$defs/ConversationSwitchPreview"
         },
         "conversations.list": {
           "$ref": "#/$defs/ConversationsList"
@@ -9357,7 +9423,8 @@
         "device.list",
         "device.revoke",
         "conversations.watch",
-        "provider.warm"
+        "provider.warm",
+        "conversation.switch_preview"
       ],
       "type": "object"
     },
@@ -9418,6 +9485,9 @@
         },
         "conversation.subscribe": {
           "$ref": "#/$defs/ConversationSubscribeItem"
+        },
+        "conversation.switch_preview": {
+          "$ref": "#/$defs/ConversationSwitchPreviewResult"
         },
         "conversations.list": {
           "$ref": "#/$defs/ConversationsListResult"
@@ -9562,7 +9632,8 @@
         "device.list",
         "device.revoke",
         "conversations.watch",
-        "provider.warm"
+        "provider.warm",
+        "conversation.switch_preview"
       ],
       "type": "object"
     },
@@ -12476,6 +12547,31 @@
             "kind"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "SwitchCost": {
+      "description": "What a switch of the model or the account costs the next turn. Each tier includes\nthe cost of the tiers before it.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Nothing: the target is the model and the account of the conversation now, such\nas a change of the effort only.",
+          "type": "string"
+        },
+        {
+          "const": "cold_cache",
+          "description": "The provider's cache of the conversation does not serve the target, so the next\nrequest pays for its whole context once: another model, or the same model on\nanother account. A client says nothing about it.",
+          "type": "string"
+        },
+        {
+          "const": "compacts",
+          "description": "The context does not fit the target's window, so efrd compacts the conversation\nbefore the next turn, and the cache starts cold. A client asks before it\nswitches.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A cost that this build does not know.",
+          "type": "string"
         }
       ]
     },

@@ -236,6 +236,10 @@ export type Method =
   | {
       method: "provider.warm";
       params: ProviderWarm;
+    }
+  | {
+      method: "conversation.switch_preview";
+      params: ConversationSwitchPreview;
     };
 /**
  * An enrolled device such as a phone. The Unix socket does not use it.
@@ -2281,7 +2285,8 @@ export type MethodName =
   | "device.list"
   | "device.revoke"
   | "conversations.watch"
-  | "provider.warm";
+  | "provider.warm"
+  | "conversation.switch_preview";
 /**
  * One item of an `admin.login_openai` stream.
  */
@@ -2621,6 +2626,11 @@ export type DraftPart =
        */
       provider: string;
     };
+/**
+ * What a switch of the model or the account costs the next turn. Each tier includes
+ * the cost of the tiers before it.
+ */
+export type SwitchCost = "none" | "cold_cache" | "compacts" | "unknown";
 /**
  * One item of a `conversations.watch` stream.
  */
@@ -4266,6 +4276,28 @@ export interface ProviderWarm {
   tty?: string | null;
 }
 /**
+ * The params of `conversation.switch_preview`, a unary method with the scope that
+ * `prompt.send` needs. It changes nothing: efrd says what the next turn of the
+ * conversation would cost on the target, from the conversation's context now.
+ */
+export interface ConversationSwitchPreview {
+  /**
+   * The conversation.
+   */
+  conversation_id: ConversationId;
+  /**
+   * The target model, as `settings.model` of a prompt names it, such as
+   * `gpt-6.1-sol`.
+   */
+  model: string;
+  /**
+   * The provider or account of `model`, as `TurnSettings::provider` names it, such
+   * as `openai-subscription.b` or `b`. Absent: the provider that a prompt with
+   * `model` alone would take.
+   */
+  provider?: string | null;
+}
+/**
  * Cancel a request in flight.
  */
 export interface ClientCancel {
@@ -5531,6 +5563,7 @@ export interface MethodParams {
   "conversation.resume": ConversationResume;
   "conversation.search": ConversationSearch;
   "conversation.subscribe": ConversationSubscribe;
+  "conversation.switch_preview": ConversationSwitchPreview;
   "conversations.list": ConversationsList;
   "conversations.recent": ConversationsRecent;
   "conversations.search": ConversationsSearch;
@@ -5585,6 +5618,7 @@ export interface MethodResults {
   "conversation.resume": ConversationResumeResult;
   "conversation.search": ConversationSearchResult;
   "conversation.subscribe": ConversationSubscribeItem;
+  "conversation.switch_preview": ConversationSwitchPreviewResult;
   "conversations.list": ConversationsListResult;
   "conversations.recent": ConversationsRecentResult;
   "conversations.search": ConversationsSearchResult;
@@ -6698,6 +6732,20 @@ export interface Draft {
    * The turn that the draft belongs to.
    */
   turn_id: TurnId;
+}
+/**
+ * The result of `conversation.switch_preview`.
+ */
+export interface ConversationSwitchPreviewResult {
+  /**
+   * What the switch costs.
+   */
+  cost: SwitchCost;
+  /**
+   * The provider id that the target names, such as `openai-subscription.b`. Absent
+   * when efrd cannot tell it.
+   */
+  provider?: string | null;
 }
 /**
  * The result of `conversations.list`.
@@ -7874,6 +7922,7 @@ export const METHOD_NAMES = [
   "device.revoke",
   "conversations.watch",
   "provider.warm",
+  "conversation.switch_preview",
 ] as const satisfies readonly MethodName[];
 
 /** Every error code. The set is closed: a new code bumps the protocol version. */
