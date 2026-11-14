@@ -175,9 +175,9 @@ fn mark_at(text: &str) -> Mark<'_> {
     let Some(end) = url.find(|c: char| c == '>' || c.is_whitespace() || c.is_control()) else {
         return Mark::Open;
     };
-    match url[end..].as_bytes() {
-        [b'>'] => Mark::Open,
-        [b'>', b')', ..] => Mark::Complete { number, len: text.len() - url.len() + end + 2 },
+    match url.as_bytes().get(end..) {
+        Some([b'>']) => Mark::Open,
+        Some([b'>', b')', ..]) => Mark::Complete { number, len: text.len() - url.len() + end + 2 },
         _ => Mark::No,
     }
 }
