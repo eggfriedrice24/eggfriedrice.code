@@ -91,7 +91,8 @@ test-full:
 # `research/auto-direction/eval/cases.json`) is one turn of a test daemon whose
 # scripted model runs the case's line; the real reviewer model judges its exit over
 # the key of `EFR_EVAL_ANTHROPIC_KEY`. No line runs. It writes one result line per case
-# to `EFR_EVAL_OUT` and prints a table. Each review is a billed request.
+# to `EFR_EVAL_OUT` and prints a table. Each review is a billed request. Without the key
+# it is a dry run: a fake reviewer refuses each review, at no cost.
 eval-reviewer:
     #!/usr/bin/env bash
     set -euo pipefail

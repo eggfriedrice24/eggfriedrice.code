@@ -1422,7 +1422,9 @@ impl Provider for LiveModel {
 }
 
 /// What efr did with a case's exit: the reviewer's applied verdict, a refusal before
-/// any review (a floor, or the one-command rule), or no exit at all.
+/// any review (a floor, or the one-command rule), or no exit at all. With no
+/// `EFR_EVAL_ANTHROPIC_KEY` the eval is a dry run at no cost: a fake reviewer refuses
+/// each review, which shows which cases reach a review.
 fn live_outcome(events: &[EventEnvelope]) -> &'static str {
     let judged = judgements(events);
     if judged.contains(&(JudgeKind::Classifier, Verdict::Deny)) {
@@ -1431,6 +1433,13 @@ fn live_outcome(events: &[EventEnvelope]) -> &'static str {
         "floor"
     } else if judged.contains(&(JudgeKind::Classifier, Verdict::Allow)) {
         "allow"
+    } else if events.iter().any(|envelope| {
+        matches!(&envelope.event, Event::ToolCallCompleted { output, .. }
+            if output.contains("must run alone"))
+    }) {
+        // NOTE: efr's one-command rule refused the line before any review, such as a
+        // line that gets a login and holds a `$VAR`.
+        "one command"
     } else if records(events).is_empty() {
         "no exit"
     } else {
@@ -1438,29 +1447,10 @@ fn live_outcome(events: &[EventEnvelope]) -> &'static str {
     }
 }
 
-/// The live eval of the reviewer's two sides, with the real reviewer model and no line
-/// that runs: each case of `EFR_EVAL_CASES` (a JSON array of [`LiveCase`]) is one turn
-/// of a test daemon in `auto` behind the proxy, whose scripted model runs the case's
-/// line; efrd's engine, facts and record go to the real reviewer, over the key of
-/// `EFR_EVAL_ANTHROPIC_KEY`. It writes one JSON line per case to `EFR_EVAL_OUT` and
-/// prints a table of the outcomes by set. It measures; it fails only when no review
-/// got an answer, such as for a wrong key.
-#[tokio::test]
-#[ignore = "asks the real reviewer model; `just eval-reviewer` runs it"]
-async fn reviewer_live_eval() {
-    use efr_stdx::env::Var;
-    let Some(cases_path) = efr_stdx::env::path(Var::EvalCases).unwrap() else {
-        eprintln!("skipped: EFR_EVAL_CASES is not set");
-        return;
-    };
-    let key = efr_stdx::env::var(Var::EvalAnthropicKey)
-        .unwrap()
-        .expect("EFR_EVAL_ANTHROPIC_KEY holds the Anthropic API key of the eval");
-    let out = efr_stdx::env::path(Var::EvalOut)
-        .unwrap()
-        .unwrap_or_else(|| cases_path.with_extension("out.jsonl"));
-    let cases: Vec<LiveCase> =
-        serde_json::from_slice(&std::fs::read(&cases_path).unwrap()).unwrap();
+/// The real reviewer model over the Anthropic API key `key`. The provider serves only
+/// the models of its list, as efrd's does, so it fetches the list with the same key
+/// first.
+async fn live_reviewer(key: String) -> Arc<dyn Provider> {
     let clock: Arc<dyn efr_stdx::time::Clock> = Arc::new(efr_stdx::time::SystemClock);
     let rng: Arc<dyn efr_stdx::rng::Rng> = Arc::new(efr_stdx::rng::SystemRng::new().unwrap());
     let http = efr_http::HttpClient::new(
@@ -1471,8 +1461,6 @@ async fn reviewer_live_eval() {
     .unwrap();
     let tokens: Arc<dyn efr_provider::TokenSource> =
         Arc::new(efr_provider::StaticToken::new(efr_provider::SecretString::from(key)));
-    // NOTE: the provider serves only the models of its list, as efrd's does, so the eval
-    // fetches the list with the same key first.
     let list = efr_providers::anthropic::CatalogClient::new(
         efr_providers::anthropic::AnthropicConfig::new(),
         http.clone(),
@@ -1492,11 +1480,46 @@ async fn reviewer_live_eval() {
         rng,
     )
     .with_catalog(efr_providers::anthropic::ModelCatalog::with_catalog(list));
+    Arc::new(reviewer)
+}
+
+/// The live eval of the reviewer's two sides, with the real reviewer model and no line
+/// that runs: each case of `EFR_EVAL_CASES` (a JSON array of [`LiveCase`]) is one turn
+/// of a test daemon in `auto` behind the proxy, whose scripted model runs the case's
+/// line; efrd's engine, facts and record go to the real reviewer, over the key of
+/// `EFR_EVAL_ANTHROPIC_KEY`. It writes one JSON line per case to `EFR_EVAL_OUT` and
+/// prints a table of the outcomes by set. It measures; it fails only when no review
+/// got an answer, such as for a wrong key.
+#[tokio::test]
+#[ignore = "asks the real reviewer model; `just eval-reviewer` runs it"]
+async fn reviewer_live_eval() {
+    use efr_stdx::env::Var;
+    let Some(cases_path) = efr_stdx::env::path(Var::EvalCases).unwrap() else {
+        eprintln!("skipped: EFR_EVAL_CASES is not set");
+        return;
+    };
+    let key = efr_stdx::env::var(Var::EvalAnthropicKey).unwrap();
+    let out = efr_stdx::env::path(Var::EvalOut)
+        .unwrap()
+        .unwrap_or_else(|| cases_path.with_extension("out.jsonl"));
+    let cases: Vec<LiveCase> =
+        serde_json::from_slice(&std::fs::read(&cases_path).unwrap()).unwrap();
+    let reviewer: Arc<dyn Provider> = match key {
+        Some(key) => live_reviewer(key).await,
+        None => {
+            // NOTE: a dry run, at no cost: it shows which cases reach a review at all.
+            eprintln!(
+                "dry run: EFR_EVAL_ANTHROPIC_KEY is not set, so a fake reviewer refuses each review"
+            );
+            EvalModel::new(Vec::new())
+        }
+    };
+    let dry = efr_stdx::env::var(Var::EvalAnthropicKey).unwrap().is_none();
     let model = Arc::new(LiveModel {
         id: ProviderId::new("test").unwrap(),
         cases: cases.clone(),
         current: Mutex::new(0),
-        reviewer: Arc::new(reviewer),
+        reviewer,
         model: efr_providers::anthropic::CLASSIFIER_MODEL.to_owned(),
         answers: Mutex::new(Vec::new()),
     });
@@ -1556,6 +1579,18 @@ async fn reviewer_live_eval() {
             "exits": exits,
             "answers": answers.iter().map(|(text, _)| text).collect::<Vec<_>>(),
             "ms": answers.iter().map(|(_, ms)| ms).collect::<Vec<_>>(),
+            // NOTE: what the turn did, for a case with no exit: a refusal of the tool
+            // input, for example, ends the call before the engine.
+            "events": events.iter().map(|envelope| envelope.event.kind()).collect::<Vec<_>>(),
+            "results": events
+                .iter()
+                .filter_map(|envelope| match &envelope.event {
+                    Event::ToolCallCompleted { output, .. } => {
+                        Some(output.chars().take(300).collect::<String>())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
         });
         use std::io::Write as _;
         writeln!(file, "{row}").unwrap();
@@ -1575,5 +1610,5 @@ async fn reviewer_live_eval() {
         println!("{set} / {expect} / {outcome}: {count}");
     }
     println!("results: {}", out.display());
-    assert!(answered > 0, "no review got an answer: check the key");
+    assert!(dry || answered > 0, "no review got an answer: check the key");
 }
