@@ -103,6 +103,39 @@ async fn the_windows_of_a_plan_show_after_a_call_and_a_logout_clears_them() {
     daemon.stop().await.unwrap();
 }
 
+#[tokio::test]
+async fn a_plan_at_its_usage_limit_stops_the_turn_after_one_try_with_its_reset() {
+    let server = ResponsesServer::start().await;
+    let daemon = TestDaemon::builder().subscription(&server).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let resets_at = daemon.clock().shared().now().as_second() + 1200;
+    let body = serde_json::json!({"error": {
+        "type": "usage_limit_reached",
+        "message": "You have hit your usage limit.",
+        "plan_type": "plus",
+        "resets_at": resets_at,
+    }});
+    server.push(ResponsesAnswer::new(429, body.to_string()));
+
+    let events = turn(&daemon, &client, 1).await;
+
+    let Event::TurnFailed { account_out, .. } = &events.last().unwrap().event else {
+        panic!("{events:#?}")
+    };
+    let reached = LimitReached {
+        kind: LimitKind::Usage,
+        resets_at: Some(jiff::Timestamp::from_second(resets_at).unwrap()),
+    };
+    let out = account_out.as_ref().expect("the cause of the stop");
+    assert_eq!((out.provider.as_str(), &out.reached), ("openai-subscription", &reached));
+    assert_eq!(server.received().len(), 1, "a usage limit is never sent again");
+    let (status, listed) = limits_of(&client, "openai-subscription").await;
+    assert_eq!(status.as_ref().and_then(|limits| limits.reached.clone()), Some(reached));
+    assert_eq!(listed, status);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
 /// A 429 of the Messages API whose `requests` bucket is empty until `reset`.
 fn requests_used_up(reset: &str) -> MessagesAnswer {
     // NOTE: a wait above the policy's longest ends the tries at once.
