@@ -10,6 +10,124 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- `[accounts.labels]` in `config.toml` gives each account a name of your own, such as
+  `"anthropic-api.work" = "Work"`. `efr models`, the model list and `admin.status`
+  carry the label. efr also lists an account that the table names while it has no
+  login, as signed out.
+- When an account reaches a limit, the turn stops and says why: the usage limit of a
+  ChatGPT plan, no credit left, a spend limit, or "too many requests" after the
+  retries. It gives the reset time when the provider tells it. Under the failed turn,
+  efr names the other accounts that serve the same model: ready ones, and full ones
+  whose reset comes first. Each one has its `,model` command on a row of its own, so a
+  triple click copies it. A signed-out account gets its login command instead. efr
+  never switches by itself. `efr history` keeps the limit on the row of the failure.
+- When the rate limit of an API key stops a turn, efr names the limit that ran out
+  (requests, tokens, input tokens or output tokens) and when it resets. A key shows a
+  rate limit only when it was hit, until a call works again.
+- `efr status` shows the limits under each account: the usage windows of a ChatGPT
+  plan, such as the 5-hour and the weekly window, how full each one is and when it
+  resets, and a limit that an API key reached. efrd learns the windows from each
+  answer of the plan, also on the WebSocket, and `admin.status` and `models.list`
+  carry them with the time efrd learned them. A window goes away at its reset, and a
+  logout clears it. Only the number has a colour: from 80 % the warning colour, at
+  100 % the error colour with `reached`. A value older than 5 minutes says its age.
+- The status row of a running turn shows the fullest usage window of its account from
+  90 %, such as `5-hour 92%`. efrd sends the windows as a `limits` draft, and a client
+  that joins during the turn gets the newest one at once.
+- `conversation.switch_preview` tells a client what a switch of the model or the
+  account costs: nothing, a cold cache, or a compaction.
+- With more than one account, Tab after `,model` also completes each model with its
+  account, such as `b/gpt-6.1-sol`.
+- Set `EFR_WARM=0` to turn off the warm-up of the connection while you type a prompt
+  line. The change applies from the next line.
+- The phone app has a model sheet. Tap the model button at the end of the status line.
+  The sheet lists the models of each account of the machine (Claude API, OpenAI API,
+  ChatGPT plan, with the label or the id of the account). It has one effort slider for
+  the selected model, and it shows a confirm only when something changed. A switch
+  that compacts the conversation says so first.
+- The phone app sends the model, the account and the effort that you picked with each
+  prompt of that conversation.
+- The phone app shows one quiet line above the first answer on a new model or account,
+  such as "⇄ GPT-6.1 Sol on b · medium · compacted".
+- When the account of a turn reached a limit or has no credit left, the phone app says
+  why and when the limit resets. It offers the same model on each other account that
+  can serve it, and it never switches by itself.
+- The phone app shows the limits of each account: a warning in the model sheet from
+  80 %, "limit reached" at 100 %, the limit in the status line of a running turn from
+  90 %, and a screen per account in Settings.
+- Settings in the phone app has the switch "Ask before a costly model switch" (on by
+  default), and the model sheet has "Don't ask again here" for one conversation.
+- The phone app answers a question in a strip above the composer, with Deny and Allow.
+  A tap on the strip or on the waiting tool card opens a sheet with the full command or
+  diff. The sheet never opens by itself.
+- The phone app shows auto on the tool card: "reviewing", the verdict of the reviewer,
+  of an always rule or of efr, and what the call got, in the words of the terminal. A
+  pause of the reviewer is one quiet line.
+- The phone app shows on the tool card which changed git settings and other files that
+  run programs moved to quarantine, and which stayed in place.
+- The phone app lists the web pages that an answer cites at the end of the turn, counts
+  the searches on the end line, and says when the search read a stored copy of the
+  web.
+
+### Changed
+
+- A login, a logout, or a credential file that you put in place or remove yourself
+  applies at once in `efr status`, the model list and the next prompt, with no restart
+  of efrd. A change of `[accounts]` or `[model] provider` also starts the account at
+  once.
+- efr does not send a call again when a ChatGPT plan is at its usage limit. It waits
+  for the reset.
+- When a window of a ChatGPT plan is at 100 %, the switch offer counts that account as
+  full until the window resets.
+- `efr status` and `efr models` name the kind of each account in words: `Claude API`,
+  `ChatGPT plan`, `OpenAI API`. In `efr status` the default account of a kind has no
+  name.
+- The login command that efr shows for a Claude key is `efr login anthropic`.
+- An allow of the reviewer or of an always rule names what the call gets on the same
+  line, such as `github.com:443 reachable, the variable GH_TOKEN`. The whole network
+  of the computer is now `host network` (before: `full network`), in the warning
+  colour, also on a question.
+- A refusal of the reviewer, a refusal of efr's own rules (`efr: ...`), a review with
+  no answer and the pause of the reviewer each start with `!` in the warning colour.
+- The `⇄` line of a switch to another account on the same model names both accounts,
+  such as `was openai/gpt-6.1-sol medium`.
+- When the output is not a terminal, efr writes a citation mark as plain `[1]`. The
+  list of sources on stderr names each address. `efr history` does the same.
+- The model knows that `gh` needs `api.github.com`, which the proxy does not list. It
+  names the host on the first call.
+- efr keeps only the newest 2 database copies in `backups/`. At each start, efr removes
+  the older copies, because they keep conversations that you deleted.
+- Once an hour, efr deletes command receipts that are older than 7 days. It also
+  deletes outbox rows that ended more than 1 day ago.
+- The tool card of a question in the phone app shows only a status word after the
+  answer: allowed, denied or expired. In the last minute it shows the seconds left,
+  also for a question that only the terminal can answer.
+- A store build of the phone app no longer holds the dev gallery, the bench and the
+  demo machines.
+- The phone app needs a new dev build for the native effort slider. An older build
+  shows the efforts as buttons.
+
+### Fixed
+
+- `efr compact` and `efr context` wait for the model list of the account of the
+  conversation, not only for the one of the provider of new conversations.
+- The context window of a model comes from the account that runs it, when two
+  accounts list the same model.
+- When `web.search = "cached"` chose the stored copy of the web, the note under the
+  turn names that setting, and not `,mode auto`, which does not change it. The model
+  reads the same in its instructions.
+- `,resume`, the delete of a conversation, the list for an id that names more than one
+  conversation, and the note about a conversation that moved to another terminal now
+  show the title with its secrets hidden, as the search picker does.
+
+### Security
+
+- The database writes zeros over the content that a delete frees (`secure_delete`).
+- The phone app build tools use @expo/cli 58.1.20, which drops zod 3, and node-forge
+  1.4.3.
+
 ## [0.0.10] - 2026-11-14
 
 ### Added
