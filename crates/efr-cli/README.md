@@ -296,7 +296,8 @@ Replies:
   runs again on the ChatGPT plan at 14:20, before b:` and its command; a muted `personal
   is signed out: efr login anthropic --account personal` for each signed-out one; `no
   other account runs <model>` when efrd names none (`format::accounts`, TM-Accounts 1
-  to 5 and 17). Before it shows the offer, the
+  to 5 and 17). A named account is `b` in the limit too (`b reached its usage limit.`),
+  as in the offer and in `efr status` (errata 12). Before it shows the offer, the
   follow loop asks `models.list` for the providers (at most 2 s): an account whose
   name another provider also has, such as `work` of `openai-api.work` and
   `anthropic-api.work`, gets its full id in the command
