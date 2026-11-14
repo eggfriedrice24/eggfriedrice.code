@@ -405,6 +405,18 @@ impl Providers {
                 continue;
             }
             tracing::info!(provider = %id, logged_in = status.logged_in, "the credential store changed the login of a provider");
+            if efr_config::provider_kind(id) == SUBSCRIPTION {
+                // NOTE: the provider must not keep the token of the old login.
+                match &self.credential {
+                    Some(credential) => {
+                        if let Ok(source) = credential.token_source(id) {
+                            source.clear_cache();
+                        }
+                    }
+                    None if id == SUBSCRIPTION => self.subscription.clear_cache(),
+                    None => {}
+                }
+            }
             self.note_login(id, status.logged_in);
         }
     }
