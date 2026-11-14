@@ -86,11 +86,13 @@ async fn compact(
         },
         None => None,
     };
-    let context_window =
-        config.models.iter().find(|info| info.id == model).and_then(|info| info.context_window);
-    let limits = ContextLimits::new(context_window, config.compaction);
     let newest = settings.and_then(|settings| settings.provider.as_deref());
     let provider = crate::router::provider_after(&model, newest, &config, &*shared.deps.providers)?;
+    // NOTE: the window of the provider that compacts: two accounts can list the model
+    // with other windows.
+    let context_window =
+        crate::router::context_window(&config.models, &model, provider.id().as_str());
+    let limits = ContextLimits::new(context_window, config.compaction);
     let key = ModelKey::new(provider.id().clone(), model.clone());
     let history = config.history.for_window(limits.window);
     let window = snapshot.window(None, cache, &key, history, head.as_deref());

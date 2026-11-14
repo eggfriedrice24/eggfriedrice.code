@@ -13,7 +13,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use efr_protocol::EffectiveSettings;
+use efr_protocol::{EffectiveSettings, ModelInfo};
 use efr_provider::Provider;
 
 use crate::{ConversationConfig, ConversationError};
@@ -48,6 +48,17 @@ impl ProviderRouter for OneProvider {
     fn get(&self, _id: &str) -> Option<Arc<dyn Provider>> {
         Some(Arc::clone(&self.0))
     }
+}
+
+/// The context window of `model` on `provider` in the model list `models`: the window
+/// of the entry that `provider` lists, else of the first entry of the model, as for a
+/// list whose entries name no provider. Two accounts can list one model with other
+/// windows, such as a ChatGPT plan and an API key. `None` when no entry gives one.
+pub(crate) fn context_window(models: &[ModelInfo], model: &str, provider: &str) -> Option<u64> {
+    let mut entries = models.iter().filter(|info| info.id == model);
+    let own =
+        models.iter().find(|info| info.id == model && info.provider.as_deref() == Some(provider));
+    own.or_else(|| entries.next()).and_then(|info| info.context_window)
 }
 
 /// The id of the provider of `model`: the first provider whose list in `config` names

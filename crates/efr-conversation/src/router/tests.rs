@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use efr_protocol::{ModelInfo, ModelSource};
 use efr_provider::{Provider, ProviderError, ProviderId, ProviderStream, Request};
 
-use super::{OneProvider, ProviderRouter, provider_after, provider_id, provider_of};
+use super::{
+    OneProvider, ProviderRouter, context_window, provider_after, provider_id, provider_of,
+};
 use crate::{ConversationConfig, ConversationError};
 
 #[derive(Debug)]
@@ -63,6 +65,29 @@ fn config(models: Vec<ModelInfo>) -> ConversationConfig {
     let mut config = ConversationConfig::new("gpt-5.5", "/scratch");
     config.models = models;
     config
+}
+
+#[test]
+fn the_window_of_a_model_is_the_one_of_its_provider_else_of_its_first_entry() {
+    let window = |id: &str, provider: Option<&str>, tokens: u64| ModelInfo {
+        context_window: Some(tokens),
+        ..model(id, provider)
+    };
+    let models = vec![
+        window("gpt-5.5", Some("openai-subscription"), 272_000),
+        window("gpt-5.5", Some("openai-api"), 400_000),
+        window("o9", None, 128_000),
+    ];
+
+    assert_eq!(context_window(&models, "gpt-5.5", "openai-api"), Some(400_000));
+    assert_eq!(context_window(&models, "gpt-5.5", "openai-subscription"), Some(272_000));
+    assert_eq!(
+        context_window(&models, "gpt-5.5", "openai-subscription.b"),
+        Some(272_000),
+        "a provider that lists no entry takes the first one"
+    );
+    assert_eq!(context_window(&models, "o9", "openai-api"), Some(128_000));
+    assert_eq!(context_window(&models, "claude-next", "anthropic-api"), None);
 }
 
 #[test]

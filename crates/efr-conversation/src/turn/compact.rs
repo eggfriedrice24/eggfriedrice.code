@@ -55,16 +55,12 @@ pub(super) enum Recovered {
 }
 
 impl Turn {
-    /// The limits of the turn's model: its window from the model list, and the
-    /// compaction settings of the turn.
+    /// The limits of the turn's model: its window from the entry of the turn's provider
+    /// in the model list, and the compaction settings of the turn.
     pub(super) fn limits(&self) -> ContextLimits {
-        let model = self.model_key().model;
-        let window = self
-            .config
-            .models
-            .iter()
-            .find(|info| info.id == model)
-            .and_then(|info| info.context_window);
+        let key = self.model_key();
+        let window =
+            crate::router::context_window(&self.config.models, &key.model, key.provider.as_str());
         ContextLimits::new(window, self.config.compaction)
     }
 

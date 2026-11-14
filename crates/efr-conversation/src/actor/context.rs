@@ -52,18 +52,16 @@ pub(super) async fn run(
         None => newest.map_or_else(|| config.model.clone(), |settings| settings.model.clone()),
     };
     let effort = newest.map_or_else(|| config.effort.clone(), |settings| settings.effort.clone());
-    let known = config
-        .models
-        .iter()
-        .find(|info| info.id == model)
-        .and_then(|info| info.context_window)
-        .filter(|window| *window > 0);
-    let limits = ContextLimits::new(known, config.compaction);
     let newest_provider = newest
         .filter(|settings| settings.model == model)
         .and_then(|settings| settings.provider.as_deref());
     let provider =
         crate::router::provider_after(&model, newest_provider, &config, &*shared.deps.providers)?;
+    // NOTE: the window of the provider that the next call goes to: two accounts can
+    // list the model with other windows.
+    let known = crate::router::context_window(&config.models, &model, provider.id().as_str())
+        .filter(|window| *window > 0);
+    let limits = ContextLimits::new(known, config.compaction);
     let key = ModelKey::new(provider.id().clone(), model.clone());
     // NOTE: the hosted tools of the newest turn's settings, so the count matches the
     // turn's request; before any turn there is none.
