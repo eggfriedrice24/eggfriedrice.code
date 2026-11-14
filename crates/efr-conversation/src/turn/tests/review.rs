@@ -213,7 +213,7 @@ async fn one_exit_requested_per_reviewed_call() {
     assert!(!cached && record_sha256.is_some());
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
-    assert_eq!(ran[0].launch, Launch::Unsandboxed);
+    assert_eq!(ran[0].launch, Launch::contained(), "a push runs in the sandbox");
     // The line has no flag, so it keeps the model's timeout.
     assert!(!ran[0].may_wait);
     assert_eq!(ran[0].approved_by, Some(efr_protocol::ApprovedBy::Reviewer));
@@ -599,9 +599,7 @@ async fn outside_with_program_changed_this_turn_needs_a_clear_request() {
 async fn outside_with_cwd_in_root_goes_to_classifier() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
-    let mut facts = programs(&[("git", "/usr/bin/git", false)]);
-    // NOTE: the git code of the project, which no contained call writes (v0.0.4, DV22).
-    facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
+    let facts = programs(&[("git", "/usr/bin/git", false)]);
     let requirements = outside_requirements("git pull", &setup.cwd, facts);
     let (_, question) = decided(
         setup,
@@ -655,11 +653,12 @@ async fn user_only_kinds_say_so_in_the_question_while_the_user_answers() {
 async fn floor_kinds_never_judged() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
-    let key = setup.home().join(".ssh/id_ed25519");
+    let key = PathBuf::from("/etc/shadow");
     let line = format!("cat {}", key.display());
     let requirements = Requirements::none().with_command(&line).with_read(&key);
     let (h, question) =
-        decided(setup, shell(&line), "show my ssh key", Some((line.as_str(), requirements))).await;
+        decided(setup, shell(&line), "show the shadow file", Some((line.as_str(), requirements)))
+            .await;
     assert!(!question);
     assert_eq!(judge.calls(), 0);
     assert_eq!(judgements(&h).await, vec![(JudgeKind::Floor, Verdict::Deny)]);

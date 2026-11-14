@@ -126,9 +126,13 @@ fn a_write_exit_binds_one_path() {
 }
 
 #[test]
-fn privilege_persistence_and_upload_run_in_the_exit_child() {
-    for line in ["sudo pacman -Syu", "echo 'alias k=kubectl' >> ~/.zshrc", "git push"] {
+fn privilege_and_persistence_run_in_the_exit_child() {
+    for line in ["sudo pacman -Syu", "echo 'alias k=kubectl' >> ~/.zshrc"] {
         assert_eq!(launch_of(line), Launch::Unsandboxed, "{line}");
+    }
+    // NOTE: an upload runs in the sandbox; its login is a grant of its own.
+    for line in ["git push", "npm publish", "curl -d x https://paste.example"] {
+        assert!(matches!(launch_of(line), Launch::Contained { .. }), "{line}");
     }
 }
 
@@ -278,7 +282,7 @@ fn grant_drops_net_view_with_bus_grant() {
 
 #[test]
 fn grant_unsandboxed_wins_over_net_view() {
-    for line in ["sudo ss -tlnp", "cat /proc/net/dev; git push"] {
+    for line in ["sudo ss -tlnp", "cat /proc/net/dev; sudo true"] {
         let decision = decide(&engine(), shell(line));
         assert_eq!(with_net_view(&decision), Launch::Unsandboxed, "{line}");
     }
@@ -398,9 +402,16 @@ fn a_desktop_read_form_is_recorded_as_a_read() {
 #[test]
 fn a_floor_opens_nothing_and_is_named() {
     let engine = engine();
-    let decision =
-        decide(&engine, shell("cat ~/.ssh/id_ed25519").with_read("/home/u/.ssh/id_ed25519"));
+    let decision = decide(&engine, shell("cat /etc/shadow").with_read("/etc/shadow"));
     assert_eq!(floor_kinds(&decision), vec![ExitKind::Secret]);
+    // NOTE: a tool's key is no floor: it is a grant for one call after a review.
+    let key = decide(&engine, shell("cat ~/.ssh/id_ed25519").with_read("/home/u/.ssh/id_ed25519"));
+    assert!(floor_kinds(&key).is_empty());
+    assert_eq!(key.effect(), efr_permissions::Effect::Ask, "the path rule leaves it to the exit");
+    assert_eq!(
+        grant(&key),
+        Launch::Contained { grants: vec![Grant::Unmask { path: "/home/u/.ssh".into() }] }
+    );
     assert_eq!(grant(&decision), Launch::contained());
     let config = decide(&engine, shell("true").with_write("/home/u/.config/efr/config.toml"));
     assert_eq!(floor_kinds(&config), vec![ExitKind::Config]);
@@ -555,7 +566,6 @@ fn the_record_holds_the_line_the_facts_and_no_model_reason() {
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
         reach_ports: Vec::new(),
-        git_code: None,
         ssh_sockets: Vec::new(),
     };
     let requirements = shell("./build.sh > ~/notes/today.txt").with_needs(needs).with_facts(facts);
@@ -816,10 +826,14 @@ fn outside_with_only_a_bus_exit_says_that_the_bus_covers_the_line() {
         info.facts,
         vec![
             "a grant of the system bus covers what the line shows; the model asked for outside"
-                .to_owned()
+                .to_owned(),
+            OUTSIDE.to_owned(),
         ]
     );
 }
+
+/// The note on every question of a line that the model asks to run outside.
+const OUTSIDE: &str = "runs outside the sandbox with all your rights, with the code that it starts";
 
 #[test]
 fn outside_with_only_a_write_exit_names_the_one_path() {
@@ -832,15 +846,14 @@ fn outside_with_only_a_write_exit_names_the_one_path() {
     };
     let info = outside_question("echo hi > ~/efr-note.txt", facts);
     assert_eq!(info.launch, Launch::Unsandboxed);
-    assert_eq!(
-        info.facts.last().map(String::as_str),
-        Some(
-            "a grant of ~/efr-note.txt writable covers what the line shows; the model asked \
-             for outside"
-        ),
+    assert!(
+        info.facts.iter().any(|fact| fact
+            == "a grant of ~/efr-note.txt writable covers what the line shows; the model asked \
+                for outside"),
         "{:?}",
         info.facts
     );
+    assert_eq!(info.facts.last().map(String::as_str), Some(OUTSIDE));
 }
 
 #[test]
@@ -852,7 +865,8 @@ fn outside_for_a_line_without_exits_says_that_the_line_shows_none() {
         vec![
             "the line shows nothing that needs more than the sandbox; the model asked for \
              outside"
-                .to_owned()
+                .to_owned(),
+            OUTSIDE.to_owned(),
         ]
     );
 }
@@ -967,12 +981,11 @@ fn wake_turn_user_messages_exclude_later_prompts() {
     assert_eq!(super::wake_user_messages(&page, &waiting), vec!["run the server"]);
 }
 
-/// The record and the question of `line` with the git code fact `code`.
-fn git_code_record(line: &str, code: Option<efr_protocol::GitCodeFacts>) -> (ExitRecord, ExitInfo) {
+/// The record and the question of `line`, whose `git` is the real one.
+fn record_and_question(line: &str) -> (ExitRecord, ExitInfo) {
     let engine = engine();
     let facts = CallFacts {
         programs: vec![("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false)],
-        git_code: code,
         ..CallFacts::default()
     };
     let requirements = shell(line).with_facts(facts);
@@ -994,70 +1007,15 @@ fn git_code_record(line: &str, code: Option<efr_protocol::GitCodeFacts>) -> (Exi
 }
 
 #[test]
-fn writable_git_code_reaches_the_record_and_the_question() {
-    let hook = format!("{SCRATCH}/r/.git/hooks/pre-push");
-    let code = efr_protocol::GitCodeFacts {
-        checked: true,
-        items: vec![efr_protocol::GitCodeFact {
-            repo: format!("{SCRATCH}/r").into(),
-            item: "hooks/pre-push".to_owned(),
-            file: hook.into(),
-            writable: true,
-        }],
-    };
-    let line = "git push https://git.test/r.git main";
-    let (record, info) = git_code_record(line, Some(code.clone()));
-    assert_eq!(record.facts.git_code, Some(code));
-    assert!(info.user_only);
-    assert_eq!(
-        info.facts,
-        ["git runs ~/.local/share/efr/scratch/2026-10-04-fix-0a1b2c3d/r/.git/hooks/pre-push, \
-             which a sandboxed command can write"]
-    );
-}
-
-#[test]
-fn a_clean_git_code_check_stays_out_of_the_record() {
-    // NOTE: so the reviewer never reads a clean check as a reason to allow.
-    let line = "git push https://git.test/r.git main";
-    let clean = efr_protocol::GitCodeFacts { checked: true, items: Vec::new() };
-    let (record, info) = git_code_record(line, Some(clean));
-    assert_eq!(record.facts.git_code, None);
-    assert!(info.facts.is_empty(), "{:?}", info.facts);
-    // A line that leaves nothing outside records none either.
-    let late = efr_protocol::GitCodeFacts { checked: false, items: Vec::new() };
-    let (record, _) = git_code_record("git status", Some(late.clone()));
-    assert_eq!(record.facts.git_code, None);
-    let (record, info) = git_code_record(line, Some(late.clone()));
-    assert_eq!(record.facts.git_code, Some(late));
-    assert_eq!(info.facts, ["efr could not check the git code of ~/p/app"]);
-}
-
-#[test]
-fn git_code_record_keeps_only_the_writable_parts() {
-    let part = |item: &str, file: &str, writable: bool| efr_protocol::GitCodeFact {
-        repo: format!("{SCRATCH}/r").into(),
-        item: item.to_owned(),
-        file: file.into(),
-        writable,
-    };
-    let hook = part("hooks/pre-push", &format!("{SCRATCH}/r/.git/hooks/pre-push"), true);
-    let code = efr_protocol::GitCodeFacts {
-        checked: true,
-        items: vec![
-            part("credential.https://host.test.helper", "/home/u/.gitconfig", false),
-            hook.clone(),
-            part("ssh (PATH)", "/usr/bin/ssh", false),
-        ],
-    };
-    let (record, _) = git_code_record("git push https://git.test/r.git main", Some(code));
-    let kept = efr_protocol::GitCodeFacts { checked: true, items: vec![hook] };
-    assert_eq!(record.facts.git_code, Some(kept));
+fn a_push_runs_in_the_sandbox() {
+    let (record, info) = record_and_question("git push https://git.test/r.git main");
+    assert!(matches!(info.launch, Launch::Contained { .. }), "{:?}", info.launch);
+    assert!(record.facts.programs.iter().any(|program| program.word == "git"));
 }
 
 #[test]
 fn a_publish_question_says_what_it_runs() {
-    let (_, info) = git_code_record("npm publish", None);
+    let (_, info) = record_and_question("npm publish");
     assert!(info.user_only);
     assert_eq!(info.facts, ["runs the project's prepublishOnly and prepack scripts"]);
 }

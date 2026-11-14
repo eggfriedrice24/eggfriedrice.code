@@ -1424,6 +1424,11 @@ impl Turn {
             (Launch::Unsandboxed, Effect::Ask, Some(line)) => {
                 efr_permissions::exits::unsandboxed_line_problem(line)
             }
+            (Launch::Contained { .. }, Effect::Ask, Some(line))
+                if decision.exits().any(efr_permissions::ExitNeed::carries_login) =>
+            {
+                efr_permissions::exits::login_line_problem(line)
+            }
             _ => None,
         };
         let payload = exit::payload(

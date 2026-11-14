@@ -577,3 +577,34 @@ fn each_home_secret_is_relative_and_found_below_the_home() {
     }
     assert!(!locations.is_secret(Path::new("/home/u")));
 }
+
+/// A tool's credential is grantable for one call (phase 3); efr's own secrets, the
+/// system's and a root that holds one of efr's own are not.
+#[test]
+fn credentials_are_the_secrets_that_are_not_efrs_own() {
+    let locations = Locations::new(HOME)
+        .unwrap()
+        .with_sealed_root("/home/u/.local/share/efr/secrets")
+        .unwrap()
+        .with_secret_root("/home/u/vault")
+        .unwrap()
+        .with_secret_root("/home/u/.local/share")
+        .unwrap();
+    let root = |path: &str| locations.credential_root(Path::new(path));
+    assert_eq!(root("/home/u/.ssh/config"), Some(PathBuf::from("/home/u/.ssh")));
+    assert_eq!(
+        root("/home/u/.config/gh/hosts.yml"),
+        Some(PathBuf::from("/home/u/.config/gh/hosts.yml"))
+    );
+    assert_eq!(root("/home/u/vault/token"), Some(PathBuf::from("/home/u/vault")));
+    assert_eq!(root("/home/u/.local/share/efr/secrets/x.json"), None, "efr's own");
+    assert_eq!(root("/home/u/.local/share/x"), None, "a root that holds efr's own");
+    assert_eq!(root("/etc/shadow"), None, "the system's");
+    assert_eq!(root("/proc/self/environ"), None);
+    assert_eq!(root("/home/u/notes.txt"), None);
+    let paths = locations.credential_paths();
+    assert!(paths.contains(&PathBuf::from("/home/u/.ssh")));
+    assert!(paths.contains(&PathBuf::from("/home/u/vault")));
+    assert!(!paths.iter().any(|path| path.starts_with("/home/u/.local/share")), "{paths:?}");
+    assert!(!paths.contains(&PathBuf::from("/etc/shadow")));
+}

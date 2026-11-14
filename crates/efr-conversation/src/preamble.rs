@@ -429,9 +429,11 @@ const AUTO_RULE_PROXY: &str = " Shell commands reach package registries and GitH
                                efr's proxy; for another host, efr asks its reviewer.";
 
 /// The rest of the rule of `auto`.
-const AUTO_RULE_TAIL: &str = " A command that runs outside the sandbox, such as sudo or a \
-                              push, must be alone in its call, with its values written out \
-                              (no $VAR or $(...)). For long work, such as a \
+const AUTO_RULE_TAIL: &str = " A command that logs in, such as git push, runs in the \
+                              sandbox: name the login that it uses in needs on the first \
+                              call. A command that gets a login, or that runs outside the \
+                              sandbox, such as sudo, must be alone in its call, with its \
+                              values written out (no $VAR or $(...)). For long work, such as a \
                               server or a monitor, call shell with background: true; you get \
                               a notice when it ends, so do not poll. If efr refuses an \
                               action, do not try it another way. In the sandbox, tty and $$ \

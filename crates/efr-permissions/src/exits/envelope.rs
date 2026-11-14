@@ -554,23 +554,49 @@ impl<'a> Envelope<'a> {
     pub(super) fn is_secret(&self, path: &Path) -> bool {
         self.locations.is_sealed(path) || self.locations.is_secret(path)
     }
+
+    /// True when `path` is a secret that no grant opens: efr's own, the system's, or a
+    /// secret entry of `/proc`. A tool's credential is no floor
+    /// ([`credential_read`](Self::credential_read)).
+    pub(super) fn is_floor_secret(&self, path: &Path) -> bool {
+        self.is_secret(path) && self.locations.credential_root(path).is_none()
+    }
+
+    /// The `masked_read` exit of a read of `path` in a tool's credential, such as
+    /// `~/.ssh/config` or a token file: the grant lifts the mask of the credential's
+    /// root for one call. Only the user, or the reviewer when the user asked for the
+    /// action, approves it, and the question says what it opens. `None` for any other
+    /// path.
+    pub(super) fn credential_read(&self, path: &Path, source: ExitSource) -> Option<ExitNeed> {
+        let root = self.locations.credential_root(path)?;
+        let mut need = ExitNeed::new(ExitKind::MaskedRead, path.display().to_string(), source);
+        need.grants = vec![Grant::Unmask { path: root }];
+        need.target = Some(path.to_path_buf());
+        need.approver = Approver::User;
+        need.notes.push(CREDENTIAL_NOTE.to_owned());
+        Some(need)
+    }
 }
 
-/// The exit of a declared read of `path` in a shell call: a secret is a floor, a
-/// masked path a `masked_read`. A read of a directory that holds masks needs nothing,
-/// because they read as empty.
+/// The note on the question about a credential grant.
+pub(crate) const CREDENTIAL_NOTE: &str =
+    "a login of a tool: the call can read it and act as you with it, for this one call";
+
+/// The exit of a declared read of `path` in a shell call: efr's own secret is a floor,
+/// a tool's credential and a masked path a `masked_read`. A read of a directory that
+/// holds masks needs nothing, because they read as empty.
 pub(super) fn read_exit(
     envelope: &Envelope<'_>,
     path: &Path,
     _access: Access,
     source: ExitSource,
 ) -> Option<ExitNeed> {
-    if envelope.is_secret(path) {
+    if envelope.is_floor_secret(path) {
         let mut need = ExitNeed::new(ExitKind::Secret, path.display().to_string(), source);
         need.target = Some(path.to_path_buf());
         return Some(need);
     }
-    envelope.masked_read(path, source)
+    envelope.credential_read(path, source).or_else(|| envelope.masked_read(path, source))
 }
 
 /// True for the home directory and the dirs below it that many programs keep config

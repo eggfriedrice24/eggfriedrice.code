@@ -179,8 +179,43 @@ call cannot write. A mask covers the real target of a link too.
 | your additions | `sandbox.mask` |
 
 A read of a mask is a `masked_read` exit. The reviewer allows it only with your clear
-request, because the content then goes to the model provider. A secret of the engine
-never opens.
+request, because the content then goes to the model provider. efr's own secrets (its
+keys in `secrets/`), the system's secrets and the secret entries of `/proc` never
+open. Every other secret is the login of a tool; see "Logins".
+
+## Logins
+
+The sandbox hides every login of a tool: its token file, `~/.ssh`, an agent's socket,
+a token variable and the keyring. A command that logs in, such as `git push`,
+`gh pr create` or `cargo publish`, still runs in the sandbox. It gets the login that it
+needs as a grant for that one call, and only when the reviewer finds that you asked for
+the action.
+
+efr does not know which login a tool uses. The model names it in `needs`:
+
+| Member | What it opens for the call |
+|---|---|
+| `unmask` | a credential file or dir, such as a tool's token file or `~/.ssh` |
+| `sockets` | an agent's socket, such as `$SSH_AUTH_SOCK`; the call keeps the variable that names it |
+| `env` | a variable that the sandbox removes as secret-like, such as a tool's token |
+| `keyring` | the Secret Service on the call's filtered session bus; the call can read every unlocked entry |
+| `hosts` | the host of the upload, when the proxy does not list it; port 22 gives the host's network, because the proxy carries no ssh |
+
+- Only you, or the reviewer when you asked for the action, approve a login. The
+  question says what the grant opens.
+- A line that gets a login must be one command, as a line that runs outside the
+  sandbox: in `just check && git push` the build would see the login. efr refuses such
+  a line with no question, and the model splits it.
+- No grant opens efr's own names: `EFR_*`, and `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`,
+  from which `efr login` reads efr's keys.
+- The keyring needs the bus filter (`xdg-dbus-proxy`). With no filter, the call runs
+  without the keyring, and the output says so.
+- A file tool never reads a login. Only a shell call gets one.
+
+A login opens more than the one action: every program of the call can use it, such as
+a git hook of the repository or the build of a publish, and for an ssh host the call
+has the host's network. That is narrower than before, when the whole line ran outside
+the sandbox with all your rights.
 
 ## The floor
 
@@ -326,62 +361,10 @@ keep it? y = yes, n = no
 turn is interrupted, the change stays in quarantine. This question is not an approval
 of a tool call: the call already ended.
 
-### Git code before an outside git line
-
-An approved `git push` runs outside the sandbox with your full rights, and git runs
-the code that the repository names. So before a git or gh line can run outside the
-sandbox, efrd checks the git code that it runs. The check applies to a git command
-that reaches a remote (`push`, `fetch`, `pull`, `ls-remote`, `remote update`,
-`submodule update`, `send-email`) and to a gh command that runs git in the repository (`pr create`,
-`pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork --clone`),
-when it gets an `outside` or `upload` exit.
-
-- efrd asks git itself, as the exit child's git finds it: the repository of the line
-  (its `-C`, `--git-dir` and `--work-tree`, through a `.git` file and a `commondir`),
-  with your system, global and include files and the git variables of the hidden
-  shell. It reads the hooks that are not samples (in `core.hooksPath` or the `hooks`
-  dir), the config keys that run programs (the ones of the surface guard, a remote URL
-  through a `<transport>::` helper or `ext::`, `protocol.allow`, `remote.*.vcs`,
-  `submodule.*.update` with `!`, `gpg.ssh.defaultKeyCommand`, `hook.*.command`, the
-  `toCmd`, `ccCmd`, `headerCmd` and `sendmailCmd` of `sendemail`, and a
-  `sendemail.smtpServer` that is a program path), and
-  the program that each one starts, also `ssh` from your `PATH`. A line that can reach
-  the submodules (`push`, `fetch`, `pull`, `submodule update`) checks each module git
-  dir too.
-- A part is writable when a sandboxed command can write its file: it lies in a
-  registered project, in the `$SCRATCH` of any conversation, below a write rule or a
-  write root of the config, or in a write root of a running contained job or of a call
-  that runs on past its timeout. The git floors of a project (its `.git` config, hooks,
-  include files and hooks path, also of worktrees and submodules) are not writable,
-  except while a running contained job has them in its write roots.
-- When a part is writable, or efrd could not check the code (git did not answer in
-  200 ms, git found no repository, the submodules lie too deep or behind a link), the
-  reviewer needs your clear request. While you answer the exits yourself, the question
-  names the file:
-
-  ```
-  git runs ~/p/app/vendor/x/.git/hooks/pre-push, which a sandboxed command can write
-  ```
-
-  Your own hooks and settings in a registered project keep working with no extra
-  question.
-- Before the check, efrd runs the surface guard of every running contained job, not
-  only those of the line's dir, because a `.git` file, a `commondir` or an
-  `include.path` can point anywhere. A plant stops its job and goes to quarantine.
-  efrd runs the guards before every other upload too.
-- Right before the exit child starts, under the plan lock, efrd checks again. When the
-  writable parts changed after your answer, the line does not run, and the model reads
-  why; its next call gets a new question.
-- A git option that chooses the code that git runs (`-c`, `--config-env`,
-  `--exec-path`, `--git-dir`, `--work-tree`, `--namespace`, `--receive-pack`, `--exec`,
-  `--upload-pack`, `--template`, `clone -u` or `clone -c`, and the `--to-cmd`,
-  `--cc-cmd`, `--header-cmd`, `--sendmail-cmd` or a program path in `--smtp-server`
-  of `send-email`) makes every git line
-  that runs outside a question for you alone.
-- So does a variable of a git or gh line that chooses that code: a `GIT_*` name, such
-  as `GIT_CONFIG_COUNT` or `GIT_EXEC_PATH`, an `SSH_*` name, `HOME`,
-  `XDG_CONFIG_HOME` or `PATH`. efrd checks the code with the hidden shell's variables,
-  not with the line's.
+git and gh run in the sandbox, so the code that a repository names (its hooks and the
+config keys that start a program) runs there too, with only the grants of the call.
+A line that the model asks to run outside (`needs.outside`) gets the strict review and
+a note on the question: it runs with all your rights, with the code that it starts.
 
 ## Code that runs later
 
@@ -469,19 +452,19 @@ yourself, and "the reviewer" in this file then means you.
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer; with your clear request when no message names the target and it is no cache, build output or trash |
 | `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5432`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer; with your clear request for a host that no message names, except the registries of a package fetch |
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer. Only by name for the socket of a credential agent that efr knows from your environment (`$SSH_AUTH_SOCK`, `$GPG_AGENT_INFO`): its path, or the phrase "ssh agent", "gpg agent" or "credential agent"; and for a socket under a mask: only its path. With your clear request for a socket that looks like an agent's by a word of its path (a keyring, a password manager's agent, git's credential cache) and for an ssh control socket (one that an ssh process listens on, or one at a `ControlPath` of your ssh config; docs/permissions.md, "ssh control sockets"). Refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer. With your clear request for a login ("Logins"): the socket of a credential agent that efr knows from your environment (`$SSH_AUTH_SOCK`, `$GPG_AGENT_INFO`), a socket under a mask, a socket that looks like an agent's by a word of its path (a keyring, a password manager's agent, git's credential cache), and an ssh control socket (one that an ssh process listens on, or one at a `ControlPath` of your ssh config; docs/permissions.md, "ssh control sockets"). Refused inside efr's own secrets or dirs; a socket in a tool's credential dir also lifts that dir's mask. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; the reviewer, with your clear request, for the rest and for a desktop socket that the model names |
 | `bus` | `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `systemctl --user show-environment`, `notify-send --wait`; `hostnamectl`, `systemctl --failed` and `notify-send` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | for the system bus: the reviewer; with your clear request for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd. For the session bus: only by name ("session bus", "dbus" or "d-bus"), because the whole session bus can start programs outside the sandbox |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer |
-| `masked_read` | read a project `.env` | the sandbox, with that one mask removed | the reviewer, with your clear request |
+| `masked_read` | read a project `.env`; a tool's login: a token file, `~/.ssh`, a variable of `needs.env`, the keyring | the sandbox, with that one mask removed, that variable kept, or the Secret Service on the filtered session bus | the reviewer, with your clear request ("Logins") |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else the reviewer, with your clear request |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer. With your clear request: when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names and that is no remote of your project; for an ssh submodule URL; for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`; and for a git line, such as `git fetch` from an ssh remote, whose git code is writable or not checked ("Git settings") |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh` and `autossh` | outside the sandbox | the reviewer. With your clear request: when the model asks to run outside (`needs.outside`); when a program of the line changed in this turn or lies in a write root; when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`); for an ssh line whose host no message of yours names; and for a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`. git over ssh, `scp` and `rsync` to a remote are `host` exits in the sandbox with the host's network: the proxy carries no ssh, and their ssh login is a grant of its own |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | the reviewer, with your clear request. A password prompt still comes to your terminal: only you know the password. efr makes sudo forget its cached password before and after each such call, so your password approves that one line |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else the reviewer, with your clear request |
-| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox; an HTTP upload with no credential (`curl -d`, `curl -X POST`, `wget --post-data`) runs in the sandbox with the grants of its hosts, as a fetch of the same URLs would, and a POST to a port of the conversation's own job is no exit | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request, also for a git or gh line whose git code a sandboxed command can write ("Git settings"). Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml` |
+| `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | the sandbox, with the grants of its hosts (an ssh remote gets the host's network); its login is a grant of its own ("Logins"), and a POST to a port of the conversation's own job is no exit | the reviewer when a message of yours names it, such as "push"; else the reviewer, with your clear request. Only by name (`publish`, `yank`, `owner`) for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, because a version can never be published again. These stay uploads by their verb because they can send data with nothing that efr grants. gh, `gem push`, `twine upload`, `scp` and `rsync` need a login that the sandbox hides, so the grant of that login is their exit |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | the reviewer, with your clear request |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor, and with your clear request for one such path that no message names. You, in your own shell, for `~`, `/`, a directory above or outside your home directory, and a directory that holds efr's files, a secret, a file that runs code later or two or more projects: the trees that full mode asks you about too. efr refuses such a line, and the model gives you the command |
-| `secret` | a read or write of a secret | never: denied | nobody |
+| `secret` | a write of a secret; a read of efr's own secrets, the system's or `/proc/*/environ` | never: denied | nobody |
 | `config` | a write of efr's config, of efr's own programs or of efr's own dirs | never: denied | nobody |
 
 When the reviewer is paused, or no model of its chain answers, the action does not
@@ -2169,11 +2152,10 @@ the config hold of full mode holds it.
 | the `df` and `findmnt` of the mount view work only on the line | a script or `sh -c 'df'` shows the sandbox's mounts | that output is safe; it shows the sandbox; a path or a wrapper, such as `watch df`, is an `outside` exit |
 | a long job keeps the mount snapshot of its start | old sizes in a job's output | none |
 | a hung NFS or FUSE mount, an automount | `df` could hang or mount a share | the helper ends after one second, the mount shows `-` for a minute; no `statvfs` for `autofs` and the other dummy types |
-| an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
-| a process that runs as you, outside the sandbox, can change the git code after efrd's last check | git runs that code with your rights | efrd checks right before the exit child starts, and runs the guard of every job first, so the window is small |
-| a pinned hook that runs project code, such as `.husky/pre-push` that runs `npx lint-staged` | that project code runs with your rights, also when a sandboxed command wrote it | efr checks the hook file and the program of its `#!` line, not what the hook calls; the turn-end list names changed files that run code later |
-| the hidden shell writes its environment at a prompt | before its first prompt, efrd checks the git code with its own start environment, not with the git variables that your startup files set | a sandboxed command cannot change `HOME`, `XDG_*` or `GIT_*` of the hidden shell |
-| an outside background job that runs git | efrd checks its git code for the question, but not again when the job starts | the question names each writable part that efrd found |
+| an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege and persistence are yours only |
+| a login grant reaches every program of the call | a repository's hook or the build of a publish can use the login; the call of an ssh host has the host's network | the line must be one command; the reviewer allows a login only for an action that you asked for; the call stays in the sandbox, with no other secret and no write outside its roots |
+| the keyring grant opens the whole Secret Service | the call can read every unlocked entry, not only the tool's | the reviewer allows it only for an action that you asked for, and the question says what it opens |
+| a line that the model asks to run outside (`needs.outside`) runs the code that it starts, such as a repository's hooks, with your rights | code that a sandboxed command wrote can run outside | the strict review, and a note on the question |
 | gh's config dir comes from the hidden shell's environment, which it writes at a prompt | the first sandboxed command after you log in, before any hidden shell had a prompt, cannot reach the hosts of gh's credential helper, such as github.com | efrd takes the dir of the newest hidden shell, since they all run your startup files; with none it denies those hosts, and the note says why; the next command works |
 | Git Credential Manager can keep its plain store in another dir (`GCM_PLAINTEXT_STORE_PATH`) | a command in the sandbox can read the tokens there and use them at github.com | efr hides only `~/.gcm`; add the other dir to `permissions.secret_paths` |
 | a credential helper that efr does not know | git in the sandbox cannot reach the hosts of its repository through the proxy | the note names the helper; a helper for one site blocks only that site |

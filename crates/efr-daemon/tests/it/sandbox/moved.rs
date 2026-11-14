@@ -419,8 +419,8 @@ async fn moved_exit_child_call_is_swept_at_stop() {
     let bin = dirs.create_dir("bin").unwrap();
     let user_runtime = dirs.create_dir("xrt").unwrap();
     let pid_file = dirs.root().join("child");
-    // A fake `scp` on the hidden shell's `PATH`: an upload, which runs in the exit child
-    // after an answer. It leaves a process in a session of its own (`setsid`) and then
+    // A fake `scp` on the hidden shell's `PATH`, which the model asks to run outside
+    // (`needs.outside`), so it runs in the exit child after an answer. It leaves a process in a session of its own (`setsid`) and then
     // runs until a signal ends it. `sh` runs no job control, so `setsid` is no group
     // leader and execs the sleep at once: `$!` is its pid.
     script(
@@ -443,9 +443,11 @@ async fn moved_exit_child_call_is_swept_at_stop() {
         "[permissions]\nmode = \"auto\"\n\n[jobs]\nmax_wakes_per_hour = 0\n\n[classifier]\n\
          enabled = false\n",
     );
-    let model = ScriptedModel::new(vec![
-        json!({ "command": "scp notes.txt h:notes.txt", "timeout_seconds": 600 }),
-    ]);
+    let model = ScriptedModel::new(vec![json!({
+        "command": "scp notes.txt h:notes.txt",
+        "timeout_seconds": 600,
+        "needs": { "outside": true },
+    })]);
     // NOTE: the clock starts after the files of the test were written, so the fake
     // `scp` does not count as a program that changed in the turn.
     let start_at = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();

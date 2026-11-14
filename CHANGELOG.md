@@ -10,6 +10,35 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- In auto, a command that logs in, such as `git push`, `gh pr create` or
+  `cargo publish`, now runs in the sandbox. It gets the login that it needs for that
+  one call: a token file or `~/.ssh` (`needs.unmask`), an agent's socket
+  (`needs.sockets`), a token variable (the new `needs.env`) or the keyring (the new
+  `needs.keyring`). The reviewer allows a login only when you asked for the action.
+  Before, the whole line ran outside the sandbox with all your rights.
+- A line that gets a login must be one command, as a line that runs outside the
+  sandbox. efr refuses `just check && git push` with a login, with no question, and
+  the model splits it.
+- efr's own keys, the system's secrets and the secret entries of `/proc` still never
+  open. Every other secret is now a login that a reviewed grant can open for one call,
+  also the socket of the ssh agent, which before needed a message that named it.
+- git over ssh, `scp` and `rsync` to a remote run in the sandbox with the host's
+  network, because efr's proxy carries no ssh.
+- gh, `gem push`, `twine upload`, `scp` and `rsync` are no longer uploads by their
+  verb: the grant of their login is the exit. `git push`, curl and wget uploads and a
+  publish stay uploads.
+- A line that the model asks to run outside the sandbox (`needs.outside`) now gets the
+  strict review, and the question says that it runs the code that it starts with all
+  your rights.
+
+### Removed
+
+- The check of the git code (hooks and settings that run programs) before a git or gh
+  line ran outside the sandbox, and its lines in `efr history --verbose`. git and gh
+  now run in the sandbox, so that code runs there too.
+
 ## [0.0.9] - 2026-11-14
 
 ### Added

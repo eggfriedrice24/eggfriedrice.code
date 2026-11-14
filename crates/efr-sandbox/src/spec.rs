@@ -356,9 +356,11 @@ pub fn layer_name(target: &Path) -> String {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MaskKind {
-    /// A secret of the engine (`HOME_SECRETS`, `SYSTEM_SECRETS`,
-    /// `permissions.secret_paths`): no grant unmasks it.
+    /// A secret that no grant unmasks: efr's own and the system's.
     EngineSecret,
+    /// A credential of a tool (`HOME_SECRETS`, `permissions.secret_paths`), such as
+    /// `~/.ssh` or a token file: a reviewed `masked_read` exit unmasks it for one call.
+    Credential,
     /// A sandbox-only mask (`SANDBOX_MASKS`): a `masked_read` exit unmasks it.
     SandboxMask,
     /// A project `.env` file (`sandbox.mask_globs`).

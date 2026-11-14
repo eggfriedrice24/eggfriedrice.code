@@ -154,11 +154,10 @@ turns.
   a cache, the build output of a project or efr's trash can make it again, and whether
   efrd copies it into its home store first. `snapshot_covers` is false when one exit's
   copy is not covered (a masked file, a directory over the limits) and absent when no
-  exit has a file to copy. The git code of a git or gh line that runs outside (v0.0.4,
-  B4) reaches the record (`ExitFacts::git_code`) only when it made the exit one for
-  the user alone, so the reviewer never reads a clean check as a reason to allow, and
-  with only the writable parts; the engine's `ExitNeed::notes` (the writable git code, what a publish runs) join the
-  question's facts.
+  exit has a file to copy. The engine's `ExitNeed::notes` (what a login opens, what a
+  publish runs, that a line runs outside with all rights) join the question's facts.
+  A contained call whose exits carry a login (`ExitNeed::carries_login`) follows the
+  one-command rule (`exits::login_line_problem`), as a line that runs outside does.
 - The classifier (`turn/review.rs`) decides alone when the turn runs in `auto`,
   `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on and
   every reason that asks is an exit (the ask of a privileged program such as `sudo`

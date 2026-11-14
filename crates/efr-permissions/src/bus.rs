@@ -233,6 +233,9 @@ pub const FLOOR_NAMES: &[&str] = &[
     "ca.desrt.dconf",
 ];
 
+/// The well-known name of the Secret Service, the keyring of the session bus.
+const SECRET_SERVICE: &str = "org.freedesktop.secrets";
+
 /// The bus driver, which no rule may name.
 const BUS_DRIVER: &str = "org.freedesktop.DBus";
 
@@ -274,6 +277,18 @@ impl BusFilter {
         Ok(BusFilter { bus, rules })
     }
 
+    /// These rules and every call to the Secret Service (`org.freedesktop.secrets`),
+    /// for a call that got the keyring (`Grant::Keyring`). No `[[dbus.allow]]` entry
+    /// may name the Secret Service ([`FLOOR_NAMES`]); only this reviewed grant opens it,
+    /// for one call.
+    pub fn with_keyring(mut self) -> BusFilter {
+        let rule = (SECRET_SERVICE.to_owned(), "*".to_owned());
+        if !self.rules.contains(&rule) {
+            self.rules.push(rule);
+        }
+        self
+    }
+
     /// The bus of these rules.
     pub fn bus(&self) -> BusKind {
         self.bus
@@ -295,7 +310,7 @@ impl BusFilter {
         self.rules.iter().any(|(rule_name, call)| {
             rule_name == name
                 && match call.split_once('@') {
-                    None => call == member,
+                    None => call == member || call == "*",
                     Some((rule_member, rule_path)) => {
                         rule_member == member && path_matches(rule_path, path)
                     }

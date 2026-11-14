@@ -217,9 +217,14 @@ fn shell_tool_auto_text_says_try_first() {
          a short reason",
         "needs.outside runs the whole line with the user's full rights, so ask for it only \
          when no narrower member fits",
-        "A command that runs outside the sandbox, such as a push or sudo, does not see \
-         exports or functions that sandboxed commands made, and must be alone in its line \
-         apart from read-only helpers such as echo or tail",
+        "A command that logs in, such as git push, gh or a publish, runs in the sandbox: on \
+         the first call, name in needs the login that it uses (unmask, sockets, env or \
+         keyring)",
+        "git over ssh needs the ssh agent's socket or ~/.ssh, and the host on port 22",
+        "A command that runs outside the sandbox, such as sudo, does not see exports or \
+         functions that sandboxed commands made",
+        "Such a command, and a command that gets a login, must be alone in its line apart \
+         from read-only helpers such as echo or tail",
         "Write its values out: such a line may hold no $VAR, no $(...) and no \
          here-document, so that efr and its reviewer read exactly what runs",
         "Run git add and git commit in a call before git push",

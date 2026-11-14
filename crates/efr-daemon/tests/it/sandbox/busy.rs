@@ -181,6 +181,12 @@ fn call(line: &str, seconds: u64) -> serde_json::Value {
     json!({ "command": line, "timeout_seconds": seconds })
 }
 
+/// [`call`], run outside the sandbox at the model's request: since phase 3 an upload
+/// such as `scp` runs in the sandbox, so only `needs.outside` puts it in the exit child.
+fn call_outside(line: &str, seconds: u64) -> serde_json::Value {
+    json!({ "command": line, "timeout_seconds": seconds, "needs": { "outside": true } })
+}
+
 /// Sends the prompt from the test's terminal in `auto`, follows it on the same client,
 /// which can answer a waiting command, and allows each question, until the call's output
 /// shows [`READY`]. Returns the conversation, the stream and the questions' events. The
@@ -367,7 +373,7 @@ async fn shell_exit_child_password_wait_is_kept_and_answered() {
     let test = "shell_exit_child_password_wait_is_kept_and_answered";
     let place = Place::new();
     let line = place.fake_scp(GETPASS);
-    let Some(daemon) = place.daemon(test, call(line, TIMEOUT)).await else { return };
+    let Some(daemon) = place.daemon(test, call_outside(line, TIMEOUT)).await else { return };
     let client = daemon.client_for_tty(TTY).await.unwrap();
     let (conversation_id, mut stream, questions) = start(&daemon, &client).await;
 

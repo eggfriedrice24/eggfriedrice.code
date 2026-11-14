@@ -293,15 +293,36 @@ fn exits_rm_dotdot_is_above_root(#[case] line: &str, #[case] written: &str) {
 #[case::config_env("git --config-env k=V push")]
 #[case::publish("npm publish")]
 #[case::cargo_publish("cargo publish")]
-#[case::twine("twine upload dist/*")]
-#[case::release("gh release create v1")]
-#[case::pr("gh pr create --fill")]
-#[case::scp("scp build.tar user@host:/tmp")]
-#[case::rsync("rsync -a ~/p/app/ remote:backup/")]
 fn exits_git_push_is_upload(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::Upload], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only() && need.runs_unsandboxed()));
+    // NOTE: the upload runs in the sandbox; the login that it needs is a grant of its
+    // own (`needs`).
+    assert!(decision.exits().all(|need| need.user_only() && !need.runs_unsandboxed()));
+}
+
+/// An upload of a tool whose every login the sandbox hides is no upload by its verb:
+/// the grant of the login is the exit that the reviewer judges. The line reaches the
+/// network like a fetch, in the sandbox.
+#[rstest]
+#[case::twine("twine upload dist/*")]
+#[case::release("gh release create v1")]
+#[case::pr("gh pr create --fill")]
+#[case::api_post("gh api -X POST repos/o/r/issues -f title=x")]
+#[case::gem("gem push x.gem")]
+#[case::scp("scp build.tar user@host:/tmp")]
+#[case::rsync("rsync -a ~/p/app/ remote:backup/")]
+fn an_upload_that_needs_a_hidden_login_is_no_upload_verb(#[case] line: &str) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Host], "{line:?}");
+    assert!(decision.exits().all(|need| !need.runs_unsandboxed()), "{line:?}");
+    let with_login = decide(shell(line).with_needs(Needs {
+        unmask: vec!["~/.config/gh/hosts.yml".to_owned()],
+        ..Needs::default()
+    }));
+    let login = with_login.exits().find(|need| need.carries_login()).unwrap();
+    assert_eq!(login.approver, Approver::User, "{line:?}");
+    assert_eq!(login.grants, [Grant::Unmask { path: "/home/u/.config/gh/hosts.yml".into() }]);
 }
 
 #[rstest]
@@ -1527,12 +1548,6 @@ fn exits_named_desktop_sockets_grant_their_desktop_for_the_user(
 #[case::new_remote("git push https://new-remote.example/x main", &["push", "new-remote.example"])]
 #[case::scp_remote("git push git@github.com:o/r.git", &["push", "github.com"])]
 #[case::bare_push("git push", &["push"])]
-#[case::gem("gem push x.gem", &["push"])]
-#[case::twine("twine upload dist/*", &["upload"])]
-#[case::release("gh release create v1", &["release"])]
-#[case::pr("gh pr create --fill", &["pr", "pull request"])]
-#[case::scp("scp build.tar user@host:/tmp", &["scp", "host"])]
-#[case::rsync("rsync -a ~/p/app/ remote:backup/", &["rsync", "remote"])]
 #[case::curl("curl -d @f https://Paste.Example/x", &["upload", "paste.example"])]
 #[case::wget("wget --post-data x https://x.example", &["upload", "x.example"])]
 fn exits_named_upload_is_classifier_when_named(#[case] line: &str, #[case] names: &[&str]) {
@@ -1549,12 +1564,27 @@ fn exits_named_upload_is_classifier_when_named(#[case] line: &str, #[case] names
     assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
     assert_eq!(need.names, names, "{line:?}");
     assert!(need.user_only(), "{line:?}");
-    // NOTE: an HTTP upload carries no credential, so it runs in the sandbox with the
-    // grants of its hosts; the others need the user's keys or tokens.
-    let http = line.starts_with("curl") || line.starts_with("wget");
-    assert_eq!(need.runs_unsandboxed(), !http, "{line:?}");
-    assert_eq!(need.contained, http, "{line:?}");
-    assert_eq!(need.grants.is_empty(), !http, "{line:?}");
+    // NOTE: every upload runs in the sandbox; a push gets its login from `needs`.
+    assert!(need.contained && !need.runs_unsandboxed(), "{line:?}");
+}
+
+/// A contained push reaches the hosts of its remote: under the proxy an ssh remote gets
+/// the host's network, because the proxy carries no ssh, and a listed https remote
+/// needs no grant.
+#[rstest]
+#[case::ssh_remote(true, vec![Grant::OpenNetwork])]
+#[case::https_remote(false, Vec::new())]
+fn a_push_gets_the_network_of_its_remote(#[case] ssh: bool, #[case] grants: Vec<Grant>) {
+    let mut origin = super::proxy::remote("origin", &["github.com"], &["github.com"]);
+    for url in origin.fetch.iter_mut().chain(origin.push.iter_mut()) {
+        url.ssh = ssh;
+    }
+    let requirements =
+        shell("git push origin main").with_facts(super::proxy::remote_facts(vec![origin]));
+    let decision = super::proxy::proxy_engine().decide(&in_auto(requirements));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Upload).unwrap();
+    assert!(need.contained, "{need:?}");
+    assert_eq!(need.grants, grants);
 }
 
 /// A POST to a port of the conversation's own job is no exit: the call's reach helper
@@ -1567,8 +1597,8 @@ fn an_upload_to_a_job_port_is_no_exit() {
     assert_eq!(kinds(&decision), Vec::<ExitKind>::new());
 }
 
-/// A refspec after the repository of a git fetch is no ssh URL, so the fetch runs in the
-/// sandbox; an ssh URL in any place still runs outside.
+/// A refspec after the repository of a git fetch is no ssh URL, so the fetch needs no
+/// grant; an ssh URL in any place gets the host's network, in the sandbox.
 #[rstest]
 #[case::refspec("git fetch origin main:refs/remotes/origin/main", false)]
 #[case::plain_refspec("git fetch origin main:main", false)]
@@ -1576,28 +1606,11 @@ fn an_upload_to_a_job_port_is_no_exit() {
 #[case::pull_refspec("git pull origin main:main", false)]
 #[case::scp_url("git fetch git@mirror.test:o/r.git main", true)]
 #[case::alias_url_after_an_option("git clone --depth 1 work:o/r.git", true)]
-fn a_git_refspec_is_no_ssh_url(#[case] line: &str, #[case] outside: bool) {
+fn a_git_refspec_is_no_ssh_url(#[case] line: &str, #[case] ssh: bool) {
     let decision = super::proxy::proxy_engine().decide(&in_auto(shell(line)));
-    let runs_outside = decision.exits().any(ExitNeed::runs_unsandboxed);
-    assert_eq!(runs_outside, outside, "{line:?}: {:?}", kinds(&decision));
-}
-
-/// `gh api` changes something only with a method other than GET or HEAD, with a field
-/// or `--input` of a REST endpoint and no method, or with a GraphQL query that efr
-/// cannot read or that names a mutation or a subscription.
-#[rstest]
-#[case::get("gh api repos/o/r/pulls", false)]
-#[case::explicit_get_with_fields("gh api -X GET repos/o/r/issues -f state=open", false)]
-#[case::method_equals_get("gh api --method=GET repos/o/r", false)]
-#[case::graphql_query("gh api graphql -f query='query { viewer { login } }'", false)]
-#[case::graphql_mutation("gh api graphql -f query='mutation { addStar(input: {}) { x } }'", true)]
-#[case::graphql_from_a_file("gh api graphql -F query=@q.graphql", true)]
-#[case::graphql_with_no_query("gh api graphql --input body.json", true)]
-#[case::field_posts("gh api repos/o/r/issues -f title=x", true)]
-#[case::delete("gh api -X DELETE repos/o/r", true)]
-fn gh_api_writes_only_with_a_writing_form(#[case] line: &str, #[case] upload: bool) {
-    let decision = decide(shell(line));
-    assert_eq!(kinds(&decision).contains(&ExitKind::Upload), upload, "{line:?}");
+    assert!(!decision.exits().any(ExitNeed::runs_unsandboxed), "{line:?}");
+    let open = decision.exits().any(|need| need.grants.contains(&Grant::OpenNetwork));
+    assert_eq!(open, ssh, "{line:?}: {:?}", kinds(&decision));
 }
 
 /// An HTTP upload runs in the sandbox with the grants that a fetch of its URL gets:
@@ -1677,17 +1690,33 @@ fn outside(line: &str) -> Requirements {
 }
 
 #[test]
+fn exits_outside_that_the_model_asks_for_is_user() {
+    // NOTE: the line then runs with all of the user's rights, with the code that it
+    // starts, such as a repository's hooks, so even a trusted program gets the strict
+    // review, with a note.
+    let facts = programs(&[("git", Some("/usr/bin/git"), false)]);
+    let decision = decide(outside("git pull").with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User);
+    assert!(need.notes.iter().any(|note| note.contains("all your rights")), "{:?}", need.notes);
+}
+
+#[test]
 fn exits_outside_from_a_project_with_trusted_programs_is_classifier() {
-    let mut facts = programs(&[("git", Some("/usr/bin/git"), false)]);
-    facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
-    assert_eq!(approver_of(outside("git pull").with_facts(facts)), Approver::Classifier);
-    // A program in a cache overlay or the private tmp was not written in the sandbox.
-    let facts = programs(&[("cargo", Some("/home/u/.cargo/bin/cargo"), false)]);
-    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::Classifier);
+    let support = AutoSupport { mount_view: false, ..AutoSupport::default() };
+    let approver = |line: &str, facts: CallFacts| {
+        let decision =
+            engine().with_support(support).decide(&in_auto(shell(line).with_facts(facts)));
+        decision.exits().find(|need| need.kind == ExitKind::Outside).map(|need| need.approver)
+    };
+    let facts = programs(&[("df", Some("/usr/bin/df"), false)]);
+    assert_eq!(approver("df -h", facts), Some(Approver::Classifier));
     // A builtin leads to no file.
-    let facts = programs(&[("cd", None, false), ("gdb", Some("/usr/bin/gdb"), false)]);
-    let line = "cd /tmp && gdb -p 1";
-    assert_eq!(approver_of(outside(line).with_facts(facts)), Approver::Classifier);
+    let facts = programs(&[("cd", None, false), ("df", Some("/usr/bin/df"), false)]);
+    assert_eq!(approver("cd /tmp && df -h", facts), Some(Approver::Classifier));
+    // A program that the sandbox can write is for the user.
+    let facts = programs(&[("df", Some("/home/u/p/app/df"), false)]);
+    assert_eq!(approver("df -h", facts), Some(Approver::User));
 }
 
 #[rstest]
@@ -1806,13 +1835,11 @@ fn rustup_custom_toolchain_is_user_only(#[case] line: &str) {
 #[rstest]
 #[case::check("twine check dist/*")]
 #[case::help("twine --help")]
+#[case::upload("twine upload dist/*")]
 fn twine_check_has_network_grant(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::Host], "{line:?}");
     assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork], "{line:?}");
-    // An upload stays an upload.
-    let decision = decide(shell("twine upload dist/*"));
-    assert_eq!(kinds(&decision), [ExitKind::Upload]);
 }
 
 #[test]
@@ -1887,10 +1914,6 @@ fn exits_outside_of_a_line_nested_too_deep_is_user() {
         ("sh", Some("/usr/bin/sh"), false),
         ("echo", Some("/usr/bin/echo"), false),
     ]);
-    // NOTE: `echo` in each level, so no program word is a substitution, which efr
-    // cannot read at any depth (`code.rs`).
-    let shallow = format!("{}x{}", "echo $(".repeat(3), ")".repeat(3));
-    assert_eq!(approver_of(outside(&shallow).with_facts(facts.clone())), Approver::Classifier);
     for closed in [true, false] {
         for depth in [65, 10_000] {
             let mut line = format!("{}x", "$(".repeat(depth));
@@ -1912,12 +1935,6 @@ fn exits_outside_of_a_line_nested_too_deep_is_user() {
             assert_eq!(effect, Effect::Contain, "{depth} deep, closed {closed}");
         }
     }
-}
-
-#[test]
-fn exits_outside_with_an_interpreters_version_is_classifier() {
-    let facts = programs(&[("python3", Some("/usr/bin/python3"), false)]);
-    assert_eq!(approver_of(outside("python3 --version").with_facts(facts)), Approver::Classifier);
 }
 
 #[test]
@@ -2608,12 +2625,13 @@ fn auto_network_need_is_a_host_exit_in_phase1_and_follows_the_list_with_the_prox
     assert_eq!(kinds(&proxy), [ExitKind::Outside]);
 }
 
-/// A socket that the model names in `needs.sockets`: one inside an engine secret or
-/// efr's own roots is a floor, and only the user approves a credential agent's socket,
-/// whose keys sign and log in as the user.
+/// A socket that the model names in `needs.sockets`: one in efr's own roots is a floor,
+/// and only the user, or the reviewer when the user asked, approves a credential
+/// agent's socket, whose keys sign and log in as the user. A socket in a tool's
+/// credential dir also lifts that dir's mask.
 #[rstest]
-#[case::in_gnupg("~/.gnupg/S.gpg-agent", ExitKind::Secret, Approver::User)]
-#[case::in_ssh_dir("~/.ssh/agent.sock", ExitKind::Secret, Approver::User)]
+#[case::in_gnupg("~/.gnupg/S.gpg-agent", ExitKind::Socket, Approver::User)]
+#[case::in_ssh_dir("~/.ssh/agent.sock", ExitKind::Socket, Approver::User)]
 #[case::efrd("/run/user/1000/efr/daemon.sock", ExitKind::Config, Approver::User)]
 #[case::gpg_agent("/run/user/1000/gnupg/S.gpg-agent", ExitKind::Socket, Approver::User)]
 #[case::gpg_agent_ssh("/run/user/1000/gnupg/S.gpg-agent.ssh", ExitKind::Socket, Approver::User)]
@@ -2622,9 +2640,9 @@ fn auto_network_need_is_a_host_exit_in_phase1_and_follows_the_list_with_the_prox
 #[case::keyring("/run/user/1000/keyring/ssh", ExitKind::Socket, Approver::User)]
 #[case::gcr("/run/user/1000/gcr/ssh", ExitKind::Socket, Approver::User)]
 #[case::password_manager("~/.1password/agent.sock", ExitKind::Socket, Approver::User)]
-// A socket that efrd knows as a credential agent's, and one under a mask, are guarded.
-#[case::from_the_environment("/run/user/1000/vault.sock", ExitKind::Socket, Approver::Guarded)]
-#[case::masked("~/.zsh_history", ExitKind::Socket, Approver::Guarded)]
+// A socket that efrd knows as a credential agent's, and one under a mask, are logins too.
+#[case::from_the_environment("/run/user/1000/vault.sock", ExitKind::Socket, Approver::User)]
+#[case::masked("~/.zsh_history", ExitKind::Socket, Approver::User)]
 #[case::other_app("/run/user/1000/app.sock", ExitKind::Socket, Approver::Classifier)]
 fn auto_credential_agent_sockets_are_floors_or_user(
     #[case] socket: &str,
@@ -2646,12 +2664,17 @@ fn auto_credential_agent_sockets_are_floors_or_user(
         assert_eq!(decision.effect(), Effect::Deny, "{socket}");
     } else {
         assert_eq!(need.approver, approver, "{socket}");
+        assert!(need.carries_login() || approver == Approver::Classifier, "{socket}");
+    }
+    if socket.starts_with("~/.ssh") || socket.starts_with("~/.gnupg") {
+        assert!(matches!(need.grants.first(), Some(Grant::Unmask { .. })), "{:?}", need.grants);
     }
 }
 
-/// A user message names a guarded socket by its path or by a phrase for a credential
+/// A user message names an agent's socket by its path or by a phrase for a credential
 /// agent, whatever the path, and never by a common word such as "agent" alone: the
-/// socket of a password manager's ssh agent has no word of its role in its path.
+/// socket of a password manager's ssh agent has no word of its role in its path. The
+/// names fill the record; the reviewer decides by the request.
 #[rstest]
 #[case::ssh_agent("use my ssh agent for this", true)]
 #[case::ssh_agent_dash("forward the ssh-agent", true)]
@@ -2666,18 +2689,18 @@ fn guarded_socket_names(#[case] message: &str, #[case] named: bool) {
     let decision = Engine::with_defaults(locations.unwrap())
         .decide(&in_auto(shell("./x.sh").with_needs(needs)));
     let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
-    assert_eq!(need.approver, Approver::Guarded);
+    assert_eq!(need.approver, Approver::User);
     assert_eq!(names_match(&need.names, &[message.to_owned()]), named, "{message:?}");
 }
 
-/// A socket under a mask is guarded too, but it can be anything, so only its own path
-/// names it: a phrase for an agent, said for another reason, must not open it.
+/// A socket under a mask can be anything, so only its own path names it: a phrase for
+/// an agent, said for another reason, does not name it.
 #[test]
 fn a_masked_socket_is_named_only_by_its_path() {
     let needs = Needs { sockets: vec!["~/.zsh_history".to_owned()], ..Needs::default() };
     let decision = decide(shell("./x.sh").with_needs(needs));
     let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
-    assert_eq!(need.approver, Approver::Guarded);
+    assert_eq!(need.approver, Approver::User);
     assert!(need.names.iter().all(|name| name.contains('/')), "{:?}", need.names);
     assert!(!names_match(&need.names, &["use my ssh agent for the push".to_owned()]));
     assert!(names_match(&need.names, &["read ~/.zsh_history".to_owned()]));
@@ -2720,10 +2743,9 @@ fn a_guarded_upload_does_not_merge_with_another_upload() {
 }
 
 /// A rule that gives an exit to the user never lowers a guarded exit of the same line:
-/// a line that also uses an ssh control socket, or whose git code efr could not check.
+/// a line that also uses an ssh control socket.
 #[rstest]
 #[case::control_socket("ssh -S /tmp/cm host true && npm publish")]
-#[case::git_code("git -c core.hooksPath=x pull && npm publish")]
 fn a_guarded_exit_stays_guarded_beside_a_user_rule(#[case] line: &str) {
     let decision = decide(shell(line).with_network().with_interactive());
     let publish = decision
@@ -2840,11 +2862,13 @@ fn auto_needs_become_exits() {
         bus: Some(BusKind::System),
         device: Some("/dev/nvme0n1".to_owned()),
         unmask: vec!["~/.zsh_history".to_owned(), "~/.ssh/id_ed25519".to_owned()],
+        env: vec!["TOOL_TOKEN".to_owned(), "not a name".to_owned()],
+        keyring: true,
         outside: true,
         reason: Some("the build needs them".to_owned()),
     };
     let decision = decide(shell("make").with_needs(needs));
-    assert_eq!(decision.effect(), Effect::Deny, "the unmask of a key is a floor");
+    assert_eq!(decision.effect(), Effect::Ask, "a key of a tool is a grant, not a floor");
     let found: Vec<(ExitKind, Vec<Grant>)> =
         decision.exits().map(|need| (need.kind, need.grants.clone())).collect();
     assert_eq!(
@@ -2857,10 +2881,20 @@ fn auto_needs_become_exits() {
             (ExitKind::Bus, vec![Grant::Bus { bus: BusKind::System }]),
             (ExitKind::Device, vec![Grant::Device { path: "/dev/nvme0n1".into() }]),
             (ExitKind::MaskedRead, vec![Grant::Unmask { path: "/home/u/.zsh_history".into() }]),
-            (ExitKind::Secret, vec![]),
+            (ExitKind::MaskedRead, vec![Grant::Unmask { path: "/home/u/.ssh".into() }]),
+            (ExitKind::MaskedRead, vec![Grant::Env { name: "TOOL_TOKEN".to_owned() }]),
+            (ExitKind::MaskedRead, vec![Grant::Keyring]),
             (ExitKind::Outside, vec![]),
         ]
     );
+    let logins: Vec<&ExitNeed> = decision.exits().filter(|need| need.carries_login()).collect();
+    assert_eq!(logins.len(), 4, "{logins:?}");
+    assert!(
+        logins.iter().skip(1).all(|need| need.approver == Approver::User),
+        "only the user, or the reviewer when the user asked, gives a login"
+    );
+    let outside = decision.exits().last().unwrap();
+    assert_eq!(outside.approver, Approver::User, "needs.outside gets the strict review");
     assert!(decision.exits().all(|need| need.source == ExitSource::Needs));
     // `src/x` lies in the project, so it was dropped. With the proxy a host is a grant.
     let proxy = engine()
@@ -3106,11 +3140,11 @@ fn the_exit_reason_reads_well_and_debug_hides_the_line() {
         decision.reasons().last().unwrap().to_string(),
         "exit upload: ask, because it is an action that the auto sandbox holds back"
     );
-    let secret = decide(shell("cat ~/.ssh/id_rsa").with_read("/home/u/.ssh/id_rsa"));
+    let secret = decide(shell("cat /etc/shadow").with_read("/etc/shadow"));
     let floor = secret.reasons().last().unwrap().to_string();
     assert_eq!(
         floor,
-        "exit secret /home/u/.ssh/id_rsa: deny, because it reaches a floor of efr, which no approval opens"
+        "exit secret /etc/shadow: deny, because it reaches a floor of efr, which no approval opens"
     );
 }
 

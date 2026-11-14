@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
+use efr_protocol::{BusKind, DesktopKind, EFR_KEY_NAMES, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
 use super::programs::{ProxyRoute, is_host_device, proxy_route, reaches_job};
@@ -25,7 +25,9 @@ pub(super) struct NeedsContext<'a> {
 
 /// The exits that `needs` asks for, each list cut at its limit. A write that the
 /// envelope already allows is dropped, and so is a device that every contained call
-/// has; a read of a secret is a floor.
+/// has; a read of efr's own secret is a floor, and a tool's credential (a file, a
+/// socket, a variable of `env`, the keyring) a `masked_read` for one call that only
+/// the user, or the reviewer when the user asked for the action, approves.
 ///
 /// A host goes through [`host_and_port`]: a word that is no host name in ASCII is
 /// dropped. With no proxy each host opens the whole network for the call. Under the
@@ -100,9 +102,11 @@ pub(super) fn exits(
     for word in needs.unmask.iter().take(Needs::MAX_UNMASK) {
         let Some(path) = resolve(word, dir, locations) else { continue };
         let part = format!("needs.unmask {}", path.display());
-        let need = if envelope.is_secret(&path) {
+        let need = if envelope.is_floor_secret(&path) {
             let mut need = ExitNeed::new(ExitKind::Secret, part, source);
             need.target = Some(path);
+            need
+        } else if let Some(need) = envelope.credential_read(&path, source) {
             need
         } else {
             // NOTE: a path that no built-in mask hides may still be one of the user's
@@ -116,10 +120,57 @@ pub(super) fn exits(
         };
         found.push(need);
     }
+    for name in needs.env.iter().take(Needs::MAX_ENV) {
+        found.extend(env_need(name, source));
+    }
+    if needs.keyring {
+        let mut need = ExitNeed::new(ExitKind::MaskedRead, "needs.keyring", source);
+        need.grants = vec![Grant::Keyring];
+        need.approver = Approver::User;
+        need.names = vec!["keyring".to_owned()];
+        need.notes.push(KEYRING_NOTE.to_owned());
+        found.push(need);
+    }
     if needs.outside {
-        found.push(ExitNeed::new(ExitKind::Outside, "needs.outside", source));
+        let mut need = ExitNeed::new(ExitKind::Outside, "needs.outside", source);
+        // NOTE: the line then runs with all of the user's rights, and so does the code
+        // that it starts and that nobody read, such as a repository's hooks.
+        need.approver = Approver::User;
+        need.notes.push(OUTSIDE_NOTE.to_owned());
+        found.push(need);
     }
     found
+}
+
+/// The note on the question about the keyring.
+const KEYRING_NOTE: &str = "the keyring: the call can read every unlocked entry, for this one call";
+
+/// The note on the question about `needs.outside`.
+const OUTSIDE_NOTE: &str =
+    "runs outside the sandbox with all your rights, with the code that it starts";
+
+/// The exit of a variable that `needs.env` names: a `masked_read` that keeps it for
+/// one call ([`Grant::Env`]). A name of efr's own (`EFR_*`, [`EFR_KEY_NAMES`]) is a
+/// `config` floor. A word that is no variable name is dropped.
+fn env_need(word: &str, source: ExitSource) -> Option<ExitNeed> {
+    let name = word.trim().trim_start_matches('$');
+    let valid = !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !valid {
+        return None;
+    }
+    let part = format!("needs.env {name}");
+    let efr_own = name.starts_with("EFR_") || name.starts_with("_EFR_");
+    if efr_own || EFR_KEY_NAMES.contains(&name) {
+        return Some(ExitNeed::new(ExitKind::Config, part, source));
+    }
+    let mut need = ExitNeed::new(ExitKind::MaskedRead, part, source);
+    need.grants = vec![Grant::Env { name: name.to_owned() }];
+    need.approver = Approver::User;
+    need.names = vec![name.to_owned()];
+    need.notes.push(super::envelope::CREDENTIAL_NOTE.to_owned());
+    Some(need)
 }
 
 /// The exit of a socket that the model names: a container engine's socket gives root,
@@ -129,19 +180,19 @@ pub(super) fn exits(
 /// are `privilege` exits that only the user approves. A bus socket is the bus, a
 /// display socket the desktop: its grant binds the one control socket that efrd finds
 /// for the prompt's terminal, never the named path, and only the user approves it. A
-/// socket inside an engine secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor,
-/// and one of efr's own roots, such as efrd's socket, a `config` floor. Only the user
-/// approves a socket under a mask or one of a credential agent
-/// ([`is_credential_agent`]), because a key there signs and logs in as the user, and
-/// an ssh control socket (`ssh`, a fact of efrd that an ssh process listens there; or
-/// a `ControlPath` of the user's ssh config), because it is a logged-in session
-/// (OQS17). A socket under a mask and a credential agent's socket that efrd knows from
-/// the environment are guarded ([`Approver::Guarded`]), with the names of
-/// [`agent_names`].
+/// socket inside efr's own secret is a `secret` floor, and one of efr's own roots, such
+/// as efrd's socket, a `config` floor. A socket in a tool's credential, such as
+/// `~/.gnupg/S.gpg-agent`, also lifts that credential's mask. Only the user, or the
+/// reviewer when the user asked for the action ([`Approver::User`]), approves a socket
+/// under a mask or one of a credential agent ([`is_credential_agent`]), because a key
+/// there signs and logs in as the user, and an ssh control socket (`ssh`, a fact of
+/// efrd that an ssh process listens there; or a `ControlPath` of the user's ssh
+/// config), because it is a logged-in session (OQS17). A credential agent's socket that
+/// efrd knows from the environment has the names of [`agent_names`].
 fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource, ssh: bool) -> ExitNeed {
     let part = format!("needs.sockets {}", path.display());
     let locations = envelope.locations();
-    let floor = if envelope.is_secret(&path) {
+    let floor = if envelope.is_floor_secret(&path) {
         Some(ExitKind::Secret)
     } else if locations.is_efr_own(&path) || locations.is_write_sealed(&path) {
         Some(ExitKind::Config)
@@ -182,24 +233,29 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource, ssh: bool)
     let mut need = ExitNeed::new(kind, part, source);
     if kind == ExitKind::Socket {
         need.grants = vec![Grant::Socket { path: path.clone() }];
-        // NOTE: a socket that efr knows as a credential agent's, from the environment
-        // or by its mask, is guarded: while the reviewer decides alone, it judges such
-        // a socket only when a user message names it. A socket that only looks like
-        // one, by a word of its path, is the user's, and so is an ssh control socket,
-        // as a line with `ssh -S` is: a wrong guess then costs a stricter review, and
-        // never a refusal with no review.
+        // NOTE: a credential agent's socket is a login like any other: the reviewer
+        // allows it only when the user asked for the action. So is a socket under a
+        // mask, which can be anything, a socket that only looks like an agent's, by a
+        // word of its path, and an ssh control socket, as a line with `ssh -S` is.
         // Only a socket that efr knows as an agent's takes the phrases for an agent: a
         // socket under a mask can be anything, so only its own path names it.
         let agent = locations.credential_sockets().iter().any(|known| known == &path);
         let control = ssh || is_ssh_control(&path, locations);
         if agent {
-            need.approver = Approver::Guarded;
+            need.approver = Approver::User;
             need.names = agent_names(&path, locations.home());
+            need.notes.push(super::envelope::CREDENTIAL_NOTE.to_owned());
         } else if envelope.is_masked(&path) {
-            need.approver = Approver::Guarded;
+            need.approver = Approver::User;
             need.names = super::names::path_forms(&path, locations.home());
         } else if control || is_credential_agent(&path, locations) {
             need.approver = Approver::User;
+        }
+        // NOTE: a socket in a tool's credential, such as an agent's socket in
+        // `~/.gnupg`, needs the credential's mask lifted to be reached.
+        if let Some(root) = locations.credential_root(&path) {
+            need.approver = Approver::User;
+            need.grants.insert(0, Grant::Unmask { path: root });
         }
         if control {
             need.notes.push(super::control::CONTROL_NOTE.to_owned());

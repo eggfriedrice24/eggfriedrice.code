@@ -196,7 +196,7 @@ async fn a_silent_reviewer_does_not_reset_the_count() {
 async fn classifier_allow_keeps_floor_count() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
-    let key = setup.home().join(".ssh/id_ed25519");
+    let key = std::path::PathBuf::from("/etc/shadow");
     let line = format!("cat {}", key.display());
     let calls = vec![shell(&line), shell(&line), shell("git push origin main"), shell(&line)];
     let script = Script::new(calls);

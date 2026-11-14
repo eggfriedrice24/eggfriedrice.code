@@ -319,8 +319,10 @@ fn the_needs_input_schema_is_closed_and_names_every_member() {
     assert_eq!(schema["additionalProperties"], json!(false));
     let names: Vec<&str> =
         schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
-    let mut expected =
-        vec!["write", "hosts", "sockets", "bus", "device", "unmask", "outside", "reason"];
+    let mut expected = vec![
+        "write", "hosts", "sockets", "bus", "device", "unmask", "env", "keyring", "outside",
+        "reason",
+    ];
     let mut sorted = names.clone();
     sorted.sort_unstable();
     expected.sort_unstable();

@@ -6,7 +6,6 @@ mod commands;
 mod coverage;
 mod destructive;
 mod full;
-mod git_code;
 mod git_rules;
 mod global_options;
 mod jobs;

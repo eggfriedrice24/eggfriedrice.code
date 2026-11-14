@@ -118,8 +118,8 @@ Modules:
   for a rule that allows. The exits take the positions of git's options from `exact`
   too (DL28): the upload and destructive forms of `exits/programs.rs`, the remote
   facts of `exits/remotes.rs` (the dir of the `-C` options, each relative to the one
-  before), the delete guard of `exits/critical.rs`, the cover asks of
-  `exits/cover.rs` and the git code check of `exits/git_code.rs`. Each keeps its own
+  before), the delete guard of `exits/critical.rs` and the cover asks of
+  `exits/cover.rs`. Each keeps its own
   idea of which options it accepts, so `cover.rs` still accepts only `--no-pager`,
   `-P`, `--no-optional-locks` and one `-C`.
 - `command/globals.rs` (v0.0.5, OQL4): a table of the global options of `systemctl`,
@@ -446,31 +446,28 @@ Modules:
   with no fact keeps the line's own hosts. A `git push` with no host at all (its facts
   dropped, a `cd` first, a local path, a URL that efrd could not read) is for the user:
   the naming rule would have nothing to check.
-- `exits/git_code.rs` (v0.0.4, B4): the git code of a line that runs git outside the
-  sandbox. `fact_requests` names a `GitCodeAsk` in `FactRequest::git_code` for each git
-  command that reaches a remote (also `send-email`, with no submodules) and each gh command that runs git in the repository
-  (`pr create`, `pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork
-  --clone`), with the line's `-C` (each one from the one before), `--git-dir` and
-  `--work-tree`, and whether the line can reach the submodules. efrd answers in
-  `CallFacts::git_code` (`efr_protocol::GitCodeFacts`). The prediction makes each
-  `outside` and `upload` exit of such a line `Approver::User` when a part is writable,
-  when the fact says not checked, when no fact came, or when efr cannot tell the
-  repository (a `cd` first, a variable); `ExitNeed::notes` names each writable part
-  (at most three, then a count) or says that efr could not check it. A git option that
-  chooses the code (`-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`,
-  `--namespace`, `--receive-pack`, `--exec`, `--upload-pack`, `--template`, `clone -u`
-  and `clone -c`, and `send-email`'s `--to-cmd`, `--cc-cmd`, `--header-cmd`,
-  `--sendmail-cmd` and an `--smtp-server` with a `/`) makes every `outside` and `upload` exit of the line `Approver::User`
-  (DV50). So does a variable of a git or gh line that chooses the code
-  (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
-  `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.
-  With no facts at all (no sandbox in efrd), the route stays.
+- Logins as grants (ADR 0024): `Locations::credential_root` gives the credential root
+  of a secret path that is a tool's login (`HOME_SECRETS` and the roots of
+  `permissions.secret_paths`); efr's own secrets (the sealed roots), `SYSTEM_SECRETS`
+  and the `/proc` secrets stay floors (`Envelope::is_floor_secret`). A read of a
+  credential (`Envelope::credential_read`, also from `needs.unmask`), a variable of
+  `needs.env` (`Grant::Env`; `EFR_*` and `efr_protocol::EFR_KEY_NAMES` are `config`
+  floors) and `needs.keyring` (`Grant::Keyring`) are `masked_read` exits with
+  `Approver::User` and a note. An agent's socket and a socket under a mask are
+  `Approver::User` too, and a socket in a credential dir also lifts its mask.
+  `ExitNeed::carries_login` marks such an exit, and `exits::login_line_problem` is the
+  one-command rule of a line that gets one. `needs.outside` is `Approver::User` with a
+  note.
 - `ExitNeed::contained` (v0.0.9): an exit of a kind that runs outside by default runs
-  in the sandbox with its grants. `Network::upload` in `exits/programs.rs` sets it for
-  an HTTP upload that carries no credential (`curl -d`, `-T`, `-X POST`, `wget
-  --post-data`): it gets the grants that a fetch of the same URLs gets, and keeps the
-  `upload` kind and its approver. A POST to a forwarded port of the conversation's job
-  is no exit. A merged exit runs contained only when each of its forms does.
+  in the sandbox with its grants. Every `upload` is contained: `Network::upload` for an
+  HTTP upload (`curl -d`, `-T`, `-X POST`, `wget --post-data`) gets the grants that a
+  fetch of the same URLs gets; a `git push` gets the grants of its remote's push URLs
+  (`remotes::grants`; an ssh URL gets `Grant::OpenNetwork`, because the proxy carries
+  no ssh); a publish gets those of its registry. A POST to a forwarded port of the
+  conversation's job is no exit. A merged exit runs contained only when each of its
+  forms does. git over ssh (`Network::ssh_transport`), `scp` and `rsync` to a remote
+  are `host` exits with `Grant::OpenNetwork`, in the sandbox. gh, `gem push` and
+  `twine upload` have no upload verb: their login is the exit.
 - `unsandboxed_line_problem` reads the exact exit status words (`$?`, `$status`,
   `$pipestatus`, `$PIPESTATUS`, and these names with a subscript of literal digits) as
   the number that they are (`status_words_as_literals`); every other expansion stays

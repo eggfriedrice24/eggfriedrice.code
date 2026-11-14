@@ -61,6 +61,10 @@ impl Launch {
     }
 }
 
+/// The variables that `efr login` reads efr's own keys from. They hold efr's keys, so
+/// no [`Grant::Env`] names them and no contained call sees them.
+pub const EFR_KEY_NAMES: &[&str] = &["OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
+
 /// One widening of the sandbox for one call, after the user (or, from phase A, the
 /// classifier) approved an exit. A grant never lifts a mask of an engine secret and
 /// never crosses a floor.
@@ -108,11 +112,23 @@ pub enum Grant {
         /// The node, below `/dev`.
         path: PathBuf,
     },
-    /// One read mask removed. Never for an engine secret.
+    /// One read mask removed: a sandbox mask, or a credential of a tool. Never for an
+    /// engine secret, which is efr's own.
     Unmask {
         /// The masked path, absolute.
         path: PathBuf,
     },
+    /// One variable of the shell that the sandbox removes as secret-like, such as a
+    /// tool's token, kept for this call. Never one of efr's own names, a socket or a
+    /// session variable, or a name of [`EFR_KEY_NAMES`].
+    Env {
+        /// The variable's name.
+        name: String,
+    },
+    /// The keyring for this call: the call's filtered session bus also passes every
+    /// call to the Secret Service (`org.freedesktop.secrets`), so the call can read each
+    /// unlocked entry. efr never keeps its own keys there.
+    Keyring,
     /// The host's network view with no way to open a network socket: the call keeps
     /// the host's network namespace, and seccomp allows only `AF_UNIX` and `AF_NETLINK`
     /// sockets, and only the `ROUTE` and `SOCK_DIAG` netlink protocols (phase D1).
@@ -139,6 +155,8 @@ impl Grant {
             | Grant::Device { path }
             | Grant::Unmask { path } => Some(path),
             Grant::Host { .. }
+            | Grant::Env { .. }
+            | Grant::Keyring
             | Grant::OpenNetwork
             | Grant::Bus { .. }
             | Grant::Desktop { .. }

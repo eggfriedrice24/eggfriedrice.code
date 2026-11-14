@@ -291,6 +291,29 @@ async fn multi_command_unsandboxed_exit_refused_without_question() {
     h.finish();
 }
 
+/// A line that gets a login of a tool follows the one-command rule too: the build of
+/// `just check && git push` would see the login. efr refuses it with no question.
+#[tokio::test]
+async fn a_login_line_with_more_than_one_command_is_refused_without_question() {
+    let (setup, state) = auto("push it");
+    let line = "just check && git push";
+    let problem = efr_permissions::exits::login_line_problem(line).expect("a problem");
+    assert!(problem.starts_with(efr_permissions::exits::ONE_LOGIN), "{problem}");
+    assert_eq!(efr_permissions::exits::login_line_problem("git push"), None);
+    let input = json!({ "command": line, "needs": { "env": ["TOOL_TOKEN"] } });
+    let records = one_call(&setup, &state, "push it", &input, &problem, true, "Split it.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("push it").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.invoked().is_empty());
+    let events = h.events().await;
+    assert!(!events.iter().any(|e| matches!(e, Event::ApprovalRequested { .. })));
+    assert_eq!(started_launch(&h).await, None);
+    h.finish();
+}
+
 #[tokio::test]
 async fn a_sudo_that_forgets_the_password_asks_once_with_the_sudo_beside_it() {
     let (setup, state) = auto("check sudo");
@@ -381,7 +404,8 @@ fn denial(setup: &Setup, title: &str, line: &str, read: &Path) -> String {
 #[tokio::test]
 async fn floor_refusals_still_stop_turn_at_three() {
     let (setup, state) = auto("find the key");
-    let key = setup.home().join(".ssh/id_ed25519");
+    // NOTE: a system secret is a floor; a tool's key is a reviewed grant.
+    let key = std::path::PathBuf::from("/etc/shadow");
     let line = format!("cat {}", key.display());
     let input = json!({ "command": line, "reads": [key] });
     let refused = denial(&setup, "find the key", &line, &key);
@@ -440,7 +464,7 @@ async fn floor_refusals_still_stop_turn_at_three() {
 #[tokio::test]
 async fn a_user_answer_resets_the_refusals() {
     let (setup, state) = auto("look around");
-    let key = setup.home().join(".ssh/id_ed25519");
+    let key = std::path::PathBuf::from("/etc/shadow");
     let secret = format!("cat {}", key.display());
     let refused_input = json!({ "command": secret, "reads": [key] });
     let refused = denial(&setup, "look around", &secret, &key);

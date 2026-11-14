@@ -61,8 +61,9 @@ impl MountPlan {
     pub fn build(spec: &SandboxSpec, fs: &dyn FsView) -> Result<MountPlan, SandboxError> {
         spec.check()?;
         // A grant of a newer efr: this build cannot know what it widens, so the call
-        // fails closed.
-        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown)) {
+        // fails closed. efrd serves the keyring as the call's filtered session bus, so a
+        // spec never holds `Keyring` itself.
+        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown | Grant::Keyring)) {
             return Err(SandboxError::UnknownGrant);
         }
         // NOTE: efrd adds the network view only beside `Write` and `Unmask` grants

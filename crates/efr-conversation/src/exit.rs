@@ -31,8 +31,8 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, GitCodeFacts, Grant, HostFact, Judgement, Launch, Mode, PathClassName, PauseReason,
-    ProgramFact, Risk, SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
+    ExitSource, Grant, HostFact, Judgement, Launch, Mode, PathClassName, PauseReason, ProgramFact,
+    Risk, SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
 };
 use efr_store::conversations::{Turn as StoredTurn, TurnStatus};
 use serde_json::Value;
@@ -892,25 +892,6 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
     facts
 }
 
-/// The git code of an `outside` or `upload` exit of `decision` for the record, only
-/// when it made the exit one that only the user may approve: efrd could not check it,
-/// or a sandboxed command can write a part of it (v0.0.4, DV22). A clean check stays
-/// out of the record, so the reviewer never reads it as a reason to allow. The record
-/// keeps only the parts that a sandboxed command can write: the others say nothing
-/// about the risk, and their names can hold what the user's own config holds.
-fn git_code(decision: &Decision, requirements: &Requirements) -> Option<GitCodeFacts> {
-    let leaves =
-        decision.exits().any(|need| matches!(need.kind, ExitKind::Outside | ExitKind::Upload));
-    if !leaves {
-        return None;
-    }
-    let code = requirements.facts.as_ref()?.git_code.as_ref().filter(|code| !code.clean())?;
-    Some(GitCodeFacts {
-        checked: code.checked,
-        items: code.items.iter().filter(|item| item.writable).cloned().collect(),
-    })
-}
-
 /// A fact for a question where the model asked to run outside the sandbox, but every
 /// other exit that efr finds can run in the sandbox with a grant: the user reads that a
 /// narrower grant covers what the line shows. The launch stays what the model asked
@@ -960,6 +941,8 @@ fn grant_words(grant: &Grant, home: &Path) -> Option<String> {
         Grant::Desktop { desktop } => format!("the {} socket", desktop.name()),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
+        Grant::Env { name } => format!("the variable {name}"),
+        Grant::Keyring => "the keyring".to_owned(),
         Grant::NetView => "the host's network view".to_owned(),
         _ => return None,
     })
@@ -1418,7 +1401,6 @@ pub(crate) fn record(action: Action<'_>, messages: &UserMessages, turn: &TurnExi
             refusals_in_a_row: turn.refusals_in_a_row,
             denials_in_a_row: turn.denials_in_a_row,
             denials_this_turn: turn.denials_this_turn,
-            git_code: git_code(action.decision, action.requirements),
         },
     }
 }

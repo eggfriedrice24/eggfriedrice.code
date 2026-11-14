@@ -733,6 +733,19 @@ impl Judge<'_> {
     fn path(&self, path: PathBuf, access: Access, class: PathClass) -> Reason {
         let target = Target::Path { path: &path, access, class };
         let (mut effect, mut cause) = self.by_rules(&target, Some(class));
+        // NOTE: in `auto` a shell call's read of a tool's login is no floor (ADR 0024):
+        // the sandbox masks it, and its `masked_read` exit decides. A rule of the user's
+        // that denies it still denies.
+        let login = self.contain
+            && !self.full
+            && access != Access::Write
+            && effect == Effect::Deny
+            && self.built_in(&cause)
+            && self.engine.locations.credential_root(&path).is_some();
+        if login {
+            let subject = Subject::Path { path, access, class: Some(class) };
+            return Reason { subject, effect: Effect::Contain, cause: Cause::ExitDecides };
+        }
         let lifted = self.full && effect == Effect::Ask && self.built_in(&cause);
         if effect == Effect::Allow || lifted {
             let below = match access {

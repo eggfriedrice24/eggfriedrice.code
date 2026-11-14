@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{GitCodeFacts, Mode, Needs, Origin, Scope};
+use efr_protocol::{Mode, Needs, Origin, Scope};
 
 use crate::Policy;
 
@@ -248,34 +248,11 @@ pub struct CallFacts {
     /// makes no exit. Empty when efrd forwards nothing for the conversation; the fact
     /// only predicts, the sandbox enforces.
     pub reach_ports: Vec<u16>,
-    /// The git code of the repositories of
-    /// [`FactRequest::git_code`](crate::FactRequest), merged: checked only when efrd
-    /// checked each one (v0.0.4, DV22). `None` for a line that asks for none; for a
-    /// line that asks, `None` counts as not checked, and only the user may approve its
-    /// `outside` or `upload` exit.
-    pub git_code: Option<GitCodeFacts>,
     /// The sockets of [`FactRequest::sockets`](crate::FactRequest) that an ssh process
     /// listens on: ssh control sockets, each a logged-in session (OQS17). Only the user
     /// approves a socket grant of one. efrd lists every socket of the request here when
     /// it cannot look, so a lost fact asks the user.
     pub ssh_sockets: Vec<PathBuf>,
-}
-
-/// A repository whose git code efrd checks before a git or gh line may run outside the
-/// sandbox (v0.0.4, DV22): its hooks, the config keys that run a program and the
-/// programs that they run, as git finds them from the line's options.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GitCodeAsk {
-    /// The directory git starts in: the line's directory after each `-C`.
-    pub dir: PathBuf,
-    /// The `--git-dir` of the line, resolved from [`dir`](Self::dir).
-    pub git_dir: Option<PathBuf>,
-    /// The `--work-tree` of the line, resolved from [`dir`](Self::dir).
-    pub work_tree: Option<PathBuf>,
-    /// True when the line can reach the submodules (`push`, `fetch`, `pull`,
-    /// `submodule update`, a gh command that pushes): efrd then checks each module git
-    /// dir too.
-    pub recurse: bool,
 }
 
 /// One git remote of a directory, or one submodule URL of its `.gitmodules` (phase D2,

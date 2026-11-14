@@ -75,21 +75,29 @@ impl Found {
     }
 
     /// An `upload` that the classifier judges when a user message names one of `names`
-    /// (spec 9.1): the verb of the program, the remote or the host.
+    /// (spec 9.1): the verb of the program, the remote or the host. It runs in the
+    /// sandbox ([`Found::contained`]) with the grants that the caller adds: every login
+    /// that it needs is a grant of its own, which the model names in `needs`.
     fn upload(names: Vec<String>) -> Self {
         let names = super::names::dedup(names);
-        Found { approver: Approver::ClassifierWhenNamed, names, ..Found::of(ExitKind::Upload) }
+        Found {
+            approver: Approver::ClassifierWhenNamed,
+            names,
+            contained: true,
+            ..Found::of(ExitKind::Upload)
+        }
     }
 
-    /// The `upload` of a package publish, which only the user may approve (v0.0.4,
-    /// DV25): it runs project code with the user's rights, which a sandboxed command
-    /// can write, and `notes` say which. While the reviewer decides alone, it judges a
-    /// publish only when a user message names the verb ([`Approver::Guarded`]).
-    fn publish(verb: &str, notes: &[&str]) -> Self {
+    /// The `upload` of a package publish (v0.0.4, DV25), with the grants of `network`:
+    /// a version can never be published again, so the reviewer judges it only when a
+    /// user message names the verb ([`Approver::Guarded`]). It runs in the sandbox, so
+    /// the project code that it runs, which `notes` name, sees only the grants of the
+    /// call.
+    fn publish(verb: &str, notes: &[&str], network: &Network<'_>) -> Self {
         Found {
             approver: Approver::Guarded,
             notes: notes.iter().map(|note| (*note).to_owned()).collect(),
-            ..Found::upload(vec![verb.to_owned()])
+            ..network.upload_with(vec![verb.to_owned()])
         }
     }
 
@@ -540,10 +548,10 @@ pub(super) fn classify(
         "npm" | "pnpm" | "yarn" | "bun" => found.extend(node(program, args, &network)),
         "cargo" => found.extend(match verb(args, &["--color", "-Z", "--config"]) {
             Some("publish") if !has(args, "--no-verify") => {
-                Some(Found::publish("publish", &[CARGO_BUILDS, CARGO_CONFIG]))
+                Some(Found::publish("publish", &[CARGO_BUILDS, CARGO_CONFIG], &network))
             }
             Some(verb @ ("publish" | "yank" | "owner")) => {
-                Some(Found::publish(verb, &[CARGO_CONFIG]))
+                Some(Found::publish(verb, &[CARGO_CONFIG], &network))
             }
             Some(
                 "fetch" | "update" | "install" | "search" | "add" | "login" | "generate-lockfile",
@@ -586,22 +594,20 @@ pub(super) fn classify(
                 found.extend(classify(&inner, support, hosts, reach));
             }
         }
+        // NOTE: an upload of these programs needs a login that the sandbox hides (a
+        // token file, a variable, the keyring, an ssh key or agent), so the grant of
+        // that login is the exit that the reviewer judges, and no verb of theirs is
+        // one. Only an upload that can send data with nothing that efr grants stays an
+        // upload by its verb: `git push`, curl and wget, and a publish.
         "gem" => found.extend(match verb(args, &[]) {
-            Some("push") => Some(Found::upload(vec!["push".to_owned()])),
-            Some("install" | "update" | "fetch") => network.host(),
+            Some("push" | "install" | "update" | "fetch") => network.host(),
             _ => None,
         }),
-        // NOTE: `twine check` and the other forms that do not upload still reach PyPI,
-        // so they get the network of a fetch.
-        "twine" => found.extend(match verb(args, &[]) {
-            Some(verb @ ("upload" | "register")) => Some(Found::upload(vec![verb.to_owned()])),
-            _ => network.host(),
-        }),
+        "twine" | "gh" => found.extend(network.host()),
         "rustup" => found.extend(rustup(args)),
-        "gh" => found.extend(gh(args, &network)),
-        "scp" | "sftp" => found.push(Found::upload(remote_names(program, args))),
+        "scp" | "sftp" => found.push(Network::ssh_transport(remote_names(program, args))),
         "rsync" if args.iter().any(|arg| is_remote(arg)) => {
-            found.push(Found::upload(remote_names(program, args)));
+            found.push(Network::ssh_transport(remote_names(program, args)));
         }
         "curl" => found.extend(if curl_uploads(args) {
             network.upload(url_names(args))
@@ -1020,8 +1026,15 @@ impl Network<'_> {
         if reached {
             return None;
         }
+        Some(self.upload_with(names))
+    }
+
+    /// The contained `upload` of a program with `names`, with the grants that a fetch of
+    /// the command's URLs gets ([`Network::host`]): none under the proxy for a command
+    /// with no URL, such as `git push` or a publish, whose hosts the caller adds.
+    fn upload_with(&self, names: Vec<String>) -> Found {
         let grants = self.host().map(|found| found.grants).unwrap_or_default();
-        Some(Found { grants, contained: true, ..Found::upload(names) })
+        Found { grants, ..Found::upload(names) }
     }
 
     /// A remote shell to `host`, or an ssh git URL of `host`: a `host` exit with the
@@ -1032,6 +1045,26 @@ impl Network<'_> {
         match self.support.egress {
             Egress::None => self.host(),
             Egress::Proxy => Some(Found::remote_shell(host, steered)),
+        }
+    }
+
+    /// The `host` exit of a program that only carries data over ssh, such as `scp`,
+    /// `rsync` to a remote or git with an ssh URL, with `names` (the program and the
+    /// hosts): it runs in the sandbox with the host's network, because the proxy
+    /// carries no ssh. The login that it needs, an ssh agent or a key, is a grant of its
+    /// own. The classifier judges it when a user message names a host, and the user
+    /// one with no host that efr can read. A form that reaches another host first, such
+    /// as a jump host, stays in the sandbox too, so it needs no rule of its own.
+    fn ssh_transport(names: Vec<String>) -> Found {
+        let hosts: Vec<String> = names.iter().skip(1).cloned().collect();
+        let approver =
+            if hosts.is_empty() { Approver::User } else { Approver::ClassifierWhenNamed };
+        Found {
+            grants: vec![Grant::OpenNetwork],
+            approver,
+            names: super::names::dedup(names),
+            hosts,
+            ..Found::of(ExitKind::Host)
         }
     }
 }
@@ -1604,11 +1637,11 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
                 .find(|(at, word)| is_ssh_url(word) && !(*at > 0 && is_refspec(word)))
                 .map(|(_, word)| *word);
             match url {
-                Some(url) => {
-                    let steered = git_steers_ssh(&args[..at], rest);
-                    network.remote_shell(ssh_url_host(url), steered).into_iter().collect()
+                Some(url) if network.support.egress == Egress::Proxy => {
+                    let names = std::iter::once(sub.clone()).chain(ssh_url_host(url)).collect();
+                    vec![Network::ssh_transport(names)]
                 }
-                None => network.host().into_iter().collect(),
+                _ => network.host().into_iter().collect(),
             }
         }
         "remote" if matches!(verb(rest, &[]), Some("update" | "prune" | "show")) => {
@@ -1758,97 +1791,22 @@ const NODE_FETCH: &[&str] = &[
 const NODE_PUBLISH: &str = "runs the project's prepublishOnly and prepack scripts";
 
 /// The note of `cargo publish` without `--no-verify` (DV25).
-const CARGO_BUILDS: &str = "builds the crate (build.rs) with your rights";
+const CARGO_BUILDS: &str = "builds the crate (build.rs), which sees the grants of the call";
 
 /// The note of every cargo upload verb (DV25).
 const CARGO_CONFIG: &str = "reads .cargo/config.toml, which can name a credential program";
 
 fn node(program: &str, args: &[String], network: &Network<'_>) -> Option<Found> {
     match verb(args, &["--prefix", "-C", "--dir", "--cwd", "--filter"]) {
-        Some("publish") => Some(Found::publish("publish", &[NODE_PUBLISH])),
+        Some("publish") => Some(Found::publish("publish", &[NODE_PUBLISH], network)),
         Some("npm") if program == "yarn" && args.iter().any(|arg| arg == "publish") => {
-            Some(Found::publish("publish", &[NODE_PUBLISH]))
+            Some(Found::publish("publish", &[NODE_PUBLISH], network))
         }
         // NOTE: `yarn` alone installs.
         None if program == "yarn" => network.host(),
         Some(verb) if NODE_FETCH.contains(&verb) => network.host(),
         _ => None,
     }
-}
-
-fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
-    let mut words = args.iter().filter(|word| !word.starts_with('-'));
-    let group = words.next().map(String::as_str);
-    let action = words.next().map(String::as_str);
-    let writes = match (group, action) {
-        (Some("release"), Some("create" | "upload" | "edit" | "delete")) => true,
-        (Some("pr"), Some("create" | "merge" | "comment" | "edit" | "review" | "close")) => true,
-        (Some("issue"), Some("create" | "comment" | "edit" | "close")) => true,
-        (Some("gist"), Some("create" | "edit")) => true,
-        (Some("repo"), Some("create" | "fork" | "edit" | "delete" | "sync")) => true,
-        (Some("api"), endpoint) => gh_api_writes(args, endpoint),
-        _ => false,
-    };
-    if !writes {
-        return network.host();
-    }
-    let mut names: Vec<String> = group.into_iter().map(str::to_owned).collect();
-    if group == Some("pr") {
-        names.push("pull request".to_owned());
-    }
-    Some(Found::upload(names))
-}
-
-/// True when `gh api` with `args` and the endpoint `endpoint` can change something:
-///
-/// - a method other than `GET` or `HEAD` (`-X POST`, `--method=PATCH`); an explicit
-///   `GET` is a read, also with fields, which gh then sends as query parameters;
-/// - with no method: a field or `--input` of a REST endpoint, which makes gh send a
-///   `POST`;
-/// - for `graphql`: a query that efr cannot read (from a file or `--input`), or one
-///   that holds the word `mutation` or `subscription`. Any other query is a read.
-fn gh_api_writes(args: &[String], endpoint: Option<&str>) -> bool {
-    let mut method: Option<&str> = None;
-    let mut fields: Vec<&str> = Vec::new();
-    let mut input = false;
-    let mut words = args.iter();
-    while let Some(word) = words.next() {
-        let word = word.as_str();
-        match word {
-            "-X" | "--method" => method = words.next().map(String::as_str),
-            "-f" | "-F" | "--field" | "--raw-field" => {
-                fields.extend(words.next().map(String::as_str));
-            }
-            "--input" => input = true,
-            _ => {
-                if let Some(value) =
-                    word.strip_prefix("--method=").or_else(|| word.strip_prefix("-X"))
-                {
-                    method = Some(value);
-                } else if let Some(value) =
-                    word.strip_prefix("--field=").or_else(|| word.strip_prefix("--raw-field="))
-                {
-                    fields.push(value);
-                } else if let Some(value) = word.strip_prefix("--input=") {
-                    input = !value.is_empty();
-                }
-            }
-        }
-    }
-    if let Some(method) = method {
-        return !(method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD"));
-    }
-    if endpoint != Some("graphql") {
-        return input || !fields.is_empty();
-    }
-    let queries: Vec<&str> =
-        fields.iter().filter_map(|field| field.strip_prefix("query=")).collect();
-    let unread = input || queries.is_empty() || queries.iter().any(|query| query.starts_with('@'));
-    let changes = queries.iter().any(|query| {
-        let text = query.to_ascii_lowercase();
-        text.contains("mutation") || text.contains("subscription")
-    });
-    unread || changes
 }
 
 /// The options of `ssh` that take a value as the next word.
@@ -1923,24 +1881,6 @@ fn ssh_steered(program: &str, args: &[String]) -> bool {
         }
     }
     false
-}
-
-/// True when the git command with the options `global` (before its subcommand) and
-/// `rest` (after it) can run its ssh transport with a command or a config of the line,
-/// or reach more hosts than its URL: a config value of the line (`-c`, `--config-env`,
-/// `clone -c` or `--config`), another exec path, a template dir with hooks, or the
-/// submodules of the clone, whose URLs come from the remote.
-fn git_steers_ssh(global: &[String], rest: &[String]) -> bool {
-    fn option(word: &str) -> &str {
-        word.split_once('=').map_or(word, |(option, _)| option)
-    }
-    global.iter().any(|word| matches!(option(word), "-c" | "--config-env" | "--exec-path"))
-        || rest.iter().any(|word| {
-            matches!(
-                option(word),
-                "-c" | "--config" | "--template" | "--recurse-submodules" | "--recursive"
-            )
-        })
 }
 
 /// True when the segment `words` sets a variable that changes how git or ssh reach a

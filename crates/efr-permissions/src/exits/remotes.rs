@@ -214,14 +214,13 @@ pub(super) fn urls<'f>(kind: RemoteUse, remotes: &[&'f RemoteFact]) -> Vec<&'f R
 /// The exit of a fetch from the remotes `remotes` under efr's proxy (DP20, DP22), for
 /// the simple command `part`; `None` when the proxy decides it alone.
 ///
-/// A remote with an ssh URL runs outside the sandbox, with the user's ssh agent and
-/// keys, so its `outside` exit names its hosts, and the classifier judges it only when a
-/// user message names one ([`Approver::ClassifierWhenNamed`]; the turn also counts a
-/// project's own remote as named). A submodule URL comes from `.gitmodules`, which the
-/// model can write, so an ssh submodule URL is for the user alone. An https remote
-/// follows the list: a host that the list allows or denies needs nothing, an unlisted
-/// one gets a grant of its host and port, and one that the proxy cannot serve gets the
-/// whole network.
+/// A remote with an ssh URL runs in the sandbox with the host's network, because the
+/// proxy carries no ssh; the ssh agent or key that it needs is a grant of its own. Its
+/// `host` exit names its hosts, and the classifier judges it only when a user message
+/// names one ([`Approver::ClassifierWhenNamed`]; the turn also counts a project's own
+/// remote as named). A submodule URL comes from `.gitmodules`, which the model can
+/// write, so an ssh submodule URL is for the user alone. An https remote follows the
+/// list ([`grants`]).
 pub(super) fn proxy_fetch_exit(
     kind: RemoteUse,
     remotes: &[&RemoteFact],
@@ -230,8 +229,12 @@ pub(super) fn proxy_fetch_exit(
 ) -> Option<ExitNeed> {
     let urls = urls(kind, remotes);
     let hosts = hosts(&urls);
+    let grants = grants(&urls, list);
+    if grants.is_empty() {
+        return None;
+    }
+    let mut need = ExitNeed::new(ExitKind::Host, Arc::clone(part), ExitSource::Predicted);
     if urls.iter().any(|url| url.ssh) {
-        let mut need = ExitNeed::new(ExitKind::Outside, Arc::clone(part), ExitSource::Predicted);
         // NOTE: a remote of a pinned project git dir that did not change since the
         // conversation's first call counts as named (DP23); a submodule never does.
         let project = remotes.iter().all(|remote| remote.project && !remote.submodule);
@@ -243,17 +246,23 @@ pub(super) fn proxy_fetch_exit(
             Approver::ClassifierWhenNamed
         };
         need.names = hosts.clone();
-        need.hosts = hosts;
-        return Some(need);
     }
+    need.grants = grants;
+    need.hosts = hosts;
+    Some(need)
+}
+
+/// The grants that a contained call needs to reach `urls` under efr's proxy: the
+/// host's network for an ssh URL or a host that the proxy cannot serve, a grant of its
+/// host and port for an unlisted https host, and nothing for a host that the list
+/// allows or denies, because the proxy decides it.
+pub(super) fn grants(urls: &[&RemoteUrl], list: &HostList) -> Vec<Grant> {
     let mut grants: Vec<Grant> = Vec::new();
-    for url in &urls {
-        match proxy_route(list, &url.host, url.port) {
+    for url in urls {
+        let route = if url.ssh { ProxyRoute::Open } else { proxy_route(list, &url.host, url.port) };
+        match route {
             ProxyRoute::Listed | ProxyRoute::Denied => {}
-            ProxyRoute::Open => {
-                grants = vec![Grant::OpenNetwork];
-                break;
-            }
+            ProxyRoute::Open => return vec![Grant::OpenNetwork],
             ProxyRoute::Grant => {
                 let grant = Grant::Host { host: url.host.clone(), port: url.port };
                 if !grants.contains(&grant) {
@@ -262,13 +271,7 @@ pub(super) fn proxy_fetch_exit(
             }
         }
     }
-    if grants.is_empty() {
-        return None;
-    }
-    let mut need = ExitNeed::new(ExitKind::Host, Arc::clone(part), ExitSource::Predicted);
-    need.grants = grants;
-    need.hosts = hosts;
-    Some(need)
+    grants
 }
 
 /// The hosts of `urls`, each once, in order.

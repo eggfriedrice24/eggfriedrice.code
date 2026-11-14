@@ -721,6 +721,40 @@ async fn whole_session_bus_grant_reaches_the_secret_service() {
     setup.daemon.stop().await.unwrap();
 }
 
+/// Phase 3: the keyring is a login like any other. `needs.keyring` gives one call the
+/// filtered session bus that also passes the Secret Service, never the whole bus, and
+/// only after the reviewer found that the user asked.
+#[tokio::test]
+async fn a_keyring_grant_reaches_the_secret_service_through_the_filter() {
+    let test = "a_keyring_grant_reaches_the_secret_service_through_the_filter";
+    let dirs = target_dirs();
+    let open = "busctl --user call org.freedesktop.secrets /org/freedesktop/secrets \
+                org.freedesktop.Secret.Service OpenSession sv plain s ''";
+    script(&dirs, "secret.sh", open);
+    let call = json!({ "command": "./secret.sh", "needs": { "keyring": true } });
+    let model = ScriptedModel::reviewed(vec![("shell", call)], REVIEWER_ALLOWS);
+    let provider = Arc::clone(&model) as Arc<dyn Provider>;
+    let Some(setup) = bus_daemon(test, &dirs, provider).await else { return };
+    let said = "open a session of my keyring";
+    let (_, events) = run_turn(&setup.daemon, said, Mode::Auto, ApprovalDecision::Deny).await;
+    let report = format!("events: {:?}\nfake log:\n{}", kinds(&events), setup.buses.log());
+    assert_eq!(model.reviews(), 1, "the reviewer judges the login: {report}");
+    assert!(!kinds(&events).contains(&"approval_requested"), "nobody is asked: {report}");
+    assert_eq!(launches(&events), [Launch::Contained { grants: vec![Grant::Keyring] }], "{report}");
+    let opened: Vec<Call> = setup
+        .buses
+        .calls()
+        .into_iter()
+        .filter(|call| call.name == "org.freedesktop.secrets")
+        .collect();
+    assert_eq!(opened.len(), 1, "{report}");
+    assert!(opened[0].answered, "the filter passed the Secret Service: {report}");
+    let codes: Vec<Option<i32>> = summaries(&events).into_iter().map(|(_, code)| code).collect();
+    assert_eq!(codes, [Some(0)], "{report}");
+    setup.daemon.stop().await.unwrap();
+    no_proxy_left(setup.dirs.root()).await;
+}
+
 /// After a refusal the model asks for the whole bus (`needs.bus`); the reviewer allows
 /// it, and that one call reaches the test's own system bus, never the machine's. The
 /// next filtered call is refused again.

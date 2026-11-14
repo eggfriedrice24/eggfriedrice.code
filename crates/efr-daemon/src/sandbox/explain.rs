@@ -57,6 +57,7 @@ impl SandboxService {
                 .unwrap_or_default()
         };
         let secrets = engine.locations().secret_paths();
+        let credentials = engine.locations().credential_paths();
         let status = self.current();
         let bwrap = status.bwrap.clone().unwrap_or_else(|| PathBuf::from(DEFAULT_BWRAP));
         let id = efr_stdx::id::uuid_v7(&*self.inner.clock, &*self.inner.rng);
@@ -76,6 +77,7 @@ impl SandboxService {
             scratch: &scratch,
             settings: &settings.sandbox,
             secrets: &secrets,
+            credentials: &credentials,
             protected_config: &protected_config,
             host: &self.inner.host,
             dirs: &self.inner.dirs,
@@ -233,6 +235,10 @@ pub(crate) fn why(origin: Option<MountOrigin>) -> (&'static str, Option<ExitKind
         Some(MountOrigin::Mask(MaskKind::EngineSecret)) => {
             ("a secret (hidden; no approval opens it)", Some(ExitKind::Secret))
         }
+        Some(MountOrigin::Mask(MaskKind::Credential)) => (
+            "a login of a tool (hidden; a read is a masked_read exit for one call)",
+            Some(ExitKind::Secret),
+        ),
         Some(MountOrigin::Mask(MaskKind::ProjectEnv)) => {
             ("a project .env file (hidden; a read is a masked_read exit)", Some(ExitKind::Write))
         }

@@ -141,7 +141,7 @@ async fn background_record_has_max_minutes() {
 }
 
 #[tokio::test]
-async fn outside_job_goes_to_classifier() {
+async fn upload_job_goes_to_classifier() {
     let judge = FakeJudge::answering(vec![allows()]);
     let (h, _) = run(
         reviewed(Some(Arc::clone(&judge))),
@@ -153,7 +153,7 @@ async fn outside_job_goes_to_classifier() {
     assert_eq!(judgements(&h).await, vec![(JudgeKind::Classifier, Verdict::Allow)]);
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
-    assert_eq!(ran[0].launch, Launch::Unsandboxed, "the exit child as a job");
+    assert_eq!(ran[0].launch, Launch::contained(), "a push runs in the sandbox, also as a job");
     assert_eq!(h.toolbox.invoked()[0].1["background"], json!(true));
 }
 

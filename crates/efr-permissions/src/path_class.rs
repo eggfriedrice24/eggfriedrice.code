@@ -841,6 +841,45 @@ impl Locations {
             || is_proc_secret(path)
     }
 
+    /// The credential of a tool that holds `path`, a path in normal form: the built-in
+    /// secret location or the root of `permissions.secret_paths` at or above it, such
+    /// as `~/.ssh` for `~/.ssh/config`. `None` for every other path, and for the secrets
+    /// that stay floors: efr's own (the sealed roots), the system's, and the secret
+    /// entries of `/proc`. A shell call in `auto` can get such a root for one call
+    /// after a review (`Grant::Unmask`); a file tool never reads it.
+    pub(crate) fn credential_root(&self, path: &Path) -> Option<PathBuf> {
+        let path = self.rehome(path);
+        let path = path.as_ref();
+        if self.is_sealed(path) {
+            return None;
+        }
+        let root = HOME_SECRETS
+            .iter()
+            .map(|secret| self.home.join(secret))
+            .chain(
+                self.secret_roots.iter().filter(|root| !self.sealed_roots.contains(root)).cloned(),
+            )
+            .filter(|root| path.starts_with(root))
+            .min_by_key(|root| root.components().count())?;
+        // NOTE: a root that holds one of efr's own secrets or a system secret would open
+        // it too.
+        let holds_floor = self.sealed_roots.iter().any(|sealed| sealed.starts_with(&root))
+            || SYSTEM_SECRETS.iter().any(|secret| Path::new(secret).starts_with(&root))
+            || is_proc_secret(&root);
+        (!holds_floor).then_some(root)
+    }
+
+    /// Every credential root, the secrets that are a tool's login: the built-in secret
+    /// locations under the home directory and the roots of `permissions.secret_paths`,
+    /// but never efr's own secrets, the system's or those of `/proc`. The `auto` sandbox
+    /// masks each one with a mask that a reviewed grant can lift for one call.
+    pub fn credential_paths(&self) -> Vec<PathBuf> {
+        self.secret_paths()
+            .into_iter()
+            .filter(|path| self.credential_root(path).as_ref() == Some(path))
+            .collect()
+    }
+
     /// The secrets strictly below `dir`, a path in normal form, so that a call which
     /// reads everything below `dir` can be judged by them. Under `/proc` a process's
     /// secret entries stand for every process.

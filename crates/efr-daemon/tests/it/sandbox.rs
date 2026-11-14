@@ -10,7 +10,6 @@ mod busy;
 mod dbus;
 mod forward;
 mod full;
-mod git_code;
 mod jobs;
 mod jobs_guard;
 mod mount_view;
@@ -879,6 +878,75 @@ async fn shell_scratch_is_set_in_the_real_sandbox() {
     let [(output, exit_code)] = completed(&events).try_into().unwrap();
     assert_eq!(exit_code, Some(0), "{output}");
     scratch_of(&dirs, &output);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// Phase 3: a tool's login is a grant for one call, in the real sandbox. The reviewer
+/// allows the credential file and the variable that the model names in `needs`, and
+/// the next call, which names nothing, sees neither.
+#[tokio::test]
+async fn shell_a_login_is_a_grant_for_one_call_in_the_real_sandbox() {
+    let test = "shell_a_login_is_a_grant_for_one_call_in_the_real_sandbox";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    // NOTE: below the target dir, not /tmp, which the sandbox replaces with its own.
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    let gh = dirs.create_dir("home/.config/gh").unwrap();
+    std::fs::write(gh.join("hosts.yml"), "oauth_token: fake-login\n").unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+        ("TOOL_TOKEN".to_owned(), "fake-variable".to_owned()),
+    ]);
+    let read = "cat ~/.config/gh/hosts.yml";
+    // NOTE: a line that names the file gets a predicted exit of its own, so the call
+    // that checks the mask reads it through a script that names no path on its line.
+    std::fs::write(project.join("show.sh"), format!("#!/bin/sh\n{read}\n")).unwrap();
+    std::fs::set_permissions(project.join("show.sh"), std::fs::Permissions::from_mode(0o755))
+        .unwrap();
+    let calls = vec![
+        ("shell", json!({ "command": read, "needs": { "unmask": ["~/.config/gh/hosts.yml"] } })),
+        ("shell", json!({ "command": "printenv TOOL_TOKEN", "needs": { "env": ["TOOL_TOKEN"] } })),
+        ("shell", json!({ "command": "./show.sh" })),
+        ("shell", json!({ "command": "printenv TOOL_TOKEN" })),
+    ];
+    let model = ScriptedModel::reviewed(calls, REVIEWER_ALLOWS);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
+        return;
+    }
+    let add =
+        Method::AdminProjectAdd(AdminProjectAdd { path: project, name: None, git_root: false });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    let said = "show my gh login file, then the TOOL_TOKEN variable";
+    let (_, events) = run_turn(&daemon, said, Mode::Auto, ApprovalDecision::Deny).await;
+    let outputs: Vec<String> = completed(&events).into_iter().map(|(output, _)| output).collect();
+    let report = format!("events: {:?}\noutputs: {outputs:#?}", kinds(&events));
+    assert_eq!(model.reviews(), 2, "the reviewer judges each login: {report}");
+    let [file, variable, file_again, variable_again] = outputs.try_into().unwrap();
+    assert!(file.contains("oauth_token: fake-login"), "{file}");
+    assert!(variable.contains("fake-variable"), "{variable}");
+    assert!(!file_again.contains("fake-login"), "the mask is back: {file_again}");
+    assert!(!variable_again.contains("fake-variable"), "the variable is gone: {variable_again}");
     drop(client);
     daemon.stop().await.unwrap();
 }

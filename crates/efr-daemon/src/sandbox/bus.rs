@@ -88,6 +88,20 @@ pub(crate) const NO_SYSTEM_BUS: &str =
 pub(crate) const NO_SESSION_BUS: &str =
     "[efr: no session bus on this machine; the bus filter did not run.]";
 
+/// The note of a call whose keyring efrd dropped: it has no `xdg-dbus-proxy`.
+pub(crate) const NO_KEYRING: &str = "[efr: efr cannot serve the keyring on this machine (no xdg-dbus-proxy); the call ran \
+     without it.]";
+
+/// Whether the call's filtered session bus also passes the Secret Service
+/// ([`Grant::Keyring`](efr_protocol::Grant::Keyring)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BusKeyring {
+    /// The filter passes only its rules.
+    Closed,
+    /// The filter of the session bus also passes every call to the Secret Service.
+    Open,
+}
+
 /// The two upstream buses that efrd accepts (DE7, DE14): each resolved, a socket, and
 /// never below efr's dirs or a write root. In a test build, only from the seams.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -214,13 +228,26 @@ impl BusService {
 
     /// Starts one proxy for each of `buses` in `call_dir/bus/` and waits for each ready
     /// byte. A failure ends the proxies that started.
+    #[cfg(test)]
     pub(crate) async fn start(
         &self,
         call_dir: &Path,
         buses: &[BusKind],
         upstream: &BusUpstream,
     ) -> Result<BusCall, DaemonError> {
-        self.start_with(call_dir, buses, upstream, &self.rules()).await
+        self.start_keyring(call_dir, buses, upstream, BusKeyring::Closed).await
+    }
+
+    /// [`start`](Self::start), with the Secret Service on the session bus when
+    /// `keyring` is open.
+    pub(crate) async fn start_keyring(
+        &self,
+        call_dir: &Path,
+        buses: &[BusKind],
+        upstream: &BusUpstream,
+        keyring: BusKeyring,
+    ) -> Result<BusCall, DaemonError> {
+        self.start_with(call_dir, buses, upstream, &self.rules(), keyring).await
     }
 
     /// The self-test of DE8 in `dir`, a fresh dir that it removes at its end: the
@@ -269,7 +296,8 @@ impl BusService {
             return Err(failed(BusProxyProblem::StartFailed));
         }
         let upstream = BusUpstream { system: Some(dir.join("no-bus")), session: None };
-        let call = self.start_with(dir, &[BusKind::System], &upstream, &[]).await?;
+        let call =
+            self.start_with(dir, &[BusKind::System], &upstream, &[], BusKeyring::Closed).await?;
         let clean =
             call.close().await.iter().all(|closed| {
                 !closed.early && closed.status.is_some_and(|status| status.success())
@@ -277,13 +305,15 @@ impl BusService {
         if clean { Ok(()) } else { Err(failed(BusProxyProblem::SelfTest)) }
     }
 
-    /// [`start`](Self::start) with `rules` on top of the defaults.
+    /// [`start`](Self::start) with `rules` on top of the defaults, and the Secret
+    /// Service on the session bus when `keyring` is open.
     async fn start_with(
         &self,
         call_dir: &Path,
         buses: &[BusKind],
         upstream: &BusUpstream,
         rules: &[BusRule],
+        keyring: BusKeyring,
     ) -> Result<BusCall, DaemonError> {
         let failed = |problem| DaemonError::BusProxy { problem };
         let programs = Arc::clone(&self.inner.programs);
@@ -306,6 +336,9 @@ impl BusService {
                 return Err(failed(BusProxyProblem::BadUpstream { bus }));
             };
             let filter = match BusFilter::compile(bus, rules) {
+                Ok(filter) if keyring == BusKeyring::Open && bus == BusKind::Session => {
+                    filter.with_keyring()
+                }
                 Ok(filter) => filter,
                 Err(error) => {
                     tracing::warn!(error = %error, "the bus rules do not compile");

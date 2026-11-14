@@ -234,6 +234,21 @@ pub(crate) struct JobInput<'a> {
     pub(crate) env: &'a [u8],
 }
 
+/// The bus views of a call ([`SandboxService::bus_views`]).
+struct BusViews {
+    /// The launch without the views that efrd cannot serve, and with the keyring as
+    /// the filtered session bus.
+    launch: Launch,
+    /// The buses of the views that stay.
+    buses: Vec<BusKind>,
+    /// Their upstream sockets.
+    upstream: bus::BusUpstream,
+    /// The note of each dropped view.
+    notes: Vec<String>,
+    /// Whether the filter of the session bus also passes the Secret Service.
+    keyring: bus::BusKeyring,
+}
+
 /// One running call of a conversation, counted until it drops.
 #[derive(Debug)]
 struct Running {
@@ -985,7 +1000,8 @@ impl SandboxService {
         let exit_child_job = job.is_some() && launch == Launch::Unsandboxed;
         // NOTE: before the spec is written: a view of a bus that efrd cannot serve goes,
         // so the plan never meets a missing socket (DE8), and the call runs with no bus.
-        let (launch, buses, upstream, bus_notes) = self.bus_views(launch, input.settings).await;
+        let BusViews { launch, buses, upstream, notes: bus_notes, keyring } =
+            self.bus_views(launch, input.settings).await;
         if !status.available && !exit_child_job {
             return Err(DaemonError::SandboxUnavailable {
                 reason: status.reason.clone().unwrap_or_else(|| NOT_PROBED.to_owned()),
@@ -1013,6 +1029,7 @@ impl SandboxService {
                 .unwrap_or_default()
         };
         let secrets = input.engine.locations().secret_paths();
+        let credentials = input.engine.locations().credential_paths();
         let plan_input = plan::PlanInput {
             conversation: call.conversation_id,
             call: call.call_id,
@@ -1023,6 +1040,7 @@ impl SandboxService {
             scratch: &call.scratch,
             settings: &input.settings.sandbox,
             secrets: &secrets,
+            credentials: &credentials,
             protected_config: &protected_config,
             host: &self.inner.host,
             dirs: &self.inner.dirs,
@@ -1172,7 +1190,7 @@ impl SandboxService {
             None
         } else {
             self.inner.bus.sweep().await;
-            match self.inner.bus.start(&call_dir, &buses, &upstream).await {
+            match self.inner.bus.start_keyring(&call_dir, &buses, &upstream, keyring).await {
                 Ok(started) => Some(started),
                 Err(error) => {
                     drop(proxy);
@@ -1262,21 +1280,52 @@ impl SandboxService {
     /// system view goes when the system bus is missing or refused, a session view when
     /// the host has no path session bus. The upstream is never in efr's dirs or a write
     /// root (DE7).
-    async fn bus_views(
-        &self,
-        launch: Launch,
-        settings: &Settings,
-    ) -> (Launch, Vec<BusKind>, bus::BusUpstream, Vec<String>) {
-        let wanted: Vec<BusKind> = launch
-            .grants()
+    ///
+    /// A [`Grant::Keyring`] becomes the call's filtered session bus that also passes
+    /// the Secret Service ([`bus::BusKeyring::Open`]), so the spec never holds it. A
+    /// grant of the whole session bus serves it already; a machine with no
+    /// `xdg-dbus-proxy` or no session bus cannot serve it, and the call runs without it
+    /// and with a note.
+    async fn bus_views(&self, launch: Launch, settings: &Settings) -> BusViews {
+        let grants = launch.grants();
+        let mut keyring = grants.contains(&Grant::Keyring)
+            && !grants.contains(&Grant::Bus { bus: BusKind::Session });
+        let mut notes = Vec::new();
+        if keyring && !self.inner.bus.has_program() {
+            tracing::info!("the keyring is dropped: efrd has no xdg-dbus-proxy");
+            notes.push(bus::NO_KEYRING.to_owned());
+            keyring = false;
+        }
+        let mut wanted: Vec<BusKind> = grants
             .iter()
             .filter_map(|grant| match grant {
                 Grant::BusFilter { bus } => Some(*bus),
                 _ => None,
             })
             .collect();
+        if keyring && !wanted.contains(&BusKind::Session) {
+            wanted.push(BusKind::Session);
+        }
+        let launch = match launch {
+            Launch::Contained { grants } => {
+                let mut grants: Vec<Grant> =
+                    grants.into_iter().filter(|grant| *grant != Grant::Keyring).collect();
+                let view = Grant::BusFilter { bus: BusKind::Session };
+                if keyring && !grants.contains(&view) {
+                    grants.push(view);
+                }
+                Launch::Contained { grants }
+            }
+            other => other,
+        };
         if wanted.is_empty() {
-            return (launch, Vec::new(), bus::BusUpstream::default(), Vec::new());
+            return BusViews {
+                launch,
+                buses: Vec::new(),
+                upstream: bus::BusUpstream::default(),
+                notes,
+                keyring: bus::BusKeyring::Closed,
+            };
         }
         let dirs = &self.inner.dirs;
         let mut refused = self.write_roots(settings).await;
@@ -1290,7 +1339,6 @@ impl SandboxService {
         })
         .await
         .unwrap_or_default();
-        let mut notes = Vec::new();
         let mut buses = Vec::new();
         for bus in wanted {
             if upstream.path(bus).is_some() {
@@ -1314,7 +1362,12 @@ impl SandboxService {
             },
             other => other,
         };
-        (launch, buses, upstream, notes)
+        let keyring = if keyring && buses.contains(&BusKind::Session) {
+            bus::BusKeyring::Open
+        } else {
+            bus::BusKeyring::Closed
+        };
+        BusViews { launch, buses, upstream, notes, keyring }
     }
 
     /// Deletes idle cache layers by `settings`, leaving those of a conversation with a

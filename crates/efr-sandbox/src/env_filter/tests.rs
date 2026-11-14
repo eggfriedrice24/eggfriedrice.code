@@ -82,6 +82,47 @@ fn keep_opens_a_secret_like_name_and_deny_removes_more() {
     assert_eq!(removed, ["MY_TOOL", "SSH_AUTH_SOCK"]);
 }
 
+/// A reviewed grant keeps a tool's variable for one call (phase 3), and a socket
+/// variable whose value is a socket that the call got. No grant keeps efr's own names,
+/// efr's keys or a name of `sandbox.env_deny`.
+#[test]
+fn a_grant_keeps_a_login_variable_and_the_variable_of_a_granted_socket() {
+    let mut spec = spec();
+    spec.env.deny = vec!["MY_*".to_owned()];
+    spec.grants = vec![
+        Grant::Env { name: "TOOL_TOKEN".to_owned() },
+        Grant::Env { name: "ANTHROPIC_API_KEY".to_owned() },
+        Grant::Env { name: "EFR_X_TOKEN".to_owned() },
+        Grant::Env { name: "MY_TOKEN".to_owned() },
+        Grant::Socket { path: "/run/user/1000/ssh-agent.socket".into() },
+    ];
+    let mut fs = world();
+    fs.socket("/run/user/1000/ssh-agent.socket");
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    let (out, removed) = EnvFilter::new(&spec, &plan).apply(&env(&[
+        ("TOOL_TOKEN", "t"),
+        ("OTHER_TOKEN", "o"),
+        ("ANTHROPIC_API_KEY", "k"),
+        ("EFR_X_TOKEN", "e"),
+        ("MY_TOKEN", "m"),
+        ("SSH_AUTH_SOCK", "/run/user/1000/ssh-agent.socket"),
+        ("GPG_AGENT_INFO", "/run/user/1000/other"),
+    ]));
+    assert_eq!(get(&out, "TOOL_TOKEN"), Some("t"));
+    assert_eq!(get(&out, "SSH_AUTH_SOCK"), Some("/run/user/1000/ssh-agent.socket"));
+    for name in ["OTHER_TOKEN", "ANTHROPIC_API_KEY", "EFR_X_TOKEN", "MY_TOKEN", "GPG_AGENT_INFO"] {
+        assert!(get(&out, name).is_none(), "{name}");
+        assert!(removed.contains(&name.to_owned()), "{name}");
+    }
+}
+
+#[test]
+fn a_spec_never_holds_the_keyring_itself() {
+    let mut spec = spec();
+    spec.grants = vec![Grant::Keyring];
+    assert!(matches!(MountPlan::build(&spec, &world()), Err(crate::SandboxError::UnknownGrant)));
+}
+
 #[test]
 fn scratch_names_the_conversations_scratch_whatever_the_shell_held() {
     let spec = spec();

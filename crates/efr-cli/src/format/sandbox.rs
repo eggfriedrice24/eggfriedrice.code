@@ -12,10 +12,10 @@ use std::path::Path;
 
 use efr_protocol::{
     AdminSandboxCheckResult, BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, ChainStep,
-    CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCodeFacts, Grant,
-    JudgeKind, Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource,
-    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, Scope, SurfaceChange,
-    TargetFact, Verdict,
+    CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, JudgeKind,
+    Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource, ProgramFact,
+    ReportedFile, Risk, SandboxExplainResult, SandboxStatus, Scope, SurfaceChange, TargetFact,
+    Verdict,
 };
 
 use efr_render::Glyphs;
@@ -336,6 +336,8 @@ fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
         Grant::Desktop { desktop } => desktop_words(*desktop),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
+        Grant::Env { name } => format!("the variable {}", one_line(name)),
+        Grant::Keyring => "the keyring (every unlocked entry)".to_owned(),
         Grant::NetView => "host network view (no sending)".to_owned(),
         Grant::BusFilter { bus } => format!("filtered bus: {}", bus_words(*bus)),
         Grant::Unknown => "unknown grant".to_owned(),
@@ -1333,9 +1335,6 @@ pub(crate) fn exit_record(
             git.modified, git.untracked, git.staged
         ));
     }
-    if let Some(code) = &facts.git_code {
-        lines.extend(git_code_lines(code, home));
-    }
     if !facts.sandbox_export_names.is_empty() {
         let names: Vec<String> = facts.sandbox_export_names.iter().map(|n| one_line(n)).collect();
         lines.push(format!("  exported in the sandbox: {}", names.join(", ")));
@@ -1358,35 +1357,6 @@ pub(crate) fn exit_record(
         ));
     }
     lines.push(format!("  user messages: {}", record.user_messages.len()));
-    lines
-}
-
-/// The lines of the git code fact of an exit record (v0.0.4, DV22): whether efr could
-/// check it, then each part that a sandboxed command can write, and the count of the
-/// others.
-fn git_code_lines(code: &GitCodeFacts, home: Option<&Path>) -> Vec<String> {
-    let mut lines = Vec::new();
-    if !code.checked {
-        lines.push("  git code: efr could not check it".to_owned());
-    }
-    let mut others = 0;
-    for item in &code.items {
-        if item.writable {
-            lines.push(format!(
-                "  git code: {} in {}, which a sandboxed command can write",
-                one_line(&item.item),
-                tilde(&item.file, home)
-            ));
-        } else {
-            others += 1;
-        }
-    }
-    if others > 0 {
-        lines.push(format!(
-            "  git code: {} that the sandbox cannot write",
-            plural(others, "part", "parts")
-        ));
-    }
     lines
 }
 

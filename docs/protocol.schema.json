@@ -6419,17 +6419,6 @@
           "description": "For a `desktop_ipc` exit: true when every desktop command of the line only reads\nthe desktop's state or reloads its config, such as `hyprctl monitors`.",
           "type": "boolean"
         },
-        "git_code": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GitCodeFacts"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "For an `outside` or `upload` exit of a git or gh line: the git code that the line\nruns outside the sandbox, when it made the exit one that only the user may\napprove: efr could not check it, or a sandboxed command can write a part of it.\nAbsent for any other exit, so a clean check is never a reason to allow. It holds\nonly the parts that a sandboxed command can write."
-        },
         "git_status": {
           "anyOf": [
             {
@@ -6895,54 +6884,6 @@
         }
       ]
     },
-    "GitCodeFact": {
-      "description": "One part of the git code of a line.",
-      "properties": {
-        "file": {
-          "description": "The file that holds it, or the program that runs.",
-          "type": "string"
-        },
-        "item": {
-          "description": "What runs, such as `core.sshCommand`, `hooks/pre-push` or `ssh (PATH)`.",
-          "type": "string"
-        },
-        "repo": {
-          "description": "The repository: its work tree, or its git dir (also the git dir of a submodule).",
-          "type": "string"
-        },
-        "writable": {
-          "description": "True when a contained call can write the file: it lies in a registered project,\nin the `$SCRATCH` of a conversation, below a write rule or a write root of the\nconfig, or in a write root of a running contained job, and no floor of the\nsandbox keeps it read-only.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "repo",
-        "item",
-        "file",
-        "writable"
-      ],
-      "type": "object"
-    },
-    "GitCodeFacts": {
-      "description": "The git code that a git or gh line runs outside the sandbox: the hooks, the config\nkeys that run a program, and the programs that they run, of the repository and of\neach submodule that the line can reach.",
-      "properties": {
-        "checked": {
-          "description": "False when efr could not check it: git did not answer in time or failed, efr\nfound no repository, or the submodules lie too deep or behind a link.",
-          "type": "boolean"
-        },
-        "items": {
-          "description": "What git runs, each once.",
-          "items": {
-            "$ref": "#/$defs/GitCodeFact"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "checked"
-      ],
-      "type": "object"
-    },
     "GitCounts": {
       "description": "The counts of a hardened `git status`, never the names.",
       "properties": {
@@ -7105,7 +7046,7 @@
           "type": "object"
         },
         {
-          "description": "One read mask removed. Never for an engine secret.",
+          "description": "One read mask removed: a sandbox mask, or a credential of a tool. Never for an\nengine secret, which is efr's own.",
           "properties": {
             "kind": {
               "const": "unmask",
@@ -7119,6 +7060,37 @@
           "required": [
             "kind",
             "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One variable of the shell that the sandbox removes as secret-like, such as a\ntool's token, kept for this call. Never one of efr's own names, a socket or a\nsession variable, or a name of [`EFR_KEY_NAMES`].",
+          "properties": {
+            "kind": {
+              "const": "env",
+              "type": "string"
+            },
+            "name": {
+              "description": "The variable's name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The keyring for this call: the call's filtered session bus also passes every\ncall to the Secret Service (`org.freedesktop.secrets`), so the call can read each\nunlocked entry. efr never keeps its own keys there.",
+          "properties": {
+            "kind": {
+              "const": "keyring",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
           ],
           "type": "object"
         },

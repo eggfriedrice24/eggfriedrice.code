@@ -20,7 +20,7 @@ use efr_permissions::{
     Policy, Preset, RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact,
     Subject, TargetKind,
 };
-use efr_protocol::{BusKind, ExitKind, GitCodeFacts, Grant, Mode, Origin, ProjectId, Scope};
+use efr_protocol::{BusKind, ExitKind, Grant, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
 
@@ -360,10 +360,6 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
         reach_ports: Vec::new(),
-        // NOTE: the project's git code lies in its pinned git dir, which no contained
-        // call writes (v0.0.4, DV22).
-        git_code: (!request.git_code.is_empty())
-            .then(|| GitCodeFacts { checked: true, items: Vec::new() }),
         ssh_sockets: Vec::new(),
     })
 }
@@ -910,9 +906,12 @@ fn full_never_judges_by_the_classifier() {
 
 #[test]
 fn full_floor_rows_equal_auto_floor_rows() {
-    // A drift guard for the floors that full mode and `auto` share.
+    // A drift guard for the floors that full mode and `auto` share. A read of a tool's
+    // login is no floor in `auto`, where the reviewer judges a grant of it (ADR 0024);
+    // full mode has no reviewer, so it keeps the secret floor there.
+    const LOGIN_READS: [u32; 2] = [62, 70];
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
-    for line in &corpus.line {
+    for line in corpus.line.iter().filter(|line| !LOGIN_READS.contains(&line.n)) {
         for auto in [pd(line), pe(line)] {
             assert_eq!(auto == "D", full(line) == "D", "line {} {:?}", line.n, line.line);
         }
@@ -936,8 +935,9 @@ fn full_column_only_where_it_differs_from_the_default() {
     }
     // The deletes that full mode guards: `..` (it holds three projects), a project
     // root, `~/.config` (it holds efr's config) and `~`; and a read of everything below
-    // `~`, which holds secrets that no sandbox masks in full mode.
-    assert_eq!(explicit, BTreeSet::from([16, 49, 53, 60, 95, 106]));
+    // `~`, which holds secrets that no sandbox masks in full mode; and a read of a
+    // tool's login, which `auto` reviews and full mode denies.
+    assert_eq!(explicit, BTreeSet::from([16, 49, 53, 60, 62, 70, 95, 106]));
 }
 
 #[test]

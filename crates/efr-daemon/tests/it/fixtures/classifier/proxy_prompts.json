@@ -49,7 +49,10 @@
       "asked": false,
       "exits": ["upload"],
       "hosts": ["git.test"],
-      "launch": { "kind": "unsandboxed" },
+      "launch": {
+        "kind": "contained",
+        "grants": [{ "kind": "host", "host": "git.test", "port": 443 }]
+      },
       "max_minutes": null
     }
   },

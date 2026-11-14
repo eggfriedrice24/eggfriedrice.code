@@ -1147,8 +1147,10 @@ async fn escape_job_commondir_before_push() {
     std::fs::write(project.join("plant.sh"), plant).unwrap();
     let line = "until [ -e go ]; do sleep 0.1; done; sh plant.sh; sleep 30";
     let push = format!("git -C {} push {} main", project.join("sub").display(), remote.display());
-    let model =
-        Recorder::new(vec![job(line), None, Some(("shell", json!({ "command": push }))), None]);
+    // NOTE: since phase 3 a push runs in the sandbox; the model asks to run this one
+    // outside, where the planted hook would run with the user's rights.
+    let push = json!({ "command": push, "needs": { "outside": true } });
+    let model = Recorder::new(vec![job(line), None, Some(("shell", push)), None]);
     let Some(daemon) = real_daemon(test, &dirs, model, &[]).await else { return };
     let (sent, _) = auto_turn(&daemon, 1, "plant it as a job", ApprovalDecision::Deny).await;
     std::fs::write(project.join("go"), "").unwrap();
@@ -1169,8 +1171,10 @@ async fn escape_job_commondir_before_push() {
         }
         _ => None,
     });
+    // NOTE: the guard runs right before the exit child starts, after the call's start
+    // event and before its end.
     let ran = events.iter().find_map(|envelope| {
-        matches!(envelope.event, Event::ToolCallStarted { .. }).then_some(envelope.seq)
+        matches!(envelope.event, Event::ToolCallCompleted { .. }).then_some(envelope.seq)
     });
     let Some((stopped, by)) = stopped else { panic!("the job ran on through the push") };
     assert_eq!(by, Some(JobStopBy::Guard));

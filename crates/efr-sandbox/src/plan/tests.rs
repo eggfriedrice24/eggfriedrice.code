@@ -660,6 +660,28 @@ fn plan_unmasks_one_mask_but_never_an_engine_secret() {
     let mut spec = crate::testing::spec();
     spec.grants.push(Grant::Unmask { path: "/home/u/.ssh".into() });
     assert!(matches!(MountPlan::build(&spec, &world()), Err(SandboxError::UnmaskSecret { .. })));
+
+    // NOTE: a tool's credential is no engine secret: a reviewed grant lifts its mask
+    // for one call (phase 3).
+    let mut spec = crate::testing::spec();
+    for mask in &mut spec.masks {
+        if mask.path == Path::new("/home/u/.ssh") {
+            mask.kind = MaskKind::Credential;
+        }
+    }
+    let masked = MountPlan::build(&spec, &world()).unwrap();
+    spec.grants.push(Grant::Unmask { path: "/home/u/.ssh".into() });
+    let unmasked = MountPlan::build(&spec, &world()).unwrap();
+    let hides = |plan: &MountPlan| {
+        plan.mounts().iter().any(|mount| match &mount.op {
+            MountOp::DevNull { target } | MountOp::Tmpfs { target, .. } => {
+                target == Path::new("/home/u/.ssh")
+            }
+            _ => false,
+        })
+    };
+    assert!(hides(&masked), "the mask hides it with no grant");
+    assert!(!hides(&unmasked), "the grant lifts it");
 }
 
 #[test]

@@ -25,7 +25,6 @@ mod cover;
 mod critical;
 mod envelope;
 mod facts;
-mod git_code;
 mod names;
 mod needs;
 mod persist;
@@ -59,7 +58,7 @@ use crate::network::{HostList, Preset};
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
-    Access, AutoSupport, CallFacts, CoverAsk, Egress, GitCodeAsk, Locations, PathAccess, PathClass,
+    Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass,
     Requirements, Source, TargetKind,
 };
 
@@ -279,22 +278,24 @@ impl ExitNeed {
         self.approver != Approver::Classifier
     }
 
-    /// Gives the exit to the user, [`Approver::User`], with each of `notes` once. The
-    /// approver is only raised, so a guarded exit, such as a publish, stays guarded.
-    pub(crate) fn raise_to_user(&mut self, notes: &[String]) {
-        self.approver = self.approver.max(Approver::User);
-        for note in notes {
-            if !self.notes.contains(note) {
-                self.notes.push(note.clone());
-            }
-        }
-    }
-
     /// True when the call runs in the exit child after a "yes": a kind that runs
     /// unsandboxed and is not [`contained`](Self::contained), or a `write` that no
     /// contained bind serves.
     pub fn runs_unsandboxed(&self) -> bool {
         (self.kind.runs_unsandboxed() && !self.contained) || self.bind == Some(WriteBind::ExitChild)
+    }
+
+    /// True when a "yes" gives the call a login of a tool or another hidden secret: a
+    /// `masked_read` (a credential file, a variable, the keyring, a mask), or a socket
+    /// that only the user, or the reviewer when the user asked, approves, such as a
+    /// credential agent's. Such a line follows the one-command rule
+    /// ([`login_line_problem`]).
+    pub fn carries_login(&self) -> bool {
+        match self.kind {
+            ExitKind::MaskedRead => true,
+            ExitKind::Socket => self.approver >= Approver::User,
+            _ => false,
+        }
     }
 }
 
@@ -467,8 +468,6 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut fetch: Option<Ecosystem> = None;
     let mut linked: Vec<PathBuf> = Vec::new();
     let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
-    let mut git_triggers: Vec<git_code::Trigger> = Vec::new();
-    let mut git_steered = false;
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -508,8 +507,6 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
-            git_triggers.extend(git_code::trigger(command, dir, input.locations));
-            git_steered |= git_code::steers_code(command);
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
             let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
@@ -582,14 +579,26 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     if need.kind == ExitKind::Upload
                         && let Some(rest) = remotes::git_push(command)
                     {
-                        if let Some(host) = programs::scp_url_host(rest)
-                            && !need.hosts.contains(&host)
-                        {
-                            need.hosts.push(host);
+                        if let Some(host) = programs::scp_url_host(rest) {
+                            if !need.hosts.contains(&host) {
+                                need.hosts.push(host);
+                            }
+                            // NOTE: the proxy carries no ssh.
+                            if input.support.egress == Egress::Proxy {
+                                add_grants(&mut need, vec![Grant::OpenNetwork]);
+                            }
                         }
                         if (need.hosts.is_empty() && input.facts.is_some()) || ssh_env {
                             need.approver = need.approver.max(Approver::User);
                         }
+                    }
+                    // NOTE: a contained push reaches the hosts of its remote's push URLs.
+                    if need.kind == ExitKind::Upload
+                        && input.support.egress == Egress::Proxy
+                        && let Some((RemoteUse::Push, chosen)) = &remote
+                    {
+                        let urls = remotes::urls(RemoteUse::Push, chosen);
+                        add_grants(&mut need, remotes::grants(&urls, input.hosts));
                     }
                     found.push(need);
                     continue;
@@ -629,13 +638,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 && *kind != RemoteUse::Push
                 && input.support.egress == Egress::Proxy
             {
-                let mut exit = remotes::proxy_fetch_exit(*kind, chosen, input.hosts, &part);
-                if let Some(need) = exit.as_mut().filter(|need| need.kind == ExitKind::Outside)
-                    && ssh_env
-                {
-                    need.approver = need.approver.max(Approver::User);
-                }
-                found.extend_from(exit);
+                found.extend_from(remotes::proxy_fetch_exit(*kind, chosen, input.hosts, &part));
             }
             installs.extend(persist::installs(command, &at));
             for (word, dir_kind) in programs::made_paths(command) {
@@ -764,19 +767,6 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             }
             _ => {}
         }
-    }
-    // NOTE: after the rules above, so that nothing lowers the approver again.
-    git_code::apply(&mut found, &git_triggers, input.facts, input.locations.home());
-    if git_steered {
-        git_code::apply_steering(&mut found, git_code::STEERING_NOTE);
-    }
-    // NOTE: a variable of the line, such as `GIT_CONFIG_COUNT` or `HOME`, chooses the
-    // config and the programs that git runs, also the git of a gh line; the git code
-    // facts come from the hidden shell's environment, not the line's.
-    if !git_triggers.is_empty()
-        && segments.iter().any(|segment| git_code::sets_git_env(&segment.words))
-    {
-        git_code::apply_steering(&mut found, git_code::ENV_STEERING_NOTE);
     }
     named_targets(found, input.locations.home())
 }
@@ -1060,12 +1050,6 @@ pub struct FactRequest {
     /// joined. The answers go to [`CallFacts::real_paths`]; an always-allow rule covers
     /// no grant whose path has no answer.
     pub real_paths: Vec<PathBuf>,
-    /// The repositories whose git code efrd checks, because the line runs git there
-    /// outside the sandbox when it gets an `outside` or `upload` exit: a git command
-    /// that reaches a remote, or a gh command that runs git in the repository (v0.0.4,
-    /// DV22). The answer goes to [`CallFacts::git_code`]; with no answer such an exit
-    /// is one that only the user may approve.
-    pub git_code: Vec<GitCodeAsk>,
     /// The sockets of `needs.sockets` ([`FactRequest::with_needs`]), for which efrd
     /// tells whether an ssh process listens there: an ssh control socket (OQS17). The
     /// answers go to [`CallFacts::ssh_sockets`].
@@ -1136,9 +1120,6 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }
             covers.extend(persist::covers(command));
-            if let Some(git_code::Trigger::Ask(ask)) = git_code::trigger(command, dir, locations) {
-                once(&mut request.git_code, &mut seen.git_code, ask);
-            }
             if remotes::remote_command(command).is_some()
                 && !remotes::steers_git(&segment.words)
                 && let Some(git_dir) = remotes::remote_dir(command, dir, locations)
@@ -1261,7 +1242,6 @@ struct Seen {
     sources: HashSet<Source>,
     remotes: HashSet<PathBuf>,
     real_paths: HashSet<PathBuf>,
-    git_code: HashSet<GitCodeAsk>,
 }
 
 /// Pushes `item` to `list` when `seen`, which holds the items of `list`, does not hold
@@ -1392,6 +1372,19 @@ impl Found {
                 self.needs.push(need);
             }
         }
+    }
+}
+
+/// Adds each of `grants` to `need` once. The host's network holds every host, so a
+/// host grant beside it goes.
+fn add_grants(need: &mut ExitNeed, grants: Vec<Grant>) {
+    for grant in grants {
+        if !need.grants.contains(&grant) {
+            need.grants.push(grant);
+        }
+    }
+    if need.grants.contains(&Grant::OpenNetwork) {
+        need.grants.retain(|grant| !matches!(grant, Grant::Host { .. }));
     }
 }
 
@@ -1542,12 +1535,27 @@ pub fn mount_view_line(line: &str) -> bool {
 /// `git push; echo "exit=$?"`, read as the number that they always are.
 /// The answer is the text for the model; the call gets no question.
 pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
+    one_command_problem(line, ONE_COMMAND)
+}
+
+/// Why a line may not get a login of a tool for one call ([`ExitNeed::carries_login`]),
+/// or `None` when it may: the same rule as [`unsandboxed_line_problem`], because every
+/// command of the call could use the login, such as a build before the push in
+/// `just check && git push`.
+pub fn login_line_problem(line: &str) -> Option<String> {
+    one_command_problem(line, ONE_LOGIN)
+}
+
+/// The text for the model when a line that gets a login holds more than one command.
+pub const ONE_LOGIN: &str = "a command that gets a login must run alone; run the other \
+                             parts in a separate call";
+
+fn one_command_problem(line: &str, rule: &str) -> Option<String> {
     let commands = match command::analyze_with_redirects(&status_words_as_literals(line)) {
         Ok(commands) => commands,
         Err(construct) => {
             return Some(format!(
-                "{ONE_COMMAND}. This line holds {construct}, so efr cannot see each command \
-                 in it"
+                "{rule}. This line holds {construct}, so efr cannot see each command in it"
             ));
         }
     };
@@ -1562,7 +1570,7 @@ pub fn unsandboxed_line_problem(line: &str) -> Option<String> {
                     .any(|helper| helper.matches_command(&simple.words, simple.pattern))
         })
         .count();
-    (carrying > 1).then(|| ONE_COMMAND.to_owned())
+    (carrying > 1).then(|| rule.to_owned())
 }
 
 /// The names whose value is the exit status of the last command, or of each command of

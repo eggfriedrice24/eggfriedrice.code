@@ -186,9 +186,18 @@ pub struct Needs {
     /// A device node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
-    /// Masked paths to read, at most [`Needs::MAX_UNMASK`].
+    /// Masked paths to read, at most [`Needs::MAX_UNMASK`]: a sandbox mask, or a
+    /// credential file of a tool, such as its token file or `~/.ssh`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unmask: Vec<String>,
+    /// Names of the shell's variables that hold a login of a tool, such as a token,
+    /// which the sandbox removes from every call, at most [`Needs::MAX_ENV`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<String>,
+    /// The keyring (the Secret Service of the session bus), where a tool keeps its
+    /// login.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keyring: bool,
     /// Run outside the sandbox.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub outside: bool,
@@ -207,6 +216,8 @@ impl Needs {
     pub const MAX_SOCKETS: usize = 2;
     /// The most paths in `unmask`.
     pub const MAX_UNMASK: usize = 4;
+    /// The most names in `env`.
+    pub const MAX_ENV: usize = 4;
     /// The most characters in `reason`.
     pub const MAX_REASON: usize = 300;
 
@@ -218,6 +229,8 @@ impl Needs {
             && self.bus.is_none()
             && self.device.is_none()
             && self.unmask.is_empty()
+            && self.env.is_empty()
+            && !self.keyring
             && !self.outside
     }
 
@@ -229,6 +242,7 @@ impl Needs {
             ("hosts", self.hosts.len(), Self::MAX_HOSTS),
             ("sockets", self.sockets.len(), Self::MAX_SOCKETS),
             ("unmask", self.unmask.len(), Self::MAX_UNMASK),
+            ("env", self.env.len(), Self::MAX_ENV),
         ];
         for (field, len, max) in lists {
             if len > max {
@@ -256,6 +270,8 @@ impl Needs {
                 "bus": { "enum": ["system", "session"] },
                 "device": { "type": "string" },
                 "unmask": paths(Self::MAX_UNMASK),
+                "env": paths(Self::MAX_ENV),
+                "keyring": { "type": "boolean" },
                 "outside": { "type": "boolean" },
                 "reason": { "type": "string", "maxLength": Self::MAX_REASON },
             },

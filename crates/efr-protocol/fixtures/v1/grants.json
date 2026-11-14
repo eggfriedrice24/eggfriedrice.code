@@ -32,6 +32,13 @@
     "path": "/home/me/p/app/.env"
   },
   {
+    "kind": "env",
+    "name": "TOOL_TOKEN"
+  },
+  {
+    "kind": "keyring"
+  },
+  {
     "kind": "net_view"
   },
   {

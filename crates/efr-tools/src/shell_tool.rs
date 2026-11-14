@@ -260,19 +260,37 @@ const NEEDS_MEMBERS: &[(&str, &str)] = &[
          name localhost or the host with its port. Do not name the forwarded port of a \
          job: a contained call reaches it on 127.0.0.1.",
     ),
-    ("sockets", "Unix sockets to connect to, such as a tool's own socket."),
+    (
+        "sockets",
+        "Unix sockets to connect to, such as a tool's own socket or the ssh agent's \
+         ($SSH_AUTH_SOCK).",
+    ),
     (
         "bus",
         "A message bus: system for systemctl, hostnamectl, timedatectl and other D-Bus \
          clients of the system; session for the user's own services.",
     ),
     ("device", "A device node, such as /dev/nvme0n1."),
-    ("unmask", "Masked paths to read, such as a project's .env, which read as empty."),
+    (
+        "unmask",
+        "Masked paths to read, which read as empty: a project's .env, or a tool's login, \
+         such as its token file or ~/.ssh.",
+    ),
+    (
+        "env",
+        "Names of the shell's variables that hold a tool's login, such as a token, which \
+         the sandbox removes.",
+    ),
+    (
+        "keyring",
+        "The keyring (the Secret Service), where a tool can keep its login. The call can \
+         read every unlocked entry, so name it only when the tool keeps its login there.",
+    ),
     (
         "outside",
         "Runs the whole line outside the sandbox with the user's full rights: files, \
          secrets and network. Ask for it only when no other member fits, such as for a \
-         debugger that attaches to a process or git over ssh, and say why in reason.",
+         debugger that attaches to a process, and say why in reason.",
     ),
     ("reason", "Why the command needs this, in one sentence. The user reads it."),
 ];
@@ -549,12 +567,18 @@ impl Tool for ShellTool {
              denied), call shell again with the same \
              line and the narrowest needs that fits, and a short reason. needs.outside runs \
              the whole line with the user's full rights, so ask for it only when no \
-             narrower member fits. A command that runs outside the sandbox, such as a push \
-             or sudo, does not see exports or functions that sandboxed commands made, and \
-             must be alone in its line apart from read-only helpers such as echo or tail. \
-             Write its values out: such a line may hold no $VAR, no $(...) and no \
-             here-document, so that efr and its reviewer read exactly what runs. Run git \
-             add and git commit in a call before git push. In auto, nested_shell is \
+             narrower member fits. The sandbox hides every login of a tool: token files, \
+             ~/.ssh, agent sockets, token variables and the keyring. A command that logs \
+             in, such as git push, gh or a publish, runs in the sandbox: on the first call, \
+             name in needs the login that it uses (unmask, sockets, env or keyring) and its \
+             host when the proxy does not list it. git over ssh needs the ssh agent's \
+             socket or ~/.ssh, and the host on port 22. A command that runs outside the \
+             sandbox, such as sudo, does not see exports or functions that sandboxed \
+             commands made. Such a command, and a command that gets a login, must be alone \
+             in its line apart from read-only helpers such as echo or tail. Write its \
+             values out: such a line may hold no $VAR, no $(...) and no here-document, so \
+             that efr and its reviewer read exactly what runs. Run git add and git commit \
+             in a call before git push. In auto, nested_shell is \
              refused. background: true starts the line as a job and answers at once with a \
              job id and an output file; the job runs until it ends, max_minutes passes \
              (default 60, at most 480, unless the user changed them), or job_stop stops it. \

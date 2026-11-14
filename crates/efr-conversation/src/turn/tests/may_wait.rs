@@ -24,6 +24,13 @@ fn networked(line: &str) -> (&'static str, Value) {
     ("shell", json!({ "command": line, "may_prompt": true, "network": true }))
 }
 
+/// [`networked`], run outside the sandbox at the model's request: only there may a
+/// program ask for a password, because efr types no secret into the sandbox.
+fn networked_outside(line: &str) -> (&'static str, Value) {
+    let needs = json!({ "outside": true });
+    ("shell", json!({ "command": line, "may_prompt": true, "network": true, "needs": needs }))
+}
+
 /// The line of the incident: an upload to another host over ssh with a password.
 const EVIDENCE: &str = "rsync -a -e 'ssh -o PreferredAuthentications=password' \
                         eggfriedrice@t:.config/Slack /home/u/scratch/slack";
@@ -53,7 +60,8 @@ async fn answer_and_end(
 async fn reviewed_exit_with_may_prompt_may_wait() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(judge));
-    let (h, _) = run(setup, vec![networked("git push origin main")], "push this branch").await;
+    let (h, _) =
+        run(setup, vec![networked_outside("git push origin main")], "push this branch").await;
 
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
@@ -91,7 +99,8 @@ async fn contained_call_never_may_wait() {
 
 #[tokio::test]
 async fn question_says_password_for_may_prompt_outside() {
-    let (mut h, _, turn_id) = start(reviewed(None), vec![networked(EVIDENCE)], "copy it").await;
+    let (mut h, _, turn_id) =
+        start(reviewed(None), vec![networked_outside(EVIDENCE)], "copy it").await;
     answer_and_end(&mut h, turn_id, ApprovalDecision::Allow).await;
 
     let Event::ApprovalRequested { interactive, exit: Some(exit), .. } = question(&h).await else {

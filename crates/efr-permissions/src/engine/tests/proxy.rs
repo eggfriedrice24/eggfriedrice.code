@@ -323,8 +323,6 @@ pub(super) fn remote_facts(remotes: Vec<RemoteFact>) -> CallFacts {
     CallFacts {
         remotes: vec![(PathBuf::from(APP), remotes)],
         programs: vec![("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false)],
-        // NOTE: the project's git code lies in its pinned git dir (v0.0.4, DV22).
-        git_code: Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() }),
         ..CallFacts::default()
     }
 }
@@ -372,10 +370,11 @@ fn git_fetch_https_remote_unlisted_predicts_host_grant() {
 fn git_fetch_ssh_remote_is_outside() {
     let facts = remote_facts(vec![remote("origin", &["git@github.com:o/r.git"], &[])]);
     let decision = decide(shell("git fetch").with_facts(facts.clone()));
-    assert_eq!(kinds(&decision), [ExitKind::Outside]);
+    assert_eq!(kinds(&decision), [ExitKind::Host]);
     let need = decision.exits().next().unwrap();
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
-    assert!(need.runs_unsandboxed());
+    assert!(!need.runs_unsandboxed());
+    assert_eq!(need.grants, [Grant::OpenNetwork]);
     // With no proxy the fetch keeps its `host` exit, now with the remote's host.
     let none = none_engine().decide(&in_auto(shell("git fetch").with_facts(facts)));
     assert_eq!(grants(&none), [Grant::OpenNetwork]);
@@ -387,7 +386,7 @@ fn git_fetch_ssh_remote_outside_has_host_fact() {
     let facts = remote_facts(vec![remote("origin", &["ssh://git.example.test/r.git"], &[])]);
     let decision = decide(shell("git pull").with_facts(facts));
     let need = decision.exits().next().unwrap();
-    assert_eq!(need.kind, ExitKind::Outside);
+    assert_eq!(need.kind, ExitKind::Host);
     assert_eq!(need.hosts, ["git.example.test"]);
     assert_eq!(need.names, ["git.example.test"]);
     assert!(names_match(&need.names, &["pull from git.example.test".to_owned()]));
@@ -453,7 +452,7 @@ fn ssh_submodule_url_is_user_only() {
     lib.submodule = true;
     let facts = remote_facts(vec![lib]);
     let decision = decide(shell("git submodule update").with_facts(facts));
-    assert_eq!(kinds(&decision), [ExitKind::Outside]);
+    assert_eq!(kinds(&decision), [ExitKind::Host]);
     assert_eq!(decision.exits().next().unwrap().approver, Approver::User);
 }
 
@@ -502,16 +501,6 @@ fn ssh_outside_needs_named_host(#[case] line: &str, #[case] host: &str) {
 #[case::mosh_client("mosh --client=./evil github.com")]
 #[case::autossh_jump("autossh -M 0 -J evil.example github.com")]
 #[case::askpass("SSH_ASKPASS=./a SSH_ASKPASS_REQUIRE=force ssh github.com")]
-#[case::git_ssh_command("GIT_SSH_COMMAND='sh -c x' git clone git@github.com:o/r.git")]
-#[case::exported("export GIT_SSH_COMMAND=x; git clone git@github.com:o/r.git")]
-#[case::env_wrapper("env GIT_SSH=./x git clone git@github.com:o/r.git")]
-#[case::git_config("git -c core.sshCommand=x clone git@github.com:o/r.git")]
-#[case::git_config_env("git --config-env=core.sshCommand=X clone git@github.com:o/r.git")]
-#[case::clone_config("git clone --config core.sshCommand=x git@github.com:o/r.git")]
-#[case::clone_config_short("git clone -c core.sshCommand=x git@github.com:o/r.git")]
-#[case::clone_template("git clone --template=./t git@github.com:o/r.git")]
-#[case::clone_submodules("git clone --recurse-submodules git@github.com:o/r.git")]
-#[case::exec_path("git --exec-path=./bin clone git@github.com:o/r.git")]
 fn ssh_steered_by_line_is_user_only(#[case] line: &str) {
     let facts = CallFacts {
         programs: ["ssh", "mosh", "autossh", "git", "env"]
@@ -525,19 +514,33 @@ fn ssh_steered_by_line_is_user_only(#[case] line: &str) {
     assert_eq!(need.hosts, ["github.com"], "the record still names the host: {line:?}");
 }
 
+/// git over ssh runs in the sandbox, so a line that steers its ssh transport, such as
+/// with `GIT_SSH_COMMAND` or `-c core.sshCommand`, runs that command in the sandbox
+/// too: it needs no rule of its own.
+#[rstest]
+#[case::git_ssh_command("GIT_SSH_COMMAND='sh -c x' git clone git@github.com:o/r.git")]
+#[case::exported("export GIT_SSH_COMMAND=x; git clone git@github.com:o/r.git")]
+#[case::env_wrapper("env GIT_SSH=./x git clone git@github.com:o/r.git")]
+#[case::git_config("git -c core.sshCommand=x clone git@github.com:o/r.git")]
+#[case::clone_template("git clone --template=./t git@github.com:o/r.git")]
+#[case::exec_path("git --exec-path=./bin clone git@github.com:o/r.git")]
+fn a_steered_git_ssh_line_runs_in_the_sandbox(#[case] line: &str) {
+    let decision = decide(shell(line));
+    assert!(!decision.exits().any(ExitNeed::runs_unsandboxed), "{line:?}");
+    let need = decision.exits().find(|need| need.kind == ExitKind::Host).unwrap();
+    assert_eq!(need.grants, [Grant::OpenNetwork], "{line:?}");
+    assert_eq!(need.hosts, ["github.com"], "{line:?}");
+}
+
 #[test]
-fn ssh_remote_fetch_steered_by_exported_variable_is_user_only() {
+fn a_project_ssh_remote_fetch_is_classifier() {
     let mut origin = remote("origin", &["git@github.com:o/r.git"], &["git@github.com:o/r.git"]);
     origin.project = true;
     let facts = remote_facts(vec![origin]);
-    let decision = decide(shell("git fetch").with_facts(facts.clone()));
-    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    let decision = decide(shell("git fetch").with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Host).unwrap();
     assert_eq!(need.approver, Approver::Classifier, "a project's own remote counts as named");
-    let line = "export GIT_SSH_COMMAND='sh -c x'; git fetch";
-    let decision = decide(shell(line).with_facts(facts));
-    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
-    assert_eq!(need.approver, Approver::User);
-    assert_eq!(need.hosts, ["github.com"]);
+    assert_eq!(need.grants, [Grant::OpenNetwork]);
 }
 
 #[rstest]
@@ -594,10 +597,14 @@ fn ssh_unreadable_destination_is_user_only(#[case] line: &str) {
 fn git_clone_ssh_url_is_outside_with_host(#[case] line: &str, #[case] host: &str) {
     let facts = remote_facts(Vec::new());
     let decision = decide(shell(line).with_facts(facts.clone()));
-    assert_eq!(kinds(&decision), [ExitKind::Outside], "{line:?}");
+    assert_eq!(kinds(&decision), [ExitKind::Host], "{line:?}");
     let need = decision.exits().next().unwrap();
     assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
     assert_eq!(need.hosts, [host], "{line:?}");
+    // NOTE: the proxy carries no ssh, so the clone gets the host's network, in the
+    // sandbox.
+    assert_eq!(need.grants, [Grant::OpenNetwork], "{line:?}");
+    assert!(!need.runs_unsandboxed(), "{line:?}");
     // With no proxy the clone keeps its `host` exit with the whole network.
     let none = none_engine().decide(&in_auto(shell(line).with_facts(facts)));
     assert_eq!(grants(&none), [Grant::OpenNetwork], "{line:?}");

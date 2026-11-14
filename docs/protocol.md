@@ -1021,3 +1021,13 @@ No protocol version has shipped yet.
   `events/web_call_completed_failed.json`, `events/web_call_completed_find.json`,
   `events/turn_web_report.json`, `events/turn_web_report_stored_copy.json`,
   `web_actions.json` and `web_errors.json`.
+- Version 1, additive and one removal: logins as grants (ADR 0024). `needs` gains
+  `env` (at most 4 names of variables that hold a tool's login) and `keyring` (a
+  boolean). `grant` gains `env` (`{"kind": "env", "name": ...}`, one variable kept for
+  the call) and `keyring` (the Secret Service on the call's filtered session bus; efrd
+  turns it into the filtered session bus, so a sandbox spec never holds it). The
+  `facts` of an exit record lose `git_code`: efrd no longer checks the git code of a
+  line, because git and gh run in the sandbox. A reader that knows `git_code` reads its
+  absence; a stored record that holds it reads as before, because the record ignores a
+  member that it does not know. `grants.json` now holds the two new grants, and
+  `events/exit_requested.json` has no `git_code`.

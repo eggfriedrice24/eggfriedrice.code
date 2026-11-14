@@ -479,3 +479,25 @@ proptest! {
         }
     }
 }
+
+/// The keyring grant passes every call to the Secret Service, which no
+/// `[[dbus.allow]]` entry may name.
+#[test]
+fn the_keyring_grant_opens_the_secret_service() {
+    let session = defaults(BusKind::Session);
+    let path = "/org/freedesktop/secrets/collection/login";
+    assert!(!session.allows(
+        "org.freedesktop.secrets",
+        "org.freedesktop.Secret.Item.GetSecret",
+        path
+    ));
+    let keyring = session.with_keyring();
+    assert!(keyring.allows(
+        "org.freedesktop.secrets",
+        "org.freedesktop.Secret.Item.GetSecret",
+        path
+    ));
+    assert!(keyring.proxy_args().contains(&"--call=org.freedesktop.secrets=*".to_owned()));
+    let entry = rule(BusKind::Session, "org.freedesktop.secrets", &["*"]);
+    assert!(problem(&[entry]).is_some(), "a user rule may not name it");
+}

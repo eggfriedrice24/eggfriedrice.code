@@ -135,8 +135,12 @@ pub(crate) struct PlanInput<'a> {
     /// The conversation's `$SCRATCH`.
     pub(crate) scratch: &'a Path,
     pub(crate) settings: &'a SandboxSettings,
-    /// The engine's secrets: masks that no grant opens.
+    /// The engine's secrets: masks that no grant opens, except a credential of a tool.
     pub(crate) secrets: &'a [PathBuf],
+    /// The secrets that are credentials of a tool
+    /// ([`Locations::credential_paths`](efr_permissions::Locations::credential_paths)):
+    /// a reviewed grant unmasks one for one call.
+    pub(crate) credentials: &'a [PathBuf],
     /// efr's config directory and the real files behind its links.
     pub(crate) protected_config: &'a [PathBuf],
     pub(crate) host: &'a HostFacts,
@@ -416,7 +420,12 @@ fn masks(input: &PlanInput<'_>, projects: &[PathBuf]) -> Vec<Mask> {
         }
     };
     for secret in input.secrets {
-        add(secret.clone(), MaskKind::EngineSecret);
+        let kind = if input.credentials.contains(secret) {
+            MaskKind::Credential
+        } else {
+            MaskKind::EngineSecret
+        };
+        add(secret.clone(), kind);
     }
     for mask in sandbox_masks(home) {
         add(mask, MaskKind::SandboxMask);

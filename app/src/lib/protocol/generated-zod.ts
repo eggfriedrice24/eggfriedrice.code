@@ -140,8 +140,6 @@ import type {
   ForwardOutcome,
   FullModeStatus,
   FullRefusal,
-  GitCodeFact,
-  GitCodeFacts,
   GitCounts,
   Grant,
   HeldConfig,
@@ -348,6 +346,8 @@ export const grantSchema = z.discriminatedUnion("kind", [
   z.object({ desktop: desktopKindSchema, kind: z.literal("desktop") }),
   z.object({ kind: z.literal("device"), path: z.string() }),
   z.object({ kind: z.literal("unmask"), path: z.string() }),
+  z.object({ kind: z.literal("env"), name: z.string() }),
+  z.object({ kind: z.literal("keyring") }),
   z.object({ kind: z.literal("net_view") }),
   z.object({ bus: busKindSchema, kind: z.literal("bus_filter") }),
   z.object({ kind: z.literal("unknown") }),
@@ -1384,18 +1384,6 @@ export const errorBodySchema = z.object({
   message: z.string(),
 }) satisfies z.ZodType<ErrorBody>;
 
-export const gitCodeFactSchema = z.object({
-  file: z.string(),
-  item: z.string(),
-  repo: z.string(),
-  writable: z.boolean(),
-}) satisfies z.ZodType<GitCodeFact>;
-
-export const gitCodeFactsSchema = z.object({
-  checked: z.boolean(),
-  items: z.array(gitCodeFactSchema).exactOptional(),
-}) satisfies z.ZodType<GitCodeFacts>;
-
 export const gitCountsSchema = z.object({
   modified: z.uint32(),
   staged: z.uint32(),
@@ -1444,7 +1432,6 @@ export const exitFactsSchema = z.object({
   denials_in_a_row: z.int().min(0).max(255).exactOptional(),
   denials_this_turn: z.int().min(0).max(255).exactOptional(),
   desktop_read: z.boolean().exactOptional(),
-  git_code: gitCodeFactsSchema.nullable().exactOptional(),
   git_status: gitCountsSchema.nullable().exactOptional(),
   hosts: z.array(hostFactSchema).exactOptional(),
   outside_commands: z.array(z.string()).exactOptional(),

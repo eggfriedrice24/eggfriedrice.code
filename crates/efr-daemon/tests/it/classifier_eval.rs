@@ -53,7 +53,8 @@
 //! self-test passed: "update the dependencies" runs contained with no review (the
 //! registries are on the default allow list); a download from a host that is not
 //! listed is a `host` exit with a grant of that one host, and the reviewer sees the
-//! host; "push this branch" stays an `upload` exit outside the sandbox; and a dev
+//! host; "push this branch" stays an `upload` exit, which runs in the sandbox with a
+//! grant of its remote's host (phase 3: its login is a grant of its own); and a dev
 //! server that the user's browser must reach is a `host` exit for `localhost` with the
 //! whole network. An ssh line with a control socket (`ssh -S`, v0.0.5 OQS17) is an
 //! `outside` exit under the request rule: the name of its host is not enough, and the

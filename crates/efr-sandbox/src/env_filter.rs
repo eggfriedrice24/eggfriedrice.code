@@ -2,8 +2,10 @@
 //!
 //! The launcher starts from its own environment, which is the trusted shell's, and
 //! removes sockets, sessions, secret-like names, git's config from the environment,
-//! proxies, efr's own variables, and each variable whose value is a URL with a
-//! password unless `sandbox.env_keep` names it. It then sets the private `/tmp`, an
+//! proxies, efr's own variables and keys, and each variable whose value is a URL with
+//! a password unless `sandbox.env_keep` names it. A grant of the call keeps a
+//! secret-like name (`Grant::Env`), and a socket variable whose value is a socket that
+//! the call got (`Grant::Socket`). It then sets the private `/tmp`, an
 //! empty runtime dir, `EFR_SANDBOX=1`, `SCRATCH` (the conversation's scratch dir), the
 //! variables that stop credential prompts, the offline hints while there is no network,
 //! and for a proxy plan the variables that point every tool at the bridge.
@@ -12,6 +14,8 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+
+use efr_protocol::{EFR_KEY_NAMES, Grant};
 
 use crate::names::{
     EFR_NAMES, GIT_CONFIG_NAMES, PROXY_NAMES, SOCKET_NAMES, any_matches, has_url_password,
@@ -58,6 +62,10 @@ pub const MOVED_CACHES: &[(&str, &str)] =
 pub struct EnvFilter {
     deny: Vec<String>,
     keep: Vec<String>,
+    /// The names of the call's [`Grant::Env`] grants.
+    granted: Vec<String>,
+    /// The paths of the call's [`Grant::Socket`] grants.
+    sockets: Vec<PathBuf>,
     set: Vec<(String, String)>,
     home: PathBuf,
     overlays: Vec<PathBuf>,
@@ -102,9 +110,20 @@ impl EnvFilter {
                 _ => None,
             })
             .collect();
+        let mut granted = Vec::new();
+        let mut sockets = Vec::new();
+        for grant in &spec.grants {
+            match grant {
+                Grant::Env { name } => granted.push(name.clone()),
+                Grant::Socket { path } => sockets.push(path.clone()),
+                _ => {}
+            }
+        }
         EnvFilter {
             deny: spec.env.deny.clone(),
             keep: spec.env.keep.clone(),
+            granted,
+            sockets,
             set,
             home: spec.runtime.home.clone(),
             overlays,
@@ -113,21 +132,38 @@ impl EnvFilter {
 
     /// True when the filter removes `name` whatever its value.
     pub fn removes(&self, name: &str) -> bool {
-        any_matches(EFR_NAMES, name)
+        self.removes_always(name)
             || any_matches(SOCKET_NAMES, name)
+            || (secret_like(name) && !self.keeps(name))
+    }
+
+    /// True for a name that no grant keeps: efr's own, efr's keys, the terminal's,
+    /// the proxies, git's config and `sandbox.env_deny`.
+    fn removes_always(&self, name: &str) -> bool {
+        any_matches(EFR_NAMES, name)
+            || EFR_KEY_NAMES.contains(&name)
             || any_matches(HIDDEN_SHELL_SCRUB, name)
             || any_matches(PROXY_NAMES, name)
             || any_matches(GIT_CONFIG_NAMES, name)
             || any_matches(&self.deny, name)
-            || (secret_like(name) && !any_matches(&self.keep, name))
+    }
+
+    /// True when `sandbox.env_keep` or a grant of the call ([`Grant::Env`]) keeps the
+    /// secret-like `name`.
+    fn keeps(&self, name: &str) -> bool {
+        any_matches(&self.keep, name) || self.granted.iter().any(|granted| granted == name)
     }
 
     /// True when the filter removes `name` with `value`: [`removes`](Self::removes), or
     /// a value with a URL that holds a password, such as `PIP_INDEX_URL`, unless
-    /// `sandbox.env_keep` names the variable.
+    /// `sandbox.env_keep` or a grant names the variable. A socket variable, such as
+    /// `SSH_AUTH_SOCK`, stays when its value is a socket that the call got
+    /// ([`Grant::Socket`]).
     pub fn removes_value(&self, name: &str, value: &OsStr) -> bool {
-        self.removes(name)
-            || (has_url_password(&value.to_string_lossy()) && !any_matches(&self.keep, name))
+        if any_matches(SOCKET_NAMES, name) && !self.removes_always(name) {
+            return !self.sockets.iter().any(|socket| socket.as_os_str() == value);
+        }
+        self.removes(name) || (has_url_password(&value.to_string_lossy()) && !self.keeps(name))
     }
 
     /// The environment of the call, and the names removed from `env` in order.

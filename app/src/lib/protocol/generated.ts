@@ -1915,6 +1915,16 @@ export type Grant =
       path: string;
     }
   | {
+      kind: "env";
+      /**
+       * The variable's name.
+       */
+      name: string;
+    }
+  | {
+      kind: "keyring";
+    }
+  | {
       kind: "net_view";
     }
   | {
@@ -4860,14 +4870,6 @@ export interface ExitFacts {
    */
   desktop_read?: boolean;
   /**
-   * For an `outside` or `upload` exit of a git or gh line: the git code that the line
-   * runs outside the sandbox, when it made the exit one that only the user may
-   * approve: efr could not check it, or a sandboxed command can write a part of it.
-   * Absent for any other exit, so a clean check is never a reason to allow. It holds
-   * only the parts that a sandboxed command can write.
-   */
-  git_code?: GitCodeFacts | null;
-  /**
    * For a destructive exit: the counts of the hardened `git status`.
    */
   git_status?: GitCounts | null;
@@ -4915,46 +4917,6 @@ export interface ExitFacts {
    * The upload patterns that the line matched, such as `git push`.
    */
   upload_patterns?: string[];
-}
-/**
- * The git code that a git or gh line runs outside the sandbox: the hooks, the config
- * keys that run a program, and the programs that they run, of the repository and of
- * each submodule that the line can reach.
- */
-export interface GitCodeFacts {
-  /**
-   * False when efr could not check it: git did not answer in time or failed, efr
-   * found no repository, or the submodules lie too deep or behind a link.
-   */
-  checked: boolean;
-  /**
-   * What git runs, each once.
-   */
-  items?: GitCodeFact[];
-}
-/**
- * One part of the git code of a line.
- */
-export interface GitCodeFact {
-  /**
-   * The file that holds it, or the program that runs.
-   */
-  file: string;
-  /**
-   * What runs, such as `core.sshCommand`, `hooks/pre-push` or `ssh (PATH)`.
-   */
-  item: string;
-  /**
-   * The repository: its work tree, or its git dir (also the git dir of a submodule).
-   */
-  repo: string;
-  /**
-   * True when a contained call can write the file: it lies in a registered project,
-   * in the `$SCRATCH` of a conversation, below a write rule or a write root of the
-   * config, or in a write root of a running contained job, and no floor of the
-   * sandbox keeps it read-only.
-   */
-  writable: boolean;
 }
 /**
  * The counts of a hardened `git status`, never the names.

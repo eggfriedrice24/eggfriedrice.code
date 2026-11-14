@@ -9,7 +9,7 @@ use proptest::prelude::*;
 
 use super::super::envelope::{Envelope, resolve};
 use super::super::scan::{self, OPAQUE, Segment, is_assignment};
-use super::super::{Naming, cover, fact_requests, git_code, part_text, persist, programs, remotes};
+use super::super::{Naming, cover, fact_requests, part_text, persist, programs, remotes};
 use crate::network::HostList;
 use crate::path_class::normalize;
 use crate::{AutoSupport, CoverAsk, FactRequest, Locations};
@@ -79,11 +79,6 @@ fn listed_fact_requests(
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }
             covers.extend(persist::covers(command));
-            if let Some(git_code::Trigger::Ask(ask)) = git_code::trigger(command, dir, locations)
-                && !request.git_code.contains(&ask)
-            {
-                request.git_code.push(ask);
-            }
             if remotes::remote_command(command).is_some()
                 && !remotes::steers_git(&segment.words)
                 && let Some(git_dir) = remotes::remote_dir(command, dir, locations)

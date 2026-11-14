@@ -137,6 +137,7 @@ fn spec(launch: &Launch, egress: Egress, job: bool) -> SandboxSpec {
         scratch: &dirs.data().join("scratch/x"),
         settings: &settings,
         secrets: &[],
+        credentials: &[],
         protected_config: &[],
         host: &host,
         dirs: &dirs,

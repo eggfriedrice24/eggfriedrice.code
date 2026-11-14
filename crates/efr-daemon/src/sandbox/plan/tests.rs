@@ -55,7 +55,8 @@ impl Fixture {
             named_paths: named,
             scratch: &self.dirs.data().join("scratch/x"),
             settings,
-            secrets: &[self.home.join(".ssh")],
+            secrets: &[self.home.join(".ssh"), self.dirs.data().join("secrets")],
+            credentials: &[self.home.join(".ssh")],
             protected_config: &[self.dirs.config().to_path_buf()],
             host: &self.host,
             dirs: &self.dirs,
@@ -192,7 +193,8 @@ fn masks_floors_grants_and_the_runtime_follow_the_inputs() {
     let spec = &planned.spec;
     let mask =
         |path: PathBuf| spec.masks.iter().find(|mask| mask.path == path).map(|mask| mask.kind);
-    assert_eq!(mask(home.join(".ssh")), Some(MaskKind::EngineSecret));
+    assert_eq!(mask(home.join(".ssh")), Some(MaskKind::Credential), "a tool's login");
+    assert_eq!(mask(fixture.dirs.data().join("secrets")), Some(MaskKind::EngineSecret));
     assert_eq!(mask(home.join(".aws")), Some(MaskKind::SandboxMask));
     assert_eq!(mask(home.join("private")), Some(MaskKind::User));
     assert_eq!(mask(app.join(".env")), Some(MaskKind::ProjectEnv));

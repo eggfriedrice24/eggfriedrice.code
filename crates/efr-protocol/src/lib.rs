@@ -149,15 +149,16 @@ pub use presence::{Presence, PresenceSource};
 pub use route::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{
-    ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCodeFact, GitCodeFacts, GitCounts, HostFact,
-    JudgeKind, Judgement, PathClassName, PauseReason, ProgramFact, Risk, TargetFact,
-    UserAuthorization, Verdict,
+    ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement,
+    PathClassName, PauseReason, ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
 };
 pub use sandbox::status::{BusProxyOff, CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
 pub use sandbox::summary::{
     BlockReason, Blocked, BusRefusal, ReportedFile, SandboxSummary, SurfaceChange,
 };
-pub use sandbox::{BusKind, CacheMode, DesktopKind, Grant, Launch, ModeFallback, NetworkMode};
+pub use sandbox::{
+    BusKind, CacheMode, DesktopKind, EFR_KEY_NAMES, Grant, Launch, ModeFallback, NetworkMode,
+};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_prompt::looks_secret;
