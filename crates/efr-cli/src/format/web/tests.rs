@@ -264,7 +264,7 @@ fn the_end_lines_with_searches_are_the_web_board() {
         line(108, 34, usage(30_000, 26_700, 3_100), 5, false),
         line(12, 9, usage(1_500, 0, 640), 1, false),
         line(31, 22, usage(1_500, 0, 2_400), 5, true),
-        vec![(stored_copy_note(G), Tone::Dim)],
+        vec![(stored_copy_note(None, G), Tone::Dim)],
     ];
     let frame = Frame::load("TM-Web", 13).unwrap();
     for depth in Depth::ALL {
@@ -272,6 +272,25 @@ fn the_end_lines_with_searches_are_the_web_board() {
         let out: String = lines.iter().map(|line| rows(line, 0, &options)).collect();
         assert_rows(&frame, 1..=4, &out, depth);
     }
+}
+
+/// The note names what gives the live web: the mode, or the setting `cached`, with
+/// which no mode does (decision 4 of the roadmap to 0.1.0).
+#[test]
+fn the_stored_copy_note_names_what_chose_the_stored_copy() {
+    use efr_protocol::StoredCopyReason;
+    let mode = "a stored copy of the web can be some days old · ,mode auto searches the live web";
+    assert_eq!(stored_copy_note(None, G), mode);
+    assert_eq!(stored_copy_note(Some(StoredCopyReason::Mode), G), mode);
+    assert_eq!(
+        stored_copy_note(Some(StoredCopyReason::Setting), G),
+        "a stored copy of the web can be some days old · web.search = \"cached\" in \
+         config.toml asks for it in each mode"
+    );
+    assert_eq!(
+        stored_copy_note(Some(StoredCopyReason::Unknown), G),
+        "a stored copy of the web can be some days old"
+    );
 }
 
 #[test]

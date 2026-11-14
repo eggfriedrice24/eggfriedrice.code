@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use efr_permissions::Egress;
-use efr_protocol::{Mode, ModeFallback};
+use efr_protocol::{Mode, ModeFallback, StoredCopyReason};
 use efr_scope::Repo;
 use insta::assert_snapshot;
 use jiff::Timestamp;
@@ -536,13 +536,23 @@ fn the_web_line_says_why_search_is_off_or_that_it_reads_a_stored_copy() {
     );
     let off = LiveState { web: WebPlan::Off(WhyOff::Setting), ..minimal() }.render();
     assert!(off.contains("Web search is off (web.search = \"off\" in efr's config).\n"), "{off}");
-    let stored = LiveState { web: WebPlan::Stored, ..minimal() }.render();
+    let stored = LiveState { web: WebPlan::Stored(StoredCopyReason::Mode), ..minimal() }.render();
     assert!(
         stored.contains(
             "Web search reads a stored copy of the web, which can be some days old. The user \
              gets the live web with \",mode auto\".\n"
         ),
         "{stored}"
+    );
+    // NOTE: with `cached` a mode gives no live web, so the line names the setting.
+    let cached =
+        LiveState { web: WebPlan::Stored(StoredCopyReason::Setting), ..minimal() }.render();
+    assert!(
+        cached.contains(
+            "Web search reads a stored copy of the web, which can be some days old \
+             (web.search = \"cached\" in efr's config).\n"
+        ),
+        "{cached}"
     );
     for (line, text) in [(WEB_OFF_MANUAL, &text), (WEB_OFF_SETTING, &off), (WEB_STORED, &stored)] {
         assert_eq!(text.matches(line).count(), 1, "{text}");

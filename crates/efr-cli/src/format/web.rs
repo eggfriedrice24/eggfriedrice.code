@@ -35,7 +35,7 @@
 use std::fmt::Write as _;
 use std::time::Duration;
 
-use efr_protocol::{CallId, Event, WebAction, WebError, WebResult, WebSource};
+use efr_protocol::{CallId, Event, StoredCopyReason, WebAction, WebError, WebResult, WebSource};
 use efr_render::{Glyphs, RenderOptions, WidthMethod, text_width};
 
 use super::{Tone, columns, fits, one_line, one_line_words, paint, pieces, wrap_spans};
@@ -612,12 +612,22 @@ pub(crate) fn add_count(line: &mut Vec<(String, Tone)>, count: &str, glyphs: &Gl
 }
 
 /// The muted row under the end line of the first turn of a conversation that read the
-/// provider's stored copy of the web (TM-Web 13).
-pub(crate) fn stored_copy_note(glyphs: &Glyphs) -> String {
-    format!(
-        "a stored copy of the web can be some days old {} ,mode auto searches the live web",
-        glyphs.separator
-    )
+/// provider's stored copy of the web (TM-Web 13), with what gives the live web for
+/// `reason`: `,mode auto` when the mode chose the stored copy (also from a daemon that
+/// names no reason); the setting when `web.search = "cached"` chose it, because then no
+/// mode gives the live web; nothing more for a reason that this build does not know.
+pub(crate) fn stored_copy_note(reason: Option<StoredCopyReason>, glyphs: &Glyphs) -> String {
+    let note = "a stored copy of the web can be some days old";
+    let sep = glyphs.separator;
+    match reason {
+        None | Some(StoredCopyReason::Mode) => {
+            format!("{note} {sep} ,mode auto searches the live web")
+        }
+        Some(StoredCopyReason::Setting) => {
+            format!("{note} {sep} web.search = \"cached\" in config.toml asks for it in each mode")
+        }
+        Some(_) => note.to_owned(),
+    }
 }
 
 /// The rows that `efr history --verbose` puts under a search (TM-Web 15), each after

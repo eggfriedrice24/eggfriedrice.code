@@ -48,7 +48,8 @@ use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
     Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin, PageCursor, Seq,
-    SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict, WebAction, WebResult, WebSource,
+    StoredCopyReason, SwitchedModel, TurnId, TurnUndoInfo, Usage, Verdict, WebAction, WebResult,
+    WebSource,
 };
 use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -493,9 +494,14 @@ struct WebSteps {
     finds: HashMap<CallId, Vec<String>>,
     /// The pages that the answer of the turn cites, from its report, for `--verbose`.
     sources: Vec<WebSource>,
-    /// The count of the searches, the stored copy and its note, from the report.
-    report: Option<(u32, bool, bool)>,
+    /// The count of the searches, the stored copy, its note and why the searches read
+    /// it, from the report.
+    report: Option<(u32, bool, bool, Option<StoredCopyReason>)>,
 }
+
+/// The note of the stored copy belongs under the end line of a turn, with why the
+/// searches read it.
+struct Noted(Option<StoredCopyReason>);
 
 impl<'a> Transcript<'a> {
     fn new(shown: &Shown<'a>, out: String) -> Transcript<'a> {
@@ -605,12 +611,12 @@ impl<'a> Transcript<'a> {
     }
 
     /// The outcome line of a turn's end with the count of its searches last on its
-    /// cost, then `reason` muted after two spaces; true when the note of the stored
-    /// copy belongs under it.
-    fn outcome_line(&mut self, mut line: Pieces, reason: Option<String>) -> bool {
+    /// cost, then `reason` muted after two spaces; the reason of the stored copy when its
+    /// note belongs under it.
+    fn outcome_line(&mut self, mut line: Pieces, reason: Option<String>) -> Option<Noted> {
         let report = self.web.report.take();
         let glyphs = self.options.glyphs();
-        let count = report.and_then(|(searches, stored, _)| web::count(searches, stored));
+        let count = report.and_then(|(searches, stored, ..)| web::count(searches, stored));
         if let Some(count) = &count {
             web::add_count(&mut line, count, glyphs);
         }
@@ -619,13 +625,15 @@ impl<'a> Transcript<'a> {
             line.push((reason, Tone::Dim));
         }
         self.pieces(&line);
-        count.is_some() && report.is_some_and(|(_, stored, note)| stored && note)
+        report
+            .filter(|(_, stored, note, _)| count.is_some() && *stored && *note)
+            .map(|(.., why)| Noted(why))
     }
 
-    /// The note of the stored copy, when `due`.
-    fn stored_copy_note(&mut self, due: bool) {
-        if due {
-            let note = web::stored_copy_note(self.options.glyphs());
+    /// The note of the stored copy, when it is `due`, with what gives the live web.
+    fn stored_copy_note(&mut self, due: Option<Noted>) {
+        if let Some(Noted(why)) = due {
+            let note = web::stored_copy_note(why, self.options.glyphs());
             self.pieces(&vec![(note, Tone::Dim)]);
         }
     }
@@ -879,10 +887,18 @@ impl<'a> Transcript<'a> {
             }
             // NOTE: the list of sources stands after the answer, one blank row before it,
             // as the turn showed it (TM-Web 10).
-            Event::TurnWebReport { searches, stored_copy, stored_copy_note, sources, .. } => {
+            Event::TurnWebReport {
+                searches,
+                stored_copy,
+                stored_copy_note,
+                stored_copy_reason,
+                sources,
+                ..
+            } => {
                 let rest = self.web.order.rest();
                 self.web_rows(rest);
-                self.web.report = Some((*searches, *stored_copy, *stored_copy_note));
+                self.web.report =
+                    Some((*searches, *stored_copy, *stored_copy_note, *stored_copy_reason));
                 if !sources.is_empty() {
                     self.out.push_str(self.spacing.before(Block::Message));
                     self.out.push_str(&indented_rows(&web::sources(sources, &self.inner)));

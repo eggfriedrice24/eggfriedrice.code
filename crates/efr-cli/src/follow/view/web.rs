@@ -15,7 +15,7 @@
 //! - When stdout is not a terminal, the rows go to stderr in the same order, plain, as
 //!   the rows of the calls do.
 
-use efr_protocol::{CallId, Event};
+use efr_protocol::{CallId, Event, StoredCopyReason};
 use jiff::Timestamp;
 
 use super::status::State;
@@ -44,6 +44,8 @@ struct Report {
     searches: u32,
     stored_copy: bool,
     note: bool,
+    /// Why the searches read the stored copy; absent from an older daemon.
+    reason: Option<StoredCopyReason>,
 }
 
 impl TurnView {
@@ -90,7 +92,14 @@ impl TurnView {
     /// What the turn did on the web, in the batch of its end: the list of sources after
     /// the last answer, and the count and the note for the end line.
     pub(super) fn web_report(&mut self, event: &Event, size: Size) -> Step {
-        let Event::TurnWebReport { searches, stored_copy, stored_copy_note, sources, .. } = event
+        let Event::TurnWebReport {
+            searches,
+            stored_copy,
+            stored_copy_note,
+            stored_copy_reason,
+            sources,
+            ..
+        } = event
         else {
             return Step::default();
         };
@@ -98,6 +107,7 @@ impl TurnView {
             searches: *searches,
             stored_copy: *stored_copy,
             note: *stored_copy_note && *stored_copy,
+            reason: *stored_copy_reason,
         });
         let mut step = self.web_flush(size);
         if sources.is_empty() {
@@ -138,7 +148,7 @@ impl TurnView {
         let glyphs = self.options.glyphs();
         let count = web::count(report.searches, report.stored_copy)?;
         web::add_count(line, &count, glyphs);
-        report.note.then(|| vec![(web::stored_copy_note(glyphs), Tone::Dim)])
+        report.note.then(|| vec![(web::stored_copy_note(report.reason, glyphs), Tone::Dim)])
     }
 
     /// The status row names the newest step that runs, or goes back to the model when

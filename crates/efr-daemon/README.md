@@ -651,8 +651,9 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   turn to another account. A running turn sends the windows of its account as a
   `limits` draft (`efr-conversation`), and a subscriber that joins gets the newest one
   of its status; a slow subscriber keeps only the newest one, until the end of the
-  turn (`conversation_subscribe/pending.rs`). `turn_web_report` has no
-  `stored_copy_reason` yet (`efr-protocol`, `src/accounts.rs`).
+  turn (`conversation_subscribe/pending.rs`). `turn_web_report` names why the
+  searches read the stored copy in `stored_copy_reason` (`efr-conversation`, the web
+  plan).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`)
   and no provider with a login lists it (checked after the wait for a first list):

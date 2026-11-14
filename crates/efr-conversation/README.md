@@ -487,7 +487,9 @@ request:
    `Web search is off in manual mode. The user turns it on with ",mode cautious" in
    this terminal.`, `Web search is off (web.search = "off" in efr's config).`, or `Web
    search reads a stored copy of the web, which can be some days old. The user gets the
-   live web with ",mode auto".` A turn whose provider has no web tool, and a turn with
+   live web with ",mode auto".` (with `web.search = "cached"`, which no mode changes:
+   `Web search reads a stored copy of the web, which can be some days old (web.search =
+   "cached" in efr's config).`). A turn whose provider has no web tool, and a turn with
    the live web, get no line, so their block keeps its bytes. efr itself prints nothing
    about web search in manual mode: the model's own sentence names the reason and the
    command.
@@ -703,7 +705,9 @@ the request above). The turn records what the stream says:
 - **The report.** At the end of every turn that ran a search or cited a page, the
   batch of the terminal event holds, before it, a `web_call_completed` with
   `not_finished` for each step that never ended, then one `turn_web_report`: the
-  count, `stored_copy` when the plan read the stored copy and a search ran, the cited
+  count, `stored_copy` when the plan read the stored copy and a search ran, with
+  `stored_copy_reason` (`mode` for `cautious` with `web.search = "mode"`, `setting`
+  for `web.search = "cached"`, which `WebPlan::Stored` keeps), the cited
   pages in the order of their numbers, and `stored_copy_note` for the first such report
   of the conversation (no earlier report with `stored_copy` in the turn's snapshot, and
   a flag of the actor that the first one sets).

@@ -211,7 +211,11 @@ impl WebState {
         if self.searches == 0 && self.sources.is_empty() {
             return None;
         }
-        let stored_copy = self.plan == WebPlan::Stored && self.searches > 0;
+        let reason = match self.plan {
+            WebPlan::Stored(reason) if self.searches > 0 => Some(reason),
+            _ => None,
+        };
+        let stored_copy = reason.is_some();
         let stored_copy_note =
             stored_copy && !self.noted_before && !noted.swap(true, Ordering::AcqRel);
         Some(Event::TurnWebReport {
@@ -219,9 +223,9 @@ impl WebState {
             searches: self.searches,
             stored_copy,
             stored_copy_note,
-            // NOTE: a stub until the plan keeps why it reads the stored copy; a client
-            // reads its absence as the mode, as before.
-            stored_copy_reason: None,
+            // NOTE: why the searches read the stored copy, so a client names the setting
+            // that gives the live web.
+            stored_copy_reason: reason,
             sources: self.sources.clone(),
         })
     }

@@ -1,4 +1,4 @@
-use efr_protocol::Mode;
+use efr_protocol::{Mode, StoredCopyReason};
 use efr_provider::{HostedTool, ProviderError, WebAccess, WebSupport};
 use pretty_assertions::assert_eq;
 
@@ -31,11 +31,11 @@ fn the_plan_follows_the_table_of_the_spec() {
         (Mode::Cautious, WebSearch::Live, claude, Live),
         (Mode::Full, WebSearch::Live, openai, Live),
         // Cached: the stored copy where the provider has one.
-        (Mode::Auto, WebSearch::Cached, openai, Stored),
-        (Mode::Full, WebSearch::Cached, openai, Stored),
+        (Mode::Auto, WebSearch::Cached, openai, Stored(StoredCopyReason::Setting)),
+        (Mode::Full, WebSearch::Cached, openai, Stored(StoredCopyReason::Setting)),
         (Mode::Auto, WebSearch::Cached, claude, Live),
         // Mode: the table by mode of DECISIONS-web 2.
-        (Mode::Cautious, WebSearch::Mode, openai, Stored),
+        (Mode::Cautious, WebSearch::Mode, openai, Stored(StoredCopyReason::Mode)),
         (Mode::Cautious, WebSearch::Mode, claude, Live),
         (Mode::Auto, WebSearch::Mode, openai, Live),
         (Mode::Auto, WebSearch::Mode, claude, Live),
@@ -63,7 +63,10 @@ fn the_web_tool_has_its_access_and_limit_and_takes_tool_urls_only_in_full() {
         max_uses: Some(7),
         urls_from_conversation,
     };
-    assert_eq!(hosted_tools(Stored, Mode::Cautious, 7), vec![tool(WebAccess::Stored, false)]);
+    assert_eq!(
+        hosted_tools(Stored(StoredCopyReason::Mode), Mode::Cautious, 7),
+        vec![tool(WebAccess::Stored, false)]
+    );
     assert_eq!(hosted_tools(Live, Mode::Auto, 7), vec![tool(WebAccess::Live, false)]);
     assert_eq!(hosted_tools(Live, Mode::Full, 7), vec![tool(WebAccess::Live, true)]);
 }

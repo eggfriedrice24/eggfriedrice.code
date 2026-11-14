@@ -291,3 +291,24 @@ fn the_note_of_the_stored_copy_stands_under_the_reason_of_a_failure() {
     assert!(text[failed + 1].contains("the stream broke"), "{text:?}");
     assert!(text[failed + 2].contains("a stored copy of the web can be some days old"), "{text:?}");
 }
+
+/// A turn whose searches read the stored copy because the config sets `cached`: the
+/// note names the setting, not `,mode auto`, which would not give the live web.
+#[test]
+fn the_note_of_the_stored_copy_names_the_setting_that_chose_it() {
+    let mut page = page(searched(1, "rust 2026", 1.0, 2.0, 3), Vec::new());
+    let len = page.events.len();
+    page.events[len - 2].event = Event::TurnWebReport {
+        turn_id: turn_id(),
+        searches: 1,
+        stored_copy: true,
+        stored_copy_note: true,
+        stored_copy_reason: Some(efr_protocol::StoredCopyReason::Setting),
+        sources: Vec::new(),
+    };
+    let rows = shown(&page, Depth::NoColor, false);
+    let text: Vec<String> = rows.iter().map(|row| bare(row)).collect();
+    let note = text.iter().find(|row| row.contains("a stored copy")).expect("the note");
+    assert!(note.contains("web.search = \"cached\" in config.toml"), "{text:?}");
+    assert!(!note.contains(",mode auto"), "{text:?}");
+}

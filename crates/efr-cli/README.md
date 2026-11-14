@@ -440,7 +440,9 @@ Replies:
   touched), and the count of the searches last on the cost of the outcome line, `·
   5 searches` or `5 searches, stored copy`, with the muted row `a stored copy of the
   web can be some days old · ,mode auto searches the live web` under it for the first
-  such turn of a conversation. The citation marks are Markdown in the text that efrd
+  such turn of a conversation (`· web.search = "cached" in config.toml asks for it in
+  each mode` when `stored_copy_reason` is `setting`, and only the first part for a
+  reason that efr does not know). The citation marks are Markdown in the text that efrd
   writes (` [[1]](<url>)`); `efr-render` shows them as `[1]` in `link`. When stdout is
   not a terminal, the rows and the list go to stderr, plain, in the same order, and
   the raw markdown on stdout has each mark as ` [1]` too (`follow::plain_marks`; a

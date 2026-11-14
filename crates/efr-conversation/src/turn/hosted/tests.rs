@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 
 use efr_protocol::{
     CallId, Event, MAX_WEB_RESULTS, MAX_WEB_SOURCES, MAX_WEB_TEXT_CHARS, MAX_WEB_TITLE_CHARS,
-    MAX_WEB_URL_CHARS, TurnId, WebAction, WebError, WebSource,
+    MAX_WEB_URL_CHARS, StoredCopyReason, TurnId, WebAction, WebError, WebSource,
 };
 use efr_provider::{HostedAction, HostedError, HostedOutcome, WebResult};
 use efr_stdx::id::uuid_v7;
@@ -253,7 +253,7 @@ fn the_stored_copy_and_its_note_once() {
         web.end(turn(), "ws_1", &search(Some("a")), &done(None), || id(1));
         web
     };
-    let first = ran(WebPlan::Stored).report(turn(), &noted);
+    let first = ran(WebPlan::Stored(StoredCopyReason::Mode)).report(turn(), &noted);
     assert!(
         matches!(
             first,
@@ -261,12 +261,22 @@ fn the_stored_copy_and_its_note_once() {
                 searches: 1,
                 stored_copy: true,
                 stored_copy_note: true,
+                stored_copy_reason: Some(StoredCopyReason::Mode),
                 ..
             })
         ),
         "{first:?}"
     );
-    let second = ran(WebPlan::Stored).report(turn(), &noted);
+    // NOTE: the setting `cached` reads the stored copy in each mode, and says so.
+    let cached = ran(WebPlan::Stored(StoredCopyReason::Setting)).report(turn(), &noted);
+    assert!(
+        matches!(
+            cached,
+            Some(Event::TurnWebReport { stored_copy_reason: Some(StoredCopyReason::Setting), .. })
+        ),
+        "{cached:?}"
+    );
+    let second = ran(WebPlan::Stored(StoredCopyReason::Mode)).report(turn(), &noted);
     assert!(
         matches!(
             second,
@@ -274,7 +284,7 @@ fn the_stored_copy_and_its_note_once() {
         ),
         "{second:?}"
     );
-    let mut earlier = ran(WebPlan::Stored);
+    let mut earlier = ran(WebPlan::Stored(StoredCopyReason::Mode));
     earlier.noted_before();
     let after_restart = earlier.report(turn(), &AtomicBool::new(false));
     assert!(
@@ -293,7 +303,7 @@ fn the_stored_copy_and_its_note_once() {
 
 #[test]
 fn no_report_without_a_search_that_ran_or_a_source() {
-    let mut web = WebState::new(WebPlan::Stored);
+    let mut web = WebState::new(WebPlan::Stored(StoredCopyReason::Mode));
     web.end(turn(), "ws_1", &search(Some("a")), &failed(HostedError::Unavailable), || id(1));
     assert_eq!(web.report(turn(), &AtomicBool::new(false)), None);
     let off = WebState::new(WebPlan::Off(WhyOff::Manual));

@@ -23,7 +23,7 @@
 //!
 //! The module does no IO.
 
-use efr_protocol::{EffectiveSettings, Mode};
+use efr_protocol::{EffectiveSettings, Mode, StoredCopyReason};
 use efr_provider::{HostedTool, Provider, ProviderError, WebAccess, WebSupport};
 
 use crate::ConversationConfig;
@@ -81,8 +81,10 @@ impl Default for WebConfig {
 pub(crate) enum WebPlan {
     /// The request carries no web tool, for this reason.
     Off(WhyOff),
-    /// The provider's stored copy of the web.
-    Stored,
+    /// The provider's stored copy of the web, for this reason: the turn runs in
+    /// `cautious` with `web.search = "mode"`, or the setting is `cached`. The report of
+    /// the turn names it, so a client names the setting that gives the live web.
+    Stored(StoredCopyReason),
     /// The live web.
     Live,
 }
@@ -101,8 +103,8 @@ pub(crate) enum WhyOff {
 /// The plan of a turn in `mode` (the effective mode: an `auto` turn that fell back runs
 /// as `cautious`), with the setting `setting`, on a provider with `support`.
 pub(crate) fn plan(mode: Mode, setting: WebSearch, support: WebSupport) -> WebPlan {
-    let stored = || match support {
-        WebSupport::StoredOrLive => WebPlan::Stored,
+    let stored = |why| match support {
+        WebSupport::StoredOrLive => WebPlan::Stored(why),
         _ => WebPlan::Live,
     };
     if support == WebSupport::None {
@@ -114,9 +116,9 @@ pub(crate) fn plan(mode: Mode, setting: WebSearch, support: WebSupport) -> WebPl
     match setting {
         WebSearch::Off => WebPlan::Off(WhyOff::Setting),
         WebSearch::Live => WebPlan::Live,
-        WebSearch::Cached => stored(),
+        WebSearch::Cached => stored(StoredCopyReason::Setting),
         WebSearch::Mode => match mode {
-            Mode::Cautious => stored(),
+            Mode::Cautious => stored(StoredCopyReason::Mode),
             _ => WebPlan::Live,
         },
     }
@@ -131,7 +133,7 @@ pub(crate) fn plan(mode: Mode, setting: WebSearch, support: WebSupport) -> WebPl
 pub(crate) fn hosted_tools(plan: WebPlan, mode: Mode, max: u32) -> Vec<HostedTool> {
     let access = match plan {
         WebPlan::Off(_) => return Vec::new(),
-        WebPlan::Stored => WebAccess::Stored,
+        WebPlan::Stored(_) => WebAccess::Stored,
         WebPlan::Live => WebAccess::Live,
     };
     vec![HostedTool::WebSearch {

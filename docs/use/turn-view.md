@@ -377,6 +377,8 @@ between them:
   line says `5 searches, stored copy`. The first time in a conversation, one muted line
   under it says what that means:
   `a stored copy of the web can be some days old · ,mode auto searches the live web`.
+  When `web.search = "cached"` in `config.toml` asks for the stored copy, no mode
+  changes it, and the line names the setting instead of `,mode auto`.
 - When the model stopped for a reason, such as the output limit, a line before the
   end says why: `! stopped: the answer reached the output limit (max_tokens)`.
 - Under an interrupted turn whose steers go again as a new prompt, a line says so:

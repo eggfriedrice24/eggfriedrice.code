@@ -40,7 +40,9 @@ use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
 use efr_permissions::Egress;
-use efr_protocol::{BusyShell, InputWait, Mode, ModeFallback, RecentCommand, SwitchedModel};
+use efr_protocol::{
+    BusyShell, InputWait, Mode, ModeFallback, RecentCommand, StoredCopyReason, SwitchedModel,
+};
 use efr_scope::Repo;
 use jiff::Timestamp;
 
@@ -353,9 +355,16 @@ fn web_line(plan: WebPlan) -> Option<&'static str> {
         WebPlan::Off(WhyOff::NoSupport) | WebPlan::Live => None,
         WebPlan::Off(WhyOff::Manual) => Some(WEB_OFF_MANUAL),
         WebPlan::Off(WhyOff::Setting) => Some(WEB_OFF_SETTING),
-        WebPlan::Stored => Some(WEB_STORED),
+        WebPlan::Stored(StoredCopyReason::Setting) => Some(WEB_STORED_SETTING),
+        WebPlan::Stored(_) => Some(WEB_STORED),
     }
 }
+
+/// The line of web search that reads the stored copy because the config asks for it in
+/// each mode: `,mode auto` would not give the live web.
+pub(crate) const WEB_STORED_SETTING: &str = "Web search reads a stored copy of the web, which \
+                                             can be some days old (web.search = \"cached\" in \
+                                             efr's config).\n";
 
 /// The line of web search in manual mode, where a hosted search could not ask first.
 pub(crate) const WEB_OFF_MANUAL: &str = "Web search is off in manual mode. The user turns it \
