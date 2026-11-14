@@ -75,7 +75,7 @@ Your own names for the accounts of the providers.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `labels` | `{}` | live | A name of your own for each account, such as `"anthropic-api.work" = "Work"`. A key is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for the default account of a kind, or one of them with `.` and the account name. A label has 1 to 40 characters and no control characters. `efr status`, the model list and the phone show the label in place of the id. efr lists each account that this table names, also while it has no login. |
+| `labels` | `{}` | live | A name of your own for each account, such as `"anthropic-api.work" = "Work"`. A key is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for the default account of a kind, or one of them with `.` and the account name. A label has 1 to 40 characters and no control characters. `efr models` shows the label after the kind of the account, and the phone shows it in place of the id. `efr status` shows the id. efr lists each account that this table names, also while it has no login. |
 
 ## [permissions]
 

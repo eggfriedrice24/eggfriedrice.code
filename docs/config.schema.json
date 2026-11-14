@@ -9,7 +9,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "A name of your own for each account, such as `\"anthropic-api.work\" = \"Work\"`. A\nkey is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for\nthe default account of a kind, or one of them with `.` and the account name.\nA label has 1 to 40 characters and no control characters. `efr status`, the\nmodel list and the phone show the label in place of the id. efr lists each\naccount that this table names, also while it has no login.",
+          "description": "A name of your own for each account, such as `\"anthropic-api.work\" = \"Work\"`. A\nkey is a provider id: `openai-subscription`, `openai-api` or `anthropic-api` for\nthe default account of a kind, or one of them with `.` and the account name.\nA label has 1 to 40 characters and no control characters. `efr models` shows\nthe label after the kind of the account, and the phone shows it in place of the\nid. `efr status` shows the id. efr lists each account that this table names,\nalso while it has no login.",
           "type": "object"
         }
       },
