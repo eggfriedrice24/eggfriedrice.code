@@ -40,6 +40,8 @@ The states include `waiting for the model`, `thinking`, `writing`, `preparing <t
 `reviewing`, `searching`, `opening` and `compacting context`. What comes and goes stands after the scope, so
 the time, the context and the scope keep their place:
 
+- The fullest usage window of the account, from 90 %, in yellow, such as
+  `5-hour 92%`. Under 90 % nothing shows. Only a ChatGPT plan tells its windows.
 - `no data for 25s`, in yellow, after 20 seconds with no data from the model.
 - `away`, in yellow, while efr counts you away.
 - What the reviewer checks, such as

@@ -10,9 +10,10 @@
 //! the gauge and the scope stand still while the turn runs (TM-Live of the web search
 //! round, which the user chose on 2026-11-12).
 //!
-//! The notes are `no data for 25s` after 20 s of silence of the model and `away`
-//! while efr counts the user away from the conversation (`presence_changed`), both in
-//! the `warning` role without bold. The detail is what the state works on: the title
+//! The notes are the fullest usage window of the turn's account from 90 %, such as
+//! `5-hour 92%` (the `limits` draft, TM-Accounts 10), `no data for 25s` after 20 s of
+//! silence of the model and `away` while efr counts the user away from the
+//! conversation (`presence_changed`), all in the `warning` role without bold. The detail is what the state works on: the title
 //! or the newest words of a reasoning, the size and the newest words of a tool input
 //! that the model writes ([`State::detail`]), what the reviewer reviews, in the
 //! `text` role, or the newest step of web search with `+2` for the others that run
@@ -294,6 +295,8 @@ pub(crate) struct Status {
     scope: Option<String>,
     /// The model of the turn; boxed, as the view keeps the row.
     model: Option<Box<Model>>,
+    /// The fullest usage window of the turn's account from 90 %, such as `5-hour 92%`.
+    limit: Option<String>,
 }
 
 impl Status {
@@ -315,7 +318,14 @@ impl Status {
             full: false,
             scope: None,
             model: None,
+            limit: None,
         }
+    }
+
+    /// The row shows `limit`, the fullest usage window of the turn's account, or none
+    /// (TM-Accounts 10).
+    pub(crate) fn set_limit(&mut self, limit: Option<String>) {
+        self.limit = limit;
     }
 
     pub(crate) fn state(&self) -> &State {
@@ -421,9 +431,14 @@ impl Status {
         since_then(started, now).saturating_sub(self.paused).saturating_sub(asked)
     }
 
-    /// The notes after the scope: the stall and `away`.
+    /// The notes after the scope: the limit of the account, the stall and `away`.
     fn notes(&self, silence: Duration) -> Vec<(String, Tone)> {
         let mut notes = Vec::new();
+        // NOTE: the limit stands first: it changes seldom, so it stands still while a
+        // stall comes and goes after it.
+        if let Some(limit) = &self.limit {
+            notes.push((limit.clone(), Tone::Attention));
+        }
         if self.state.stalled(silence) {
             notes.push((format!("no data for {}", format::elapsed(silence)), Tone::Attention));
         }

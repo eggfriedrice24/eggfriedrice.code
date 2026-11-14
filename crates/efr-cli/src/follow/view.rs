@@ -1222,6 +1222,15 @@ impl TurnView {
                 self.state(State::Retrying { attempt: *attempt, wait, reason });
                 Step::default()
             }
+            // NOTE: the newest windows of the turn's account; the row shows the fullest
+            // one from 90 %, and nothing counts down (TM-Accounts 10).
+            DraftPart::Limits { limits, .. } => {
+                if let Some(status) = &mut self.status {
+                    status.set_limit(format::accounts::status_note(limits));
+                    self.dirty = true;
+                }
+                Step::default()
+            }
             _ => Step::default(),
         }
     }

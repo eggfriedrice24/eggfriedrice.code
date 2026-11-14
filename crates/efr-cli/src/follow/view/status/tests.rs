@@ -352,4 +352,48 @@ fn the_model_names_its_account_and_effort_and_the_ascii_glyphs_stand_in() {
     );
 }
 
+/// TM-Accounts 10 to 12 and TM-Sequence 14: from 90 % the fullest window stands in the
+/// notes slot after the model (the corner shows the scope), in `warning`; the time, the
+/// gauge and the model stand still; when narrow, the detail and the account and the
+/// effort go first, and the limit stays.
+#[test]
+fn the_limit_of_the_account_stands_after_the_model_from_90_percent() {
+    let row = |state: State, limit: Option<&str>, width: u16, colour: ColourMode| {
+        let mut status = started(false);
+        status.set(state);
+        status.stir();
+        status.set_context(efr_protocol::ContextUse {
+            tokens: 31_000,
+            limit: 100_000,
+            window: 272_000,
+        });
+        status.set_model(Some(super::Model {
+            account: Some("openai".to_owned()),
+            name: "gpt-6.1-sol".to_owned(),
+            effort: Some("medium".to_owned()),
+        }));
+        status.set_limit(limit.map(str::to_owned));
+        status.at(at(21_000), false);
+        readable(&status.row(at(21_000), &RenderOptions::new(width).with_colour(colour)))
+    };
+    let thinking = State::Thinking(Some("planning the docs page".to_owned()));
+    insta::assert_snapshot!(
+        [
+            row(State::Writing, None, 100, ColourMode::Ansi16),
+            row(State::Writing, Some("5-hour 92%"), 100, ColourMode::Ansi16),
+            row(thinking.clone(), Some("weekly 96%"), 100, ColourMode::Ansi16),
+            row(State::Writing, Some("5-hour 92%"), 100, ColourMode::None),
+            row(thinking, Some("5-hour 92%"), 60, ColourMode::Ansi16),
+        ]
+        .concat(),
+        @r"
+    \e[33m•\e[0m \e[2mwriting\e[0m   \e[2m21s\e[0m   \e[32mctx 31%\e[0m   \e[2mopenai/gpt-6.1-sol medium\e[0m
+    \e[33m•\e[0m \e[2mwriting\e[0m   \e[2m21s\e[0m   \e[32mctx 31%\e[0m   \e[2mopenai/gpt-6.1-sol medium\e[0m   \e[33m5-hour 92%\e[0m
+    \e[33m•\e[0m \e[2mthinking\e[0m   \e[2m21s\e[0m   \e[32mctx 31%\e[0m   \e[2mopenai/gpt-6.1-sol medium\e[0m   \e[33mweekly 96%\e[0m   \e[2mplanning the docs page\e[0m
+    \e[1m•\e[0m \e[2mwriting\e[0m   \e[2m21s\e[0m   ctx 31%   \e[2mopenai/gpt-6.1-sol medium\e[0m   \e[1m5-hour 92%\e[0m
+    \e[33m•\e[0m \e[2mthinking\e[0m   \e[2m21s\e[0m   \e[32mctx 31%\e[0m   \e[2mgpt-6.1-sol\e[0m   \e[33m5-hour 92%\e[0m
+    "
+    );
+}
+
 mod design;

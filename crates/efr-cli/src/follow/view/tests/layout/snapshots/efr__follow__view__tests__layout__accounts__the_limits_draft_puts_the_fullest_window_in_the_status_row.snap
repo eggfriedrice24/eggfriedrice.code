@@ -1,0 +1,56 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout/accounts.rs
+expression: "every_way(&[Sent(0, turn_started()), Drafted(limits(96)),\nShot(\"close to the limit\"), Drafted(limits(30)), Shot(\"after a reset\"),])"
+---
+=== 40 columns, colour
+[close to the limit]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[33m5-hour 96%\e[0m
+
+[after a reset]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 40 columns, NO_COLOR
+[close to the limit]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[1m5-hour 96%\e[0m
+
+[after a reset]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, colour
+[close to the limit]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[33m5-hour 96%\e[0m
+
+[after a reset]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== 80 columns, NO_COLOR
+[close to the limit]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[1m5-hour 96%\e[0m
+
+[after a reset]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+=== not a terminal
+[close to the limit]
+stdout:
+stderr:
+
+[after a reset]
+stdout:
+stderr:
+
+[end]
+stdout:
+stderr:

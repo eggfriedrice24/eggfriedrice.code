@@ -242,7 +242,10 @@ Replies:
   for a file tool what it opens; the call's own row hides meanwhile), and `compacting
   context` (a `compacting` draft, until the turn's `conversation_compacted`, the next
   `context` draft or the end of the turn). The notes stand after the scope and before
-  the detail, in the `warning` role without bold: `no data for 25s` after 20 s without an event or a draft while it waits for the
+  the detail, in the `warning` role without bold: the fullest window of the newest
+  `limits` draft of the turn's account from 90 %, such as `5-hour 92%`, first, as it
+  changes seldom (TM-Accounts 10, TM-Sequence 14; under 90 % none, a later draft under
+  90 % takes it away); `no data for 25s` after 20 s without an event or a draft while it waits for the
   model or writes (the state then says `waiting for the model`), and `away` while efr
   counts the user away from the conversation (`presence_changed`, from `efr away`,
   `,away` or no input for a while), until the next `presence_changed` says present.

@@ -1,9 +1,11 @@
 //! The stop of a turn whose account is out, with the offer of the other accounts that
 //! serve its model (TM-Accounts 1, 2, 5, 13, 14, 17; TM-Endings 25, 26; TM-Sequence
-//! 15), in each depth and off a terminal.
+//! 15), in each depth and off a terminal; and the limit of the account in the status
+//! row of a running turn (TM-Sequence 14).
 
 use efr_protocol::{
-    AccountOut, AccountState, ErrorBody, ErrorCode, Event, LimitKind, LimitReached, OtherAccount,
+    AccountLimits, AccountOut, AccountState, DraftPart, ErrorBody, ErrorCode, Event, LimitKind,
+    LimitReached, LimitWindow, OtherAccount,
 };
 use jiff::SignedDuration;
 
@@ -11,7 +13,31 @@ use super::super::at;
 use super::{Act, every_way, message, turn_started};
 use crate::testing::turn;
 
-use Act::Event as Sent;
+use Act::{Drafted, Event as Sent, Look as Shot};
+
+/// TM-Sequence 14: the `limits` draft of the turn's account puts the fullest window in
+/// the status row from 90 %; a later draft under 90 % takes it away.
+#[test]
+fn the_limits_draft_puts_the_fullest_window_in_the_status_row() {
+    let limits = |percent: u8| DraftPart::Limits {
+        provider: "openai-subscription".to_owned(),
+        limits: AccountLimits {
+            observed_at: at(0),
+            windows: vec![
+                LimitWindow { minutes: Some(300), used_percent: percent, resets_at: None },
+                LimitWindow { minutes: Some(10_080), used_percent: 41, resets_at: None },
+            ],
+            reached: None,
+        },
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Drafted(limits(96)),
+        Shot("close to the limit"),
+        Drafted(limits(30)),
+        Shot("after a reset"),
+    ]));
+}
 
 /// The turn fails `millis` after the prompt because its account is `out`.
 fn failed(millis: i64, out: AccountOut) -> Act {
