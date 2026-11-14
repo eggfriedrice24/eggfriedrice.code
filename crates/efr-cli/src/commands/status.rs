@@ -32,6 +32,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output) -> Result<(), CliError>
         now: ctx.clock.now(),
         file_mode: ctx.settings.turn.mode,
         home: ctx.home.as_deref(),
+        zone: &ctx.time_zone,
     };
     out.out(&format::status(&view, &options))?;
     // Every prompt fails until the provider of new conversations has credentials

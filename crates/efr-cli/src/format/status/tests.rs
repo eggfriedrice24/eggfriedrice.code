@@ -1,17 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    AdminStatusResult, CatalogOrigin, CatalogStatus, ConfigStatus, ConversationStatus,
-    ConversationSummary, ConversationsListResult, FullModeStatus, LoginKind, Mode, NetworkMode,
-    PageCursor, ProviderStatus, SandboxStatus, Seq,
+    AccountLimits, AdminStatusResult, CatalogOrigin, CatalogStatus, ConfigStatus,
+    ConversationStatus, ConversationSummary, ConversationsListResult, FullModeStatus, LimitKind,
+    LimitReached, LimitWindow, LoginKind, Mode, NetworkMode, PageCursor, ProviderStatus,
+    SandboxStatus, Seq,
 };
 use efr_render::{Glyphs, RenderOptions};
-use efr_test_support::design::{Depth, Frame, assert_rows};
+use efr_test_support::design::Depth;
+use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{StatusView, account_of, conversations, origin, short_span, status};
-use crate::testing::{bare, conversation, design_fixed, design_options, now};
+use crate::testing::{bare, conversation, design_options, now};
 
 fn before(seconds: i64) -> Timestamp {
     now() - SignedDuration::from_secs(seconds)
@@ -135,45 +137,154 @@ fn shown(
         now: now(),
         file_mode: None,
         home: Some(Path::new("/home/u")),
+        zone: &TimeZone::UTC,
     };
     status(&view, options)
 }
 
-/// TM-Commands frame 1, rows 1 to 13 (row 0 and row 14 are the user's prompt), in the
-/// three depths. The board draws the frame in truecolor; the other depths come from the
-/// table of the design (`efr_test_support::design::expect`).
+/// `minutes` after `now` (a Sunday, 12:00 UTC).
+fn later(minutes: i64) -> Timestamp {
+    now() + SignedDuration::from_mins(minutes)
+}
+
+fn window(minutes: u32, used_percent: u8, resets_at: Timestamp) -> LimitWindow {
+    LimitWindow { minutes: Some(minutes), used_percent, resets_at: Some(resets_at) }
+}
+
+/// The accounts of TM-Accounts 8 (TM-Commands 1 of round 6) in the order of
+/// `models.list`: work, the default ChatGPT plan at 92 %, b at its 5-hour limit since 12
+/// minutes, the OpenAI key at its requests limit, then personal, signed out. The board
+/// draws personal second; `models.list` puts the signed-out accounts last, and the
+/// rows follow it.
+fn accounts_board() -> (AdminStatusResult, Vec<CatalogStatus>) {
+    let monday = later(21 * 60);
+    let plan = AccountLimits {
+        observed_at: before(60),
+        windows: vec![window(300, 92, later(140)), window(10_080, 41, monday)],
+        reached: None,
+    };
+    let full = AccountLimits {
+        observed_at: before(12 * 60),
+        windows: vec![window(300, 100, later(140)), window(10_080, 63, monday)],
+        reached: Some(LimitReached { kind: LimitKind::Usage, resets_at: Some(later(140)) }),
+    };
+    let key = AccountLimits {
+        observed_at: before(30),
+        windows: Vec::new(),
+        reached: Some(LimitReached { kind: LimitKind::Requests, resets_at: Some(later(123)) }),
+    };
+    let subscription = |id: &str, days: i64, limits: AccountLimits| ProviderStatus {
+        logged_in: true,
+        expires_at: Some(after(days * 3_600)),
+        login: Some(LoginKind::Subscription),
+        limits: Some(limits),
+        ..provider(id)
+    };
+    let result = AdminStatusResult {
+        providers: vec![
+            provider("anthropic-api.personal"),
+            subscription("openai-subscription.b", 12 * 24, full),
+            work(),
+            subscription("openai-subscription", 6 * 24 + 6, plan),
+            ProviderStatus {
+                logged_in: true,
+                login: Some(LoginKind::ApiKey),
+                key_hint: Some("sk-...9f2Q".to_owned()),
+                key_checked_at: Some(before(60)),
+                limits: Some(key),
+                ..provider("openai-api")
+            },
+        ],
+        ..status_result()
+    };
+    let catalogs = vec![
+        catalog("anthropic-api.work", CatalogOrigin::Backend, 5 * 60),
+        catalog("openai-subscription", CatalogOrigin::Backend, 60),
+        catalog("openai-subscription.b", CatalogOrigin::Cache, (2 * 60 + 5) * 60),
+        catalog("openai-api", CatalogOrigin::Backend, 60),
+        CatalogStatus {
+            signed_out: true,
+            ..catalog("anthropic-api.personal", CatalogOrigin::Cache, 0)
+        },
+    ];
+    (result, catalogs)
+}
+
+/// The account rows of `out`: from `accounts` to the row before `models`.
+fn account_block(out: &str) -> String {
+    let start = out.find("accounts").unwrap_or(0);
+    let start = out[..start].rfind('\n').map_or(0, |at| at + 1);
+    let end = out[start..].find("models").map_or(out.len(), |at| start + at);
+    let end = out[..end].rfind('\n').map_or(end, |at| at + 1);
+    out[start..end].to_owned()
+}
+
+/// TM-Accounts 8 and TM-Commands 1 of round 6: the kind in words, no name for the
+/// default account of a kind, and the limits under each account with a login, 2 columns
+/// in, the number in the colour of its level.
 #[test]
-fn efr_status_is_the_design() {
-    let frame = Frame::load("TM-Commands", 1).unwrap();
-    for depth in Depth::ALL {
-        let options = design_options(depth, frame.cols);
-        let fixed = design_fixed(
-            &frame,
-            depth,
-            &[
-                // NOTE: the board starts the account rows after the first two cells to
-                // the right of the first one; its own note says "Columns align by
-                // spaces", so the rows start in the column of `work`.
-                (5, "              personal", "            personal"),
-                (6, "              b", "            b"),
-                (
-                    7,
-                    "              api       openai-api         ",
-                    "            openai    openai-subscription",
-                ),
-                // NOTE: the board names the openai-api account `api`, a name that
-                // `,model` does not take; its note says that accounts are named as
-                // `,model` takes them. The test has the default openai account there,
-                // whose name `openai` takes the same column.
-                // NOTE: the same row says "fetched" for one list and not for the other;
-                // TM-Commands frame 2 writes the same fact as "from the cache, fetched
-                // 2h 5m ago", so one fact keeps one wording.
-                (8, "from the cache, 2h 5m ago", "from the cache, fetched 2h 5m ago"),
-            ],
-        );
-        let out = shown(&status_result(), &catalogs(), &options);
-        assert_rows(&fixed, 1..=13, &out, depth);
-    }
+fn efr_status_shows_the_limits_under_each_account() {
+    let (result, catalogs) = accounts_board();
+    let piped = shown(&result, &catalogs, &RenderOptions::new(100).with_terminal(false));
+    insta::assert_snapshot!(account_block(&piped), @"
+    accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
+                          ChatGPT plan  logged in · token expires in 6d 6h
+                  5-hour     92%  resets 14:20
+                  weekly     41%  resets Mon 09:00
+                b         ChatGPT plan  logged in · token expires in 12d
+                  5-hour    100%  reached · resets 14:20 · 12m ago
+                  weekly     63%  resets Mon 09:00
+                          OpenAI API    logged in · key sk-…9f2Q
+                  requests  reached · resets 14:03
+                personal  Claude API    signed out · efr login anthropic --account personal
+    ");
+    let coloured = shown(&result, &catalogs, &design_options(Depth::Ansi16, 100));
+    insta::assert_snapshot!(crate::testing::readable(&account_block(&coloured)), @r"
+    \e[2maccounts\e[0m    work      Claude API    \e[32mlogged in\e[0m · key sk-ant-…a1b2 · \e[1mactive\e[0m
+                          ChatGPT plan  \e[32mlogged in\e[0m · token expires in 6d 6h
+                  \e[2m5-hour    \e[0m\e[33m 92%\e[0m  \e[2mresets 14:20\e[0m
+                  \e[2mweekly    \e[0m 41%  \e[2mresets Mon 09:00\e[0m
+                b         ChatGPT plan  \e[32mlogged in\e[0m · token expires in 12d
+                  \e[2m5-hour    \e[0m\e[31m100%\e[0m  reached · \e[2mresets 14:20\e[0m \e[2m· 12m ago\e[0m
+                  \e[2mweekly    \e[0m 63%  \e[2mresets Mon 09:00\e[0m
+                          OpenAI API    \e[32mlogged in\e[0m · key sk-…9f2Q
+                  \e[2mrequests  \e[0m\e[31mreached\e[0m · \e[2mresets 14:03\e[0m
+                personal  Claude API    \e[33msigned out\e[0m · \e[32mefr login anthropic --account personal\e[0m
+    ");
+    let plain = shown(&result, &catalogs, &design_options(Depth::NoColor, 100));
+    insta::assert_snapshot!(crate::testing::readable(&account_block(&plain)), @r"
+    \e[2maccounts\e[0m    work      Claude API    logged in · key sk-ant-…a1b2 · \e[1mactive\e[0m
+                          ChatGPT plan  logged in · token expires in 6d 6h
+                  \e[2m5-hour    \e[0m\e[1m 92%\e[0m  \e[2mresets 14:20\e[0m
+                  \e[2mweekly    \e[0m 41%  \e[2mresets Mon 09:00\e[0m
+                b         ChatGPT plan  logged in · token expires in 12d
+                  \e[2m5-hour    \e[0m\e[1m100%\e[0m  reached · \e[2mresets 14:20\e[0m \e[2m· 12m ago\e[0m
+                  \e[2mweekly    \e[0m 63%  \e[2mresets Mon 09:00\e[0m
+                          OpenAI API    logged in · key sk-…9f2Q
+                  \e[2mrequests  \e[0m\e[1mreached\e[0m · \e[2mresets 14:03\e[0m
+                personal  Claude API    \e[1msigned out\e[0m · efr login anthropic --account personal
+    ");
+}
+
+/// TM-Accounts 9: at 60 columns the key, the token, the login command and `active` go,
+/// and the age of the limits gets its own row.
+#[test]
+fn a_narrow_status_keeps_the_states_and_gives_the_age_its_own_row() {
+    let (result, catalogs) = accounts_board();
+    let narrow = shown(&result, &catalogs, &design_options(Depth::Ansi16, 60));
+    insta::assert_snapshot!(bare(&account_block(&narrow)), @"
+    accounts    work      Claude API    logged in
+                          ChatGPT plan  logged in
+                  5-hour     92%  resets 14:20
+                  weekly     41%  resets Mon 09:00
+                b         ChatGPT plan  logged in
+                  5-hour    100%  reached · resets 14:20
+                  12m ago
+                  weekly     63%  resets Mon 09:00
+                          OpenAI API    logged in
+                  requests  reached · resets 14:03
+                personal  Claude API    signed out
+    ");
 }
 
 #[test]
@@ -187,10 +298,10 @@ fn a_pipe_gets_the_same_rows_without_colour() {
     efrd        0.0.5 · protocol 1 · up 3d 4h · /run/user/1000/efr/efrd.sock
     config      ~/.config/efr/config.toml
 
-    accounts    work      anthropic-api        logged in · key sk-ant-…a1b2 · active
-                personal  anthropic-api        signed out · efr login anthropic-api --account personal
-                b         openai-subscription  logged in · token expires in 6d 6h
-                openai    openai-subscription  not logged in
+    accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
+                b         ChatGPT plan  logged in · token expires in 6d 6h
+                personal  Claude API    signed out · efr login anthropic --account personal
+                          ChatGPT plan  not logged in
     models      work: from the backend, fetched 5m ago · b: from the cache, fetched 2h 5m ago
 
     sandbox     ready · Landlock ABI 10 · bubblewrap 0.13.0 · network proxy
@@ -237,23 +348,23 @@ fn a_key_says_when_it_was_refused_or_that_efrd_did_not_check_it() {
     let refused = ProviderStatus { key_refused_at: Some(before(3 * 60)), ..work() };
     assert_eq!(
         line(refused.clone()),
-        "accounts    work  anthropic-api  logged in · key sk-ant-…a1b2 · refused 3m ago · active"
+        "accounts    work  Claude API  logged in · key sk-ant-…a1b2 · refused 3m ago · active"
     );
     let hidden = ProviderStatus { key_hint: None, ..refused };
     assert_eq!(
         line(hidden),
-        "accounts    work  anthropic-api  logged in · key refused 3m ago · active"
+        "accounts    work  Claude API  logged in · key refused 3m ago · active"
     );
     let unchecked = ProviderStatus { key_checked_at: None, ..work() };
     assert_eq!(
         line(unchecked.clone()),
-        "accounts    work  anthropic-api  logged in · key sk-ant-…a1b2 · not checked since efrd \
+        "accounts    work  Claude API  logged in · key sk-ant-…a1b2 · not checked since efrd \
          started · active"
     );
     let unchecked = ProviderStatus { key_hint: None, ..unchecked };
     assert_eq!(
         line(unchecked),
-        "accounts    work  anthropic-api  logged in · key not checked since efrd started · active"
+        "accounts    work  Claude API  logged in · key not checked since efrd started · active"
     );
     let expired = ProviderStatus {
         login: Some(LoginKind::Subscription),
@@ -263,10 +374,7 @@ fn a_key_says_when_it_was_refused_or_that_efrd_did_not_check_it() {
         ..provider("openai-subscription")
     };
     let expired = ProviderStatus { logged_in: true, ..expired };
-    assert_eq!(
-        line(expired),
-        "accounts    openai  openai-subscription  logged in · token expired 1m 30s ago"
-    );
+    assert_eq!(line(expired), "accounts    ChatGPT plan  logged in · token expired 1m 30s ago");
 }
 
 #[test]
@@ -294,6 +402,7 @@ fn the_rows_that_need_care_take_their_colour() {
         now: now(),
         file_mode: Some(Mode::Full),
         home: Some(Path::new("/home/u")),
+        zone: &TimeZone::UTC,
     };
     let out = status(&view, &options);
     insta::assert_snapshot!(crate::testing::readable(&out), @r"

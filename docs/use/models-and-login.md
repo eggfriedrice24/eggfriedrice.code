@@ -143,25 +143,49 @@ new provider, or clear the choice with `,model default`.
 
 ## Check the login
 
-`efr status` shows each account with its login. An account has the name that `,model`
-takes: the name of the account, such as `work`, or `anthropic` and `openai` for the
-default account of a provider. `active` marks the account of new conversations, and it
-comes first:
+`efr status` shows each account with its login, in the order of the model list. An
+account has the name that `,model` takes, such as `work`, and its kind in words:
+`Claude API`, `ChatGPT plan` or `OpenAI API`. The default account of a kind has no
+name (`,model` takes it as `anthropic`, `openai` or `openai-api`). `active` marks the
+account of new conversations, and it comes first. Under each account with a login,
+its limits stand 2 columns in:
 
 ```text
-accounts    work      anthropic-api        logged in · key sk-ant-…a1b2 · active
-            personal  anthropic-api        signed out · efr login anthropic-api --account personal
-            b         openai-subscription  logged in · token expires in 6d 6h
-            openai    openai-subscription  not logged in
+accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
+                      ChatGPT plan  logged in · token expires in 6d 6h
+              5-hour     92%  resets 14:20
+              weekly     41%  resets Mon 09:00
+            b         ChatGPT plan  logged in · token expires in 12d
+              5-hour    100%  reached · resets 14:20 · 12m ago
+              weekly     63%  resets Mon 09:00
+                      OpenAI API    logged in · key sk-…9f2Q
+              requests  reached · resets 14:03
+            personal  Claude API    signed out · efr login anthropic --account personal
 models      work: from the backend, fetched 5m ago · b: from the cache, fetched 2h 5m ago
 ```
 
-Only what needs your care has a colour. `signed out` marks an account that logged out
-while efrd ran, with the command that logs in again. When the provider refused a key,
-the row says when, such as `refused 5m ago`. The mark goes away when a request with the
-key works again, or after a new login. When the active provider has no login,
-`efr status` also says how to log in, such as `log in with: efr login anthropic`. The
-`models` row says where the model list of each account came from.
+Only what needs your care has a colour. `signed out` marks an account with no login,
+with the command that logs in again. When the provider refused a key, the row says
+when, such as `refused 5m ago`. The mark goes away when a request with the key works
+again, or after a new login. When the active provider has no login, `efr status` also
+says how to log in, such as `log in with: efr login anthropic`. The `models` row says
+where the model list of each account came from.
+
+### The limits of an account
+
+efr learns the limits of an account from the answers of its provider, so a value is
+as old as the last call of that account. A ChatGPT plan tells its usage windows, such
+as the 5-hour and the weekly window: each row has the window, how full it is and when
+it resets. An API key shows a limit only when a call hit it, such as `requests
+reached`. Only the number has a colour: from 80 % in the warning colour, at 100 % in
+the error colour with the word `reached`. Without colour, the number is bold from 80
+%. A value older than 5 minutes says its age once, such as `12m ago`. A reached limit
+goes away after its reset. A signed-out account shows no limits. On a narrow screen,
+the key, the token and the login command go, and the age gets a row of its own.
+
+While a turn runs, the status row shows the fullest window of its account from 90 %,
+such as `5-hour 92%`, in the warning colour after the scope. Under 90 % it shows
+nothing.
 
 ## Log out
 

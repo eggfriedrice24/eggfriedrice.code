@@ -7,16 +7,18 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AdminConfigReloadResult, AdminStatusResult, CatalogOrigin, CatalogStatus, ConfigFileError,
-    ConfigStatus, ConversationStatus, ConversationsListResult, FullModeStatus, HeldConfig,
-    LoginKind, Mode, ProviderStatus, SandboxStatus,
+    AccountLimits, AdminConfigReloadResult, AdminStatusResult, CatalogOrigin, CatalogStatus,
+    ConfigFileError, ConfigStatus, ConversationStatus, ConversationsListResult, FullModeStatus,
+    HeldConfig, LoginKind, Mode, ProviderStatus, SandboxStatus,
 };
 use efr_render::RenderOptions;
 use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use unicode_width::UnicodeWidthStr as _;
 
 use super::sandbox::{self, tilde};
-use super::{Tone, ago, one_line, paint, span};
+use super::{Tone, accounts, ago, one_line, paint, span};
+use crate::error::login_command;
 
 /// A conversation's status in the words of the listing.
 fn status_word(status: ConversationStatus) -> &'static str {
@@ -43,6 +45,8 @@ pub(crate) struct StatusView<'a> {
     pub(crate) file_mode: Option<Mode>,
     /// The home directory, which the path of the config file starts with as `~`.
     pub(crate) home: Option<&'a Path>,
+    /// The time zone of the user, for the reset of a limit.
+    pub(crate) zone: &'a TimeZone,
 }
 
 /// The narrowest column of labels: the longest label of most listings, `bus filter`,
@@ -193,50 +197,147 @@ pub(crate) fn account_of(id: &str) -> (String, String) {
     }
 }
 
-/// The command that logs in to an account of `kind` again: `efr login anthropic-api
-/// --account personal`.
-pub(crate) fn login_command(kind: &str, account: &str) -> String {
-    let kind = match kind {
-        "openai-subscription" => "openai".to_owned(),
-        other => one_line(other),
-    };
-    format!("efr login {kind} --account {}", one_line(account))
+/// The width below which `efr status` leaves out the key, the token, the login command
+/// and `active`, and gives the age of the limits its own row (TM-Accounts 9).
+const NARROW: usize = 80;
+
+/// True when the screen is narrower than [`NARROW`].
+fn narrow(options: &RenderOptions) -> bool {
+    options.is_terminal() && usize::from(options.width()) < NARROW
 }
 
-/// The rows of the accounts: one for each provider and account that efrd knows, the
-/// account of new conversations first, then the named accounts; the name, the kind and
-/// the state in columns.
+/// The rows of the accounts (TM-Accounts 8, 9): one for each provider and account that
+/// efrd knows, in the order of `models.list` (the account of new conversations, the
+/// others with a login, then the signed-out ones), then the rest; the name, the kind in
+/// words and the state in columns. The default account of a kind has no name. Under
+/// each account with a login, its limits, 2 columns in.
 fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
     let providers = &view.status.providers;
     if providers.is_empty() {
         rows.row("accounts", vec![("none configured".to_owned(), Tone::Dim)]);
         return;
     }
-    // NOTE: the account of new conversations, then the named accounts, then the
-    // providers with no account, each group in efrd's order.
+    // NOTE: an account that `models.list` does not name comes after, as before: the
+    // account of new conversations, then the named accounts, then the providers with
+    // no account, each group in efrd's order.
     let rank = |provider: &ProviderStatus| match provider.active {
         true => 0,
         false if provider.provider.contains('.') => 1,
         false => 2,
     };
+    let place = |provider: &ProviderStatus| {
+        view.catalogs
+            .iter()
+            .position(|catalog| catalog.provider.as_deref() == Some(provider.provider.as_str()))
+            .unwrap_or(usize::MAX)
+    };
     let mut ordered: Vec<&ProviderStatus> = providers.iter().collect();
-    ordered.sort_by_key(|provider| rank(provider));
-    let named: Vec<(String, String)> =
-        ordered.iter().map(|provider| account_of(&provider.provider)).collect();
+    ordered.sort_by_key(|provider| (place(provider), rank(provider)));
+    let named: Vec<(String, String)> = ordered
+        .iter()
+        .map(|provider| {
+            let id = &provider.provider;
+            (accounts::account_name(id).unwrap_or_default(), accounts::kind_words(id))
+        })
+        .collect();
     let name_w = named.iter().map(|(name, _)| name.width()).max().unwrap_or(0);
     let kind_w = named.iter().map(|(_, kind)| kind.width()).max().unwrap_or(0);
+    let narrow = narrow(rows.options);
     for (at, (provider, (name, kind))) in ordered.iter().zip(&named).enumerate() {
         let label = if at == 0 { "accounts" } else { "" };
-        let cells = format!(
-            "{name}{}  {kind}{}  ",
-            " ".repeat(name_w - name.width()),
-            " ".repeat(kind_w - kind.width())
-        );
+        // NOTE: with only default accounts, no account has a name and the column goes.
+        let name = if name_w == 0 {
+            String::new()
+        } else {
+            format!("{name}{}  ", " ".repeat(name_w - name.width()))
+        };
+        let cells = format!("{name}{kind}{}  ", " ".repeat(kind_w - kind.width()));
         let mut value = vec![(cells, Tone::Text)];
-        value.extend(account_state(provider, view.now, rows.options));
+        let mut state = account_state(provider, view.now, rows.options);
+        if narrow {
+            state = narrow_state(state, &separator(rows.options));
+        }
+        value.extend(state);
         rows.row(label, value);
+        // NOTE: a signed-out account shows no limits: they would be old, and it cannot
+        // run anyway.
+        if let Some(limits) = provider.limits.as_ref().filter(|_| provider.logged_in) {
+            limit_lines(rows, limits, view, narrow);
+        }
     }
 }
+
+/// The state of a narrow row: its first word and a refusal of the key, which needs
+/// care; the token, the key, the login command and `active` go.
+fn narrow_state(state: Pieces, dot: &str) -> Pieces {
+    let mut kept: Pieces = Vec::new();
+    for (at, (text, tone)) in state.into_iter().enumerate() {
+        if at == 0 {
+            kept.push((text, tone));
+        } else if tone == Tone::Attention {
+            kept.push((dot.to_owned(), Tone::Text));
+            kept.push((text, tone));
+        }
+    }
+    kept
+}
+
+/// The limit rows of an account, 2 columns in (TM-Accounts 8, 9): the window muted, the
+/// percent in the tone of its level, `reached` at 100 %, then `resets 14:20` muted; a
+/// limit with no percent, such as `requests`, says `reached` in `error`. Limits older
+/// than 5 minutes say their age once, on the first row; on a narrow screen the age has
+/// a row of its own.
+fn limit_lines(
+    rows: &mut Labelled<'_>,
+    limits: &AccountLimits,
+    view: &StatusView<'_>,
+    narrow: bool,
+) {
+    let dot = separator(rows.options);
+    let lines = accounts::limit_rows(limits, view.now, view.zone);
+    let name_w = lines.iter().map(|line| line.name.width()).max().unwrap_or(0).max(LIMIT_NAME);
+    let old = view.now.duration_since(limits.observed_at).as_secs() > accounts::STALE_AFTER;
+    let age = old.then(|| short_ago(limits.observed_at, view.now));
+    for (at, line) in lines.iter().enumerate() {
+        let name = format!("{}{}", line.name, " ".repeat(name_w + 2 - line.name.width()));
+        let mut value: Pieces = vec![(LIMIT_INDENT.to_owned(), Tone::Plain), (name, Tone::Dim)];
+        match line.percent {
+            Some(percent) => {
+                value
+                    .push((format!("{:>4}", format!("{percent}%")), accounts::level_tone(percent)));
+                if line.reached {
+                    value.push(("  reached".to_owned(), Tone::Text));
+                }
+            }
+            None => value.push(("reached".to_owned(), Tone::Failure)),
+        }
+        if let Some(resets) = &line.resets {
+            let gap = if line.reached { dot.clone() } else { "  ".to_owned() };
+            value.push((gap, Tone::Text));
+            value.push((format!("resets {resets}"), Tone::Dim));
+        }
+        if at == 0
+            && !narrow
+            && let Some(age) = &age
+        {
+            value.push((" ".to_owned(), Tone::Plain));
+            value.push((format!("{}{age}", dot.trim_start()), Tone::Dim));
+        }
+        rows.row("", value);
+        if at == 0
+            && narrow
+            && let Some(age) = &age
+        {
+            rows.row("", vec![(LIMIT_INDENT.to_owned(), Tone::Plain), (age.clone(), Tone::Dim)]);
+        }
+    }
+}
+
+/// How far the limit rows stand in from the name of their account.
+const LIMIT_INDENT: &str = "  ";
+
+/// The narrowest column of the names of the limit rows: `requests`.
+const LIMIT_NAME: usize = 8;
 
 /// The state of one account: `logged in` with its token or its key, `signed out` with
 /// the command that logs in again, or `not logged in`; then `active` for the account of
@@ -274,10 +375,10 @@ fn account_state(provider: &ProviderStatus, now: Timestamp, options: &RenderOpti
         match provider.provider.split_once('.') {
             // NOTE: efrd lists an account only while it runs, so an account with no
             // login logged out.
-            Some((kind, account)) => {
+            Some(_) => {
                 pieces.push(("signed out".to_owned(), Tone::Attention));
                 pieces.push((dot.clone(), Tone::Text));
-                pieces.push((login_command(kind, account), Tone::Code));
+                pieces.push((login_command(&provider.provider), Tone::Code));
             }
             None => pieces.push(("not logged in".to_owned(), Tone::Dim)),
         }

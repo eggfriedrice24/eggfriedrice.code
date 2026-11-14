@@ -105,7 +105,7 @@ async fn status_shows_the_daemons_answer_and_its_socket() {
     insta::assert_snapshot!(text, @"
     efrd        0.1.0 · protocol 1 · up 1m 30s · <socket>
 
-    accounts    openai  openai  not logged in
+    accounts    openai  not logged in
     models      from the cache, fetched 1d 2h ago
     ");
     // No provider has credentials, so every prompt would fail until a login.
@@ -229,9 +229,9 @@ async fn status_shows_every_provider_with_its_key_hint_and_the_active_one() {
     assert_eq!(
         rows,
         [
-            "accounts    anthropic   anthropic-api        logged in · key sk-ant-…a1b2 · active",
-            "            openai      openai-subscription  logged in · token expires in 6d 6h",
-            "            openai-api  openai-api           not logged in",
+            "accounts    Claude API    logged in · key sk-ant-…a1b2 · active",
+            "            ChatGPT plan  logged in · token expires in 6d 6h",
+            "            OpenAI API    not logged in",
         ]
     );
     assert_eq!(stderr, "");
