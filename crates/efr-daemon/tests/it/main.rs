@@ -29,6 +29,7 @@ mod jobs_forward;
 mod jobs_moved;
 mod jobs_undo;
 mod jobs_wake;
+mod limits;
 mod login;
 mod netview;
 mod perf;

@@ -38,12 +38,21 @@ pub struct ResponsesAnswer {
     pub status: u16,
     /// The body.
     pub body: String,
+    /// More headers of the answer, such as the usage windows of a ChatGPT plan.
+    pub headers: Vec<(String, String)>,
 }
 
 impl ResponsesAnswer {
     /// An answer with `status` and `body`.
     pub fn new(status: u16, body: impl Into<String>) -> Self {
-        ResponsesAnswer { status, body: body.into() }
+        ResponsesAnswer { status, body: body.into(), headers: Vec::new() }
+    }
+
+    /// The answer with the header `name: value` too.
+    #[must_use]
+    pub fn with_header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_owned(), value.to_owned()));
+        self
     }
 
     /// A 200 answer that streams `text` as one assistant message: the Responses
@@ -456,18 +465,21 @@ impl Respond for Answers {
         let mut queue = lock(&self.queue);
         queue.received.push(ReceivedRequest { body, authorization, account_id });
         queue.received_at.push(at);
-        match queue.answers.pop_front() {
-            Some(answer) if (200..300).contains(&answer.status) => {
-                ResponseTemplate::new(answer.status)
-                    .insert_header("content-type", "text/event-stream")
-                    .set_body_string(answer.body)
-            }
-            Some(answer) => ResponseTemplate::new(answer.status)
-                .insert_header("content-type", "application/json")
-                .set_body_string(answer.body),
-            None => ResponseTemplate::new(EXHAUSTED_STATUS)
-                .set_body_string("the transcript has no answer left for this request"),
+        let Some(answer) = queue.answers.pop_front() else {
+            return ResponseTemplate::new(EXHAUSTED_STATUS)
+                .set_body_string("the transcript has no answer left for this request");
+        };
+        let content_type = if (200..300).contains(&answer.status) {
+            "text/event-stream"
+        } else {
+            "application/json"
+        };
+        let mut template =
+            ResponseTemplate::new(answer.status).insert_header("content-type", content_type);
+        for (name, value) in &answer.headers {
+            template = template.insert_header(name.as_str(), value.as_str());
         }
+        template.set_body_string(answer.body)
     }
 }
 

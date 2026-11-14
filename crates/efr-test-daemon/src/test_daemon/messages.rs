@@ -42,12 +42,21 @@ pub struct MessagesAnswer {
     pub body: String,
     /// The `retry-after` header in seconds, when there is one.
     pub retry_after: Option<u64>,
+    /// More headers of the answer, such as the rate limits of the key.
+    pub headers: Vec<(String, String)>,
 }
 
 impl MessagesAnswer {
     /// An answer with `status` and `body`.
     pub fn new(status: u16, body: impl Into<String>) -> Self {
-        MessagesAnswer { status, body: body.into(), retry_after: None }
+        MessagesAnswer { status, body: body.into(), retry_after: None, headers: Vec::new() }
+    }
+
+    /// The answer with the header `name: value` too.
+    #[must_use]
+    pub fn with_header(mut self, name: &str, value: &str) -> Self {
+        self.headers.push((name.to_owned(), value.to_owned()));
+        self
     }
 
     /// A 200 answer that streams `events`, each `(type, data)`, in order; the type is
@@ -154,6 +163,9 @@ impl MessagesAnswer {
             .set_body_raw(self.body.clone(), content_type);
         if let Some(seconds) = self.retry_after {
             template = template.insert_header("retry-after", seconds.to_string().as_str());
+        }
+        for (name, value) in &self.headers {
+            template = template.insert_header(name.as_str(), value.as_str());
         }
         template
     }

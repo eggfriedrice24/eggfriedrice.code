@@ -117,7 +117,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
   one function call sent whole, `ResponsesAnswer::custom_tool_call` one call of a
-  freeform tool whose text streams in two deltas) and keeps every request,
+  freeform tool whose text streams in two deltas, and `with_header` adds a header,
+  such as the usage windows of a ChatGPT plan) and keeps every request,
   `Authorization` header included (never shown by `Debug`), and the time when each
   request arrived (`received_times`), for a bench. It also answers
   `GET /v1/models`, the model list that efrd fetches in the background and the check
@@ -132,7 +133,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   status, a body and an optional `retry-after`; `MessagesAnswer::text` streams one text
   block that ends the turn, `MessagesAnswer::tool_use` one tool call whose input
   streams in two parts, `MessagesAnswer::events` any scripted events, and
-  `MessagesAnswer::error` an error body of the API), with a `request-id` header on
+  `MessagesAnswer::error` an error body of the API, and `with_header` adds a header,
+  such as the rate limits of a key), with a `request-id` header on
   each answer. It keeps every call as a `MessagesRequest` (the body, `Authorization`,
   `x-api-key`, `anthropic-version`, `anthropic-beta` and `anthropic-workspace-id`;
   `Debug` hides the key) and the time when each call arrived (`received_times`), for a
