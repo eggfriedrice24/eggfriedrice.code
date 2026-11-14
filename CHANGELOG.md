@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.10] - 2026-11-14
+
 ### Added
 
 - `efr sandbox allow add` adds an always rule after a question: `host HOST[:PORT]`,
@@ -2335,7 +2337,8 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.9...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.10...HEAD
+[0.0.10]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.9...v0.0.10
 [0.0.9]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.6...v0.0.7
