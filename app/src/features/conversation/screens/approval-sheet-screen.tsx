@@ -11,17 +11,14 @@
 import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
 import { useRouter } from "expo-router";
-import { useState, useSyncExternalStore } from "react";
 
-import { haptic } from "@/lib/native/haptics";
-import { animationFrames } from "@/lib/store/frame-store";
 import type { StreamState } from "@/lib/stream/reducer";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { useRuntime } from "@/features/navigation/use-app-services";
 import { useMachines } from "@/features/navigation/use-machines";
 import { ApprovalSheet } from "../components/approval-sheet";
-import { ScreenStream } from "../model/screen-stream";
+import { useSheetStream } from "./use-sheet-stream";
 
 export interface ApprovalSheetScreenProps {
   /** The conversation and the call of the route, or undefined when the params are bad. */
@@ -87,29 +84,5 @@ function SheetBody(props: SheetBodyProps) {
       onClose={props.onClose}
       onNext={props.onNext}
     />
-  );
-}
-
-/**
- * The stream of the conversation of `target`, held while the sheet shows, with the
- * subscription up. The sheet speaks no announcement of its own and scrolls nothing.
- */
-function useSheetStream(target: ConversationRef | undefined) {
-  const runtime = useRuntime();
-  const [screen] = useState(
-    () =>
-      new ScreenStream(runtime, {
-        announce: () => undefined,
-        failedTurn: () => haptic("error"),
-        schedule: animationFrames,
-        scrollTo: () => undefined,
-        focusDone: () => undefined,
-      }),
-  );
-  const machine = target?.machine ?? "";
-  const id = target?.id;
-  return useSyncExternalStore(
-    screen.subscriber({ machine, id, focused: true, focus: undefined }),
-    () => (id === undefined ? undefined : screen.stream({ machine, id })),
   );
 }

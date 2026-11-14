@@ -26,10 +26,11 @@ import {
 import {
   composerDraftKey,
   conversationIdOf,
-  outboxTargetOf,
+  outboxInput,
   type ComposerTarget,
 } from "./model/composer-state";
 import type { Drafts } from "./model/drafts";
+import type { ModelChoices } from "./model/model-choices";
 import type { Outbox, OutboxEntry } from "./model/outbox";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
@@ -39,6 +40,8 @@ export interface ComposerDeps {
   readonly outbox: Outbox;
   readonly drafts: Drafts;
   readonly preferences: PreferencesStore;
+  /** The model, account and effort that the sheet chose per composer; a send carries it. */
+  readonly modelChoices: ModelChoices;
   /** A new command id, such as `newCommandId` of src/lib/native/database.ts. */
   readonly newCommandId: () => string;
 }
@@ -86,11 +89,9 @@ export function useComposerActions(
   const stopMutation = useMutation(interruptMutationOptions(caller, ref));
 
   const enqueue = (text: string): OutboxEntry => {
-    const entry = outbox.enqueue({
-      machine: target.machine,
-      target: outboxTargetOf(outbox.store.get(), target),
-      text,
-    });
+    const entry = outbox.enqueue(
+      outboxInput(outbox.store.get(), target, text, deps.modelChoices.choice(key)),
+    );
     drafts.clear(key);
     return entry;
   };

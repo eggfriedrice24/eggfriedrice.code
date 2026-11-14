@@ -15,6 +15,8 @@ export const ROUTE_NAMES = {
   settings: "settings",
   conversations: "conversations",
   approval: "approval",
+  model: "model",
+  account: "account",
   pair: "pair",
 } as const;
 
@@ -62,6 +64,39 @@ export function conversationHref(ref: ConversationRef, options: OpenOptions = {}
 /** The link to the approval sheet of the question of tool call `call` in `ref`. */
 export function approvalHref(ref: ConversationRef, call: string): Href {
   return { pathname: "/approval", params: { machine: ref.machine, id: ref.id, call } };
+}
+
+/** What the model sheet opens for: a composer, and the row that it selects first. */
+export interface ModelSheetTarget {
+  readonly machine: MachineId;
+  /** The conversation, or the local id of the blank root. */
+  readonly id: string;
+  readonly isBlankRoot: boolean;
+  /** The model and account to select, as a switch offer names them. */
+  readonly select?: { readonly model: string; readonly provider?: string };
+}
+
+/** The link to the model sheet of a composer. */
+export function modelSheetHref(target: ModelSheetTarget): Href {
+  const params: { machine: string; id: string; root?: "1"; model?: string; provider?: string } = {
+    machine: target.machine,
+    id: target.id,
+  };
+  if (target.isBlankRoot) {
+    params.root = "1";
+  }
+  if (target.select !== undefined) {
+    params.model = target.select.model;
+    if (target.select.provider !== undefined) {
+      params.provider = target.select.provider;
+    }
+  }
+  return { pathname: "/model", params };
+}
+
+/** The link to the limits of account `provider` on `machine`. */
+export function accountHref(machine: MachineId, provider: string): Href {
+  return { pathname: "/account", params: { machine, provider } };
 }
 
 /** The link to Settings. */

@@ -23,9 +23,11 @@ import {
   historyQueryOptions,
   interruptMutationOptions,
   isApprovalAnswer,
+  modelsQueryOptions,
   pendingAnswerFilters,
   pendingDecision,
   steerMutationOptions,
+  switchPreviewQueryOptions,
   withdrawPromptMutationOptions,
 } from "./conversation-queries";
 
@@ -98,6 +100,40 @@ describe("conversationKeys", () => {
       expect(key.slice(0, root.length)).toEqual(root);
     }
     expect(conversationKeys.history(REF, "s:41")).not.toEqual(conversationKeys.history(REF, null));
+  });
+});
+
+describe("the models and the cost of a switch", () => {
+  it("lists the models of a machine and keeps them on the disk", async () => {
+    const caller = new FakeCaller({ "models.list": () => ({ models: [] }) });
+    const options = modelsQueryOptions(caller, "m1");
+    expect(options.queryKey.slice(0, machineKey("m1").length)).toEqual(machineKey("m1"));
+    expect(options.meta).toEqual({ persist: true });
+    const client = createQueryClient();
+    await expect(client.fetchQuery(options)).resolves.toEqual({ models: [] });
+    expect(caller.callsOf("models.list")[0]?.params).toEqual({});
+  });
+
+  it("asks the cost of a switch with the account, and keys it by model and account", async () => {
+    const caller = new FakeCaller({
+      "conversation.switch_preview": () => ({ cost: "compacts" }),
+    });
+    const client = createQueryClient();
+    const options = switchPreviewQueryOptions(caller, REF, "gpt-6.1-sol", "openai-subscription.b");
+    await expect(client.fetchQuery(options)).resolves.toEqual({ cost: "compacts" });
+    expect(caller.callsOf("conversation.switch_preview")[0]?.params).toEqual({
+      conversation_id: "c1",
+      model: "gpt-6.1-sol",
+      provider: "openai-subscription.b",
+    });
+    await client.fetchQuery(switchPreviewQueryOptions(caller, REF, "gpt-6.1-sol", undefined));
+    expect(caller.callsOf("conversation.switch_preview")[1]?.params).toEqual({
+      conversation_id: "c1",
+      model: "gpt-6.1-sol",
+    });
+    expect(options.queryKey).not.toEqual(
+      switchPreviewQueryOptions(caller, REF, "gpt-6.1-sol", undefined).queryKey,
+    );
   });
 });
 

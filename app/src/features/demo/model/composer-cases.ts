@@ -12,6 +12,7 @@ import { ConnectionError } from "@/lib/net/errors";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import { createDrafts, type Drafts } from "@/features/conversation/model/drafts";
+import { createModelChoices, type ModelChoices } from "@/features/conversation/model/model-choices";
 import {
   composerDraftKey,
   type ComposerTarget,
@@ -142,6 +143,7 @@ export interface ComposerEnvironment {
   readonly drafts: Drafts;
   readonly outbox: Outbox;
   readonly preferences: PreferencesStore;
+  readonly modelChoices: ModelChoices;
 }
 
 /** What the stores of the board need. */
@@ -176,10 +178,11 @@ export function composerEnvironment(one: ComposerCase, deps: EnvironmentDeps): C
   }
   const preferences = createPreferences({ storage: deps.storage });
   preferences.setSendMode(one.sendMode);
+  const modelChoices = createModelChoices({ storage: deps.storage });
   const connection = createAtom(
     initialConnection(clientOf(one.link, deps.now()), `${machine.host}:${machine.port}`),
   );
-  return { target, connection, drafts, outbox, preferences };
+  return { target, connection, drafts, outbox, preferences, modelChoices };
 }
 
 /** A caller whose calls never end, so the buttons of the board change nothing. */

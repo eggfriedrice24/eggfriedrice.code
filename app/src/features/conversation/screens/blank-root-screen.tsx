@@ -15,6 +15,7 @@
 //
 // The header belongs to the root stack (features/navigation), so this screen sets none.
 
+import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useDeferredValue, useState, type ReactNode } from "react";
 import { Keyboard, Pressable, Text, View } from "react-native";
@@ -24,8 +25,10 @@ import { MonoText } from "@/components/ui/mono-text";
 import { newCommandId } from "@/lib/native/database";
 import type { Machine } from "@/features/machines/model/machine";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
+import { modelSheetHref } from "@/features/navigation/model/routes";
 import {
   useDrafts,
+  useModelChoices,
   useOutbox,
   usePreferences,
   useRuntime,
@@ -71,12 +74,21 @@ function BlankRoot(props: BlankRootProps) {
   const outbox = useOutbox();
   const drafts = useDrafts();
   const preferences = usePreferences();
+  const modelChoices = useModelChoices();
+  const router = useRouter();
   const open = useOpenConversation();
   const top = useHeaderHeight();
   const connections = useMachineConnections();
   const [localId, setLocalId] = useState(() => newLocalId(outbox));
   const supervisor = runtime.machine(machine.id);
-  const deps: ComposerDeps = { caller: runtime, outbox, drafts, preferences, newCommandId };
+  const deps: ComposerDeps = {
+    caller: runtime,
+    outbox,
+    drafts,
+    preferences,
+    modelChoices,
+    newCommandId,
+  };
   const target: ComposerTarget = { machine: machine.id, id: localId, isBlankRoot: true };
   const onSend = (entry: OutboxEntry): void => {
     if (entry.target.kind !== "new") {
@@ -105,6 +117,9 @@ function BlankRoot(props: BlankRootProps) {
             machineName={machine.name}
             tailnetDown={isTailnetDown([...connections.values()])}
             onSend={onSend}
+            onOpenModels={() =>
+              router.push(modelSheetHref({ machine: machine.id, id: localId, isBlankRoot: true }))
+            }
           />
         </View>
       )}

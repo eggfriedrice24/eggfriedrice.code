@@ -33,6 +33,28 @@ export const approvalParamsSchema = z.object({
   call: z.string().min(1),
 });
 
+/** The params of `model` (the model sheet of a composer). */
+export const modelSheetParamsSchema = z.object({
+  /** The daemon id of the machine. */
+  machine: z.guid(),
+  /** The id of the composer: a conversation, or the local id of the blank root. */
+  id: z.guid(),
+  /** `1`: the composer of the blank root of the machine. */
+  root: z.literal("1").exactOptional(),
+  /** The model that the sheet selects when it opens, as a switch offer names it. */
+  model: z.string().min(1).exactOptional(),
+  /** The account of `model`, such as `openai-subscription.b`. */
+  provider: z.string().min(1).exactOptional(),
+});
+
+/** The params of `account` (the limits of one account in Settings). */
+export const accountParamsSchema = z.object({
+  /** The daemon id of the machine. */
+  machine: z.guid(),
+  /** The provider id of the account, such as `openai-subscription.b`. */
+  provider: z.string().min(1),
+});
+
 /** The params of `pair`. */
 export const pairParamsSchema = z.object({
   /** The daemon id of the machine that the user pairs again. */

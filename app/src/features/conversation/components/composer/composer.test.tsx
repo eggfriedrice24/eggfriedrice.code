@@ -11,6 +11,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
+import type { ModelsListResult } from "@/lib/protocol/generated";
 import { FakeCaller } from "@/lib/query/testing";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { StreamState } from "@/lib/stream/reducer";
@@ -20,6 +21,7 @@ import { roles } from "@/theme/roles";
 
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";
+import { createModelChoices, type ModelChoice, type ModelChoices } from "../../model/model-choices";
 import type { Outbox, OutboxEntry } from "../../model/outbox";
 import { CONVERSATION_A, DESKTOP, idMaker, testOutbox } from "../../model/outbox-testing";
 import type { ComposerDeps } from "../../use-composer-actions";
@@ -102,8 +104,11 @@ interface Harness {
   readonly outbox: Outbox;
   readonly drafts: Drafts;
   readonly preferences: PreferencesStore;
+  readonly modelChoices: ModelChoices;
   readonly connection: Atom<MachineConnection>;
   readonly sent: OutboxEntry[];
+  /** How often the model button opened the sheet. */
+  readonly opened: { count: number };
 }
 
 interface Setup {
@@ -115,15 +120,25 @@ interface Setup {
   readonly tailnetDown?: boolean;
   /** False: no `onSend`, as on a conversation screen. */
   readonly onSend?: boolean;
+  /** The model that the sheet chose for this composer. */
+  readonly choice?: ModelChoice;
+  /** The answer of `models.list`; with it the status line has the model button. */
+  readonly models?: ModelsListResult;
 }
 
 async function renderComposer(setup: Setup = {}): Promise<Harness> {
   const target = setup.target ?? CONVERSATION;
-  const caller = new FakeCaller();
+  const models = setup.models;
+  const caller = new FakeCaller(models === undefined ? {} : { "models.list": () => models });
   const { outbox } = testOutbox();
   const storage = new MemoryKeyValue();
   const drafts = createDrafts({ storage });
   const preferences = createPreferences({ storage });
+  const modelChoices = createModelChoices({ storage });
+  if (setup.choice !== undefined) {
+    modelChoices.set(composerDraftKey(target), setup.choice);
+  }
+  const opened = { count: 0 };
   const connection = createAtom<MachineConnection>({
     client: { state: "off" },
     view: setup.view ?? ONLINE,
@@ -137,6 +152,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
     outbox,
     drafts,
     preferences,
+    modelChoices,
     newCommandId: idMaker("c0000000"),
   };
   const sent: OutboxEntry[] = [];
@@ -167,6 +183,11 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
   if (setup.tailnetDown !== undefined) {
     props.tailnetDown = setup.tailnetDown;
   }
+  if (models !== undefined) {
+    props.onOpenModels = () => {
+      opened.count += 1;
+    };
+  }
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <QueryClientProvider client={client}>
@@ -174,7 +195,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
-  return { caller, outbox, drafts, preferences, connection, sent };
+  return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened };
 }
 
 /** Lets TanStack Query tell the observers of a mutation (it notifies on a timer of 0 ms). */
@@ -444,6 +465,31 @@ describe("the actions of the composer", () => {
     });
     expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("");
     expect(harness.sent.map((entry) => entry.text)).toEqual(["Now write the migration notes"]);
+  });
+
+  it("sends the model, the account and the effort that the sheet chose", async () => {
+    const choice = { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "medium" };
+    const harness = await renderComposer({ text: "Review the fix.", choice });
+    await fireEvent.press(sendButton());
+    expect(harness.outbox.store.get().entries[0]?.settings).toEqual(choice);
+  });
+
+  it("names the model, the account and the effort on the model button, which opens the sheet", async () => {
+    const efforts = ["low", "medium", "high"];
+    const models: ModelsListResult = {
+      models: [
+        { id: "gpt-6.1-sol", provider: "openai-subscription", source: "builtin", efforts },
+        { id: "gpt-6.1-sol", provider: "openai-subscription.b", source: "builtin", efforts },
+      ],
+    };
+    const choice = { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "medium" };
+    const harness = await renderComposer({ models, choice, stream: endedStream() });
+    await settleQuery();
+    const button = screen.getByTestId("composer-model-button");
+    expect(button).toHaveTextContent("GPT-6.1 Sol · b · medium");
+    expect(button).toHaveAccessibleName("Model: GPT-6.1 Sol on b, medium effort");
+    await fireEvent.press(button);
+    expect(harness.opened.count).toBe(1);
   });
 
   it("sends and queues with no onSend, as a conversation screen has it", async () => {

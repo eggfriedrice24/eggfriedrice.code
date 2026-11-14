@@ -5,6 +5,7 @@
 //     {strip}                                  the approval strip while a question waits
 //     <Composer.StatusLine>                    slot A: cwd · mode · ctx · waiting / reconnecting
 //       <Composer.Status store={stream.store} />
+//       <ComposerModelButton ... />            the model button at its end
 //     </Composer.StatusLine>
 //     <Composer.Row>
 //       <Composer.Leading />                   slot B: 0 pt in v1
@@ -23,6 +24,7 @@ import type { Readable } from "@tanstack/store";
 import type { StreamState } from "@/lib/stream/reducer";
 
 import { ComposerInput } from "./composer-input";
+import { ComposerModelButton } from "./composer-model-button";
 import { ComposerRoot, type ComposerRootProps } from "./composer-root";
 import { ComposerStatus, ComposerStatusLine } from "./composer-status-line";
 import { ComposerTrailing } from "./composer-trailing";
@@ -69,16 +71,31 @@ export interface DockedComposerProps extends Omit<ComposerRootProps, "children">
   readonly stream?: Readable<StreamState>;
   /** The row above the status line: the approval strip while a question waits. */
   readonly strip?: ReactNode;
+  /** Opens the model sheet. Without it the status line has no model button. */
+  readonly onOpenModels?: () => void;
 }
 
-/** The composer of v1: the strip, the status line, the field and the trailing action. */
+/**
+ * The composer: the strip, the status line with the model button at its end, the field
+ * and the trailing action.
+ */
 export function DockedComposer(props: DockedComposerProps) {
-  const { stream, strip, ...root } = props;
+  const { stream, strip, onOpenModels, ...root } = props;
   return (
     <ComposerRoot {...root}>
       {strip}
       <ComposerStatusLine>
         {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
+        {onOpenModels === undefined ? null : stream === undefined ? (
+          <ComposerModelButton deps={root.deps} target={root.target} onPress={onOpenModels} />
+        ) : (
+          <ComposerModelButton
+            deps={root.deps}
+            target={root.target}
+            store={stream}
+            onPress={onOpenModels}
+          />
+        )}
       </ComposerStatusLine>
       <ComposerRow>
         <ComposerLeading />

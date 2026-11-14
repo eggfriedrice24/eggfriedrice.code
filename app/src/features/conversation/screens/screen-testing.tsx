@@ -17,11 +17,13 @@ import { lastSocket, type TestServices } from "@/features/navigation/model/testi
 import {
   approvalParamsSchema,
   conversationParamsSchema,
+  modelSheetParamsSchema,
 } from "@/features/navigation/model/route-schemas";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { ApprovalSheetScreen } from "./approval-sheet-screen";
 import { BlankRootScreen } from "./blank-root-screen";
 import { ConversationScreen } from "./conversation-screen";
+import { ModelSheetScreen } from "./model-sheet-screen";
 
 /** The screen of an iPhone 17 Pro. */
 export const METRICS = {
@@ -58,8 +60,15 @@ export function screenRoutes(test: TestServices) {
     index: () => <BlankRootScreen noMachine={<Text>no machine root</Text>} />,
     "c/[machine]/[id]": ConversationRoute,
     approval: ApprovalRoute,
+    model: ModelRoute,
     settings: () => <Text>settings</Text>,
   };
+}
+
+/** The model sheet route, as src/app/model.tsx renders it. */
+export function ModelRoute() {
+  const params = modelSheetParamsSchema.safeParse(useLocalSearchParams());
+  return <ModelSheetScreen target={params.success ? params.data : undefined} />;
 }
 
 /** The approval sheet route, as src/app/approval.tsx renders it. */

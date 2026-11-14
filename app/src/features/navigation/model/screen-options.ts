@@ -97,6 +97,22 @@ export const APPROVAL_OPTIONS: NativeStackNavigationOptions = {
   contentStyle: { backgroundColor: roles.surface_1 },
 };
 
+/**
+ * The model sheet (S-ModelSheet): a custom detent that fits the content, the grabber
+ * only, no bar. The rows scroll inside it when they do not fit, and the sheet then grows
+ * to the full height; the slider and the confirm stay at its bottom.
+ */
+export const MODEL_OPTIONS: NativeStackNavigationOptions = {
+  presentation: "formSheet",
+  sheetAllowedDetents: "fitToContents",
+  sheetGrabberVisible: true,
+  headerShown: false,
+  contentStyle: { backgroundColor: roles.surface_1 },
+};
+
+/** The limits of one account, pushed from Settings. The screen sets the title. */
+export const ACCOUNT_OPTIONS: NativeStackNavigationOptions = { title: "" };
+
 /** Pairing, full screen, with its own nav row. */
 export const PAIR_OPTIONS: NativeStackNavigationOptions = {
   presentation: "fullScreenModal",

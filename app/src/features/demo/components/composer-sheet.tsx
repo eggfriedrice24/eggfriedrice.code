@@ -79,6 +79,7 @@ export function ComposerSheet() {
       outbox: env.outbox,
       drafts: env.drafts,
       preferences: env.preferences,
+      modelChoices: env.modelChoices,
       newCommandId: () => "0199d3e0-de39-7000-8000-0000000000ff",
     },
     target: env.target,

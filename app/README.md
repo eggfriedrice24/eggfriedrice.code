@@ -267,8 +267,10 @@ Other builds:
 A `preview` or `production` build holds its JavaScript, so each change of the app needs a
 new build. Collect the changes of native code, so that the builds stay few. The native
 modules of the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
-expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown
-and the module of the device key.
+expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown,
+the effort slider (`@react-native-community/slider`) and the module of the device key.
+A build without the slider still runs the JavaScript of a newer app: the model sheet then
+draws the efforts as buttons.
 
 ## Device checklist
 
@@ -398,6 +400,20 @@ not a test that pretends.
 32. The waiting tool card shows the pressed fill (selection_bg) and opens the sheet.
     VoiceOver reads "waiting for approval" and "Opens the approval." on the card, and
     reaches Deny and Allow of the strip as their own buttons.
+
+### The model sheet
+
+33. The model sheet (`sheetAllowedDetents: "fitToContents"`) fits two accounts, and four
+    accounts make it grow to the full height and scroll, with the slider, the quiet line
+    and the confirm pinned at the bottom.
+34. The effort slider is the native UISlider (`@react-native-community/slider`, a new
+    dev build): it snaps to each step, the thumb moves on a tap of a step label, and
+    VoiceOver reads the efforts. A build from before the slider draws the steps as
+    buttons and still works.
+35. The Claude spark keeps its own colour, the OpenAI mark is text_primary, and both
+    are sharp at 3x. A signed-out account shows its logos at 40 %.
+36. The model button at the end of the status line gives way to the path first, then
+    cuts its own end, on the smallest iPhone.
 
 ## Rules of the app
 

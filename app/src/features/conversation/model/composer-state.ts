@@ -23,7 +23,14 @@ import type { SendMode } from "@/features/settings/model/preferences";
 import { shortPath } from "@/features/conversations/model/list-format";
 import { BLANK_ROOT, draftKey, type DraftKey } from "./drafts";
 import { contextGauge } from "./format";
-import { entriesFor, resolveAlias, type OutboxSnapshot, type OutboxTarget } from "./outbox";
+import type { ModelChoice } from "./model-choices";
+import {
+  entriesFor,
+  resolveAlias,
+  type OutboxInput,
+  type OutboxSnapshot,
+  type OutboxTarget,
+} from "./outbox";
 import { selectStatus, type Waiting } from "./selectors";
 
 /** Why the composer cannot send, in the words of its placeholder. */
@@ -280,6 +287,28 @@ export function outboxTargetOf(snapshot: OutboxSnapshot, target: ComposerTarget)
   return local
     ? { kind: "new", localId: target.id }
     : { kind: "conversation", conversationId: target.id };
+}
+
+/**
+ * The outbox input of a prompt `text` of `target`. The model, account and effort that the
+ * sheet chose for the composer go with it; without a choice, efrd runs the model of the
+ * conversation, or the machine's default.
+ */
+export function outboxInput(
+  snapshot: OutboxSnapshot,
+  target: ComposerTarget,
+  text: string,
+  choice: ModelChoice | undefined,
+): OutboxInput {
+  const input: { -readonly [K in keyof OutboxInput]: OutboxInput[K] } = {
+    machine: target.machine,
+    target: outboxTargetOf(snapshot, target),
+    text,
+  };
+  if (choice !== undefined) {
+    input.settings = choice;
+  }
+  return input;
 }
 
 /** The conversation id of `target` for a steer or a stop: its alias, else its id. */

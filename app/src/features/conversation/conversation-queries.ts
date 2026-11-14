@@ -19,7 +19,7 @@ import { infiniteQueryOptions, mutationOptions, queryOptions } from "@tanstack/r
 import { conversationsKeys } from "@/features/conversations/conversations-queries";
 import { conversationScope, machineKey, type ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
-import type { TurnInterrupt, TurnSteer } from "@/lib/protocol/generated";
+import type { ConversationSwitchPreview, TurnInterrupt, TurnSteer } from "@/lib/protocol/generated";
 import type { HistoryPage } from "@/lib/protocol/wire";
 
 /** The most history pages in memory. Older pages past it are fetched again on scroll. */
@@ -57,6 +57,34 @@ export function modelsQueryOptions(caller: MachineCaller, machine: string) {
     queryFn: ({ signal }) => caller.call(machine, "models.list", {}, signal),
     staleTime: MODELS_STALE_MS,
     meta: { persist: true },
+  });
+}
+
+/** How long the cost of a switch counts as new: the context changes with each turn. */
+export const SWITCH_PREVIEW_STALE_MS = 10_000;
+
+/**
+ * What a switch of `ref` to `model` on `provider` costs (`conversation.switch_preview`):
+ * none, a cold cache, or a compaction. An old daemon does not know the method: the query
+ * fails at once, and the sheet then says nothing of a cost.
+ */
+export function switchPreviewQueryOptions(
+  caller: MachineCaller,
+  ref: ConversationAddress,
+  model: string,
+  provider: string | undefined,
+) {
+  return queryOptions({
+    queryKey: [...conversationKeys.conversation(ref), "switch_preview", model, provider ?? null],
+    queryFn: ({ signal }) => {
+      const params: ConversationSwitchPreview = { conversation_id: ref.id, model };
+      if (provider !== undefined) {
+        params.provider = provider;
+      }
+      return caller.call(ref.machine, "conversation.switch_preview", params, signal);
+    },
+    staleTime: SWITCH_PREVIEW_STALE_MS,
+    retry: false,
   });
 }
 

@@ -35,9 +35,15 @@ import { SPACING } from "@/theme/metrics";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
-import { approvalHref, type ConversationFocus } from "@/features/navigation/model/routes";
+import {
+  approvalHref,
+  type ConversationFocus,
+  modelSheetHref,
+  type ModelSheetTarget,
+} from "@/features/navigation/model/routes";
 import {
   useDrafts,
+  useModelChoices,
   useOutbox,
   usePreferences,
   useRuntime,
@@ -50,7 +56,7 @@ import { Transcript } from "../components/transcript";
 import type { TranscriptListHandle } from "../components/transcript-list";
 import type { TranscriptActions, TranscriptScope } from "../components/use-transcript-scope";
 import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversation-queries";
-import { composerDraftKey, outboxTargetOf, type ComposerTarget } from "../model/composer-state";
+import { composerDraftKey, outboxInput, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
 import type { ComposerDeps } from "../use-composer-actions";
@@ -113,6 +119,7 @@ function ConversationView(props: ConversationViewProps) {
   const outbox = useOutbox();
   const drafts = useDrafts();
   const preferences = usePreferences();
+  const modelChoices = useModelChoices();
   const route = useRouteConversation(machine, props.routeId, props.focus);
   const ref: ConversationRef = { machine, id: route.id };
   const list = useRef<TranscriptListHandle>(null);
@@ -151,12 +158,38 @@ function ConversationView(props: ConversationViewProps) {
   };
 
   const target: ComposerTarget = { machine, id: route.id, isBlankRoot: false };
-  const deps: ComposerDeps = { caller: runtime, outbox, drafts, preferences, newCommandId };
+  const deps: ComposerDeps = {
+    caller: runtime,
+    outbox,
+    drafts,
+    preferences,
+    modelChoices,
+    newCommandId,
+  };
+  const openModels = (select?: { readonly model: string; readonly provider?: string }): void => {
+    const sheet: { -readonly [K in keyof ModelSheetTarget]: ModelSheetTarget[K] } = {
+      machine,
+      id: route.id,
+      isBlankRoot: false,
+    };
+    if (select !== undefined) {
+      sheet.select = select;
+    }
+    router.push(modelSheetHref(sheet));
+  };
   const actions: TranscriptActions = {
     withdraw: (turnId) => withdraw.mutate({ commandId: newCommandId(), turnId }),
-    // Decision D8: efrd has no retry of a turn, so the prompt goes again as a new one.
+    // Decision D8: efrd has no retry of a turn, so the prompt goes again as a new one,
+    // with the model that the sheet chose since.
     retry: (_turnId, text) => {
-      outbox.enqueue({ machine, target: outboxTargetOf(outbox.store.get(), target), text });
+      outbox.enqueue(
+        outboxInput(
+          outbox.store.get(),
+          target,
+          text,
+          modelChoices.choice(composerDraftKey(target)),
+        ),
+      );
     },
     editAndResend: (text) => drafts.set(composerDraftKey(target), text),
     resend: (key) => {
@@ -219,6 +252,7 @@ function ConversationView(props: ConversationViewProps) {
           machineName={machineName}
           tailnetDown={tailnetDown}
           onHeightChange={setComposerHeight}
+          onOpenModels={() => openModels()}
         />
       </View>
     </View>

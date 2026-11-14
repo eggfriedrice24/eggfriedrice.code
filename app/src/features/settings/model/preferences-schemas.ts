@@ -9,4 +9,5 @@ export const savedPreferencesSchema = z.object({
   haptics: z.boolean().catch(true),
   sendMode: z.enum(["steer", "queue"]).catch("steer"),
   lastMachine: z.guid().nullable().catch(null),
+  askCostlySwitch: z.boolean().catch(true),
 });

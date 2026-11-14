@@ -4,6 +4,9 @@
 // - `sendMode`: the last choice of the Steer/Queue menu of the composer.
 // - `lastMachine`: the daemon id of the machine of the blank root, so the app opens on
 //   the machine that the user used last.
+// - `askCostlySwitch`: the switch "Ask before a costly model switch" of Settings (on by
+//   default, for every machine). On: a pick in the model sheet that compacts waits for
+//   "Switch and compact". Off: a tap on a row of the sheet switches at once.
 //
 // The store reads the saved value once, when it is made, so the first frame shows it.
 // Each change writes the whole value at once; the writes run in order.
@@ -27,6 +30,7 @@ export interface Preferences {
   readonly haptics: boolean;
   readonly sendMode: SendMode;
   readonly lastMachine: DaemonId | null;
+  readonly askCostlySwitch: boolean;
 }
 
 /** The preferences of a new install. */
@@ -34,6 +38,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   haptics: true,
   sendMode: "steer",
   lastMachine: null,
+  askCostlySwitch: true,
 };
 
 /** What the preferences need from the app. */
@@ -49,6 +54,7 @@ export interface PreferencesStore {
   setHaptics(on: boolean): void;
   setSendMode(mode: SendMode): void;
   setLastMachine(machine: DaemonId | null): void;
+  setAskCostlySwitch(on: boolean): void;
   /** The user forgot a machine: it is no longer the last one. */
   forgetMachine(machine: DaemonId): void;
   /** Resolves when every write so far is done. */
@@ -90,7 +96,8 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
     if (
       next.haptics === now.haptics &&
       next.sendMode === now.sendMode &&
-      next.lastMachine === now.lastMachine
+      next.lastMachine === now.lastMachine &&
+      next.askCostlySwitch === now.askCostlySwitch
     ) {
       return;
     }
@@ -111,6 +118,9 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
     },
     setLastMachine(machine: DaemonId | null): void {
       update({ ...store.state, lastMachine: machine });
+    },
+    setAskCostlySwitch(on: boolean): void {
+      update({ ...store.state, askCostlySwitch: on });
     },
     forgetMachine(machine: DaemonId): void {
       if (store.state.lastMachine === machine) {

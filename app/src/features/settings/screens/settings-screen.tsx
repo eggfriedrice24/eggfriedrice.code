@@ -1,6 +1,7 @@
-// Settings (design 3.16): the paired machines, "Pair a new machine", the Haptics switch
-// and the version, as an inset grouped list. It is pushed from the gear on any screen,
-// and back returns to the screen under it untouched.
+// Settings (design 3.16 and the Settings board): the paired machines, "Pair a new
+// machine", the switch "Ask before a costly model switch", the Haptics switch and the
+// version, as an inset grouped list. It is pushed from the gear on any screen, and back
+// returns to the screen under it untouched.
 //
 // - A machine row shows the state of its connection and the efrd version of its last
 //   connection. Its menu copies the node name, opens Pairing for this machine, or forgets
@@ -91,6 +92,8 @@ function UnwiredSettings() {
       machines={null}
       haptics={DEFAULT_PREFERENCES.haptics}
       onHapticsChange={() => undefined}
+      askCostly={DEFAULT_PREFERENCES.askCostlySwitch}
+      onAskCostlyChange={() => undefined}
       onPair={() => router.push("/pair")}
     />
   );
@@ -108,6 +111,7 @@ function WiredSettings(props: WiredSettingsProps) {
   const reduceMotion = useReduceMotion();
   const registry = useSelector(runtime.registry);
   const haptics = useSelector(preferences.store, (state) => state.haptics);
+  const askCostly = useSelector(preferences.store, (state) => state.askCostlySwitch);
   const now = useNow();
   const forget = useMutation(forgetMachineMutationOptions(runtime));
 
@@ -181,6 +185,8 @@ function WiredSettings(props: WiredSettingsProps) {
       machines={machines}
       haptics={haptics}
       onHapticsChange={(on) => preferences.setHaptics(on)}
+      askCostly={askCostly}
+      onAskCostlyChange={(on) => preferences.setAskCostlySwitch(on)}
       onPair={() => router.push("/pair")}
       onVersionLongPress={DEV_TOOLS ? () => router.push(GALLERY_ROUTE) : undefined}
     />
@@ -222,11 +228,14 @@ interface SettingsListProps {
   readonly machines: ReactNode;
   readonly haptics: boolean;
   readonly onHapticsChange: (on: boolean) => void;
+  /** "Ask before a costly model switch". */
+  readonly askCostly: boolean;
+  readonly onAskCostlyChange: (on: boolean) => void;
   readonly onPair: () => void;
   readonly onVersionLongPress?: (() => void) | undefined;
 }
 
-/** The groups of Settings: Machines, Feedback and About. */
+/** The groups of Settings: Machines, Models, Feedback and About. */
 function SettingsList(props: SettingsListProps) {
   return (
     <ScrollView
@@ -251,6 +260,16 @@ function SettingsList(props: SettingsListProps) {
           tone="accent_primary"
           symbol="plus"
           onPress={props.onPair}
+        />
+      </InsetGroup>
+      <InsetGroup
+        header="Models"
+        footer="A switch that compacts the conversation waits for you to confirm. Off: picking a model switches at once."
+      >
+        <SwitchRow
+          title="Ask before a costly model switch"
+          value={props.askCostly}
+          onValueChange={props.onAskCostlyChange}
         />
       </InsetGroup>
       <InsetGroup header="Feedback" footer="Haptics for taps, copies, scans and errors.">

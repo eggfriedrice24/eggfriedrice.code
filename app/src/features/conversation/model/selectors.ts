@@ -30,6 +30,7 @@ import {
   type TurnEnd,
 } from "@/lib/stream/reducer";
 import type { TextBuffer } from "@/lib/stream/text-buffer";
+import type { TurnSettingsView } from "./model-sheet";
 import { createRowBuilder, type Row, sameRows } from "./rows";
 import { turnStatus } from "./status";
 import type { ToolApproval } from "./tool-block";
@@ -116,6 +117,27 @@ export function selectSteer(
   seq: number,
 ): (state: StreamState) => SteerView | undefined {
   return (state) => state.turns.get(turnId)?.steers.get(seq);
+}
+
+/** The settings of a turn that names no model: nothing. */
+const NO_SETTINGS: TurnSettingsView = {
+  model: undefined,
+  provider: undefined,
+  effort: undefined,
+};
+
+/**
+ * The model, the account and the effort of the newest turn that names a model: what the
+ * conversation runs when the phone sends no choice. Compare with `shallow`.
+ */
+export function selectLastSettings(state: StreamState): TurnSettingsView {
+  for (let i = state.order.length - 1; i >= 0; i--) {
+    const turn = state.turns.get(state.order[i] ?? "");
+    if (turn?.model !== undefined) {
+      return { model: turn.model, provider: turn.provider, effort: turn.effort };
+    }
+  }
+  return NO_SETTINGS;
 }
 
 /** The end of a turn. */

@@ -17,6 +17,7 @@ import {
   APPROVAL_OPTIONS,
   CONVERSATIONS_OPTIONS,
   CONVERSATION_OPTIONS,
+  MODEL_OPTIONS,
   PAIR_OPTIONS,
   ROOT_OPTIONS,
   SETTINGS_OPTIONS,
@@ -61,6 +62,7 @@ export function RootStack(props: RootStackProps) {
           <Stack.Screen name={ROUTE_NAMES.settings} options={SETTINGS_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.conversations} options={CONVERSATIONS_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.approval} options={APPROVAL_OPTIONS} />
+          <Stack.Screen name={ROUTE_NAMES.model} options={MODEL_OPTIONS} />
           <Stack.Screen name={ROUTE_NAMES.pair} options={PAIR_OPTIONS} />
         </Stack>
       </MachineMenuContext>

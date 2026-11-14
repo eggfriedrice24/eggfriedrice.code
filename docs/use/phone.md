@@ -227,6 +227,35 @@ or when iOS closes the app, the app sends the prompt again later. efrd runs it o
 once. Send is off while the machine is offline. The app keeps the draft of each
 conversation.
 
+### Pick a model
+
+The model button at the end of the status line shows the model of the next message
+and its effort, such as `Opus 5.5 · high`. When the model runs on two accounts, the
+button names the account too: `GPT-6.1 Sol · b · medium`. Tap it to open the model
+sheet.
+
+The sheet lists the models of each account of the machine, in the order of
+`efr models`. A header names the account: the kind (`Claude API`, `OpenAI API`,
+`ChatGPT plan`), then the label from `[accounts]` or the account id. The default
+account of a kind has no id. An account that is signed out has its rows dimmed, and
+you cannot pick them: log in on the machine. The check shows what the next message
+uses now.
+
+- Tap a row to select it. The slider under the list sets the effort of the selected
+  model. A dot marks the model's default. A model without efforts has no slider.
+- The quiet line under the slider shows the context window and whether the model is
+  the default of the machine. "Use default" picks the default again.
+- The confirm button shows only when something changed, such as "Use Sonnet 5 ·
+  medium", or "Use ChatGPT plan · b" when only the account changes. While a turn runs,
+  your pick applies to the next message.
+- When the switch compacts the conversation, the sheet says so and the button reads
+  "Switch and compact". "Don't ask again here" stops this warning in this
+  conversation. A switch that only starts a cold cache says nothing.
+
+The phone keeps your pick for the conversation, and each prompt from the phone sends
+it. The conversation shows one quiet line above the first answer on the new model,
+such as `⇄ GPT-6.1 Sol on b · medium · compacted`.
+
 ### Answer a question
 
 When the agent asks a question, its tool card in the conversation says "waiting for
@@ -294,6 +323,8 @@ the app connects again at once and gets what it missed.
 
 Settings shows each paired machine, with its connection and the version of its efrd.
 The menu of a row copies the node name, pairs the machine again, or forgets it.
+Settings also has the switch "Ask before a costly model switch" (on by default). Turn
+it off, and a tap on a row of the model sheet switches at once, with no confirm.
 Settings also has the Haptics switch, which turns off all the haptics of the app, and
 the version of the app.
 
