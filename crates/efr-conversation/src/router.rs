@@ -13,7 +13,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use efr_protocol::{EffectiveSettings, ModelInfo};
+use efr_protocol::{AccountOut, EffectiveSettings, LimitReached, ModelInfo};
 use efr_provider::Provider;
 
 use crate::{ConversationConfig, ConversationError};
@@ -26,6 +26,21 @@ pub trait ProviderRouter: Send + Sync + fmt::Debug {
 
     /// The provider `id`, or `None` when the daemon runs no such provider.
     fn get(&self, id: &str) -> Option<Arc<dyn Provider>>;
+
+    /// Why the account `provider` cannot serve a turn on `model`: it reached `reached`.
+    /// The daemon adds the label of the account and the other accounts that serve the
+    /// model, as it knows them now, for the cause on `turn_failed`; it never moves the
+    /// turn. The default names no label and no other account, as for a router with one
+    /// provider.
+    fn account_out(&self, provider: &str, model: &str, reached: LimitReached) -> AccountOut {
+        AccountOut {
+            provider: provider.to_owned(),
+            label: None,
+            model: model.to_owned(),
+            reached,
+            others: Vec::new(),
+        }
+    }
 }
 
 /// One provider that serves every id: a daemon with one provider, such as one that a

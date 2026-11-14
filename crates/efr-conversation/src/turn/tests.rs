@@ -2058,6 +2058,39 @@ fn provider_errors_map_to_codes_a_client_can_act_on() {
 }
 
 #[test]
+fn a_limit_of_the_account_is_the_cause_and_other_failures_have_none() {
+    use efr_protocol::{LimitKind, LimitReached};
+    use efr_provider::ProviderError;
+    let now: jiff::Timestamp = "2026-11-14T12:00:00Z".parse().unwrap();
+    let reset: jiff::Timestamp = "2026-11-14T14:20:00Z".parse().unwrap();
+    let usage = LimitReached { kind: LimitKind::Usage, resets_at: Some(reset) };
+    let used_up = ProviderError::LimitReached { reached: usage.clone(), message: None };
+
+    assert_eq!(super::account_limit(&used_up, now), Some(usage));
+    assert_eq!(provider_failure(&used_up).code, ErrorCode::Busy);
+    assert_eq!(
+        provider_failure(&used_up).message,
+        "the account reached the usage limit of its plan"
+    );
+    let waited = ProviderError::RateLimited { retry_after: Some(Duration::from_secs(90)) };
+    assert_eq!(
+        super::account_limit(&waited, now),
+        Some(LimitReached {
+            kind: LimitKind::TooManyRequests,
+            resets_at: Some("2026-11-14T12:01:30Z".parse().unwrap()),
+        })
+    );
+    let unsaid = ProviderError::RateLimited { retry_after: None };
+    assert_eq!(
+        super::account_limit(&unsaid, now),
+        Some(LimitReached { kind: LimitKind::TooManyRequests, resets_at: None })
+    );
+    let overloaded = ProviderError::Overloaded { status: Some(529), message: "Overloaded".into() };
+    assert_eq!(super::account_limit(&overloaded, now), None);
+    assert_eq!(super::account_limit(&ProviderError::NotLoggedIn, now), None);
+}
+
+#[test]
 fn an_output_tail_is_cut_on_a_character_boundary() {
     let long = format!("{}{}", "é".repeat(3000), "end");
     let tail = bounded_tail(&long);

@@ -13,7 +13,7 @@ use efr_provider::{Message, Request, TokenUsage};
 use efr_stdx::id::uuid_v7;
 
 use super::stream::Response;
-use super::{Ending, Turn, context_tokens, provider_failure};
+use super::{Ending, Turn, context_tokens};
 use crate::compaction::{
     self, Job, Outcome, Pruning, Window, cut_before, gap_note, summary_message, turn_count,
     window_tokens, with_window,
@@ -203,7 +203,7 @@ impl Turn {
                 Ok(Recovered::Stop(Ending::Failed(body)))
             }
             Response::Failed(error) => {
-                Ok(Recovered::Stop(Ending::Failed(provider_failure(&error))))
+                Ok(Recovered::Stop(Ending::Failed(self.model_failure(&error))))
             }
             Response::Interrupted => Ok(Recovered::Stop(Ending::Interrupted)),
         }

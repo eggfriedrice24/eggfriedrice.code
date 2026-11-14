@@ -91,6 +91,20 @@ fn the_window_of_a_model_is_the_one_of_its_provider_else_of_its_first_entry() {
 }
 
 #[test]
+fn the_default_offer_of_a_router_names_no_other_account() {
+    use efr_protocol::{LimitKind, LimitReached};
+    let router = OneProvider::new(Arc::new(Named(ProviderId::new("openai-api").unwrap())));
+    let reached = LimitReached { kind: LimitKind::Credit, resets_at: None };
+
+    let out = router.account_out("openai-api", "gpt-5.5", reached.clone());
+
+    assert_eq!(out.provider, "openai-api");
+    assert_eq!(out.model, "gpt-5.5");
+    assert_eq!(out.reached, reached);
+    assert_eq!((out.label, out.others), (None, Vec::new()));
+}
+
+#[test]
 fn a_model_goes_to_the_first_provider_that_lists_it() {
     let router = Router::of(&["openai-subscription", "openai-api", "anthropic-api"]);
     let config = config(vec![

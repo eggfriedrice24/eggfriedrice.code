@@ -62,10 +62,10 @@ use efr_permissions::{
     Engine, Layer, Policy, Requirements, Subject, runs_as_another_user,
 };
 use efr_protocol::{
-    ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode,
-    Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId,
-    RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, SwitchedModel,
-    TurnId, TurnSettings, TurnStop, Verdict,
+    AccountOut, ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, LimitKind, LimitReached,
+    Mode, Origin, Presence, QuestionId, RecentCommand, Scope, ShellContext, StopReason as WireStop,
+    SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnStop, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
@@ -402,6 +402,10 @@ struct Turn {
     /// The provider and the model of the turn before, when this turn runs on another
     /// one (`model_switched`), for the one line of the preamble that says so.
     switched_from: Option<SwitchedModel>,
+    /// Why the account of the turn could not serve it, with the other accounts that
+    /// serve its model: set when a model call fails for a limit of the account, for the
+    /// cause on `turn_failed`.
+    account_out: Option<AccountOut>,
     /// The tool with which the turn's model changes files, from the provider's model
     /// list when the turn starts: the request offers only this one of the two edit
     /// tools, and each call carries it so the toolbox refuses the other one.
@@ -541,6 +545,7 @@ impl Turn {
             settings: None,
             provider: None,
             switched_from: None,
+            account_out: None,
             edit_tool: EditTool::default(),
             web: WebState::new(WebPlan::Off(WhyOff::NoSupport)),
             spec,
@@ -840,7 +845,7 @@ impl Turn {
                         Recovered::Stop(ending) => return Ok(ending),
                     }
                 }
-                Response::Failed(error) => return Ok(Ending::Failed(provider_failure(&error))),
+                Response::Failed(error) => return Ok(Ending::Failed(self.model_failure(&error))),
                 Response::Interrupted => return Ok(Ending::Interrupted),
             };
             let calls = tool_calls(&message);
@@ -901,6 +906,22 @@ impl Turn {
         )))
     }
 
+    /// The `turn_failed` body of a model call that failed with `error`. When a limit of
+    /// the account stopped it, the turn also keeps the cause for `turn_failed`: the
+    /// account, the limit and the other accounts that serve the model, as the router
+    /// offers them. The turn never moves to another account by itself.
+    pub(crate) fn model_failure(&mut self, error: &ProviderError) -> ErrorBody {
+        let now = self.shared.deps.clock.now();
+        if let (Some(reached), Some(provider), Some(settings)) =
+            (account_limit(error, now), &self.provider, &self.settings)
+        {
+            let provider = provider.id().as_str();
+            let out = self.shared.deps.providers.account_out(provider, &settings.model, reached);
+            self.account_out = Some(out);
+        }
+        provider_failure(error)
+    }
+
     /// Builds the batch of the terminal event, with the turn's exact messages for the
     /// history of later turns, and hands both to the actor, which records the batch. A
     /// turn that stopped between a tool call and its result (a store error, say) leaves
@@ -957,8 +978,6 @@ impl Turn {
                 stop: self.final_stop,
                 undo,
             },
-            // NOTE: a stub until the turn knows the account and its limits: the cause
-            // of an account that cannot serve the turn, with the switch offer.
             Ending::Failed(error) => Event::TurnFailed {
                 turn_id,
                 error,
@@ -966,7 +985,7 @@ impl Turn {
                 context,
                 changes,
                 undo,
-                account_out: None,
+                account_out: self.account_out.take(),
             },
             Ending::Interrupted => {
                 Event::TurnInterrupted { turn_id, usage, context, changes, undo }
@@ -2226,7 +2245,9 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
         ProviderError::Unauthorized { .. }
         | ProviderError::NotLoggedIn
         | ProviderError::Token { .. } => ErrorCode::Unauthorized,
-        ProviderError::RateLimited { .. } | ProviderError::Overloaded { .. } => ErrorCode::Busy,
+        ProviderError::RateLimited { .. }
+        | ProviderError::Overloaded { .. }
+        | ProviderError::LimitReached { .. } => ErrorCode::Busy,
         ProviderError::UnknownModel { .. } => ErrorCode::Invalid,
         _ => ErrorCode::Internal,
     };
@@ -2250,6 +2271,23 @@ pub(crate) fn provider_failure(error: &ProviderError) -> ErrorBody {
             body.with_data(serde_json::json!({ "cause": context::CONTEXT_OVERFLOW }))
         }
         _ => body,
+    }
+}
+
+/// The limit that stopped the account of a turn whose model call failed with `error`,
+/// for the cause on `turn_failed`: the limit that the provider named, or `too many
+/// requests` with the end of the provider's wait from `now` when its rate limit outlived
+/// the retries. `None` for any other failure.
+pub(crate) fn account_limit(error: &ProviderError, now: jiff::Timestamp) -> Option<LimitReached> {
+    match error {
+        ProviderError::LimitReached { reached, .. } => Some(reached.clone()),
+        ProviderError::RateLimited { retry_after } => {
+            let resets_at = retry_after
+                .and_then(|wait| jiff::SignedDuration::try_from(wait).ok())
+                .and_then(|wait| now.checked_add(wait).ok());
+            Some(LimitReached { kind: LimitKind::TooManyRequests, resets_at })
+        }
+        _ => None,
     }
 }
 
