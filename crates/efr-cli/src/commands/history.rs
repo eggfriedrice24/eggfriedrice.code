@@ -461,8 +461,8 @@ struct Transcript<'a> {
     calls: HashMap<CallId, Call>,
     /// The calls whose approval was denied or expired: they never ran.
     denied: HashSet<CallId>,
-    /// The calls whose `!` row of the reviewer named their line: they get no row of
-    /// their own, as in the view (TM-Calls 24, 26).
+    /// The calls whose `!` row of the reviewer or of the floor named their line: they
+    /// get no row of their own, as in the view (TM-Calls 24, 25, 26).
     lined: HashSet<CallId>,
     /// The calls of `calls` in the order that they started.
     order: Vec<CallId>,
@@ -819,9 +819,9 @@ impl<'a> Transcript<'a> {
                 let (job, moved) = self.jobs.remove(call_id).unzip();
                 let moved = moved.flatten();
                 self.order.retain(|started| started != call_id);
-                let lined = self.lined.remove(call_id) && refusal.is_none();
-                if lined {
-                    // NOTE: the `!` row named the line: a refusal is one row.
+                if self.lined.remove(call_id) {
+                    // NOTE: the `!` row named the line, and the floor's text that a
+                    // refusal of the floor holds: a refusal is one row.
                     self.calls.remove(call_id);
                 } else if let Some(call) = self.calls.remove(call_id) {
                     // NOTE: the row of the view (TM-Commands frame 4), with no diff and no

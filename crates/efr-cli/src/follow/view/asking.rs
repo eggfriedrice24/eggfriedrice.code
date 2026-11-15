@@ -404,11 +404,15 @@ impl TurnView {
         };
         let exit = self.exits.get(&call_id);
         let glyphs = self.options.glyphs();
+        let names_line = sandbox::refusal_names_line(&judged, exit);
         let Some(row) = sandbox::judged_row(&judged, exit, self.home.as_deref(), glyphs) else {
             return Step::default();
         };
         if let Some(call) = self.call.as_mut().filter(|_| ours) {
             call.awaiting = false;
+        }
+        if names_line {
+            self.kept.lined.insert(call_id);
         }
         self.refused.insert(call_id);
         self.verdict_pieces(ours.then_some(call_id), &row, size)

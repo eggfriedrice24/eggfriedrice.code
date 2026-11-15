@@ -220,3 +220,34 @@ async fn classifier_allow_keeps_floor_count() {
         ]
     );
 }
+
+/// A floor's refusal sends the floor's own text as its rationale, the same text as the
+/// refusal of the call: a client names the line with it in one row (errata 9).
+#[tokio::test]
+async fn a_floor_refusal_sends_its_text() {
+    let judge = FakeJudge::answering(Vec::new());
+    let key = std::path::PathBuf::from("/etc/shadow");
+    let line = format!("cat {}", key.display());
+    let requirements = Requirements::none().with_command(&line).with_read(&key);
+    let (h, _, _) = run_answering(
+        &judge,
+        false,
+        vec![shell(&line)],
+        vec![(line.clone(), requirements)],
+        ApprovalDecision::Deny,
+    )
+    .await;
+
+    let events = h.events().await;
+    let rationale = events.iter().find_map(|event| match event {
+        Event::ExitJudged { judge: JudgeKind::Floor, rationale, .. } => Some(rationale.clone()),
+        _ => None,
+    });
+    let refusal = events.iter().find_map(|event| match event {
+        Event::ToolCallCompleted { refusal, .. } => Some(refusal.clone()),
+        _ => None,
+    });
+    assert_eq!(rationale, Some(Some("a secret (floor)".to_owned())));
+    assert_eq!(refusal, rationale);
+    assert_eq!(judge.calls(), 0, "a floor refuses with no review");
+}

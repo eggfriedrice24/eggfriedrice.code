@@ -1588,7 +1588,9 @@ impl Turn {
                 risk: None,
                 user_authorization: None,
                 category: Some(first.as_str().to_owned()),
-                rationale: None,
+                // NOTE: the floor's own text, as the call's refusal: the `!` row of a
+                // client names the line with it (errata 9).
+                rationale: Some(approvals::refusal(&ruling.decision)),
                 record_sha256: None,
                 cached: false,
                 chain_step: None,

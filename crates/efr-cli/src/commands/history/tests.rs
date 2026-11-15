@@ -1340,6 +1340,81 @@ fn history_shows_reviewer_and_backup_lines() {
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
+/// TM-Calls 25 with errata 9: a refusal of efr's floor names the line with the floor's
+/// text in one `!` row, as the view writes it; the call gets no row of its own.
+#[test]
+fn history_shows_a_floor_refusal_in_one_row() {
+    let line = "echo Host x >> ~/.ssh/config";
+    let text = "a secret (floor)";
+    let events = vec![
+        Event::ToolCallStarted {
+            turn_id: turn(),
+            call_id: call(),
+            tool: "shell".to_owned(),
+            input: json!({ "command": line }),
+            manual_input: false,
+            launch: None,
+            freeform: false,
+        },
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Secret],
+            grants: Vec::new(),
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record(line, ExitFacts::default())),
+        },
+        Event::ExitJudged {
+            turn_id: turn(),
+            call_id: call(),
+            judge: JudgeKind::Floor,
+            verdict: Verdict::Deny,
+            model: None,
+            latency_ms: None,
+            risk: None,
+            user_authorization: None,
+            category: Some("secret".to_owned()),
+            rationale: Some(text.to_owned()),
+            record_sha256: None,
+            cached: false,
+            chain_step: None,
+            skipped: Vec::new(),
+            reasked: false,
+        },
+        Event::ToolCallCompleted {
+            turn_id: turn(),
+            call_id: call(),
+            output: "Permission denied for the shell call".to_owned(),
+            truncated: false,
+            is_error: true,
+            exit_code: None,
+            sandbox: None,
+            refusal: Some(text.to_owned()),
+            changes: None,
+            diff: None,
+            left_running: false,
+        },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(100).with_terminal(false);
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown {
+            options: &options,
+            verbose: false,
+            home: Some(Path::new("/home/user")),
+            groups: &DiffGroups::default(),
+            zone: &TimeZone::UTC,
+            head: None,
+        },
+    );
+    assert!(plain.contains("! efr: echo Host x >> ~/.ssh/config: a secret (floor)\n"), "{plain}");
+    assert_eq!(plain.matches(line).count(), 1, "{plain}");
+    assert!(!plain.contains("refused \u{b7}"), "{plain}");
+}
+
 /// A turn of `auto` in phase E: the user answers `a` to a write question, the rule is
 /// saved, and a later call runs by that rule with no question.
 fn always_events() -> Vec<EventEnvelope> {

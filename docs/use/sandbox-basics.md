@@ -177,8 +177,8 @@ rights. A row with the label `efr` holds facts that efr found itself.
 ### What efr refuses
 
 A secret, a write of efr's config, of efr's own programs or of efr's own dirs is denied
-with no question. The row of the call says why, such as `! write ~/.ssh/config
-refused · efr's config (floor)`.
+with no question. One row names the command and says why, such as `! efr: echo x >>
+~/.config/efr/config.toml: efr's config (floor)`.
 
 ### Deletes and undo
 

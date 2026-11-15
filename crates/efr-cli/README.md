@@ -733,9 +733,12 @@ Replies:
   namespace) in `warning`. A refusal is one muted row after `!` in `warning` (bold in
   NO_COLOR): `! reviewer refused: <line>: <rationale>`; with no answer of any model of
   the chain (no risk) `! reviewer: no answer (skipped gpt-6-luna: timeout): <line> did
-  not run`; and a refusal of efr's own floor (judge `floor`) `! efr: write
-  ~/.ssh/config`, with `: <text>` only when efrd sends one. The call's rows follow
-  each at once, as they follow an answer, and a refused call has no result. The deletes of a tool cache count their
+  not run`; and a refusal of efr's own floor (judge `floor`) `! efr: <line>`, with
+  `: <text>` only when efrd sends one (efrd sends the floor's text, such as `a secret
+  (floor)`). A refusal that names its line with the reviewer's text or the floor's is
+  one row: the call gets no row of its own (`format::sandbox::refusal_names_line`),
+  also in `efr history`. Else the call's rows follow each at once, as they follow an
+  answer, and a refused call has no result. The deletes of a tool cache count their
   paths: `reviewer allowed: delete 12 paths in ~/.cache/go-build for this call`. For
   a background job the line ends with `for the whole job`, because the grants stay
   open until the job ends. An unsure verdict gets no line: the card of the question that follows has the muted row

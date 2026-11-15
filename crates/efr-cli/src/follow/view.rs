@@ -424,8 +424,8 @@ struct Kept {
     cwd: Option<PathBuf>,
     /// The steps of web search of the turn and its report (`web`).
     web: web::Web,
-    /// Refused calls whose `!` row of the reviewer named their line: they get no row
-    /// of their own (TM-Calls 24, 26).
+    /// Refused calls whose `!` row of the reviewer or of the floor named their line:
+    /// they get no row of their own (TM-Calls 24, 25, 26).
     lined: HashSet<CallId>,
 }
 

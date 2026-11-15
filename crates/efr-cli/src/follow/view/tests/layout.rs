@@ -1122,8 +1122,9 @@ fn an_allow_names_what_the_call_got_on_the_line_of_the_verdict() {
     ]));
 }
 
-/// TM-Calls 25 with errata 9: efr's own floor leads with `efr:`, and its text shows only
-/// when efrd sends one.
+/// TM-Calls 25 with errata 9: efr's own floor leads with `efr:` and names the line, and
+/// its text shows only when efrd sends one. With the text, which the call's refusal
+/// holds too, the refusal is one row; with none, the call's row says why.
 #[test]
 fn a_refusal_of_the_floor_leads_with_efr() {
     let line = "echo x >> ~/.ssh/config";
@@ -1159,19 +1160,20 @@ fn a_refusal_of_the_floor_leads_with_efr() {
         }],
         ..ExitFacts::default()
     };
-    let events = |rationale| {
+    let events = |rationale, refusal| {
         [
             Sent(0, turn_started()),
             Sent(10, started(1, "shell", json!({ "command": line }), None)),
             Sent(20, exit_requested(1, line, facts.clone(), &info)),
             Sent(20, floor(rationale)),
-            Sent(30, ended(1, None, None)),
+            Sent(30, ended(1, None, refusal)),
         ]
     };
+    let text = Some("a secret (floor)");
     insta::assert_snapshot!(format!(
         "### with a text\n{}\n### with none\n{}",
-        every_way(&events(Some("auto never writes under ~/.ssh"))),
-        every_way(&events(None))
+        every_way(&events(text, text)),
+        every_way(&events(None, text))
     ));
 }
 

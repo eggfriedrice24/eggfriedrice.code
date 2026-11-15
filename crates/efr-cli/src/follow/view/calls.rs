@@ -146,8 +146,9 @@ impl TurnView {
         }
         let lined = self.kept.lined.remove(call_id);
         let step = match self.call.take().filter(|call| call.call_id == *call_id) {
-            // NOTE: the `!` row named the line: a refusal is one row (TM-Calls 24, 26).
-            Some(_) if denied && refusal.is_none() && lined && notes.is_empty() => Step::default(),
+            // NOTE: the `!` row named the line, and the floor's text that a refusal of
+            // the floor holds: a refusal is one row (TM-Calls 24, 25, 26).
+            Some(_) if denied && lined && notes.is_empty() => Step::default(),
             Some(call) if denied && refusal.is_none() => self.denied_block(&call, &notes, size),
             Some(call) => {
                 let outcome = match (refusal, setup, *exit_code, &moved) {

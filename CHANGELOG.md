@@ -109,7 +109,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A refusal of the reviewer, a refusal of efr's own rules (`efr: ...`), a review with
   no answer and the pause of the reviewer each start with `!` in the warning colour.
   A refusal of the reviewer that names its command is one row: the call gets no
-  `did not run` row of its own, also in `efr history`.
+  `did not run` row of its own, also in `efr history`. A refusal of efr's own rules
+  names the command and the reason in one row, such as `! efr: echo Host x >>
+  ~/.ssh/config: a secret (floor)`.
 - The `⇄` line of a switch to another account on the same model names both accounts,
   such as `was openai/gpt-6.1-sol medium`.
 - When the output is not a terminal, efr writes a citation mark as plain `[1]`. The

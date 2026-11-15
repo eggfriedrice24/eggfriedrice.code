@@ -590,8 +590,9 @@ reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to
   tells you what it wanted to do. To get the action, ask for it in your next message.
 - When a rule of efr refused the reviewer's allow, the line says which: `! reviewer
   refused: <command>: no message of yours asks for this clearly (...)`.
-- A refusal of efr's own floor leads with `efr:`, such as `! efr: write
-  ~/.ssh/config`.
+- A refusal of efr's own floor leads with `efr:` and names the command with the
+  floor's text, such as `! efr: echo Host x >> ~/.ssh/config: a secret (floor)`. It is
+  one row, also in `efr history`.
 - An action that runs only by name shows the words that name it: `refused: no message
   of yours names this action; a message names it with: publish`.
 - The reason is the reviewer model's text. efr shows it safely, as it shows every text

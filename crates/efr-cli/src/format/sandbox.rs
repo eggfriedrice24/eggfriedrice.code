@@ -1103,11 +1103,18 @@ pub(crate) fn reviewed(
     }
 }
 
-/// True when the `!` row of a refusal of the reviewer (with or without an answer)
-/// names the line of its call. The call's own `· $ <line>  did not run` row then says
-/// nothing more, so it is left out: a refusal is one `!` row (TM-Calls 24, 26, 29).
+/// True when the `!` row of a refusal of the reviewer (with or without an answer), or
+/// of efr's floor with the floor's text, names the line of its call. The call's own row
+/// (`· $ <line>  did not run`, or `refused · <the floor's text>`) then says nothing
+/// more, so it is left out: a refusal is one `!` row (TM-Calls 24, 25, 26, 29).
 pub(crate) fn refusal_names_line(judged: &Judged<'_>, exit: Option<&Requested>) -> bool {
-    judged.judge == JudgeKind::Classifier
+    let named = match judged.judge {
+        JudgeKind::Classifier => true,
+        // NOTE: with no text, the call's row keeps the reason of the floor.
+        JudgeKind::Floor => judged.rationale.is_some_and(|text| !text.trim().is_empty()),
+        _ => false,
+    };
+    named
         && judged.verdict == Verdict::Deny
         && exit.is_some_and(|exit| !exit.record.action.line.trim().is_empty())
 }
@@ -1177,10 +1184,10 @@ pub(crate) fn judged_row(
             row.extend(granted(exit, home));
             Some(row)
         }
-        // NOTE: a floor names what the exit opens, as TM-Calls 25 does (`write
-        // ~/.ssh/config`): the line can hide it.
+        // NOTE: a floor names the line of its call, as the reviewer does (errata 9);
+        // what the exit opens only for a call with no line.
         (JudgeKind::Floor, Verdict::Deny) => {
-            let subject = exit.map_or_else(|| subject(None, home), |exit| exit_what(exit, home));
+            let subject = subject(exit, home);
             let rationale = judged.rationale.map(one_line).filter(|text| !text.trim().is_empty());
             Some(refusal(match rationale {
                 Some(rationale) => format!("efr: {subject}: {rationale}"),
