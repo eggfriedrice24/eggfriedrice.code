@@ -87,7 +87,7 @@ export function ModelSheetView(props: ModelSheetViewProps) {
   const [under, setUnder] = useState(false);
   const [box, setBox] = useState({ content: 0, frame: 0 });
   return (
-    <View testID="model-sheet" className="flex-1 bg-surface-1">
+    <View testID="model-sheet" collapsable={false} className="flex-1 bg-surface-1">
       <ScrollView
         bounces={false}
         testID="model-list"
