@@ -165,7 +165,16 @@ pub(crate) fn resolve(
         (None, None) => (Mode::default(), SettingSource::Default),
     };
 
-    let ids = || models.iter().map(|model| model.id.clone()).collect::<Vec<_>>();
+    // NOTE: two accounts can list the same model; each id shows once.
+    let ids = || {
+        let mut ids: Vec<String> = Vec::new();
+        for model in models {
+            if !ids.contains(&model.id) {
+                ids.push(model.id.clone());
+            }
+        }
+        ids
+    };
     // NOTE: an empty list means that the provider names no models (`openai-api` without
     // `[openai] models`); the daemon then takes any model id, and so does efr.
     let any_model = models.is_empty();

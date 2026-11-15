@@ -118,6 +118,22 @@ fn an_unknown_model_is_an_error_with_the_choices() {
 }
 
 #[test]
+fn a_model_of_two_accounts_shows_once_in_the_choices() {
+    let mut list = models().models;
+    let mut other = list[0].clone();
+    other.provider = Some("openai-subscription.b".to_owned());
+    other.default = false;
+    list.push(other);
+    let asked = Asked { model: given("gpt-9", SettingSource::Var(Var::Model)), ..Asked::default() };
+    let error = resolve(&asked, &TurnDefaults::default(), &list).unwrap_err();
+    assert_eq!(
+        run::message(&error),
+        "efr: the daemon has no model \"gpt-9\" (EFR_MODEL); choose one of: gpt-5.5, gpt-5.4, \
+         my-model\n"
+    );
+}
+
+#[test]
 fn an_effort_the_model_does_not_take_is_an_error_with_its_efforts() {
     let asked = Asked {
         model: given("gpt-5.4", SettingSource::Flag("--model")),
