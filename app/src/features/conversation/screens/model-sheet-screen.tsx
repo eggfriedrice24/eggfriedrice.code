@@ -15,11 +15,16 @@
 //   (`conversation.switch_preview`). Only a compaction shows. With the Settings switch
 //   off, a tap on a row switches at once and closes the sheet, and a move of the slider
 //   switches the effort at once.
+// - Round 7: the search and the provider filter live while the sheet is open; the
+//   provider goes back to All when it closes. "Legacy models" is a preference of the
+//   phone. While the field has the focus or text, the sheet holds the large detent, so
+//   the results do not move it. A star sets the favourite of its account at once; the
+//   rows keep the order of the time when the sheet opened.
 
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow } from "@tanstack/store";
-import { useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 
 import { haptic } from "@/lib/native/haptics";
@@ -36,11 +41,19 @@ import { useNow } from "@/features/navigation/use-now";
 import { ModelSheetView, type SheetEmpty } from "../components/model-sheet";
 import { modelsQueryOptions, switchPreviewQueryOptions } from "../conversation-queries";
 import { composerDraftKey, outboxTargetOf } from "../model/composer-state";
-import { selectModelChoice, selectQuiet } from "../model/model-choices";
+import {
+  favouriteOf,
+  selectFavourites,
+  selectModelChoice,
+  selectPlan,
+  selectQuiet,
+} from "../model/model-choices";
 import {
   choiceOf,
   currentSettings,
   defaultSelection,
+  freshChoice,
+  type KindFilter,
   openingSelection,
   pickRow,
   type Selection,
@@ -119,8 +132,19 @@ function SheetBody(props: SheetBodyProps) {
   // this time keeps its warning when the user ticks it.
   const [quietAtOpen] = useState(() => choices.quiet(key));
   const [picked, setPicked] = useState<Selection | undefined>(undefined);
+  const showLegacy = useSelector(preferences.store, (state) => state.showLegacyModels);
+  const favourites = useSelector(choices.store, selectFavourites);
+  const plan = useSelector(choices.store, selectPlan(target.machine));
+  // The rows keep the order of the favourites of the time when the sheet opened.
+  const [favouritesAtOpen] = useState(() => choices.store.get().favourites);
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<KindFilter>("all");
+  const [focused, setFocused] = useState(false);
 
-  const current = currentSettings(list, choice, last.model === undefined ? undefined : last);
+  const favourite = (provider: string | undefined): string | undefined =>
+    favouriteOf(favourites, target.machine, provider);
+  const fresh = composer.isBlankRoot ? freshChoice(list, plan, favourite) : undefined;
+  const current = currentSettings(list, choice, last.model === undefined ? undefined : last, fresh);
   const preselect =
     target.model === undefined ? undefined : { model: target.model, provider: target.provider };
   const selection = picked ?? openingSelection(list, current, preselect);
@@ -150,7 +174,13 @@ function SheetBody(props: SheetBodyProps) {
     asks,
     cost: previewOn ? preview.data?.cost : undefined,
     costPending: previewOn && preview.isPending && preview.fetchStatus === "fetching",
+    query,
+    kind,
+    showLegacy,
+    favourite,
+    favouriteAtOpen: (provider) => favouriteOf(favouritesAtOpen, target.machine, provider),
   });
+  const searching = focused || query !== "";
   let empty: SheetEmpty;
   if (list === undefined) {
     empty = models.isError ? "offline" : "loading";
@@ -194,21 +224,34 @@ function SheetBody(props: SheetBodyProps) {
       setPicked(undefined);
     }
   };
+  const onStar = (row: SheetRow): void => {
+    choices.setFavourite(target.machine, row.provider, row.favourite ? undefined : row.model);
+    haptic("light");
+  };
   return (
-    <ModelSheetView
-      view={view}
-      empty={empty}
-      machineName={machineName}
-      quiet={quiet}
-      onRow={onRow}
-      onEffort={onEffort}
-      onUseDefault={() => select(defaultSelection(list))}
-      onQuiet={() => choices.setQuiet(key, !quiet)}
-      onConfirm={() => {
-        if (selection !== undefined) {
-          commit(selection);
-        }
-      }}
-    />
+    <>
+      <Stack.Screen options={{ sheetAllowedDetents: searching ? [1] : "fitToContents" }} />
+      <ModelSheetView
+        view={view}
+        empty={empty}
+        machineName={machineName}
+        quiet={quiet}
+        query={query}
+        onQuery={setQuery}
+        onSearchFocus={setFocused}
+        onKind={setKind}
+        onLegacy={(on) => preferences.setShowLegacyModels(on)}
+        onStar={onStar}
+        onRow={onRow}
+        onEffort={onEffort}
+        onUseDefault={() => select(defaultSelection(list))}
+        onQuiet={() => choices.setQuiet(key, !quiet)}
+        onConfirm={() => {
+          if (selection !== undefined) {
+            commit(selection);
+          }
+        }}
+      />
+    </>
   );
 }

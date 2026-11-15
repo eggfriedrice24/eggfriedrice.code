@@ -13,13 +13,14 @@ const DESKTOP = "019a9b1c-3d00-7a10-8b20-000000000001";
 const LAPTOP = "019a9b1c-3d00-7a10-8b20-000000000002";
 
 describe("the preferences", () => {
-  it("start with haptics on, steer, no machine, and asking before a costly switch", () => {
+  it("start with haptics on, steer, no machine, asking before a costly switch, no legacy", () => {
     const preferences = createPreferences({ storage: new MemoryKeyValue() });
     expect(preferences.store.get()).toEqual({
       haptics: true,
       sendMode: "steer",
       lastMachine: null,
       askCostlySwitch: true,
+      showLegacyModels: false,
     });
     // The schema falls back to the same defaults.
     expect(savedPreferencesSchema.parse({})).toEqual(DEFAULT_PREFERENCES);
@@ -32,14 +33,16 @@ describe("the preferences", () => {
     preferences.setSendMode("queue");
     preferences.setLastMachine(DESKTOP);
     preferences.setAskCostlySwitch(false);
+    preferences.setShowLegacyModels(true);
     expect(preferences.store.get()).toEqual({
       haptics: false,
       sendMode: "queue",
       lastMachine: DESKTOP,
       askCostlySwitch: false,
+      showLegacyModels: true,
     });
     await preferences.settled();
-    expect(storage.writes).toBe(4);
+    expect(storage.writes).toBe(5);
     expect(createPreferences({ storage }).store.get()).toEqual(preferences.store.get());
   });
 
@@ -51,6 +54,7 @@ describe("the preferences", () => {
     preferences.setSendMode("steer");
     preferences.setLastMachine(null);
     preferences.setAskCostlySwitch(true);
+    preferences.setShowLegacyModels(false);
     preferences.forgetMachine(DESKTOP);
     await preferences.settled();
     expect(preferences.store.get()).toBe(state);
@@ -74,12 +78,19 @@ describe("the preferences", () => {
       parsePreferences(
         JSON.stringify({ haptics: false, sendMode: "later", lastMachine: "x", extra: 1 }),
       ),
-    ).toEqual({ haptics: false, sendMode: "steer", lastMachine: null, askCostlySwitch: true });
+    ).toEqual({
+      haptics: false,
+      sendMode: "steer",
+      lastMachine: null,
+      askCostlySwitch: true,
+      showLegacyModels: false,
+    });
     expect(parsePreferences(JSON.stringify({ lastMachine: LAPTOP }))).toEqual({
       haptics: true,
       sendMode: "steer",
       lastMachine: LAPTOP,
       askCostlySwitch: true,
+      showLegacyModels: false,
     });
   });
 

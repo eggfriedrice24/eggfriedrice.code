@@ -10,4 +10,5 @@ export const savedPreferencesSchema = z.object({
   sendMode: z.enum(["steer", "queue"]).catch("steer"),
   lastMachine: z.guid().nullable().catch(null),
   askCostlySwitch: z.boolean().catch(true),
+  showLegacyModels: z.boolean().catch(false),
 });

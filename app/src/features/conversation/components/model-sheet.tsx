@@ -12,18 +12,39 @@
 //   changed. A switch that compacts adds one line with the warning glyph above it and the
 //   plain toggle "Don't ask again here" on its left.
 //
+// Round 7 (S-ModelSheet r7):
+// - The search field and the filter button are pinned under the grabber. The filter is a
+//   native pull-down (UIMenu): one choice of provider, then "Legacy models". Its glyph
+//   fills in text_bright while a filter is on.
+// - The list draws no scroll indicator. While rows lie under the pinned panel, the panel
+//   has a hairline at its top; at the end of the list the hairline goes. A drag closes
+//   the keyboard.
+// - A row is logo, name, check, star. The star is 16 pt with a touch of 44 pt: filled in
+//   text_primary for the favourite, else border_default (text_subtle on the selected
+//   row). A tap on it never selects the row. A row that takes no tap has no star
+//   control; a dim favourite keeps its star at 40 %. For VoiceOver the star is an action
+//   of the row.
+// - The legacy rows of an account stand under "Legacy", a label in the column of the
+//   names.
+//
 // `ModelSheetView` draws a model only, for the tests and the gallery.
 
+import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { cn } from "@/components/ui/cn";
+import type { MenuEntry } from "@/components/ui/menu-actions";
+import { MenuView } from "@/components/ui/menu-view";
 import { MonoText } from "@/components/ui/mono-text";
+import { SearchField } from "@/components/ui/search-field";
 import { SmallFilledButton } from "@/components/ui/small-buttons";
 import { SymbolIcon } from "@/components/ui/symbol";
 import {
   COMPACTS_TEXT,
+  type FilterView,
+  type KindFilter,
   type SheetRow,
   type SheetSection,
   type SheetView,
@@ -52,25 +73,83 @@ export interface ModelSheetViewProps {
   readonly onUseDefault: () => void;
   readonly onQuiet: () => void;
   readonly onConfirm: () => void;
+  /** The words of the search field. */
+  readonly query: string;
+  readonly onQuery: (query: string) => void;
+  /** Called with true when the search field gets the focus and with false when it loses it. */
+  readonly onSearchFocus?: ((focused: boolean) => void) | undefined;
+  readonly onKind: (kind: KindFilter) => void;
+  readonly onLegacy: (on: boolean) => void;
+  /** A tap on the star of `row`: it sets, moves or removes the favourite. */
+  readonly onStar: (row: SheetRow) => void;
   /** True to draw the effort steps as buttons, as a build without the native slider. */
   readonly fallbackSlider?: boolean;
 }
+
+/** The space under the end of the list in which the pinned panel needs no hairline. */
+const END_SLACK = 1;
 
 /** The sheet. */
 export function ModelSheetView(props: ModelSheetViewProps) {
   const { view } = props;
   const bottom = Math.max(useSafeAreaInsets().bottom, MIN_BOTTOM);
+  // Short local UI state: rows lie under the pinned panel.
+  const [under, setUnder] = useState(false);
+  const [box, setBox] = useState({ content: 0, frame: 0 });
   return (
     <View testID="model-sheet" className="bg-surface-1">
-      <ScrollView bounces={false} className="shrink grow-0" contentContainerClassName="px-16 pt-14">
+      <View className="flex-row items-center gap-4 pt-14 pr-8 pl-16">
+        <SearchField
+          value={props.query}
+          onChangeText={props.onQuery}
+          placeholder={view.filter.placeholder}
+          accessibilityLabel="Search models"
+          className="mx-0 flex-1"
+          testID="model-search"
+          onFocusChange={props.onSearchFocus}
+        />
+        <FilterButton filter={view.filter} onKind={props.onKind} onLegacy={props.onLegacy} />
+      </View>
+      <ScrollView
+        bounces={false}
+        testID="model-list"
+        showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={32}
+        onLayout={(event) => {
+          const frame = event.nativeEvent.layout.height;
+          setBox((now) => ({ ...now, frame }));
+          setUnder(box.content - frame > END_SLACK);
+        }}
+        onContentSizeChange={(_width, content) => {
+          setBox((now) => ({ ...now, content }));
+          setUnder(content - box.frame > END_SLACK);
+        }}
+        onScroll={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          setUnder(contentSize.height - contentOffset.y - layoutMeasurement.height > END_SLACK);
+        }}
+        className="shrink grow-0"
+        contentContainerClassName="px-16 pt-6"
+      >
         {props.empty === undefined ? null : (
           <EmptyLine empty={props.empty} machineName={props.machineName} />
         )}
+        {view.noMatch === undefined ? null : (
+          <View testID="model-no-match" className="min-h-44 justify-center px-12">
+            <MonoText tone="text_muted">{view.noMatch}</MonoText>
+          </View>
+        )}
         {view.sections.map((section) => (
-          <Section key={section.key} section={section} onRow={props.onRow} />
+          <Section key={section.key} section={section} onRow={props.onRow} onStar={props.onStar} />
         ))}
       </ScrollView>
-      <View className="gap-10 px-20 pt-14" style={{ paddingBottom: bottom }}>
+      <View
+        testID="model-panel"
+        className={cn("gap-10 px-20 pt-14", under && "border-t-hairline border-border-subtle")}
+        style={{ paddingBottom: bottom }}
+      >
         {view.effort === undefined ? null : (
           <EffortSlider
             effort={view.effort}
@@ -120,9 +199,81 @@ function EmptyLine(props: { readonly empty: "loading" | "offline"; readonly mach
   );
 }
 
+/** The items of the filter menu. */
+export function filterEntries(filter: FilterView): MenuEntry[] {
+  const legacy: MenuEntry = {
+    id: "legacy",
+    title: "Legacy models",
+    state: filter.legacy ? "on" : "off",
+  };
+  if (!filter.kinds) {
+    return [legacy];
+  }
+  const kinds: [KindFilter, string][] = [
+    ["all", "All"],
+    ["claude", "Claude"],
+    ["openai", "OpenAI"],
+  ];
+  return [
+    ...kinds.map(([kind, title]): MenuEntry => ({
+      id: `kind:${kind}`,
+      title,
+      state: filter.kind === kind ? "on" : "off",
+    })),
+    { section: "legacy", items: [legacy] },
+  ];
+}
+
+function isKind(id: string): id is KindFilter {
+  return id === "all" || id === "claude" || id === "openai";
+}
+
+interface FilterButtonProps {
+  readonly filter: FilterView;
+  readonly onKind: (kind: KindFilter) => void;
+  readonly onLegacy: (on: boolean) => void;
+}
+
+/** The filter button right of the search field: 44 pt touch, a 22 pt glyph. */
+function FilterButton(props: FilterButtonProps) {
+  const { filter } = props;
+  const pick = (id: string): void => {
+    if (id === "legacy") {
+      props.onLegacy(!filter.legacy);
+      return;
+    }
+    const kind = id.slice("kind:".length);
+    if (isKind(kind)) {
+      props.onKind(kind);
+    }
+  };
+  return (
+    <MenuView testID="model-filter-menu" entries={filterEntries(filter)} onAction={pick}>
+      <View
+        testID="model-filter"
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={filter.label}
+        className="h-44 w-44 items-center justify-center"
+      >
+        <SymbolIcon
+          name={
+            filter.on
+              ? "line.3.horizontal.decrease.circle.fill"
+              : "line.3.horizontal.decrease.circle"
+          }
+          size={22}
+          tone={filter.on ? "text_bright" : "text_muted"}
+        />
+      </View>
+    </MenuView>
+  );
+}
+
 interface SectionProps {
   readonly section: SheetSection;
   readonly onRow: (row: SheetRow) => void;
+  readonly onStar: (row: SheetRow) => void;
 }
 
 function Section(props: SectionProps) {
@@ -156,7 +307,30 @@ function Section(props: SectionProps) {
         </View>
       )}
       {section.rows.map((row) => (
-        <ModelRow key={row.key} row={row} onPress={() => props.onRow(row)} />
+        <ModelRow
+          key={row.key}
+          row={row}
+          onPress={() => props.onRow(row)}
+          onStar={() => props.onStar(row)}
+        />
+      ))}
+      {section.legacy.length === 0 ? null : (
+        // The label stands in the column of the names: 12 pt inset, 24 pt logo, 12 pt gap.
+        <Text
+          accessibilityRole="header"
+          testID="model-legacy-label"
+          className="pt-8 pb-2 pl-48 text-caption text-text-subtle"
+        >
+          Legacy
+        </Text>
+      )}
+      {section.legacy.map((row) => (
+        <ModelRow
+          key={row.key}
+          row={row}
+          onPress={() => props.onRow(row)}
+          onStar={() => props.onStar(row)}
+        />
       ))}
     </View>
   );
@@ -165,6 +339,45 @@ function Section(props: SectionProps) {
 interface ModelRowProps {
   readonly row: SheetRow;
   readonly onPress: () => void;
+  readonly onStar: () => void;
+}
+
+/** The colour role of the star of `row`. */
+function starTone(row: SheetRow): "text_primary" | "text_subtle" | "border_default" {
+  if (row.favourite) {
+    return "text_primary";
+  }
+  return row.selected ? "text_subtle" : "border_default";
+}
+
+/** The star at the right end of a row: a control, or a dim mark of a favourite. */
+function Star(props: { readonly row: SheetRow; readonly onPress: () => void }) {
+  const { row } = props;
+  const glyph = (
+    <SymbolIcon name={row.favourite ? "star.fill" : "star"} size={16} tone={starTone(row)} />
+  );
+  if (!row.starrable) {
+    return row.favourite ? (
+      <View
+        accessibilityElementsHidden
+        className="h-44 w-44 items-center justify-center opacity-40"
+      >
+        {glyph}
+      </View>
+    ) : null;
+  }
+  // VoiceOver reaches the star as an action of the row, so the control itself is hidden.
+  return (
+    <Pressable
+      testID={`model-star-${row.key}`}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      onPress={props.onPress}
+      className="-mr-12 h-44 w-44 items-center justify-center active:opacity-60"
+    >
+      {glyph}
+    </Pressable>
+  );
 }
 
 /** The style of the name of `row`. */
@@ -186,6 +399,12 @@ function ModelRow(props: ModelRowProps) {
       accessibilityRole="button"
       accessibilityLabel={row.label}
       accessibilityState={{ selected: row.selected, disabled: row.disabled }}
+      accessibilityActions={row.starrable ? [{ name: "star", label: row.starLabel }] : []}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "star") {
+          props.onStar();
+        }
+      }}
       disabled={row.disabled}
       onPress={props.onPress}
       className={cn(
@@ -207,6 +426,7 @@ function ModelRow(props: ModelRowProps) {
       {row.checked ? (
         <SymbolIcon name="checkmark" size={17} tone="accent_primary" weight="semibold" />
       ) : null}
+      <Star row={row} onPress={props.onStar} />
     </Pressable>
   );
 }

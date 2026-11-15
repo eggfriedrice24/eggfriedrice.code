@@ -22,6 +22,19 @@
 //   "Compacts this conversation and starts a cold cache." and reads "Switch and
 //   compact". A cold cache alone stays silent.
 //
+// Round 7 (S-ModelSheet r7, S-ComposerR7):
+// - Search: each word of the query must be in the name or the id of the model, in any
+//   case. An account with no match goes; no match at all says `no model matches "xyz"`.
+// - The filter: one kind of provider (All, Claude, OpenAI) and "Legacy models". A model
+//   that efrd marks legacy stands under "Legacy" at the end of its account, and only
+//   when the filter shows them, a search finds it, or it is in use, selected or a
+//   favourite.
+// - One favourite for each account: a star at the right end of each row that takes a
+//   tap. The favourite goes first in its account, by the favourites of the time when the
+//   sheet opened, so the rows never move while it is open. A new thread starts on the
+//   last plan of the machine with its favourite (`freshChoice`).
+// - The model button has the logo of its account, dim when the account is signed out.
+//
 // Pure TypeScript.
 
 import type {
@@ -33,6 +46,7 @@ import type {
 import {
   accountName,
   accountShort,
+  accountSubject,
   labelOf,
   limitLevel,
   limitsNow,
@@ -49,8 +63,11 @@ export interface CurrentSettings {
   readonly model: string;
   readonly provider: string | undefined;
   readonly effort: string | undefined;
-  /** The choice of the sheet, the model of the conversation, or the machine's default. */
-  readonly source: "choice" | "turn" | "default";
+  /**
+   * The choice of the sheet, the model of the conversation, the favourite of the plan of
+   * a new thread, or the machine's default.
+   */
+  readonly source: "choice" | "turn" | "favourite" | "default";
 }
 
 /** The settings of the newest turn that names a model. */
@@ -120,11 +137,39 @@ export function normalEffort(
   return efforts[Math.floor((efforts.length - 1) / 2)];
 }
 
-/** What the next message uses: the choice, else the conversation's model, else the default. */
+/** The favourite of an account, by its provider id. */
+export type FavouriteOf = (provider: string | undefined) => string | undefined;
+
+/**
+ * The choice that a new thread starts with: the favourite of `plan`, the last plan of the
+ * machine, else of the account of the machine's default model, with the model's default
+ * effort. None when that account has no favourite in the list: efrd then runs its
+ * default.
+ */
+export function freshChoice(
+  list: ModelsListResult | undefined,
+  plan: string | undefined,
+  favourite: FavouriteOf,
+): ModelChoice | undefined {
+  const models = modelsOf(list);
+  const known = plan !== undefined && models.some((entry) => entry.provider === plan);
+  const provider = known ? plan : (defaultEntry(list)?.provider ?? undefined);
+  const model = favourite(provider);
+  if (model === undefined || findEntry(models, model, provider) === undefined) {
+    return undefined;
+  }
+  return provider === undefined ? { model } : { model, provider };
+}
+
+/**
+ * What the next message uses: the choice, else the conversation's model, else the
+ * favourite of a new thread (`fresh`), else the default.
+ */
 export function currentSettings(
   list: ModelsListResult | undefined,
   choice: ModelChoice | undefined,
   turn: TurnSettingsView | undefined,
+  fresh?: ModelChoice,
 ): CurrentSettings | undefined {
   const models = modelsOf(list);
   const resolve = (
@@ -146,6 +191,9 @@ export function currentSettings(
   }
   if (turn?.model !== undefined) {
     return resolve(turn.model, turn.provider, turn.effort, "turn");
+  }
+  if (fresh !== undefined) {
+    return resolve(fresh.model, fresh.provider, fresh.effort, "favourite");
   }
   const fallback = defaultEntry(list);
   if (fallback === undefined) {
@@ -243,6 +291,12 @@ export interface SheetRow {
   /** The words of a model that the machine lists no more: "gone from desktop". */
   readonly gone: string | undefined;
   readonly label: string;
+  /** The favourite of its account: a filled star. */
+  readonly favourite: boolean;
+  /** The star takes a tap: the row takes one too. A dim favourite keeps its star. */
+  readonly starrable: boolean;
+  /** The words of the star action for VoiceOver. */
+  readonly starLabel: string;
 }
 
 /** The rows of one account. */
@@ -253,6 +307,25 @@ export interface SheetSection {
   readonly note: SectionNote | undefined;
   readonly dim: boolean;
   readonly rows: readonly SheetRow[];
+  /** The legacy models that show, under "Legacy" at the end of the account. */
+  readonly legacy: readonly SheetRow[];
+}
+
+/** The provider filter of the sheet: every kind, or the models of one kind. */
+export type KindFilter = "all" | "claude" | "openai";
+
+/** The filter button and its menu. */
+export interface FilterView {
+  /** The machine has accounts of two kinds: the menu offers the provider. */
+  readonly kinds: boolean;
+  readonly kind: KindFilter;
+  readonly legacy: boolean;
+  /** A filter is on: the filled glyph in text_bright. */
+  readonly on: boolean;
+  /** The words of the button for VoiceOver. */
+  readonly label: string;
+  /** The placeholder of the search field: "Search", or "Search Claude models". */
+  readonly placeholder: string;
 }
 
 /** The effort slider of the selected model. */
@@ -284,6 +357,9 @@ export interface ConfirmView {
 /** The whole sheet. */
 export interface SheetView {
   readonly sections: readonly SheetSection[];
+  /** The line when a search finds nothing: `no model matches "xyz"`. */
+  readonly noMatch: string | undefined;
+  readonly filter: FilterView;
   readonly effort: EffortView | undefined;
   readonly quiet: QuietLine | undefined;
   readonly confirm: ConfirmView | undefined;
@@ -304,6 +380,48 @@ export interface SheetInput {
   readonly cost: SwitchCost | undefined;
   /** The cost is asked for now. */
   readonly costPending: boolean;
+  /** The words of the search field. */
+  readonly query: string;
+  readonly kind: KindFilter;
+  /** The switch "Legacy models" of the filter menu. */
+  readonly showLegacy: boolean;
+  /** The favourite of each account now: the stars. */
+  readonly favourite: FavouriteOf;
+  /** The favourite of each account when the sheet opened: the order of the rows. */
+  readonly favouriteAtOpen: FavouriteOf;
+}
+
+/** No search, no filter and no favourite, as the sheet opens on a new install. */
+export const NO_FILTER: Pick<
+  SheetInput,
+  "query" | "kind" | "showLegacy" | "favourite" | "favouriteAtOpen"
+> = {
+  query: "",
+  kind: "all",
+  showLegacy: false,
+  favourite: () => undefined,
+  favouriteAtOpen: () => undefined,
+};
+
+/** The words of each kind of the filter. */
+const KIND_WORDS: Readonly<Record<Exclude<KindFilter, "all">, string>> = {
+  claude: "Claude",
+  openai: "OpenAI",
+};
+
+/** The words of a search, in lower case. */
+function queryWords(query: string): string[] {
+  return query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word !== "");
+}
+
+/** True when each word is in the name or the id of the model. */
+function matches(words: readonly string[], id: string, name: string): boolean {
+  const text = `${name} ${id}`.toLowerCase();
+  return words.every((word) => text.includes(word));
 }
 
 /** The warning line of a switch that compacts. */
@@ -356,26 +474,48 @@ function sections(input: SheetInput): SheetSection[] {
     }
   }
   const { current, selection, machineName, now } = input;
+  const words = queryWords(input.query);
+  const filtered = words.length > 0 || input.kind !== "all";
   const out: SheetSection[] = [];
   for (const provider of order) {
+    if (input.kind !== "all" && providerLogo(provider) !== input.kind) {
+      continue;
+    }
     const catalog = catalogs.find((one) => (one.provider ?? undefined) === provider);
     const { note, dim } = noteOf(catalog, machineName, now);
+    const subject =
+      provider === undefined ? "this machine" : accountSubject(provider, catalog?.label);
+    const favourite = input.favourite(provider);
     const rows: SheetRow[] = [];
+    const legacy: SheetRow[] = [];
     for (const entry of models) {
       if ((entry.provider ?? undefined) !== provider) {
         continue;
       }
       const name = modelName(entry.id);
+      if (!matches(words, entry.id, name)) {
+        continue;
+      }
       const checked = current?.model === entry.id && current.provider === provider;
       const selected = selection?.model === entry.id && selection.provider === provider;
-      const words = [name];
+      const starred = favourite === entry.id;
+      if (
+        entry.legacy === true &&
+        !(input.showLegacy || words.length > 0 || checked || selected || starred)
+      ) {
+        continue;
+      }
+      const label = [name];
       if (checked) {
-        words.push("in use");
+        label.push("in use");
+      }
+      if (starred) {
+        label.push(`favourite of ${subject}`);
       }
       if (dim) {
-        words.push(note?.kind === "signed_out" ? "signed out" : "limit reached");
+        label.push(note?.kind === "signed_out" ? "signed out" : "limit reached");
       }
-      rows.push({
+      const row: SheetRow = {
         key: rowKey(provider, entry.id),
         model: entry.id,
         provider,
@@ -385,13 +525,73 @@ function sections(input: SheetInput): SheetSection[] {
         selected,
         disabled: dim,
         gone: undefined,
-        label: words.join(", "),
-      });
+        label: label.join(", "),
+        favourite: starred,
+        starrable: !dim,
+        starLabel: starred
+          ? `Remove the favourite of ${subject}`
+          : `Make ${name} the favourite of ${subject}`,
+      };
+      (entry.legacy === true ? legacy : rows).push(row);
     }
+    if (filtered && rows.length === 0 && legacy.length === 0) {
+      continue;
+    }
+    const first = input.favouriteAtOpen(provider);
     const title = provider === undefined ? undefined : accountName(provider, catalog?.label);
-    out.push({ key: provider ?? "", title, note, dim, rows });
+    out.push({
+      key: provider ?? "",
+      title,
+      note,
+      dim,
+      rows: favouriteFirst(rows, first),
+      legacy: favouriteFirst(legacy, first),
+    });
   }
   return withGone(out, input);
+}
+
+/** `rows` with the row of `model` first, so a favourite leads its account. */
+function favouriteFirst(rows: SheetRow[], model: string | undefined): SheetRow[] {
+  const at = rows.findIndex((row) => row.model === model);
+  if (at <= 0) {
+    return rows;
+  }
+  const row = rows[at];
+  return row === undefined ? rows : [row, ...rows.slice(0, at), ...rows.slice(at + 1)];
+}
+
+/** The line of a search that finds nothing. */
+function noMatchLine(input: SheetInput, shown: readonly SheetSection[]): string | undefined {
+  const query = input.query.trim();
+  if (query === "" || shown.some((one) => one.rows.length > 0 || one.legacy.length > 0)) {
+    return undefined;
+  }
+  const kind = input.kind === "all" ? "" : `${KIND_WORDS[input.kind]} `;
+  return `no ${kind}model matches "${query}"`;
+}
+
+/** The filter button of the sheet. */
+function filterView(input: SheetInput): FilterView {
+  const kinds = new Set<string>();
+  for (const catalog of catalogsOf(input.list)) {
+    kinds.add(providerLogo(catalog.provider ?? undefined));
+  }
+  for (const entry of modelsOf(input.list)) {
+    kinds.add(providerLogo(entry.provider ?? undefined));
+  }
+  const both = kinds.has("claude") && kinds.has("openai");
+  const kind = both ? input.kind : "all";
+  const kindWords = kind === "all" ? "all providers" : KIND_WORDS[kind];
+  const legacyWords = input.showLegacy ? "legacy models shown" : "legacy models hidden";
+  return {
+    kinds: both,
+    kind,
+    legacy: input.showLegacy,
+    on: kind !== "all" || input.showLegacy,
+    label: `Filter models, ${kindWords}, ${legacyWords}`,
+    placeholder: kind === "all" ? "Search" : `Search ${KIND_WORDS[kind]} models`,
+  };
 }
 
 /** The sections with a row for the current model when the machine lists it no more. */
@@ -416,13 +616,21 @@ function withGone(out: SheetSection[], input: SheetInput): SheetSection[] {
     disabled: true,
     gone: `gone from ${input.machineName}`,
     label: `${name}, in use, gone from ${input.machineName}`,
+    favourite: false,
+    starrable: false,
+    starLabel: "",
   };
   const index = out.findIndex((section) => section.key === (current.provider ?? ""));
   if (index < 0) {
-    return [
-      { key: `gone:${current.model}`, title: undefined, note: undefined, dim: false, rows: [gone] },
-      ...out,
-    ];
+    const section: SheetSection = {
+      key: `gone:${current.model}`,
+      title: undefined,
+      note: undefined,
+      dim: false,
+      rows: [gone],
+      legacy: [],
+    };
+    return [section, ...out];
   }
   const section = out[index];
   if (section === undefined) {
@@ -476,7 +684,7 @@ function quietLine(input: SheetInput, entry: ModelInfo | undefined): QuietLine |
   let useDefault = false;
   if (isDefault) {
     parts.push(`${machineName} default`);
-  } else if (isCurrent && current.source !== "default") {
+  } else if (isCurrent && (current.source === "choice" || current.source === "turn")) {
     parts.push("chosen here");
     useDefault = fallback !== undefined;
   }
@@ -530,8 +738,11 @@ export function sheetView(input: SheetInput): SheetView {
     selection === undefined
       ? undefined
       : findEntry(modelsOf(input.list), selection.model, selection.provider);
+  const shown = sections(input);
   return {
-    sections: sections(input),
+    sections: shown,
+    noMatch: noMatchLine(input, shown),
+    filter: filterView(input),
     effort: selection === undefined ? undefined : effortView(entry, selection.effort),
     quiet: quietLine(input, entry),
     confirm: confirmView(input),
@@ -561,6 +772,10 @@ export interface ModelButtonView {
    * label says so (MS-Switched, AC-Out 6). Else it is text_muted.
    */
   readonly chosen: boolean;
+  /** The mark of the account before the name (S-ComposerR7 1): none for another provider. */
+  readonly logo: ProviderLogoKind;
+  /** The account is signed out: text_subtle, the mark at 40 %. */
+  readonly dim: boolean;
 }
 
 /**
@@ -590,5 +805,16 @@ export function modelButton(
   if (chosen) {
     words += ", chosen for this conversation";
   }
-  return { text: parts.join(" · "), label: words, chosen };
+  const catalog = catalogsOf(list).find((one) => (one.provider ?? undefined) === current.provider);
+  const dim = catalog?.signed_out === true;
+  if (dim) {
+    words += ", signed out";
+  }
+  return {
+    text: parts.join(" · "),
+    label: words,
+    chosen,
+    logo: providerLogo(current.provider),
+    dim,
+  };
 }

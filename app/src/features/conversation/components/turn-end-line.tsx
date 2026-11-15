@@ -53,6 +53,9 @@ import { useTranscriptScope } from "./use-transcript-scope";
 const NO_CHOICES = createStore<ModelChoicesState>({
   choices: new Map(),
   quiet: new Set<string>(),
+  auto: new Set<string>(),
+  favourites: new Map(),
+  plans: new Map(),
 });
 
 export interface TurnEndLineViewProps {

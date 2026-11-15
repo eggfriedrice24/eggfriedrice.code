@@ -25,13 +25,29 @@ function row(overrides: Partial<SheetRow> = {}): SheetRow {
     disabled: false,
     gone: undefined,
     label: "Opus 5.5",
+    favourite: false,
+    starrable: true,
+    starLabel: "Make Opus 5.5 the favourite of work",
     ...overrides,
   };
 }
 
+const FILTER: SheetView["filter"] = {
+  kinds: true,
+  kind: "all",
+  legacy: false,
+  on: false,
+  label: "Filter models, all providers, legacy models hidden",
+  placeholder: "Search",
+};
+
 function view(rows: readonly SheetRow[], extra: Partial<SheetView> = {}): SheetView {
   return {
-    sections: [{ key: "work", title: "Claude API · work", note: undefined, dim: false, rows }],
+    sections: [
+      { key: "work", title: "Claude API · work", note: undefined, dim: false, rows, legacy: [] },
+    ],
+    noMatch: undefined,
+    filter: FILTER,
     effort: undefined,
     quiet: undefined,
     confirm: undefined,
@@ -39,7 +55,12 @@ function view(rows: readonly SheetRow[], extra: Partial<SheetView> = {}): SheetV
   };
 }
 
-async function draw(sheet: SheetView, onUseDefault = jest.fn<() => void>()) {
+async function draw(
+  sheet: SheetView,
+  onUseDefault = jest.fn<() => void>(),
+  onStar = jest.fn<(row: SheetRow) => void>(),
+  onRow = jest.fn<(row: SheetRow) => void>(),
+) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <ModelSheetView
@@ -47,7 +68,12 @@ async function draw(sheet: SheetView, onUseDefault = jest.fn<() => void>()) {
         empty={undefined}
         machineName="desktop"
         quiet={false}
-        onRow={jest.fn()}
+        query=""
+        onQuery={jest.fn()}
+        onKind={jest.fn()}
+        onLegacy={jest.fn()}
+        onStar={onStar}
+        onRow={onRow}
         onEffort={jest.fn()}
         onUseDefault={onUseDefault}
         onQuiet={jest.fn()}
@@ -104,5 +130,78 @@ describe("the model sheet view", () => {
     expect(screen.getByText("Use default").props.className).toContain("text-caption-strong");
     await fireEvent.press(use);
     expect(onUseDefault).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the model sheet of round 7", () => {
+  it("draws no scroll indicator and puts the search field under the grabber", async () => {
+    await draw(view([row()]));
+    expect(screen.getByTestId("model-search")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Search models")).toBeOnTheScreen();
+    expect(screen.getByTestId("model-list").props.showsVerticalScrollIndicator).toBe(false);
+  });
+
+  it("sets the favourite with a tap on the star, and never selects the row", async () => {
+    const onStar = jest.fn<(row: SheetRow) => void>();
+    const onRow = jest.fn<(row: SheetRow) => void>();
+    const one = row();
+    await draw(view([one]), undefined, onStar, onRow);
+    await fireEvent.press(
+      screen.getByTestId(`model-star-${one.key}`, { includeHiddenElements: true }),
+    );
+    expect(onStar).toHaveBeenCalledWith(one);
+    expect(onRow).not.toHaveBeenCalled();
+  });
+
+  it("gives VoiceOver the star as an action of the row", async () => {
+    const onStar = jest.fn<(row: SheetRow) => void>();
+    const one = row({ favourite: true, starLabel: "Remove the favourite of work" });
+    await draw(view([one]), undefined, onStar);
+    const button = screen.getByTestId(`model-row-${one.key}`);
+    expect(button.props.accessibilityActions).toEqual([
+      { name: "star", label: "Remove the favourite of work" },
+    ]);
+    await fireEvent(button, "accessibilityAction", { nativeEvent: { actionName: "star" } });
+    expect(onStar).toHaveBeenCalledWith(one);
+  });
+
+  it("has no star control on a dim row, but keeps the star of a dim favourite", async () => {
+    const dim = row({ disabled: true, starrable: false, favourite: true });
+    await draw(view([dim]));
+    expect(
+      screen.queryByTestId(`model-star-${dim.key}`, { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(screen.getByTestId(`model-row-${dim.key}`).props.accessibilityActions).toEqual([]);
+  });
+
+  it("puts the legacy rows under Legacy at the end of the account", async () => {
+    const old = row({ key: "w/claude-opus-5", model: "claude-opus-5", name: "Opus 5" });
+    const sheet = view([row()]);
+    const section = sheet.sections[0];
+    if (section === undefined) {
+      throw new Error("no section");
+    }
+    await draw({ ...sheet, sections: [{ ...section, legacy: [old] }] });
+    expect(screen.getByTestId("model-legacy-label")).toHaveTextContent("Legacy");
+    expect(screen.getByText("Opus 5")).toBeOnTheScreen();
+  });
+
+  it("says when a search finds nothing", async () => {
+    await draw({ ...view([]), sections: [], noMatch: 'no model matches "xyz"' });
+    expect(screen.getByTestId("model-no-match")).toHaveTextContent('no model matches "xyz"');
+  });
+
+  it("offers the provider and Legacy models in the filter menu", async () => {
+    await draw(view([row()]));
+    expect(
+      screen.getByLabelText("Filter models, all providers, legacy models hidden"),
+    ).toBeOnTheScreen();
+    const actions = screen.getByTestId("model-filter-menu").props.actions;
+    expect(actions.map((action: { id: string; title: string }) => action.title)).toEqual([
+      "All",
+      "Claude",
+      "OpenAI",
+      "",
+    ]);
   });
 });

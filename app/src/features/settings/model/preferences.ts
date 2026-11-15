@@ -7,6 +7,9 @@
 // - `askCostlySwitch`: the switch "Ask before a costly model switch" of Settings (on by
 //   default, for every machine). On: a pick in the model sheet that compacts waits for
 //   "Switch and compact". Off: a tap on a row of the sheet switches at once.
+// - `showLegacyModels`: the switch "Legacy models" of the filter menu of the model sheet
+//   (off by default, for every machine). On: the sheet shows the models that efrd marks
+//   legacy, in a group at the end of each account.
 //
 // The store reads the saved value once, when it is made, so the first frame shows it.
 // Each change writes the whole value at once; the writes run in order.
@@ -31,6 +34,7 @@ export interface Preferences {
   readonly sendMode: SendMode;
   readonly lastMachine: DaemonId | null;
   readonly askCostlySwitch: boolean;
+  readonly showLegacyModels: boolean;
 }
 
 /** The preferences of a new install. */
@@ -39,6 +43,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   sendMode: "steer",
   lastMachine: null,
   askCostlySwitch: true,
+  showLegacyModels: false,
 };
 
 /** What the preferences need from the app. */
@@ -55,6 +60,7 @@ export interface PreferencesStore {
   setSendMode(mode: SendMode): void;
   setLastMachine(machine: DaemonId | null): void;
   setAskCostlySwitch(on: boolean): void;
+  setShowLegacyModels(on: boolean): void;
   /** The user forgot a machine: it is no longer the last one. */
   forgetMachine(machine: DaemonId): void;
   /** Resolves when every write so far is done. */
@@ -97,7 +103,8 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
       next.haptics === now.haptics &&
       next.sendMode === now.sendMode &&
       next.lastMachine === now.lastMachine &&
-      next.askCostlySwitch === now.askCostlySwitch
+      next.askCostlySwitch === now.askCostlySwitch &&
+      next.showLegacyModels === now.showLegacyModels
     ) {
       return;
     }
@@ -121,6 +128,9 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
     },
     setAskCostlySwitch(on: boolean): void {
       update({ ...store.state, askCostlySwitch: on });
+    },
+    setShowLegacyModels(on: boolean): void {
+      update({ ...store.state, showLegacyModels: on });
     },
     forgetMachine(machine: DaemonId): void {
       if (store.state.lastMachine === machine) {

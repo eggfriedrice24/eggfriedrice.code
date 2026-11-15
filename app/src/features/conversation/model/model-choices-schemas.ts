@@ -1,5 +1,6 @@
-// The schema of the saved model choices: the choice per draft key, and the draft keys
-// whose costly switches ask no more ("Don't ask again here").
+// The schema of the saved model choices: the choice per draft key, the draft keys whose
+// costly switches ask no more ("Don't ask again here"), the draft keys that run in auto,
+// the favourite model of each account and the last plan of each machine.
 
 import { z } from "zod";
 
@@ -14,4 +15,7 @@ const savedModelChoiceSchema = z.object({
 export const savedModelChoicesSchema = z.object({
   choices: z.record(z.string(), savedModelChoiceSchema).catch({}),
   quiet: z.array(z.string()).catch([]),
+  auto: z.array(z.string()).catch([]),
+  favourites: z.record(z.string(), z.string()).catch({}),
+  plans: z.record(z.string(), z.string()).catch({}),
 });

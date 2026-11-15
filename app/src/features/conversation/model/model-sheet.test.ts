@@ -7,7 +7,9 @@ import {
   COMPACTS_TEXT,
   currentSettings,
   defaultSelection,
+  freshChoice,
   modelButton,
+  NO_FILTER,
   normalEffort,
   openingSelection,
   pickRow,
@@ -75,6 +77,7 @@ function input(extra: Partial<SheetInput>): SheetInput {
     asks: true,
     cost: undefined,
     costPending: false,
+    ...NO_FILTER,
     ...extra,
   };
 }
@@ -300,6 +303,8 @@ describe("the model button", () => {
       text: "GPT-6.1 Sol · b · medium",
       label: "Model: GPT-6.1 Sol on b, medium effort",
       chosen: false,
+      logo: "openai",
+      dim: false,
     });
     const plan = currentSettings(LIST, undefined, {
       model: "gpt-6.1-sol",
@@ -322,7 +327,183 @@ describe("the model button", () => {
       text: "GPT-6.1 Sol · b · medium",
       label: "Model: GPT-6.1 Sol on b, medium effort, chosen for this conversation",
       chosen: true,
+      logo: "openai",
+      dim: false,
     });
     expect(modelButton(LIST, currentSettings(LIST, undefined, undefined))?.chosen).toBe(false);
+  });
+});
+
+/** The sections of `view` as their keys and the ids of their rows. */
+function names(view: ReturnType<typeof sheetView>) {
+  return view.sections.map((section) => ({
+    key: section.key,
+    rows: section.rows.map((row) => row.model),
+    legacy: section.legacy.map((row) => row.model),
+  }));
+}
+
+/** The favourite of each account in `map`, by provider id. */
+function favouritesOf(map: ReadonlyMap<string, string>) {
+  return (provider: string | undefined) => map.get(provider ?? "");
+}
+
+describe("round 7: search, filter, legacy and favourites", () => {
+  const legacy = { legacy: true } as const;
+  const R7: ModelsListResult = {
+    models: [
+      model("claude-opus-5-5", WORK, { ...OPUS, default: true }),
+      model("claude-opus-5", WORK, { ...OPUS, ...legacy }),
+      model("claude-fable-5-1", WORK, OPUS),
+      model("gpt-6.1-sol", PLAN, SOL),
+      model("gpt-6-sol", PLAN, { ...SOL, ...legacy }),
+      model("gpt-6-luna", PLAN, SOL),
+      model("gpt-6.1-sol", PLAN_B, SOL),
+    ],
+    catalogs: [
+      { provider: WORK, origin: "backend" },
+      { provider: PLAN, origin: "backend" },
+      { provider: PLAN_B, origin: "backend" },
+    ],
+  };
+  const favourites = new Map([[PLAN, "gpt-6-luna"]]);
+  const now = favouritesOf(favourites);
+  const r7 = (extra: Partial<SheetInput>): SheetInput =>
+    input({ list: R7, current: currentSettings(R7, undefined, undefined), ...extra });
+
+  it("hides the legacy models by default and shows them in a group at the end of each account", () => {
+    expect(names(sheetView(r7({})))).toEqual([
+      { key: WORK, rows: ["claude-opus-5-5", "claude-fable-5-1"], legacy: [] },
+      { key: PLAN, rows: ["gpt-6.1-sol", "gpt-6-luna"], legacy: [] },
+      { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
+    ]);
+    expect(names(sheetView(r7({ showLegacy: true })))).toEqual([
+      { key: WORK, rows: ["claude-opus-5-5", "claude-fable-5-1"], legacy: ["claude-opus-5"] },
+      { key: PLAN, rows: ["gpt-6.1-sol", "gpt-6-luna"], legacy: ["gpt-6-sol"] },
+      { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
+    ]);
+  });
+
+  it("shows a legacy model that is in use, selected or a favourite", () => {
+    const inUse = currentSettings(R7, { model: "gpt-6-sol", provider: PLAN }, undefined);
+    expect(names(sheetView(r7({ current: inUse })))[1]?.legacy).toEqual(["gpt-6-sol"]);
+    const selection = { model: "claude-opus-5", provider: WORK, effort: "high" };
+    expect(names(sheetView(r7({ selection })))[0]?.legacy).toEqual(["claude-opus-5"]);
+    const starred = (provider: string | undefined) => (provider === PLAN ? "gpt-6-sol" : undefined);
+    expect(names(sheetView(r7({ favourite: starred })))[1]?.legacy).toEqual(["gpt-6-sol"]);
+  });
+
+  it("searches each word in the name or the id, finds legacy models, and drops empty accounts", () => {
+    expect(names(sheetView(r7({ query: "sol" })))).toEqual([
+      { key: PLAN, rows: ["gpt-6.1-sol"], legacy: ["gpt-6-sol"] },
+      { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
+    ]);
+    expect(names(sheetView(r7({ query: "  OPUS 5.5 " })))).toEqual([
+      { key: WORK, rows: ["claude-opus-5-5"], legacy: [] },
+    ]);
+    const none = sheetView(r7({ query: "xyz" }));
+    expect(none.sections).toEqual([]);
+    expect(none.noMatch).toBe('no model matches "xyz"');
+    expect(sheetView(r7({ query: "xyz", kind: "claude" })).noMatch).toBe(
+      'no Claude model matches "xyz"',
+    );
+    expect(sheetView(r7({ query: "sol" })).noMatch).toBeUndefined();
+  });
+
+  it("filters by the kind of the provider, and names it in the field", () => {
+    const claude = sheetView(r7({ kind: "claude" }));
+    expect(claude.sections.map((section) => section.key)).toEqual([WORK]);
+    expect(claude.filter).toEqual({
+      kinds: true,
+      kind: "claude",
+      legacy: false,
+      on: true,
+      label: "Filter models, Claude, legacy models hidden",
+      placeholder: "Search Claude models",
+    });
+    expect(sheetView(r7({})).filter).toMatchObject({
+      on: false,
+      label: "Filter models, all providers, legacy models hidden",
+      placeholder: "Search",
+    });
+    expect(sheetView(r7({ showLegacy: true })).filter.on).toBe(true);
+    // One kind only: the menu offers no provider.
+    const openai: ModelsListResult = { ...R7, models: R7.models.slice(3), catalogs: [] };
+    expect(sheetView(r7({ list: openai, kind: "claude" })).filter).toMatchObject({
+      kinds: false,
+      kind: "all",
+    });
+  });
+
+  it("stars the favourite of each account and puts it first by the favourites at open", () => {
+    const view = sheetView(r7({ favourite: now, favouriteAtOpen: now }));
+    const plan = view.sections[1];
+    expect(plan?.rows.map((row) => [row.model, row.favourite])).toEqual([
+      ["gpt-6-luna", true],
+      ["gpt-6.1-sol", false],
+    ]);
+    expect(plan?.rows[0]?.label).toBe("GPT-6 Luna, favourite of the ChatGPT plan");
+    expect(plan?.rows[0]?.starLabel).toBe("Remove the favourite of the ChatGPT plan");
+    expect(plan?.rows[1]?.starLabel).toBe("Make GPT-6.1 Sol the favourite of the ChatGPT plan");
+    // A star set while the sheet is open moves no row.
+    const still = sheetView(r7({ favourite: now }));
+    expect(still.sections[1]?.rows.map((row) => row.model)).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
+    expect(still.sections[1]?.rows[1]?.favourite).toBe(true);
+  });
+
+  it("gives no star control to a row that takes no tap, but keeps a dim favourite's star", () => {
+    const out: ModelsListResult = {
+      ...R7,
+      catalogs: [
+        { provider: WORK, origin: "backend" },
+        { provider: PLAN, origin: "backend", signed_out: true },
+        { provider: PLAN_B, origin: "backend" },
+      ],
+    };
+    const rows = sheetView(r7({ list: out, favourite: now })).sections[1]?.rows ?? [];
+    expect(rows.map((row) => [row.model, row.starrable, row.favourite])).toEqual([
+      ["gpt-6.1-sol", false, false],
+      ["gpt-6-luna", false, true],
+    ]);
+  });
+
+  it("starts a new thread on the favourite of the last plan, else of the default account", () => {
+    expect(freshChoice(R7, PLAN, favouritesOf(favourites))).toEqual({
+      model: "gpt-6-luna",
+      provider: PLAN,
+    });
+    // No plan yet: the account of the default model, which has no favourite here.
+    expect(freshChoice(R7, undefined, favouritesOf(favourites))).toBeUndefined();
+    expect(freshChoice(R7, undefined, favouritesOf(new Map([[WORK, "claude-fable-5-1"]])))).toEqual(
+      {
+        model: "claude-fable-5-1",
+        provider: WORK,
+      },
+    );
+    // A plan that the list does not know, or a favourite that is gone: the default.
+    expect(freshChoice(R7, "openai-subscription.gone", favouritesOf(favourites))).toBeUndefined();
+    expect(freshChoice(R7, PLAN, favouritesOf(new Map([[PLAN, "gpt-4"]])))).toBeUndefined();
+    const fresh = freshChoice(R7, PLAN, favouritesOf(favourites));
+    const current = currentSettings(R7, undefined, undefined, fresh);
+    expect(current).toEqual({
+      model: "gpt-6-luna",
+      provider: PLAN,
+      effort: "medium",
+      source: "favourite",
+    });
+    expect(modelButton(R7, current)).toMatchObject({ chosen: false, logo: "openai" });
+  });
+
+  it("dims the model button of a signed-out account and gives it the logo of its kind", () => {
+    const out: ModelsListResult = {
+      ...R7,
+      catalogs: [{ provider: WORK, origin: "backend", signed_out: true }],
+    };
+    const opus = currentSettings(out, undefined, undefined);
+    expect(modelButton(out, opus)).toMatchObject({
+      logo: "claude",
+      dim: true,
+      label: "Model: Opus 5.5, high effort, signed out",
+    });
   });
 });

@@ -34,7 +34,7 @@ import {
   sheetPane,
   type SheetMachine,
 } from "../model/sheet-view";
-import { SearchField } from "./search-field";
+import { SearchField } from "@/components/ui/search-field";
 import { SheetList, type SheetListSection } from "./sheet-list";
 
 export interface ConversationsSheetProps {

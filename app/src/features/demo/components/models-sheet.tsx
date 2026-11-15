@@ -8,6 +8,7 @@ import { View } from "react-native";
 import { ModelSheetView } from "@/features/conversation/components/model-sheet";
 import {
   currentSettings,
+  NO_FILTER,
   sheetView,
   type SheetInput,
   type SheetView,
@@ -34,6 +35,7 @@ function modelCases(now: number): ModelCase[] {
     asks: true,
     cost: undefined,
     costPending: false,
+    ...NO_FILTER,
     ...extra,
   });
   const b = { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "medium" };
@@ -78,6 +80,11 @@ export function ModelsSheet() {
               empty={undefined}
               machineName="desktop"
               quiet={false}
+              query=""
+              onQuery={() => undefined}
+              onKind={() => undefined}
+              onLegacy={() => undefined}
+              onStar={() => undefined}
               onRow={() => undefined}
               onEffort={() => undefined}
               onUseDefault={() => undefined}

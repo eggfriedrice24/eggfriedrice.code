@@ -5,9 +5,13 @@ import { MemoryKeyValue } from "@/lib/store/testing";
 import { draftKey } from "./drafts";
 import {
   createModelChoices,
+  favouriteOf,
   MODEL_CHOICES_KEY,
   sameChoice,
+  selectFavourites,
+  selectMode,
   selectModelChoice,
+  selectPlan,
   selectQuiet,
 } from "./model-choices";
 import { CONVERSATION_A, DESKTOP, LAPTOP } from "./outbox-testing";
@@ -83,5 +87,65 @@ describe("the model choices", () => {
     expect(sameChoice({ model: "a", provider: "x" }, { model: "a" })).toBe(false);
     expect(sameChoice({ model: "a", effort: "low" }, { model: "a", effort: "high" })).toBe(false);
     expect(sameChoice(undefined, undefined)).toBe(true);
+  });
+});
+
+describe("the mode, the favourites and the plan", () => {
+  it("keeps auto per composer, cautious by default, and saves it", async () => {
+    const storage = new MemoryKeyValue();
+    const choices = createModelChoices({ storage });
+    expect(choices.mode(KEY)).toBe("cautious");
+    choices.setMode(KEY, "auto");
+    expect(selectMode(KEY)(choices.store.get())).toBe("auto");
+    expect(choices.mode(draftKey(LAPTOP, CONVERSATION_A))).toBe("cautious");
+    await choices.settled();
+    expect(createModelChoices({ storage }).mode(KEY)).toBe("auto");
+    choices.setMode(KEY, "cautious");
+    await choices.settled();
+    expect(storage.getItemSync(MODEL_CHOICES_KEY)).toBeNull();
+  });
+
+  it("keeps one favourite for each account of a machine; a new one moves the star", async () => {
+    const storage = new MemoryKeyValue();
+    const choices = createModelChoices({ storage });
+    const plan = "openai-subscription";
+    choices.setFavourite(DESKTOP, plan, "gpt-6-luna");
+    choices.setFavourite(DESKTOP, "openai-subscription.b", "gpt-6.1-sol");
+    choices.setFavourite(DESKTOP, plan, "gpt-6-astra");
+    const favourites = selectFavourites(choices.store.get());
+    expect(favouriteOf(favourites, DESKTOP, plan)).toBe("gpt-6-astra");
+    expect(favouriteOf(favourites, DESKTOP, "openai-subscription.b")).toBe("gpt-6.1-sol");
+    expect(favouriteOf(favourites, LAPTOP, plan)).toBeUndefined();
+    await choices.settled();
+    const again = createModelChoices({ storage });
+    expect(favouriteOf(again.store.get().favourites, DESKTOP, plan)).toBe("gpt-6-astra");
+    choices.setFavourite(DESKTOP, plan, undefined);
+    expect(favouriteOf(choices.store.get().favourites, DESKTOP, plan)).toBeUndefined();
+  });
+
+  it("keeps the account of a choice or a message as the last plan of the machine", () => {
+    const choices = createModelChoices({ storage: new MemoryKeyValue() });
+    expect(selectPlan(DESKTOP)(choices.store.get())).toBeUndefined();
+    choices.set(KEY, { model: "gpt-6.1-sol", provider: "openai-subscription.b" });
+    expect(selectPlan(DESKTOP)(choices.store.get())).toBe("openai-subscription.b");
+    choices.set(KEY, { model: "gpt-5.5" });
+    expect(selectPlan(DESKTOP)(choices.store.get())).toBe("openai-subscription.b");
+    choices.setPlan(DESKTOP, "anthropic-api");
+    expect(selectPlan(DESKTOP)(choices.store.get())).toBe("anthropic-api");
+    expect(selectPlan(LAPTOP)(choices.store.get())).toBeUndefined();
+  });
+
+  it("forgets the mode, the favourites and the plan of a forgotten machine", () => {
+    const choices = createModelChoices({ storage: new MemoryKeyValue() });
+    choices.setMode(KEY, "auto");
+    choices.setFavourite(DESKTOP, "anthropic-api", "claude-opus-5-5");
+    choices.setFavourite(LAPTOP, "anthropic-api", "claude-sonnet-5-5");
+    choices.setPlan(DESKTOP, "anthropic-api");
+    choices.removeMachine(DESKTOP);
+    const state = choices.store.get();
+    expect(choices.mode(KEY)).toBe("cautious");
+    expect(favouriteOf(state.favourites, DESKTOP, "anthropic-api")).toBeUndefined();
+    expect(favouriteOf(state.favourites, LAPTOP, "anthropic-api")).toBe("claude-sonnet-5-5");
+    expect(state.plans.get(DESKTOP)).toBeUndefined();
   });
 });
