@@ -12,6 +12,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { testServices, type TestServices } from "../model/testing";
 import { AppServicesContext } from "../use-app-services";
 import { LockGate, LockOverlay } from "./lock-overlay";
+import { LockCover, LockScreen } from "./lock-screen";
 
 jest.mock("react-native-screens", () => ({
   ...jest.requireActual<object>("react-native-screens"),
@@ -100,6 +101,25 @@ describe("the Face ID unlock over the window", () => {
       await Promise.resolve();
     });
     expect(test.checkReasons).toEqual(["Unlock efr", "Unlock efr"]);
+  });
+
+  it("keeps the mark at the place of the cover, with and without the line (S-Lock 7, 8a, 11)", async () => {
+    const place = (): unknown =>
+      screen.getByTestId("lock-mark-place", { includeHiddenElements: true }).props.className;
+    const inSafeArea = (node: ReactNode) => (
+      <SafeAreaProvider initialMetrics={METRICS}>{node}</SafeAreaProvider>
+    );
+    const view = await render(inSafeArea(<LockCover />));
+    const cover = place();
+    expect(cover).toContain("absolute inset-0");
+    await view.rerender(inSafeArea(<LockScreen line={undefined} hint="" onUnlock={() => {}} />));
+    expect(place()).toBe(cover);
+    await view.rerender(
+      inSafeArea(<LockScreen line="You cancelled Face ID." hint="" onUnlock={() => {}} />),
+    );
+    expect(place()).toBe(cover);
+    // The line lies outside the flow of the mark, so it does not move it.
+    expect(screen.getByTestId("lock-line").props.className).toContain("absolute");
   });
 
   it("says that Face ID is locked, and gives VoiceOver the words of the board", async () => {
