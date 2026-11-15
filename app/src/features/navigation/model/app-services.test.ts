@@ -16,6 +16,7 @@ import {
   type TestServices,
 } from "./testing";
 import { lockView } from "./app-lock";
+import { createLinkGate } from "./link-gate";
 import { machineConnections } from "./machine-connections";
 import { streamTitles } from "./stream-titles";
 
@@ -359,6 +360,59 @@ describe("the Face ID unlock in the services", () => {
     expect(lockView(test.services.appLock.store.get())).toBe("cover");
     test.setPhase("active");
     expect(lockView(test.services.appLock.store.get())).toBe("app");
+  });
+
+  it("sends auto while the switch is on, and no mode for a stale auto while it is off (design 58, 59)", async () => {
+    parts = await testServices(undefined, { lockOn: true });
+    const test = parts;
+    await test.answerCheck({ kind: "passed" });
+    await test.connect(DESKTOP);
+    const send = (text: string): void => {
+      test.services.outbox.enqueue({
+        machine: DESKTOP,
+        target: { kind: "conversation", conversationId: CONVERSATION },
+        text,
+        auto: true,
+      });
+    };
+    send("push the fix");
+    await flush();
+    const sent = () => socketOf(test, "100.64.0.1").requests("prompt.send");
+    expect(sent().at(-1)?.["params"]).toMatchObject({
+      text: "push the fix",
+      settings: { mode: "auto" },
+    });
+    socketOf(test, "100.64.0.1").answer("prompt.send", {
+      conversation_id: CONVERSATION,
+      queued: false,
+      seq: 1,
+      turn_id: conversationId(7),
+    });
+    await flush();
+
+    test.services.appLock.setOn(false);
+    await flush();
+    await test.answerCheck({ kind: "passed" });
+    // An entry that still says auto (as one that hydrate brought in late): the drain reads
+    // the switch at the send, so it goes out with no mode.
+    send("and the tests");
+    await flush();
+    const last = sent().at(-1)?.["params"];
+    expect(last).toMatchObject({ text: "and the tests" });
+    expect(last).not.toMatchObject({ settings: { mode: expect.anything() } });
+  });
+
+  it("gives the gate of the links its lock, so a link waits until the unlock", async () => {
+    const gate = createLinkGate();
+    parts = await testServices(undefined, { lockOn: true, linkGate: gate });
+    const test = parts;
+    const passed: string[] = [];
+    void gate.wait("/pair").then((path) => passed.push(path));
+    await flush();
+    expect(passed).toEqual([]);
+    await test.answerCheck({ kind: "passed" });
+    await flush();
+    expect(passed).toEqual(["/pair"]);
   });
 
   it("brings no stored auto back when the switch turns on (D3)", async () => {

@@ -2,6 +2,7 @@ import * as fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OwnerCheck, OwnerFacts } from "@/lib/lock/owner-check";
+import { flush } from "@/lib/net/testing";
 
 import {
   CHECK_RETRY_MS,
@@ -392,7 +393,10 @@ describe("the rules over any sequence of events", () => {
             const next = lockReduce(state, event);
             // Opening needs a passed answer to a running check.
             const opened = next.open && !state.open && next.on;
-            const passed = event.type === "checked" && event.result.kind === "passed";
+            const passed =
+              event.type === "checked" &&
+              event.result.kind === "passed" &&
+              event.id === state.check?.id;
             expect(!opened || passed).toBe(true);
             // The switch moves only on an answer of iOS.
             expect(next.on === state.on || event.type === "checked").toBe(true);
@@ -585,7 +589,7 @@ describe("the gate of the links", () => {
     await Promise.resolve();
     expect(passed).toEqual([]);
     shown.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flush();
     expect(passed).toEqual(["/pair", "/conversations"]);
     await expect(gate.wait("/x")).resolves.toBe("/x");
   });

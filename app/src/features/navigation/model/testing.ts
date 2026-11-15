@@ -33,6 +33,7 @@ import type { MemoryPairedDevices } from "@/features/pairing/model/testing";
 import { PREFERENCES_KEY } from "@/features/settings/model/preferences";
 import type { LockPhase } from "./app-lock";
 import { createAppServices, type AppServices } from "./app-services";
+import { createLinkGate, type LinkGate } from "./link-gate";
 
 export { DESKTOP, LAPTOP };
 
@@ -120,6 +121,8 @@ export interface TestServicesOptions {
   readonly facts?: OwnerFacts;
   /** The phase of the app at the start; active by default. */
   readonly phase?: LockPhase;
+  /** The gate of the links from outside; none by default. */
+  readonly linkGate?: LinkGate;
 }
 
 /** The services of the app with `records` paired (desktop and laptop by default). */
@@ -201,6 +204,8 @@ export async function testServices(
       dismissInput: () => undefined,
       announce: () => undefined,
     },
+    // A gate of its own, so no test shares the gate of the app.
+    linkGate: options.linkGate ?? createLinkGate(),
   });
   await services.loaded;
   return {
