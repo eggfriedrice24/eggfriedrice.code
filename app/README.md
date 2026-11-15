@@ -394,7 +394,10 @@ not a test that pretends.
 
 24. The composer docks to the keyboard (`KeyboardStickyView`) and the list keeps its
     inset.
-25. The input grows to 6 lines.
+25. At rest the composer is a one-line pill (field and action, 48 pt). A tap focuses
+    the input: the status line shows and the input grows to 6 lines, with no jump of
+    the transcript. A tap on the transcript or a closed keyboard makes it a pill again,
+    with the draft kept. The model button opens the sheet from the full composer.
 26. The Steer and Queue menu opens with a long press on the capsule, and a tap on the
     capsule sends. This needs the patch of react-native-menu in a new build: without it,
     the button of a long press menu takes the taps of the views inside it. Check also
