@@ -697,6 +697,15 @@ async fn a_planted_git_setting_stays_in_quarantine_with_no_question() {
     assert!(!question);
     assert_eq!(count(&h, "surface_question_requested").await, 0);
     assert_eq!(count(&h, "sandbox_surface_changed").await, 1);
+    // NOTE: no question follows, so a client shows each change under the call.
+    let events = h.events().await;
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::SandboxSurfaceChanged { quarantined: true, asks: false, .. }
+        )),
+        "{events:?}"
+    );
     assert!(h.toolbox.restored().is_empty(), "nothing moves back");
     let read = first_result(&script);
     assert!(read.contains("efr moved them to quarantine"), "{read}");

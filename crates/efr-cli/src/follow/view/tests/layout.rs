@@ -1302,6 +1302,36 @@ fn a_paused_reviewer_says_that_the_next_exit_stops_the_turn() {
     ]));
 }
 
+/// TM-Questions 13: with the reviewer on, nothing asks about the git settings that a
+/// command changed. Each change gets a muted row under the call, 2 columns in, with what
+/// efr did with it.
+#[test]
+fn changed_git_settings_show_under_the_call_when_nothing_asks() {
+    let change =
+        |path: &str, rule: &str, key: Option<&str>, quarantined| efr_protocol::SurfaceChange {
+            path: PathBuf::from(path),
+            rule: rule.to_owned(),
+            key: key.map(str::to_owned),
+            quarantined,
+        };
+    let changed = Event::SandboxSurfaceChanged {
+        turn_id: turn(),
+        call_id: id(1),
+        changes: vec![
+            change("/p/app/.git/config", "git_config", Some("core.fsmonitor"), true),
+            change("/p/app/.envrc", "agent_config", None, false),
+        ],
+        quarantined: true,
+        asks: false,
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, "./scripts/setup-dev.sh")),
+        Sent(1_410, ended(1, Some(0), None)),
+        Sent(1_410, changed),
+    ]));
+}
+
 #[test]
 fn an_away_question_expires_and_the_call_does_not_run() {
     let away = |presence, source| Event::PresenceChanged {

@@ -568,6 +568,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             call_id: call(),
             changes: vec![change("/home/user/project/.git/commondir")],
             quarantined: true,
+            asks: true,
         },
         Event::SurfaceQuestionRequested {
             turn_id: turn(),

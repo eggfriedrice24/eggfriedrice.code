@@ -5739,6 +5739,10 @@
         {
           "description": "The surface guard found git settings or other files that run code, which a call\nchanged. Names only.",
           "properties": {
+            "asks": {
+              "description": "True when the question about the quarantined changes\n(`surface_question_requested`) follows, whose card lists them. False while\nthe reviewer decides alone in `auto`, which asks nothing: a client then shows\neach change under the call. Absent from an older efrd, which reads as false.",
+              "type": "boolean"
+            },
             "call_id": {
               "$ref": "#/$defs/CallId",
               "description": "The call that made the changes."

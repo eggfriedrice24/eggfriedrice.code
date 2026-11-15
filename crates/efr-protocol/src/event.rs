@@ -769,6 +769,12 @@ pub enum Event {
         changes: Vec<SurfaceChange>,
         /// True when at least one change went to quarantine.
         quarantined: bool,
+        /// True when the question about the quarantined changes
+        /// (`surface_question_requested`) follows, whose card lists them. False while
+        /// the reviewer decides alone in `auto`, which asks nothing: a client then shows
+        /// each change under the call. Absent from an older efrd, which reads as false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        asks: bool,
     },
 
     /// The turn asks the user whether to keep quarantined changes before its next

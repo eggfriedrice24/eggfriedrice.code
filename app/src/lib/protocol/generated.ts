@@ -1318,6 +1318,13 @@ export type Event =
     }
   | {
       /**
+       * True when the question about the quarantined changes
+       * (`surface_question_requested`) follows, whose card lists them. False while
+       * the reviewer decides alone in `auto`, which asks nothing: a client then shows
+       * each change under the call. Absent from an older efrd, which reads as false.
+       */
+      asks?: boolean;
+      /**
        * The call that made the changes.
        */
       call_id: CallId;

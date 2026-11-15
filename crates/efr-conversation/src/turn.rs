@@ -1360,11 +1360,15 @@ impl Turn {
                 self.exits.ran(summary);
                 if !summary.surface_changes.is_empty() {
                     quarantined = exit::quarantined(summary);
+                    // NOTE: the question below lists the quarantined changes; with none,
+                    // a client shows each change under the call (TM-Questions 13).
+                    let asks = !quarantined.is_empty() && !self.decides_alone(&tool_call);
                     events.push(Event::SandboxSurfaceChanged {
                         turn_id,
                         call_id,
                         changes: summary.surface_changes.clone(),
                         quarantined: !quarantined.is_empty(),
+                        asks,
                     });
                 }
             }

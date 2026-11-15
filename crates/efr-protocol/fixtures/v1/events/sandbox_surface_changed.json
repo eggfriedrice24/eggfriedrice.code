@@ -10,5 +10,6 @@
       "quarantined": true
     }
   ],
-  "quarantined": true
+  "quarantined": true,
+  "asks": true
 }

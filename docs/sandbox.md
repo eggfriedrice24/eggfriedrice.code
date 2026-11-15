@@ -359,9 +359,18 @@ surface guard checks the git dirs: those of the projects and their submodules, t
 dir that a `.git` file names, and the include files and the `core.hooksPath` dir that
 their config names. It moves a planted setting that runs programs to
 quarantine, where nothing reads it. While the reviewer decides alone, the change stays
-there with no question: the model reads what moved and tells you, and you set such a
-setting yourself with `git config` if you want it. With `classifier.enabled = false`,
-the turn asks you before its next call:
+there with no question: a muted row under the call names each change and what efr did
+with it, the model reads what moved and tells you, and you set such a setting yourself
+with `git config` if you want it:
+
+```
+✓ $ ./scripts/setup-dev.sh  1.4s
+  .git/config (core.fsmonitor); moved to quarantine
+  .envrc (a new agent or editor config); left in place
+```
+
+With `classifier.enabled = false`, the turn asks you before its next call. A change
+that stays in place still gets its row under the call:
 
 ```
 question: the last command changed git settings that run programs

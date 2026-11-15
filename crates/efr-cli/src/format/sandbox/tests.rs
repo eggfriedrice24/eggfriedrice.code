@@ -17,7 +17,7 @@ use super::{
     exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
     full_let_through, home_changed, judge_details, network_words, no_answer_row, paused,
     presence_changed, reviewed, reviewer_row, reviewing, setup_failed, surface_answered,
-    surface_change, surface_changed, surface_report, survivors, tilde,
+    surface_change, surface_report, surface_rows, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -582,8 +582,11 @@ fn the_verbose_record_names_every_fact_but_no_user_message() {
     assert_eq!(exit_judged(JudgeKind::User, Verdict::Allow, None), "exit allowed by the user");
 }
 
+/// TM-Questions 13 and the audit row: with the reviewer on, nothing asks, so each change
+/// gets a muted row under the call; when the question follows, its card lists the
+/// quarantined ones and only those left in place get a row.
 #[test]
-fn the_quarantine_lines_name_each_change_and_the_reported_ones_get_a_note() {
+fn the_quarantine_lines_name_each_change_and_what_efr_did() {
     let quarantined = SurfaceChange {
         path: PathBuf::from("/home/u/p/app/.git/commondir"),
         rule: "commondir_in_main_git_dir".to_owned(),
@@ -600,11 +603,19 @@ fn the_quarantine_lines_name_each_change_and_the_reported_ones_get_a_note() {
         surface_change(&quarantined, home()),
         "  ~/p/app/.git/commondir (core.fsmonitor); moved to quarantine"
     );
-    assert_eq!(surface_changed(std::slice::from_ref(&quarantined), home()), None);
+    let both = [quarantined, reported];
     assert_eq!(
-        surface_changed(&[quarantined, reported], home()).unwrap(),
-        "sandbox: the last command changed ~/p/app/.git/objects/info/alternates (alternates)"
+        surface_rows(&both, false, home()),
+        [
+            "~/p/app/.git/commondir (core.fsmonitor); moved to quarantine",
+            "~/p/app/.git/objects/info/alternates (alternates); left in place",
+        ]
     );
+    assert_eq!(
+        surface_rows(&both, true, home()),
+        ["~/p/app/.git/objects/info/alternates (alternates); left in place"]
+    );
+    assert_eq!(surface_rows(&both[..1], true, home()), Vec::<String>::new());
     assert_eq!(
         surface_answered(true, Some("the phone")),
         "the git change was kept, from the phone"

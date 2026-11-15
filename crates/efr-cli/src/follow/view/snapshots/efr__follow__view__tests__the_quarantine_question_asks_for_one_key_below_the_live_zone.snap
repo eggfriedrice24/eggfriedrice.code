@@ -5,7 +5,7 @@ expression: readable(&step.out)
 \e[?2026h\e[1;7;33m ? \e[0m \e[1;33mkeep the git settings that the last\e[0m
     \e[1;33mcommand changed\e[0m
     ~/project/.git/commondir
-      (core.fsmonitor); moved to
-      quarantine
+      (core.fsmonitor)\e[2m; moved to\e[0m
+      \e[2mquarantine\e[0m
     \e[1;33my\e[0m \e[2mkeep\e[0m   \e[1;33mn\e[0m \e[2mleave in quarantine\e[0m
 \e[?2026l

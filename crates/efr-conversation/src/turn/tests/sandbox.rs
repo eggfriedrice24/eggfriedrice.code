@@ -653,7 +653,7 @@ async fn surface_question_before_next_call() {
     ));
     assert!(matches!(
         find(&events, |e| matches!(e, Event::SandboxSurfaceChanged { .. })),
-        Event::SandboxSurfaceChanged { quarantined: true, .. }
+        Event::SandboxSurfaceChanged { quarantined: true, asks: true, .. }
     ));
     h.finish();
 }

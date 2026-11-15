@@ -1069,6 +1069,12 @@ No protocol version has shipped yet.
   before. A client names the setting that gives the live web: `,mode auto` for `mode`,
   the config for `setting`. The fixture `events/turn_web_report_stored_copy.json`
   now sets it; new fixture `stored_copy_reasons.json`.
+- Version 1, additive: `sandbox_surface_changed` gains `asks`, true when the
+  question about the quarantined changes (`surface_question_requested`) follows. It
+  is false, and absent, while the reviewer decides alone in `auto`, which asks
+  nothing: a client then shows each change under its call, with `moved to quarantine`
+  or `left in place`. An older efrd sends none, which reads as false. The fixture
+  `events/sandbox_surface_changed.json` now sets it.
 - Version 1, additive: new method `conversation.switch_preview` (scope `operate`,
   unary, no command id), for the model sheet of the phone. Its params are the
   `conversation_id`, the target `model` and an optional `provider` (as in

@@ -1758,11 +1758,9 @@ impl TurnView {
                 };
                 self.approval(*call_id, &request, size, can_ask)
             }
-            Event::SandboxSurfaceChanged { changes, .. } => {
-                match sandbox::surface_changed(changes, self.home.as_deref()) {
-                    Some(line) => self.note(&line, size),
-                    None => Step::default(),
-                }
+            Event::SandboxSurfaceChanged { changes, asks, .. } => {
+                let rows = sandbox::surface_rows(changes, *asks, self.home.as_deref());
+                self.dim_rows(&rows, size)
             }
             Event::SurfaceQuestionRequested { question_id, changes, .. } => {
                 self.surface_question(*question_id, changes, size, can_ask)
@@ -1987,6 +1985,26 @@ impl TurnView {
 
     /// Dim lines that keep their indentation and their whole width, unlike a note, which
     /// is cut to the screen: a list of files must stay complete.
+    /// Writes `lines` muted and 2 columns in as rows of the design, right under the row
+    /// before them, such as the changes of a call under its row (TM-Questions 13). A
+    /// line wider than the screen wraps. Nothing for no lines.
+    fn dim_rows(&mut self, lines: &[String], size: Size) -> Step {
+        if lines.is_empty() {
+            return Step::default();
+        }
+        let options = self.options_at(size);
+        let pieces: Vec<_> = lines.iter().cloned().map(call::note).collect();
+        let text = call::notes(&pieces, &options);
+        if !self.terminal() {
+            let text = format!("{}{text}", self.err_spacing.before(Block::Row));
+            return Step { err: self.raw_err(text), ..Step::default() };
+        }
+        let mut committed = self.spacing.before(Block::Row).to_owned();
+        committed.push_str(&text);
+        self.stage(&committed);
+        Step::default()
+    }
+
     fn dim_block(&mut self, lines: &[String], size: Size) -> Step {
         let options = self.options_at(size);
         let mut text = String::new();

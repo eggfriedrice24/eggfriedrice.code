@@ -2648,6 +2648,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             call_id: call_id(),
             changes: vec![surface_change()],
             quarantined: true,
+            asks: true,
         },
         Event::SurfaceQuestionRequested {
             turn_id: turn_id(),

@@ -2065,6 +2065,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     turn_id: turnIdSchema,
   }),
   z.object({
+    asks: z.boolean().exactOptional(),
     call_id: callIdSchema,
     changes: z.array(surfaceChangeSchema),
     kind: z.literal("sandbox_surface_changed"),

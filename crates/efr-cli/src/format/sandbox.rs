@@ -856,11 +856,46 @@ fn program_name(program: &ProgramFact, home: Option<&Path>) -> (String, Option<S
 /// The card of the quarantine question: the git settings that the last call changed,
 /// each on its own row.
 pub(crate) fn surface_card(changes: &[SurfaceChange], home: Option<&Path>) -> Card {
+    // NOTE: TM-Questions 12: the path and what changed in text, what efr did muted.
     let rows = changes
         .iter()
-        .map(|change| Row::text(surface_change(change, home).trim().to_owned(), Tone::Plain))
+        .map(|change| {
+            Row::Text(vec![
+                (surface_named(change, home), Tone::Plain),
+                (surface_fate(change).to_owned(), Tone::Dim),
+            ])
+        })
         .collect();
     Card { title: SURFACE_TITLE.to_owned(), rows }
+}
+
+/// A change of the surface guard by its path and what changed:
+/// `.git/config (core.fsmonitor)`.
+fn surface_named(change: &SurfaceChange, home: Option<&Path>) -> String {
+    format!("{} ({})", tilde(&change.path, home), one_line(&change.what()))
+}
+
+/// What efr did with a change of the surface guard, after its name:
+/// `; moved to quarantine` or `; left in place`.
+fn surface_fate(change: &SurfaceChange) -> &'static str {
+    if change.quarantined { "; moved to quarantine" } else { "; left in place" }
+}
+
+/// The rows under a call whose command changed git settings or other files that run
+/// code (TM-Questions 13), which stand muted and 2 columns in: `.git/config
+/// (core.fsmonitor); moved to quarantine`, `.envrc (a new agent or editor config); left
+/// in place`. When the quarantine question follows (`asks`), its card lists the
+/// quarantined changes, so only those left in place get a row here.
+pub(crate) fn surface_rows(
+    changes: &[SurfaceChange],
+    asks: bool,
+    home: Option<&Path>,
+) -> Vec<String> {
+    changes
+        .iter()
+        .filter(|change| !(asks && change.quarantined))
+        .map(|change| format!("{}{}", surface_named(change, home), surface_fate(change)))
+        .collect()
 }
 
 /// One line for an exit in `efr history`: the heading's line and every exit line,
@@ -1529,24 +1564,7 @@ pub(crate) fn judge_details(
 /// One change of the quarantine question, such as `  .git/commondir (core.fsmonitor);
 /// moved to quarantine`.
 pub(crate) fn surface_change(change: &SurfaceChange, home: Option<&Path>) -> String {
-    let what = change.what();
-    let mut line = format!("  {} ({})", tilde(&change.path, home), one_line(&what));
-    if change.quarantined {
-        line.push_str("; moved to quarantine");
-    }
-    line
-}
-
-/// The note about changes that the surface guard reported but did not quarantine;
-/// `None` when every change went to quarantine, which the question shows.
-pub(crate) fn surface_changed(changes: &[SurfaceChange], home: Option<&Path>) -> Option<String> {
-    let reported: Vec<String> = changes
-        .iter()
-        .filter(|change| !change.quarantined)
-        .map(|change| format!("{} ({})", tilde(&change.path, home), one_line(&change.what())))
-        .collect();
-    (!reported.is_empty())
-        .then(|| format!("sandbox: the last command changed {}", reported.join(", ")))
+    format!("  {}{}", surface_named(change, home), surface_fate(change))
 }
 
 /// The note after the quarantine question was answered, expired or interrupted.

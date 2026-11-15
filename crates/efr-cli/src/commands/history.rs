@@ -991,9 +991,14 @@ impl<'a> Transcript<'a> {
                     }
                 }
             }
-            Event::SandboxSurfaceChanged { changes, .. } => {
-                if let Some(line) = sandbox::surface_changed(changes, self.home) {
-                    self.note(&line);
+            Event::SandboxSurfaceChanged { changes, asks, .. } => {
+                // NOTE: as the view: one muted row per change under the call.
+                let rows: Vec<String> = sandbox::surface_rows(changes, *asks, self.home)
+                    .into_iter()
+                    .map(|row| format!("  {row}"))
+                    .collect();
+                if !rows.is_empty() {
+                    self.dim_lines(&rows);
                 }
             }
             Event::SurfaceQuestionRequested { changes, .. } => {
