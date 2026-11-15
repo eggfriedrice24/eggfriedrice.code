@@ -106,32 +106,3 @@ export function autoNeedsLine(method: OwnerMethod): string {
 export function turnOnTitle(method: OwnerMethod): string {
   return `Turn on ${unlockName(method)}`;
 }
-
-/** The reason of the per-message check of round 7; it goes with that check. */
-export const CHECK_REASON = "Send this message in auto";
-
-/** The one line of a message that did not go (round 7; it goes with that check). */
-export interface NotSentLine {
-  readonly head: string;
-  readonly rest: string;
-}
-
-/** The line of a check that did not pass, or none for a pass (round 7). */
-export function notSentLine(check: OwnerCheck): NotSentLine | undefined {
-  const head = "Not sent.";
-  switch (check.kind) {
-    case "passed":
-      return undefined;
-    case "failed":
-      return { head, rest: `${capital(check.method)} did not pass. Tap Send to try again.` };
-    case "cancelled":
-      return { head, rest: `You cancelled ${check.method}. Tap Send to try again.` };
-    case "locked":
-      return {
-        head,
-        rest: `${capital(check.method)} is locked. Unlock the iPhone, then tap Send.`,
-      };
-    default:
-      return { head, rest: "Auto needs a passcode on this iPhone. Set one, or send in cautious." };
-  }
-}

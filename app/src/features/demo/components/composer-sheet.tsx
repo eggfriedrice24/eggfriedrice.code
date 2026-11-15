@@ -9,7 +9,9 @@ import { View } from "react-native";
 
 import { InsetGroup, InsetRow } from "@/components/ui/inset-group";
 import { SymbolIcon } from "@/components/ui/symbol";
+import { DEFAULT_FACTS } from "@/lib/lock/owner-check";
 import type { StreamState } from "@/lib/stream/reducer";
+import { initialLock } from "@/features/navigation/model/app-lock";
 import { DockedComposer } from "@/features/conversation/components/composer/composer";
 import {
   COMPOSER_CASES,
@@ -22,6 +24,17 @@ import { demoConversation } from "../model/demo-conversations";
 import { MemoryKeyValue } from "../model/demo-services";
 import { runningTurnOf, staticState, SHEET_CONVERSATION } from "../model/static-stream";
 import { SheetScroll } from "./sheet-layout";
+
+/** The gallery has the Face ID unlock on, so Auto can be picked. It never asks iOS. */
+const DEMO_LOCK = {
+  store: createStore({
+    ...initialLock({ on: true, notice: null }),
+    open: true,
+    shown: true,
+    phase: "active" as const,
+  }),
+  facts: () => Promise.resolve(DEFAULT_FACTS),
+};
 
 /** The streams of the status line: an idle conversation and one with a running turn. */
 interface SheetStreams {
@@ -82,8 +95,7 @@ export function ComposerSheet() {
       modelChoices: env.modelChoices,
       newCommandId: () => "0199d3e0-de39-7000-8000-0000000000ff",
       // The gallery never asks iOS: each check passes.
-      checkOwner: () => Promise.resolve({ kind: "passed" as const }),
-      hasPasscode: () => Promise.resolve(true),
+      lock: DEMO_LOCK,
     },
     target: env.target,
     connection: env.connection,

@@ -39,7 +39,7 @@ import type { Drafts } from "./model/drafts";
 import { favouriteOf, type ModelChoices } from "./model/model-choices";
 import { freshChoice } from "./model/model-sheet";
 import type { Outbox, OutboxEntry } from "./model/outbox";
-import type { CheckOwner } from "@/lib/lock/owner-check";
+import type { AppLock } from "@/features/navigation/model/app-lock";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {
@@ -52,10 +52,8 @@ export interface ComposerDeps {
   readonly modelChoices: ModelChoices;
   /** A new command id, such as `newCommandId` of src/lib/native/database.ts. */
   readonly newCommandId: () => string;
-  /** Checks the owner of the iPhone before a message in auto (native/owner-check.ts). */
-  readonly checkOwner: CheckOwner;
-  /** True when the iPhone has a passcode: without one, Auto cannot be picked. */
-  readonly hasPasscode: () => Promise<boolean>;
+  /** The Face ID unlock of the app: auto from the phone needs it (round 9). */
+  readonly lock: Pick<AppLock, "store" | "facts">;
 }
 
 /** The actions of one composer. */

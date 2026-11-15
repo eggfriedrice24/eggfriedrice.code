@@ -442,32 +442,34 @@ describe("without the services of the layout", () => {
   });
 });
 
+/** Settings with the Face ID unlock of a fake iPhone. */
+async function openWithLock(options: TestServicesOptions = {}): Promise<TestServices> {
+  const parts = await testServices([machineRecord(DESKTOP)], options);
+  // NOTE: clear the queries at the end, or the gc timer of 5 minutes keeps jest waiting.
+  opened.push({
+    dispose: () => {
+      parts.services.queryClient.clear();
+      parts.services.dispose();
+    },
+  });
+  await openSettings({
+    services: parts.services,
+    sockets: parts.sockets,
+    client: parts.services.queryClient,
+    devices: { list: () => parts.devices.loadAll() },
+  });
+  await act(async () => {
+    await flush();
+  });
+  return parts;
+}
+
+/** The row "Face ID unlock". */
+function row() {
+  return screen.getByTestId("unlock-row");
+}
+
 describe("the Face ID unlock row (Settings round 9)", () => {
-  async function openWithLock(options: TestServicesOptions = {}): Promise<TestServices> {
-    const parts = await testServices([machineRecord(DESKTOP)], options);
-    // NOTE: clear the queries at the end, or the gc timer of 5 minutes keeps jest waiting.
-    opened.push({
-      dispose: () => {
-        parts.services.queryClient.clear();
-        parts.services.dispose();
-      },
-    });
-    await openSettings({
-      services: parts.services,
-      sockets: parts.sockets,
-      client: parts.services.queryClient,
-      devices: { list: () => parts.devices.loadAll() },
-    });
-    await act(async () => {
-      await flush();
-    });
-    return parts;
-  }
-
-  function row() {
-    return screen.getByTestId("unlock-row");
-  }
-
   it("is off by default in the group Privacy, with its line", async () => {
     await openWithLock();
     expect(screen.getByRole("header", { name: "Privacy" })).toBeOnTheScreen();

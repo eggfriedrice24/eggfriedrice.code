@@ -60,18 +60,6 @@ export function modelsQueryOptions(caller: MachineCaller, machine: string) {
   });
 }
 
-/**
- * Whether the iPhone has a passcode: without one, Auto cannot be picked (S-ComposerR7 8).
- * It is asked again each time a composer mounts, as the user can set one at any time.
- */
-export function passcodeQueryOptions(hasPasscode: () => Promise<boolean>) {
-  return queryOptions({
-    queryKey: ["device", "passcode"] as const,
-    queryFn: hasPasscode,
-    staleTime: 0,
-  });
-}
-
 /** How long the cost of a switch counts as new: the context changes with each turn. */
 export const SWITCH_PREVIEW_STALE_MS = 10_000;
 

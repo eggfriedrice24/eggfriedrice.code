@@ -8,7 +8,6 @@ import type { TextInputInstance } from "react-native";
 import type { SendMode } from "@/features/settings/model/preferences";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
 import type { PhoneMode } from "../../model/model-choices";
-import type { NotSentLine } from "@/lib/lock/owner-check";
 
 /** What the slots of the composer read. */
 export interface ComposerModel {
@@ -31,16 +30,13 @@ export interface ComposerModel {
   readonly pick: (mode: SendMode) => void;
   /** Stops the running turn. */
   readonly stop: () => void;
-  /** The mode of the next message from this phone (S-ComposerR7 8). */
+  /**
+   * The mode of the next message from this phone (S-ComposerR7 8): auto only while the
+   * Face ID unlock is on.
+   */
   readonly mode: PhoneMode;
   /** Sets the mode of the next messages of this conversation on this phone. */
   readonly setMode: (mode: PhoneMode) => void;
-  /** True when the next tap on Send asks iOS to check the owner first. */
-  readonly checks: boolean;
-  /** True while iOS checks the owner: Send shows the braille cell and takes no tap. */
-  readonly checking: boolean;
-  /** The line of a message that did not pass the check, in the strip slot. */
-  readonly notSent: NotSentLine | undefined;
 }
 
 /** The context of the composer. Null outside `Composer.Root`. */

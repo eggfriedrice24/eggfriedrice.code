@@ -26,7 +26,6 @@ import type { StreamState } from "@/lib/stream/reducer";
 import { ComposerInput } from "./composer-input";
 import { ComposerModeButton } from "./composer-mode-button";
 import { ComposerModelButton } from "./composer-model-button";
-import { ComposerNotSent } from "./composer-not-sent";
 import { ComposerRoot, type ComposerRootProps } from "./composer-root";
 import { ComposerStatus, ComposerStatusLine } from "./composer-status-line";
 import { ComposerTrailing } from "./composer-trailing";
@@ -86,7 +85,6 @@ export function DockedComposer(props: DockedComposerProps) {
   return (
     <ComposerRoot {...root}>
       {strip}
-      <ComposerNotSent />
       <ComposerStatusLine>
         {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
         {/* The two settings of the next message stand together at the right end. */}

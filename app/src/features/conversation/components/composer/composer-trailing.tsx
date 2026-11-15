@@ -38,13 +38,7 @@ export function ComposerTrailing() {
   const trailing = model.trailing;
   switch (trailing.kind) {
     case "send":
-      return (
-        <SendButton
-          enabled={trailing.enabled}
-          label={model.checks ? "Send in auto. Face ID first." : "Send"}
-          onPress={model.submit}
-        />
-      );
+      return <SendButton enabled={trailing.enabled} label="Send" onPress={model.submit} />;
     case "stop":
       return (
         <>
@@ -58,7 +52,7 @@ export function ComposerTrailing() {
       return (
         <>
           {trailing.stop ? <StopButton onPress={model.stop} /> : null}
-          <SendingButton label={model.checking ? "Checking that it is you" : "Sending"} />
+          <SendingButton label="Sending" />
         </>
       );
   }
