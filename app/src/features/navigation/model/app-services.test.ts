@@ -15,6 +15,7 @@ import {
   testServices,
   type TestServices,
 } from "./testing";
+import { lockView } from "./app-lock";
 import { machineConnections } from "./machine-connections";
 import { streamTitles } from "./stream-titles";
 
@@ -338,5 +339,50 @@ describe("streamTitles", () => {
     );
     expect(titles.title({ machine: conversationId(9), id: CONVERSATION })).toBeUndefined();
     stop();
+  });
+});
+
+describe("the Face ID unlock in the services", () => {
+  it("starts unlocked with the switch off, and asks iOS nothing", async () => {
+    const test = await setup();
+    expect(lockView(test.services.appLock.store.get())).toBe("app");
+    expect(test.checkReasons).toEqual([]);
+  });
+
+  it("starts locked from a saved switch, and the phases of the app reach the lock", async () => {
+    parts = await testServices(undefined, { lockOn: true });
+    const test = parts;
+    expect(test.checkReasons).toEqual(["Unlock efr"]);
+    await test.answerCheck({ kind: "passed" });
+    expect(lockView(test.services.appLock.store.get())).toBe("app");
+    test.setPhase("inactive");
+    expect(lockView(test.services.appLock.store.get())).toBe("cover");
+    test.setPhase("active");
+    expect(lockView(test.services.appLock.store.get())).toBe("app");
+  });
+
+  it("sets the composers back to cautious and drops the auto of the outbox when it turns off", async () => {
+    parts = await testServices(undefined, { lockOn: true });
+    const test = parts;
+    await test.answerCheck({ kind: "passed" });
+    const key = draftKey(DESKTOP, CONVERSATION);
+    test.services.modelChoices.setMode(key, "auto");
+    const entry = test.services.outbox.enqueue({
+      machine: DESKTOP,
+      target: { kind: "conversation", conversationId: CONVERSATION },
+      text: "push the fix",
+      auto: true,
+    });
+    test.services.appLock.setOn(false);
+    await flush();
+    expect(test.checkReasons.at(-1)).toBe("Turn off Face ID unlock");
+    await test.answerCheck({ kind: "passed" });
+    expect(test.services.appLock.store.get().on).toBe(false);
+    expect(test.services.modelChoices.mode(key)).toBe("cautious");
+    const kept = test.services.outbox.store
+      .get()
+      .entries.find((one) => one.commandId === entry.commandId);
+    expect(kept?.auto).toBeUndefined();
+    expect(test.services.preferences.store.get().faceIdUnlock).toBe(false);
   });
 });

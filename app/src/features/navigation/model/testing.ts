@@ -18,6 +18,7 @@ import type {
   ConversationsRecentResult,
   HelloResult,
 } from "@/lib/protocol/generated";
+import { DEFAULT_FACTS, type OwnerCheck, type OwnerFacts } from "@/lib/lock/owner-check";
 import type { QueryManagers } from "@/lib/query/managers";
 import { MemoryStorage } from "@/lib/query/testing";
 import { MemoryEventCaches } from "@/lib/store/event-cache";
@@ -29,6 +30,8 @@ import type { MachineId } from "@/features/machines/model/machine-ref";
 import { DESKTOP, LAPTOP, machineRecord, pairedStores } from "@/features/machines/model/testing";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import type { MemoryPairedDevices } from "@/features/pairing/model/testing";
+import { PREFERENCES_KEY } from "@/features/settings/model/preferences";
+import type { LockPhase } from "./app-lock";
 import { createAppServices, type AppServices } from "./app-services";
 
 export { DESKTOP, LAPTOP };
@@ -80,6 +83,14 @@ export interface TestServices {
   readonly errors: unknown[];
   /** Tells the listeners of the app state that the app went to the foreground or not. */
   setActive(active: boolean): void;
+  /** Tells the Face ID unlock that the app changed its phase. */
+  setPhase(phase: LockPhase): void;
+  /** Answers the oldest check of the owner that waits. */
+  answerCheck(result: OwnerCheck): Promise<void>;
+  /** The reason of each check that the lock asked iOS for. */
+  readonly checkReasons: string[];
+  /** What the fake iPhone can check. */
+  setOwnerFacts(facts: OwnerFacts): void;
   /**
    * Opens the socket of `machine` and answers its handshake, with the members of
    * `hello` in the hello of efrd.
@@ -101,9 +112,20 @@ export function lastSocket(sockets: FakeSockets, url: string): FakeSocket {
 /** The time of the tests: 2026-10-26 12:00 UTC. */
 export const TEST_NOW = Date.parse("2026-10-26T12:00:00Z");
 
+/** The Face ID unlock of a test. */
+export interface TestServicesOptions {
+  /** The switch is saved on, so the app starts locked. */
+  readonly lockOn?: boolean;
+  /** What the fake iPhone can check; Face ID with a passcode by default. */
+  readonly facts?: OwnerFacts;
+  /** The phase of the app at the start; active by default. */
+  readonly phase?: LockPhase;
+}
+
 /** The services of the app with `records` paired (desktop and laptop by default). */
 export async function testServices(
   records: readonly PairedDevice[] = [machineRecord(DESKTOP), machineRecord(LAPTOP)],
+  options: TestServicesOptions = {},
 ): Promise<TestServices> {
   const stores = await pairedStores(records);
   // The clock of the machines starts at the time of the tests, as the real one does.
@@ -112,6 +134,13 @@ export async function testServices(
   const keyValue = new MemoryKeyValue();
   const errors: unknown[] = [];
   const appState = new Set<(active: boolean) => void>();
+  const phases = new Set<(phase: LockPhase) => void>();
+  const checks: ((result: OwnerCheck) => void)[] = [];
+  const checkReasons: string[] = [];
+  let facts: OwnerFacts = options.facts ?? DEFAULT_FACTS;
+  if (options.lockOn === true) {
+    void keyValue.setItem(PREFERENCES_KEY, JSON.stringify({ faceIdUnlock: true }));
+  }
   let ids = 0;
   let aliases = 0;
   const services = createAppServices({
@@ -155,6 +184,23 @@ export async function testServices(
     setHapticsEnabled: () => undefined,
     onError: (error) => errors.push(error),
     queryManagers: QUIET_MANAGERS,
+    lock: {
+      followAppPhase: (listener) => {
+        phases.add(listener);
+        return () => {
+          phases.delete(listener);
+        };
+      },
+      appPhase: () => options.phase ?? "active",
+      checkOwner: (reason) => {
+        checkReasons.push(reason);
+        return new Promise((resolve) => checks.push(resolve));
+      },
+      ownerFacts: () => Promise.resolve(facts),
+      hasPasscode: () => Promise.resolve(facts.passcode),
+      dismissKeyboard: () => undefined,
+      announce: () => undefined,
+    },
   });
   await services.loaded;
   return {
@@ -168,6 +214,19 @@ export async function testServices(
       for (const listener of appState) {
         listener(active);
       }
+    },
+    setPhase(phase) {
+      for (const listener of phases) {
+        listener(phase);
+      }
+    },
+    async answerCheck(result) {
+      checks.shift()?.(result);
+      await flush();
+    },
+    checkReasons,
+    setOwnerFacts(next) {
+      facts = next;
     },
     async connect(machine, hello = {}) {
       const record = records.find((one) => one.daemonId === machine);

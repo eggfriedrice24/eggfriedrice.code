@@ -9,6 +9,7 @@ import type { Drafts } from "@/features/conversation/model/drafts";
 import type { ModelChoices } from "@/features/conversation/model/model-choices";
 import type { Outbox } from "@/features/conversation/model/outbox";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
+import type { AppLock } from "./model/app-lock";
 import type { AppRuntime, AppServices } from "./model/app-services";
 
 /** The services of the app. The root layout gives them. */
@@ -46,4 +47,9 @@ export function useModelChoices(): ModelChoices {
 /** The preferences. */
 export function usePreferences(): PreferencesStore {
   return useAppServices().preferences;
+}
+
+/** The Face ID unlock of the app. */
+export function useAppLock(): AppLock {
+  return useAppServices().appLock;
 }

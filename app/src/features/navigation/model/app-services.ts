@@ -23,6 +23,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { AsyncStorage } from "@tanstack/react-query-persist-client";
 
+import { type CheckOwner, DEFAULT_FACTS, type OwnerFacts } from "@/lib/lock/owner-check";
 import type { Clock } from "@/lib/net/clock";
 import { wireQueryManagers, type QueryManagers, type Subscribe } from "@/lib/query/managers";
 import { queryPersistOptions, type QueryPersistOptions } from "@/lib/query/persister";
@@ -64,6 +65,8 @@ import {
 } from "@/features/machines/model/runtime";
 import type { PairingDeps } from "@/features/pairing/model/pair";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
+import { createAppLock, type AppLock, type LockPhase } from "./app-lock";
+import type { LinkGate } from "./link-gate";
 import { wireOutboxDrains } from "./outbox-drains";
 import { withOutboxEcho } from "./outbox-echo";
 
@@ -80,6 +83,8 @@ export interface AppServices {
   readonly preferences: PreferencesStore;
   /** The model and effort chosen per composer. */
   readonly modelChoices: ModelChoices;
+  /** The Face ID unlock of the app (round 9). */
+  readonly appLock: AppLock;
   /** Settles when the runtime read the paired machines. It never rejects. */
   readonly loaded: Promise<void>;
   /** Stops every connection, drain and listener. */
@@ -117,9 +122,38 @@ export interface AppServicesDeps {
   readonly setHapticsEnabled: (read: () => boolean) => void;
   /** Called with the errors that the app goes on after. */
   readonly onError: (error: unknown) => void;
+  /**
+   * The effects of the Face ID unlock. Without them (a test of another feature), the lock
+   * starts from the saved switch with a check that never passes, so it never turns on.
+   */
+  readonly lock?: AppLockEffects;
+  /** The gate of the links from outside; the root layout gives the one of the app. */
+  readonly linkGate?: LinkGate;
   /** The managers of Query; the tests give fakes. */
   readonly queryManagers?: QueryManagers;
 }
+
+/** The effects of the Face ID unlock: the phases of the app and the checks of iOS. */
+export interface AppLockEffects {
+  followAppPhase(listener: (phase: LockPhase) => void): () => void;
+  appPhase(): LockPhase;
+  readonly checkOwner: CheckOwner;
+  readonly ownerFacts: () => Promise<OwnerFacts>;
+  readonly hasPasscode: () => Promise<boolean>;
+  readonly dismissKeyboard: () => void;
+  readonly announce: (line: string) => void;
+}
+
+/** The effects of a lock that never turns on, for the tests of other features. */
+const NO_LOCK: AppLockEffects = {
+  followAppPhase: () => () => undefined,
+  appPhase: () => "active",
+  checkOwner: () => Promise.resolve({ kind: "failed", method: "Face ID" }),
+  ownerFacts: () => Promise.resolve(DEFAULT_FACTS),
+  hasPasscode: () => Promise.resolve(true),
+  dismissKeyboard: () => undefined,
+  announce: () => undefined,
+};
 
 /** An outbox storage that waits for the database to open. */
 function deferredOutboxStorage(open: () => Promise<OutboxStorage>): OutboxStorage {
@@ -196,6 +230,28 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
   const hydrated = outbox.hydrate().catch((error: unknown) => {
     onError(error);
   });
+  const lock = deps.lock ?? NO_LOCK;
+  const saved = preferences.store.get();
+  const appLock = createAppLock({
+    saved: { on: saved.faceIdUnlock, notice: saved.faceIdUnlockNotice },
+    now: deps.now,
+    checkOwner: lock.checkOwner,
+    ownerFacts: lock.ownerFacts,
+    hasPasscode: lock.hasPasscode,
+    save: ({ on, notice }) => preferences.setFaceIdUnlock(on, notice),
+    // NOTE: off sets every composer back to cautious (D3); on and off both drop the old
+    // auto of the outbox, so no auto comes back by itself.
+    onSwitch: (on) => {
+      outbox.dropAuto();
+      if (!on) {
+        modelChoices.clearAuto();
+      }
+    },
+    onLock: lock.dismissKeyboard,
+    announce: lock.announce,
+    onError,
+  });
+  deps.linkGate?.follow(appLock);
   const stops = [
     wireQueryManagers(
       {
@@ -205,13 +261,22 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
       deps.queryManagers,
     ),
     invalidateOnReady(runtime, queryClient),
-    wireOutboxDrains({ runtime, outbox, hydrated, clock: deps.clock, random: deps.random }),
+    wireOutboxDrains({
+      runtime,
+      outbox,
+      hydrated,
+      clock: deps.clock,
+      random: deps.random,
+      autoAllowed: () => appLock.store.get().on,
+    }),
+    lock.followAppPhase((phase) => appLock.phase(phase)),
     deps.lifecycle.followAppState((active) => {
       if (!active) {
         drafts.flush();
       }
     }),
   ];
+  appLock.start(lock.appPhase());
   const loaded = runtime.load().catch((error: unknown) => {
     onError(error);
   });
@@ -224,6 +289,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     drafts,
     preferences,
     modelChoices,
+    appLock,
     loaded,
     dispose(): void {
       for (const stop of stops.splice(0)) {

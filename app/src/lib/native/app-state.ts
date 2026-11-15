@@ -23,3 +23,26 @@ export function followAppState(listener: (active: boolean) => void): () => void 
   const subscription = AppState.addEventListener("change", changed);
   return () => subscription.remove();
 }
+
+/** The phase of the app, for the Face ID unlock: it needs "inactive" too (the cover). */
+export type AppPhase = "active" | "inactive" | "background";
+
+/** `status` as a phase; "unknown" and an empty status read as "inactive". */
+function phaseOf(status: string | null | undefined): AppPhase {
+  return status === "active" || status === "background" ? status : "inactive";
+}
+
+/** The phase of the app now. */
+export function appPhase(): AppPhase {
+  return phaseOf(AppState.currentState);
+}
+
+/**
+ * Calls `listener` with each phase of the app, "inactive" too (the app switcher, the
+ * Control Center, a prompt of iOS). Only the Face ID unlock listens to it: the machines,
+ * the queries and the drafts follow `followAppState`. Returns the function that stops it.
+ */
+export function followAppPhase(listener: (phase: AppPhase) => void): () => void {
+  const subscription = AppState.addEventListener("change", (status) => listener(phaseOf(status)));
+  return () => subscription.remove();
+}

@@ -3,10 +3,13 @@ import "../../global.css";
 import Constants from "expo-constants";
 
 import { appStorage } from "@/lib/native/kv";
-import { followAppState } from "@/lib/native/app-state";
+import { AccessibilityInfo, Keyboard } from "react-native";
+
+import { appPhase, followAppPhase, followAppState } from "@/lib/native/app-state";
 import { systemClock } from "@/lib/native/clock";
 import { newCommandId, openAppDatabase, openEventCaches } from "@/lib/native/database";
 import { setHapticsEnabled } from "@/lib/native/haptics";
+import { checkOwner, hasPasscode, ownerFacts } from "@/lib/native/owner-check";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
@@ -14,6 +17,7 @@ import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
 import { RootStack } from "@/features/navigation/components/root-stack";
 import { createAppServices } from "@/features/navigation/model/app-services";
+import { linkGate } from "@/features/navigation/model/link-gate";
 import type { PairingDeps } from "@/features/pairing/model/pair";
 import { nativePairingDeps } from "@/features/pairing/native/native-pairing";
 
@@ -65,6 +69,16 @@ const services = createAppServices({
   followOnline,
   setHapticsEnabled,
   onError: report,
+  lock: {
+    followAppPhase,
+    appPhase,
+    checkOwner,
+    ownerFacts,
+    hasPasscode,
+    dismissKeyboard: () => Keyboard.dismiss(),
+    announce: (line) => AccessibilityInfo.announceForAccessibility(line),
+  },
+  linkGate,
 });
 
 function machineMenu(machine: string) {
