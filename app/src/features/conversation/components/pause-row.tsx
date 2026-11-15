@@ -20,7 +20,7 @@ export function PauseRow(props: PauseRowProps) {
     return null;
   }
   return (
-    <MonoText testID="pause-line" tone="text_muted">
+    <MonoText testID="pause-line" tone="text_subtle">
       {pausedLine(pause)}
     </MonoText>
   );

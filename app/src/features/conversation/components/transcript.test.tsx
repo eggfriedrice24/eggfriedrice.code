@@ -340,6 +340,8 @@ describe("the transcript", () => {
     expect(screen.getByTestId("pause-line")).toHaveTextContent(
       "reviewer paused for this turn: 3 actions in a row were refused; the next action that needs it stops the turn",
     );
+    // The quiet line of the boards (AU-Auto 2 and 3): text_subtle, as the switch line.
+    expect(screen.getByTestId("pause-line").props.className).toContain("text-text-subtle");
     // A pause asks nothing.
     expect(screen.queryByText("waiting for approval")).toBeNull();
   });
