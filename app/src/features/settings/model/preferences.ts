@@ -5,8 +5,9 @@
 // - `lastMachine`: the daemon id of the machine of the blank root, so the app opens on
 //   the machine that the user used last.
 // - `askCostlySwitch`: the switch "Ask before a costly model switch" of Settings (on by
-//   default, for every machine). On: a pick in the model sheet that compacts waits for
-//   "Switch and compact". Off: a tap on a row of the sheet switches at once.
+//   default, for every machine). On: a pick in the model sheet waits for "Use" in its
+//   header ("Switch" for a switch that compacts). Off: a tap on a row of the sheet
+//   switches at once.
 // - `showLegacyModels`: the switch "Legacy models" of the filter menu of the model sheet
 //   (off by default, for every machine). On: the sheet shows the models that efrd marks
 //   legacy, in a group at the end of each account.

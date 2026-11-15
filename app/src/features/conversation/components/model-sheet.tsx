@@ -1,6 +1,7 @@
-// The model sheet (S-ModelSheet, round 8 "minimal"): a native form sheet with the grabber
-// and no bar. The rows of each account scroll; the slider, the quiet line and the confirm
-// stay pinned at the bottom. model/model-sheet.ts says what each state shows.
+// The model sheet (S-ModelSheet, round 8 "minimal"): a native form sheet with the native
+// header ("Model", and "Use" at its right) and the bottom toolbar. The rows of each
+// account scroll; the slider and the quiet line stay pinned at the bottom.
+// model/model-sheet.ts says what each state shows.
 //
 // - A section header is caption text_subtle: the account, then its note. The warning
 //   glyph of a limit from 80 % is state_warning and its words text_subtle, so it never
@@ -8,9 +9,9 @@
 // - A row is the logo, the name and the yolk check, 44 pt high at least. The selected row
 //   has selection_bg and its name in text_bright. A dim row is text_muted with its logo
 //   at 40 % and takes no tap.
-// - The confirm is the only filled control: a small yolk capsule, only when something
-//   changed. A switch that compacts adds one line with the warning glyph above it and the
-//   plain toggle "Don't ask again here" on its left.
+// - The confirm is "Use" in the native header, off until something changed, and "Switch"
+//   for a switch that compacts. Such a switch adds one line with the warning glyph to the
+//   pinned panel, and the plain toggle "Don't ask again here" under it.
 //
 // Round 7 (S-ModelSheet r7), native after the device check:
 // - The search, the filter and the confirm are native parts of the sheet, not views of
@@ -51,7 +52,7 @@ import { ProviderLogo } from "./provider-logo";
 const MIN_BOTTOM = 12;
 
 /** The room of the bottom toolbar of iOS 26 (the search bar and the filter) over the panel. */
-export const TOOLBAR_ROOM = 56;
+const TOOLBAR_ROOM = 56;
 
 /** The 16 pt line of "Use default" with a touch of 44 pt, as the other controls. */
 const USE_DEFAULT_SLOP = { top: 14, bottom: 14, left: 8, right: 8 } as const;
@@ -368,27 +369,20 @@ function ConfirmRow(props: ModelSheetViewProps) {
         <SymbolIcon name="exclamationmark.triangle" size={13} tone="state_warning" />
         <Text className="flex-1 text-reason text-text-muted">{COMPACTS_TEXT}</Text>
       </View>
-      <View className="min-h-28 flex-row items-center gap-10">
-        {confirm.compacts ? (
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityLabel="Don't ask again in this conversation"
-            accessibilityState={{ checked: props.quiet }}
-            hitSlop={{ top: 8, bottom: 8 }}
-            onPress={props.onQuiet}
-            className="min-h-28 justify-center active:opacity-60"
-          >
-            <Text
-              className={cn(
-                "text-reason",
-                props.quiet ? "text-accent-primary" : "text-text-subtle",
-              )}
-            >
-              {props.quiet ? "✓ Don't ask again here" : "Don't ask again here"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityLabel="Don't ask again in this conversation"
+        accessibilityState={{ checked: props.quiet }}
+        hitSlop={{ top: 8, bottom: 8 }}
+        onPress={props.onQuiet}
+        className="min-h-28 justify-center self-start active:opacity-60"
+      >
+        <Text
+          className={cn("text-reason", props.quiet ? "text-accent-primary" : "text-text-subtle")}
+        >
+          {props.quiet ? "✓ Don't ask again here" : "Don't ask again here"}
+        </Text>
+      </Pressable>
     </View>
   );
 }

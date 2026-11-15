@@ -1,6 +1,6 @@
 // The model sheet route (S-ModelSheet, MS-*, AC-Out 5, AC-Limits 1-2): the root stack
-// presents it as a form sheet that fits its content, with the grabber and no bar
-// (MODEL_OPTIONS). It opens from the model button of a composer, and from a switch
+// presents it as a form sheet with the detents 0.75 and full, the grabber and the native
+// header (MODEL_OPTIONS). It opens from the model button of a composer, and from a switch
 // action under a turn that failed because its account is out (with that model selected).
 //
 // - The sheet asks efrd for the list again each time it opens, and shows the last list

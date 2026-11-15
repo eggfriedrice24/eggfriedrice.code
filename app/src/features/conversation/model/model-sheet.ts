@@ -16,11 +16,12 @@
 // - The quiet line is the only place for the context window and the default:
 //   "Opus 5.5 · 200k context · desktop default", "chosen here" with "Use default", and
 //   "on ChatGPT plan · b" for a model that runs on two accounts.
-// - The confirm shows only when something changed: "Use Sonnet 5 · medium", "Use ChatGPT
-//   plan · b" for a switch of account alone, "next message" before it while a turn
-//   runs. A switch that compacts, while the phone asks before a costly switch, says
-//   "Compacts this conversation and starts a cold cache." and reads "Switch and
-//   compact". A cold cache alone stays silent.
+// - The confirm is the native header button "Use", on only when something changed. Its
+//   VoiceOver label says what it uses: "Use Sonnet 5 · medium", or "Use ChatGPT plan · b"
+//   for a switch of account alone. While a turn runs, the quiet line says "next
+//   message". A switch that compacts, while the phone asks before a costly switch, says
+//   "Compacts this conversation and starts a cold cache.", and the button reads "Switch"
+//   with the label "Switch and compact". A cold cache alone stays silent.
 //
 // Round 7 (S-ModelSheet r7, S-ComposerR7):
 // - Search: each word of the query must be in the name or the id of the model, in any
@@ -348,14 +349,15 @@ export interface QuietLine {
   readonly useDefault: boolean;
 }
 
-/** The confirm row. */
+/** The confirm: the native header button "Use" or "Switch". */
 export interface ConfirmView {
+  /** The VoiceOver label of the button: "Use Sonnet 5 · medium", "Switch and compact". */
   readonly label: string;
-  /** "next message" before the button while a turn runs. */
+  /** A turn runs: the pick applies to the next message. */
   readonly next: boolean;
-  /** The switch compacts: the warning line, "Switch and compact", "Don't ask again here". */
+  /** The switch compacts: the warning line, "Switch", "Don't ask again here". */
   readonly compacts: boolean;
-  /** The cost is not known yet: the button shows the braille cell. */
+  /** The cost is not known yet: the button is off. */
   readonly pending: boolean;
 }
 
