@@ -19,18 +19,18 @@ export async function hasPasscode(): Promise<boolean> {
 }
 
 /**
- * What the iPhone can check now. The name comes from what is set up (the enrolled
- * level), not from the hardware: an iPhone whose Face ID is not set up checks with the
- * passcode.
+ * What the iPhone can check now. With a passcode, the name comes from what is set up
+ * (the enrolled level), not from the hardware: an iPhone whose Face ID is not set up
+ * checks with the passcode. With no passcode, iOS cannot set up Face ID at all, so the
+ * name comes from the hardware: a Face ID iPhone keeps "Face ID unlock" (Settings r9
+ * frames 5 and 6).
  */
 export async function ownerFacts(): Promise<OwnerFacts> {
   const level = await getEnrolledLevelAsync();
-  if (level === SecurityLevel.NONE) {
-    return { passcode: false, method: "the passcode" };
-  }
   if (level === SecurityLevel.SECRET) {
     return { passcode: true, method: "the passcode" };
   }
+  const passcode = level !== SecurityLevel.NONE;
   const types = await supportedAuthenticationTypesAsync();
   let method: OwnerMethod = "the passcode";
   if (types.includes(AuthenticationType.FACIAL_RECOGNITION)) {
@@ -38,7 +38,7 @@ export async function ownerFacts(): Promise<OwnerFacts> {
   } else if (types.includes(AuthenticationType.FINGERPRINT)) {
     method = "Touch ID";
   }
-  return { passcode: true, method };
+  return { passcode, method };
 }
 
 /**

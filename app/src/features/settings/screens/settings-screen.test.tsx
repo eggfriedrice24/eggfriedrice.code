@@ -547,14 +547,33 @@ describe("the Face ID unlock row (Settings round 9)", () => {
     });
   });
 
-  it("says why efr turned it off when the passcode went", async () => {
+  it("says why efr turned it off while the passcode is gone, then goes back to frame 1", async () => {
     const parts = await openWithLock({ lockOn: true });
+    // The facts of a Face ID iPhone whose passcode went (lib/native/owner-check.ts).
+    parts.setOwnerFacts({ passcode: false, method: "Face ID" });
     await act(async () => {
       await parts.answerCheck({ kind: "no_passcode" });
     });
-    expect(row().props.accessibilityState).toMatchObject({ checked: false });
+    await act(async () => {
+      await parts.services.queryClient.invalidateQueries({ queryKey: ["device", "owner"] });
+    });
+    await waitFor(() => {
+      expect(row().props.accessibilityState).toMatchObject({ checked: false, disabled: true });
+    });
+    expect(row()).toHaveAccessibleName("Face ID unlock");
     expect(screen.getByTestId("unlock-line")).toHaveTextContent(
       "Face ID unlock is off: this iPhone has no passcode.",
+    );
+
+    parts.setOwnerFacts({ passcode: true, method: "Face ID" });
+    await act(async () => {
+      await parts.services.queryClient.invalidateQueries({ queryKey: ["device", "owner"] });
+    });
+    await waitFor(() => {
+      expect(row().props.accessibilityState).toMatchObject({ checked: false, disabled: false });
+    });
+    expect(screen.getByTestId("unlock-line")).toHaveTextContent(
+      "Opens efr with Face ID. Auto from this phone needs it.",
     );
   });
 });

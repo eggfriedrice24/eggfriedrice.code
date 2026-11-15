@@ -4,9 +4,11 @@
 //
 // - The row takes the tap, not the switch: the switch moves only after the check of iOS
 //   passed, so it never jumps back (frame 3). While iOS checks, the row takes no tap.
-// - An iPhone with no passcode greys the row and says "Needs a passcode on this iPhone."
-//   (frame 5). After efr turned the unlock off for that reason, the line says so (frame
-//   6) until the switch is on again.
+// - An iPhone with no passcode greys the title (text_subtle) and the switch, and says
+//   "Needs a passcode on this iPhone." (frame 5). After efr turned the unlock off for
+//   that reason, the line says so in text_muted (frame 6) while the iPhone has no
+//   passcode. The line stays readable: it is the only text that tells why.
+// - The line is 13/18 in text_subtle (the board).
 // - VoiceOver reads one element: the switch, its name, and the line as its hint.
 
 import { Pressable, Switch, Text, View } from "react-native";
@@ -19,6 +21,8 @@ export interface UnlockRowProps {
   readonly title: string;
   /** `unlockRowLine(facts)`, or the notice of D5. */
   readonly line: string;
+  /** The line is the notice of frame 6. */
+  readonly notice?: boolean;
   readonly value: boolean;
   /** iOS checks after a tap; the switch did not move. */
   readonly checking: boolean;
@@ -42,13 +46,29 @@ export function UnlockRow(props: UnlockRowProps) {
       onPress={() => props.onValueChange(!props.value)}
       className="min-h-46 flex-row items-center gap-12 px-16 py-10 active:bg-selection-bg"
     >
-      <View className={cn("flex-1 gap-2", props.disabled && "opacity-40")}>
-        <Text className="text-row text-text-primary">{props.title}</Text>
-        <Text testID="unlock-line" className="text-caption text-text-muted">
+      <View className="flex-1 gap-1">
+        <Text
+          testID="unlock-title"
+          className={cn("text-row", props.disabled ? "text-text-subtle" : "text-text-primary")}
+        >
+          {props.title}
+        </Text>
+        <Text
+          testID="unlock-line"
+          className={cn(
+            "text-reason",
+            props.notice === true ? "text-text-muted" : "text-text-subtle",
+          )}
+        >
           {props.line}
         </Text>
       </View>
-      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no">
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        className={cn(props.disabled && "opacity-40")}
+      >
         <Switch
           value={props.value}
           disabled={props.disabled}

@@ -228,15 +228,15 @@ function UnlockGroup(props: { readonly lock: AppLock }) {
   const notice = useSelector(lock.store, selectNotice);
   const facts = useQuery(ownerFactsQueryOptions(lock)).data ?? DEFAULT_FACTS;
   const disabled = !facts.passcode && !on;
-  let line = unlockRowLine(facts);
-  if (notice === "no_passcode" && !on) {
-    line = noPasscodeNotice(facts.method);
-  }
+  // The notice of frame 6 stays only while the iPhone has no passcode. When a passcode
+  // is set again, the row is frame 1 again.
+  const noticed = notice === "no_passcode" && disabled;
   return (
     <InsetGroup header="Privacy">
       <UnlockRow
         title={unlockName(facts.method)}
-        line={line}
+        line={noticed ? noPasscodeNotice(facts.method) : unlockRowLine(facts)}
+        notice={noticed}
         value={on}
         checking={checking}
         disabled={disabled}
