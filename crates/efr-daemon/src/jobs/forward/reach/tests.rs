@@ -265,7 +265,7 @@ fn tell(forwards: &Forwards, key: JobKey, port: u16, outcome: ForwardOutcome) {
 /// What a line of the D2 7c live test reads: job j1 listens on a port that a program of
 /// the user holds.
 const IN_USE: &str = "efr: port 8767 of job j1 is not forwarded: 127.0.0.1:8767 is in use \
-    on this machine. Your contained calls do not reach the job on this port, and full \
+    on this machine. Your contained calls do not reach the job on this port, and host \
     network would reach another program on this machine, not the job. efr did not run \
     this call. Stop job j1 and start the server on another port.";
 
@@ -312,7 +312,7 @@ async fn each_outcome_that_is_no_forward_refuses() {
     assert!(
         refused.starts_with(
             "efr: port 5432 of job j1 is not forwarded: efr does not forward port 5432 (a \
-             service port). Your contained calls do not reach the job on this port, and full \
+             service port). Your contained calls do not reach the job on this port, and host \
              network does not reach the job either."
         ),
         "{refused}"
@@ -327,7 +327,7 @@ async fn each_outcome_that_is_no_forward_refuses() {
         line.refusal.as_deref(),
         Some(
             "efr: port 8765 of job j1 is no longer forwarded (jobs.forward_ports is off). Your \
-             contained calls do not reach the job on this port, and full network does not \
+             contained calls do not reach the job on this port, and host network does not \
              reach the job either. efr did not run this call. Tell the user that efr does \
              not forward ports now."
         )

@@ -20,7 +20,7 @@ use crate::support::zsh_enabled;
 
 /// What the model reads for the line of the live test.
 const REFUSAL: &str = "efr: port 8767 of job j1 is not forwarded: 127.0.0.1:8767 is in use on \
-    this machine. Your contained calls do not reach the job on this port, and full network \
+    this machine. Your contained calls do not reach the job on this port, and host network \
     would reach another program on this machine, not the job. efr did not run this call. Stop \
     job j1 and start the server on another port.";
 

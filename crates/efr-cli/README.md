@@ -600,7 +600,7 @@ Replies:
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
   the end-of-turn line, with `network through efr's proxy` in place of `no network`
   when a contained call ran with the proxy (`SandboxSummary.proxied`, phase D2, also on
-  the outcome of a job's start from v0.0.4), `full network` when a contained call had
+  the outcome of a job's start from v0.0.4), `host network` when a contained call had
   `Grant::OpenNetwork` (this wins over the proxy), and
   `; host network view (no sending)` at its end when a contained call had
   `Grant::NetView`. When the turn's end event names roots that the turn changed

@@ -707,7 +707,7 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   network`. When a call of the turn ran with the proxy, also a background job that
   the turn started, the line says `network through efr's proxy` in place of `no
   network`. When a call of the turn had the whole network (a raw network program or a
-  `localhost` port), the line says `full network`. When a call of the turn had the
+  `localhost` port), the line says `host network`. When a call of the turn had the
   network view, the line ends with `; host network view (no sending)`.
 - Three refusals in a row without a person (by a floor) stop the turn. A refusal of
   the reviewer does not count here; it has its own pause (above).

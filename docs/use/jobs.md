@@ -123,7 +123,7 @@ efr. So it gives you the right address, or it starts the server on another port.
 A later call of the same conversation in the sandbox reaches the job's server on the
 same port. So `curl http://localhost:8765` in a call checks the dev server that the
 agent started. A call in the sandbox that names a port of its job that efr does not
-forward does not run, and nobody is asked: full network would reach the other program
+forward does not run, and nobody is asked: host network would reach the other program
 on that port, not the job. The agent reads why. A job outside the sandbox already listens on your loopback, so it gets
 no forward. [Ports of a job](../sandbox.md#ports-of-a-job) has the full list of ports
 and rules.

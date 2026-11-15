@@ -4,4 +4,4 @@ expression: err
 ---
 ✓ $ curl -sS https://registry.npmjs.org/
 ✓ $ psql -h db.lan
-sandbox: writes in $SCRATCH, private /tmp; full network
+sandbox: writes in $SCRATCH, private /tmp; host network

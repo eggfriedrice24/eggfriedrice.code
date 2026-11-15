@@ -598,9 +598,9 @@ pub(crate) fn refusal(
         ),
     };
     let host = if outcome == ForwardOutcome::InUse && by_job.is_none() {
-        "full network would reach another program on this machine, not the job"
+        "host network would reach another program on this machine, not the job"
     } else {
-        "full network does not reach the job either"
+        "host network does not reach the job either"
     };
     let what = match outcome {
         ForwardOutcome::Limit => "Stop a job that you do not need".to_owned(),

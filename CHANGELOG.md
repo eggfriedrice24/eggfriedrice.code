@@ -104,7 +104,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - An allow of the reviewer or of an always rule names what the call gets on the same
   line, such as `github.com:443 reachable, the variable GH_TOKEN`. The whole network
   of the computer is now `host network` (before: `full network`), in the warning
-  colour, also on a question.
+  colour, also on a question, on the dim sandbox line at the end of a turn and in the
+  refusal of a job port that efr does not forward.
 - A refusal of the reviewer, a refusal of efr's own rules (`efr: ...`), a review with
   no answer and the pause of the reviewer each start with `!` in the warning colour.
   A refusal of the reviewer that names its command is one row: the call gets no

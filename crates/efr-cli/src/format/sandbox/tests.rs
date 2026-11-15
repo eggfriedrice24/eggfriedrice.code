@@ -197,7 +197,7 @@ fn the_trace_names_the_proxy_in_place_of_no_network() {
     );
     assert_eq!(
         contained_trace(true, false, TraceNetwork::Full, &[]),
-        "sandbox: writes in the project, $SCRATCH, private /tmp; full network"
+        "sandbox: writes in the project, $SCRATCH, private /tmp; host network"
     );
     assert!(TraceNetwork::Full > TraceNetwork::Proxy && TraceNetwork::Proxy > TraceNetwork::None);
 }

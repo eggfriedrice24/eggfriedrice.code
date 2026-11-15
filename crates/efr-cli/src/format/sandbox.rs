@@ -48,7 +48,7 @@ const PROXY_TRACE: &str = "network through efr's proxy";
 
 /// What the trace says in place of `no network` when a contained call of the turn had
 /// the whole network (`Grant::OpenNetwork`).
-const FULL_TRACE: &str = "full network";
+const FULL_TRACE: &str = "host network";
 
 /// What the trace adds when a contained call of the turn had the network view.
 const NET_VIEW_TRACE: &str = "host network view (no sending)";
@@ -326,7 +326,7 @@ pub(crate) fn explain(result: &SandboxExplainResult, home: Option<&Path>) -> Str
     out
 }
 
-/// What a grant opens, such as `full network` or `~/notes writable`.
+/// What a grant opens, such as `host network` or `~/notes writable`.
 fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
     match grant {
         Grant::Write { path } => format!("{} writable", tilde(path, home)),
