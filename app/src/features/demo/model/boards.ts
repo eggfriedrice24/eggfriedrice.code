@@ -259,6 +259,7 @@ const SHEETS: readonly GalleryBoard[] = [
   sheet("AU-Auto", "Auto, quarantine and accounts in a transcript (AC-Out, MS-Switched)"),
   sheet("Q-Quarantine", "Quarantine question · strip and sheet"),
   sheet("S-Lock", "Face ID unlock · lock screen and cover"),
+  sheet("Settings-Unlock", "Face ID unlock · the Settings row in each state (round 9)"),
   sheet("Icon", "App icon · the yolk (direction b)"),
 ];
 

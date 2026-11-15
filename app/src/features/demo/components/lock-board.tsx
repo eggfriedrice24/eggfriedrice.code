@@ -12,7 +12,7 @@ import { SheetCase, SheetScroll } from "./sheet-layout";
 const FRAME = "h-640 overflow-hidden rounded-box border border-border-subtle";
 
 const CASES: [string, OwnerMethod, FailedCheck | null][] = [
-  ["while iOS asks: the mark only", "Face ID", null],
+  ["while iOS asks: no line, and the prompt of iOS lies over Unlock", "Face ID", null],
   ["Face ID did not pass", "Face ID", { kind: "failed", method: "Face ID" }],
   ["you cancelled", "Face ID", { kind: "cancelled", method: "Face ID" }],
   ["Face ID is locked: too many tries", "Face ID", { kind: "locked", method: "Face ID" }],

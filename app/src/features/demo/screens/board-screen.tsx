@@ -7,7 +7,7 @@
 //   sandbox, for Forget the last machine).
 // - The component sheets of the canvas: composer, approval block, transcript rows,
 //   loaders, the model sheet, auto and the accounts in a transcript, the quarantine
-//   question, and the icon.
+//   question, the lock screen, the unlock row of Settings, and the icon.
 // - The render counter: a conversation of the demo machine with its real header and
 //   screen inside a probe, and the counts over it.
 //
@@ -40,6 +40,7 @@ import { QuarantineBoard } from "../components/quarantine-board";
 import { RenderOverlay } from "../components/render-overlay";
 import { SandboxSettings } from "../components/sandbox-settings";
 import { TranscriptSheet } from "../components/transcript-sheet";
+import { UnlockBoard } from "../components/unlock-board";
 import type { BoardParams } from "../model/board-schemas";
 import { galleryBoard, PAIRING_PREFIX, RENDER_BOARD } from "../model/boards";
 
@@ -124,6 +125,8 @@ function Sheet(props: { readonly name: string }) {
       return <QuarantineBoard />;
     case "S-Lock":
       return <LockBoard />;
+    case "Settings-Unlock":
+      return <UnlockBoard />;
     case "Icon":
       return <IconSheet />;
     default:

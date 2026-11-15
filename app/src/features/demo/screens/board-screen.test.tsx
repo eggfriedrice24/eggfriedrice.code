@@ -144,6 +144,22 @@ describe("the component boards of the gallery", () => {
     expect(screen.getAllByTestId("quarantine-sheet")).toHaveLength(5);
   });
 
+  it("draws the unlock row of Settings in each state of round 9", async () => {
+    await showBoard("Settings-Unlock");
+    expect(screen.getAllByTestId("unlock-row")).toHaveLength(8);
+    expect(screen.getAllByText("Face ID unlock").length).toBeGreaterThan(1);
+    expect(screen.getByText("Passcode unlock")).toBeOnTheScreen();
+    expect(screen.getByText("Touch ID unlock")).toBeOnTheScreen();
+    expect(screen.getByText("Needs a passcode on this iPhone.")).toBeOnTheScreen();
+    expect(
+      screen.getByText("Face ID unlock is off: this iPhone has no passcode."),
+    ).toBeOnTheScreen();
+    const busy = screen
+      .getAllByTestId("unlock-row")
+      .filter((row) => row.props.accessibilityState?.busy === true);
+    expect(busy).toHaveLength(1);
+  });
+
   it("draws the loaders", async () => {
     await showBoard("S-Loaders");
     expect(screen.getByText("running line")).toBeOnTheScreen();
