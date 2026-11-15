@@ -114,6 +114,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   replayed automatically after a reconnect. A receipt stays for 7 days
   (`receipts::MAX_AGE`): the hourly pass of the recordings collector deletes older
   ones, at most 2,000 rows per writer job. A retry after that runs as a new command.
+  The index `receipts_seq` (migration 13) lets each step of a conversation delete find
+  the receipts of its events without a read of the whole table.
 - `outbox(id, kind, payload, replay_safe INTEGER, claimed_at, done_at)`. Replay-safe
   rows survive a restart; process-bound rows are cancelled at startup. A row that is
   done or cancelled stays for 1 day (`outbox::ENDED_MAX_AGE`), then the same hourly
@@ -206,7 +208,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
      `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/`, `file-backups/<conversation>/` and
      `undo-trash/<undo-id>/` of each of its undos;
   5. `done_at` marks the end.
-  Each start of efrd finishes the deletes without `done_at`, before the socket opens.
+  efrd answers the delete after step 2 and does steps 3 to 5 after the answer, one
+  delete at a time, so the answer never waits for the purge of the search docs. Each
+  start of efrd finishes the deletes without `done_at`, after the socket opens: their
+  tombstones already hide them.
   The tombstone event and the tombstone row stay: they hold no text, and the event
   keeps the sequence numbers above every event that went, so a number never names two
   events. A rebuild of the projections skips every event of a deleted conversation.
@@ -255,12 +260,14 @@ conversations or the daemon's socket. The config root stays readable and read-on
   phase C), `0008_routes.sql` (the route columns of the conversations, v0.0.4) and
   `0009_search.sql` (the search index, v0.0.4), `0010_deletes.sql` (the tombstones
   of deleted conversations, v0.0.5), `0011_devices.sql` (the enrolled devices of
-  the remote milestone) and `0012_search_secure_delete.sql` (the FTS5 option
-  `secure-delete` of the search index). Each step has a flag that says whether it
+  the remote milestone), `0012_search_secure_delete.sql` (the FTS5 option
+  `secure-delete` of the search index) and `0013_receipts_seq.sql` (the index of the
+  receipts by their sequence number, for the steps of a delete). Each step has a flag that says whether it
   changes a projection. The first start of an efrd with such a migration rebuilds the
   projections from the log once: about 3 s for 100,000 events in a debug build.
-  `0009_search.sql`, `0010_deletes.sql`, `0011_devices.sql` and
-  `0012_search_secure_delete.sql` have no flag, so they rebuild nothing.
+  `0009_search.sql`, `0010_deletes.sql`, `0011_devices.sql`,
+  `0012_search_secure_delete.sql` and `0013_receipts_seq.sql` have no flag, so they
+  rebuild nothing.
 - `0009_search.sql` creates the search tables empty, with the cursor at 0. After the
   start, efrd's indexer fills them in the background from the log (the backfill): it
   reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and

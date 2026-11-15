@@ -114,6 +114,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- `efr conversation delete` and Ctrl+D in the `,resume` picker answer as soon as the
+  conversation is hidden. efrd removes its rows, its search text and its files after
+  the answer, so the answer no longer names a file that efrd could not remove: the log
+  of efrd names it, and the next start tries again. A start of efrd no longer waits for
+  a delete that a stop broke off. Each step of a delete finds the receipts of its
+  events through a new index (database migration 13).
 - A prompt from the phone can run in `auto`. It runs in `auto` only when the phone asks
   for `auto`; a phone prompt that names no mode runs as `cautious`, also when your
   default is `auto`. A phone never runs in full mode. A phone turn in `auto` follows

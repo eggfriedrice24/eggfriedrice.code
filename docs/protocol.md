@@ -1131,3 +1131,7 @@ No protocol version has shipped yet.
   `forbidden`. The prompt that a `turn.interrupt` from a phone sends again with
   `resend_steers` has no `mode` of the interrupted turn's prompt, so it runs as
   `cautious` unless `resend_as` names `auto`. No member changes.
+- Version 1, behaviour: efrd answers `conversation.delete` after the tombstone
+  commits, and removes the rest of the conversation after the answer. So `not_removed`
+  of `deleted` is absent from this efrd: its log names a path that stays, and its next
+  start tries again. No member changes.

@@ -311,11 +311,19 @@ async fn bench_search_reset() {
 /// writer jobs: a turn's commit waits for at most one step.
 const DELETE_STEP_MAX: Duration = Duration::from_millis(10);
 
+/// The writer time of a whole delete with `secure-delete`, for each KiB of the text of
+/// its search docs, the checkpoints and the longer docs included. A step of 512 bytes
+/// takes about 5 ms and at most 9 ms (`STEP_TEXT_BYTES`), so the budget is about twice
+/// the rate of the slowest short step. efrd ends a delete after its answer, so this
+/// time never reaches the user, but it holds the writer for other jobs between steps.
+const DELETE_PER_KIB_MAX: Duration = Duration::from_millis(20);
+
 /// The writer time of the delete of the conversation with the most docs on the index
 /// of corpus L: each `delete_step` job (at most `STEP_DOCS` docs with at most
 /// `STEP_TEXT_BYTES` of text, or one longer doc), with the FTS5 option `secure-delete`
 /// of migration 12 and with it off, as before. It fails when a step with the option
-/// takes more than `DELETE_STEP_MAX`. As for a backfill page, the steps with a
+/// takes more than `DELETE_STEP_MAX`, or the whole delete with the option takes more than
+/// `DELETE_PER_KIB_MAX` for each KiB of text. As for a backfill page, the steps with a
 /// checkpoint of the write-ahead log are on a line of their own and do not count, and
 /// so are the steps of one longer doc, whose words go in one FTS5 `'delete'`.
 #[tokio::test]
@@ -327,6 +335,7 @@ async fn bench_search_delete() {
 
     let mut lines = Vec::new();
     let mut secure_max = Duration::ZERO;
+    let (mut secure_all, mut secure_budget) = (Duration::ZERO, Duration::ZERO);
     for secure in [true, false] {
         let (_dir, path) = corpus_copy(CorpusSize::L, Shape::Indexed).await;
         let clock = TestClock::new();
@@ -371,6 +380,7 @@ async fn bench_search_delete() {
         let (mut times, mut plain, mut checkpointed, mut long) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut left = text_left().await.unwrap();
+        let kib = u32::try_from((left + 1023) / 1024).unwrap();
         loop {
             let before = wal_frames_waiting(&path);
             let started = std::time::Instant::now();
@@ -396,6 +406,8 @@ async fn bench_search_delete() {
         let all: Duration = times.iter().sum();
         if secure {
             secure_max = percentiles(&plain).2;
+            secure_all = all;
+            secure_budget = DELETE_PER_KIB_MAX * kib;
         }
         let data: i64 = store
             .readers()
@@ -411,8 +423,8 @@ async fn bench_search_delete() {
         store.close().await;
         let label = if secure { "secure-delete on" } else { "secure-delete off" };
         lines.push(format!(
-            "{label}: {docs} docs in {} steps of at most {STEP_DOCS} docs and \
-             {STEP_TEXT_BYTES} bytes, {:.1} ms in all, search_fts_data {:.3} MB after",
+            "{label}: {docs} docs ({kib} KiB of text) in {} steps of at most {STEP_DOCS} \
+             docs and {STEP_TEXT_BYTES} bytes, {:.1} ms in all, search_fts_data {:.3} MB after",
             times.len(),
             all.as_secs_f64() * 1000.0,
             mb(data)
@@ -431,5 +443,9 @@ async fn bench_search_delete() {
     assert!(
         secure_max <= DELETE_STEP_MAX,
         "the max of a step with secure-delete is {secure_max:?}, more than {DELETE_STEP_MAX:?}"
+    );
+    assert!(
+        secure_all <= secure_budget,
+        "the whole delete with secure-delete took {secure_all:?}, more than {secure_budget:?}"
     );
 }

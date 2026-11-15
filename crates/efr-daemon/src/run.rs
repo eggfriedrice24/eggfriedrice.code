@@ -824,6 +824,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let roots = roots(&dirs, root_sources);
     let pairings = Pairings::new(Arc::clone(&clock), Arc::clone(&rng));
+    // NOTE: read before the socket opens, so the count of open deletes holds them from
+    // the first request on; the task that ends them starts after the socket opens.
+    let open_deletes = crate::deletes::pending(&readers).await;
+    let (deletes, delete_queue) = crate::deletes::Queue::new(open_deletes.len());
     let state = Arc::new(State {
         settings: settings_sender,
         engine: engine_sender,
@@ -866,15 +870,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         search_hook,
         remote: Remote::new(&writer, remote_listen),
         pairings,
+        deletes,
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
     crate::projects_file::refresh(state.engine_parts.registry.clone(), state.dirs.runtime()).await;
     // NOTE: and the default mode for its prompt corner, from the same moment on.
     crate::prompt_file::refresh(&state).await;
-    // NOTE: before the socket opens, so a delete that a stop broke off ends before a
-    // client can ask for anything.
-    crate::deletes::finish_pending(&state).await;
     let peer_state = Arc::downgrade(&state);
     // NOTE: weak, so the probe that the seams keep never keeps the state alive.
     job_seams.fill_peer_probe(Arc::new(move |pid| {
@@ -952,6 +954,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_recordings(Arc::clone(&state), stop.clone())),
+        // NOTE: after the socket opens: the tombstone hides each deleted conversation,
+        // so a start never waits for the purge of its search docs.
+        tokio::spawn(crate::deletes::serve(
+            Arc::clone(&state),
+            open_deletes,
+            delete_queue,
+            stop.clone(),
+        )),
         // NOTE: each provider's catalog has a fetch task of its own, also the one of an
         // account that a login adds later.
         tokio::spawn({
@@ -1003,6 +1013,12 @@ impl Daemon {
     /// What the search indexer has done, for the tests that wait for the index.
     pub fn search_index(&self) -> watch::Receiver<SearchIndexStatus> {
         self.state.search_index.clone()
+    }
+
+    /// The number of conversation deletes that are not ended yet, for the tests that
+    /// wait for the end of a delete.
+    pub fn open_deletes(&self) -> watch::Receiver<usize> {
+        self.state.deletes.open()
     }
 
     /// The connection table, for the tests that check what it keeps after a client

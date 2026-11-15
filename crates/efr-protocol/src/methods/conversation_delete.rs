@@ -54,8 +54,9 @@ pub enum ConversationDeleteResult {
         /// The background jobs that efrd stopped first. Absent when none.
         #[serde(default, skip_serializing_if = "is_zero")]
         jobs_stopped: u32,
-        /// The files and dirs of the conversation that efrd could not remove. The next
-        /// start of efrd tries again. Absent when none.
+        /// The files and dirs of the conversation that an older efrd could not remove
+        /// before its answer. efrd now removes them after the answer and sends none: its
+        /// log names a path that stays, and its next start tries again. Absent when none.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         not_removed: Vec<PathBuf>,
     },

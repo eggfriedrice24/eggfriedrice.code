@@ -606,6 +606,7 @@ pub struct TestDaemon {
     peers: PeerProbe,
     host_ports: TestHostPorts,
     search_index: watch::Receiver<SearchIndexStatus>,
+    open_deletes: watch::Receiver<usize>,
 }
 
 impl TestDaemon {
@@ -786,6 +787,7 @@ impl TestDaemon {
         let socket = daemon.socket_path().to_path_buf();
         let daemon_id = daemon.daemon_id();
         let search_index = daemon.search_index();
+        let open_deletes = daemon.open_deletes();
         let shutdown = CancellationToken::new();
         let served = tokio::spawn(daemon.serve(shutdown.clone()));
         Ok(TestDaemon {
@@ -802,6 +804,7 @@ impl TestDaemon {
             peers,
             host_ports,
             search_index,
+            open_deletes,
         })
     }
 
@@ -820,6 +823,15 @@ impl TestDaemon {
         let mut status = self.search_index.clone();
         let reached = status.wait_for(|status| status.indexed_seq >= seq).await.ok()?;
         Some(*reached)
+    }
+
+    /// Waits until efrd ended every conversation delete that it answered, and the ones
+    /// that the last run left open. efrd ends them after the answer, so a test that
+    /// checks the files or the rows of a deleted conversation waits here first. It
+    /// returns at once when the daemon stopped.
+    pub async fn wait_deletes_ended(&self) {
+        let mut open = self.open_deletes.clone();
+        let _ = open.wait_for(|open| *open == 0).await;
     }
 
     /// Where the process `pid` stands as a peer of the daemon's socket, as the scope

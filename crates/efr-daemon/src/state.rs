@@ -121,4 +121,6 @@ pub(crate) struct State {
     pub(crate) remote: Remote,
     /// The open pairings of new devices, and where the tailnet listener is.
     pub(crate) pairings: Pairings,
+    /// The deletes of conversations whose end runs after their answer (`deletes.rs`).
+    pub(crate) deletes: crate::deletes::Queue,
 }

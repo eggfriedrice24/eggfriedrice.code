@@ -21,8 +21,10 @@
 //! closes, with its screen; `conversation_deleted` commits with the receipt, and from
 //! then on the conversation shows nowhere and the store refuses its events; the slots
 //! of every terminal let it go; whatever raced the commit (an actor, a job, a shell)
-//! stops again; and `deletes::finish` removes the rest. A retried command id answers
-//! from its receipt.
+//! stops again; the delete goes in the queue of `deletes.rs`, and efrd answers. The
+//! task of that queue removes the rest after the answer, so the answer names no path
+//! that could not go: the log names it, and the next start tries again. A retried
+//! command id answers from its receipt.
 
 use efr_protocol::{
     ConversationDelete, ConversationDeleteResult, ConversationId, Event, JobStopBy,
@@ -35,7 +37,7 @@ use serde_json::Value;
 use crate::conversations;
 use crate::methods::search;
 use crate::state::State;
-use crate::{DaemonError, deletes, receipts};
+use crate::{DaemonError, receipts};
 
 const METHOD: &str = "conversation.delete";
 
@@ -85,15 +87,15 @@ async fn delete(
     }
     state.conversations.set_deleting(conversation_id, true);
     let mut stopped = stop_all(state, conversation_id).await;
-    let deleted = |jobs_stopped: usize, not_removed, title| ConversationDeleteResult::Deleted {
+    let deleted = |jobs_stopped: usize, title| ConversationDeleteResult::Deleted {
         conversation_id,
         title,
         jobs_stopped: u32::try_from(jobs_stopped).unwrap_or(u32::MAX),
-        not_removed,
+        not_removed: Vec::new(),
     };
     // NOTE: the receipt lives on for days after the delete, so it keeps no title of the
     // deleted conversation: a retry answers without one.
-    let value = encode(&deleted(stopped, Vec::new(), None))?;
+    let value = encode(&deleted(stopped, None))?;
     let tombstone = Event::ConversationDeleted { origin: context.surface() };
     let batch = Batch::new()
         .event(conversation_id, tombstone)
@@ -119,8 +121,10 @@ async fn delete(
     // NOTE: a prompt that reached the conversation between the stops and the commit
     // started an actor, a job or a shell; their events fail now, and they stop here.
     stopped += stop_all(state, conversation_id).await;
-    let finished = deletes::finish(state, conversation_id).await;
-    encode(&deleted(stopped, finished.not_removed, summary.title.clone()))
+    // NOTE: the answer does not wait for the rest: the purge of the search docs of a
+    // long conversation takes seconds, and the tombstone already hides it.
+    state.deletes.push(conversation_id).await;
+    encode(&deleted(stopped, summary.title))
 }
 
 /// Stops the actor, every running job and the hidden shell of `conversation_id`, in

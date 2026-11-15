@@ -19,43 +19,45 @@
 //!    file backups, and the undo trash of each of its undos;
 //! 5. the mark that the delete is done.
 //!
-//! A path that cannot go is logged and named in the answer, and the delete stays open:
-//! [`finish_pending`] tries again at the next start of efrd, before the socket opens.
-//! Nothing here follows a link: a dir is removed with its links, never their targets.
+//! The method answers after the tombstone and puts the delete in the [`Queue`]. One
+//! task, [`serve`], ends the deletes one at a time, so the answer never waits for the
+//! purge of the search docs, which takes seconds for a long conversation. The task
+//! starts after the socket opens and ends first the deletes that a stop of efrd broke
+//! off ([`pending`]), because the tombstone already hides each of them. A stop of efrd
+//! between two steps leaves the delete open.
+//!
+//! A path that cannot go is logged, and the delete stays open: the next start of efrd
+//! tries again. Nothing here follows a link: a dir is removed with its links, never
+//! their targets.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use efr_protocol::{ConversationId, PtyId, UndoId};
 use efr_stdx::paths::Dirs;
+use efr_store::Readers;
 use efr_store::deletes::DeleteStep;
+use tokio::sync::{mpsc, watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::backups::FILE_BACKUPS_DIR;
 use crate::home::UNDO_TRASH_DIR;
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::state::{SCRATCH_DIR, State};
 
-/// What [`finish`] left.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(crate) struct Finished {
-    /// The paths that could not be removed.
-    pub(crate) not_removed: Vec<PathBuf>,
-    /// True when the delete is done; false leaves it for the next start.
-    pub(crate) done: bool,
-}
-
 /// Removes everything of the deleted conversation `conversation_id` after its
 /// tombstone, as the module says, and marks the delete done when nothing is left.
-pub(crate) async fn finish(state: &State, conversation_id: ConversationId) -> Finished {
+async fn finish(state: &State, conversation_id: ConversationId) {
     let tombstone = match state
         .readers
         .with(move |conn| efr_store::deletes::get(conn, conversation_id))
         .await
     {
         Ok(Some(tombstone)) => tombstone,
-        Ok(None) => return Finished::default(),
+        Ok(None) => return,
         Err(error) => {
             tracing::warn!(%conversation_id, %error, "the tombstone of a deleted conversation could not be read");
-            return Finished::default();
+            return;
         }
     };
     for pty in &tombstone.ptys {
@@ -89,22 +91,86 @@ pub(crate) async fn finish(state: &State, conversation_id: ConversationId) -> Fi
     } else {
         tracing::warn!(%conversation_id, rows, snapshot_stores_failed = snapshots.failed, not_removed = not_removed.len(), "a deleted conversation is not gone yet; the next start of efrd tries again");
     }
-    Finished { not_removed, done }
 }
 
-/// Finishes every delete that a stop of efrd broke off, oldest first. It runs at the
-/// start, before the socket opens.
-pub(crate) async fn finish_pending(state: &State) {
-    let pending = match state.readers.with(efr_store::deletes::pending).await {
-        Ok(pending) => pending,
+/// The deletes that a stop of efrd broke off, oldest first. The start reads them before
+/// the socket opens.
+pub(crate) async fn pending(readers: &Readers) -> Vec<ConversationId> {
+    match readers.with(efr_store::deletes::pending).await {
+        Ok(pending) => pending.into_iter().map(|tombstone| tombstone.conversation_id).collect(),
         Err(error) => {
             tracing::warn!(%error, "the open deletes of conversations could not be read");
-            return;
+            Vec::new()
         }
-    };
-    for tombstone in pending {
-        tracing::info!(conversation_id = %tombstone.conversation_id, "finishing the delete of a conversation");
-        finish(state, tombstone.conversation_id).await;
+    }
+}
+
+/// The deletes whose end waits for [`serve`], and the number of deletes that are not
+/// ended yet.
+#[derive(Debug, Clone)]
+pub(crate) struct Queue {
+    sender: mpsc::Sender<ConversationId>,
+    open: watch::Sender<usize>,
+}
+
+impl Queue {
+    /// A queue that counts `pending` deletes from the last run of efrd as open, and the
+    /// receiver for [`serve`].
+    pub(crate) fn new(pending: usize) -> (Queue, mpsc::Receiver<ConversationId>) {
+        let (sender, receiver) = mpsc::channel(QUEUE_CAPACITY);
+        (Queue { sender, open: watch::Sender::new(pending) }, receiver)
+    }
+
+    /// Puts the delete of `conversation_id`, whose tombstone committed, in the queue.
+    pub(crate) async fn push(&self, conversation_id: ConversationId) {
+        self.open.send_modify(|open| *open += 1);
+        if self.sender.send(conversation_id).await.is_err() {
+            // NOTE: efrd stops, and its next start ends the delete.
+            self.ended();
+        }
+    }
+
+    /// The number of deletes that are not ended yet.
+    pub(crate) fn open(&self) -> watch::Receiver<usize> {
+        self.open.subscribe()
+    }
+
+    fn ended(&self) {
+        self.open.send_modify(|open| *open = open.saturating_sub(1));
+    }
+}
+
+/// The deletes that can wait in the [`Queue`] before a push waits.
+const QUEUE_CAPACITY: usize = 64;
+
+/// Ends the deletes of `pending` (from the last run of efrd), then each delete of the
+/// queue, one at a time, until `stop`. A stop drops the delete at work between two
+/// steps; every step can run again, so the next start ends it.
+pub(crate) async fn serve(
+    state: Arc<State>,
+    pending: Vec<ConversationId>,
+    mut queue: mpsc::Receiver<ConversationId>,
+    stop: CancellationToken,
+) {
+    let mut pending = pending.into_iter();
+    loop {
+        let conversation_id = match pending.next() {
+            Some(conversation_id) => {
+                tracing::info!(%conversation_id, "finishing the delete of a conversation");
+                conversation_id
+            }
+            None => tokio::select! {
+                () = stop.cancelled() => return,
+                next = queue.recv() => match next {
+                    Some(conversation_id) => conversation_id,
+                    None => return,
+                },
+            },
+        };
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = finish(&state, conversation_id) => state.deletes.ended(),
+        }
     }
 }
 

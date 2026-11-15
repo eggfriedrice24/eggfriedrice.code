@@ -934,6 +934,7 @@ async fn delete_stops_a_running_job_first() {
     let all: JobsListResult =
         client.call(Method::JobsList(JobsList { conversation_id: None })).await.unwrap();
     assert_eq!(all.jobs, Vec::new(), "no job of it runs or is listed");
+    daemon.wait_deletes_ended().await;
     assert_eq!(files_named(&data, "j1.out"), Vec::<PathBuf>::new(), "its output went");
     drop((client, follow));
     daemon.stop().await.unwrap();

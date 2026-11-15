@@ -2415,8 +2415,9 @@ export type ConversationDeleteResult =
       jobs_stopped?: number;
       kind: "deleted";
       /**
-       * The files and dirs of the conversation that efrd could not remove. The next
-       * start of efrd tries again. Absent when none.
+       * The files and dirs of the conversation that an older efrd could not remove
+       * before its answer. efrd now removes them after the answer and sends none: its
+       * log names a path that stays, and its next start tries again. Absent when none.
        */
       not_removed?: string[];
       /**

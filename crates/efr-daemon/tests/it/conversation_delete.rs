@@ -205,6 +205,8 @@ async fn delete_removes_every_trace_and_search_finds_none_of_its_text() {
         matches!(&error, ClientError::Server { body } if body.code == ErrorCode::NotFound),
         "{error:?}"
     );
+    // The answer came before the rest went.
+    place.daemon.wait_deletes_ended().await;
     for path in &gone_files {
         assert!(path.symlink_metadata().is_err(), "{} is still there", path.display());
     }
@@ -412,14 +414,16 @@ async fn a_delete_that_stopped_after_its_tombstone_ends_at_the_next_start() {
 
     let daemon = TestDaemon::builder().dirs(Arc::clone(&dirs)).persistent().start().await.unwrap();
 
-    // The start finished the delete before its socket opened.
+    // The tombstone hides the conversation from the first request on, and the start
+    // ends the delete after its socket opened.
+    assert_eq!(listed(&daemon).await, [kept_one]);
+    daemon.wait_deletes_ended().await;
     for path in &gone_files {
         assert!(path.symlink_metadata().is_err(), "{} is still there", path.display());
     }
     for path in &kept_files {
         assert!(path.exists(), "{} of the other conversation went", path.display());
     }
-    assert_eq!(listed(&daemon).await, [kept_one]);
     let seq = newest(&daemon, &[kept_one]).await;
     indexed(&daemon, seq).await;
     assert_eq!(found(&daemon, "rsync").await, Vec::<ConversationId>::new());

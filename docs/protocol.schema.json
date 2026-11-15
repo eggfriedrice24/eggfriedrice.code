@@ -2227,7 +2227,7 @@
               "type": "string"
             },
             "not_removed": {
-              "description": "The files and dirs of the conversation that efrd could not remove. The next\nstart of efrd tries again. Absent when none.",
+              "description": "The files and dirs of the conversation that an older efrd could not remove\nbefore its answer. efrd now removes them after the answer and sends none: its\nlog names a path that stays, and its next start tries again. Absent when none.",
               "items": {
                 "type": "string"
               },

@@ -472,17 +472,20 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   each end) and the hidden shell with its screen, and records `conversation_deleted`
   with the receipt. After that commit the slots of every terminal let the
   conversation go, the presence table forgets it, and whatever raced the commit (an
-  actor, a job, a shell) stops again; its events fail in the store. `deletes.rs`
-  removes the rest: the recording writers of its PTYs stop for good
+  actor, a job, a shell) stops again; its events fail in the store. efrd answers now
+  and puts the delete in the queue of `deletes.rs` (`deletes::Queue`). One task
+  (`deletes::serve`) ends the deletes one at a time after the answer, so the answer
+  never waits for the purge of the search docs. It removes the rest: the recording writers of its PTYs stop for good
   (`StoreRecording::forget`, which waits for the writer that closes a segment), its
   rows go in writer steps, its snapshot refs and the stores that only it used go
   (`Snapshots::forget_conversation`), then its files: the recordings of its PTYs, each
   `$SCRATCH` dir whose marker names it (`efr_conversation::scratch_dirs`), its sandbox
   state dir, its runtime dir of the hidden shell, its legacy file backups and the undo
   trash of each of its undos, removed without following a link, a dir made writable
-  first. A path that stays is logged and named in `not_removed`, and the delete stays
-  open: each start of efrd finishes the open deletes (`deletes::finish_pending`) before
-  its socket opens. A subscription of the conversation ends after the tombstone.
+  first. A path that stays is logged, and the delete stays open (the answer came
+  before, so its `not_removed` is empty): each start of efrd reads the open deletes
+  (`deletes::pending`) before its socket opens and the same task ends them after it
+  opens, because the tombstones already hide them. A subscription of the conversation ends after the tombstone.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue. With `drafts`,
