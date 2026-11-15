@@ -104,6 +104,29 @@ describe("the end of a turn whose account is out", () => {
     expect(view.retry).toBe(true);
   });
 
+  it("leaves out the reset of too many requests, and keeps the offer after it", () => {
+    // NOTE: efrd sends resets_at = now + retry-after for this kind: a wait of some
+    // seconds. Errata 5: the line names no reset, and the offer does not go old at it.
+    const out: AccountOut = {
+      provider: "anthropic-api.work",
+      model: "claude-opus-5-5",
+      reached: { kind: "too_many_requests", resets_at: new Date(NOW + 1000).toISOString() },
+      others: [{ provider: "anthropic-api.personal", state: "signed_out" }],
+    };
+    const after = { ...LIVE, now: NOW + 5000 };
+    expect(accountOutReason(out, NOW)).toBe('work got "too many requests", so efr stopped trying');
+    expect(accountOutView(out, after)).toEqual({
+      reason: 'work got "too many requests", so efr stopped trying',
+      switches: [],
+      notes: ["personal is signed out: efr login anthropic --account personal"],
+      retry: true,
+    });
+    const ready: AccountOut = { ...out, others: [{ provider: "anthropic-api", state: "ready" }] };
+    expect(accountOutView(ready, after).switches).toEqual([
+      { label: "switch to Claude API", model: "claude-opus-5-5", provider: "anthropic-api" },
+    ]);
+  });
+
   it("names a labelled account by its label", () => {
     const out: AccountOut = {
       ...ONE,

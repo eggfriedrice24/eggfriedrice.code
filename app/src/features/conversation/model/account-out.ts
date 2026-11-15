@@ -6,7 +6,8 @@
 //   terminal ("the ChatGPT plan reached its usage limit", "b has no credit left"), then
 //   "· resets 14:20" when the reset is known. The message of the error is not used: it
 //   names no account and can carry the provider's own text. efr does not know which
-//   window, so the line names none. Credit has no reset.
+//   window, so the line names none. Credit has no reset, and "too many requests" shows
+//   none: its reset is the end of a wait of some seconds (errata 5).
 // - The offer shows only under the newest turn of the conversation, before the reset:
 //   in the history it is old. One plain "switch to <account>" per account that serves
 //   the model (efrd lists only those that are ready, or full with an earlier reset).
@@ -57,7 +58,16 @@ export interface AccountOutContext {
   readonly choice: ModelChoice | undefined;
 }
 
-function resetAt(reached: LimitReached): number | undefined {
+/**
+ * The reset that the stop of `reached` names, as the terminal's `shown_reset`. Credit has
+ * no reset, and the reset of "too many requests" is only the end of a wait of some
+ * seconds, which TM-Accounts 5 and errata 5 leave out: "efr stopped trying" is enough.
+ * The same reset decides when the offer is old.
+ */
+function shownReset(reached: LimitReached): number | undefined {
+  if (reached.kind === "credit" || reached.kind === "too_many_requests") {
+    return undefined;
+  }
   return isoMs(reached.resets_at);
 }
 
@@ -81,14 +91,14 @@ const LIMIT_SENTENCES: Readonly<Record<LimitKind, string>> = {
 export function accountOutReason(out: AccountOut, now: number): string {
   const subject = accountSubject(out.provider, out.label);
   const base = `${subject} ${LIMIT_SENTENCES[out.reached.kind]}`;
-  const at = out.reached.kind === "credit" ? undefined : resetAt(out.reached);
+  const at = shownReset(out.reached);
   return at === undefined ? base : `${base} · ${resetText(at, now)}`;
 }
 
 /** The view of `out` under the end of its turn. */
 export function accountOutView(out: AccountOut, context: AccountOutContext): AccountOutView {
   const reason = accountOutReason(out, context.now);
-  const reset = resetAt(out.reached);
+  const reset = shownReset(out.reached);
   const others = out.others ?? [];
   const offerable = others.filter((other) => other.state === "ready" || other.state === "full");
   const switched =
