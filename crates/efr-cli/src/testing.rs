@@ -346,6 +346,7 @@ pub(crate) fn models() -> ModelsListResult {
                 context_window: Some(272_000),
                 max_context_window: Some(872_000),
                 prefer_websockets: false,
+                legacy: false,
             },
             ModelInfo {
                 id: "gpt-5.4".to_owned(),
@@ -357,6 +358,7 @@ pub(crate) fn models() -> ModelsListResult {
                 context_window: Some(128_000),
                 max_context_window: Some(128_000),
                 prefer_websockets: false,
+                legacy: false,
             },
             ModelInfo {
                 id: "my-model".to_owned(),
@@ -368,6 +370,7 @@ pub(crate) fn models() -> ModelsListResult {
                 context_window: None,
                 max_context_window: None,
                 prefer_websockets: false,
+                legacy: false,
             },
         ],
         catalog: Some(CatalogStatus {

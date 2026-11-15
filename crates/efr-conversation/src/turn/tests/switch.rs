@@ -133,6 +133,7 @@ fn model(id: &str, window: u64, default: bool) -> ModelInfo {
         context_window: Some(window),
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }
 }
 

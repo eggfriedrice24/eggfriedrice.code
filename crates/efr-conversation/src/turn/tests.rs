@@ -69,6 +69,7 @@ fn models() -> Vec<ModelInfo> {
         context_window: None,
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     };
     vec![
         model(MODEL, &["low", "medium"]),

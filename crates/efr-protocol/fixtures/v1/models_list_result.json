@@ -16,7 +16,8 @@
     },
     {
       "id": "gpt-5.5-preview",
-      "source": "config"
+      "source": "config",
+      "legacy": true
     }
   ],
   "catalog": {

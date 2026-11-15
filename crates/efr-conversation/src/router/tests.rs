@@ -58,6 +58,7 @@ fn model(id: &str, provider: Option<&str>) -> ModelInfo {
         context_window: None,
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }
 }
 

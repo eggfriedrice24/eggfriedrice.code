@@ -42,8 +42,10 @@
 //! ids of the config's list of the company (`[openai] models` or `[anthropic] models`)
 //! that it does not hold. An entry with a `context_window` sets the window of a catalog
 //! model, up to its `max_context_window`; above it efrd uses the maximum and warns
-//! once.
+//! once. Each model of the list is marked legacy when the list has a newer model of its
+//! family (`legacy.rs`).
 
+mod legacy;
 mod list;
 
 use std::collections::HashSet;
@@ -699,6 +701,7 @@ pub(crate) fn effective_models(
             context_window: model.context_window,
             max_context_window: model.max_context_window,
             prefer_websockets: model.prefer_websockets,
+            legacy: false,
         })
         .collect();
     let mut clamps = Vec::new();
@@ -726,8 +729,10 @@ pub(crate) fn effective_models(
             context_window: entry.context_window(),
             max_context_window: None,
             prefer_websockets: false,
+            legacy: false,
         });
     }
+    legacy::mark(&mut models);
     (models, clamps)
 }
 

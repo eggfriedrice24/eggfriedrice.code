@@ -31,6 +31,7 @@ fn claude(id: &str, provider: &str, efforts: &[&str]) -> ModelInfo {
         context_window: Some(200_000),
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }
 }
 

@@ -54,6 +54,7 @@ fn model(id: &str, efforts: &[&str], default_effort: &str) -> ModelInfo {
         context_window: None,
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }
 }
 
@@ -262,6 +263,7 @@ fn a_model_whose_efforts_are_not_known_takes_any_effort_word() {
         context_window: None,
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     });
 
     let settings = resolve(

@@ -137,6 +137,7 @@ fn the_effective_list_is_the_catalog_then_the_configured_ids() {
             context_window: Some(300_000),
             max_context_window: Some(900_000),
             prefer_websockets: true,
+            legacy: false,
         }
     );
     assert_eq!(models[2].source, ModelSource::Config);

@@ -519,6 +519,7 @@ fn listing_models(roots: &Roots) -> JoinHandle<()> {
             context_window: None,
             max_context_window: None,
             prefer_websockets: false,
+            legacy: false,
         };
         conn.reply(
             id,

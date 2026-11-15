@@ -29,6 +29,7 @@ fn with_window(setup: &mut Setup, window: u64) -> ContextLimits {
         context_window: Some(window),
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }];
     ContextLimits::new(Some(window), setup.config.compaction)
 }

@@ -119,6 +119,13 @@ pub struct ModelInfo {
     /// True when the backend prefers that a client reach the model over a WebSocket.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prefer_websockets: bool,
+    /// True when the same list has a newer model of the same family, such as
+    /// `claude-opus-5` when `claude-opus-5-5` is listed, or `gpt-6-sol` when
+    /// `gpt-6.1-sol` is. efrd keeps some models out of the rule, such as
+    /// `claude-fable-5-1`. A prompt can still name a legacy model; a client shows it
+    /// only on request. False when absent, as from an earlier daemon.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy: bool,
 }
 
 /// Where a model of the list comes from.

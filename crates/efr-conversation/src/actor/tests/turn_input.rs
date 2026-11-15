@@ -651,6 +651,7 @@ async fn settings_that_cannot_work_give_way_to_the_turns_own_when_steers_go_agai
         context_window: None,
         max_context_window: None,
         prefer_websockets: false,
+        legacy: false,
     }];
     let state = setup.live_state(&setup.cwd, "first");
     let records = vec![

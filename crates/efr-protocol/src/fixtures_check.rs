@@ -2338,6 +2338,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
                 context_window: Some(272_000),
                 max_context_window: Some(872_000),
                 prefer_websockets: true,
+                legacy: false,
             },
             ModelInfo {
                 id: "gpt-5.5-preview".into(),
@@ -2349,6 +2350,7 @@ pub(crate) fn models_list_sample() -> ModelsListResult {
                 context_window: None,
                 max_context_window: None,
                 prefer_websockets: false,
+                legacy: true,
             },
         ],
         catalog: Some(CatalogStatus {

@@ -2679,6 +2679,7 @@ export const modelInfoSchema = z.object({
   default_effort: z.string().nullable().exactOptional(),
   efforts: z.array(z.string()).exactOptional(),
   id: z.string(),
+  legacy: z.boolean().exactOptional(),
   max_context_window: z.int().nonnegative().nullable().exactOptional(),
   prefer_websockets: z.boolean().exactOptional(),
   provider: z.string().nullable().exactOptional(),
