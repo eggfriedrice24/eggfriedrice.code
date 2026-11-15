@@ -4,11 +4,10 @@ import type { AccountOut } from "@/lib/protocol/generated";
 import { fixtureEvent } from "@/lib/protocol/testing";
 
 import { accountOutReason, accountOutView } from "./account-out";
+import { at } from "./accounts-testing";
 
 /** 2026-11-14 at 14:02 local time. */
 const NOW = new Date(2026, 10, 14, 14, 2).getTime();
-const at = (hours: number, minutes: number): string =>
-  new Date(2026, 10, 14, hours, minutes).toISOString();
 
 const PLAN = "openai-subscription";
 const PLAN_B = "openai-subscription.b";

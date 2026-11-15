@@ -320,13 +320,21 @@ export function ageText(then: number, now: number): string {
 /** A value older than this says its age in the sheet header, as `efr status` does. */
 export const OLD_LIMIT_MS = 5 * 60_000;
 
+/** The words of a limit at 100 % (AC-Limits, the model sheet). */
+export const LIMIT_REACHED = "limit reached";
+
+/** The note of an account with no login on `machineName`: "signed out on desktop". */
+export function signedOutOn(machineName: string): string {
+  return `signed out on ${machineName}`;
+}
+
 /** The words after "limit reached": the reset and, for an old value, its age. */
 export function reachedWords(
   level: Extract<LimitLevel, { kind: "reached" }>,
   observedAt: number | undefined,
   now: number,
 ): string {
-  const parts = ["limit reached"];
+  const parts = [LIMIT_REACHED];
   if (level.resetsAt !== undefined) {
     parts.push(resetText(level.resetsAt, now));
   }

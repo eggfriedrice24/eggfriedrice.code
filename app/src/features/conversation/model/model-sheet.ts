@@ -49,6 +49,7 @@ import {
   accountName,
   accountShort,
   accountSubject,
+  LIMIT_REACHED,
   labelOf,
   limitLevel,
   limitsNow,
@@ -56,6 +57,7 @@ import {
   type ProviderLogoKind,
   reachedWords,
   runsOnMany,
+  signedOutOn,
 } from "./accounts";
 import type { ModelChoice } from "./model-choices";
 import { modelName, windowLabel } from "./model-names";
@@ -433,7 +435,7 @@ function noteOf(
     return { note: undefined, dim: false };
   }
   if (catalog.signed_out === true) {
-    return { note: { kind: "signed_out", text: `signed out on ${machineName}` }, dim: true };
+    return { note: { kind: "signed_out", text: signedOutOn(machineName) }, dim: true };
   }
   const level = limitLevel(catalog.limits, now);
   if (level.kind === "warn") {
@@ -506,7 +508,7 @@ function sections(input: SheetInput): SheetSection[] {
         label.push("legacy");
       }
       if (dim) {
-        label.push(note?.kind === "signed_out" ? "signed out" : "limit reached");
+        label.push(note?.kind === "signed_out" ? "signed out" : LIMIT_REACHED);
       }
       const row: SheetRow = {
         key: rowKey(provider, entry.id),
@@ -811,7 +813,7 @@ export function modelButton(
   }
   const dim = catalog?.signed_out === true;
   if (dim) {
-    words += machineName === undefined ? ", signed out" : `, signed out on ${machineName}`;
+    words += `, ${machineName === undefined ? "signed out" : signedOutOn(machineName)}`;
   }
   return {
     text: parts.join(" · "),

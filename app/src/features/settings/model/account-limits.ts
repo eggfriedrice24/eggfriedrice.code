@@ -18,10 +18,12 @@ import {
   accountKind,
   ageText,
   isoMs,
+  LIMIT_REACHED,
   limitLevel,
   limitsNow,
   limitWords,
   resetText,
+  signedOutOn,
   windowName,
 } from "@/features/conversation/model/accounts";
 
@@ -57,7 +59,7 @@ export function accountRows(
     }
     const name = accountName(provider, catalog.label);
     if (catalog.signed_out === true) {
-      const note = `signed out on ${machineName}`;
+      const note = signedOutOn(machineName);
       rows.push({ provider, name, note, value: { kind: "none" }, label: `${name}, ${note}` });
       continue;
     }
@@ -66,7 +68,7 @@ export function accountRows(
     if (level.kind === "warn") {
       value = { kind: "warn", text: `${String(level.percent)}%` };
     } else if (level.kind === "reached") {
-      value = { kind: "reached", text: "limit reached" };
+      value = { kind: "reached", text: LIMIT_REACHED };
     }
     const label =
       value.kind === "none"
@@ -120,8 +122,6 @@ function limitRow(
     label: [name, value, words].filter((part) => part !== undefined).join(", "),
   };
 }
-
-const LIMIT_REACHED = "limit reached";
 
 /** The screen of account `provider`; undefined when the list does not name it. */
 export function accountScreen(

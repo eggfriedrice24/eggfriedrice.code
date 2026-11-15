@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { CatalogStatus } from "@/lib/protocol/generated";
+import { at } from "@/features/conversation/model/accounts-testing";
 
 import { accountRows, accountScreen } from "./account-limits";
 
 /** 2026-11-14 at 14:08 local time. */
 const NOW = new Date(2026, 10, 14, 14, 8).getTime();
-const at = (hours: number, minutes: number, day = 14): string =>
-  new Date(2026, 10, day, hours, minutes).toISOString();
 
 /** The accounts of AC-Limits 4. */
 const CATALOGS: CatalogStatus[] = [

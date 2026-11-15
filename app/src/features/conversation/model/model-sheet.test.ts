@@ -17,6 +17,7 @@ import {
   sheetView,
   type SheetInput,
 } from "./model-sheet";
+import { at } from "./accounts-testing";
 
 const WORK = "anthropic-api.work";
 const PERSONAL = "anthropic-api.personal";
@@ -25,8 +26,6 @@ const PLAN_B = "openai-subscription.b";
 
 /** 2026-11-14 at 14:08 local time. */
 const NOW = new Date(2026, 10, 14, 14, 8).getTime();
-const at = (hours: number, minutes: number): string =>
-  new Date(2026, 10, 14, hours, minutes).toISOString();
 
 function model(id: string, provider: string, extra: Partial<ModelInfo> = {}): ModelInfo {
   return { id, provider, source: "builtin", ...extra };

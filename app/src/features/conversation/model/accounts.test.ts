@@ -19,11 +19,10 @@ import {
   runsOnMany,
   windowName,
 } from "./accounts";
+import { at } from "./accounts-testing";
 
 /** 2026-11-14 at 14:08 local time. */
 const NOW = new Date(2026, 10, 14, 14, 8).getTime();
-const at = (hours: number, minutes: number, day = 14): string =>
-  new Date(2026, 10, day, hours, minutes).toISOString();
 
 describe("the names of the accounts", () => {
   it("names the kind, then the label or the id; the default account is the kind alone", () => {
