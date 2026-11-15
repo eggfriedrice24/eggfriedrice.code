@@ -208,6 +208,12 @@ pub fn pending(conn: &Connection) -> Result<Vec<Tombstone>, StoreError> {
     Ok(found)
 }
 
+/// The delete of the receipts of the events of a conversation (`?1`) from `?2` to `?3`
+/// in one step. The index `receipts_seq` (migration 13) finds them, so a step reads no
+/// other receipt: without it, each step read the whole table.
+pub(crate) const DELETE_RECEIPTS: &str = "DELETE FROM receipts WHERE seq BETWEEN ?2 AND ?3 \
+     AND seq IN (SELECT seq FROM events WHERE conversation_id = ?1 AND seq BETWEEN ?2 AND ?3)";
+
 /// One step of the delete of `conversation_id` in the writer's transaction: at most
 /// `limit` of its events before the tombstone with their search docs and receipts, or,
 /// when none is left, the rest of its rows. A step removes at most `docs` search docs
@@ -229,14 +235,15 @@ pub(crate) fn step(
     }
     let id = conversation_id.to_string();
     let before = sql::seq(tombstone.seq);
-    let mut page: Vec<i64> = {
-        let mut stmt = conn.prepare(
-            "SELECT seq FROM events WHERE conversation_id = ?1 AND seq < ?2 ORDER BY seq LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![id, before, limit], |row| row.get(0))?;
-        rows.collect::<Result<_, _>>()?
-    };
-    if let (Some(&first), Some(&last)) = (page.first(), page.last()) {
+    // NOTE: only the bounds of the page leave SQLite; a step that its docs cut short
+    // takes a part of it.
+    let page: (Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT MIN(seq), MAX(seq) FROM (SELECT seq FROM events \
+         WHERE conversation_id = ?1 AND seq < ?2 ORDER BY seq LIMIT ?3)",
+        params![id, before, limit],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if let (Some(first), Some(last)) = page {
         let docs = docs.max(1);
         // One doc more than the step takes, so the step knows where the next one starts.
         let mut found: Vec<(i64, String, i64, String)> = {
@@ -260,21 +267,15 @@ pub(crate) fn step(
                 at > 0 && (at >= most || bytes > text_bytes)
             })
             .unwrap_or(found.len());
+        // NOTE: `taken` is at least 1, so the next doc comes after `first`.
         let last = match found.get(taken) {
             Some(&(next, ..)) => {
                 found.truncate(taken);
-                page.retain(|&seq| seq < next);
-                page.last().copied().unwrap_or(first)
+                next - 1
             }
             None => last,
         };
-        // NOTE: `receipts.seq` has no index; one scan per page, with the page's numbers
-        // from the index of the events.
-        conn.execute(
-            "DELETE FROM receipts WHERE seq BETWEEN ?2 AND ?3 AND seq IN \
-             (SELECT seq FROM events WHERE conversation_id = ?1 AND seq BETWEEN ?2 AND ?3)",
-            params![id, first, last],
-        )?;
+        conn.execute(DELETE_RECEIPTS, params![id, first, last])?;
         let mut delete_fts = conn.prepare(
             "INSERT INTO search_fts (search_fts, rowid, text, conversation_id, kind) \
              VALUES ('delete', ?1, ?2, ?3, ?4)",
@@ -284,12 +285,11 @@ pub(crate) fn step(
             delete_fts.execute(params![seq, text, conversation, kind])?;
             delete_doc.execute([seq])?;
         }
-        conn.execute(
+        let removed = conn.execute(
             "DELETE FROM events WHERE conversation_id = ?1 AND seq BETWEEN ?2 AND ?3",
             params![id, first, last],
         )?;
-        let removed = u32::try_from(page.len()).unwrap_or(u32::MAX);
-        return Ok(DeleteStep::Removed(removed));
+        return Ok(DeleteStep::Removed(u32::try_from(removed).unwrap_or(u32::MAX)));
     }
     conn.execute("DELETE FROM turn_messages WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM search_titles WHERE conversation_id = ?1", [&id])?;

@@ -49,7 +49,9 @@ across a restart:
   outcome, and a rejected command stays rejected. A receipt records the sequence
   number of its batch's last event, or of the event that `NewReceipt::seq_of_event`
   names, such as `prompt_queued` when `turn_started` follows it, so a retry gets the
-  number the first answer reported.
+  number the first answer reported. The index `receipts_seq` (migration 13) finds the
+  receipts of the events of one delete step (`deletes::DELETE_RECEIPTS`) without a
+  read of the whole table.
 - `turn_messages`: the exact messages of finished turns as the provider saw them,
   with its own items (encrypted reasoning, item ids) that no event holds, keyed by
   turn and position with the provider and the model. A batch saves them with the
