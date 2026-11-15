@@ -4,9 +4,12 @@
 //! A ChatGPT plan tells its usage windows in the headers of each answer: efrd keeps
 //! them for the account, with the time it learned them, and serves them in
 //! `admin.status` and `models.list`. A logout clears them, and a signed-out account
-//! shows none. An API key shows a rate limit only when it was hit: a 429 that outlived
-//! the tries and whose headers show an empty bucket stops the turn with that bucket and
-//! its reset, the status shows it, and the next call that works clears it.
+//! shows none. On the Responses WebSocket, the default transport of a plan, the
+//! `codex.rate_limits` message and the wrapped `error` event of a used-up plan do the
+//! same ([`ProviderServer`]). An API key shows a rate limit only when it was hit: a 429
+//! that outlived the tries and whose headers show an empty bucket stops the turn with
+//! that bucket and its reset, the status shows it, and the next call that works clears
+//! it.
 
 use efr_protocol::{
     AccountLimits, AdminStatus, AdminStatusResult, Event, EventEnvelope, LimitKind, LimitReached,
@@ -14,8 +17,8 @@ use efr_protocol::{
 };
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
-    Client, MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer,
-    SUBSCRIPTION_CREDENTIAL, TTY, TestDaemon, events_until,
+    Client, MessagesAnswer, MessagesServer, ProviderServer, ResponsesAnswer, ResponsesServer,
+    SUBSCRIPTION_CREDENTIAL, Saw, TTY, TestDaemon, events_until,
 };
 use pretty_assertions::assert_eq;
 
@@ -132,6 +135,119 @@ async fn a_plan_at_its_usage_limit_stops_the_turn_after_one_try_with_its_reset()
     let (status, listed) = limits_of(&client, "openai-subscription").await;
     assert_eq!(status.as_ref().and_then(|limits| limits.reached.clone()), Some(reached));
     assert_eq!(listed, status);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// The kinds of what `server` saw since the last drain.
+fn seen(server: &ProviderServer) -> Vec<Saw> {
+    server.drain().into_iter().map(|seen| seen.what).collect()
+}
+
+/// A daemon whose ChatGPT plan runs over the Responses WebSocket of `server`, the
+/// default transport (`websocket = "auto"`).
+async fn on_the_websocket(server: &ProviderServer) -> TestDaemon {
+    TestDaemon::builder()
+        .subscription_at(&server.base_url("sub"), &server.issuer())
+        .start()
+        .await
+        .unwrap()
+}
+
+/// Limits research 2.3 on the WebSocket: the `codex.rate_limits` message before an
+/// answer gives the windows of the plan, which `admin.status` and `models.list` serve.
+#[tokio::test]
+async fn the_windows_of_a_plan_on_the_websocket_show_in_the_status() {
+    let server = ProviderServer::start().await.unwrap();
+    let daemon = on_the_websocket(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    server.set(|knobs| {
+        knobs.ws_first_once = vec![serde_json::json!({
+            "type": "codex.rate_limits",
+            "rate_limits": {
+                "primary": {"used_percent": 92.4, "window_minutes": 300},
+                "secondary": {"used_percent": 41, "window_minutes": 10080},
+            },
+        })];
+    });
+    server.drain();
+
+    let learned = daemon.clock().shared().now();
+    let events = turn(&daemon, &client, 1).await;
+
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    let saw = seen(&server);
+    assert!(saw.contains(&Saw::Create) && !saw.contains(&Saw::Post), "{saw:?}");
+    let (status, listed) = limits_of(&client, "openai-subscription").await;
+    let status = status.expect("the windows in admin.status");
+    assert_eq!(
+        status.windows,
+        [
+            LimitWindow { minutes: Some(300), used_percent: 92, resets_at: None },
+            LimitWindow { minutes: Some(10080), used_percent: 41, resets_at: None },
+        ]
+    );
+    assert_eq!(status.reached, None);
+    assert_eq!(status.observed_at, learned);
+    assert_eq!(listed, Some(status));
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// The 429 of a used-up plan on the WebSocket, a wrapped `error` event with the
+/// `x-codex-*` headers, stops the turn after one try with its reset, as on HTTP, and
+/// `admin.status` shows the limit and the windows. No try goes out over HTTP.
+#[tokio::test]
+async fn a_plan_at_its_usage_limit_on_the_websocket_stops_the_turn_after_one_try() {
+    let server = ProviderServer::start().await.unwrap();
+    let daemon = on_the_websocket(&server).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let resets_at = daemon.clock().shared().now().as_second() + 1200;
+    server.set(|knobs| {
+        knobs.ws_error_once = Some(serde_json::json!({
+            "type": "error",
+            "status": 429,
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "You have hit your usage limit.",
+                "plan_type": "plus",
+                "resets_at": resets_at,
+            },
+            "headers": {
+                "x-codex-primary-used-percent": "100",
+                "x-codex-primary-window-minutes": "300",
+                "x-codex-primary-reset-at": resets_at.to_string(),
+                "x-codex-secondary-used-percent": "41",
+                "x-codex-secondary-window-minutes": "10080",
+            },
+        }));
+    });
+    server.drain();
+
+    let events = turn(&daemon, &client, 1).await;
+
+    let Event::TurnFailed { account_out, .. } = &events.last().unwrap().event else {
+        panic!("{events:#?}")
+    };
+    let at = jiff::Timestamp::from_second(resets_at).unwrap();
+    let reached = LimitReached { kind: LimitKind::Usage, resets_at: Some(at) };
+    let out = account_out.as_ref().expect("the cause of the stop");
+    assert_eq!((out.provider.as_str(), &out.reached), ("openai-subscription", &reached));
+    let saw = seen(&server);
+    let creates = saw.iter().filter(|what| **what == Saw::Create).count();
+    assert_eq!(creates, 1, "a usage limit is never sent again: {saw:?}");
+    assert!(!saw.contains(&Saw::Post), "no try over HTTP: {saw:?}");
+    let (status, listed) = limits_of(&client, "openai-subscription").await;
+    let status = status.expect("the limit in admin.status");
+    assert_eq!(status.reached, Some(reached));
+    assert_eq!(
+        status.windows,
+        [
+            LimitWindow { minutes: Some(300), used_percent: 100, resets_at: Some(at) },
+            LimitWindow { minutes: Some(10080), used_percent: 41, resets_at: None },
+        ]
+    );
+    assert_eq!(listed, Some(status));
     drop(client);
     daemon.stop().await.unwrap();
 }

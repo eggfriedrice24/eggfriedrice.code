@@ -7,7 +7,8 @@
 //! and whole, and have no WebSocket. This one can wait before the response headers,
 //! between the headers and the first event, before the answer to a WebSocket upgrade
 //! and before a pong; it can play a WebSocket that died without a close; it can close each connection after its answer, so the next call
-//! needs a new one; it can fail one call; and it notes each connection, so a bench sees
+//! needs a new one; it can fail one call; it can send events of a test on a WebSocket,
+//! before an answer or in its place; and it notes each connection, so a bench sees
 //! whether efr reused one. It is the first fake WebSocket of the Responses API in the
 //! repo: it answers each `response.create` message with the events of one answer.
 //!
@@ -74,6 +75,12 @@ pub struct ServerKnobs {
     pub tool_once: Option<(String, Value)>,
     /// The next model call over HTTP gets this status and an error body.
     pub fail_once: Option<u16>,
+    /// The next answer on a WebSocket sends these events before its own, such as a
+    /// `codex.rate_limits` message.
+    pub ws_first_once: Vec<Value>,
+    /// The next `response.create` on a WebSocket gets this event in place of the
+    /// answer, such as a wrapped `error` event with a status and `headers`.
+    pub ws_error_once: Option<Value>,
     /// Answer the fetch of an OpenAI model list with an empty list, not with a 404,
     /// so efrd does not ask again soon.
     pub openai_list: bool,
@@ -442,7 +449,14 @@ async fn socket(stream: TcpStream, shared: Arc<Shared>) {
             OpCode::Text | OpCode::Ping if knobs.dead => {}
             OpCode::Text => {
                 shared.note(Saw::Create, frame.payload.len());
-                let events = events_of(&shared.answer(false));
+                let (first, error) = {
+                    let mut knobs = shared.knobs.lock().unwrap_or_else(PoisonError::into_inner);
+                    (std::mem::take(&mut knobs.ws_first_once), knobs.ws_error_once.take())
+                };
+                let events = match error {
+                    Some(error) => vec![error],
+                    None => first.into_iter().chain(events_of(&shared.answer(false))).collect(),
+                };
                 sleep(knobs.headers + knobs.first_event).await;
                 shared.note(Saw::FirstEvent, 0);
                 for event in &events {

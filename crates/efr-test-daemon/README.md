@@ -151,7 +151,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   (the connection reads and answers while a pong waits). It can also play a WebSocket
   that died without a close (`dead`), close each connection after its answer, refuse
   the upgrade, fail one call
-  with a status, answer one call with a tool call, and answer the model list of a key
+  with a status, answer one call with a tool call, send events of a test on a
+  WebSocket before the next answer (`ws_first_once`) or in its place
+  (`ws_error_once`), and answer the model list of a key
   with a rule (`ModelsRule`). `drain()` gives a log of what came and went out, with
   the time of each (`Seen`), so a bench counts connections, requests and pings. The
   builder runs the real providers against it with `responses_at`, `messages_at`,
