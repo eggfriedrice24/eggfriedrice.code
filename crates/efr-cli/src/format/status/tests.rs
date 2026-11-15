@@ -458,6 +458,9 @@ fn a_list_says_where_it_came_from_and_when() {
         origin(&status(CatalogOrigin::Missing, None), now()),
         "no list yet; efrd fetches it in the background"
     );
+    // NOTE: a signed-out account that never had a login gets its list only with one.
+    let signed_out = CatalogStatus { signed_out: true, ..status(CatalogOrigin::Missing, None) };
+    assert_eq!(origin(&signed_out, now()), "no list yet; efrd fetches it after a login");
 }
 
 #[test]

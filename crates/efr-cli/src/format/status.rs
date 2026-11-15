@@ -463,7 +463,8 @@ fn key_unchecked(provider: &ProviderStatus) -> bool {
 
 /// Where a model list came from, at `now`: `from the backend, fetched 5m ago`, `from
 /// the cache, fetched 2h 5m ago` (the backend did not answer yet), `built into efr`, or
-/// `no list yet; efrd fetches it in the background`.
+/// `no list yet; efrd fetches it in the background` (`after a login` for a signed-out
+/// account).
 pub(crate) fn origin(catalog: &CatalogStatus, now: Timestamp) -> String {
     let fetched = |place: &str| match catalog.fetched_at {
         Some(at) => format!("from {place}, fetched {}", short_ago(at, now)),
@@ -473,6 +474,10 @@ pub(crate) fn origin(catalog: &CatalogStatus, now: Timestamp) -> String {
         CatalogOrigin::Backend => fetched("the backend"),
         CatalogOrigin::Cache => fetched("the cache"),
         CatalogOrigin::Builtin => "built into efr".to_owned(),
+        // NOTE: efrd fetches the list of an account only with its login.
+        CatalogOrigin::Missing if catalog.signed_out => {
+            "no list yet; efrd fetches it after a login".to_owned()
+        }
         CatalogOrigin::Missing => "no list yet; efrd fetches it in the background".to_owned(),
         _ => "from elsewhere".to_owned(),
     }
