@@ -190,8 +190,14 @@ still go to the reviewer. See [Undo and diff](undo-and-diff.md).
 
 ### Files that run code later
 
-When a command plants git settings that run programs, efr moves them to quarantine and
-asks `keep it? y = yes, n = no` before the next command. At the end of the turn, efr
+When a command plants git settings that run programs, efr moves them to quarantine,
+where nothing reads them. In auto, the reviewer decides alone and nothing asks. A muted
+row under the call names each change and what efr did with it, such as
+`.git/config (core.fsmonitor); moved to quarantine` or `.envrc (a new agent or editor
+config); left in place`. Set such a setting yourself with `git config` if you want it.
+With `classifier.enabled = false`, the turn asks before its next call: `keep the git
+settings that the last command changed`, with `y keep` and `n leave in quarantine`. See
+[Git settings](../sandbox.md#git-settings). At the end of the turn, efr
 names the files that run code later outside the sandbox, such as a `Makefile` or
 `build.rs`. Check them before you run the project yourself.
 

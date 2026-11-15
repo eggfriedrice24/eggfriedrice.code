@@ -373,9 +373,9 @@ With `classifier.enabled = false`, the turn asks you before its next call. A cha
 that stays in place still gets its row under the call:
 
 ```
-question: the last command changed git settings that run programs
-  ~/p/app/.git/commondir (core.fsmonitor); moved to quarantine
-keep it? y = yes, n = no
+ ? keep the git settings that the last command changed
+    ~/p/app/.git/commondir (core.fsmonitor); moved to quarantine
+    y keep   n leave in quarantine
 ```
 
 `y` moves the change back; `n` leaves it in quarantine. When nobody answers, or the
