@@ -21,7 +21,9 @@
 //! job, when the write-ahead log holds
 //! [`SEARCH_CHECKPOINT_FRAMES`](crate::SEARCH_CHECKPOINT_FRAMES) or more, the job runs
 //! SQLite's passive checkpoint, so a turn's commit seldom reaches its own at
-//! [`WAL_AUTOCHECKPOINT`](crate::WAL_AUTOCHECKPOINT) (the plan's DQ45).
+//! [`WAL_AUTOCHECKPOINT`](crate::WAL_AUTOCHECKPOINT) (the plan's DQ45). After a
+//! checkpoint that copied the whole log, the job also starts the log again with one
+//! write, so the sync of that restart never falls on a turn's commit.
 
 use std::collections::HashMap;
 

@@ -279,8 +279,11 @@ conversations or the daemon's socket. The config root stays readable and read-on
   does no work. A store of 20,000 turns takes about two minutes. Until the
   backfill ends, a search finds fewer conversations and says how far the index is.
   After the commit of a search job, when the write-ahead log holds 500 frames or
-  more, SQLite runs a passive checkpoint in that job. A turn's commit runs one at
-  1,000 frames, as before; beside the indexer it seldom reaches that.
+  more that no checkpoint copied, the job runs SQLite's passive checkpoint. When that
+  checkpoint copied every frame, the job also writes one frame at once, so it starts
+  the log again and syncs its header itself; the next turn's commit does not pay that
+  sync. A turn's commit runs a checkpoint at 1,000 frames, as before; beside the
+  indexer it seldom reaches that.
 - The index only grows. It takes at most 10 MB per 1,000 turns of the bench corpus
   (whose text has long answers and heredocs), so at 20 turns a day about 73 MB a year.
   The file never gets smaller (no `auto_vacuum`), and each backup of `backups/` before

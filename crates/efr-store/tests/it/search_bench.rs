@@ -9,8 +9,8 @@ use efr_store::{SEARCH_CHECKPOINT_FRAMES, Store, WAL_AUTOCHECKPOINT};
 use efr_test_support::{CorpusSize, SearchCorpus, TestClock};
 
 use crate::support::{
-    SEED, Shape, append_turn, backfill, corpus_copy, line, merge_all, open, percentiles, report,
-    round, temp_dir, wal_frames_waiting,
+    SEED, Shape, append_turn, backfill, checkpointed_between, corpus_copy, line, merge_all, open,
+    percentiles, report, round, temp_dir, wal_frames, wal_frames_waiting,
 };
 
 /// The disk that the index may use per 1,000 turns of the corpus, the tail included.
@@ -151,16 +151,24 @@ async fn search_jobs_checkpoint_and_turn_commits_seldom_do() {
     append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
     let waiting = wal_frames_waiting(&path);
     assert!(waiting < WAL_AUTOCHECKPOINT, "{waiting} frames");
-    // A page of the index commits with more than 500 frames in the log, and checkpoints.
+    // A page of the index commits with more than 500 frames in the log, checkpoints,
+    // and starts the log again with the one frame of its own write (D9): the log holds
+    // that frame only, so the next writer finds no log to start again.
     round(&store).await;
-    assert_eq!(wal_frames_waiting(&path), 0);
+    assert_eq!(wal_frames(&path), (1, 0));
+    // The next turn's commit adds its frames after that one: it does not start the log
+    // again, so it pays no sync of the header of the log.
+    let conversation = corpus.next().unwrap();
+    append_turn(&store, &clock, conversation.id, conversation.turns[0].clone()).await;
+    let (log, copied) = wal_frames(&path);
+    assert!(log > 1 && copied == 0, "the turn started the log again: {log} frames");
 
     // A merge job that works does the same; the second page made a second segment.
     append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
     round(&store).await;
     append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
     assert!(store.writer().search_merge(64).await.unwrap());
-    assert_eq!(wal_frames_waiting(&path), 0);
+    assert_eq!(wal_frames(&path), (1, 0));
 
     // Below 500 frames, a search job leaves the log as it is.
     let conversation = corpus.next().unwrap();
@@ -173,7 +181,8 @@ async fn search_jobs_checkpoint_and_turn_commits_seldom_do() {
 }
 
 // NOTE: the p95 of each bench counts the jobs without a checkpoint of the write-ahead
-// log (the user's budgets of 2026-10-22). The max of a live round counts every job;
+// log (the user's budgets of 2026-10-22); a job that starts the log again syncs it
+// too, so it counts with them (`checkpointed_between`). The max of a live round counts every job;
 // the max of a backfill page counts the pages without a checkpoint only, because the
 // flush of a checkpoint takes 10 to 150 ms on some disks, and the backfill runs once,
 // in the background. A search job
@@ -198,13 +207,14 @@ async fn bench_search_apply_round() {
     'rounds: for conversation in more.by_ref() {
         for turn in conversation.turns {
             append_turn(&store, &clock, conversation.id, turn).await;
-            let before = wal_frames_waiting(&path);
+            let before = wal_frames(&path);
             let round = round(&store).await;
-            let after = wal_frames_waiting(&path);
+            let after = wal_frames(&path);
             docs += round.docs;
             applies.push(round.apply);
             reads.push(round.read);
-            if after < before { &mut checkpointed } else { &mut plain }.push(round.apply);
+            if checkpointed_between(before, after) { &mut checkpointed } else { &mut plain }
+                .push(round.apply);
             if applies.len() == 1_000 {
                 break 'rounds;
             }
@@ -241,13 +251,16 @@ async fn bench_search_backfill_page() {
 
     let (mut rounds, mut plain, mut checkpointed) = (Vec::new(), Vec::new(), Vec::new());
     loop {
-        let before = wal_frames_waiting(&path);
+        let before = wal_frames(&path);
         let round = round(&store).await;
         if round.idle {
             break;
         }
-        let after = wal_frames_waiting(&path);
-        if after < before { &mut checkpointed } else { &mut plain }.push(round.apply);
+        let after = wal_frames(&path);
+        // NOTE: a page that starts the log again syncs it, as a checkpoint does, so it
+        // counts with them, and the max rule measures what it says.
+        if checkpointed_between(before, after) { &mut checkpointed } else { &mut plain }
+            .push(round.apply);
         rounds.push(round);
     }
     let merges = merge_all(&store).await;
@@ -382,18 +395,18 @@ async fn bench_search_delete() {
         let mut left = text_left().await.unwrap();
         let kib = u32::try_from((left + 1023) / 1024).unwrap();
         loop {
-            let before = wal_frames_waiting(&path);
+            let before = wal_frames(&path);
             let started = std::time::Instant::now();
             let step = store.writer().delete_step(id).await.unwrap();
             let time = started.elapsed();
-            let after = wal_frames_waiting(&path);
+            let after = wal_frames(&path);
             let now = text_left().await.unwrap();
             let text = usize::try_from(left - now).unwrap();
             left = now;
             times.push(time);
             if text > STEP_TEXT_BYTES {
                 &mut long
-            } else if after < before {
+            } else if checkpointed_between(before, after) {
                 &mut checkpointed
             } else {
                 &mut plain

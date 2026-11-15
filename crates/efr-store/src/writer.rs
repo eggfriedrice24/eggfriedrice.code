@@ -13,7 +13,7 @@ use std::sync::Arc;
 use efr_protocol::{ConversationId, DeviceId, Event, EventEnvelope, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::deletes::{self, DeleteStep};
@@ -51,9 +51,10 @@ pub const REVOCATION_CAPACITY: usize = 64;
 /// frames took 35 to 120 ms in one turn's commit in `bench_search_commit_wait`.
 pub const WAL_AUTOCHECKPOINT: u32 = 1_000;
 
-/// The frames of the write-ahead log at which a search job runs the passive checkpoint
-/// after its commit (the plan's DQ45), so the search index pays for the checkpoints of
-/// what it writes and a turn's commit does not.
+/// The frames of the write-ahead log that no checkpoint copied at which a search job
+/// runs the passive checkpoint after its commit (the plan's DQ45), so the search index
+/// pays for the checkpoints of what it writes, and for the restart of the log after
+/// them, and a turn's commit does not.
 pub const SEARCH_CHECKPOINT_FRAMES: u32 = 500;
 
 type Job = Box<dyn FnOnce(&mut WriterState) + Send + 'static>;
@@ -346,18 +347,16 @@ impl WriterState {
         Ok(value)
     }
 
-    /// Runs a search job in an immediate transaction and commits when it succeeds.
-    /// When the write-ahead log holds [`SEARCH_CHECKPOINT_FRAMES`] or more after the
-    /// commit, SQLite runs a passive checkpoint in this job.
+    /// Runs a search job in an immediate transaction and commits when it succeeds,
+    /// then runs the checkpoint of the search jobs ([`search_checkpoint`]).
     fn write_search<T>(
         &mut self,
         f: impl FnOnce(&Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let conn = &self.conn;
-        let _checkpoint = SearchCheckpoint::set(conn)?;
-        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let value = f(&tx)?;
         tx.commit()?;
+        search_checkpoint(&self.conn)?;
         Ok(value)
     }
 
@@ -408,25 +407,38 @@ fn set_autocheckpoint(conn: &Connection, frames: u32) -> Result<(), StoreError> 
         .map_err(|source| StoreError::Configure { pragma: "wal_autocheckpoint", source })
 }
 
-/// Moves the checkpoint of the writer's connection to [`SEARCH_CHECKPOINT_FRAMES`] for
-/// one search job. Dropping the guard, also while a panic unwinds, moves it back to
-/// [`WAL_AUTOCHECKPOINT`].
-struct SearchCheckpoint<'c>(&'c Connection);
-
-impl<'c> SearchCheckpoint<'c> {
-    fn set(conn: &'c Connection) -> Result<Self, StoreError> {
-        set_autocheckpoint(conn, SEARCH_CHECKPOINT_FRAMES)?;
-        Ok(SearchCheckpoint(conn))
+/// The checkpoint of a search job, after its commit (the plan's DQ45): when the
+/// write-ahead log holds [`SEARCH_CHECKPOINT_FRAMES`] or more frames that no
+/// checkpoint copied, SQLite's passive checkpoint copies them. When the log then has no
+/// frame left to copy, one write of a single frame follows at once: the first write
+/// after a full checkpoint starts the log again, and that restart writes the header of
+/// the log and syncs it, also with `synchronous = NORMAL` (30 to 40 ms on a slow disk).
+/// So the search job pays the restart, and the next writer, which can be a turn's
+/// commit, does not. A reader that still reads the old log keeps SQLite from the
+/// restart; then the write only adds its frame, and a later write starts the log again.
+fn search_checkpoint(conn: &Connection) -> Result<(), StoreError> {
+    let (mut log, mut copied) = wal_checkpoint(conn, "NOOP")?;
+    // NOTE: -1 for a database that is not in WAL mode, such as an in-memory store.
+    if log < 0 {
+        return Ok(());
     }
+    if log - copied >= i64::from(SEARCH_CHECKPOINT_FRAMES) {
+        (log, copied) = wal_checkpoint(conn, "PASSIVE")?;
+    }
+    if log > 0 && log == copied {
+        // NOTE: the value stays the same; the write of page 1 is the one frame.
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        conn.pragma_update(None, "user_version", version)
+            .map_err(|source| StoreError::Configure { pragma: "user_version", source })?;
+    }
+    Ok(())
 }
 
-impl Drop for SearchCheckpoint<'_> {
-    fn drop(&mut self) {
-        // Setting a pragma on an open connection does not fail in practice; if it did,
-        // a turn's commit would checkpoint at the smaller size, which is slower but
-        // correct.
-        let _ = set_autocheckpoint(self.0, WAL_AUTOCHECKPOINT);
-    }
+/// Runs `PRAGMA wal_checkpoint(<mode>)`: the frames of the log and the frames that a
+/// checkpoint copied, each -1 when the database is not in WAL mode. `NOOP` copies none.
+fn wal_checkpoint(conn: &Connection, mode: &str) -> Result<(i64, i64), StoreError> {
+    let sql = format!("PRAGMA wal_checkpoint({mode})");
+    Ok(conn.query_row(&sql, [], |row| Ok((row.get(1)?, row.get(2)?)))?)
 }
 
 /// Keeps the writer's connection from writing while a read runs on it. Dropping the

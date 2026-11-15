@@ -116,10 +116,15 @@ across a restart:
   transaction, or nothing when the cursor or the redaction changed (`Stale`).
   `search_reset` empties the index for a new redaction version, and `search_merge`
   merges its segments toward one after a backfill. After the commit of a search job,
-  when the write-ahead log holds 500 frames or more, SQLite runs a passive checkpoint
-  in that job (`SEARCH_CHECKPOINT_FRAMES`), so the index pays for the checkpoints of
-  what it writes. A turn's commit runs one at 1,000 frames (`WAL_AUTOCHECKPOINT`,
-  SQLite's default), which beside the indexer it seldom reaches. The tables
+  when the write-ahead log holds 500 frames or more that no checkpoint copied, the job
+  runs SQLite's passive checkpoint (`SEARCH_CHECKPOINT_FRAMES`), so the index pays for
+  the checkpoints of what it writes. When that checkpoint copied every frame, the job
+  writes one frame at once (`PRAGMA user_version` with its own value): the first
+  write after a full checkpoint starts the log again and syncs its header (30 to 40 ms
+  on a slow disk), so that cost stays in the search job and never reaches the next
+  turn's commit. A turn's commit runs a checkpoint at 1,000 frames
+  (`WAL_AUTOCHECKPOINT`, SQLite's default), which beside the indexer it seldom
+  reaches. The tables
   are not projections: a rebuild leaves them alone. The batch that ends a turn writes
   nothing here. The delete of a conversation deletes its `search_docs` rows (its
   sequence numbers through `events_conversation`, each with an FTS5 `'delete'`) and its
@@ -297,7 +302,8 @@ benches `bench_search_apply_round` (1,000 live rounds of one turn) and
 are ignored. `just bench-search` runs them in release, one at a time, and they fail
 when a budget fails: a round at a p95 of 2 ms, a page at a p95 of 4 ms, and a max of
 10 ms for both. Each p95 counts the jobs that carry no checkpoint of the write-ahead
-log. The max of a round counts every job, the checkpoints of the search jobs too; the
+log; a job that starts the log again counts as one with a checkpoint, because it
+syncs the log too (`checkpointed_between`). The max of a round counts every job, the checkpoints of the search jobs too; the
 max of a page counts the pages without a checkpoint only, because a checkpoint's flush
 takes 10 to 150 ms on some disks and the backfill runs once, in the background. The
 jobs with a checkpoint are on a line of their own. `bench_search_reset` reports the one job

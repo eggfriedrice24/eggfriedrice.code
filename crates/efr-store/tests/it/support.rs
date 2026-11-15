@@ -320,13 +320,27 @@ pub(crate) fn report(bench: &str, lines: &[String]) {
     }
 }
 
-/// The frames of the write-ahead log of `path` that no checkpoint copied yet, read
-/// from the wal-index header of the `-shm` file as the store reads it.
-pub(crate) fn wal_frames_waiting(path: &Path) -> u32 {
+/// The frames of the write-ahead log of `path` and the frames that a checkpoint copied,
+/// read from the wal-index header of the `-shm` file as the store reads it. The frames
+/// of the log go down only when a writer starts the log again.
+pub(crate) fn wal_frames(path: &Path) -> (u32, u32) {
     let mut shm = path.as_os_str().to_owned();
     shm.push("-shm");
     let header = fs::read(shm).unwrap();
     let word = |at: usize| u32::from_ne_bytes(header[at..at + 4].try_into().unwrap());
     assert_eq!(word(0), 3_007_000, "a wal-index header");
-    word(16).saturating_sub(word(96))
+    (word(16), word(96))
+}
+
+/// The frames of the write-ahead log of `path` that no checkpoint copied yet.
+pub(crate) fn wal_frames_waiting(path: &Path) -> u32 {
+    let (log, copied) = wal_frames(path);
+    log.saturating_sub(copied)
+}
+
+/// True when a job between the reads `before` and `after` of [`wal_frames`] ran a
+/// checkpoint or started the log again: both cost the job a sync of the disk.
+pub(crate) fn checkpointed_between(before: (u32, u32), after: (u32, u32)) -> bool {
+    let waiting = |(log, copied): (u32, u32)| log.saturating_sub(copied);
+    waiting(after) < waiting(before) || after.0 < before.0
 }

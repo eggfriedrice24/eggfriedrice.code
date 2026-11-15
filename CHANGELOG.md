@@ -192,6 +192,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- The end of a turn no longer waits for a sync of the write-ahead log after the search
+  index ran a checkpoint: the search job starts the log again itself. On a slow disk
+  that wait took 30 to 40 ms.
 - Retry of a failed turn in the phone app sends the prompt as Send does: in auto when
   the conversation is in auto and the Face ID unlock is on, and the account of the
   chosen model becomes the account of the next new thread. Before, a retry always ran
