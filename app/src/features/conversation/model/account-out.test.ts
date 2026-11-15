@@ -68,9 +68,30 @@ describe("the end of a turn whose account is out", () => {
     };
     const view = accountOutView(out, LIVE);
     expect(view.reason).toBe("the OpenAI API key has no credit left");
-    expect(view.switches.map((action) => action.label)).toEqual([
-      "switch to ChatGPT plan",
-      "switch to ChatGPT plan · b",
+    // NOTE: D6, TM-Accounts 17: the full account b is no ready one; it says when it
+    // runs again, and the tap still switches.
+    expect(view.switches).toEqual([
+      { label: "switch to ChatGPT plan", model: "gpt-6.1", provider: PLAN },
+      {
+        label: "b runs again 14:10",
+        model: "gpt-6.1",
+        provider: PLAN_B,
+        accessibilityLabel: "Switch to ChatGPT plan · b, it runs again at 14:10",
+      },
+    ]);
+  });
+
+  it("names the day when a full account runs again on another day", () => {
+    const out: AccountOut = {
+      provider: PLAN_B,
+      model: "gpt-6.1-sol",
+      reached: { kind: "usage", resets_at: new Date(2026, 10, 17, 9, 0).toISOString() },
+      others: [
+        { provider: PLAN, state: "full", resets_at: new Date(2026, 10, 16, 9, 0).toISOString() },
+      ],
+    };
+    expect(accountOutView(out, LIVE).switches.map((action) => action.label)).toEqual([
+      "ChatGPT plan runs again Mon 09:00",
     ]);
   });
 

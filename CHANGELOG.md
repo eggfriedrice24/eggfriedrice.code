@@ -63,10 +63,12 @@ into the GitHub release notes, and it stops when the section is missing.
   such as "⇄ GPT-6.1 Sol on b · medium · compacted".
 - When the account of a turn reached a limit or has no credit left, the phone app says
   why and when the limit resets, in the words of the terminal, such as "the ChatGPT
-  plan reached its usage limit · resets 14:20". It offers the same model on each other account that
-  can serve it, and it never switches by itself. When each other account of the model is
-  full for longer, it says so in the words of the terminal, such as "no other account
-  has room for GPT-6.1 Sol before 16:05".
+  plan reached its usage limit · resets 14:20". It offers the same model on each other
+  account that can serve it, and it never switches by itself. A full account whose
+  reset comes first says when it runs again, such as "b runs again 14:20", with the
+  same switch. When each other account of the model is full for longer, it says so in
+  the words of the terminal, such as "no other account has room for GPT-6.1 Sol before
+  16:05".
 - The phone app shows the limits of each account: a warning in the model sheet from
   80 %, "limit reached" at 100 %, the limit in the status line of a running turn from
   90 %, and a screen per account in Settings. Each turn starts with no limit in the

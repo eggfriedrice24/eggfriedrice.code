@@ -11,7 +11,8 @@
 //
 // - A turn whose account is out (AC-Out): the reason with its reset, then under the newest
 //   turn the offer of the same model on the other accounts ("switch to ChatGPT plan · b",
-//   which opens the model sheet with that row selected), a quiet line for a signed-out
+//   or "b runs again 14:20" for a full account whose reset comes first, which opens the
+//   model sheet with that row selected), a quiet line for a signed-out
 //   account or for none, and "retry" when no switch stands. model/account-out.ts.
 // - A turn that searched the web (TM-Web 10 to 13, kept minimal on the phone): the
 //   sources that the answer cites, one quiet line each above the end line, the count of
@@ -142,6 +143,7 @@ export function AccountOutEnd(props: AccountOutEndProps) {
             <PlainButton
               key={action.provider}
               label={action.label}
+              accessibilityLabel={action.accessibilityLabel ?? action.label}
               onPress={() => props.onSwitch(action.model, action.provider)}
             />
           ))}

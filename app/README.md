@@ -439,7 +439,8 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000]`, `line-through`,
 
 37. AC-Out (gallery "AU-Auto"): the end of the stopped turn says why in the words of
     the terminal, such as "the ChatGPT plan reached its usage limit · resets 14:20",
-    with one plain "switch to ChatGPT plan · b" per account that serves the model. A
+    with one plain "switch to ChatGPT plan · b" per account that serves the model, and
+    "b runs again 14:20" for a full account whose reset comes first. A
     signed-out account gets one quiet line with its login command and no action. With
     the real efrd: a tap opens the model sheet on that account, and after the confirm
     the switch actions become "retry", and the retry runs on the new account. A stop of

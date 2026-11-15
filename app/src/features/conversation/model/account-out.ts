@@ -10,7 +10,9 @@
 //   none: its reset is the end of a wait of some seconds (errata 5).
 // - The offer shows only under the newest turn of the conversation, before the reset:
 //   in the history it is old. One plain "switch to <account>" per account that serves
-//   the model (efrd lists only those that are ready, or full with an earlier reset).
+//   the model now. A full account whose reset comes first is no ready one: its action
+//   says when it runs again, in the words of the terminal (TM-Accounts 17), such as
+//   "b runs again 14:20", and the tap still opens the sheet on it.
 //   A signed-out account gets one quiet line with its login command, and no action.
 //   When each other account of the model is full until after the stopped one: "no other
 //   account has room for GPT-6.1 Sol before 06:02", and retry stays. With no other
@@ -38,6 +40,8 @@ export interface SwitchAction {
   readonly label: string;
   readonly model: string;
   readonly provider: string;
+  /** What VoiceOver reads when the label alone names no action. */
+  readonly accessibilityLabel?: string;
 }
 
 /** What the end of the turn shows under its line. */
@@ -118,11 +122,22 @@ export function accountOutView(out: AccountOut, context: AccountOutContext): Acc
   if (switched) {
     return { reason, switches: [], notes: [], retry: true };
   }
-  const switches = offerable.map((other) => ({
-    label: `switch to ${accountName(other.provider, other.label)}`,
-    model: out.model,
-    provider: other.provider,
-  }));
+  const switches = offerable.map((other): SwitchAction => {
+    const name = accountName(other.provider, other.label);
+    const free = other.state === "full" ? isoMs(other.resets_at) : undefined;
+    if (free === undefined) {
+      return { label: `switch to ${name}`, model: out.model, provider: other.provider };
+    }
+    // NOTE: a full account is no ready one: it says when it runs again, as the terminal
+    // does (TM-Accounts 17), and the tap still opens the sheet on it.
+    const when = resetClock(free, context.now);
+    return {
+      label: `${accountShort(other.provider, other.label)} runs again ${when}`,
+      model: out.model,
+      provider: other.provider,
+      accessibilityLabel: `Switch to ${name}, it runs again at ${when}`,
+    };
+  });
   const notes: string[] = [];
   const room = out.others_full ?? undefined;
   if (offerable.length === 0 && room !== undefined) {

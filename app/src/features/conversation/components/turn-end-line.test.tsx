@@ -163,6 +163,49 @@ describe("the turn end row", () => {
     ]);
   });
 
+  it("offers a full account with the time it runs again, not like a ready one", async () => {
+    // NOTE: D6, TM-Accounts 17: b frees up at 14:20, before the plan at 16:05, so efrd
+    // offers it as full.
+    jest.useFakeTimers({ now: new Date(2026, 10, 14, 14, 2) });
+    const failed: Event = {
+      kind: "turn_failed",
+      turn_id: TURN,
+      error: { code: "busy", message: "the account reached the usage limit of its plan" },
+      account_out: {
+        provider: "openai-subscription",
+        model: "gpt-6.1-sol",
+        reached: { kind: "usage", resets_at: new Date(2026, 10, 14, 16, 5).toISOString() },
+        others: [
+          {
+            provider: "openai-subscription.b",
+            state: "full",
+            resets_at: new Date(2026, 10, 14, 14, 20).toISOString(),
+          },
+        ],
+      },
+    };
+    const state = run([
+      eventItem(1, promptQueued(TURN, "And the docs for the new store.")),
+      eventItem(2, turnStarted(TURN), at(0)),
+      eventItem(3, failed, at(130)),
+    ]);
+    const { scope, calls } = testScope(state);
+    await render(
+      <InScope scope={scope}>
+        <TurnEndRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(screen.queryByText("switch to ChatGPT plan · b")).toBeNull();
+    expect(screen.getByText("b runs again 14:20")).toBeOnTheScreen();
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Switch to ChatGPT plan · b, it runs again at 14:20" }),
+    );
+    expect(calls).toEqual([
+      { action: "openModels", model: "gpt-6.1-sol", provider: "openai-subscription.b" },
+    ]);
+    jest.useRealTimers();
+  });
+
   it("lists the cited sources, counts the searches and says what a stored copy means", async () => {
     const state = run([
       eventItem(1, promptQueued(TURN, "Does ROB RUN work on Linux?")),
