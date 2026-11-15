@@ -1068,6 +1068,15 @@ pub(crate) fn reviewed(
     }
 }
 
+/// True when the `!` row of a refusal of the reviewer (with or without an answer)
+/// names the line of its call. The call's own `· $ <line>  did not run` row then says
+/// nothing more, so it is left out: a refusal is one `!` row (TM-Calls 24, 26, 29).
+pub(crate) fn refusal_names_line(judged: &Judged<'_>, exit: Option<&Requested>) -> bool {
+    judged.judge == JudgeKind::Classifier
+        && judged.verdict == Verdict::Deny
+        && exit.is_some_and(|exit| !exit.record.action.line.trim().is_empty())
+}
+
 /// What a refusal names: the line of the call, else what the exit opens.
 fn subject(exit: Option<&Requested>, home: Option<&Path>) -> String {
     match exit {

@@ -7,8 +7,6 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 \e[33m!\e[0m \e[2mreviewer: no answer (skipped\e[0m
   \e[2mgpt-6-luna: timeout): git push -u\e[0m
   \e[2morigin fix/steer-race did not run\e[0m
-\e[2m·\e[0m \e[2m$\e[0m \e[2mgit push -u origin \e[0m\e[2m\\e[0m
-      \e[2mfix/steer-race\e[0m  \e[2mdid not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
@@ -17,8 +15,6 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 \e[1m!\e[0m \e[2mreviewer: no answer (skipped\e[0m
   \e[2mgpt-6-luna: timeout): git push -u\e[0m
   \e[2morigin fix/steer-race did not run\e[0m
-\e[2m·\e[0m \e[2m$\e[0m \e[2mgit push -u origin \e[0m\e[2m\\e[0m
-      \e[2mfix/steer-race\e[0m  \e[2mdid not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
@@ -26,7 +22,6 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 [end]
 \e[33m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin\e[0m
   \e[2mfix/steer-race did not run\e[0m
-\e[2m·\e[0m \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2mdid not run\e[0m
 
 \e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
@@ -34,7 +29,6 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 [end]
 \e[1m!\e[0m \e[2mreviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin\e[0m
   \e[2mfix/steer-race did not run\e[0m
-\e[2m·\e[0m \e[2m$\e[0m \e[2mgit push -u origin fix/steer-race\e[0m  \e[2mdid not run\e[0m
 
 \e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2m9s\e[0m
 
@@ -43,4 +37,3 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\"
 stdout:
 stderr:
 ! reviewer: no answer (skipped gpt-6-luna: timeout): git push -u origin fix/steer-race did not run
-· $ git push -u origin fix/steer-race  did not run

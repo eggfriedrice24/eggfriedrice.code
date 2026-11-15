@@ -625,6 +625,9 @@ pub(crate) struct TurnView {
     /// Calls whose approval was denied or expired: a note said so already, so their
     /// failed end needs no second one.
     refused: HashSet<CallId>,
+    /// Refused calls whose `!` row of the reviewer named their line: they get no row
+    /// of their own (TM-Calls 24, 26).
+    lined: HashSet<CallId>,
     /// The tool call that runs, once its output or an input wait arrived.
     running: Option<Running>,
     /// The tool call of this turn from its start to its end, whose line shows in the
@@ -758,6 +761,7 @@ impl TurnView {
             queued: false,
             blocking: HashSet::new(),
             refused: HashSet::new(),
+            lined: HashSet::new(),
             running: None,
             call: None,
             echo_line: false,

@@ -574,9 +574,10 @@ reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to
 - An allow is one dim line before the call. What the call gets stands on the same line
   after a colon, such as `github.com:443 reachable, the variable GH_TOKEN`. `host
   network`, the whole network of your computer, is in the warning colour.
-- A refusal is one dim line with a `!` before it. A refused call does not run. The
-  model reads the reason, must not work around it, and tells you what it wanted to do.
-  To get the action, ask for it in your next message.
+- A refusal is one dim line with a `!` before it. When that line names the command,
+  the call gets no row of its own; otherwise a `· <call>  did not run` row follows. A
+  refused call does not run. The model reads the reason, must not work around it, and
+  tells you what it wanted to do. To get the action, ask for it in your next message.
 - When a rule of efr refused the reviewer's allow, the line says which: `! reviewer
   refused: <command>: no message of yours asks for this clearly (...)`.
 - A refusal of efr's own floor leads with `efr:`, such as `! efr: write
@@ -588,9 +589,10 @@ reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to
 - After 3 refusals in a row, or 10 in one turn, the reviewer pauses for the rest of
   the turn: `! reviewer paused for this turn: 3 actions in a row were refused; the
   next action that needs it stops the turn`. The model can still finish the work that stays
-  in the sandbox. Its next exit stops the turn: `auto stopped this turn: 3 actions in a
-  row were refused. Read the answers, then send a new prompt that names what you
-  want.` An allow starts the count in a row again.
+  in the sandbox. Its next exit stops the turn: the row of that call says `refused ·
+  the reviewer paused for this turn`, and under `✗ failed` stands `auto stopped this
+  turn: 3 actions in a row were refused. Read the answers, then send a new prompt that
+  names what you want.` An allow starts the count in a row again.
 - `efr history` shows each verdict, and `efr history --verbose` adds the model, the
   step of the chain, the time and the models that the chain skipped.
 

@@ -461,6 +461,9 @@ struct Transcript<'a> {
     calls: HashMap<CallId, Call>,
     /// The calls whose approval was denied or expired: they never ran.
     denied: HashSet<CallId>,
+    /// The calls whose `!` row of the reviewer named their line: they get no row of
+    /// their own, as in the view (TM-Calls 24, 26).
+    lined: HashSet<CallId>,
     /// The calls of `calls` in the order that they started.
     order: Vec<CallId>,
     /// The files of a patch of several files with their counts, such as `src/a.rs +1 -1,
@@ -531,6 +534,7 @@ impl<'a> Transcript<'a> {
             started: None,
             calls: HashMap::new(),
             denied: HashSet::new(),
+            lined: HashSet::new(),
             order: Vec::new(),
             patches: HashMap::new(),
             jobs: HashMap::new(),
@@ -815,7 +819,11 @@ impl<'a> Transcript<'a> {
                 let (job, moved) = self.jobs.remove(call_id).unzip();
                 let moved = moved.flatten();
                 self.order.retain(|started| started != call_id);
-                if let Some(call) = self.calls.remove(call_id) {
+                let lined = self.lined.remove(call_id) && refusal.is_none();
+                if lined {
+                    // NOTE: the `!` row named the line: a refusal is one row.
+                    self.calls.remove(call_id);
+                } else if let Some(call) = self.calls.remove(call_id) {
                     // NOTE: the row of the view (TM-Commands frame 4), with no diff and no
                     // tail: `--verbose` adds the tails.
                     let outcome = match (refusal, setup, *exit_code, &moved) {
@@ -956,8 +964,12 @@ impl<'a> Transcript<'a> {
                 };
                 let exit = self.exits.get(call_id);
                 let glyphs = self.options.glyphs();
+                let names_line = sandbox::refusal_names_line(&judged, exit);
                 if let Some(row) = sandbox::judged_row(&judged, exit, self.home, glyphs) {
                     self.pieces(&row);
+                    if names_line {
+                        self.lined.insert(*call_id);
+                    }
                 }
                 if self.verbose {
                     self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));

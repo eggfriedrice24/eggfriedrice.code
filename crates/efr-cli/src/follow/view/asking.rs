@@ -347,6 +347,7 @@ impl TurnView {
             skipped,
         };
         let glyphs = self.options.glyphs();
+        let names_line = sandbox::refusal_names_line(&judged, exit);
         let Some(line) = sandbox::judged_row(&judged, exit, self.home.as_deref(), glyphs) else {
             let row = if risk.is_none() {
                 sandbox::no_answer_row(skipped)
@@ -368,9 +369,13 @@ impl TurnView {
                 self.state(State::Tool(tool));
             }
             Verdict::Deny => {
-                // NOTE: the rows of a call that did not run still show what it was.
+                // NOTE: the rows of a call that did not run still show what it was,
+                // unless the `!` row named its line already.
                 if let Some(call) = self.call.as_mut().filter(|_| ours) {
                     call.awaiting = false;
+                }
+                if names_line {
+                    self.lined.insert(call_id);
                 }
                 self.refused.insert(call_id);
                 self.state(State::Model);
