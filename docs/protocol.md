@@ -1115,3 +1115,12 @@ No protocol version has shipped yet.
   time (`no other account has room for gpt-6.1-sol before 16:05`), not that no other
   account runs it. An older efrd sends none. The fixture
   `events/turn_failed_account_out.json` now sets it.
+- Version 1, additive: a model of `models.list` gains an optional `legacy` flag, true
+  when the same list has a newer model of the same family, such as `claude-opus-5`
+  next to `claude-opus-5-5`. efrd keeps some models out of the rule, such as
+  `claude-fable-5-1`. A prompt can still name a legacy model. It is absent when false,
+  and from an older efrd. The fixture `models_list_result.json` now sets it.
+- Version 1, behaviour: a `prompt.send` from a phone runs with a `mode` of at most
+  `auto` (it was `cautious`), and as `cautious` when its `settings` name no `mode`.
+  `sandbox.surface_respond` from a phone takes `keep: false`; `keep: true` stays
+  `forbidden`. No member changes.

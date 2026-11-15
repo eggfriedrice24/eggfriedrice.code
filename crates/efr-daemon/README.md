@@ -275,7 +275,10 @@ the list came from and when.
   not hold. A window that an entry gives raises or lowers the catalog's window up to
   the model's `max_context_window`; above it, efrd uses the largest one and warns once
   per entry (`efr config check` notes it too). The provider gets the entry's window
-  and output limit as well (`openai_config`, `anthropic_config`).
+  and output limit as well (`openai_config`, `anthropic_config`). Each model of the
+  list is legacy when the same list has a newer model of its family
+  (`catalog/legacy.rs`: the id without its version is the family, so `claude-opus-5`
+  is legacy next to `claude-opus-5-5`); `claude-fable-5-1` stays out of the rule.
 - The default model (`default_model`) is `[model] name`, else the catalog's default
   (OpenAI's best priority; Anthropic's `claude-opus-5-5` when listed, else its first
   model), else the first id of the config's list, else `claude-opus-5-5` for
