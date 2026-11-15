@@ -17,6 +17,7 @@ import { useSelector } from "@tanstack/react-store";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 
+import { SHEET_SEARCH_BAR } from "@/components/ui/native/sheet-search-bar";
 import type { ConversationAddress } from "@/lib/query/keys";
 
 import { ConversationsSheet } from "../components/conversations-sheet";
@@ -43,11 +44,8 @@ export function ConversationsScreen(props: ConversationsScreenProps) {
   return (
     <>
       <Stack.SearchBar
+        {...SHEET_SEARCH_BAR}
         placeholder="Search"
-        autoCapitalize="none"
-        hideNavigationBar={false}
-        obscureBackground={false}
-        allowToolbarIntegration
         onChangeText={(event) => setQuery(event.nativeEvent.text)}
         onCancelButtonPress={() => setQuery("")}
       />

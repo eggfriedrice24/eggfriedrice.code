@@ -32,6 +32,7 @@ import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 import { AccessibilityInfo } from "react-native";
 
+import { SHEET_SEARCH_BAR } from "@/components/ui/native/sheet-search-bar";
 import { haptic } from "@/lib/native/haptics";
 import { searchBarRef } from "@/lib/native/search-bars";
 import { EMPTY_STREAM, runningTurn } from "@/lib/stream/reducer";
@@ -268,12 +269,9 @@ function SheetBody(props: SheetBodyProps) {
       {/* The native search bar of iOS, in the bottom toolbar (the hard rule of
           app/AGENTS.md: native parts over JS copies). */}
       <Stack.SearchBar
+        {...SHEET_SEARCH_BAR}
         ref={searchBar}
         placeholder={filter.placeholder}
-        autoCapitalize="none"
-        hideNavigationBar={false}
-        obscureBackground={false}
-        allowToolbarIntegration
         onChangeText={(event) => onQuery(event.nativeEvent.text)}
         onCancelButtonPress={() => setQuery("")}
         onFocus={() => setFocused(true)}
