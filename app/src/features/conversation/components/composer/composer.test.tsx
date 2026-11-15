@@ -246,6 +246,8 @@ describe("the states of the composer", () => {
     await renderComposer({ stream: endedStream() });
     expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
     expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
+    // On a narrow line the path gives way before the model button (AC-Limits 3).
+    expect(screen.getByText("~/code/efr").props.className).toContain("shrink-[1000]");
     expect(screen.getByText("cautious")).toBeOnTheScreen();
     expect(screen.getByText("ctx 42%")).toBeOnTheScreen();
     expect(screen.getByTestId("composer-pill")).toContainElement(

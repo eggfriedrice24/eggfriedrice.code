@@ -24,6 +24,13 @@ import { ComposerContext } from "./composer-context";
 /** The store of a composer without a conversation: it never changes. */
 const NO_STREAM: Readable<StreamState> = createStore(EMPTY_STREAM);
 
+/**
+ * The cwd gives way first on a narrow line (AC-Limits 3, AC-Out): its shrink factor is
+ * much larger than the 1 of the model button, so Yoga takes the room from the path and
+ * cuts the button only when the path is gone.
+ */
+export const CWD_SHRINK = "shrink-[1000]";
+
 export interface ComposerStatusLineProps {
   /** The content of the line, such as `Composer.Status`. */
   readonly children?: ReactNode;
@@ -71,7 +78,7 @@ export function ComposerStatus(props: ComposerStatusProps) {
             tone={part.tone}
             numberOfLines={1}
             ellipsizeMode="middle"
-            className={part.key === "cwd" ? "shrink" : ""}
+            className={part.key === "cwd" ? CWD_SHRINK : ""}
           >
             {part.text}
           </MonoText>
