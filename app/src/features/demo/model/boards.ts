@@ -255,6 +255,9 @@ const SHEETS: readonly GalleryBoard[] = [
   sheet("S-Tools", "Tool blocks"),
   sheet("S-Diff", "Edit block expanded"),
   sheet("S-Loaders", "Loaders"),
+  sheet("S-ModelSheet", "Model sheet · every state (MS-Chosen, MS-SignedOut)"),
+  sheet("AU-Auto", "Auto, quarantine and accounts in a transcript (AC-Out, MS-Switched)"),
+  sheet("Q-Quarantine", "Quarantine question · strip and sheet"),
   sheet("Icon", "App icon · the yolk (direction b)"),
 ];
 

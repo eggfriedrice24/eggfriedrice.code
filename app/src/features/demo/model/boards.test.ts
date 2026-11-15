@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { GALLERY_BOARDS, SECTIONS, boardsOf, galleryBoard } from "./boards";
 import { STAGES } from "./demo-stages";
 
-/** The 30 boards of the design canvas (design-spec section 1), by their file names. */
+/**
+ * The 30 boards of the design canvas (design-spec section 1) and the 3 boards of round 6
+ * that the gallery draws (research/design-r6), by their file names.
+ */
 const CANVAS = [
   "Main",
   "R-Streaming",
@@ -35,6 +38,9 @@ const CANVAS = [
   "S-Diff",
   "S-Loaders",
   "Icon",
+  "S-ModelSheet",
+  "AU-Auto",
+  "Q-Quarantine",
 ];
 
 /** The five errors that the P-Errors board draws. */
@@ -60,7 +66,7 @@ const UNDRAWN = [
 
 describe("the inventory of the gallery", () => {
   it("has every board of the canvas once", () => {
-    expect(CANVAS).toHaveLength(30);
+    expect(CANVAS).toHaveLength(33);
     const drawn = GALLERY_BOARDS.filter((board) => board.drawn).map(
       (board) => board.name.split(" · ")[0] ?? "",
     );

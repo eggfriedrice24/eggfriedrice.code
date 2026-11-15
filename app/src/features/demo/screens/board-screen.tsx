@@ -6,7 +6,8 @@
 // - The no-machine root, Settings with no machine, and Settings with one machine (a
 //   sandbox, for Forget the last machine).
 // - The component sheets of the canvas: composer, approval block, transcript rows,
-//   loaders and the icon.
+//   loaders, the model sheet, auto and the accounts in a transcript, the quarantine
+//   question, and the icon.
 // - The render counter: a conversation of the demo machine with its real header and
 //   screen inside a probe, and the counts over it.
 //
@@ -33,6 +34,8 @@ import { ApprovalsSheet } from "../components/approvals-sheet";
 import { ComposerSheet } from "../components/composer-sheet";
 import { IconSheet } from "../components/icon-sheet";
 import { LoadersSheet } from "../components/loaders-sheet";
+import { ModelsSheet } from "../components/models-sheet";
+import { QuarantineBoard } from "../components/quarantine-board";
 import { RenderOverlay } from "../components/render-overlay";
 import { SandboxSettings } from "../components/sandbox-settings";
 import { TranscriptSheet } from "../components/transcript-sheet";
@@ -112,6 +115,12 @@ function Sheet(props: { readonly name: string }) {
       return <TranscriptSheet kind="diff" expanded />;
     case "S-Loaders":
       return <LoadersSheet />;
+    case "S-ModelSheet":
+      return <ModelsSheet />;
+    case "AU-Auto":
+      return <TranscriptSheet kind="auto" />;
+    case "Q-Quarantine":
+      return <QuarantineBoard />;
     case "Icon":
       return <IconSheet />;
     default:

@@ -120,6 +120,30 @@ describe("the component boards of the gallery", () => {
     },
   );
 
+  it("draws the auto calls, the quarantine cards, the switch and the account-out offer", async () => {
+    await showBoard("AU-Auto");
+    expect(screen.getByText("host network")).toBeOnTheScreen();
+    expect(screen.getByTestId("pause-line")).toBeOnTheScreen();
+    expect(screen.getByText(".git/config (core.fsmonitor); moved to quarantine")).toBeOnTheScreen();
+    expect(screen.getByText("left in quarantine")).toBeOnTheScreen();
+    expect(screen.getByTestId("account-out")).toBeOnTheScreen();
+  });
+
+  it("draws the model sheet in its states", async () => {
+    await showBoard("S-ModelSheet");
+    expect(screen.getByText("a model that is gone")).toBeOnTheScreen();
+    expect(screen.getAllByTestId("model-sheet").length).toBeGreaterThan(5);
+    expect(screen.getAllByTestId("model-row-gone").length).toBe(1);
+  });
+
+  it("draws the quarantine strip and sheet in their states", async () => {
+    await showBoard("Q-Quarantine");
+    expect(screen.getAllByText("keep .git/config (core.fsmonitor)?").length).toBe(1);
+    expect(screen.getByText("keep 4 git changes?")).toBeOnTheScreen();
+    expect(screen.getByText("left in quarantine · on desktop")).toBeOnTheScreen();
+    expect(screen.getAllByTestId("quarantine-sheet")).toHaveLength(5);
+  });
+
   it("draws the loaders", async () => {
     await showBoard("S-Loaders");
     expect(screen.getByText("running line")).toBeOnTheScreen();

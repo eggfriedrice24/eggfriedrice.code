@@ -61,9 +61,13 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   once.
 - A dev build and a preview build have the dev tools: three demo machines (desktop,
   laptop and homelab), which reach no computer, and a gallery of every board of the
-  design canvas. A long press on the version in Settings, section About, opens the
-  gallery. The gallery also opens the bench of the frame decoder. The render counter
-  is only in a dev build, because React counts renders only there.
+  design canvas, plus three boards of round 6: S-ModelSheet (the model sheet in its
+  states), AU-Auto (auto calls, quarantine cards, a switch of account and an account
+  that is out, in one transcript) and Q-Quarantine (the strip and the sheet). The demo
+  machines answer `models.list` with the accounts of the boards, so the model sheet
+  and Settings › Accounts show them. A long press on the version in Settings, section
+  About, opens the gallery. The gallery also opens the bench of the frame decoder. The
+  render counter is only in a dev build, because React counts renders only there.
 
 ## Layout
 

@@ -28,6 +28,7 @@ const KINDS: readonly DemoConversationKind[] = [
   "messages",
   "diff",
   "fast",
+  "auto",
 ];
 
 /** Every step of `steps`, with both answers of each hold. */
@@ -196,6 +197,29 @@ describe("the demo server", () => {
     expect(search.rows.map((row) => row.conversation.summary.title)).toEqual([
       "rename the config keys to snake case",
     ]);
+    services.dispose();
+  });
+
+  it("lists the models of the accounts of the boards, and the cost of a switch", async () => {
+    const { clock, server, services } = await sandbox(["desktop"]);
+    server.stage(STAGES.many);
+    const desktop = demoMachine("desktop").daemonId;
+    const list = await services.runtime.call(desktop, "models.list", {});
+    await clock.advance(1);
+    expect(list.catalogs?.map((one) => [one.provider, one.signed_out === true])).toEqual([
+      ["anthropic-api.work", false],
+      ["anthropic-api.personal", true],
+      ["openai-subscription", false],
+      ["openai-subscription.b", false],
+    ]);
+    expect(list.models.filter((one) => one.id === "gpt-6.1-sol")).toHaveLength(2);
+    const conversation = server.conversations("desktop")[0]?.id ?? "";
+    const preview = await services.runtime.call(desktop, "conversation.switch_preview", {
+      conversation_id: conversation,
+      model: "gpt-6.1-sol",
+      provider: "openai-subscription.b",
+    });
+    expect(preview).toEqual({ cost: "cold_cache", provider: "openai-subscription.b" });
     services.dispose();
   });
 

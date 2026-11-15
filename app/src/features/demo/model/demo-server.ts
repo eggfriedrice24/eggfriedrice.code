@@ -8,7 +8,8 @@
 //   gets `conflict`, as the liveness probe needs), `device.enroll` after a short wait (the
 //   user says yes at the terminal), `device.prove`, `conversation.subscribe` (a snapshot,
 //   or the events after `after_seq`, then the drafts of the running turn and the live
-//   items), the conversation lists, `prompt.send` (idempotent by `command_id`),
+//   items), the conversation lists, `models.list` (the accounts of the boards,
+//   demo-models.ts), `conversation.switch_preview`, `prompt.send` (idempotent by `command_id`),
 //   `approval.respond`, `turn.steer`, `turn.interrupt` and `prompt.withdraw`.
 // - A stage (`stage`) sets the conversations of every demo machine for one board of the
 //   gallery, and the mode of each machine: online, offline, silent (the socket opens and
@@ -34,6 +35,7 @@ import {
   type ScopeName,
 } from "@/lib/protocol/generated";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
+import { demoModels } from "./demo-models";
 import {
   demoConversation,
   type DemoConversationKind,
@@ -833,6 +835,14 @@ export class DemoSession implements Socket {
         return;
       case "conversation.history":
         this.result(id, { events: [] });
+        return;
+      case "models.list":
+        this.result(id, demoModels(this.server.clock.now()));
+        return;
+      case "conversation.switch_preview":
+        // The demo conversations are short: a switch never compacts, and a new account
+        // starts a cold cache, which the sheet does not mention.
+        this.result(id, { cost: "cold_cache", provider: stringOf(params["provider"]) ?? null });
         return;
       case "conversation.subscribe":
         this.subscribe(id, params);

@@ -5,7 +5,15 @@
 // from the first subscription. A question in either part waits for the phone's answer.
 // Pure.
 
-import { DemoScript, DRAFT_MS, type AskOptions, type DemoStep, type NewId } from "./demo-script";
+import type { ExitKind, ExitRecord } from "@/lib/protocol/generated";
+import {
+  DEMO_CWD,
+  DemoScript,
+  DRAFT_MS,
+  type AskOptions,
+  type DemoStep,
+  type NewId,
+} from "./demo-script";
 
 /** One conversation of a stage. */
 export interface DemoConversationScript {
@@ -30,7 +38,8 @@ export type DemoConversationKind =
   | "tools"
   | "messages"
   | "diff"
-  | "fast";
+  | "fast"
+  | "auto";
 
 const SUM_REPLY = [
   "The test failed because the loop read past the end of the buffer. Here is the fix:",
@@ -165,6 +174,8 @@ export function demoConversation(kind: DemoConversationKind, id: NewId): DemoCon
       return diff(id);
     case "fast":
       return fast(id);
+    case "auto":
+      return auto(id);
     default:
       return finished(id, kind, ["Done."]);
   }
@@ -341,6 +352,174 @@ function long(id: NewId): DemoConversationScript {
 }
 
 /** S-Tools: a tool block of every status. */
+/** The record of an exit of `line`, as efrd sends it with `exit_requested`. */
+function exitRecord(line: string, exits: ExitKind[]): ExitRecord {
+  return {
+    version: 1,
+    user_messages: [],
+    action: {
+      tool: "shell",
+      line,
+      cwd: DEMO_CWD,
+      scope: { kind: "project", value: "0199d3e0-de37-7000-8000-0000000000ff" },
+      exits,
+      source: "predicted",
+    },
+    facts: {},
+  };
+}
+
+/**
+ * AU-Auto, Q-Quarantine and AC-Out in one conversation: the reviewer allows a call with
+ * the host network, refuses one and pauses; a call changes git settings with the
+ * reviewer on, and another with the reviewer off, which the terminal answers; the next
+ * turn runs on another account; the last one fails because its account is out.
+ */
+function auto(id: NewId): DemoConversationScript {
+  const script = new DemoScript().created();
+  const allowed = id();
+  const ssh = id();
+  script
+    .prompt(allowed, "check the uptime of the laptop", id())
+    .event({
+      kind: "exit_requested",
+      turn_id: allowed,
+      call_id: ssh,
+      kinds: ["host"],
+      grants: [{ kind: "open_network" }],
+      source: "predicted",
+      record: exitRecord("ssh laptop uptime", ["host"]),
+    })
+    .event({
+      kind: "exit_judged",
+      turn_id: allowed,
+      call_id: ssh,
+      judge: "classifier",
+      verdict: "allow",
+      risk: "medium",
+      rationale: "you asked for the uptime",
+    })
+    .toolDone(allowed, ssh, "shell", { command: "ssh laptop uptime" }, " 14:02  up 3 days")
+    .said(allowed, 0, "The laptop is up for 3 days.")
+    .done(allowed);
+  const refused = id();
+  const push = id();
+  script
+    .prompt(refused, "push the fix to main", id())
+    .event({
+      kind: "exit_requested",
+      turn_id: refused,
+      call_id: push,
+      kinds: ["host"],
+      grants: [{ kind: "host", host: "github.com", port: 443 }],
+      source: "predicted",
+      record: exitRecord("git push origin main", ["host"]),
+    })
+    .event({
+      kind: "exit_judged",
+      turn_id: refused,
+      call_id: push,
+      judge: "classifier",
+      verdict: "deny",
+      risk: "high",
+      rationale: "the task names fix/steer-race, not main",
+    })
+    .toolDone(refused, push, "shell", { command: "git push origin main" }, "", {
+      is_error: true,
+      exit_code: 1,
+    })
+    .event({ kind: "classifier_paused", turn_id: refused, reason: "in_a_row", denials: 3 })
+    .said(refused, 0, "The reviewer refused the push to main.")
+    .done(refused);
+  const hooks = id();
+  const setup = id();
+  script
+    .prompt(hooks, "set up the pre-commit hooks", id())
+    .toolDone(hooks, setup, "shell", { command: "./scripts/setup-dev.sh" }, "hooks installed")
+    .event({
+      kind: "sandbox_surface_changed",
+      turn_id: hooks,
+      call_id: setup,
+      changes: [
+        {
+          path: `${DEMO_CWD}/.git/config`,
+          rule: "config_code_key",
+          key: "core.fsmonitor",
+          quarantined: true,
+        },
+        { path: `${DEMO_CWD}/.envrc`, rule: "protected_name_created", quarantined: false },
+      ],
+      quarantined: true,
+      asks: false,
+    })
+    .said(hooks, 0, "The hooks are installed. One git setting went to quarantine.")
+    .done(hooks);
+  const asked = id();
+  const install = id();
+  const question = id();
+  const fsmonitor = {
+    path: `${DEMO_CWD}/.git/config`,
+    rule: "config_code_key",
+    key: "core.fsmonitor",
+    quarantined: true,
+  };
+  script
+    .prompt(asked, "install the hooks with pre-commit", id())
+    .toolDone(asked, install, "shell", { command: "pre-commit install --install-hooks" }, "done")
+    .event({
+      kind: "sandbox_surface_changed",
+      turn_id: asked,
+      call_id: install,
+      changes: [fsmonitor],
+      quarantined: true,
+      asks: true,
+    })
+    .event({
+      kind: "surface_question_requested",
+      turn_id: asked,
+      call_id: install,
+      question_id: question,
+      changes: [fsmonitor],
+    })
+    .event({
+      kind: "surface_question_answered",
+      turn_id: asked,
+      question_id: question,
+      keep: false,
+      origin: "shell",
+    })
+    .said(asked, 0, "The hooks are installed; git will not run the fsmonitor setting.")
+    .done(asked);
+  const switched = id();
+  script
+    .prompt(switched, "review the fix", id())
+    .event({
+      kind: "model_switched",
+      turn_id: switched,
+      from: { model: "gpt-6.1-sol", provider: "openai-subscription", effort: "medium" },
+      to: { model: "gpt-6.1-sol", provider: "openai-subscription.b", effort: "medium" },
+    })
+    .said(switched, 0, "The fix looks right.")
+    .done(switched);
+  const out = id();
+  script.prompt(out, "and the docs for the new store", id()).event({
+    kind: "turn_failed",
+    turn_id: out,
+    error: { code: "busy", message: "usage_limit_reached" },
+    account_out: {
+      provider: "openai-subscription.b",
+      label: "b",
+      model: "gpt-6.1-sol",
+      reached: { kind: "usage" },
+      others: [
+        { provider: "openai-subscription", state: "ready" },
+        { provider: "openai-subscription.c", state: "signed_out" },
+      ],
+    },
+  });
+  return { title: "auto in the efr repo", history: script.steps(), live: [] };
+}
+
 function tools(id: NewId): DemoConversationScript {
   const turn = id();
   const script = new DemoScript()
