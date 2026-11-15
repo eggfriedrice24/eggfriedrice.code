@@ -36,6 +36,25 @@ const BUCKETS: [(LimitKind, &str, &str); 3] = [
     (LimitKind::Tokens, "x-ratelimit-remaining-project-tokens", "x-ratelimit-reset-project-tokens"),
 ];
 
+/// The error codes that say which limit the account reached, for
+/// `ProviderError::LimitReached`: the usage limit of a ChatGPT plan, with the time of
+/// its reset, no credit left, or a spend limit. `usage_not_included`, a plan without
+/// Codex, is no limit with a reset: it stays an API error.
+const LIMIT_CODES: &[(&str, LimitKind)] = &[
+    ("usage_limit_reached", LimitKind::Usage),
+    ("insufficient_quota", LimitKind::Credit),
+    ("credit_balance_exhausted", LimitKind::Credit),
+    ("organization_spend_limit_exceeded", LimitKind::SpendLimit),
+    ("project_spend_limit_exceeded", LimitKind::SpendLimit),
+    ("organization_usage_limit_exceeded", LimitKind::SpendLimit),
+];
+
+/// The limit of the account that the error code `code` names, from [`LIMIT_CODES`].
+/// An error answer and an error inside a stream both use it.
+pub(crate) fn limit_kind(code: &str) -> Option<LimitKind> {
+    LIMIT_CODES.iter().find(|(known, _)| *known == code).map(|(_, kind)| *kind)
+}
+
 /// The usage windows of a ChatGPT plan in the headers of an answer; empty when the
 /// headers tell none, as for an API key.
 pub(crate) fn plan_windows(headers: &HeaderMap) -> Vec<LimitWindow> {

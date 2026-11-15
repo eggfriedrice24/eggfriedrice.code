@@ -2,8 +2,10 @@ use std::time::Duration;
 
 use efr_http::{SseDecoder, SseEvent};
 use efr_provider::{
-    CompletionBuilder, ContentBlock, ProviderError, ProviderEvent, StopReason, TokenUsage,
+    CompletionBuilder, ContentBlock, LimitKind, LimitReached, ProviderError, ProviderEvent,
+    StopReason, TokenUsage,
 };
+use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -271,6 +273,54 @@ fn a_failed_response_with_a_rate_limit_carries_the_wait() {
             assert_eq!(retry_after, Some(Duration::from_millis(11_054)));
         }
         other => panic!("not a rate limit: {other:?}"),
+    }
+}
+
+/// A limit of the account inside the stream is that limit, as on an error answer, so
+/// the turn offers the other accounts: no credit in a failed response, and a usage
+/// limit with its reset in an error event.
+#[test]
+fn a_limit_of_the_account_in_the_stream_is_the_limit() {
+    let failed = sse(&[json!({
+        "type": "response.failed",
+        "response": {"status": "failed", "error": {
+            "code": "insufficient_quota",
+            "message": "You exceeded your current quota.",
+            "resets_at": 1_794_666_000,
+        }},
+    })]);
+    match map_all(&failed).1 {
+        Some(ProviderError::LimitReached { reached, message }) => {
+            assert_eq!(reached, LimitReached { kind: LimitKind::Credit, resets_at: None });
+            assert_eq!(message.as_deref(), Some("You exceeded your current quota."));
+        }
+        other => panic!("not a limit: {other:?}"),
+    }
+    let event = sse(&[json!({
+        "type": "error",
+        "code": "usage_limit_reached",
+        "message": "The usage limit has been reached.",
+        "resets_at": 1_794_666_000,
+    })]);
+    match map_all(&event).1 {
+        Some(ProviderError::LimitReached { reached, .. }) => assert_eq!(
+            reached,
+            LimitReached {
+                kind: LimitKind::Usage,
+                resets_at: Some(Timestamp::from_second(1_794_666_000).unwrap()),
+            }
+        ),
+        other => panic!("not a limit: {other:?}"),
+    }
+    let nested = sse(&[json!({
+        "type": "error",
+        "error": {"type": "invalid_request_error", "code": "project_spend_limit_exceeded"},
+    })]);
+    match map_all(&nested).1 {
+        Some(ProviderError::LimitReached { reached, message: None }) => {
+            assert_eq!(reached, LimitReached { kind: LimitKind::SpendLimit, resets_at: None });
+        }
+        other => panic!("not a limit: {other:?}"),
     }
 }
 

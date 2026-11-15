@@ -210,7 +210,9 @@ Failures:
   `resets_at` (Unix seconds) or `resets_in_seconds` (on the injected clock);
   `insufficient_quota` and `credit_balance_exhausted` are `credit`, with no reset;
   the organization and project spend and usage limit codes are `spend_limit`. A
-  plan without access (`usage_not_included`) is an `Api` error;
+  plan without access (`usage_not_included`) is an `Api` error. The same codes in a
+  `response.failed` or `error` event of the stream are the same `LimitReached`, with
+  the reset only from `resets_at`, because the stream has no clock;
 - any other 429 is `RateLimited`, with the wait from `Retry-After`, from the
   subscription's `resets_at` (on the injected clock), or from the message. When the
   headers of the last 429 show an empty bucket of the key

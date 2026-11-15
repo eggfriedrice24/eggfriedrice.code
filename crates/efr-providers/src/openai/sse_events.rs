@@ -55,8 +55,10 @@ use std::time::Duration;
 
 use efr_http::SseEvent;
 use efr_provider::{
-    HostedAction, HostedError, HostedOutcome, ProviderError, ProviderEvent, StopReason, TokenUsage,
+    HostedAction, HostedError, HostedOutcome, LimitKind, LimitReached, ProviderError,
+    ProviderEvent, StopReason, TokenUsage,
 };
+use jiff::Timestamp;
 use serde_json::Value;
 
 use crate::openai::convert::{OutputItem, provider_raw};
@@ -784,12 +786,27 @@ enum ErrorShape {
 }
 
 /// The provider error for an error object of a stream, `{code, message}` with an
-/// optional `type`.
+/// optional `type`. A code of a limit of the account, such as `insufficient_quota`,
+/// is that limit, as on an error answer: the turn then offers the other accounts. A
+/// stream has no clock, so only `resets_at` (Unix seconds) gives the reset.
 fn provider_error(error: Option<&Value>, shape: ErrorShape, fallback: &str) -> ProviderError {
     let field = |key: &str| error.and_then(|error| error.get(key)).and_then(Value::as_str);
     let class = if shape == ErrorShape::Nested { field("type") } else { None };
+    let text = field("message").filter(|message| !message.trim().is_empty());
+    if let Some(kind) = [field("code"), class].into_iter().flatten().find_map(limits::limit_kind) {
+        // NOTE: credit comes back with a payment, not at a time.
+        let resets_at = error
+            .and_then(|error| error.get("resets_at"))
+            .and_then(Value::as_i64)
+            .and_then(|at| Timestamp::from_second(at).ok())
+            .filter(|_| kind != LimitKind::Credit);
+        return ProviderError::LimitReached {
+            reached: LimitReached { kind, resets_at },
+            message: text.map(str::to_owned),
+        };
+    }
     let code = field("code").or(class).map(str::to_owned);
-    let message = field("message").filter(|message| !message.trim().is_empty()).unwrap_or(fallback);
+    let message = text.unwrap_or(fallback);
     if code.as_deref().is_some_and(|code| RATE_LIMIT_CODES.contains(&code)) {
         return ProviderError::RateLimited { retry_after: retry_hint(message), limit: None };
     }

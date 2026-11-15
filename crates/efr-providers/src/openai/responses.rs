@@ -68,7 +68,7 @@ const REQUEST_ID_HEADER: &str = "x-request-id";
 const MAX_ERROR_MESSAGE: usize = 1000;
 
 /// Error codes of a 429 that mean money or plan, not pace: waiting does not help, so
-/// they are reported as the limit of the account ([`LIMIT_CODES`]) or as API errors
+/// they are reported as the limit of the account ([`limits::limit_kind`]) or as API errors
 /// rather than as rate limiting, and such a 429 is never sent again (the list Codex maps
 /// to `QuotaExceeded`, `UsageNotIncluded` and `UsageLimitReached` in
 /// `codex-rs/codex-api/src/api_bridge.rs`).
@@ -80,19 +80,6 @@ const QUOTA_CODES: &[&str] = &[
     "project_spend_limit_exceeded",
     "organization_usage_limit_exceeded",
     "usage_limit_reached",
-];
-
-/// The error codes that say which limit the account reached, for
-/// [`ProviderError::LimitReached`]: the usage limit of a ChatGPT plan, with the time of
-/// its reset, no credit left, or a spend limit. `usage_not_included`, a plan without
-/// Codex, is no limit with a reset: it stays an API error.
-const LIMIT_CODES: &[(&str, LimitKind)] = &[
-    ("usage_limit_reached", LimitKind::Usage),
-    ("insufficient_quota", LimitKind::Credit),
-    ("credit_balance_exhausted", LimitKind::Credit),
-    ("organization_spend_limit_exceeded", LimitKind::SpendLimit),
-    ("project_spend_limit_exceeded", LimitKind::SpendLimit),
-    ("organization_usage_limit_exceeded", LimitKind::SpendLimit),
 ];
 
 /// A [`Provider`] over OpenAI's Responses API, on the ChatGPT subscription backend or
@@ -639,13 +626,11 @@ impl ErrorDetails {
         self.codes().any(|code| QUOTA_CODES.contains(&code))
     }
 
-    /// The limit that the account reached, by the first code of [`LIMIT_CODES`], with its
-    /// reset: `resets_at` as Unix seconds, else `resets_in_seconds` from `now`; none for
-    /// a credit.
+    /// The limit that the account reached, by the first code that
+    /// [`limits::limit_kind`] knows, with its reset: `resets_at` as Unix seconds, else
+    /// `resets_in_seconds` from `now`; none for a credit.
     fn limit_reached(&self, now: Timestamp) -> Option<LimitReached> {
-        let kind = self.codes().find_map(|code| {
-            LIMIT_CODES.iter().find(|(known, _)| *known == code).map(|(_, kind)| *kind)
-        })?;
+        let kind = self.codes().find_map(limits::limit_kind)?;
         let resets_at = self
             .resets_at
             .and_then(|at| Timestamp::from_second(at).ok())
