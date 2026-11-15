@@ -38,6 +38,8 @@ export const TYPE = {
   input: { fontSize: 15, lineHeight: 21 },
   /** Titles and values of Settings rows, titles of sheet rows and the search text. */
   row: { fontSize: 15, lineHeight: 20 },
+  /** The name of the selected row of the model sheet (S-ModelSheet). */
+  rowStrong: { fontSize: 15, lineHeight: 20, ...semibold },
   /** The header title of a conversation. */
   title: { fontSize: 15, lineHeight: 20, ...semibold },
   /** The approval reason and the text of the forget action sheet. */
@@ -46,6 +48,8 @@ export const TYPE = {
   thought: { fontSize: 13, lineHeight: 19 },
   /** Group headers and footers of Settings. */
   caption: { fontSize: 12, lineHeight: 16 },
+  /** The effort step in use and "Use default" of the model sheet (S-ModelSheet). */
+  captionStrong: { fontSize: 12, lineHeight: 16, ...semibold },
   /** Markdown tables. */
   table: { fontSize: 12.5, lineHeight: 17 },
   /** Markdown h1 (Headline based). */

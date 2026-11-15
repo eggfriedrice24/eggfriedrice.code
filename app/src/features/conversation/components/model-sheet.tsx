@@ -34,6 +34,9 @@ import { ProviderLogo } from "./provider-logo";
 /** The smallest space under the confirm, on a screen without a home indicator. */
 const MIN_BOTTOM = 12;
 
+/** The 16 pt line of "Use default" with a touch of 44 pt, as the other controls. */
+const USE_DEFAULT_SLOP = { top: 14, bottom: 14, left: 8, right: 8 } as const;
+
 /** What the sheet shows while it has no list. */
 export type SheetEmpty = "loading" | "offline" | undefined;
 
@@ -76,21 +79,20 @@ export function ModelSheetView(props: ModelSheetViewProps) {
           />
         )}
         {view.quiet === undefined ? null : (
-          <Text testID="model-quiet-line" className="text-caption text-text-subtle">
-            {view.quiet.text}
+          <View testID="model-quiet-line" className="flex-row flex-wrap items-center gap-x-4">
+            <Text className="shrink text-caption text-text-subtle">{view.quiet.text}</Text>
             {view.quiet.useDefault ? (
-              <>
-                {"  "}
-                <Text
-                  accessibilityRole="button"
-                  onPress={props.onUseDefault}
-                  className="text-caption text-text-bright"
-                >
-                  Use default
-                </Text>
-              </>
+              // A control of its own, so the touch reaches 44 pt like every other one.
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={USE_DEFAULT_SLOP}
+                onPress={props.onUseDefault}
+                className="active:opacity-60"
+              >
+                <Text className="text-caption-strong text-text-bright">Use default</Text>
+              </Pressable>
             ) : null}
-          </Text>
+          </View>
         )}
         <ConfirmRow {...props} />
       </View>
@@ -173,7 +175,7 @@ function nameClass(row: SheetRow): string {
   if (row.disabled) {
     return "text-row text-text-muted";
   }
-  return row.selected ? "text-row text-text-bright" : "text-row text-text-primary";
+  return row.selected ? "text-row-strong text-text-bright" : "text-row text-text-primary";
 }
 
 function ModelRow(props: ModelRowProps) {

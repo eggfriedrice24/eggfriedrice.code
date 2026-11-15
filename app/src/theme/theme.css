@@ -110,6 +110,12 @@
   line-height: 20px;
 }
 
+@utility text-row-strong {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
 @utility text-title {
   font-size: 15px;
   line-height: 20px;
@@ -129,6 +135,12 @@
 @utility text-caption {
   font-size: 12px;
   line-height: 16px;
+}
+
+@utility text-caption-strong {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
 }
 
 @utility text-table {

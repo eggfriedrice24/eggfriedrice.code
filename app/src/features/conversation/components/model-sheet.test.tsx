@@ -85,4 +85,24 @@ describe("the model sheet view", () => {
     expect(screen.getByText("Opus 5.5").props.className).not.toContain("line-through");
     expect(screen.queryByTestId("model-row-gone")).toBeNull();
   });
+
+  it("gives the selected name, the step in use and Use default the weight of the board", async () => {
+    const onUseDefault = jest.fn<() => void>();
+    await draw(
+      view([row({ selected: true })], {
+        effort: { steps: ["low", "medium", "high"], index: 2, defaultIndex: 1 },
+        quiet: { text: "chosen here", useDefault: true },
+      }),
+      onUseDefault,
+    );
+    expect(screen.getByText("Opus 5.5").props.className).toContain("text-row-strong");
+    expect(screen.getByText("high").props.className).toContain("text-caption-strong");
+    expect(screen.getByText("medium").props.className).not.toContain("text-caption-strong");
+    // "Use default" is a control of its own with a 44 pt touch, not a run of the text.
+    const use = screen.getByRole("button", { name: "Use default" });
+    expect(use.props.hitSlop).toMatchObject({ top: 14, bottom: 14 });
+    expect(screen.getByText("Use default").props.className).toContain("text-caption-strong");
+    await fireEvent.press(use);
+    expect(onUseDefault).toHaveBeenCalledTimes(1);
+  });
 });

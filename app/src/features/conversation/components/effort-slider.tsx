@@ -68,7 +68,11 @@ export function EffortSlider(props: EffortSliderProps) {
               onPress={() => pick(index)}
               className="min-h-24 items-center active:opacity-60"
             >
-              <Text className={cn("text-caption", on ? "text-text-bright" : "text-text-subtle")}>
+              <Text
+                className={
+                  on ? "text-caption-strong text-text-bright" : "text-caption text-text-subtle"
+                }
+              >
                 {step}
               </Text>
               {isDefault ? (
