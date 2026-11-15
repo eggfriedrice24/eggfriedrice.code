@@ -144,7 +144,7 @@ impl TurnView {
                 .chain(sandbox::survivors(&summary.survivors));
             notes.extend(lines.map(call::note));
         }
-        let lined = self.lined.remove(call_id);
+        let lined = self.kept.lined.remove(call_id);
         let step = match self.call.take().filter(|call| call.call_id == *call_id) {
             // NOTE: the `!` row named the line: a refusal is one row (TM-Calls 24, 26).
             Some(_) if denied && refusal.is_none() && lined && notes.is_empty() => Step::default(),

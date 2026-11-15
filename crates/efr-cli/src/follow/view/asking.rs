@@ -375,7 +375,7 @@ impl TurnView {
                     call.awaiting = false;
                 }
                 if names_line {
-                    self.lined.insert(call_id);
+                    self.kept.lined.insert(call_id);
                 }
                 self.refused.insert(call_id);
                 self.state(State::Model);
