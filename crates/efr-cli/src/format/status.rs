@@ -127,7 +127,9 @@ pub(crate) fn status(view: &StatusView<'_>, options: &RenderOptions) -> String {
         let words: Vec<String> = catalogs
             .iter()
             .map(|catalog| match &catalog.provider {
-                Some(provider) => format!("{}: {}", account_of(provider).0, origin(catalog, now)),
+                Some(provider) => {
+                    format!("{}: {}", accounts::account_of(provider), origin(catalog, now))
+                }
                 None => origin(catalog, now),
             })
             .collect();
@@ -177,23 +179,6 @@ fn config_rows(rows: &mut Labelled<'_>, config: &ConfigStatus, home: Option<&Pat
     }
     if let Some(held) = &config.held {
         rows.row("config held", vec![(held_text(held), Tone::Attention)]);
-    }
-}
-
-/// The name that `,model` takes for the provider `id`, and its kind:
-/// `anthropic-api.work` is `work` of `anthropic-api`. A provider with no account is
-/// named by its short name, `anthropic` or `openai`, else by its id.
-pub(crate) fn account_of(id: &str) -> (String, String) {
-    match id.split_once('.') {
-        Some((kind, account)) => (one_line(account), one_line(kind)),
-        None => {
-            let name = match id {
-                "anthropic-api" => "anthropic",
-                "openai-subscription" => "openai",
-                other => other,
-            };
-            (one_line(name), one_line(id))
-        }
     }
 }
 

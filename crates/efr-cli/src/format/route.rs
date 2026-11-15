@@ -241,7 +241,7 @@ fn side(model: &SwitchedModel, named: bool) -> String {
             format!("{}/{}", one_line(account), one_line(&model.model))
         }
         (None, Some(provider)) if named => {
-            format!("{}/{}", super::status::account_of(provider).0, one_line(&model.model))
+            format!("{}/{}", super::accounts::account_of(provider), one_line(&model.model))
         }
         _ => one_line(&model.model),
     };

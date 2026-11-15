@@ -17,7 +17,6 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 
 use super::route::Pieces;
-use super::status::account_of;
 use super::{Tone, one_line};
 use crate::error::login_command;
 
@@ -61,12 +60,26 @@ pub(crate) fn short_name(id: &str) -> String {
     account_name(id).unwrap_or_else(|| default_name(id))
 }
 
+/// The short name that `,model` takes for the provider `id`: `anthropic-api.work` is
+/// `work`. A provider with no account is named by its short name, `anthropic` or
+/// `openai`, else by its id.
+pub(crate) fn account_of(id: &str) -> String {
+    match id.split_once('.') {
+        Some((_, account)) => one_line(account),
+        None => one_line(match id {
+            "anthropic-api" => "anthropic",
+            "openai-subscription" => "openai",
+            other => other,
+        }),
+    }
+}
+
 /// The name that `,model` takes for the provider `id` among the providers `ids`: its
 /// short name (`b`, `openai`) when that names `id` alone
 /// ([`efr_protocol::provider_id_named`]), else the id itself, such as
 /// `openai-api.work` when `anthropic-api.work` runs too. `ids` must hold `id`.
 pub(crate) fn command_name(id: &str, ids: &[&str]) -> String {
-    let short = account_of(id).0;
+    let short = account_of(id);
     if efr_protocol::provider_id_named(&short, ids) == Some(id) { short } else { one_line(id) }
 }
 

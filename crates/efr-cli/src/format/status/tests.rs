@@ -12,7 +12,7 @@ use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
-use super::{StatusView, account_of, conversations, limit_age, origin, short_span, status};
+use super::{StatusView, conversations, limit_age, origin, short_span, status};
 use crate::testing::{bare, conversation, design_options, now};
 
 fn before(seconds: i64) -> Timestamp {
@@ -418,18 +418,6 @@ fn the_rows_that_need_care_take_their_colour() {
     \e[2mfull mode\e[0m       \e[33mrefused (efrd runs as root)\e[0m
     \e[2mdefault mode\e[0m    \e[31mfull\e[0m · efrd cannot run it, so a turn that names no mode runs as auto
     ");
-}
-
-#[test]
-fn each_account_has_the_name_that_model_takes() {
-    let named = |id: &str| account_of(id);
-    assert_eq!(named("anthropic-api.work"), ("work".to_owned(), "anthropic-api".to_owned()));
-    assert_eq!(named("anthropic-api"), ("anthropic".to_owned(), "anthropic-api".to_owned()));
-    assert_eq!(
-        named("openai-subscription"),
-        ("openai".to_owned(), "openai-subscription".to_owned())
-    );
-    assert_eq!(named("openai-api"), ("openai-api".to_owned(), "openai-api".to_owned()));
 }
 
 #[test]

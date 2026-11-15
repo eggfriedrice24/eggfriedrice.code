@@ -26,8 +26,9 @@ use efr_render::{Attrs, RenderOptions, Role};
 use crate::cli::ModelsArgs;
 use crate::context::Context;
 use crate::error::CliError;
+use crate::format::accounts::account_of;
 use crate::format::context::count;
-use crate::format::status::{account_of, origin, separator};
+use crate::format::status::{origin, separator};
 use crate::format::{self, Tone, accounts, paint};
 use crate::live::effective_width;
 use crate::output::Output;
@@ -194,7 +195,7 @@ fn block(
     };
     match account.provider {
         Some(id) => {
-            let name = account_of(id).0;
+            let name = account_of(id);
             // NOTE: the kind in words, as `efr status` names it (TM-Commands 2), and the
             // user's own name of the account from `[accounts.labels]` after it.
             let mut kind = accounts::kind_words(id);

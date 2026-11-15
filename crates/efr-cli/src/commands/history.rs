@@ -1323,7 +1323,7 @@ impl<'a> Transcript<'a> {
         let model = format::one_line(&settings.model);
         let mut line = match settings.provider.as_deref() {
             Some(provider) if provider.contains('.') => {
-                format!("{}/{model}", format::status::account_of(provider).0)
+                format!("{}/{model}", accounts::account_of(provider))
             }
             _ => model,
         };

@@ -6,8 +6,8 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{
-    LimitRow, command_name, history_reason, kind_words, limit_rows, offer_rows, reset_time,
-    short_name, status_note, stop_reason, window_name,
+    LimitRow, account_of, command_name, history_reason, kind_words, limit_rows, offer_rows,
+    reset_time, short_name, status_note, stop_reason, window_name,
 };
 use crate::format::Tone;
 use crate::format::ending::plain;
@@ -206,6 +206,14 @@ fn the_history_reason_keeps_the_reset_in_brackets() {
     // NOTE: errata 12: a named account by its name alone, as the offer and `efr status`.
     let named = AccountOut { provider: "openai-subscription.b".to_owned(), ..out };
     assert_eq!(history_reason(&named, now(), &zone), "b reached its usage limit (resets 14:20)");
+}
+
+#[test]
+fn each_account_has_the_name_that_model_takes() {
+    assert_eq!(account_of("anthropic-api.work"), "work");
+    assert_eq!(account_of("anthropic-api"), "anthropic");
+    assert_eq!(account_of("openai-subscription"), "openai");
+    assert_eq!(account_of("openai-api"), "openai-api");
 }
 
 /// TM-Accounts 5 and errata 5: the wait of "too many requests" is no reset, so neither
