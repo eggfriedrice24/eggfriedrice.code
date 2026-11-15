@@ -41,7 +41,7 @@ import {
   errorText,
   type SourceRow,
   sourceRows,
-  STORED_COPY_NOTE,
+  storedCopyNote,
   type TurnEndView,
   turnEndView,
   withReason,
@@ -242,8 +242,8 @@ export function TurnEndRow(props: TurnEndRowProps) {
         />
       )}
       {row.web?.storedCopyNote === true ? (
-        <MonoText tone="text_muted" className="mt-2">
-          {STORED_COPY_NOTE}
+        <MonoText testID="stored-copy-note" tone="text_subtle" className="mt-2">
+          {storedCopyNote(row.web.storedCopyReason)}
         </MonoText>
       ) : null}
     </View>

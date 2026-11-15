@@ -48,7 +48,8 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
   the reply. From `turn_web_report`, the end of the turn lists the sources that the
   answer cites (`[1] protondb.com/app/2384710  ROB RUN · ProtonDB`, a tap asks and then
   opens the page), counts the searches on the end line (`· 5 searches`, `, stored copy`)
-  and, under the first turn with a stored copy, says that it can be some days old.
+  and, under the first turn with a stored copy, says that it can be some days old and
+  what gives the live web (`stored_copy_reason`, the words of the terminal).
 - The app hears of the foreground from AppState, and of a change of the network path
   (such as from Wi-Fi to cellular) from NetInfo. Then each machine connects again at
   once.

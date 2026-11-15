@@ -197,6 +197,8 @@ streams in.
 - When the agent searched the web, the end of the turn lists the pages that the answer
   cites (`[1]` and the page), and the end line counts the searches. "stored copy" there
   means that the provider searched its own copy of the web, which can be some days old.
+  Under the first such turn, one quiet line says it, and what gives the live web, in the
+  words of the terminal: `,mode auto`, or with `web.search = "cached"` the setting.
 - The app asks before it opens a link. A web page then opens in the app. An image in
   a reply shows as a link, and HTML shows as text, so the app loads nothing that you
   did not tap.

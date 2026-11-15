@@ -196,7 +196,37 @@ describe("the turn end row", () => {
     ).toBeOnTheScreen();
     expect(screen.getByText("protondb.com/app/2384710")).toBeOnTheScreen();
     expect(screen.getByText(/5 searches, stored copy/)).toBeOnTheScreen();
-    expect(screen.getByText("a stored copy of the web can be some days old")).toBeOnTheScreen();
+    // An efrd that names no reason: the mode chose the stored copy (TM-Web 13).
+    const note = screen.getByTestId("stored-copy-note");
+    expect(note).toHaveTextContent(
+      "a stored copy of the web can be some days old · ,mode auto searches the live web",
+    );
+    expect(note.props.className).toContain("text-text-subtle");
+  });
+
+  it("names the setting in the stored-copy note when web.search chose the stored copy", async () => {
+    const state = run([
+      eventItem(1, promptQueued(TURN, "Does ROB RUN work on Linux?")),
+      eventItem(2, turnStarted(TURN), at(0)),
+      eventItem(3, {
+        kind: "turn_web_report",
+        turn_id: TURN,
+        searches: 1,
+        stored_copy: true,
+        stored_copy_note: true,
+        stored_copy_reason: "setting",
+      }),
+      eventItem(4, { kind: "turn_completed", turn_id: TURN }, at(12)),
+    ]);
+    const { scope } = testScope(state);
+    await render(
+      <InScope scope={scope}>
+        <TurnEndRow turnId={TURN} />
+      </InScope>,
+    );
+    expect(screen.getByTestId("stored-copy-note")).toHaveTextContent(
+      'a stored copy of the web can be some days old · web.search = "cached" in config.toml asks for it in each mode',
+    );
   });
 
   it("shows nothing before the turn ends", async () => {

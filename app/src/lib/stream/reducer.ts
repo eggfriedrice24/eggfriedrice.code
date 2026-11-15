@@ -53,6 +53,7 @@ import type {
   PauseReason,
   Risk,
   StopReason,
+  StoredCopyReason,
   SurfaceChange,
   SwitchedModel,
   Usage,
@@ -348,6 +349,11 @@ export interface TurnWebView {
   readonly storedCopy: boolean;
   /** The first turn of the conversation with a stored copy: say once what it means. */
   readonly storedCopyNote: boolean;
+  /**
+   * Why the searches read the stored copy, so the note names what gives the live web.
+   * An earlier efrd sends none: the note then takes it as `mode`, as efr-protocol says.
+   */
+  readonly storedCopyReason: StoredCopyReason;
 }
 
 /** What the subscription of the stream does (the states of `SubscriptionStatus`). */
@@ -767,6 +773,7 @@ function applyEventBody(
           sources: event.sources ?? [],
           storedCopy: event.stored_copy === true,
           storedCopyNote: event.stored_copy_note === true,
+          storedCopyReason: event.stored_copy_reason ?? "mode",
         },
       }));
     case "sandbox_surface_changed":

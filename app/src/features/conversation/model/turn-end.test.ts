@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TurnEnd, TurnWebView } from "@/lib/stream/reducer";
-import { errorText, searchCount, sourceRows, turnEndView } from "./turn-end";
+import { errorText, searchCount, sourceRows, storedCopyNote, turnEndView } from "./turn-end";
 
 const WEB: TurnWebView = {
   searches: 1,
@@ -11,6 +11,7 @@ const WEB: TurnWebView = {
   ],
   storedCopy: false,
   storedCopyNote: false,
+  storedCopyReason: "mode",
 };
 
 describe("the web search of a turn", () => {
@@ -45,6 +46,16 @@ describe("the web search of a turn", () => {
       },
     ]);
     expect(sourceRows(undefined)).toEqual([]);
+  });
+
+  it("says what gives the live web by the reason of the stored copy, as the terminal does", () => {
+    expect(storedCopyNote("mode")).toBe(
+      "a stored copy of the web can be some days old · ,mode auto searches the live web",
+    );
+    expect(storedCopyNote("setting")).toBe(
+      'a stored copy of the web can be some days old · web.search = "cached" in config.toml asks for it in each mode',
+    );
+    expect(storedCopyNote("unknown")).toBe("a stored copy of the web can be some days old");
   });
 });
 

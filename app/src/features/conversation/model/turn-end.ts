@@ -13,7 +13,7 @@
 // that searched the web ends its line with the count of its searches (`· 5 searches`,
 // `, stored copy` for the provider's stored copy of the web).
 
-import type { Origin, StopReason } from "@/lib/protocol/generated";
+import type { Origin, StopReason, StoredCopyReason } from "@/lib/protocol/generated";
 import type { TurnEnd, TurnWebView } from "@/lib/stream/reducer";
 import { between, clockTime } from "./durations";
 import { tokens } from "./format";
@@ -86,8 +86,24 @@ export function sourceRows(web: TurnWebView | undefined): SourceRow[] {
   });
 }
 
-/** The quiet line under the end of the first turn of a conversation with a stored copy. */
-export const STORED_COPY_NOTE = "a stored copy of the web can be some days old";
+/**
+ * The quiet line under the end of the first turn of a conversation with a stored copy,
+ * in the words of the terminal (TM-Web 13, efr-cli `stored_copy_note`): what it means,
+ * then what gives the live web for `reason`. The mode chose it: `,mode auto` gives the
+ * live web. The setting `web.search = "cached"` chose it: then no mode gives the live
+ * web. A reason that this build does not know adds nothing.
+ */
+export function storedCopyNote(reason: StoredCopyReason): string {
+  const note = "a stored copy of the web can be some days old";
+  switch (reason) {
+    case "mode":
+      return `${note} · ,mode auto searches the live web`;
+    case "setting":
+      return `${note} · web.search = "cached" in config.toml asks for it in each mode`;
+    default:
+      return note;
+  }
+}
 
 /**
  * The line of `end`. `startedAt` is the start of the turn; `machine` names the computer;
