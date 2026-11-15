@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { SheetRow, SheetView } from "../model/model-sheet";
+import { labelLeft } from "./effort-slider";
 import { ModelSheetView } from "./model-sheet";
 
 const METRICS = {
@@ -183,5 +184,34 @@ describe("the model sheet of round 7", () => {
   it("says when a search finds nothing", async () => {
     await draw({ ...view([]), sections: [], noMatch: 'no model matches "xyz"' });
     expect(screen.getByTestId("model-no-match")).toHaveTextContent('no model matches "xyz"');
+  });
+});
+
+describe("the effort slider", () => {
+  it("centres each label under its stop, from the thumb at one end to the other", () => {
+    // A 300 pt track: the thumb centre runs from 14 to 286.
+    expect(labelLeft(0, 3, 300)).toBe(14 - 28);
+    expect(labelLeft(1, 3, 300)).toBe(150 - 28);
+    expect(labelLeft(2, 3, 300)).toBe(286 - 28);
+    expect(labelLeft(4, 5, 300)).toBe(286 - 28);
+  });
+
+  it("draws one label per effort of the model, and the change of a step adds no row", async () => {
+    const three = view([row({ selected: true })], {
+      effort: { steps: ["low", "medium", "high"], index: 1, defaultIndex: 1 },
+      quiet: { text: "Opus 5.5 · 200k context", useDefault: false },
+    });
+    await draw(three);
+    expect(screen.queryByRole("button", { name: /^xhigh effort/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: / effort/ })).toHaveLength(3);
+    // A changed effort: the confirm is the native "Use" of the header, so the panel adds
+    // nothing under the slider.
+    const changed = {
+      ...three,
+      confirm: { label: "Use Opus 5.5 · high", next: false, compacts: false, pending: false },
+    };
+    await draw(changed);
+    expect(screen.queryByTestId("model-cost-line")).toBeNull();
+    expect(screen.getByTestId("model-quiet-line")).toHaveTextContent("Opus 5.5 · 200k context");
   });
 });

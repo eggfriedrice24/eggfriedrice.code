@@ -1,0 +1,14 @@
+diff --git a/ios/RNCSliderComponentView.mm b/ios/RNCSliderComponentView.mm
+index aa9eb66a486a53762490ed720c5dd2f3a618a166..7d4312e260d2da270284fa5e5e05a3ad6e545e45 100644
+--- a/ios/RNCSliderComponentView.mm
++++ b/ios/RNCSliderComponentView.mm
+@@ -141,7 +141,8 @@ using namespace facebook::react;
+         [sender setValue:value animated:NO];
+     }
+ 
+-    if(!sender.isSliding) {
++    // efr: a slider with steps snaps to the stops while the finger moves too.
++    if(!sender.isSliding || sender.step > 0) {
+         [sender setValue:value animated:NO];
+     }
+ 

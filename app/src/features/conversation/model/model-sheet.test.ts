@@ -514,3 +514,19 @@ describe("round 7: search, filter, legacy and favourites", () => {
     });
   });
 });
+
+describe("the effort slider of a model", () => {
+  it("has exactly the efforts of the selected model as its stops", () => {
+    const opus = { model: "claude-opus-5-5", provider: WORK, effort: "high" };
+    expect(sheetView(input({ selection: opus })).effort?.steps).toEqual(["low", "medium", "high"]);
+    const sol = { model: "gpt-6.1-sol", provider: PLAN, effort: "medium" };
+    expect(sheetView(input({ selection: sol })).effort).toEqual({
+      steps: ["minimal", "low", "medium", "high", "xhigh"],
+      index: 2,
+      defaultIndex: 2,
+    });
+    // A model without efforts has no slider.
+    const haiku = { model: "claude-haiku-4-5", provider: WORK, effort: undefined };
+    expect(sheetView(input({ selection: haiku })).effort).toBeUndefined();
+  });
+});

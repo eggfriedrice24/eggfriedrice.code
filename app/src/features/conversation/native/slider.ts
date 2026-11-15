@@ -16,6 +16,8 @@ export interface NativeSliderProps {
   readonly minimumTrackTintColor: string;
   readonly maximumTrackTintColor: string;
   readonly thumbTintColor?: string;
+  /** Each stop that the thumb reaches while the finger moves. */
+  readonly onValueChange?: (value: number) => void;
   readonly onSlidingComplete: (value: number) => void;
   readonly accessibilityLabel?: string;
   readonly accessibilityIncrements?: string[];

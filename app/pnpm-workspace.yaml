@@ -27,7 +27,11 @@ hoistPattern:
 # the header only as <React/RCTBridge.h>, so the iOS build fails. The patch changes only
 # that import (t3code does the same since its move to SDK 58). Drop it with the next
 # release of the package that has the fix.
+# The slider 5.2.1 snaps a slider with steps to a stop only when the finger lets go. The
+# effort slider of the model sheet must move from stop to stop, so the patch snaps it on
+# each move too (one condition of RNCSliderComponentView.mm).
 patchedDependencies:
+  "@react-native-community/slider@5.2.1": patches/@react-native-community__slider@5.2.1.patch
   "@react-native-menu/menu@2.0.0": patches/@react-native-menu__menu@2.0.0.patch
 # eas-cli 25.3.0 reads app.config.ts through @expo/config 55, whose @expo/require-utils
 # 55.0.8 asks for TypeScript 5 as an optional peer. The app pins TypeScript 7.0.2. It is
