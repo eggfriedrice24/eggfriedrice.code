@@ -216,8 +216,9 @@ conversations or the daemon's socket. The config root stays readable and read-on
   file. The write-ahead log can keep a page from before the delete until a later
   checkpoint writes over that part of the log. The search index has the FTS5 option
   `secure-delete` (migration 12): the job that deletes a doc also removes its tokens
-  from the FTS5 segments (`search_fts_data`), not a later merge. That costs about 5
-  ms of writer time per KiB of text, so step 3 bounds the text of a job. Until its
+  from the FTS5 segments (`search_fts_data`), not at a later merge. That costs writer
+  time by the text (about 9 ms for a doc of 1 KiB and 47 ms for one of 16 KiB), so
+  step 3 bounds the text of a job. Until its
   job runs, a doc keeps its tokens, but no search finds it, because the conversation
   has no row in the projections. A stop of efrd in that time leaves the docs to the
   next start, which finishes the delete. A doc that a delete removed before migration

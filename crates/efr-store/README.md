@@ -101,8 +101,9 @@ across a restart:
   in short steps (`automerge` 8, leaves of 1,000 bytes). From migration 12 it has the
   option `secure-delete`: the FTS5 `'delete'` of a doc removes its tokens from the
   segments (`search_fts_data`) in the same write, not at a later merge. This costs
-  about 5 ms of writer time per KiB of text, so a step of a delete bounds the text
-  that it deletes (`deletes`). `search_titles` holds the
+  writer time by the text: about 9 ms for a doc of 1 KiB and 47 ms for one of 16 KiB,
+  so a step of a delete bounds the text that it deletes (`deletes`). `search_titles`
+  holds the
   title of each conversation, from the first prompt doc that is not blank.
   `search_state` holds the cursor and the version of the redaction. efrd's indexer
   fills the tables in the background. `pending` reads the next page of source text
@@ -179,7 +180,7 @@ across a restart:
   recording segments), each of which a stop may break off and a later step does
   again. The other jobs of the writer, such as the commit of a turn, run between two
   steps, so a turn waits for one step, not for the whole delete: a step of 512 bytes
-  takes about 3 ms, and a doc of 16 KiB alone about 25 ms. Until its step runs, a doc
+  takes about 5 ms, and a doc of 16 KiB alone about 47 ms. Until its step runs, a doc
   keeps its tokens in the index, but no search finds it, because the conversation has
   no projection row. Then
   `WriterHandle::delete_done` marks the end once efrd removed the files too.

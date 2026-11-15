@@ -42,12 +42,12 @@ pub const STEP_DOCS: u32 = 10;
 
 /// The most text, in bytes, that the search docs of one step of a delete hold, unless
 /// the first doc of the step is longer: a step always takes one doc. With
-/// `secure-delete`, a doc costs about 5 ms per KiB of text, and 10 ms on a busy machine
-/// (`bench_search_delete`). So a step of 512 bytes stays below the 10 ms of the other
-/// writer jobs also on a busy machine, and a turn's commit waits for one short step,
-/// not for the whole delete. The words of one doc go in one FTS5 `'delete'`, so a
-/// longer doc takes its step alone: an answer of 16 KiB holds the writer for about
-/// 25 ms, and 50 ms on a busy machine.
+/// `secure-delete`, the time of a step follows its text (`bench_search_delete` on a
+/// busy machine): a step of at most 512 bytes takes about 5 ms and at most 9 ms, so it
+/// stays below the 10 ms of the other writer jobs, and a turn's commit waits for one
+/// short step, not for the whole delete. A limit of 10 docs alone gave steps of 30 to
+/// 75 ms. The words of one doc go in one FTS5 `'delete'`, so a longer doc takes its
+/// step alone: an answer of 1 KiB takes about 9 ms, one of 16 KiB about 47 ms.
 pub const STEP_TEXT_BYTES: usize = 512;
 
 /// A delete as its tombstone row holds it.
