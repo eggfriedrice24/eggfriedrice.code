@@ -118,7 +118,7 @@ describe("the outbox", () => {
     ]);
   });
 
-  it("sends the mode auto only for a prompt that passed the check, and keeps it on the disk", async () => {
+  it("sends the mode auto only for a prompt sent in auto with the unlock on, and keeps it on the disk", async () => {
     const storage = new MemoryOutboxStorage();
     const { outbox } = testOutbox(storage);
     const auto = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a", auto: true });

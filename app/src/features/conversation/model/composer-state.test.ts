@@ -371,7 +371,6 @@ describe("the status line", () => {
     expect(
       statusParts({
         cwd: "/home/egg/code/efr",
-        mode: "cautious",
         context: { tokens: 42_000, limit: 100_000, window: 100_000 },
         waiting: "none",
         limit: undefined,
@@ -386,7 +385,6 @@ describe("the status line", () => {
     expect(
       statusParts({
         cwd: undefined,
-        mode: "auto",
         context: { tokens: 41_000, limit: 100_000, window: 100_000 },
         waiting: "phone",
         limit: "5-hour 92%",
@@ -442,7 +440,7 @@ describe("the status line", () => {
   });
 
   it("adds waiting for you in yolk, or the terminal in grey", () => {
-    const base = { cwd: undefined, mode: undefined, context: undefined, limit: undefined } as const;
+    const base = { cwd: undefined, context: undefined, limit: undefined } as const;
     expect(statusParts({ ...base, waiting: "phone" })).toEqual([
       { key: "waiting", text: "waiting for you", tone: "accent_primary" },
     ]);
@@ -459,7 +457,6 @@ describe("the status line", () => {
   it("reads the stream store", () => {
     expect(selectComposerStatus(EMPTY_STREAM, LIMITS_NOW)).toEqual({
       cwd: undefined,
-      mode: undefined,
       context: undefined,
       waiting: "none",
       limit: undefined,

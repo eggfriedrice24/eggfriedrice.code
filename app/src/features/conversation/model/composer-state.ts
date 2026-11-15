@@ -15,7 +15,7 @@
 //
 // Pure TypeScript.
 
-import type { ContextUse, Mode } from "@/lib/protocol/generated";
+import type { ContextUse } from "@/lib/protocol/generated";
 import { runningTurn, type StreamState } from "@/lib/stream/reducer";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConnectionView } from "@/features/machines/model/connection-view";
@@ -293,8 +293,8 @@ export function outboxTargetOf(snapshot: OutboxSnapshot, target: ComposerTarget)
 /**
  * The outbox input of a prompt `text` of `target`. The model, account and effort that the
  * sheet chose for the composer go with it; without a choice, efrd runs the model of the
- * conversation, or the machine's default. `auto` is true when the owner passed the check
- * of the iPhone for a message in auto.
+ * conversation, or the machine's default. `auto` is true when the mode of the composer is
+ * auto and the Face ID unlock of the app is on at the tap on Send.
  */
 export function outboxInput(
   snapshot: OutboxSnapshot,
@@ -340,7 +340,6 @@ export function inFlightText(snapshot: OutboxSnapshot, target: ComposerTarget): 
 /** What the status line (slot A) shows of the conversation. */
 export interface ComposerStatus {
   readonly cwd: string | undefined;
-  readonly mode: Mode | undefined;
   readonly context: ContextUse | undefined;
   readonly waiting: Waiting;
   /** The tightest limit of the account of the running turn from 90 %: "5-hour 92%". */
@@ -351,20 +350,13 @@ export interface ComposerStatus {
 export const BLANK_CWD = "~";
 
 /**
- * The mode of a new conversation. A prompt from the phone that names no mode runs as
- * `cautious` (docs/config.md, `permissions.mode`); the mode control of the composer
- * shows the mode of the next message instead (S-ComposerR7 8).
- */
-export const BLANK_MODE: Mode = "cautious";
-
-/**
- * The status line of the blank root: the cwd and the mode of a new conversation. The
+ * The status line of the blank root: the cwd of a new conversation. The mode is the mode
+ * control of the composer (S-ComposerR7 8). The
  * user chose to show the line there too, as in a conversation. A new conversation has
  * used no context yet, so the line has no `ctx` part.
  */
 export const BLANK_STATUS: ComposerStatus = {
   cwd: BLANK_CWD,
-  mode: BLANK_MODE,
   context: undefined,
   waiting: "none",
   limit: undefined,
@@ -389,7 +381,6 @@ export function selectComposerStatus(state: StreamState, now: number): ComposerS
       : undefined;
   return {
     cwd: status.cwd,
-    mode: status.mode,
     context: status.context,
     waiting: status.waiting,
     limit,

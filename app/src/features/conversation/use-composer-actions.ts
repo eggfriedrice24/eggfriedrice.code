@@ -14,13 +14,15 @@
 //
 // A prompt carries the choice of the model sheet. A prompt of a new thread without a
 // choice carries the favourite of the last plan (`freshChoice`). A prompt that names an
-// account makes it the last plan of the machine. A prompt in auto carries `auto`: the
-// composer sends it only after the check of the owner passed (model/owner-check.ts).
+// account makes it the last plan of the machine. A prompt carries `auto` when the mode of
+// the composer is auto and the Face ID unlock of the app is on at the tap on Send
+// (features/navigation/model/app-lock.ts).
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 
 import type { MachineCaller } from "@/lib/query/machine-caller";
+import type { AppLock } from "@/features/navigation/model/app-lock";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import {
   interruptMutationOptions,
@@ -39,7 +41,6 @@ import type { Drafts } from "./model/drafts";
 import { favouriteOf, type ModelChoices } from "./model/model-choices";
 import { freshChoice } from "./model/model-sheet";
 import type { Outbox, OutboxEntry } from "./model/outbox";
-import type { AppLock } from "@/features/navigation/model/app-lock";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {
