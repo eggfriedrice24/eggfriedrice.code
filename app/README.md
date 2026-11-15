@@ -435,7 +435,8 @@ not a test that pretends.
     pnpm patch, a new dev build): the thumb moves from stop to stop while the finger
     moves, with one haptic per stop, each label stands centred under its stop, a tap of
     a label moves the thumb there, the panel keeps one height while the effort changes,
-    and VoiceOver reads the efforts. A build from before the slider draws the steps as
+    and VoiceOver reads the efforts. A drag that starts low on the thumb moves it. At the
+    largest text size no label is cut and the default dot stays above the quiet line. A build from before the slider draws the steps as
     buttons and still works.
 35. The Claude spark keeps its own colour, the OpenAI mark is text_primary, and both
     are sharp at 3x. A signed-out account shows its logos at 40 %.

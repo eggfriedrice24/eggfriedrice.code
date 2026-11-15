@@ -6,7 +6,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { SheetRow, SheetView } from "../model/model-sheet";
-import { labelLeft } from "./effort-slider";
+import { labelBox, labelLeft } from "./effort-slider";
 import { ModelSheetView } from "./model-sheet";
 
 const METRICS = {
@@ -195,6 +195,24 @@ describe("the effort slider", () => {
     expect(labelLeft(1, 3, 300)).toBe(150 - 28);
     expect(labelLeft(2, 3, 300)).toBe(286 - 28);
     expect(labelLeft(4, 5, 300)).toBe(286 - 28);
+    // A wider box at a large text size stays centred under its stop.
+    expect(labelLeft(1, 3, 300, 84)).toBe(150 - 42);
+  });
+
+  it("grows the label boxes and the row with Dynamic Type, and never shrinks them", () => {
+    expect(labelBox(1)).toEqual({ width: 56, height: 24 });
+    expect(labelBox(0.8)).toEqual({ width: 56, height: 24 });
+    expect(labelBox(1.5)).toEqual({ width: 84, height: 36 });
+  });
+
+  it("gives a label a touch that reaches down only, so it never takes a drag of the slider", async () => {
+    await draw(
+      view([row({ selected: true })], {
+        effort: { steps: ["low", "medium", "high"], index: 1, defaultIndex: 1 },
+      }),
+    );
+    const low = screen.getByRole("button", { name: "low effort" });
+    expect(low.props.hitSlop).toEqual({ top: 0, bottom: 20 });
   });
 
   it("draws one label per effort of the model, and the change of a step adds no row", async () => {
