@@ -116,6 +116,13 @@ into the GitHub release notes, and it stops when the section is missing.
   the rules of an `auto` turn of your shell, and your "always allow" rules cover its
   exits, but the phone still cannot save a new one. efrd takes Leave to the quarantine
   question from a phone; Keep stays at your own machine.
+- The phone app asks before it opens a link in an action sheet, not in an alert. A
+  link that the app refuses or cannot open, and a Forget of a machine that fails, also
+  show in an action sheet. So the lock screen of the Face ID unlock covers them.
+- In a turn from the phone, the question about a call that declares nothing, such as
+  `jobs` or `job_stop`, reads "A turn from the phone asks for a call that efr cannot
+  judge." Before, it said that the turn asks for everything outside `$SCRATCH`, which
+  is not true in `auto`.
 - A login or a logout applies at once in `efr status`, the model list and the next
   prompt, with no restart of efrd. A credential file that you put in place, replace or
   remove yourself applies at the next `efr status`, `efr models` or Tab completion, and
