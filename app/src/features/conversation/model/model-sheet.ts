@@ -44,6 +44,7 @@ import type {
   ModelsListResult,
   SwitchCost,
 } from "@/lib/protocol/generated";
+import { holdsEveryWord, searchWords } from "@/lib/text/search-words";
 import {
   accountName,
   accountShort,
@@ -416,21 +417,6 @@ const KIND_WORDS: Readonly<Record<Exclude<KindFilter, "all">, string>> = {
   openai: "OpenAI",
 };
 
-/** The words of a search, in lower case. */
-function queryWords(query: string): string[] {
-  return query
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((word) => word !== "");
-}
-
-/** True when each word is in the name or the id of the model. */
-function matches(words: readonly string[], id: string, name: string): boolean {
-  const text = `${name} ${id}`.toLowerCase();
-  return words.every((word) => text.includes(word));
-}
-
 /** The warning line of a switch that compacts. */
 export const COMPACTS_TEXT = "Compacts this conversation and starts a cold cache.";
 
@@ -481,7 +467,7 @@ function sections(input: SheetInput): SheetSection[] {
     }
   }
   const { current, selection, machineName, now } = input;
-  const words = queryWords(input.query);
+  const words = searchWords(input.query);
   const filtered = words.length > 0 || input.kind !== "all";
   const out: SheetSection[] = [];
   for (const provider of order) {
@@ -500,7 +486,7 @@ function sections(input: SheetInput): SheetSection[] {
         continue;
       }
       const name = modelName(entry.id);
-      if (!matches(words, entry.id, name)) {
+      if (!holdsEveryWord(words, [name, entry.id])) {
         continue;
       }
       if (entry.legacy === true && !input.showLegacy) {

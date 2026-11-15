@@ -9,6 +9,7 @@
 //   (`searchResultRows`), best first per machine.
 
 import type { ConversationStatus } from "@/lib/protocol/generated";
+import { holdsEveryWord, searchWords } from "@/lib/text/search-words";
 import { newestFirst, type ConversationItem } from "./conversation-item";
 import {
   joinParts,
@@ -109,19 +110,13 @@ export function filterConversations(
   text: string,
   machineName: MachineName,
 ): ConversationItem[] {
-  const words = text
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((word) => word.length > 0);
+  const words = searchWords(text);
   if (words.length === 0) {
     return [...items];
   }
-  return items.filter((item) => {
-    const haystack = [item.title ?? "", machineName(item.machine), item.cwd ?? ""]
-      .join("\n")
-      .toLowerCase();
-    return words.every((word) => haystack.includes(word));
-  });
+  return items.filter((item) =>
+    holdsEveryWord(words, [item.title ?? "", machineName(item.machine), item.cwd ?? ""]),
+  );
 }
 
 /** The sections of the sheet over `items` (of every machine), at `now`. */
