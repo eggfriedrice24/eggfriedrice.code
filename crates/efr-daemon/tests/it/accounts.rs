@@ -4,22 +4,27 @@
 //! the account that the conversation keeps moves the next turn back to the account that
 //! the router picks; an account that `[accounts]` names stays listed when it signs out,
 //! so the conversation keeps it and its turn fails until a new login, with no restart.
-//! A phone prompt that names an account runs on it. An account that
+//! A phone prompt that names an account runs on it, and a turn that a job notice
+//! starts runs on the account that the conversation keeps. An account that
 //! reached a limit whose reset comes before the one of the stopped account is offered as
 //! full, with its reset. A logout and a new login of an account clear its limits, with
 //! no restart.
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use efr_protocol::{
     AccountState, AdminLoginApiKey, AdminLoginApiKeyResult, AdminLogout, AdminLogoutResult,
     AdminStatus, AdminStatusResult, ConversationId, Event, EventEnvelope, LimitKind, LimitReached,
-    Method, ModelsList, ModelsListResult, Origin, OtherAccount, PromptSendResult, SecretText,
+    Method, Mode, ModelsList, ModelsListResult, Origin, OtherAccount, PromptSendResult, SecretText,
     TurnSettings,
 };
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
-    ANTHROPIC_API_KEY, Client, MessagesAnswer, MessagesServer, TTY, TestDaemon, events_until,
+    ANTHROPIC_API_KEY, Client, FakeLauncher, MessagesAnswer, MessagesServer, TTY, TestDaemon,
+    TestDaemonBuilder, events_until,
 };
-use efr_test_support::Wait;
+use efr_test_support::{TestDirs, Wait};
 use pretty_assertions::assert_eq;
 
 /// The Claude model of the Messages API's list.
@@ -54,8 +59,17 @@ async fn models(client: &Client) -> ModelsListResult {
 /// A daemon on `messages` with the default Anthropic key and the accounts `logins`,
 /// each with its list of models.
 async fn daemon_with(messages: &MessagesServer, logins: &[(&str, &str)]) -> (TestDaemon, Client) {
+    built_with(TestDaemon::builder(), messages, logins).await
+}
+
+/// [`daemon_with`] from `builder`.
+async fn built_with(
+    builder: TestDaemonBuilder,
+    messages: &MessagesServer,
+    logins: &[(&str, &str)],
+) -> (TestDaemon, Client) {
     messages.set_models(vec![MessagesServer::model(CLAUDE)]);
-    let daemon = TestDaemon::builder().messages(messages).start().await.unwrap();
+    let daemon = builder.messages(messages).start().await.unwrap();
     let client = daemon.client_for_tty(TTY).await.unwrap();
     for (provider, key) in logins {
         let _: AdminLoginApiKeyResult = client.call(login(provider, key)).await.unwrap();
@@ -245,6 +259,98 @@ async fn a_phone_prompt_that_names_an_account_runs_on_it() {
     let (_, events) = prompt(&daemon, &client, 3, None, None).await;
     assert_eq!(ran_on(&events), "anthropic-api.work");
     drop((phone, client));
+    daemon.stop().await.unwrap();
+}
+
+/// A turn that a job notice starts runs on the model and the account of the turn
+/// before (`sticky.rs`): the wake turn of a conversation that keeps `work` sends the key
+/// of `work`, with no switch. The job runs through the fake launcher (`/bin/sh`, no zsh)
+/// and blocks on a FIFO until the prompt's turn ended.
+#[tokio::test]
+async fn a_wake_turn_runs_on_the_account_that_the_conversation_keeps() {
+    let messages = MessagesServer::start().await;
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let fifo = dirs.root().join("go");
+    nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::from_bits_truncate(0o600)).unwrap();
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
+        ("HOME".to_owned(), dirs.home().display().to_string()),
+    ]);
+    let builder = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(fake.path())
+        .probe_override(crate::sandbox::ready())
+        .job_env(env);
+    let (daemon, client) =
+        built_with(builder, &messages, &[("anthropic-api.work", WORK_KEY)]).await;
+    let command = format!("read answer < {}; echo ended", fifo.display());
+    messages.push(MessagesAnswer::tool_use(
+        "call_job",
+        "shell",
+        &serde_json::json!({ "command": command, "background": true }),
+    ));
+    messages.push(MessagesAnswer::text("the job runs"));
+    // The wake turn ends at once.
+    messages.push(MessagesAnswer::text("the job ended"));
+
+    let Method::PromptSend(mut params) = daemon.prompt(1, "start the job", TTY) else {
+        unreachable!()
+    };
+    params.settings = TurnSettings {
+        model: Some(CLAUDE.to_owned()),
+        provider: Some("work".to_owned()),
+        mode: Some(Mode::Auto),
+        ..TurnSettings::default()
+    };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let first = events_until(
+        &mut follow,
+        |event| matches!(event, Event::TurnCompleted { turn_id, .. } if *turn_id == sent.turn_id),
+    )
+    .await
+    .unwrap();
+    assert!(
+        first.iter().any(|envelope| matches!(envelope.event, Event::JobStarted { .. })),
+        "{first:#?}"
+    );
+    let fifo_path = fifo.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(&fifo_path, b"go\n"))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut wake = None;
+    let events = events_until(&mut follow, |event| match event {
+        Event::TurnStarted { turn_id, .. } if *turn_id != sent.turn_id => {
+            wake = Some(*turn_id);
+            false
+        }
+        Event::TurnCompleted { turn_id, .. } | Event::TurnFailed { turn_id, .. } => {
+            Some(*turn_id) == wake
+        }
+        _ => false,
+    })
+    .await
+    .unwrap();
+
+    let wake = wake.expect("a job notice started a turn");
+    let events: Vec<EventEnvelope> =
+        events.into_iter().filter(|envelope| envelope.event.turn_id() == Some(wake)).collect();
+    assert!(completed(&events), "{events:#?}");
+    assert!(
+        events
+            .iter()
+            .any(|envelope| matches!(&envelope.event, Event::JobNotice { woke: true, .. })),
+        "{events:#?}"
+    );
+    assert_eq!(ran_on(&events), "anthropic-api.work");
+    assert_eq!(switched(&events), None, "the wake turn keeps the account");
+    assert_eq!(last_key(&messages), bearer(WORK_KEY));
+    let keys: Vec<String> =
+        messages.received().into_iter().filter_map(|request| request.authorization).collect();
+    assert_eq!(keys, [WORK_KEY; 3].map(bearer), "each call of both turns sent the key of work");
+    drop(client);
     daemon.stop().await.unwrap();
 }
 
