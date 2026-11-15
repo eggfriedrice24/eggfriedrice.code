@@ -384,17 +384,24 @@ describe("round 7: search, filter, legacy and favourites", () => {
     ]);
   });
 
-  it("shows a legacy model that is in use, selected or a favourite", () => {
+  it("hides a legacy model while the filter is off, also when it is in use, selected or a favourite", () => {
     const inUse = currentSettings(R7, { model: "gpt-6-sol", provider: PLAN }, undefined);
-    expect(names(sheetView(r7({ current: inUse })))[1]?.legacy).toEqual(["gpt-6-sol"]);
+    expect(names(sheetView(r7({ current: inUse })))[1]?.legacy).toEqual([]);
     const selection = { model: "claude-opus-5", provider: WORK, effort: "high" };
-    expect(names(sheetView(r7({ selection })))[0]?.legacy).toEqual(["claude-opus-5"]);
+    expect(names(sheetView(r7({ selection })))[0]?.legacy).toEqual([]);
     const starred = (provider: string | undefined) => (provider === PLAN ? "gpt-6-sol" : undefined);
-    expect(names(sheetView(r7({ favourite: starred })))[1]?.legacy).toEqual(["gpt-6-sol"]);
+    expect(names(sheetView(r7({ favourite: starred })))[1]?.legacy).toEqual([]);
+    expect(names(sheetView(r7({ current: inUse, showLegacy: true })))[1]?.legacy).toEqual([
+      "gpt-6-sol",
+    ]);
   });
 
-  it("searches each word in the name or the id, finds legacy models, and drops empty accounts", () => {
+  it("searches each word in the name or the id, finds legacy models only with the filter, and drops empty accounts", () => {
     expect(names(sheetView(r7({ query: "sol" })))).toEqual([
+      { key: PLAN, rows: ["gpt-6.1-sol"], legacy: [] },
+      { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
+    ]);
+    expect(names(sheetView(r7({ query: "sol", showLegacy: true })))).toEqual([
       { key: PLAN, rows: ["gpt-6.1-sol"], legacy: ["gpt-6-sol"] },
       { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
     ]);

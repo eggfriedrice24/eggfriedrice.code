@@ -260,8 +260,8 @@ The search field at the top of the sheet filters the models as you type: each wo
 must be in the name or the id of the model. The filter button next to it picks the
 provider (All, Claude, OpenAI) and turns "Legacy models" on or off. A model is legacy
 when the machine lists a newer model of its family, such as Opus 5 next to Opus 5.5.
-Legacy models are hidden by default; a search finds them, and they show under "Legacy"
-at the end of their account.
+Legacy models are hidden by default, also from a search. Turn "Legacy models" on in the
+filter to see them, under "Legacy" at the end of their account.
 
 Tap the star of a row to make that model the favourite of its account. Each account has
 one favourite, and it goes first in its account. A new conversation from the phone

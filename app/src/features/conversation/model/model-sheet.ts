@@ -27,8 +27,8 @@
 //   case. An account with no match goes; no match at all says `no model matches "xyz"`.
 // - The filter: one kind of provider (All, Claude, OpenAI) and "Legacy models". A model
 //   that efrd marks legacy stands under "Legacy" at the end of its account, and only
-//   when the filter shows them, a search finds it, or it is in use, selected or a
-//   favourite.
+//   while "Legacy models" is on (the user, after the device check: hidden by default,
+//   shown only by the filter; a search with the filter off does not find them).
 // - One favourite for each account: a star at the right end of each row that takes a
 //   tap. The favourite goes first in its account, by the favourites of the time when the
 //   sheet opened, so the rows never move while it is open. A new thread starts on the
@@ -496,15 +496,12 @@ function sections(input: SheetInput): SheetSection[] {
       if (!matches(words, entry.id, name)) {
         continue;
       }
+      if (entry.legacy === true && !input.showLegacy) {
+        continue;
+      }
       const checked = current?.model === entry.id && current.provider === provider;
       const selected = selection?.model === entry.id && selection.provider === provider;
       const starred = favourite === entry.id;
-      if (
-        entry.legacy === true &&
-        !(input.showLegacy || words.length > 0 || checked || selected || starred)
-      ) {
-        continue;
-      }
       const label = [name];
       if (checked) {
         label.push("in use");
