@@ -299,6 +299,7 @@ describe("the model button", () => {
     expect(modelButton(LIST, b)).toEqual({
       text: "GPT-6.1 Sol · b · medium",
       label: "Model: GPT-6.1 Sol on b, medium effort",
+      chosen: false,
     });
     const plan = currentSettings(LIST, undefined, {
       model: "gpt-6.1-sol",
@@ -309,5 +310,19 @@ describe("the model button", () => {
     const haiku = currentSettings(LIST, { model: "claude-haiku-4-5" }, undefined);
     expect(modelButton(LIST, haiku)?.text).toBe("Haiku 4.5");
     expect(modelButton(LIST, undefined)).toBeUndefined();
+  });
+
+  it("says when the user chose the model for this conversation, as MS-Switched does", () => {
+    const chosen = currentSettings(
+      LIST,
+      { model: "gpt-6.1-sol", provider: PLAN_B, effort: "medium" },
+      undefined,
+    );
+    expect(modelButton(LIST, chosen)).toEqual({
+      text: "GPT-6.1 Sol · b · medium",
+      label: "Model: GPT-6.1 Sol on b, medium effort, chosen for this conversation",
+      chosen: true,
+    });
+    expect(modelButton(LIST, currentSettings(LIST, undefined, undefined))?.chosen).toBe(false);
   });
 });

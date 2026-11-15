@@ -1,7 +1,9 @@
 // The model button at the right end of the status line of the composer (S-ModelSheet,
 // MS-Switched, AC-Out): what the next message uses, such as "GPT-6.1 Sol · b · medium".
-// It names the account when the model runs on two. A tap opens the model sheet. To make
-// room on a narrow line, the path goes first, then the button is cut from its end.
+// It names the account when the model runs on two. A 9 pt chevron follows the text. The
+// button is text_muted, or text_primary when the user chose the model for this
+// conversation. A tap opens the model sheet. To make room on a narrow line, the path
+// goes first (its shrink factor is much larger), then the button is cut from its end.
 //
 // It shows nothing until the app knows a model: no list and no turn with a model.
 
@@ -9,6 +11,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow, type Readable } from "@tanstack/store";
 import { Pressable, Text } from "react-native";
+
+import { cn } from "@/components/ui/cn";
+import { SymbolIcon } from "@/components/ui/symbol";
 
 import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
 import { modelsQueryOptions } from "../../conversation-queries";
@@ -49,11 +54,24 @@ export function ComposerModelButton(props: ComposerModelButtonProps) {
       accessibilityHint="Opens the models of this machine"
       hitSlop={{ top: 7, bottom: 7 }}
       onPress={props.onPress}
-      className="ml-auto shrink active:opacity-60"
+      className="ml-auto shrink flex-row items-center gap-4 active:opacity-60"
     >
-      <Text numberOfLines={1} ellipsizeMode="tail" className="text-mono-xs text-text-muted">
+      <Text
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        className={cn(
+          "shrink text-mono-xs",
+          button.chosen ? "text-text-primary" : "text-text-muted",
+        )}
+      >
         {button.text}
       </Text>
+      <SymbolIcon
+        name="chevron.down"
+        size={9}
+        weight="semibold"
+        tone={button.chosen ? "text_primary" : "text_muted"}
+      />
     </Pressable>
   );
 }

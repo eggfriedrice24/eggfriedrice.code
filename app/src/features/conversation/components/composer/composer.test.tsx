@@ -487,7 +487,13 @@ describe("the actions of the composer", () => {
     await settleQuery();
     const button = screen.getByTestId("composer-model-button");
     expect(button).toHaveTextContent("GPT-6.1 Sol · b · medium");
-    expect(button).toHaveAccessibleName("Model: GPT-6.1 Sol on b, medium effort");
+    expect(button).toHaveAccessibleName(
+      "Model: GPT-6.1 Sol on b, medium effort, chosen for this conversation",
+    );
+    // A chosen model is text_primary, as MS-Switched draws it.
+    expect(screen.getByText("GPT-6.1 Sol · b · medium").props.className).toContain(
+      "text-text-primary",
+    );
     await fireEvent.press(button);
     expect(harness.opened.count).toBe(1);
   });

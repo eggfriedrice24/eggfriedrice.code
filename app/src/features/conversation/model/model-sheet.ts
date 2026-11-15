@@ -556,6 +556,11 @@ export function defaultSelection(list: ModelsListResult | undefined): Selection 
 export interface ModelButtonView {
   readonly text: string;
   readonly label: string;
+  /**
+   * The user chose the model for this conversation: the button is text_primary and its
+   * label says so (MS-Switched, AC-Out 6). Else it is text_muted.
+   */
+  readonly chosen: boolean;
 }
 
 /**
@@ -581,5 +586,9 @@ export function modelButton(
     parts.push(current.effort);
     words += `, ${current.effort} effort`;
   }
-  return { text: parts.join(" · "), label: words };
+  const chosen = current.source === "choice";
+  if (chosen) {
+    words += ", chosen for this conversation";
+  }
+  return { text: parts.join(" · "), label: words, chosen };
 }
