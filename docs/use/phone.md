@@ -231,7 +231,8 @@ button. When the line is full, the directory gives way first, then `ctx`.
 The mode control shows `cautious`, or `🤖 auto`. Tap it to pick one; the phone keeps the
 mode for the conversation. Full mode is never on the phone. Auto from the phone needs
 the Face ID unlock of the app (see [Settings](#settings)): while it is off, Auto is
-greyed, and the menu has "Turn on Face ID unlock", which opens Settings. While the
+greyed, and the menu has "Turn on Face ID unlock", which opens Settings at that row and
+marks it for a moment. While the
 unlock is on, a message in auto goes at once: the unlock is the check.
 
 When no turn runs, Send sends your prompt. While a turn runs:

@@ -25,7 +25,7 @@ import { MenuView } from "@/components/ui/menu-view";
 import { SymbolIcon } from "@/components/ui/symbol";
 import { autoNeedsLine, type OwnerMethod, turnOnTitle } from "@/lib/lock/owner-check";
 import { selectLockOn } from "@/features/navigation/model/app-lock";
-import { SETTINGS_HREF } from "@/features/navigation/model/routes";
+import { SETTINGS_UNLOCK_HREF } from "@/features/navigation/model/routes";
 import { ownerFactsQueryOptions } from "@/features/navigation/navigation-queries";
 import type { PhoneMode } from "../../model/model-choices";
 import type { ComposerDeps } from "../../use-composer-actions";
@@ -100,7 +100,7 @@ export function ComposerModeButton(props: ComposerModeButtonProps) {
   const tone = auto ? "text_primary" : "text_muted";
   const pick = (id: string): void => {
     if (id === TURN_ON) {
-      router.push(SETTINGS_HREF);
+      router.push(SETTINGS_UNLOCK_HREF);
     } else if (id === "cautious" || (id === "auto" && lockOn)) {
       model.setMode(id);
     }

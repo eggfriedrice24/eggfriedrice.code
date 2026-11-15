@@ -11,7 +11,9 @@
 //   resets the stack to the root with a cross-fade, which then shows pairing.
 // - With no machine, the Machines group holds only "Pair a new machine".
 // - The group Privacy holds the row "Face ID unlock" (round 9). A tap asks iOS first; the
-//   switch moves only after the check passed.
+//   switch moves only after the check passed. With `focus=unlock` (the item "Turn on Face
+//   ID unlock" of the mode menu) Settings scrolls to the group and marks the row with
+//   selection_bg for about 1 s.
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
@@ -23,8 +25,17 @@ import {
   type NavigationProp,
   type ParamListBase,
 } from "expo-router/react-navigation";
-import { use, type ReactNode } from "react";
-import { LayoutAnimation, Pressable, ScrollView, Text, type HostInstance } from "react-native";
+import { use, useRef, useState, type ReactNode } from "react";
+import {
+  LayoutAnimation,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type HostInstance,
+  type LayoutChangeEvent,
+  type ScrollViewInstance,
+} from "react-native";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { InsetGroup, InsetRow, SwitchRow } from "@/components/ui/inset-group";
@@ -80,8 +91,16 @@ const APP_VERSION = versionText(
   Constants.expoConfig?.ios?.buildNumber,
 );
 
+/** How long the row "Face ID unlock" stays marked after `focus=unlock` (about 1 s). */
+export const UNLOCK_MARK_MS = 1000;
+
+export interface SettingsScreenProps {
+  /** `unlock`: scroll to the row "Face ID unlock" and mark it (S-ComposerR7 r9 12b). */
+  readonly focus?: "unlock" | undefined;
+}
+
 /** The settings screen. */
-export function SettingsScreen() {
+export function SettingsScreen(props: SettingsScreenProps) {
   const services = use(AppServicesContext);
   return services === null ? (
     <UnwiredSettings />
@@ -90,6 +109,7 @@ export function SettingsScreen() {
       runtime={services.runtime}
       preferences={services.preferences}
       lock={services.appLock}
+      focus={props.focus}
     />
   );
 }
@@ -113,6 +133,7 @@ interface WiredSettingsProps {
   readonly runtime: Runtime;
   readonly preferences: PreferencesStore;
   readonly lock: AppLock;
+  readonly focus: "unlock" | undefined;
 }
 
 function WiredSettings(props: WiredSettingsProps) {
@@ -206,7 +227,9 @@ function WiredSettings(props: WiredSettingsProps) {
     <SettingsList
       machines={machines}
       accounts={accounts}
-      unlock={<UnlockGroup lock={props.lock} />}
+      unlock={<UnlockGroup lock={props.lock} mark={props.focus === "unlock"} />}
+      focusUnlock={props.focus === "unlock"}
+      reduceMotion={reduceMotion}
       haptics={haptics}
       onHapticsChange={(on) => preferences.setHaptics(on)}
       askCostly={askCostly}
@@ -217,9 +240,25 @@ function WiredSettings(props: WiredSettingsProps) {
   );
 }
 
+interface UnlockGroupProps {
+  readonly lock: AppLock;
+  /** Mark the row for about 1 s when it shows (`focus=unlock`). */
+  readonly mark: boolean;
+}
+
 /** The group Privacy: the row "Face ID unlock" with the state of the lock. */
-function UnlockGroup(props: { readonly lock: AppLock }) {
+function UnlockGroup(props: UnlockGroupProps) {
   const { lock } = props;
+  const [marked, setMarked] = useState(props.mark);
+  const started = useRef(false);
+  // NOTE: the mark goes after a fixed time from its first layout. A timer and not an
+  // animation, so Reduce Motion gets the same still frame.
+  const onLayout = (): void => {
+    if (marked && !started.current) {
+      started.current = true;
+      setTimeout(() => setMarked(false), UNLOCK_MARK_MS);
+    }
+  };
   const on = useSelector(lock.store, selectLockOn);
   const checking = useSelector(lock.store, (state) => {
     const purpose = selectChecking(state);
@@ -237,6 +276,8 @@ function UnlockGroup(props: { readonly lock: AppLock }) {
         title={unlockName(facts.method)}
         line={noticed ? noPasscodeNotice(facts.method) : unlockRowLine(facts)}
         notice={noticed}
+        marked={marked}
+        onLayout={onLayout}
         value={on}
         checking={checking}
         disabled={disabled}
@@ -290,13 +331,31 @@ interface SettingsListProps {
   readonly onAskCostlyChange: (on: boolean) => void;
   readonly onPair: () => void;
   readonly onVersionLongPress?: (() => void) | undefined;
+  /** Scroll to the group Privacy once it has its place (`focus=unlock`). */
+  readonly focusUnlock?: boolean;
+  readonly reduceMotion?: boolean;
 }
+
+/** The space above the group Privacy after the scroll to it. */
+const FOCUS_MARGIN = 20;
 
 /** The groups of Settings: Machines, the accounts of each machine, Models, Privacy,
  * Feedback, About. */
 function SettingsList(props: SettingsListProps) {
+  const scroll = useRef<ScrollViewInstance>(null);
+  const scrolled = useRef(false);
+  const onUnlockLayout = (event: LayoutChangeEvent): void => {
+    if (props.focusUnlock !== true || scrolled.current) {
+      return;
+    }
+    scrolled.current = true;
+    const y = Math.max(0, event.nativeEvent.layout.y - FOCUS_MARGIN);
+    scroll.current?.scrollTo({ y, animated: props.reduceMotion !== true });
+  };
   return (
     <ScrollView
+      ref={scroll}
+      testID="settings-list"
       contentInsetAdjustmentBehavior="automatic"
       className="flex-1 bg-surface-1"
       contentContainerClassName="gap-26 px-inset pt-20 pb-20"
@@ -331,7 +390,11 @@ function SettingsList(props: SettingsListProps) {
           onValueChange={props.onAskCostlyChange}
         />
       </InsetGroup>
-      {props.unlock}
+      {props.unlock === undefined ? null : (
+        <View testID="settings-privacy" onLayout={onUnlockLayout}>
+          {props.unlock}
+        </View>
+      )}
       <InsetGroup header="Feedback" footer="Haptics for taps, copies, scans and errors.">
         <SwitchRow title="Haptics" value={props.haptics} onValueChange={props.onHapticsChange} />
       </InsetGroup>

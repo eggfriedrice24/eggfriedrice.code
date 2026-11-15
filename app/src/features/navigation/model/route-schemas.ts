@@ -60,3 +60,9 @@ export const pairParamsSchema = z.object({
   /** The daemon id of the machine that the user pairs again. */
   machine: z.guid().exactOptional(),
 });
+
+/** The params of `settings`. */
+export const settingsParamsSchema = z.object({
+  /** `unlock`: Settings scrolls to the row "Face ID unlock" and marks it for a moment. */
+  focus: z.literal("unlock").exactOptional(),
+});

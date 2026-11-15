@@ -119,6 +119,16 @@ describe("the blank root", () => {
     expect(screen.getByTestId("shell-block")).toHaveTextContent("desktop ~ auto");
   });
 
+  it("opens Settings at the unlock row from Turn on Face ID unlock (S-ComposerR7 r9 12b)", async () => {
+    await open();
+    await fireEvent(screen.getByTestId("composer-mode-menu"), "pressAction", {
+      nativeEvent: { event: "turn_on_unlock" },
+    });
+    await act(flush);
+    expect(screen).toHavePathname("/settings");
+    expect(screen).toHaveSearchParams({ focus: "unlock" });
+  });
+
   it("follows a pick of the machine menu", async () => {
     const { services } = await open();
     await act(async () => {

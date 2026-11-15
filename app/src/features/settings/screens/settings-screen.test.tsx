@@ -33,9 +33,12 @@ import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import { conversationKeys } from "@/features/conversation/conversation-queries";
 import { machineKeys } from "@/features/machines/machine-queries";
-import { accountParamsSchema } from "@/features/navigation/model/route-schemas";
+import {
+  accountParamsSchema,
+  settingsParamsSchema,
+} from "@/features/navigation/model/route-schemas";
 import { AccountScreen } from "./account-screen";
-import { SettingsScreen } from "./settings-screen";
+import { SettingsScreen, UNLOCK_MARK_MS } from "./settings-screen";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
@@ -107,7 +110,7 @@ function routes(services: AppServices | null, client: QueryClient) {
     _layout: Layout,
     index: () => <Text>root</Text>,
     "c/[machine]/[id]": () => <Text>conversation</Text>,
-    settings: SettingsScreen,
+    settings: SettingsRoute,
     account: AccountRoute,
     pair: Pair,
   };
@@ -124,6 +127,12 @@ function isStatus(query: { readonly queryKey: readonly unknown[] }): boolean {
   );
 }
 
+/** The settings route, as src/app/settings.tsx renders it. */
+function SettingsRoute() {
+  const params = settingsParamsSchema.safeParse(useLocalSearchParams());
+  return <SettingsScreen focus={params.success ? params.data.focus : undefined} />;
+}
+
 /** The account route, as src/app/account.tsx renders it. */
 function AccountRoute() {
   const params = accountParamsSchema.safeParse(useLocalSearchParams());
@@ -131,7 +140,11 @@ function AccountRoute() {
 }
 
 /** Opens Settings over the root and, when `conversation` is given, over that conversation. */
-async function openSettings(parts: Setup, conversation?: string): Promise<void> {
+async function openSettings(
+  parts: Setup,
+  conversation?: string,
+  href = "/settings",
+): Promise<void> {
   await renderRouter(routes(parts.services, parts.client), { initialUrl: "/" });
   if (conversation !== undefined) {
     await act(async () => {
@@ -139,7 +152,7 @@ async function openSettings(parts: Setup, conversation?: string): Promise<void> 
     });
   }
   await act(async () => {
-    router.push("/settings");
+    router.push(href);
   });
 }
 
@@ -451,7 +464,10 @@ describe("without the services of the layout", () => {
 });
 
 /** Settings with the Face ID unlock of a fake iPhone. */
-async function openWithLock(options: TestServicesOptions = {}): Promise<TestServices> {
+async function openWithLock(
+  options: TestServicesOptions = {},
+  href = "/settings",
+): Promise<TestServices> {
   const parts = await testServices([machineRecord(DESKTOP)], options);
   // NOTE: clear the queries at the end, or the gc timer of 5 minutes keeps jest waiting.
   opened.push({
@@ -460,12 +476,16 @@ async function openWithLock(options: TestServicesOptions = {}): Promise<TestServ
       parts.services.dispose();
     },
   });
-  await openSettings({
-    services: parts.services,
-    sockets: parts.sockets,
-    client: parts.services.queryClient,
-    devices: { list: () => parts.devices.loadAll() },
-  });
+  await openSettings(
+    {
+      services: parts.services,
+      sockets: parts.sockets,
+      client: parts.services.queryClient,
+      devices: { list: () => parts.devices.loadAll() },
+    },
+    undefined,
+    href,
+  );
   await act(async () => {
     await flush();
   });
@@ -530,6 +550,31 @@ describe("the Face ID unlock row (Settings round 9)", () => {
     });
     expect(row().props.accessibilityState).toMatchObject({ checked: false });
     expect(parts.services.modelChoices.mode(key)).toBe("cautious");
+  });
+
+  it("scrolls to the row and marks it for about 1 s with focus=unlock (S-ComposerR7 r9 12b)", async () => {
+    await openWithLock({}, "/settings?focus=unlock");
+    expect(row().props.className).toContain(" bg-selection-bg");
+    jest.useFakeTimers();
+    try {
+      await fireEvent(screen.getByTestId("settings-privacy"), "layout", {
+        nativeEvent: { layout: { x: 0, y: 900, width: 390, height: 80 } },
+      });
+      await fireEvent(row(), "layout", {
+        nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 66 } },
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(UNLOCK_MARK_MS);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(row().props.className).not.toContain(" bg-selection-bg");
+  });
+
+  it("does not mark the row without the focus", async () => {
+    await openWithLock();
+    expect(row().props.className).not.toContain(" bg-selection-bg");
   });
 
   it("greys the row on an iPhone with no passcode", async () => {

@@ -30,6 +30,9 @@ export interface UnlockRowProps {
   readonly disabled: boolean;
   /** A tap on the row: the switch should go to `on`. */
   readonly onValueChange: (on: boolean) => void;
+  /** The row is marked with selection_bg (Settings opened with `focus=unlock`). */
+  readonly marked?: boolean;
+  readonly onLayout?: () => void;
 }
 
 /** The row with the switch. */
@@ -44,7 +47,11 @@ export function UnlockRow(props: UnlockRowProps) {
       accessibilityState={{ checked: props.value, busy: props.checking, disabled: props.disabled }}
       disabled={off}
       onPress={() => props.onValueChange(!props.value)}
-      className="min-h-46 flex-row items-center gap-12 px-16 py-10 active:bg-selection-bg"
+      onLayout={props.onLayout}
+      className={cn(
+        "min-h-46 flex-row items-center gap-12 px-16 py-10 active:bg-selection-bg",
+        props.marked === true && "bg-selection-bg",
+      )}
     >
       <View className="flex-1 gap-1">
         <Text

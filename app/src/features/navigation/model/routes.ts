@@ -103,6 +103,12 @@ export function accountHref(machine: MachineId, provider: string): Href {
 export const SETTINGS_HREF: Href = "/settings";
 
 /**
+ * The link to Settings that scrolls to the row "Face ID unlock" and marks it (the item
+ * "Turn on Face ID unlock" of the mode menu, S-ComposerR7 r9 12b).
+ */
+export const SETTINGS_UNLOCK_HREF: Href = { pathname: "/settings", params: { focus: "unlock" } };
+
+/**
  * The link to the All conversations sheet. `waiting` puts the conversations that wait for
  * an answer on top (the strip with two or more approvals, design item 8.6).
  */
