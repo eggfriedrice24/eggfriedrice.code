@@ -42,8 +42,12 @@ link to it, and the next tool call uses the new set of projects. The home direct
 and `/` are a project only when you name them. No tool may write `projects.toml`; see
 "Config protection".
 
-A turn from the phone runs with at most `cautious`: `auto` and `full` there count as
-`cautious`, and the engine asks for everything outside `$SCRATCH` anyway.
+A turn from the phone runs with at most `auto`: `full` there counts as `auto`. It runs
+in `auto` only when the phone asks for `auto`, and the app asks for Face ID or the
+passcode before it sends such a message. A phone prompt that names no mode runs as
+`cautious`, also when your default is `auto`. In `cautious` the engine asks for
+everything outside `$SCRATCH` for a phone turn. In `auto` a phone turn follows the
+rules of an `auto` turn of your shell; only a call that declares nothing still asks.
 
 ## How the engine decides
 
@@ -76,7 +80,8 @@ only for what the command line shows; see "Full mode":
   timeout passes goes on the same way. A call in the sandbox never gets this limit;
 - a program that runs commands as another user (`sudo`, `doas`, `su`, `pkexec`,
   `run0`) asks, and only your own machine answers the question, never a phone;
-- a turn from the phone runs with at most `cautious` and asks outside `$SCRATCH`;
+- a turn from the phone never runs in full mode, and in `cautious` it asks outside
+  `$SCRATCH`;
 - in full mode, a delete of `~`, `/`, a system dir, a project or a dir that holds
   efr's files, a secret or more than one project asks you at your own machine, and
   the question waits at most 2 minutes; see "Full mode";
@@ -539,7 +544,8 @@ must be one command, plus read-only helpers from the table above, such as `echo`
 alone, which only forget the cached password: `sudo -k; sudo true` asks once.
 `sudo -v && ./helper` gets an error with no question.
 
-A turn from the phone runs with at most `cautious`, so it is never contained.
+A turn from the phone in `auto` is contained as a turn of your shell. A phone prompt
+that names no mode runs as `cautious`.
 `crates/efr-permissions/src/exits.rs` holds the exit rules, and
 `crates/efr-permissions/tests/fixtures/auto-corpus.toml` holds the result for each
 line of the command corpus.
@@ -646,9 +652,9 @@ full turn left behind can turn the gate on again after you turned it off.
 
 ### Where full mode never runs
 
-- A turn from the phone runs with at most `cautious`, with no error. A steer from the
+- A turn from the phone runs with at most `auto`, with no error. A steer from the
   phone never goes into a running full turn: it fails, or it waits as a prompt of its
-  own that runs with at most `cautious`.
+  own that runs with at most `auto`.
 - A turn that a job notice starts runs with at most `auto` (as `cautious` when the
   sandbox cannot run), and records the fallback `a turn that a job notice starts runs
   with at most auto`.

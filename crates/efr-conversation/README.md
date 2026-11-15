@@ -83,7 +83,7 @@ turns.
   into a turn that runs in full mode (or asks for it and has not resolved its mode yet,
   `Control::mode`) is late too: without `if_late` it gets `RemoteFullSteer`
   (`forbidden`), and with `if_late: queue` it runs as a prompt of its own with at most
-  `cautious` (`a_phone_steer_into_a_running_full_turn_is_not_read`).
+  `auto` (`a_phone_steer_into_a_running_full_turn_is_not_read`).
 - `interrupt` is two-phase: the actor records `turn_interrupt_requested`, the turn
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only
@@ -393,7 +393,7 @@ turns.
   `QuestionId`. `respond_surface` (`sandbox.surface_respond`) records
   `surface_question_answered` and hands the answer to the turn; only a "keep" from the
   user's own machine moves the changes back, through `Toolbox::restore_quarantine`. A
-  phone gets `RemoteSurfaceAnswer`. The approval timeout and an interrupt record the
+  phone may answer Leave; its Keep gets `RemoteSurfaceAnswer`. The approval timeout and an interrupt record the
   answer `keep: false` with no origin and leave the changes in quarantine; the model
   reads what happened after the call's output.
 - `auto` needs the sandbox. `settings::resolve` reads the probe's latest

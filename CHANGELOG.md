@@ -92,6 +92,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- A prompt from the phone can run in `auto`. It runs in `auto` only when the phone asks
+  for `auto`; a phone prompt that names no mode runs as `cautious`, also when your
+  default is `auto`. A phone never runs in full mode. A phone turn in `auto` follows
+  the rules of an `auto` turn of your shell, and your "always allow" rules cover its
+  exits, but the phone still cannot save a new one. The phone can now answer Leave to
+  the quarantine question; Keep stays at your own machine.
 - A login or a logout applies at once in `efr status`, the model list and the next
   prompt, with no restart of efrd. A credential file that you put in place, replace or
   remove yourself applies at the next `efr status`, `efr models` or Tab completion, and

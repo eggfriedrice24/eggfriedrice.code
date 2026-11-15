@@ -42,7 +42,9 @@ reviewer decides each exit alone.
   a write outside the project and `$SCRATCH`, and a write to a floor path are exits,
   as for a shell command.
 - The lines that you type in your own shell never run in the sandbox.
-- A turn from the phone runs as `cautious`, as before.
+- A turn from the phone runs in `auto` only when the phone asks for `auto`. The app
+  asks for Face ID or the passcode first. A phone prompt that names no mode runs as
+  `cautious`, also when your default is `auto`. A phone never runs in full mode.
 - `nested_shell` is not available in `auto`, because no shell outlives a contained
   call. A command for `sudo` or `ssh` is an exit instead.
 
@@ -380,7 +382,8 @@ that stays in place still gets its row under the call:
 
 `y` moves the change back; `n` leaves it in quarantine. When nobody answers, or the
 turn is interrupted, the change stays in quarantine. This question is not an approval
-of a tool call: the call already ended.
+of a tool call: the call already ended. The phone can answer Leave, but not Keep: only
+your own machine takes a change out of quarantine.
 
 git and gh run in the sandbox, so the code that a repository names (its hooks and the
 config keys that start a program) runs there too, with only the grants of the call.

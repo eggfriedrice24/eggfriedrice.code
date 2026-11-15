@@ -92,11 +92,14 @@ signed message all depend on them.
 
 7. **The scopes of a phone come from its row, and some answers stay local.** A phone
    gets `read`, `operate` and `approve`, never `admin` or `terminal`. The `/proc` walk
-   of the Unix socket does not apply. A turn from the phone runs with at most
-   `cautious`. efrd refuses from a phone: an answer to a `local_only` question (a
-   command that runs as another user, a background job, a delete that full mode
-   guards), every "always allow" answer, `input.respond`, `turn.undo` and a change of
-   settings. The settings tool counts `remote.enabled` and `remote.tailscaled_socket`
+   of the Unix socket does not apply. A turn from the phone runs with at most `auto`
+   (changed in 0.1.0; it was `cautious`), and in `auto` only when its prompt names
+   `auto`: a phone prompt with no mode runs as `cautious`. The app asks for Face ID or
+   the passcode of the iPhone before it sends a message in `auto`. This check is a
+   gate of the app; efrd cannot verify it. efrd refuses from a phone: an answer to a
+   `local_only` question (a command that runs as another user, a background job, a
+   delete that full mode guards), every "always allow" answer, Keep on the quarantine
+   question (Leave is allowed), `input.respond`, `turn.undo` and a change of settings. The settings tool counts `remote.enabled` and `remote.tailscaled_socket`
    as changes that loosen permissions, so the agent cannot open the listener without
    the user.
 

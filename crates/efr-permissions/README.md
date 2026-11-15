@@ -14,8 +14,8 @@ examples.
 The permission mode (`efr_protocol::Mode`: `manual`, `cautious`, `auto`, `full`) picks
 the built-in policy of a turn, `Policy::base(mode)`, and the user's rules follow it.
 `Engine::with_rules(locations, rules)` builds the three machine policies once (full
-mode uses the one of `auto`); a turn from a remote origin runs with at most `cautious`
-(`effective_mode`). A mode newer than this crate gets the `manual` policy and fails
+mode uses the one of `auto`); a turn from a remote origin runs with at most `auto`
+(`effective_mode`), and `is_local` names the origins on this machine. A mode newer than this crate gets the `manual` policy and fails
 closed.
 
 Full mode (`Mode::Full`) runs the model's commands as the user, with no sandbox and no
@@ -563,8 +563,8 @@ Modules:
   file bind (`TargetOnly`, `MakeFile`) stays eligible; a socket that is a link or lies in
   a write root is never covered; and a user `deny` or `ask` rule for writes that names a
   grant path, a path below it or a dir above it (or `network` of every call, for a
-  host) leaves the call to the classifier. A phone turn runs as `cautious`, which has no
-  exits, so it never uses a rule.
+  host) leaves the call to the classifier. A phone turn in `auto` has the exits of a
+  local one, so the same rules cover it; only the phone cannot save a new rule.
 
 ## Tier
 
@@ -589,7 +589,8 @@ proptest property:
 
 - The floors hold in every mode: a privileged program asks, an interactive call asks
   (but in `auto`, where it runs contained, and in full mode, where it runs), a
-  remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
+  remote origin never runs in full mode, asks outside `$SCRATCH` in `cautious` and
+  `manual`, and asks for a call that declares nothing in every mode, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
   `runs_as_another_user` reads a line for a privileged program as the engine does, so
@@ -611,7 +612,7 @@ proptest property:
   and a path or network requirement that a built-in rule asks about is contained too.
   Each exit asks on a reason of its own (`Cause::Exit`), a secret or efr's config is
   denied, a user's `ask` or `deny` rule keeps `Cause::Rule`, and `nested_shell` is
-  denied. A remote turn runs as `cautious`, so it is never contained. `read_file` and
+  denied. A remote turn in `auto` is contained as a local one. `read_file` and
   `write_file` keep the `cautious` path rules, plus an exit for a sandbox mask, for a
   floor inside a write root, and for a write that a built-in rule asks about outside
   the turn's project and `$SCRATCH` (its path reason is then `Contain` with

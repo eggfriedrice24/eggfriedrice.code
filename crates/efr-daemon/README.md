@@ -738,7 +738,7 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   counts from then on. `sandbox.explain` (scope `read`) answers what a contained call
   of a turn in `cwd` can do with a path, from the same plan that the launcher builds.
   `sandbox.surface_respond` (scope `approve`, refused for a model-side peer, and by the
-  conversation for a phone) answers the quarantine question, with receipts as for
+  conversation for a Keep from a phone) answers the quarantine question, with receipts as for
   `approval.respond`.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell. A phone gets `forbidden` first, whatever

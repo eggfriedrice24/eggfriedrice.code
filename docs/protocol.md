@@ -149,7 +149,10 @@ The answers of the tailnet listener:
 
 What a phone may do after the proof, whatever its scopes say:
 
-- A `prompt.send` from a phone runs with a `mode` of at most `cautious`.
+- A `prompt.send` from a phone runs with a `mode` of at most `auto`, and as
+  `cautious` when its `settings` name no `mode`.
+- `sandbox.surface_respond` from a phone is `forbidden` with `keep: true`. The
+  question stays open for the user's terminal. `keep: false` (Leave) is allowed.
 - A `prompt.send` from a phone whose `context` names a `tty` is `invalid`.
 - `approval.respond` is `forbidden` for a question with `local_only`, and for every
   `allow_always` answer. The question stays open for the user's terminal.
