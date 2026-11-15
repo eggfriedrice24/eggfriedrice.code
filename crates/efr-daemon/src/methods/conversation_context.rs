@@ -62,10 +62,15 @@ pub(crate) async fn newest_settings(
     conversation_id: ConversationId,
 ) -> Option<EffectiveSettings> {
     // NOTE: by kind, so a long turn with many events after its start still counts.
-    let newest = state
+    let read = state
         .readers
         .with(move |conn| efr_store::events::newest_of_kind(conn, conversation_id, "turn_started"))
-        .await
+        .await;
+    // NOTE: the error stops here, so it is logged here (CONVENTIONS, errors).
+    let newest = read
+        .inspect_err(|error| {
+            tracing::warn!(conversation_id = %conversation_id, error = %error, "the newest turn of the conversation could not be read");
+        })
         .ok()??;
     match newest.event {
         Event::TurnStarted { settings, .. } => settings,
