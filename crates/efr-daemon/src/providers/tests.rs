@@ -469,6 +469,26 @@ async fn a_stored_key_of_an_account_runs_as_a_provider_of_its_own() {
     assert_eq!(work.id().as_str(), "anthropic-api.work");
 }
 
+/// An account whose provider cannot be built leaves no catalog behind, so a sync that
+/// tries again does not grow the table by one entry each time.
+#[tokio::test]
+async fn an_account_that_cannot_start_leaves_no_catalog_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let providers =
+        Providers::build(&Settings::default(), store(dir.path()), parts(&clock, dir.path(), None))
+            .unwrap();
+    let entries = || providers.credential.as_ref().unwrap().catalogs.read().unwrap().len();
+    let before = entries();
+
+    for _ in 0..3 {
+        assert!(providers.add_account("anthropic-api.Not A Name").await.is_err());
+    }
+
+    assert_eq!(entries(), before);
+    assert!(providers.catalogs.of("anthropic-api.Not A Name").is_none());
+}
+
 #[test]
 fn an_account_has_a_cache_file_of_its_own() {
     let state = std::path::Path::new("/state");

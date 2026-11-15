@@ -29,9 +29,10 @@
 //! once, and the model catalog is fetched again. A daemon with a factory never fetches
 //! the catalog.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 
 use async_trait::async_trait;
 use efr_config::{
@@ -125,6 +126,9 @@ pub(crate) struct Providers {
     /// NOTE: a tokio mutex, because a change awaits the store and the start of an
     /// account while it holds it.
     changes: tokio::sync::Mutex<()>,
+    /// The accounts whose start failed and was logged, so each sync that tries again
+    /// logs the failure once, not at each call.
+    unstarted: Mutex<HashSet<String>>,
 }
 
 /// The start of the catalog of one provider: its list and its cache file.
@@ -291,6 +295,7 @@ impl Providers {
             refusals,
             warmups,
             changes: tokio::sync::Mutex::new(()),
+            unstarted: Mutex::default(),
         })
     }
 
@@ -316,10 +321,17 @@ impl Providers {
         let settings = self.settings();
         let cache = catalog::cache_path_of(id, &self.state);
         let catalog = catalog::load_of(&settings, id, &cache).await;
+        // NOTE: the provider reads its catalog from the table, so the entry goes in
+        // first, and out again when the build fails: the next sync tries again from a
+        // clean table.
         credential.add_catalog(id, catalog.clone());
+        let built = credential
+            .provider(id)
+            .and_then(|provider| Ok((provider, credential.fetcher(id, &catalog)?)));
+        let (provider, fetcher) = built.inspect_err(|_| credential.remove_catalog(id))?;
         let limits = self.catalogs.limits();
-        let provider = wrapped(credential.provider(id)?, id, &self.warmups, &self.refusals, limits);
-        let models = match credential.fetcher(id, &catalog)? {
+        let provider = wrapped(provider, id, &self.warmups, &self.refusals, limits);
+        let models = match fetcher {
             Some(fetcher) => {
                 let models = Models::fetched(id, fetcher, cache, Arc::clone(&credential.clock));
                 if takes_key(id) {
@@ -395,8 +407,18 @@ impl Providers {
         let _change = self.changes.lock().await;
         let settings = self.settings();
         for id in accounts_to_run(&settings, Arc::clone(&self.store)).await {
-            if let Err(error) = self.add_account(&id).await {
-                tracing::warn!(provider = %id, error = %error, "an account could not start; a turn on it fails");
+            let started = self.add_account(&id).await;
+            let mut unstarted = self.unstarted.lock().unwrap_or_else(PoisonError::into_inner);
+            match started {
+                Ok(()) => {
+                    unstarted.remove(&id);
+                }
+                Err(error) if unstarted.insert(id.clone()) => {
+                    tracing::warn!(provider = %id, error = %error, "an account could not start; a turn on it fails");
+                }
+                Err(error) => {
+                    tracing::debug!(provider = %id, error = %error, "an account still could not start");
+                }
             }
         }
         for status in self.status().await {
@@ -1097,12 +1119,19 @@ impl CredentialProviders {
         Ok(source)
     }
 
-    /// Keeps `catalog` as the one of the provider `id`.
+    /// Keeps `catalog` as the one of the provider `id`, in place of an older one.
     fn add_catalog(&self, id: &str, catalog: ProviderCatalog) {
+        let mut catalogs = self.catalogs.write().unwrap_or_else(PoisonError::into_inner);
+        catalogs.retain(|(provider, _)| provider != id);
+        catalogs.push((id.to_owned(), catalog));
+    }
+
+    /// Forgets the catalog of the provider `id`, whose provider could not be built.
+    fn remove_catalog(&self, id: &str) {
         self.catalogs
             .write()
             .unwrap_or_else(PoisonError::into_inner)
-            .push((id.to_owned(), catalog));
+            .retain(|(provider, _)| provider != id);
     }
 
     /// The fetch of the catalog `catalog` of the provider `id`, with its stored key or
