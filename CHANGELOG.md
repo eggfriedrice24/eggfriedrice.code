@@ -19,7 +19,8 @@ into the GitHub release notes, and it stops when the section is missing.
   names while it has no login, as signed out.
 - When an account reaches a limit, the turn stops and says why: the usage limit of a
   ChatGPT plan, no credit left, a spend limit, or "too many requests" after the
-  retries. It gives the reset time when the provider tells it. A named account has its
+  retries. It gives the reset time when the provider tells it, but not for "too many
+  requests", whose wait is only some seconds. A named account has its
   name alone, such as `b reached its usage limit.`, as in `efr status`. Under the
   failed turn, efr names the other accounts that serve the same model: ready ones, and
   full ones whose reset comes first. Each one has its `,model` command on a row of its
@@ -34,7 +35,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr status` shows the limits under each account: the usage windows of a ChatGPT
   plan, such as the 5-hour and the weekly window, how full each one is and when it
   resets, and a limit that an API key reached. efrd learns the windows from each
-  answer of the plan, also on the WebSocket, and `admin.status` and `models.list`
+  answer of the plan, also on the WebSocket and from the answer that stops a turn at
+  the limit, and `admin.status` and `models.list`
   carry them with the time efrd learned them. A window goes away at its reset, and a
   logout clears it. Only the number has a colour: from 80 % the warning colour, at
   100 % the error colour with `reached`. A value older than 5 minutes says its age.
@@ -102,6 +104,8 @@ into the GitHub release notes, and it stops when the section is missing.
   colour, also on a question.
 - A refusal of the reviewer, a refusal of efr's own rules (`efr: ...`), a review with
   no answer and the pause of the reviewer each start with `!` in the warning colour.
+  A refusal of the reviewer that names its command is one row: the call gets no
+  `did not run` row of its own, also in `efr history`.
 - The `⇄` line of a switch to another account on the same model names both accounts,
   such as `was openai/gpt-6.1-sol medium`.
 - When the output is not a terminal, efr writes a citation mark as plain `[1]`. The
@@ -132,10 +136,19 @@ into the GitHub release notes, and it stops when the section is missing.
 - `,resume`, the delete of a conversation, the list for an id that names more than one
   conversation, and the note about a conversation that moved to another terminal now
   show the title with its secrets hidden, as the search picker does.
+- In `auto` with the reviewer on, a command that changed git settings or other files
+  that run programs shows one muted row per change under its call, such as
+  `.git/config (core.fsmonitor); moved to quarantine` or `.envrc (a new agent or
+  editor config); left in place`. Before, the terminal said nothing of a change in
+  quarantine. The end of the turn no longer lists a setting that stays in quarantine,
+  and the card of the quarantine question shows `; moved to quarantine` muted.
+- When a paused reviewer stops the turn, the stop stands once, under `✗ failed`. The
+  row of the stopped call says `refused · the reviewer paused for this turn`.
 
 ### Security
 
 - The database writes zeros over the content that a delete frees (`secure_delete`).
+  The receipt of a delete keeps no title of the deleted conversation.
 - The phone app build tools use @expo/cli 58.1.20, which drops zod 3, and node-forge
   1.4.3.
 
