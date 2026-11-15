@@ -19,10 +19,11 @@ use crate::{ModeFallback, ProtocolError};
 /// are denied unless a user rule names them, and no tool writes efr's config. Full mode
 /// keeps these floors and the other questions that `docs/permissions.md` names in its
 /// section "Full mode"; the other modes also ask for an interactive call. A turn from a
-/// remote origin runs with at most [`Mode::Cautious`].
+/// remote origin runs with at most [`Mode::Auto`], and as [`Mode::Cautious`] when its
+/// prompt names no mode.
 ///
 /// The variants are ordered from the strictest to the loosest, so the remote cap is
-/// `mode.min(Mode::Cautious)`.
+/// `mode.min(Mode::Auto)`.
 #[derive(
     Debug,
     Clone,
@@ -184,8 +185,8 @@ impl TurnSettings {
 /// defaults, checked by the daemon.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct EffectiveSettings {
-    /// The permission mode. For a turn from a remote origin it is at most `cautious`,
-    /// whatever the prompt or the config asked for.
+    /// The permission mode. For a turn from a remote origin it is at most `auto`, and
+    /// `cautious` when the prompt names no mode, whatever the config asked for.
     pub mode: Mode,
     /// The model id.
     pub model: String,

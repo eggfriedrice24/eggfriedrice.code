@@ -293,7 +293,7 @@ async fn deny_rule_beats_always_allow() {
 }
 
 #[tokio::test]
-async fn always_allow_ignored_for_phone_turn() {
+async fn a_phone_turn_with_no_mode_uses_no_always_rule() {
     let setup = ruled(vec![write("~/notes")], Vec::new(), None, None);
     let (line, declared) = notes_copy(setup.home(), "a.txt");
     let script = Script::new(vec![shell(&line)]);
@@ -302,7 +302,8 @@ async fn always_allow_ignored_for_phone_turn() {
     let cwd = h.cwd.clone();
     let params = h.prompt_params(&cwd, "copy");
     let sent = h.handle.send_prompt(params, Origin::Phone).await.unwrap();
-    // A phone turn runs as `cautious`: a write outside the project asks the user.
+    // A phone prompt that names no mode runs as `cautious`: a write outside the project
+    // asks the user.
     let call_id = h.wait_approval().await;
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(sent.turn_id).await;

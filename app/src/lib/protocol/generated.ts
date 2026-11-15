@@ -247,8 +247,8 @@ export type Method =
 export type DeviceId = string;
 /**
  * The kind of surface that a request or a turn comes from. The permission engine is
- * stricter for some origins: a turn from the phone needs approval for anything outside
- * `$SCRATCH`.
+ * stricter for some origins: outside `auto`, a turn from the phone needs approval for
+ * anything outside `$SCRATCH`.
  */
 export type Origin = "shell" | "cli" | "proxy" | "phone";
 /**
@@ -281,10 +281,11 @@ export type CommandId = string;
  * are denied unless a user rule names them, and no tool writes efr's config. Full mode
  * keeps these floors and the other questions that `docs/permissions.md` names in its
  * section "Full mode"; the other modes also ask for an interactive call. A turn from a
- * remote origin runs with at most [`Mode::Cautious`].
+ * remote origin runs with at most [`Mode::Auto`], and as [`Mode::Cautious`] when its
+ * prompt names no mode.
  *
  * The variants are ordered from the strictest to the loosest, so the remote cap is
- * `mode.min(Mode::Cautious)`.
+ * `mode.min(Mode::Auto)`.
  */
 export type Mode = "manual" | "cautious" | "auto" | "full";
 /**
@@ -4344,8 +4345,8 @@ export interface EffectiveSettings {
    */
   many_accounts?: boolean;
   /**
-   * The permission mode. For a turn from a remote origin it is at most `cautious`,
-   * whatever the prompt or the config asked for.
+   * The permission mode. For a turn from a remote origin it is at most `auto`, and
+   * `cautious` when the prompt names no mode, whatever the config asked for.
    */
   mode: Mode;
   /**

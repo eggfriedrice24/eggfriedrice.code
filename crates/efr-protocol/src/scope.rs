@@ -34,8 +34,8 @@ pub enum Scope {
 }
 
 /// The kind of surface that a request or a turn comes from. The permission engine is
-/// stricter for some origins: a turn from the phone needs approval for anything outside
-/// `$SCRATCH`.
+/// stricter for some origins: outside `auto`, a turn from the phone needs approval for
+/// anything outside `$SCRATCH`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]

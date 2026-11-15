@@ -54,7 +54,8 @@ turns.
   provider that the daemon does not run fails with `NoProvider` (`invalid`). A manual
   compaction and the context view keep the provider of the newest turn while it
   still lists the model. A turn
-  from a remote origin runs with at most `cautious`, and a wake turn with at most
+  from a remote origin runs with at most `auto` (as `cautious` when its prompt names
+  no mode), and a wake turn with at most
   `auto`: a wake turn of `full` runs as `auto` with a `ModeFallback` whose `asked` is
   `full` and whose reason is `ModeFallback::WAKE_REASON` (plus the reason of `auto`
   when it falls further to `cautious`), also when full mode is off, because the cap

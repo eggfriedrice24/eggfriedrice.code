@@ -39,8 +39,9 @@ pub struct ConversationConfig {
     /// id, in place of [`effort`](Self::effort), such as `[anthropic] effort` for
     /// `anthropic-api`. A model that takes neither default effort uses its own.
     pub provider_efforts: BTreeMap<String, String>,
-    /// The default permission mode of a turn. A prompt may name another one; a turn
-    /// from a remote origin runs with at most `cautious`. The mode picks the built-in
+    /// The default permission mode of a turn. A prompt may name another one. A turn
+    /// from a remote origin does not use this default: it runs with at most `auto`,
+    /// and as `cautious` when its prompt names no mode. The mode picks the built-in
     /// policy that the user's rules follow.
     pub mode: Mode,
     /// The effective model list: the models a turn may use, each with the efforts it

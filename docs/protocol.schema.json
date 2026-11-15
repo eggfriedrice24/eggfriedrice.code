@@ -4010,7 +4010,7 @@
         },
         "mode": {
           "$ref": "#/$defs/Mode",
-          "description": "The permission mode. For a turn from a remote origin it is at most `cautious`,\nwhatever the prompt or the config asked for."
+          "description": "The permission mode. For a turn from a remote origin it is at most `auto`, and\n`cautious` when the prompt names no mode, whatever the config asked for."
         },
         "model": {
           "description": "The model id.",
@@ -9657,7 +9657,7 @@
       "type": "object"
     },
     "Mode": {
-      "description": "The permission mode of a turn: the base policy, which the user's own rules follow and\nwin over where they match.\n\nSome floors hold in every mode: a privileged program such as `sudo` asks, secrets\nare denied unless a user rule names them, and no tool writes efr's config. Full mode\nkeeps these floors and the other questions that `docs/permissions.md` names in its\nsection \"Full mode\"; the other modes also ask for an interactive call. A turn from a\nremote origin runs with at most [`Mode::Cautious`].\n\nThe variants are ordered from the strictest to the loosest, so the remote cap is\n`mode.min(Mode::Cautious)`.",
+      "description": "The permission mode of a turn: the base policy, which the user's own rules follow and\nwin over where they match.\n\nSome floors hold in every mode: a privileged program such as `sudo` asks, secrets\nare denied unless a user rule names them, and no tool writes efr's config. Full mode\nkeeps these floors and the other questions that `docs/permissions.md` names in its\nsection \"Full mode\"; the other modes also ask for an interactive call. A turn from a\nremote origin runs with at most [`Mode::Auto`], and as [`Mode::Cautious`] when its\nprompt names no mode.\n\nThe variants are ordered from the strictest to the loosest, so the remote cap is\n`mode.min(Mode::Auto)`.",
       "oneOf": [
         {
           "const": "manual",
@@ -10004,7 +10004,7 @@
       ]
     },
     "Origin": {
-      "description": "The kind of surface that a request or a turn comes from. The permission engine is\nstricter for some origins: a turn from the phone needs approval for anything outside\n`$SCRATCH`.",
+      "description": "The kind of surface that a request or a turn comes from. The permission engine is\nstricter for some origins: outside `auto`, a turn from the phone needs approval for\nanything outside `$SCRATCH`.",
       "oneOf": [
         {
           "const": "shell",

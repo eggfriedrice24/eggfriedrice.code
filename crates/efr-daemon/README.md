@@ -426,7 +426,8 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   is `invalid` with the setting, the value and the choices as data, and nothing is
   recorded. The result carries the effective settings; the turn resolves them again
   when it starts, records them on `turn_started` and sends the effort as the request's
-  `effort`. A turn from a remote origin runs with at most `cautious`.
+  `effort`. A turn from a remote origin runs with at most `auto`, and as `cautious`
+  when its prompt names no mode.
 - `conversations.recent` (`methods/conversations_recent.rs`) is the list of `,resume`
   and `efr resume`: the conversations whose scope key is the key of `pwd` first, then
   all others, each part newest first by its last activity, 10 by default. Each row has
