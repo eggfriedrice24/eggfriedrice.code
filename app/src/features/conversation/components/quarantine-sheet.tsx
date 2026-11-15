@@ -45,6 +45,8 @@ export interface QuarantineSheetProps {
   readonly callId: string;
   /** The short name of the machine, such as `desktop`. */
   readonly machineName: string;
+  /** The phone has a ready connection to the machine now. */
+  readonly connected: boolean;
   readonly conversation: ConversationRef;
   /** The runtime, which sends `sandbox.surface_respond`. */
   readonly caller: MachineCaller;
@@ -74,6 +76,7 @@ export function QuarantineSheet(props: QuarantineSheetProps) {
       model={model}
       leaving={leave.leaving}
       failed={leave.failed}
+      offline={!props.connected}
       onLeave={() => leave.leave(model.questionId)}
       onClose={props.onClose}
     />
@@ -93,6 +96,8 @@ export interface QuarantineSheetViewProps {
   readonly leaving: boolean;
   /** The last Leave did not arrive. */
   readonly failed?: boolean;
+  /** The machine is not connected. */
+  readonly offline?: boolean;
   readonly onLeave: () => void;
   readonly onClose: () => void;
 }
@@ -187,6 +192,7 @@ export function QuarantineSheetView(props: QuarantineSheetViewProps) {
             keepLabel={model.keepLabel}
             leaving={props.leaving}
             failed={props.failed === true}
+            offline={props.offline === true}
             onLeave={props.onLeave}
           />
         )}

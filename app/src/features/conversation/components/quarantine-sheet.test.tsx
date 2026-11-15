@@ -242,6 +242,32 @@ describe("the quarantine sheet", () => {
     await fireEvent.press(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it("says offline and takes no tap on Leave while the machine is down, as the strip", async () => {
+    const caller = new FakeCaller({ "sandbox.surface_respond": () => ({ seq: 7 }) });
+    const sheet = (connected: boolean) => (
+      <ApprovalSheet
+        stream={streamWith([FSMONITOR])}
+        conversation={REF}
+        callId="c1"
+        machineName="desktop"
+        connected={connected}
+        caller={caller}
+        onClose={jest.fn()}
+        onNext={jest.fn()}
+      />
+    );
+    const view = await render(wrapper(sheet(false)));
+    expect(screen.getByText("offline")).toBeOnTheScreen();
+    const leave = screen.getByRole("button", { name: "Leave in quarantine" });
+    expect(leave).toBeDisabled();
+    await fireEvent.press(leave);
+    expect(caller.callsOf("sandbox.surface_respond")).toHaveLength(0);
+
+    await view.rerender(wrapper(sheet(true)));
+    expect(screen.queryByText("offline")).toBeNull();
+    expect(screen.getByRole("button", { name: "Leave in quarantine" })).toBeEnabled();
+  });
 });
 
 describe("the card of a call whose git settings went to quarantine", () => {
