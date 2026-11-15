@@ -4,13 +4,22 @@
 
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import type { ReactElement, ReactNode } from "react";
 import { Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { testServices, type TestServices } from "../model/testing";
-import { AppServicesContext } from "../use-app-services";
+import type { ConversationsRecentResult } from "@/lib/protocol/generated";
+import { conversationsKeys } from "@/features/conversations/conversations-queries";
+import {
+  conversationId,
+  DESKTOP,
+  setRecent,
+  testServices,
+  type TestServices,
+} from "../model/testing";
+import { AppServicesContext, useAppServices } from "../use-app-services";
+import { useMachines } from "../use-machines";
 import { LockGate, LockOverlay } from "./lock-overlay";
 import { LockCover, LockScreen } from "./lock-screen";
 
@@ -54,6 +63,23 @@ async function draw(lockOn: boolean): Promise<TestServices> {
 /** The classes of the place of the mark. */
 function place(): unknown {
   return screen.getByTestId("lock-mark-place", { includeHiddenElements: true }).props.className;
+}
+
+/** The title of the first recent conversation of the desktop and the machine names. */
+function UnderTheLock() {
+  const machines = useMachines();
+  const services = useAppServices();
+  const recent = services.queryClient.getQueryData<ConversationsRecentResult>(
+    conversationsKeys.recent(DESKTOP),
+  );
+  const first = recent?.conversations[0]?.summary;
+  return (
+    <>
+      <Text>{first?.title}</Text>
+      <Text>{first?.cwd}</Text>
+      <Text>{machines.map((machine) => machine.name).join(" ")}</Text>
+    </>
+  );
 }
 
 function inSafeArea(node: ReactNode): ReactElement {
@@ -128,6 +154,34 @@ describe("the Face ID unlock over the window", () => {
     );
     // The line lies outside the flow of the mark, so it does not move it.
     expect(screen.getByTestId("lock-line").props.className).toContain("absolute");
+  });
+
+  it("holds no text of a conversation or a machine on the lock screen (code design 6.2, 7)", async () => {
+    parts = await testServices(undefined, { lockOn: true });
+    const test = parts;
+    setRecent(test.services.queryClient, DESKTOP, [
+      { id: conversationId(1), title: "rotate the deploy key" },
+    ]);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <QueryClientProvider client={test.services.queryClient}>
+          <AppServicesContext value={test.services}>
+            {/* What the app shows under the lock screen when it locks again. */}
+            <UnderTheLock />
+            <LockOverlay />
+          </AppServicesContext>
+        </QueryClientProvider>
+      </SafeAreaProvider>,
+    );
+    const hidden = { includeHiddenElements: true };
+    // The services hold a title, the machines and a path, and the app under it shows them.
+    expect(screen.getByText("rotate the deploy key", hidden)).toBeOnTheScreen();
+    expect(screen.getByText("desktop laptop", hidden)).toBeOnTheScreen();
+    const lock = within(screen.getByTestId("lock-screen"));
+    const secret = /deploy key|desktop|laptop|\/home\//;
+    expect(lock.queryAllByText(secret, hidden)).toHaveLength(0);
+    expect(lock.queryAllByLabelText(secret, hidden)).toHaveLength(0);
+    expect(lock.queryAllByHintText(secret, hidden)).toHaveLength(0);
   });
 
   it("says that Face ID is locked, and gives VoiceOver the words of the board", async () => {
