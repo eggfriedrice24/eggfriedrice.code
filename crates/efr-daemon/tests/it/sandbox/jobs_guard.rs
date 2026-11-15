@@ -137,8 +137,10 @@ async fn plant_then(
         .unwrap();
     let client = daemon.client().await.unwrap();
     let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
-    if !status.sandbox.is_some_and(|sandbox| sandbox.available) {
-        skip(test, "the probe says the sandbox is unavailable");
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
         daemon.stop().await.unwrap();
         return None;
     }
