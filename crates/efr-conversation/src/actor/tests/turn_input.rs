@@ -688,6 +688,76 @@ async fn settings_that_cannot_work_give_way_to_the_turns_own_when_steers_go_agai
     h.handle.shutdown().await.expect("the actor stops");
 }
 
+/// Interrupts a terminal turn in `auto` from the phone and sends its steer again, with
+/// `resend_as` when it is given. Returns the settings of the resent prompt.
+async fn settings_of_a_phone_resend(resend_as: Option<TurnSettings>) -> TurnSettings {
+    let mut setup = Setup::new();
+    setup.config.models = vec![efr_protocol::ModelInfo {
+        id: crate::testing::MODEL.to_owned(),
+        provider: None,
+        efforts: Vec::new(),
+        default_effort: None,
+        default: true,
+        source: efr_protocol::ModelSource::Builtin,
+        context_window: None,
+        max_context_window: None,
+        prefer_websockets: false,
+        legacy: false,
+    }];
+    let mut state = setup.live_state(&setup.cwd, "first");
+    state.mode = Mode::Auto;
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+    ];
+    let mut h = setup.start(records).await;
+    h.toolbox.hold_end.store(true, Ordering::SeqCst);
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "first");
+    params.settings.mode = Some(Mode::Auto);
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.expect("prompt accepted");
+    h.toolbox.hang_started.notified().await;
+    let steer = h.steer_params(Some(sent.turn_id), "use tabs", true);
+    let steer = h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
+
+    let mut params = h.interrupt_params(Some(sent.turn_id), vec![steer.seq], Vec::new());
+    params.resend_as = resend_as.map(|settings| {
+        Box::new(LateSteer::Queue {
+            context: Some(ShellContext::new(&h.cwd)),
+            last_command: None,
+            recent_commands: Vec::new(),
+            settings,
+        })
+    });
+    let result = h.handle.interrupt(params, Origin::Phone).await.expect("interrupted");
+
+    let resent = result.resent.expect("the steer goes again");
+    let settings = h.events().await.into_iter().find_map(|event| match event {
+        Event::PromptQueued { turn_id, settings, .. } if turn_id == resent.turn_id => {
+            Some(settings)
+        }
+        _ => None,
+    });
+    // NOTE: the turn stays held before its end, so the shutdown drops it and the
+    // resent prompt never asks the model.
+    h.handle.shutdown().await.expect("the actor stops");
+    settings.expect("the resent prompt is queued")
+}
+
+/// The review finding: a phone that interrupts a terminal turn and sends its steers
+/// again got a resent prompt in the mode of that turn, so a phone turn ran in auto
+/// although the phone named no mode. The resent prompt names no mode, so the phone
+/// turn starts as `cautious`. The model of the turn stays.
+#[tokio::test]
+async fn steers_that_a_phone_sends_again_do_not_take_the_mode_of_the_turn() {
+    let settings = settings_of_a_phone_resend(None).await;
+    assert_eq!(settings.mode, None, "the phone named no mode");
+
+    let gone = TurnSettings { model: Some("gone-model".to_owned()), ..TurnSettings::default() };
+    let settings = settings_of_a_phone_resend(Some(gone)).await;
+    assert_eq!(settings.mode, None, "the settings of the turn give way without the mode");
+}
+
 #[test]
 fn a_stored_result_gets_back_every_sequence_number_of_its_batch() {
     let turn = "019a9b1c-3d00-7a10-8b20-000000000001";

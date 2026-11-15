@@ -840,6 +840,15 @@ impl ConversationActor {
         let kept = running.control.steering.take_unread(&params.withdraw_steers);
         let resend = (!steers.is_empty()).then(|| {
             let text = steers.iter().map(|steer| steer.text.as_str()).collect::<Vec<_>>();
+            // NOTE: a remote origin does not get the mode of the turn: a phone turn
+            // runs in auto only when the phone names auto. With no mode it is cautious.
+            let turn_settings = || {
+                let mut settings = running.spec.settings.clone();
+                if !efr_permissions::is_local(origin) {
+                    settings.mode = None;
+                }
+                settings
+            };
             // NOTE: the interrupt never fails on account of the resend. The resent
             // prompt holds steers that the turn took already, so it does not count
             // against `max_queued`, and values of the terminal that cannot work now
@@ -850,7 +859,7 @@ impl ConversationActor {
                         Ok(_) => settings,
                         Err(error) => {
                             tracing::debug!(%error, "the steers go again with the settings of the interrupted turn");
-                            running.spec.settings.clone()
+                            turn_settings()
                         }
                     };
                     let now = self.shared.deps.clock.now();
@@ -861,7 +870,7 @@ impl ConversationActor {
                     running.spec.last_command.clone(),
                     running.spec.recent_commands.clone(),
                     running.spec.sent_at,
-                    running.spec.settings.clone(),
+                    turn_settings(),
                 ),
             };
             let prompt = NewPrompt {
