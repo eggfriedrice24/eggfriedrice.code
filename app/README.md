@@ -473,6 +473,11 @@ not a test that pretends.
       15. Unlock on and auto: a message runs in auto on the desktop with no extra prompt.
       16. Cold start with the unlock on: after the unlock the first screen comes with no
           visible blank time.
+      17. Unlock on: tap a link in a transcript, so the action sheet "Open <host>?"
+          shows. Go home: the app switcher shows only the cover, not the address. Come
+          back after 5 minutes: the lock screen shows, and the sheet is gone.
+      18. Unlock on: open Pair (a full-screen view), swipe home fast, and come back
+          after 5 minutes. The lock screen covers Pair.
 
 ### Accounts, limits, auto and quarantine
 

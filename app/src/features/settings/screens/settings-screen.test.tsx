@@ -6,7 +6,7 @@ import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { act, fireEvent, renderRouter, screen, waitFor } from "expo-router/testing-library";
 import type { ReactNode } from "react";
-import { ActionSheetIOS, Alert, Text } from "react-native";
+import { ActionSheetIOS, Text } from "react-native";
 
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
@@ -306,13 +306,21 @@ describe("Forget", () => {
     jest
       .spyOn(parts.services.runtime, "forget")
       .mockRejectedValue(new Error("the keychain failed"));
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
     await openSettings(parts);
-    answerSheet(0);
+    const sheet = answerSheet(0);
     await pickInMenu("desktop", "forget");
-    expect(alert).toHaveBeenCalledWith(
-      "Could not forget desktop",
-      "The pairing key of desktop is still on this iPhone. Forget desktop again after the next start of the app.",
+    // An action sheet and not an alert: an alert of React Native lies over the lock screen.
+    expect(sheet).toHaveBeenLastCalledWith(
+      {
+        title: "Could not forget desktop",
+        message:
+          "The pairing key of desktop is still on this iPhone. Forget desktop again after the next start of the app.",
+        options: ["OK"],
+        cancelButtonIndex: 0,
+        destructiveButtonIndex: [],
+        userInterfaceStyle: "dark",
+      },
+      expect.any(Function),
     );
   });
 });

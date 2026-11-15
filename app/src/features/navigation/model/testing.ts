@@ -198,7 +198,7 @@ export async function testServices(
       },
       ownerFacts: () => Promise.resolve(facts),
       hasPasscode: () => Promise.resolve(facts.passcode),
-      dismissKeyboard: () => undefined,
+      dismissInput: () => undefined,
       announce: () => undefined,
     },
   });

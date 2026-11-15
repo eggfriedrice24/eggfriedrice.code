@@ -24,14 +24,7 @@ import {
   type ParamListBase,
 } from "expo-router/react-navigation";
 import { use, type ReactNode } from "react";
-import {
-  Alert,
-  LayoutAnimation,
-  Pressable,
-  ScrollView,
-  Text,
-  type HostInstance,
-} from "react-native";
+import { LayoutAnimation, Pressable, ScrollView, Text, type HostInstance } from "react-native";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { InsetGroup, InsetRow, SwitchRow } from "@/components/ui/inset-group";
@@ -165,8 +158,9 @@ function WiredSettings(props: WiredSettingsProps) {
     }
     followForget(machine);
     if (failed) {
+      // An action sheet and not an alert: it stays under the lock screen (lib/native/links.ts).
       const text = forgetFailedText(machine.name);
-      Alert.alert(text.title, text.message);
+      void showActionSheet({ ...text, actions: [], cancelLabel: "OK" });
     }
   };
 

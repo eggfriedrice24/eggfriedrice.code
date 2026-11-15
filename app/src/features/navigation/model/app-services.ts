@@ -140,7 +140,8 @@ export interface AppLockEffects {
   readonly checkOwner: CheckOwner;
   readonly ownerFacts: () => Promise<OwnerFacts>;
   readonly hasPasscode: () => Promise<boolean>;
-  readonly dismissKeyboard: () => void;
+  /** Closes the keyboard and an open action sheet, so nothing waits under the lock. */
+  readonly dismissInput: () => void;
   readonly announce: (line: string) => void;
 }
 
@@ -151,7 +152,7 @@ const NO_LOCK: AppLockEffects = {
   checkOwner: () => Promise.resolve({ kind: "failed", method: "Face ID" }),
   ownerFacts: () => Promise.resolve(DEFAULT_FACTS),
   hasPasscode: () => Promise.resolve(true),
-  dismissKeyboard: () => undefined,
+  dismissInput: () => undefined,
   announce: () => undefined,
 };
 
@@ -247,7 +248,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
         modelChoices.clearAuto();
       }
     },
-    onLock: lock.dismissKeyboard,
+    onLock: lock.dismissInput,
     announce: lock.announce,
     onError,
   });

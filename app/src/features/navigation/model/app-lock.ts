@@ -309,7 +309,7 @@ export interface AppLockDeps {
   readonly save: (saved: SavedLock) => void;
   /** The switch changed. The services remove auto here (D3). */
   readonly onSwitch: (on: boolean) => void;
-  /** The view became "lock". The app closes the keyboard here. */
+  /** The view became "lock". The app closes the keyboard and an open action sheet here. */
   readonly onLock?: () => void;
   /** Says a line to VoiceOver. */
   readonly announce?: (line: string) => void;

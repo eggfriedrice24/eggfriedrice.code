@@ -3,7 +3,7 @@ import "../../global.css";
 import Constants from "expo-constants";
 
 import { appStorage } from "@/lib/native/kv";
-import { AccessibilityInfo, Keyboard } from "react-native";
+import { AccessibilityInfo, ActionSheetIOS, Keyboard } from "react-native";
 
 import { appPhase, followAppPhase, followAppState } from "@/lib/native/app-state";
 import { systemClock } from "@/lib/native/clock";
@@ -78,7 +78,12 @@ const services = createAppServices({
     checkOwner,
     ownerFacts,
     hasPasscode,
-    dismissKeyboard: () => Keyboard.dismiss(),
+    // An action sheet (the question of a link) closes with the keyboard, so no answer
+    // waits under the lock screen.
+    dismissInput: () => {
+      Keyboard.dismiss();
+      ActionSheetIOS.dismissActionSheet();
+    },
     announce: (line) => AccessibilityInfo.announceForAccessibility(line),
   },
   linkGate,

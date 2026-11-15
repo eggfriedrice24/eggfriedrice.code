@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { WebBrowserPresentationStyle, openBrowserAsync } from "expo-web-browser";
-import { Alert, Linking, type AlertButton } from "react-native";
+import { ActionSheetIOS, Alert, Linking } from "react-native";
 
 import { LINK_TEXT, confirmTitle, openLink } from "./links";
 
@@ -9,23 +9,28 @@ jest.mock("expo-web-browser", () => ({
   openBrowserAsync: jest.fn(() => Promise.resolve({ type: "dismiss" })),
 }));
 
+type SheetOptions = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[0];
+type SheetCallback = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[1];
+
+let sheets: { options: SheetOptions; callback: SheetCallback }[];
 let alert: ReturnType<typeof spyAlert>;
 
 function spyAlert() {
   return jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
 }
 
-/** The buttons of the last alert. */
-function lastButtons(): AlertButton[] {
-  const calls = alert.mock.calls;
-  return calls[calls.length - 1]?.[2] ?? [];
+/** The options of the last action sheet. */
+function lastSheet(): SheetOptions | undefined {
+  return sheets[sheets.length - 1]?.options;
 }
 
-/** Presses the button `text` of the last alert. */
+/** Presses the button `text` of the last action sheet. */
 function press(text: string): void {
-  lastButtons()
-    .find((button) => button.text === text)
-    ?.onPress?.();
+  const last = sheets[sheets.length - 1];
+  const index = last?.options.options.indexOf(text) ?? -1;
+  if (last !== undefined && index >= 0) {
+    last.callback(index);
+  }
 }
 
 async function flush(): Promise<void> {
@@ -35,19 +40,38 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
   jest.restoreAllMocks();
+  sheets = [];
+  jest
+    .spyOn(ActionSheetIOS, "showActionSheetWithOptions")
+    .mockImplementation((options, callback) => {
+      sheets.push({ options, callback });
+    });
   alert = spyAlert();
   jest.mocked(openBrowserAsync).mockClear();
 });
 
 describe("openLink", () => {
-  it("asks first and names the whole address", () => {
+  it("asks first in an action sheet and names the whole address", () => {
     openLink({ kind: "confirm", url: "https://docs.rs/tokio", host: "docs.rs" });
-    expect(alert).toHaveBeenCalledTimes(1);
-    const [title, message] = alert.mock.calls[0] ?? [];
-    expect(title).toBe("Open docs.rs?");
-    expect(message).toBe("https://docs.rs/tokio");
-    expect(lastButtons().map((button) => button.text)).toEqual([LINK_TEXT.cancel, LINK_TEXT.open]);
+    expect(sheets).toHaveLength(1);
+    expect(lastSheet()).toEqual({
+      title: "Open docs.rs?",
+      message: "https://docs.rs/tokio",
+      options: [LINK_TEXT.open, LINK_TEXT.cancel],
+      cancelButtonIndex: 1,
+      userInterfaceStyle: "dark",
+    });
     expect(openBrowserAsync).not.toHaveBeenCalled();
+  });
+
+  it("never shows an alert, which would lie over the lock screen", async () => {
+    jest.mocked(openBrowserAsync).mockRejectedValueOnce(new Error("no browser"));
+    openLink({ kind: "refuse", url: "file:///etc/passwd", reason: "no." });
+    openLink({ kind: "confirm", url: "https://docs.rs", host: "docs.rs" });
+    press(LINK_TEXT.open);
+    await flush();
+    expect(sheets).toHaveLength(3);
+    expect(alert).not.toHaveBeenCalled();
   });
 
   it("opens a web address in a Safari sheet after Open", () => {
@@ -67,7 +91,7 @@ describe("openLink", () => {
   it("opens a mail address in the mail app", () => {
     const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
     openLink({ kind: "confirm", url: "mailto:a@b.c", host: "" });
-    expect(alert.mock.calls[0]?.[0]).toBe(LINK_TEXT.mailTitle);
+    expect(lastSheet()?.title).toBe(LINK_TEXT.mailTitle);
     press(LINK_TEXT.open);
     expect(openURL).toHaveBeenCalledWith("mailto:a@b.c");
     expect(openBrowserAsync).not.toHaveBeenCalled();
@@ -79,11 +103,14 @@ describe("openLink", () => {
       url: "file:///etc/passwd",
       reason: "efr does not open file: links.",
     });
-    expect(alert).toHaveBeenCalledWith(
-      LINK_TEXT.refusedTitle,
-      "efr does not open file: links.\n\nfile:///etc/passwd",
-    );
-    expect(lastButtons()).toEqual([]);
+    expect(lastSheet()).toEqual({
+      title: LINK_TEXT.refusedTitle,
+      message: "efr does not open file: links.\n\nfile:///etc/passwd",
+      options: [LINK_TEXT.ok],
+      cancelButtonIndex: 0,
+      userInterfaceStyle: "dark",
+    });
+    press(LINK_TEXT.ok);
     expect(openBrowserAsync).not.toHaveBeenCalled();
   });
 
@@ -92,7 +119,8 @@ describe("openLink", () => {
     openLink({ kind: "confirm", url: "https://docs.rs", host: "docs.rs" });
     press(LINK_TEXT.open);
     await flush();
-    expect(alert).toHaveBeenLastCalledWith(LINK_TEXT.failedTitle, "https://docs.rs");
+    expect(lastSheet()?.title).toBe(LINK_TEXT.failedTitle);
+    expect(lastSheet()?.message).toBe("https://docs.rs");
   });
 
   it("titles the question by the host", () => {
