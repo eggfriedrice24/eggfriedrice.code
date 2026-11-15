@@ -10,6 +10,8 @@
 //   Motion). Then the stack follows the plan of model/forget-plan.ts: the last machine
 //   resets the stack to the root with a cross-fade, which then shows pairing.
 // - With no machine, the Machines group holds only "Pair a new machine".
+// - The group Privacy holds the row "Face ID unlock" (round 9). A tap asks iOS first; the
+//   switch moves only after the check passed.
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
@@ -36,6 +38,7 @@ import { InsetGroup, InsetRow, SwitchRow } from "@/components/ui/inset-group";
 import { MonoText } from "@/components/ui/mono-text";
 import { showActionSheet } from "@/components/ui/native/show-action-sheet";
 import { DEV_TOOLS } from "@/lib/dev/dev-tools";
+import { DEFAULT_FACTS, noPasscodeNotice, unlockName, unlockRowLine } from "@/lib/lock/owner-check";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import { useReduceMotion } from "@/lib/native/reduce-motion";
@@ -47,10 +50,18 @@ import type { Machine } from "@/features/machines/model/machine";
 import { keylessConnection } from "@/features/machines/model/machine-connection";
 import { zoneAt } from "@/features/machines/model/machine-status";
 import type { Runtime } from "@/features/machines/model/runtime";
+import {
+  type AppLock,
+  selectChecking,
+  selectLockOn,
+  selectNotice,
+} from "@/features/navigation/model/app-lock";
+import { ownerFactsQueryOptions } from "@/features/navigation/navigation-queries";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { useNow } from "@/features/navigation/use-now";
 import { accountHref } from "@/features/navigation/model/routes";
 import { AccountsGroup } from "../components/accounts-group";
+import { UnlockRow } from "../components/unlock-row";
 import { MachineRow } from "../components/machine-row";
 import { forgetPlan } from "../model/forget-plan";
 import { DEFAULT_PREFERENCES, type PreferencesStore } from "../model/preferences";
@@ -82,7 +93,11 @@ export function SettingsScreen() {
   return services === null ? (
     <UnwiredSettings />
   ) : (
-    <WiredSettings runtime={services.runtime} preferences={services.preferences} />
+    <WiredSettings
+      runtime={services.runtime}
+      preferences={services.preferences}
+      lock={services.appLock}
+    />
   );
 }
 
@@ -104,6 +119,7 @@ function UnwiredSettings() {
 interface WiredSettingsProps {
   readonly runtime: Runtime;
   readonly preferences: PreferencesStore;
+  readonly lock: AppLock;
 }
 
 function WiredSettings(props: WiredSettingsProps) {
@@ -196,6 +212,7 @@ function WiredSettings(props: WiredSettingsProps) {
     <SettingsList
       machines={machines}
       accounts={accounts}
+      unlock={<UnlockGroup lock={props.lock} />}
       haptics={haptics}
       onHapticsChange={(on) => preferences.setHaptics(on)}
       askCostly={askCostly}
@@ -203,6 +220,35 @@ function WiredSettings(props: WiredSettingsProps) {
       onPair={() => router.push("/pair")}
       onVersionLongPress={DEV_TOOLS ? () => router.push(GALLERY_ROUTE) : undefined}
     />
+  );
+}
+
+/** The group Privacy: the row "Face ID unlock" with the state of the lock. */
+function UnlockGroup(props: { readonly lock: AppLock }) {
+  const { lock } = props;
+  const on = useSelector(lock.store, selectLockOn);
+  const checking = useSelector(lock.store, (state) => {
+    const purpose = selectChecking(state);
+    return purpose === "turn_on" || purpose === "turn_off";
+  });
+  const notice = useSelector(lock.store, selectNotice);
+  const facts = useQuery(ownerFactsQueryOptions(lock)).data ?? DEFAULT_FACTS;
+  const disabled = !facts.passcode && !on;
+  let line = unlockRowLine(facts);
+  if (notice === "no_passcode" && !on) {
+    line = noPasscodeNotice(facts.method);
+  }
+  return (
+    <InsetGroup header="Privacy">
+      <UnlockRow
+        title={unlockName(facts.method)}
+        line={line}
+        value={on}
+        checking={checking}
+        disabled={disabled}
+        onValueChange={(next) => lock.setOn(next)}
+      />
+    </InsetGroup>
   );
 }
 
@@ -241,6 +287,8 @@ interface SettingsListProps {
   readonly machines: ReactNode;
   /** The groups "Accounts on <machine>", one per machine whose list the app has. */
   readonly accounts?: ReactNode;
+  /** The group Privacy with the row "Face ID unlock"; none without the services. */
+  readonly unlock?: ReactNode;
   readonly haptics: boolean;
   readonly onHapticsChange: (on: boolean) => void;
   /** "Ask before a costly model switch". */
@@ -250,7 +298,8 @@ interface SettingsListProps {
   readonly onVersionLongPress?: (() => void) | undefined;
 }
 
-/** The groups of Settings: Machines, the accounts of each machine, Models, Feedback, About. */
+/** The groups of Settings: Machines, the accounts of each machine, Models, Privacy,
+ * Feedback, About. */
 function SettingsList(props: SettingsListProps) {
   return (
     <ScrollView
@@ -288,6 +337,7 @@ function SettingsList(props: SettingsListProps) {
           onValueChange={props.onAskCostlyChange}
         />
       </InsetGroup>
+      {props.unlock}
       <InsetGroup header="Feedback" footer="Haptics for taps, copies, scans and errors.">
         <SwitchRow title="Haptics" value={props.haptics} onValueChange={props.onHapticsChange} />
       </InsetGroup>

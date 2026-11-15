@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import { act, fireEvent, renderRouter, screen } from "expo-router/testing-library";
+import { act, fireEvent, renderRouter, screen, waitFor } from "expo-router/testing-library";
 import type { ReactNode } from "react";
 import { ActionSheetIOS, Alert, Text } from "react-native";
 
@@ -22,7 +22,13 @@ import { createConversationStream } from "@/features/conversation/model/conversa
 import { createRuntime } from "@/features/machines/model/runtime";
 import { DESKTOP, LAPTOP, machineRecord } from "@/features/machines/model/testing";
 import type { AppServices } from "@/features/navigation/model/app-services";
-import { TEST_NOW, testServices } from "@/features/navigation/model/testing";
+import {
+  TEST_NOW,
+  testServices,
+  type TestServices,
+  type TestServicesOptions,
+} from "@/features/navigation/model/testing";
+import { draftKey } from "@/features/conversation/model/drafts";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import type { PairedDevice } from "@/features/pairing/model/paired-device";
 import { conversationKeys } from "@/features/conversation/conversation-queries";
@@ -433,5 +439,112 @@ describe("without the services of the layout", () => {
     await renderRouter(routes(null, createQueryClient()), { initialUrl: "/settings" });
     expect(screen.getByRole("button", { name: "Pair a new machine" })).toBeOnTheScreen();
     expect(screen.getByLabelText("Haptics").props.value).toBe(true);
+  });
+});
+
+describe("the Face ID unlock row (Settings round 9)", () => {
+  async function openWithLock(options: TestServicesOptions = {}): Promise<TestServices> {
+    const parts = await testServices([machineRecord(DESKTOP)], options);
+    // NOTE: clear the queries at the end, or the gc timer of 5 minutes keeps jest waiting.
+    opened.push({
+      dispose: () => {
+        parts.services.queryClient.clear();
+        parts.services.dispose();
+      },
+    });
+    await openSettings({
+      services: parts.services,
+      sockets: parts.sockets,
+      client: parts.services.queryClient,
+      devices: { list: () => parts.devices.loadAll() },
+    });
+    await act(async () => {
+      await flush();
+    });
+    return parts;
+  }
+
+  function row() {
+    return screen.getByTestId("unlock-row");
+  }
+
+  it("is off by default in the group Privacy, with its line", async () => {
+    await openWithLock();
+    expect(screen.getByRole("header", { name: "Privacy" })).toBeOnTheScreen();
+    expect(row()).toHaveAccessibleName("Face ID unlock");
+    expect(row().props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByTestId("unlock-line")).toHaveTextContent(
+      "Opens efr with Face ID. Auto from this phone needs it.",
+    );
+  });
+
+  it("asks iOS before it turns on, and moves only after the pass", async () => {
+    const parts = await openWithLock();
+    await fireEvent.press(row());
+    await act(async () => {
+      await flush();
+    });
+    expect(parts.checkReasons).toEqual(["Turn on Face ID unlock"]);
+    expect(row().props.accessibilityState).toMatchObject({ checked: false, busy: true });
+    await act(async () => {
+      await parts.answerCheck({ kind: "passed" });
+    });
+    expect(row().props.accessibilityState).toMatchObject({ checked: true, busy: false });
+    expect(parts.services.preferences.store.get().faceIdUnlock).toBe(true);
+  });
+
+  it("stays off after a cancel", async () => {
+    const parts = await openWithLock();
+    await fireEvent.press(row());
+    await act(async () => {
+      await flush();
+      await parts.answerCheck({ kind: "cancelled", method: "Face ID" });
+    });
+    expect(row().props.accessibilityState).toMatchObject({ checked: false });
+  });
+
+  it("asks before it turns off, and then sets each conversation back to cautious", async () => {
+    const parts = await openWithLock({ lockOn: true });
+    await act(async () => {
+      await parts.answerCheck({ kind: "passed" });
+    });
+    const key = draftKey(DESKTOP, CONVERSATION);
+    parts.services.modelChoices.setMode(key, "auto");
+    await fireEvent.press(row());
+    await act(async () => {
+      await flush();
+    });
+    expect(parts.checkReasons.at(-1)).toBe("Turn off Face ID unlock");
+    await act(async () => {
+      await parts.answerCheck({ kind: "passed" });
+    });
+    expect(row().props.accessibilityState).toMatchObject({ checked: false });
+    expect(parts.services.modelChoices.mode(key)).toBe("cautious");
+  });
+
+  it("greys the row on an iPhone with no passcode", async () => {
+    await openWithLock({ facts: { passcode: false, method: "the passcode" } });
+    await waitFor(() => {
+      expect(row().props.accessibilityState).toMatchObject({ disabled: true });
+    });
+    expect(screen.getByTestId("unlock-line")).toHaveTextContent("Needs a passcode on this iPhone.");
+  });
+
+  it("names the row after what the iPhone checks first", async () => {
+    await openWithLock({ facts: { passcode: true, method: "Touch ID" } });
+    await waitFor(() => {
+      expect(row()).toHaveAccessibleName("Touch ID unlock");
+    });
+  });
+
+  it("says why efr turned it off when the passcode went", async () => {
+    const parts = await openWithLock({ lockOn: true });
+    await act(async () => {
+      await parts.answerCheck({ kind: "no_passcode" });
+    });
+    expect(row().props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByTestId("unlock-line")).toHaveTextContent(
+      "Face ID unlock is off: this iPhone has no passcode.",
+    );
   });
 });
