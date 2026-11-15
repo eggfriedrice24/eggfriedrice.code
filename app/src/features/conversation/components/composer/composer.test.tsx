@@ -4,7 +4,7 @@
 import { describe, expect, it, jest } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAtom, createStore, type Atom, type Readable } from "@tanstack/store";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import { processColor, StyleSheet, TextInput } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -260,10 +260,18 @@ describe("the states of the composer", () => {
     await renderComposer({ stream: endedStream() });
     expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
     expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
-    // On a narrow line the path gives way before the model button (AC-Limits 3).
-    expect(screen.getByText("~/code/efr").props.className).toContain("shrink-[1000]");
+    // On a narrow line the path gives way first, then ctx, then the model button
+    // (AC-Limits 3, S-ComposerR7 6). Each part holds its own "·", so a part that went
+    // takes its dot with it.
+    const cwd = screen.getByTestId("composer-status-cwd");
+    expect(cwd.props.className).toContain("shrink-[1000000]");
+    expect(cwd.props.className).toContain("overflow-hidden");
+    expect(cwd).toContainElement(screen.getByText("~/code/efr"));
+    expect(within(cwd).getByText("·", HIDDEN)).toBeOnTheScreen();
+    const context = screen.getByTestId("composer-status-context");
+    expect(context.props.className).toContain("shrink-[100]");
+    expect(context).toContainElement(screen.getByText("ctx 42%"));
     expect(screen.getByText("cautious")).toBeOnTheScreen();
-    expect(screen.getByText("ctx 42%")).toBeOnTheScreen();
     expect(screen.getByTestId("composer-pill")).toContainElement(
       screen.getByTestId("composer-status-line"),
     );
