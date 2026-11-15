@@ -401,7 +401,8 @@ efr: this turn changed files that run code later outside the sandbox:
 ```
 
 `sandbox.surface_files` lists the patterns. A changed `.cargo/config*` names the keys
-that run programs, such as `build.rustc-wrapper`.
+that run programs, such as `build.rustc-wrapper`. A git setting that stays in
+quarantine runs nothing, so the list leaves it out; one that you kept is in it.
 
 ## What returns to the hidden shell
 

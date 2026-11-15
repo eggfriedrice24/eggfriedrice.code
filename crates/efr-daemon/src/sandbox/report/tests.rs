@@ -68,15 +68,16 @@ async fn the_report_names_new_and_changed_surface_files_of_the_turn() {
     std::fs::write(project.join("notes.md"), "not code\n").unwrap();
     std::fs::create_dir_all(project.join(".cargo")).unwrap();
     std::fs::write(project.join(".cargo/config.toml"), "[build]\nrustc-wrapper = \"x\"\n").unwrap();
-    turns.changes(
-        turn,
-        &[SurfaceChange {
-            path: project.join("sub/.git/config"),
-            rule: "code_key".to_owned(),
-            key: Some("core.fsmonitor".to_owned()),
-            quarantined: true,
-        }],
-    );
+    let planted = |path: &str| SurfaceChange {
+        path: project.join(path),
+        rule: "code_key".to_owned(),
+        key: Some("core.fsmonitor".to_owned()),
+        quarantined: true,
+    };
+    turns.changes(turn, &[planted("sub/.git/config"), planted(".git/commondir")]);
+    // NOTE: the user kept the first one, so it runs later; the other stays in
+    // quarantine and runs nothing.
+    turns.kept(turn, &[planted("sub/.git/config")]);
     let mut files = turns.finish(turn, &patterns(), &git_runner, &home).await;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let file = |path: &str, detail: Option<&str>| ReportedFile {

@@ -968,7 +968,9 @@ spec; `docs/sandbox.md` for the user's view):
 - After a call, the quarantine question's "keep" moves the changes back
   (`sandbox/quarantine.rs`), and at the end of the turn the report lists the files
   that run code later outside the sandbox (`sandbox/report.rs`, from the hardened
-  `git status` before the turn's first launcher call and at its end).
+  `git status` before the turn's first launcher call and at its end), with the
+  changes of the surface guard that do not stay in quarantine (`Turns::kept` marks
+  the ones that the user kept).
 - An hourly task deletes cache layers idle for `sandbox.cache_days` and the oldest
   above `sandbox.cache_max_gib` (`sandbox/gc.rs`), never those of a running call.
 - Socket peers (`sandbox/peers.rs`): a process that descends from a hidden zsh, or

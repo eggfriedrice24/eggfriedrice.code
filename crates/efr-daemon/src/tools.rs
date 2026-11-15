@@ -1776,10 +1776,14 @@ impl Toolbox for DaemonToolbox {
             return Err("this efrd keeps no quarantine".to_owned());
         };
         let dir = sandbox.quarantine_dir(call.conversation_id, call.call_id);
-        let changes = changes.to_vec();
-        tokio::task::spawn_blocking(move || quarantine::restore(&dir, &changes))
+        let moved = changes.to_vec();
+        let restored = tokio::task::spawn_blocking(move || quarantine::restore(&dir, &moved))
             .await
-            .unwrap_or_else(|_| Err("moving the changes back panicked".to_owned()))
+            .unwrap_or_else(|_| Err("moving the changes back panicked".to_owned()));
+        if restored.is_ok() {
+            sandbox.turns().kept(call.turn_id, changes);
+        }
+        restored
     }
 
     async fn delete_cache_paths(

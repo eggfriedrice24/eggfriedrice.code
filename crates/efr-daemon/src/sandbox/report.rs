@@ -102,7 +102,21 @@ impl Turns {
         }
     }
 
-    /// The report of `turn`, which ends now; efrd forgets the turn.
+    /// The user kept `changes` of `turn`, which went back from quarantine: they run
+    /// code later, so the report names them again.
+    pub(crate) fn kept(&self, turn: TurnId, changes: &[SurfaceChange]) {
+        if let Some(track) = self.lock().get_mut(&turn) {
+            for change in &mut track.changes {
+                if changes.iter().any(|kept| kept.path == change.path && kept.rule == change.rule) {
+                    change.quarantined = false;
+                }
+            }
+        }
+    }
+
+    /// The report of `turn`, which ends now; efrd forgets the turn. A change of the
+    /// surface guard that stays in quarantine runs nothing, and the row under its call
+    /// said so already, so the report leaves it out.
     pub(crate) async fn finish(
         &self,
         turn: TurnId,
@@ -122,7 +136,7 @@ impl Turns {
                 files.push(report_file(relative, &content));
             }
         }
-        for change in &track.changes {
+        for change in track.changes.iter().filter(|change| !change.quarantined) {
             let path = track
                 .roots
                 .iter()
