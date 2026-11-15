@@ -783,9 +783,7 @@ impl ConversationActor {
         // NOTE: a full turn's model acts on a steer with no sandbox and no question, so
         // the phone's text goes the late way: refused, or a prompt of its own that runs
         // with at most `auto` (efr's full mode: the phone is never full).
-        if efr_permissions::effective_mode(Mode::Full, origin) != Mode::Full
-            && self.may_run_full(running)
-        {
+        if !efr_permissions::is_local(origin) && self.may_run_full(running) {
             return Err(ConversationError::RemoteFullSteer { origin });
         }
         let reservation = running.control.steering.reserve().ok_or_else(no_turn)?;
