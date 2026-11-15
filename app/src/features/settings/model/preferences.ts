@@ -10,6 +10,10 @@
 // - `showLegacyModels`: the switch "Legacy models" of the filter menu of the model sheet
 //   (off by default, for every machine). On: the sheet shows the models that efrd marks
 //   legacy, in a group at the end of each account.
+// - `faceIdUnlock`: the switch "Face ID unlock" of Settings (off by default). The app lock
+//   (features/navigation/model/app-lock.ts) reads it at the start and saves it; only it
+//   calls `setFaceIdUnlock`. `faceIdUnlockNotice` is "no_passcode" after efr turned the
+//   switch off because the iPhone has no passcode (D5).
 //
 // The store reads the saved value once, when it is made, so the first frame shows it.
 // Each change writes the whole value at once; the writes run in order.
@@ -35,7 +39,12 @@ export interface Preferences {
   readonly lastMachine: DaemonId | null;
   readonly askCostlySwitch: boolean;
   readonly showLegacyModels: boolean;
+  readonly faceIdUnlock: boolean;
+  readonly faceIdUnlockNotice: FaceIdUnlockNotice;
 }
+
+/** Why efr turned the Face ID unlock off, or none. */
+export type FaceIdUnlockNotice = "no_passcode" | null;
 
 /** The preferences of a new install. */
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -44,6 +53,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lastMachine: null,
   askCostlySwitch: true,
   showLegacyModels: false,
+  faceIdUnlock: false,
+  faceIdUnlockNotice: null,
 };
 
 /** What the preferences need from the app. */
@@ -61,6 +72,8 @@ export interface PreferencesStore {
   setLastMachine(machine: DaemonId | null): void;
   setAskCostlySwitch(on: boolean): void;
   setShowLegacyModels(on: boolean): void;
+  /** Saves the switch of the Face ID unlock and its notice. Only the app lock calls it. */
+  setFaceIdUnlock(on: boolean, notice: FaceIdUnlockNotice): void;
   /** The user forgot a machine: it is no longer the last one. */
   forgetMachine(machine: DaemonId): void;
   /** Resolves when every write so far is done. */
@@ -104,7 +117,9 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
       next.sendMode === now.sendMode &&
       next.lastMachine === now.lastMachine &&
       next.askCostlySwitch === now.askCostlySwitch &&
-      next.showLegacyModels === now.showLegacyModels
+      next.showLegacyModels === now.showLegacyModels &&
+      next.faceIdUnlock === now.faceIdUnlock &&
+      next.faceIdUnlockNotice === now.faceIdUnlockNotice
     ) {
       return;
     }
@@ -131,6 +146,9 @@ export function createPreferences(deps: PreferencesDeps): PreferencesStore {
     },
     setShowLegacyModels(on: boolean): void {
       update({ ...store.state, showLegacyModels: on });
+    },
+    setFaceIdUnlock(on: boolean, notice: FaceIdUnlockNotice): void {
+      update({ ...store.state, faceIdUnlock: on, faceIdUnlockNotice: notice });
     },
     forgetMachine(machine: DaemonId): void {
       if (store.state.lastMachine === machine) {

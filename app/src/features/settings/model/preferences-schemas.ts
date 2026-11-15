@@ -11,4 +11,6 @@ export const savedPreferencesSchema = z.object({
   lastMachine: z.guid().nullable().catch(null),
   askCostlySwitch: z.boolean().catch(true),
   showLegacyModels: z.boolean().catch(false),
+  faceIdUnlock: z.boolean().catch(false),
+  faceIdUnlockNotice: z.literal("no_passcode").nullable().catch(null),
 });

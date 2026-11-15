@@ -21,6 +21,8 @@ describe("the preferences", () => {
       lastMachine: null,
       askCostlySwitch: true,
       showLegacyModels: false,
+      faceIdUnlock: false,
+      faceIdUnlockNotice: null,
     });
     // The schema falls back to the same defaults.
     expect(savedPreferencesSchema.parse({})).toEqual(DEFAULT_PREFERENCES);
@@ -40,6 +42,8 @@ describe("the preferences", () => {
       lastMachine: DESKTOP,
       askCostlySwitch: false,
       showLegacyModels: true,
+      faceIdUnlock: false,
+      faceIdUnlockNotice: null,
     });
     await preferences.settled();
     expect(storage.writes).toBe(5);
@@ -84,6 +88,8 @@ describe("the preferences", () => {
       lastMachine: null,
       askCostlySwitch: true,
       showLegacyModels: false,
+      faceIdUnlock: false,
+      faceIdUnlockNotice: null,
     });
     expect(parsePreferences(JSON.stringify({ lastMachine: LAPTOP }))).toEqual({
       haptics: true,
@@ -91,6 +97,8 @@ describe("the preferences", () => {
       lastMachine: LAPTOP,
       askCostlySwitch: true,
       showLegacyModels: false,
+      faceIdUnlock: false,
+      faceIdUnlockNotice: null,
     });
   });
 
@@ -108,5 +116,30 @@ describe("the preferences", () => {
     await preferences.settled();
     expect(errors).toHaveLength(2);
     expect(preferences.store.get().sendMode).toBe("queue");
+  });
+});
+
+describe("the Face ID unlock in the preferences", () => {
+  it("is off with no notice by default, saves the switch and the notice, and reads them back", async () => {
+    const storage = new MemoryKeyValue();
+    const preferences = createPreferences({ storage });
+    expect(preferences.store.get()).toMatchObject({
+      faceIdUnlock: false,
+      faceIdUnlockNotice: null,
+    });
+    preferences.setFaceIdUnlock(false, "no_passcode");
+    await preferences.settled();
+    expect(createPreferences({ storage }).store.get()).toMatchObject({
+      faceIdUnlock: false,
+      faceIdUnlockNotice: "no_passcode",
+    });
+    preferences.setFaceIdUnlock(true, null);
+    expect(preferences.store.get()).toMatchObject({ faceIdUnlock: true, faceIdUnlockNotice: null });
+  });
+
+  it("falls back to off for a bad saved value", () => {
+    expect(
+      parsePreferences(JSON.stringify({ faceIdUnlock: "yes", faceIdUnlockNotice: "other" })),
+    ).toMatchObject({ faceIdUnlock: false, faceIdUnlockNotice: null });
   });
 });
