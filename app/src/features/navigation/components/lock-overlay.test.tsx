@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -49,6 +49,15 @@ async function draw(lockOn: boolean): Promise<TestServices> {
     </SafeAreaProvider>,
   );
   return test;
+}
+
+/** The classes of the place of the mark. */
+function place(): unknown {
+  return screen.getByTestId("lock-mark-place", { includeHiddenElements: true }).props.className;
+}
+
+function inSafeArea(node: ReactNode): ReactElement {
+  return <SafeAreaProvider initialMetrics={METRICS}>{node}</SafeAreaProvider>;
 }
 
 describe("the Face ID unlock over the window", () => {
@@ -104,11 +113,6 @@ describe("the Face ID unlock over the window", () => {
   });
 
   it("keeps the mark at the place of the cover, with and without the line (S-Lock 7, 8a, 11)", async () => {
-    const place = (): unknown =>
-      screen.getByTestId("lock-mark-place", { includeHiddenElements: true }).props.className;
-    const inSafeArea = (node: ReactNode) => (
-      <SafeAreaProvider initialMetrics={METRICS}>{node}</SafeAreaProvider>
-    );
     const view = await render(inSafeArea(<LockCover />));
     const cover = place();
     expect(cover).toContain("absolute inset-0");
