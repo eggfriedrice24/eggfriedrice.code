@@ -796,6 +796,92 @@ async fn an_error_status_before_the_answer_fails_the_call_as_on_http_without_a_p
     assert_eq!(setup.server.sockets().len(), 3);
 }
 
+/// Limits research 2.3 on the WebSocket, the default transport of a ChatGPT plan: the
+/// 429 of a used-up plan comes as a wrapped `error` event with the `x-codex-*` headers.
+/// It is the limit of the account, with its reset and its windows, as on HTTP: one try,
+/// and no second one over HTTP.
+#[tokio::test]
+async fn a_usage_limit_in_an_error_event_is_the_limit_of_the_account_with_its_windows() {
+    let resets_at = crate::openai::testing::start().as_second() + 3600;
+    let mut limited = error_event(
+        429,
+        json!({
+            "type": "usage_limit_reached",
+            "message": "You have hit your usage limit.",
+            "plan_type": "plus",
+            "resets_at": resets_at,
+        }),
+    );
+    limited["headers"] = json!({
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-window-minutes": "300",
+        "x-codex-primary-reset-at": resets_at.to_string(),
+        "x-codex-secondary-used-percent": 41,
+        "x-codex-secondary-window-minutes": "10080",
+    });
+    let sockets = vec![Socket::serving(vec![vec![Step::Send(vec![limited])]])];
+    let setup = setup(sockets, vec![fixture("plain_text.sse")], WebSocketMode::Auto).await;
+
+    let error = setup.provider.stream(request("gpt-6.1-sol", "hi")).await.err().unwrap();
+
+    match error {
+        ProviderError::LimitReached { reached, message, windows } => {
+            assert_eq!(reached.kind, efr_provider::LimitKind::Usage);
+            assert_eq!(reached.resets_at.map(|at| at.as_second()), Some(resets_at));
+            assert_eq!(message.as_deref(), Some("You have hit your usage limit."));
+            let told: Vec<(Option<u32>, u8)> =
+                windows.iter().map(|window| (window.minutes, window.used_percent)).collect();
+            assert_eq!(told, [(Some(300), 100), (Some(10080), 41)]);
+        }
+        other => panic!("not the limit of the account: {other:?}"),
+    }
+    assert!(setup.server.posts().is_empty(), "a usage limit never goes out over HTTP");
+    // NOTE: a retry would wait on the manual clock, which no one moves: one try.
+    assert_eq!(setup.server.sockets().len(), 1);
+}
+
+/// The `codex.rate_limits` message that a plan sends on the WebSocket before
+/// `response.created` reaches the stream as the windows of the account, and the answer
+/// follows on the same socket.
+#[tokio::test]
+async fn a_rate_limits_message_before_the_answer_reaches_the_stream() {
+    let limits = json!({
+        "type": "codex.rate_limits",
+        "rate_limits": {
+            "primary": {"used_percent": 92.4, "window_minutes": 300},
+            "secondary": {"used_percent": 41, "window_minutes": 10080},
+        },
+    });
+    let mut events = vec![limits];
+    events.extend(answer("resp_1", "Hello."));
+    let sockets = vec![Socket::serving(vec![vec![Step::Send(events)]])];
+    let setup = setup(sockets, Vec::new(), WebSocketMode::Auto).await;
+
+    let stream = setup.provider.stream(request("gpt-6.1-sol", "hi")).await.unwrap();
+    let items = collect(stream).await;
+
+    let windows: Vec<Vec<(Option<u32>, u8)>> = items
+        .iter()
+        .filter_map(|item| match item {
+            Ok(ProviderEvent::Limits { windows }) => {
+                Some(windows.iter().map(|window| (window.minutes, window.used_percent)).collect())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(windows, [vec![(Some(300), 92), (Some(10080), 41)]], "{items:?}");
+    assert!(items.iter().all(Result::is_ok), "{items:?}");
+    let text: String = items
+        .iter()
+        .filter_map(|item| match item {
+            Ok(ProviderEvent::TextDelta { text, .. }) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(text, "Hello.");
+    assert!(setup.server.posts().is_empty());
+}
+
 #[tokio::test]
 async fn a_second_refused_token_in_a_row_pauses_websockets() {
     let refused =
