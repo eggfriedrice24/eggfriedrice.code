@@ -1,7 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it, vi } from "vitest";
 
-import type { OwnerCheck, OwnerFacts } from "@/lib/lock/owner-check";
+import type { OwnerCheck, OwnerFacts, OwnerMethod } from "@/lib/lock/owner-check";
 import { flush } from "@/lib/net/testing";
 
 import {
@@ -437,15 +437,21 @@ function testLock(saved: { on: boolean; notice: null | "no_passcode" }, facts?: 
   const locks: number[] = [];
   const announced: string[] = [];
   const errors: unknown[] = [];
+  const methods: OwnerMethod[] = [];
+  const reads = { facts: 0 };
   let present = true;
   const lock = createAppLock({
     saved,
     now: () => now,
-    checkOwner: (reason) => {
+    checkOwner: (reason, method) => {
       reasons.push(reason);
+      methods.push(method);
       return new Promise((resolve) => answers.push(resolve));
     },
-    ownerFacts: () => Promise.resolve(facts ?? { passcode: true, method: "Face ID" }),
+    ownerFacts: () => {
+      reads.facts += 1;
+      return Promise.resolve(facts ?? { passcode: true, method: "Face ID" });
+    },
     hasPasscode: () => Promise.resolve(present),
     save: (value) => saves.push(value),
     onSwitch: (on) => switches.push(on),
@@ -456,6 +462,8 @@ function testLock(saved: { on: boolean; notice: null | "no_passcode" }, facts?: 
   return {
     lock,
     reasons,
+    methods,
+    reads,
     saves,
     switches,
     locks,
@@ -488,6 +496,18 @@ describe("the runner", () => {
     expect(t.reasons).toEqual(["Unlock efr"]);
     await t.answer(PASSED);
     expect(lockView(t.lock.store.get())).toBe("app");
+  });
+
+  it("reads the facts of the iPhone one time for an unlock, and the lock screen shows them", async () => {
+    const t = testLock({ on: true, notice: null }, { passcode: true, method: "Touch ID" });
+    expect(t.lock.owner.get().method).toBe("Face ID");
+    t.lock.start("active");
+    await t.settle();
+    expect(t.reads.facts).toBe(1);
+    expect(t.methods).toEqual(["Touch ID"]);
+    expect(t.lock.owner.get().method).toBe("Touch ID");
+    await t.answer({ kind: "failed", method: "Touch ID" });
+    expect(t.reads.facts).toBe(1);
   });
 
   it("turns a rejected check into a failure and reports the error", async () => {

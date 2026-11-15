@@ -42,7 +42,7 @@ import { InsetGroup, InsetRow, SwitchRow } from "@/components/ui/inset-group";
 import { MonoText } from "@/components/ui/mono-text";
 import { showActionSheet } from "@/components/ui/native/show-action-sheet";
 import { DEV_TOOLS } from "@/lib/dev/dev-tools";
-import { DEFAULT_FACTS, noPasscodeNotice, unlockName, unlockRowLine } from "@/lib/lock/owner-check";
+import { DEFAULT_FACTS } from "@/lib/lock/owner-check";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import { useReduceMotion } from "@/lib/native/reduce-motion";
@@ -60,6 +60,11 @@ import {
   selectLockOn,
   selectNotice,
 } from "@/features/navigation/model/app-lock";
+import {
+  noPasscodeNotice,
+  unlockName,
+  unlockRowLine,
+} from "@/features/navigation/model/owner-check-format";
 import { ownerFactsQueryOptions } from "@/features/navigation/navigation-queries";
 import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { useNow } from "@/features/navigation/use-now";

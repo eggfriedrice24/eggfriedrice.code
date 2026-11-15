@@ -1,10 +1,11 @@
 // The S-Lock board of the gallery: the lock screen of the Face ID unlock in each state and
-// the cover of the app switcher, drawn from the words of lib/lock/owner-check.ts. The
-// controls change nothing.
+// the cover of the app switcher, drawn from the words of
+// features/navigation/model/owner-check-format.ts. The controls change nothing.
 
 import { View } from "react-native";
 
-import { type FailedCheck, lockLine, type OwnerMethod, unlockHint } from "@/lib/lock/owner-check";
+import type { FailedCheck, OwnerMethod } from "@/lib/lock/owner-check";
+import { lockLine, unlockHint } from "@/features/navigation/model/owner-check-format";
 import { LockCover, LockScreen } from "@/features/navigation/components/lock-screen";
 import { SheetCase, SheetScroll } from "./sheet-layout";
 

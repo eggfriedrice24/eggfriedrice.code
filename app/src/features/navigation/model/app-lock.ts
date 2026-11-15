@@ -23,13 +23,12 @@ import { createStore, type Readable } from "@tanstack/store";
 import {
   type CheckOwner,
   type CheckPurpose,
-  checkReason,
   DEFAULT_FACTS,
   type FailedCheck,
-  lockLine,
   type OwnerCheck,
   type OwnerFacts,
 } from "@/lib/lock/owner-check";
+import { checkReason, lockLine } from "./owner-check-format";
 
 /** The time in the background after which the app locks again (D1, fixed). */
 export const LOCK_AFTER_MS = 5 * 60_000;
@@ -329,6 +328,11 @@ export interface AppLock {
   setOn(on: boolean): void;
   /** What the iPhone can check, for the query of Settings and the mode menu. */
   facts(): Promise<OwnerFacts>;
+  /**
+   * The facts of the last read, for the lock screen: a check reads them just before it
+   * asks iOS, so the lock screen reads them no second time.
+   */
+  readonly owner: Readable<OwnerFacts>;
   /** Resolves when the view is "app". */
   whenShown(): Promise<void>;
 }
@@ -336,23 +340,24 @@ export interface AppLock {
 /** Makes the lock from the saved switch. It does nothing before `start`. */
 export function createAppLock(deps: AppLockDeps): AppLock {
   const store = createStore<LockState>(initialLock(deps.saved));
-  let known: OwnerFacts = DEFAULT_FACTS;
+  const owner = createStore<OwnerFacts>(DEFAULT_FACTS);
   let waiters: (() => void)[] = [];
 
   const facts = async (): Promise<OwnerFacts> => {
     try {
-      known = await deps.ownerFacts();
+      const read = await deps.ownerFacts();
+      owner.setState(() => read);
     } catch (error) {
       deps.onError?.(error);
     }
-    return known;
+    return owner.state;
   };
 
   const runCheck = async (check: LockCheck): Promise<void> => {
     const { method } = await facts();
     let result: OwnerCheck;
     try {
-      result = await deps.checkOwner(checkReason(check.purpose, method));
+      result = await deps.checkOwner(checkReason(check.purpose, method), method);
     } catch (error) {
       deps.onError?.(error);
       result = { kind: "failed", method };
@@ -420,6 +425,7 @@ export function createAppLock(deps: AppLockDeps): AppLock {
       dispatch({ type: "toggle", at: deps.now(), on });
     },
     facts,
+    owner,
     whenShown(): Promise<void> {
       if (lockView(store.state) === "app") {
         return Promise.resolve();

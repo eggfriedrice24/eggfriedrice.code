@@ -23,8 +23,9 @@ import { cn } from "@/components/ui/cn";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
 import { SymbolIcon } from "@/components/ui/symbol";
-import { autoNeedsLine, type OwnerMethod, turnOnTitle } from "@/lib/lock/owner-check";
+import { DEFAULT_FACTS, type OwnerMethod } from "@/lib/lock/owner-check";
 import { selectLockOn } from "@/features/navigation/model/app-lock";
+import { autoNeedsLine, turnOnTitle } from "@/features/navigation/model/owner-check-format";
 import { SETTINGS_UNLOCK_HREF } from "@/features/navigation/model/routes";
 import { ownerFactsQueryOptions } from "@/features/navigation/navigation-queries";
 import type { PhoneMode } from "../../model/model-choices";
@@ -90,7 +91,8 @@ export function ComposerModeButton(props: ComposerModeButtonProps) {
   const model = use(ComposerContext);
   const router = useRouter();
   const lockOn = useSelector(props.deps.lock.store, selectLockOn);
-  const method = useQuery(ownerFactsQueryOptions(props.deps.lock)).data?.method ?? "Face ID";
+  const method =
+    useQuery(ownerFactsQueryOptions(props.deps.lock)).data?.method ?? DEFAULT_FACTS.method;
   const [open, setOpen] = useState(false);
   if (model === null) {
     return null;

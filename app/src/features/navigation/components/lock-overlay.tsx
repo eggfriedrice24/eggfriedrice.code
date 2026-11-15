@@ -11,24 +11,29 @@
 //   unlock off that is the first render. With it on, a cold start shows only the lock
 //   screen, and the stack (with the sheet of a link that started the app) builds after the
 //   unlock. After that the stack stays mounted under each later lock.
-// - The overlay reads no promise of the services, so it never suspends.
+// - The overlay reads no promise of the services, so it never suspends. It shows the
+//   facts that the check of the lock read last (`AppLock.owner`), so an unlock reads
+//   the facts of the iPhone one time.
 
-import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import type { ReactNode } from "react";
 import { FullWindowOverlay } from "react-native-screens";
 
-import { lockLine, unlockHint } from "@/lib/lock/owner-check";
+import type { OwnerFacts } from "@/lib/lock/owner-check";
 import { type AppLock, lockView, selectFailed, selectShown } from "../model/app-lock";
-import { ownerFactsQueryOptions } from "../navigation-queries";
+import { lockLine, unlockHint } from "../model/owner-check-format";
 import { useAppLock } from "../use-app-services";
+
+function selectMethod(facts: OwnerFacts) {
+  return facts.method;
+}
 import { LockCover, LockScreen } from "./lock-screen";
 
 /** The lock screen with the state of `lock`. */
 function WiredLockScreen(props: { readonly lock: AppLock }) {
   const { lock } = props;
   const failed = useSelector(lock.store, selectFailed);
-  const method = useQuery(ownerFactsQueryOptions(lock)).data?.method ?? "Face ID";
+  const method = useSelector(lock.owner, selectMethod);
   return (
     <LockScreen
       line={failed === null ? undefined : lockLine(failed)}

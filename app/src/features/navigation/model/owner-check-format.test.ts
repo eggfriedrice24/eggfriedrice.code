@@ -10,7 +10,7 @@ import {
   unlockHint,
   unlockName,
   unlockRowLine,
-} from "./owner-check";
+} from "./owner-check-format";
 
 describe("the words of the Face ID unlock (Settings, S-Lock, S-ComposerR7 round 9)", () => {
   it("names the switch after what the iPhone checks first (D6)", () => {

@@ -1,7 +1,7 @@
 // The check of the iPhone's owner on iOS (LocalAuthentication, the policy
 // deviceOwnerAuthentication): Face ID or Touch ID, and the passcode after them, so an
 // iPhone without biometrics checks with its passcode. lib/lock/owner-check.ts has the
-// types and the words.
+// types.
 
 import {
   AuthenticationType,
@@ -43,11 +43,11 @@ export async function ownerFacts(): Promise<OwnerFacts> {
 
 /**
  * Asks iOS to check that the owner holds the iPhone. `reason` shows with the passcode
- * screen. Only a missing passcode gives `no_passcode`: a Face ID that is not set up, or
+ * screen, and `method` (from the facts that the caller read) names a check that did not
+ * pass. Only a missing passcode gives `no_passcode`: a Face ID that is not set up, or
  * that efr may not use, still falls back to the passcode.
  */
-export async function checkOwner(reason: string): Promise<OwnerCheck> {
-  const method = (await ownerFacts()).method;
+export async function checkOwner(reason: string, method: OwnerMethod): Promise<OwnerCheck> {
   const result = await authenticateAsync({ promptMessage: reason, disableDeviceFallback: false });
   if (result.success) {
     return { kind: "passed" };

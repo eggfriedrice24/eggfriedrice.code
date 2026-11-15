@@ -1,16 +1,17 @@
 // The Settings-Unlock board of the gallery: the row "Face ID unlock" of Settings in the six
 // states of Settings round 9 (frames 1 to 6), then the row as Settings marks it after "Turn
-// on Face ID unlock" of the mode menu. The words come from lib/lock/owner-check.ts, as in
-// Settings. A device shows only the state of its own iPhone, so this board is the one
-// place to see the others. The switches change nothing.
+// on Face ID unlock" of the mode menu. The words come from
+// features/navigation/model/owner-check-format.ts, as in Settings. A device shows only the
+// state of its own iPhone, so this board is the one place to see the others. The switches
+// change nothing.
 
 import { InsetGroup } from "@/components/ui/inset-group";
+import type { OwnerFacts } from "@/lib/lock/owner-check";
 import {
   noPasscodeNotice,
-  type OwnerFacts,
   unlockName,
   unlockRowLine,
-} from "@/lib/lock/owner-check";
+} from "@/features/navigation/model/owner-check-format";
 import { UnlockRow } from "@/features/settings/components/unlock-row";
 import { SheetCase, SheetScroll } from "./sheet-layout";
 
