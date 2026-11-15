@@ -478,6 +478,9 @@ not a test that pretends.
           back after 5 minutes: the lock screen shows, and the sheet is gone.
       18. Unlock on: open Pair (a full-screen view), swipe home fast, and come back
           after 5 minutes. The lock screen covers Pair.
+      19. The mark stands at the same place on the cover and on the lock screen, with
+          and without the line. At the largest accessibility text size, Unlock grows
+          with its label and the line wraps under the mark.
 
 ### Accounts, limits, auto and quarantine
 

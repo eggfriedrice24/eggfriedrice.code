@@ -122,6 +122,10 @@ describe("the Face ID unlock over the window", () => {
       inSafeArea(<LockScreen line="You cancelled Face ID." hint="" onUnlock={() => {}} />),
     );
     expect(place()).toBe(cover);
+    // Unlock is the full-width capsule of frames 8a to 9, and grows with its text.
+    expect(screen.getByRole("button", { name: "Unlock" }).props.className).toContain(
+      "rounded-full",
+    );
     // The line lies outside the flow of the mark, so it does not move it.
     expect(screen.getByTestId("lock-line").props.className).toContain("absolute");
   });

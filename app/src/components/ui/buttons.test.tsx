@@ -25,6 +25,22 @@ describe("the primary button", () => {
     expect(allow.props.className).toContain("flex-1");
   });
 
+  it("is a capsule that grows with its text on request (Unlock of S-Lock)", async () => {
+    await render(
+      <PrimaryButton
+        label="Unlock"
+        capsule
+        accessibilityHint="Asks for Face ID."
+        onPress={() => {}}
+      />,
+    );
+    const unlock = screen.getByRole("button", { name: "Unlock" });
+    expect(unlock.props.className).toContain("min-h-button rounded-full");
+    expect(unlock.props.className).not.toContain(" h-button");
+    expect(unlock.props.accessibilityHint).toBe("Asks for Face ID.");
+    expect(screen.getByText("Unlock").props.numberOfLines).toBeUndefined();
+  });
+
   it("shows the braille cell in place of the label while it sends", async () => {
     const onPress = jest.fn<() => void>();
     await render(

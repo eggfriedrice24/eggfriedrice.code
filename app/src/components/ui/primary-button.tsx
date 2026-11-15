@@ -8,6 +8,7 @@ import { Pressable, Text } from "react-native";
 import { BrailleCell } from "./braille-cell";
 import {
   BUTTON_BASE,
+  BUTTON_CAPSULE,
   BUTTON_DISABLED,
   BUTTON_FRAME,
   BUTTON_GROW,
@@ -31,6 +32,12 @@ export interface PrimaryButtonProps {
   readonly disabled?: boolean;
   /** True to take an equal share of the row (Allow next to Deny). */
   readonly grow?: boolean;
+  /**
+   * True for a capsule that grows with its text at large Dynamic Type sizes, as Unlock
+   * of the lock screen (S-Lock: 50 pt, 62 pt at an accessibility size).
+   */
+  readonly capsule?: boolean;
+  readonly accessibilityHint?: string;
 }
 
 /** The filled yolk button. */
@@ -39,16 +46,18 @@ export function PrimaryButton(props: PrimaryButtonProps) {
   const pending = props.pending === true;
   const disabled = props.disabled === true;
   const symbol = props.symbol;
+  const capsule = props.capsule === true;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={pending ? (props.pendingLabel ?? props.label) : props.label}
+      accessibilityHint={props.accessibilityHint}
       accessibilityState={{ disabled: disabled || pending, busy: pending }}
       disabled={disabled || pending}
       onPress={props.onPress}
       className={cn(
         BUTTON_BASE,
-        BUTTON_FRAME[size],
+        capsule ? BUTTON_CAPSULE : BUTTON_FRAME[size],
         "bg-accent-primary active:opacity-80",
         disabled && BUTTON_DISABLED,
         props.grow === true && BUTTON_GROW,
@@ -61,7 +70,10 @@ export function PrimaryButton(props: PrimaryButtonProps) {
           {symbol === undefined ? null : (
             <SymbolIcon name={symbol} size={20} tone="text_on_accent" />
           )}
-          <Text numberOfLines={1} className={cn(BUTTON_LABEL[size], "text-text-on-accent")}>
+          <Text
+            numberOfLines={capsule ? undefined : 1}
+            className={cn(BUTTON_LABEL[size], "text-center text-text-on-accent")}
+          >
             {props.label}
           </Text>
         </>

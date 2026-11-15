@@ -17,6 +17,12 @@ export const BUTTON_FRAME = {
   medium: "h-hit rounded-box",
 } as const satisfies Record<ButtonSize, string>;
 
+/**
+ * A capsule of at least the large height that grows with its label at large Dynamic Type
+ * sizes (Unlock of the lock screen).
+ */
+export const BUTTON_CAPSULE = "min-h-button rounded-full py-12";
+
 /** The label style of each size. */
 export const BUTTON_LABEL = {
   large: TYPE_CLASS.buttonLarge,

@@ -6,8 +6,8 @@
 //   After a check that did not pass, one line under the mark says why, centred, and wraps
 //   at large sizes. The line and Unlock lie outside the flow of the mark (`MARK_PLACE`),
 //   so the mark stands at one place in the cover and the lock screen, with or without
-//   the line. Unlock is the one action, filled, at the bottom right, at the size and
-//   place of Allow in the approval sheet.
+//   the line. Unlock is the one action: the full-width yolk capsule of frames 8a to 9,
+//   50 pt high, 20 pt from the sides. It grows with its text at large Dynamic Type sizes.
 // - Unlock stays there while iOS asks too: the prompt of iOS lies over it, and after a
 //   prompt that never answered it is the way out (the lock replaces such a check after 3
 //   s).
@@ -18,7 +18,7 @@
 import { Image, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SmallFilledButton } from "@/components/ui/small-buttons";
+import { PrimaryButton } from "@/components/ui/primary-button";
 
 // Metro resolves the image by its path; an import would not type without a module
 // declaration for PNG files.
@@ -26,6 +26,9 @@ const MARK: number = require("../../../../assets/icon/mark.png");
 
 /** The space under Unlock on a screen without a home indicator. */
 const MIN_BOTTOM = 12;
+
+/** The space between Unlock and the safe area (S-Lock 8a: 50 pt over the bottom edge). */
+const UNLOCK_SPACE = 16;
 
 /**
  * The place of the mark, the same in the cover and the lock screen: a layer over the
@@ -77,10 +80,15 @@ export function LockScreen(props: LockScreenProps) {
         </View>
       </View>
       <View
-        className="absolute right-0 bottom-0 left-0 flex-row justify-end px-20"
-        style={{ paddingBottom: bottom + 8 }}
+        className="absolute right-0 bottom-0 left-0 px-20"
+        style={{ paddingBottom: bottom + UNLOCK_SPACE }}
       >
-        <SmallFilledButton label="Unlock" accessibilityHint={props.hint} onPress={props.onUnlock} />
+        <PrimaryButton
+          label="Unlock"
+          capsule
+          accessibilityHint={props.hint}
+          onPress={props.onUnlock}
+        />
       </View>
     </View>
   );
