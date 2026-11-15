@@ -297,7 +297,7 @@ fn limit_lines(
     let lines = accounts::limit_rows(limits, view.now, view.zone);
     let name_w = lines.iter().map(|line| line.name.width()).max().unwrap_or(0).max(LIMIT_NAME);
     let old = view.now.duration_since(limits.observed_at).as_secs() > accounts::STALE_AFTER;
-    let age = old.then(|| short_ago(limits.observed_at, view.now));
+    let age = old.then(|| limit_age(limits.observed_at, view.now));
     for (at, line) in lines.iter().enumerate() {
         let name = format!("{}{}", line.name, " ".repeat(name_w + 2 - line.name.width()));
         let mut value: Pieces = vec![(LIMIT_INDENT.to_owned(), Tone::Plain), (name, Tone::Dim)];
@@ -434,6 +434,17 @@ pub(crate) fn short_ago(then: Timestamp, now: Timestamp) -> String {
         return "just now".to_owned();
     }
     format!("{} ago", short_span(seconds.unsigned_abs()))
+}
+
+/// The age of the limits of an account (TM-Accounts 8, design prompt 6 item 14): whole
+/// minutes under one hour, such as `12m ago`, then [`short_ago`], such as `2h 5m ago`.
+pub(crate) fn limit_age(observed: Timestamp, now: Timestamp) -> String {
+    let seconds = now.duration_since(observed).as_secs().unsigned_abs();
+    let whole = if seconds < 3_600 { seconds - seconds % 60 } else { seconds };
+    if whole < 60 {
+        return short_ago(observed, now);
+    }
+    format!("{} ago", short_span(whole))
 }
 
 /// How long until `then` from `now`, in [`short_span`]: `in 52m 3s`, or how long ago it

@@ -12,7 +12,7 @@ use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
-use super::{StatusView, account_of, conversations, origin, short_span, status};
+use super::{StatusView, account_of, conversations, limit_age, origin, short_span, status};
 use crate::testing::{bare, conversation, design_options, now};
 
 fn before(seconds: i64) -> Timestamp {
@@ -164,7 +164,7 @@ fn accounts_board() -> (AdminStatusResult, Vec<CatalogStatus>) {
         reached: None,
     };
     let full = AccountLimits {
-        observed_at: before(12 * 60),
+        observed_at: before(12 * 60 + 37),
         windows: vec![window(300, 100, later(140)), window(10_080, 63, monday)],
         reached: Some(LimitReached { kind: LimitKind::Usage, resets_at: Some(later(140)) }),
     };
@@ -441,6 +441,14 @@ fn a_time_leaves_out_a_second_unit_of_zero() {
     assert_eq!(short_span(2 * 3_600 + 300), "2h 5m");
     assert_eq!(short_span(3 * 86_400), "3d");
     assert_eq!(short_span(3 * 86_400 + 4 * 3_600), "3d 4h");
+}
+
+/// Design prompt 6 item 14: one age form for old limits, `12m ago`, with no seconds.
+#[test]
+fn the_age_of_limits_has_whole_minutes() {
+    assert_eq!(limit_age(before(12 * 60 + 37), now()), "12m ago");
+    assert_eq!(limit_age(before(5 * 60 + 1), now()), "5m ago");
+    assert_eq!(limit_age(before(2 * 3_600 + 5 * 60 + 9), now()), "2h 5m ago");
 }
 
 #[test]
