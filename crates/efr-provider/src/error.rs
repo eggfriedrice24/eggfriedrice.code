@@ -43,6 +43,9 @@ pub enum ProviderError {
         reached: efr_protocol::LimitReached,
         /// The provider's own message, when it sent one.
         message: Option<String>,
+        /// The usage windows that the error answer told, such as the `x-codex-*`
+        /// headers of the 429 of a ChatGPT plan at its limit; empty when it told none.
+        windows: Vec<efr_protocol::LimitWindow>,
     },
 
     /// The provider is overloaded and took no new request, after the provider's own

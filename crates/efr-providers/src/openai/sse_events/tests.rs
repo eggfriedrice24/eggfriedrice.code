@@ -290,7 +290,7 @@ fn a_limit_of_the_account_in_the_stream_is_the_limit() {
         }},
     })]);
     match map_all(&failed).1 {
-        Some(ProviderError::LimitReached { reached, message }) => {
+        Some(ProviderError::LimitReached { reached, message, .. }) => {
             assert_eq!(reached, LimitReached { kind: LimitKind::Credit, resets_at: None });
             assert_eq!(message.as_deref(), Some("You exceeded your current quota."));
         }
@@ -317,7 +317,7 @@ fn a_limit_of_the_account_in_the_stream_is_the_limit() {
         "error": {"type": "invalid_request_error", "code": "project_spend_limit_exceeded"},
     })]);
     match map_all(&nested).1 {
-        Some(ProviderError::LimitReached { reached, message: None }) => {
+        Some(ProviderError::LimitReached { reached, message: None, .. }) => {
             assert_eq!(reached, LimitReached { kind: LimitKind::SpendLimit, resets_at: None });
         }
         other => panic!("not a limit: {other:?}"),

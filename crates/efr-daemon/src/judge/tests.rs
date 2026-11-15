@@ -723,6 +723,7 @@ async fn a_limit_of_the_account_ends_the_chain_at_once() {
             resets_at: None,
         },
         message: None,
+        windows: Vec::new(),
     };
     let setup = setup(Scripted::new([Reply::Error(limit)]));
     let record = record();

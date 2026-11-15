@@ -207,7 +207,8 @@ Failures:
   again;
 - an answer that names a limit of the account is `LimitReached`, because waiting a
   short time does not help: `usage_limit_reached` is `usage`, with its reset from
-  `resets_at` (Unix seconds) or `resets_in_seconds` (on the injected clock);
+  `resets_at` (Unix seconds) or `resets_in_seconds` (on the injected clock), and the
+  usage windows of the `x-codex-*` headers of the 429 in `windows`;
   `insufficient_quota` and `credit_balance_exhausted` are `credit`, with no reset;
   the organization and project spend and usage limit codes are `spend_limit`. A
   plan without access (`usage_not_included`) is an `Api` error. The same codes in a

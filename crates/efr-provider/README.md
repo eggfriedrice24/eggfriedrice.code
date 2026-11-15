@@ -129,10 +129,11 @@ Modules:
   provider asked for and, when the headers of the answer showed it, the bucket of the
   key that ran out (`limit`, such as `requests` with its reset). `Overloaded` says that the provider took no new request because
   it is overloaded (Anthropic's 529), after the provider's own retries; it is not a
-  limit of the account. `LimitReached { reached, message }` is a limit of the account
-  that a short wait does not end: the usage limit of a plan, no credit left, or a spend
-  limit, as the wire type `efr_protocol::LimitReached` (re-exported here with
-  `LimitKind`) with its reset when the provider told it; a provider never sends such
+  limit of the account. `LimitReached { reached, message, windows }` is a limit of the
+  account that a short wait does not end: the usage limit of a plan, no credit left, or
+  a spend limit, as the wire type `efr_protocol::LimitReached` (re-exported here with
+  `LimitKind`) with its reset when the provider told it, and the usage windows that the
+  error answer told (empty when it told none); a provider never sends such
   a request again, and efrd offers the other accounts that serve the model. The
   conversation fails a turn with the code `busy` for all three. `ContextOverflow` says that the request does not fit in the model's
   context window; it is never transient, and the conversation compacts before it sends

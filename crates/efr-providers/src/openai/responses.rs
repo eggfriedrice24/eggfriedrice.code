@@ -374,7 +374,13 @@ impl OpenAiProvider {
         let header_wait = efr_http::retry_after(headers, now);
         let details = ErrorDetails::parse(body);
         if let Some(reached) = details.limit_reached(now) {
-            return ProviderError::LimitReached { reached, message: details.message };
+            // NOTE: the 429 of a plan at its limit tells its windows too (limits
+            // research 2.3), so `efr status` shows the full window, not only the stop.
+            let windows = match self.config.backend() {
+                Backend::Subscription => limits::plan_windows(headers),
+                Backend::Api => Vec::new(),
+            };
+            return ProviderError::LimitReached { reached, message: details.message, windows };
         }
         if status == StatusCode::TOO_MANY_REQUESTS && !details.is_quota() {
             let reset_wait = details.resets_at.map(|at| {

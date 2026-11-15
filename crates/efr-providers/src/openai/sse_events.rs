@@ -803,6 +803,7 @@ fn provider_error(error: Option<&Value>, shape: ErrorShape, fallback: &str) -> P
         return ProviderError::LimitReached {
             reached: LimitReached { kind, resets_at },
             message: text.map(str::to_owned),
+            windows: Vec::new(),
         };
     }
     let code = field("code").or(class).map(str::to_owned);

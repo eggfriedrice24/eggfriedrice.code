@@ -2066,7 +2066,8 @@ fn a_limit_of_the_account_is_the_cause_and_other_failures_have_none() {
     let now: jiff::Timestamp = "2026-11-14T12:00:00Z".parse().unwrap();
     let reset: jiff::Timestamp = "2026-11-14T14:20:00Z".parse().unwrap();
     let usage = LimitReached { kind: LimitKind::Usage, resets_at: Some(reset) };
-    let used_up = ProviderError::LimitReached { reached: usage.clone(), message: None };
+    let used_up =
+        ProviderError::LimitReached { reached: usage.clone(), message: None, windows: Vec::new() };
 
     assert_eq!(super::account_limit(&used_up, now), Some(usage));
     assert_eq!(provider_failure(&used_up).code, ErrorCode::Busy);

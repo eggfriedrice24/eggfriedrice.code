@@ -282,17 +282,20 @@ impl Class {
             (Class::SpendCap, _) => ProviderError::LimitReached {
                 reached: LimitReached { kind: LimitKind::SpendLimit, resets_at: None },
                 message: Some(message),
+                windows: Vec::new(),
             },
             (Class::UsageLimits, _) => {
                 let resets_at = regains_access_at(&message);
                 ProviderError::LimitReached {
                     reached: LimitReached { kind: LimitKind::SpendLimit, resets_at },
                     message: Some(message),
+                    windows: Vec::new(),
                 }
             }
             (Class::NoCredit, _) => ProviderError::LimitReached {
                 reached: LimitReached { kind: LimitKind::Credit, resets_at: None },
                 message: Some(message),
+                windows: Vec::new(),
             },
             // NOTE: ProviderError::api reads a 413 as an overflow of the window, but on
             // this API it is a body over 32 MB that compaction may not shrink.

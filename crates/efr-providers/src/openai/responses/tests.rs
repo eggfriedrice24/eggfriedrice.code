@@ -651,14 +651,22 @@ async fn a_used_up_subscription_reports_when_it_resets() {
     let resets_at = crate::openai::testing::start().as_second() + 3600;
     Mock::given(method("POST"))
         .and(path(SUBSCRIPTION_PATH))
-        .respond_with(ResponseTemplate::new(429).set_body_json(json!({
-            "error": {
-                "type": "usage_limit_reached",
-                "message": "You have hit your usage limit.",
-                "plan_type": "plus",
-                "resets_at": resets_at,
-            },
-        })))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("x-codex-primary-used-percent", "100")
+                .insert_header("x-codex-primary-window-minutes", "300")
+                .insert_header("x-codex-primary-reset-at", resets_at.to_string().as_str())
+                .insert_header("x-codex-secondary-used-percent", "41")
+                .insert_header("x-codex-secondary-window-minutes", "10080")
+                .set_body_json(json!({
+                    "error": {
+                        "type": "usage_limit_reached",
+                        "message": "You have hit your usage limit.",
+                        "plan_type": "plus",
+                        "resets_at": resets_at,
+                    },
+                })),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -668,10 +676,14 @@ async fn a_used_up_subscription_reports_when_it_resets() {
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     match error {
-        ProviderError::LimitReached { reached, message } => {
+        ProviderError::LimitReached { reached, message, windows } => {
             assert_eq!(reached.kind, LimitKind::Usage);
             assert_eq!(reached.resets_at.map(|at| at.as_second()), Some(resets_at));
             assert_eq!(message.as_deref(), Some("You have hit your usage limit."));
+            // NOTE: limits research 2.3: the 429 of the plan tells its windows too.
+            let told: Vec<(Option<u32>, u8)> =
+                windows.iter().map(|window| (window.minutes, window.used_percent)).collect();
+            assert_eq!(told, [(Some(300), 100), (Some(10080), 41)]);
         }
         other => panic!("not the limit of the account: {other:?}"),
     }
@@ -705,7 +717,7 @@ async fn a_usage_limit_with_a_wait_resets_after_it_and_a_spend_limit_names_its_k
     assert!(
         matches!(
             &usage,
-            ProviderError::LimitReached { reached, message: None }
+            ProviderError::LimitReached { reached, message: None, .. }
                 if reached.kind == LimitKind::Usage
                     && reached.resets_at.map(|at| at.as_second()) == Some(start + 600)
         ),
@@ -742,9 +754,10 @@ async fn an_exhausted_quota_is_not_a_rate_limit() {
     let error = setup.provider.complete(request("Hi")).await.unwrap_err();
 
     match error {
-        ProviderError::LimitReached { reached, message } => {
+        ProviderError::LimitReached { reached, message, windows } => {
             assert_eq!(reached, LimitReached { kind: LimitKind::Credit, resets_at: None });
             assert_eq!(message.as_deref(), Some("You exceeded your current quota."));
+            assert!(windows.is_empty(), "{windows:?}");
         }
         other => panic!("not the limit of the account: {other:?}"),
     }

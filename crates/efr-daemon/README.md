@@ -629,7 +629,7 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   the `x-codex-*` headers or the `codex.rate_limits` message), each report in place of
   the last, with the time it came, and passes the event on. It notes a
   `ProviderError::LimitReached` of a model call (the usage limit of a plan, no credit,
-  a spend limit) and a `ProviderError::RateLimited` whose headers named the bucket of
+  a spend limit), with the windows that its 429 told, and a `ProviderError::RateLimited` whose headers named the bucket of
   an API key that ran out (`requests`, `tokens`, `input_tokens`, `output_tokens`),
   and clears that limit at the first event of a later call that works; the windows
   stay. A window or a limit with a reset ends at its reset time, and a login or a

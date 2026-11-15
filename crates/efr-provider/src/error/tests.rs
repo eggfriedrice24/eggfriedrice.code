@@ -12,6 +12,7 @@ fn a_limit_of_the_account_says_which_limit_with_the_servers_text() {
     let limit = |kind, message: Option<&str>| ProviderError::LimitReached {
         reached: LimitReached { kind, resets_at: None },
         message: message.map(str::to_owned),
+        windows: Vec::new(),
     };
     let cases = [
         (

@@ -209,7 +209,34 @@ fn done() -> Result<ProviderEvent, ProviderError> {
 }
 
 fn limit(reached: &LimitReached) -> ProviderError {
-    ProviderError::LimitReached { reached: reached.clone(), message: None }
+    ProviderError::LimitReached { reached: reached.clone(), message: None, windows: Vec::new() }
+}
+
+/// Limits research 2.3: the 429 of a plan at its usage limit tells its windows, so
+/// `efr status` shows `5-hour 100% reached` (TM-Accounts 8), not only the stop.
+#[tokio::test]
+async fn a_limit_notes_the_windows_that_its_answer_told() {
+    let clock = TestClock::new();
+    let book = book(&clock);
+    let hour = Duration::from_secs(3600);
+    let reached = usage(&clock, hour);
+    let windows = vec![window(&clock, 300, 100, hour), window(&clock, 10080, 41, hour * 24)];
+    let error = ProviderError::LimitReached {
+        reached: reached.clone(),
+        message: None,
+        windows: windows.clone(),
+    };
+    let inner = Arc::new(Scripted {
+        id: ProviderId::new(PROVIDER).unwrap(),
+        answers: Mutex::new(vec![Err(error)].into()),
+    });
+    let provider = Limited::new(inner, PROVIDER, Arc::clone(&book));
+
+    assert!(call(&provider).await);
+    assert_eq!(
+        book.limits(PROVIDER),
+        Some(AccountLimits { observed_at: clock.shared().now(), windows, reached: Some(reached) })
+    );
 }
 
 /// Runs one call through `provider` to its end, and returns whether it failed.

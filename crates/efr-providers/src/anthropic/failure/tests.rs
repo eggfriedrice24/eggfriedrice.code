@@ -180,7 +180,7 @@ fn a_spend_cap_is_never_sent_again() {
 
     assert_eq!(failure.again, Again::Never);
     match failure.error {
-        ProviderError::LimitReached { reached, message } => {
+        ProviderError::LimitReached { reached, message, .. } => {
             assert_eq!(reached.kind, efr_provider::LimitKind::SpendLimit);
             assert_eq!(reached.resets_at, None);
             assert_eq!(

@@ -8,6 +8,8 @@
 //! - The usage windows of a ChatGPT plan come with each answer
 //!   (`ProviderEvent::Limits`). Each report replaces the windows of the account. A
 //!   window whose reset time has passed is gone.
+//!   The 429 of a plan at its usage limit tells them too
+//!   (`ProviderError::LimitReached` with `windows`).
 //! - A call that fails with `ProviderError::LimitReached`, or with a rate limit whose
 //!   headers named the bucket that ran out (`ProviderError::RateLimited` with a
 //!   `limit`), notes the limit of the account. The first event of a later call of the
@@ -201,11 +203,15 @@ impl Limited {
     }
 }
 
-/// Notes the limit of the account `provider` that `error` names, if it names one.
+/// Notes the limit of the account `provider` that `error` names, if it names one, and
+/// the usage windows that the error answer told.
 fn note_error(book: &LimitBook, provider: &str, error: &ProviderError) {
     match error {
-        ProviderError::LimitReached { reached, .. }
-        | ProviderError::RateLimited { limit: Some(reached), .. } => book.note(provider, reached),
+        ProviderError::LimitReached { reached, windows, .. } => {
+            book.note_windows(provider, windows);
+            book.note(provider, reached);
+        }
+        ProviderError::RateLimited { limit: Some(reached), .. } => book.note(provider, reached),
         _ => {}
     }
 }
