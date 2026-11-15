@@ -33,7 +33,7 @@ export function grantWords(grant: Grant): string {
     case "host":
       return `${oneLine(grant.host)}:${String(grant.port)} reachable`;
     case "open_network":
-      return "full network";
+      return "host network";
     case "socket":
       return `the socket ${shortPath(grant.path)}`;
     case "bus":
@@ -201,46 +201,68 @@ export interface ExitNote {
   readonly text: string;
   /** A refusal is text_muted; the rest is text_subtle. */
   readonly tone: "text_subtle" | "text_muted";
-  /** The call gets the whole network: the line leads with the warning glyph. */
-  readonly loud: boolean;
+  /**
+   * The loudest grant in words (`host network`), or `undefined`. The card puts it on a
+   * line of its own after `text`, with the warning glyph before it (AU-Auto).
+   */
+  readonly loud: string | undefined;
 }
 
 /**
  * The line under the card of a call with `exit`, or `undefined` when it has none.
  * `stopped` is the pause of the turn when the turn ended while the call waited, so the
- * next action stopped the turn.
+ * next action stopped the turn. `text` is empty when the loud grant is all there is.
  */
 export function exitNote(
   exit: ExitCallView,
   summary: string,
   stopped: ReviewerPause | undefined,
 ): ExitNote | undefined {
-  const grants = grantList(exit.grants);
-  const loud = exit.grants.some(isLoudGrant);
+  const grants = grantList(exit.grants.filter((grant) => !isLoudGrant(grant)));
+  const loudGrants = exit.grants.filter(isLoudGrant);
+  const loud = loudGrants.length === 0 ? undefined : grantList(loudGrants);
   const judged = exit.judged;
   const subject = oneLine(exit.line.trim() === "" ? summary : exit.line.trim());
   if (stopped !== undefined && judged === undefined) {
     return {
       text: `auto stopped this turn: ${refusedWords(stopped)}`,
       tone: "text_muted",
-      loud: false,
+      loud: undefined,
     };
   }
+  const grantsOnly = (): ExitNote | undefined =>
+    grants === "" && loud === undefined
+      ? undefined
+      : {
+          text: loud === undefined || grants === "" ? grants : `${grants},`,
+          tone: "text_subtle",
+          loud,
+        };
   if (judged === undefined) {
-    return grants === "" ? undefined : { text: grants, tone: "text_subtle", loud };
+    return grantsOnly();
   }
   const rationale = oneLine(judged.rationale ?? "").trim();
-  const withGrants = (line: string): ExitNote => ({
-    text: grants === "" ? line : `${line}: ${grants}`,
-    tone: "text_subtle",
-    loud,
-  });
+  // The loud grant goes on the next line, so the verdict line ends with a colon, or with
+  // a comma after the other grants.
+  const withGrants = (line: string): ExitNote => {
+    let text = line;
+    if (grants !== "") {
+      text = loud === undefined ? `${line}: ${grants}` : `${line}: ${grants},`;
+    } else if (loud !== undefined) {
+      text = `${line}:`;
+    }
+    return { text, tone: "text_subtle", loud };
+  };
   switch (judged.judge) {
     case "classifier": {
       if (isNoAnswer(judged)) {
         const skipped = judged.skipped.map(oneLine);
         const why = skipped.length === 0 ? "" : ` (skipped ${skipped.join(", ")})`;
-        return { text: `reviewer: no answer${why}; nothing ran`, tone: "text_muted", loud: false };
+        return {
+          text: `reviewer: no answer${why}; nothing ran`,
+          tone: "text_muted",
+          loud: undefined,
+        };
       }
       if (judged.verdict === "allow") {
         const what = exitWhat(exit);
@@ -260,7 +282,7 @@ export function exitNote(
           rationale === ""
             ? `reviewer refused: ${subject}`
             : `reviewer refused: ${subject}: ${rationale}`;
-        return { text, tone: "text_muted", loud: false };
+        return { text, tone: "text_muted", loud: undefined };
       }
       // An unsure verdict hands the call to a question, which shows it.
       return undefined;
@@ -283,11 +305,11 @@ export function exitNote(
     }
     case "floor": {
       const text = rationale === "" ? `efr: ${subject}` : `efr: ${subject}: ${rationale}`;
-      return { text, tone: "text_muted", loud: false };
+      return { text, tone: "text_muted", loud: undefined };
     }
     default:
       // A person answered (the approval shows it), or full mode let it through.
-      return grants === "" ? undefined : { text: grants, tone: "text_subtle", loud };
+      return grantsOnly();
   }
 }
 

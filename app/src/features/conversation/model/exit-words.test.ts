@@ -144,7 +144,7 @@ describe("the words of an exit", () => {
     );
     expect(grantWords({ kind: "env", name: "GH_TOKEN" })).toBe("the variable GH_TOKEN");
     expect(grantWords({ kind: "keyring" })).toBe("the keyring (every unlocked entry)");
-    expect(grantWords({ kind: "open_network" })).toBe("full network");
+    expect(grantWords({ kind: "open_network" })).toBe("host network");
     expect(grantWords({ kind: "desktop", desktop: "hyprland" })).toBe("the Hyprland socket");
   });
 
@@ -162,7 +162,7 @@ describe("the words of an exit", () => {
     expect(exitNote(exitOf(state, "c1"), "git push", undefined)).toEqual({
       text: "reviewer allowed: network (github.com) for this call (low risk; you asked to push the fix): github.com:443 reachable, the variable GH_TOKEN",
       tone: "text_subtle",
-      loud: false,
+      loud: undefined,
     });
   });
 
@@ -194,7 +194,7 @@ describe("the words of an exit", () => {
     expect(exitNote(exitOf(state, "c1"), "", undefined)).toEqual({
       text: "reviewer refused: curl -sI https://example.com: no message of yours names example.com",
       tone: "text_muted",
-      loud: false,
+      loud: undefined,
     });
     const call = state.turns.get("t1")?.tools.get("c1");
     expect(call === undefined ? undefined : toolStatus(call, false, 0)).toEqual({
@@ -261,7 +261,31 @@ describe("the words of an exit", () => {
       requested("c1", "ssh laptop uptime", { grants: [{ kind: "open_network" }] }),
       judged("c1", { risk: "medium", rationale: "you asked for the uptime" }),
     );
-    expect(exitNote(exitOf(state, "c1"), "", undefined)?.loud).toBe(true);
+    expect(exitNote(exitOf(state, "c1"), "", undefined)).toEqual({
+      text: "reviewer allowed: network (github.com) for this call (medium risk; you asked for the uptime):",
+      tone: "text_subtle",
+      loud: "host network",
+    });
+    const more = stateOf(
+      toolCallStarted("t1", "c2", "shell"),
+      requested("c2", "ssh laptop uptime", {
+        grants: [{ kind: "open_network" }, { kind: "env", name: "SSH_AUTH_SOCK" }],
+      }),
+    );
+    expect(exitNote(exitOf(more, "c2"), "", undefined)).toEqual({
+      text: "the variable SSH_AUTH_SOCK,",
+      tone: "text_subtle",
+      loud: "host network",
+    });
+    const alone = stateOf(
+      toolCallStarted("t1", "c3", "shell"),
+      requested("c3", "ssh laptop uptime", { grants: [{ kind: "open_network" }] }),
+    );
+    expect(exitNote(exitOf(alone, "c3"), "", undefined)).toEqual({
+      text: "",
+      tone: "text_subtle",
+      loud: "host network",
+    });
   });
 
   it("says the pause asks nothing, and the next action stops the turn", () => {

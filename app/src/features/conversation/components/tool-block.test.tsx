@@ -168,12 +168,34 @@ describe("a tool block in auto", () => {
         turnEnded={false}
         expanded={false}
         onToggle={jest.fn()}
-        note={{ text: "api.github.com:443 reachable", tone: "text_subtle", loud: false }}
+        note={{ text: "api.github.com:443 reachable", tone: "text_subtle", loud: undefined }}
       />,
     );
     expect(screen.getByText("reviewing")).toBeOnTheScreen();
     expect(screen.getByLabelText("Reviewing", HIDDEN)).toBeOnTheScreen();
     expect(screen.getByTestId("exit-note")).toHaveTextContent("api.github.com:443 reachable");
+    expect(screen.queryByTestId("exit-note-loud")).toBeNull();
+  });
+
+  it("puts the host network on its own line after the verdict, as AU-Auto does", async () => {
+    await render(
+      <ToolBlockView
+        call={call({ done: true, exitCode: 0, endedAt: NOW + 1_200 })}
+        turnEnded={false}
+        expanded={false}
+        onToggle={jest.fn()}
+        note={{
+          text: "reviewer allowed: ssh laptop uptime for this call (medium risk):",
+          tone: "text_subtle",
+          loud: "host network",
+        }}
+      />,
+    );
+    expect(
+      screen.getByText("reviewer allowed: ssh laptop uptime for this call (medium risk):"),
+    ).toBeOnTheScreen();
+    expect(screen.getByTestId("exit-note-loud")).toHaveTextContent("host network");
+    expect(screen.getByText("host network").props.className).toContain("text-text-primary");
   });
 
   it("lists the files that run code which the call changed, one quiet line each", async () => {

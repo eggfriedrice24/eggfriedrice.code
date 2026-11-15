@@ -309,8 +309,8 @@ the same words as the terminal:
 
 - "reviewing" while the reviewer judges the call, with what the call asks for under it.
 - `reviewer allowed: ...`, then after a colon what the call got, such as
-  `github.com:443 reachable, the variable GH_TOKEN`. "full network" has a warning
-  glyph.
+  `github.com:443 reachable, the variable GH_TOKEN`. "host network" (the whole
+  network) shows on a line of its own, with a warning glyph.
 - `allowed by your rule ...` for a call that one of your always rules covered.
 - "refused" and `reviewer refused: <command>: <reason>`, or `efr: <command>` when one of
   efr's own rules refused it. The call did not run, and the model goes on.

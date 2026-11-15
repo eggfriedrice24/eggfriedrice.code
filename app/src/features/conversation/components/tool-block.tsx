@@ -191,25 +191,31 @@ export function ToolBlockView(props: ToolBlockViewProps) {
 
 /**
  * The line about the exit under the header (AU-Auto): mono 11, wrapped, never cut. The
- * whole network, the loudest grant, leads with the warning glyph.
+ * whole network, the loudest grant, has a line of its own after the verdict: the warning
+ * glyph, then its words in text_primary.
  */
 function ExitLine(props: { readonly note: ExitNote }) {
   const { note } = props;
   return (
-    <View testID="exit-note" className="-mt-4 flex-row gap-4 px-12 pb-9">
-      {note.loud ? (
-        <View className="pt-2">
-          <SymbolIcon name="exclamationmark.triangle" size={11} tone="accent_primary" />
+    <View testID="exit-note" className="-mt-4 px-12 pb-9">
+      {note.text === "" ? null : (
+        <Text
+          className={cn(
+            "text-mono-xs",
+            note.tone === "text_muted" ? "text-text-muted" : "text-text-subtle",
+          )}
+        >
+          {note.text}
+        </Text>
+      )}
+      {note.loud === undefined ? null : (
+        <View testID="exit-note-loud" className="flex-row gap-4">
+          <View className="pt-2">
+            <SymbolIcon name="exclamationmark.triangle" size={11} tone="accent_primary" />
+          </View>
+          <Text className="flex-1 text-mono-xs text-text-primary">{note.loud}</Text>
         </View>
-      ) : null}
-      <Text
-        className={cn(
-          "flex-1 text-mono-xs",
-          note.tone === "text_muted" ? "text-text-muted" : "text-text-subtle",
-        )}
-      >
-        {note.text}
-      </Text>
+      )}
     </View>
   );
 }
