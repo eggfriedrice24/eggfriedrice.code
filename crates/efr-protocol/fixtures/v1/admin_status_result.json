@@ -37,7 +37,6 @@
       "key_hint": "sk-ant-...a1b2",
       "key_refused_at": "2026-10-03T07:45:00Z",
       "key_checked_at": "2026-10-03T07:45:00Z",
-      "label": "Work",
       "limits": {
         "observed_at": "2026-10-03T07:59:00Z",
         "reached": {

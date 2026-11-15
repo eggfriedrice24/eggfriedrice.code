@@ -6169,11 +6169,6 @@ export interface ProviderStatus {
    */
   key_refused_at?: string | null;
   /**
-   * The user's name for the account, as [`CatalogStatus::label`]. Absent when the
-   * config gives none, and from an earlier daemon.
-   */
-  label?: string | null;
-  /**
    * How full the limits of the account are, as [`CatalogStatus::limits`]. Absent
    * when efr knows none, and from an earlier daemon.
    */

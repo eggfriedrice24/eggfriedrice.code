@@ -921,7 +921,6 @@ impl Providers {
             return Vec::new();
         };
         let configured = self.configured();
-        let settings = self.settings();
         loaded
             .into_iter()
             .map(|(id, record)| {
@@ -930,7 +929,6 @@ impl Providers {
                     status.key_refused_at = self.refusals.refused_at(&id);
                     status.key_checked_at = self.refusals.checked_at(&id);
                 }
-                status.label = settings.accounts.label(&id).map(str::to_owned);
                 if status.logged_in {
                     status.limits = self.catalogs.limits().limits(&id);
                 }
@@ -1030,9 +1028,8 @@ pub(crate) fn provider_status(
         key_hint,
         key_refused_at: None,
         key_checked_at: None,
-        // NOTE: the label comes from `[accounts]` and the limits from the calls of the
-        // account; `Providers::status` adds them.
-        label: None,
+        // NOTE: the limits come from the calls of the account; `Providers::status`
+        // adds them.
         limits: None,
     }
 }

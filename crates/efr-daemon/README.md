@@ -625,8 +625,8 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   one change of the login set at a time, so a read that started before a login cannot
   mark it as signed out after it. The keys of `[openai]` and `[anthropic]` that need a
   restart (`efr_config::RESTART_KEYS`) still do.
-- `models.list` and `admin.status` carry the account's `label` from
-  `[accounts.labels]`; each catalog of `models.list` says whether its account is
+- `models.list` carries the account's `label` from `[accounts.labels]` (`admin.status`
+  does not: `efr status` shows the id); each catalog of `models.list` says whether its account is
   `signed_out`, and an account that `[accounts]` names but that has no login is listed
   after the others with a login, with the models of its last list
   (`Catalogs::listed`). The turns try the accounts with a login first

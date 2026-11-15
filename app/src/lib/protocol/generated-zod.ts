@@ -645,7 +645,6 @@ export const providerStatusSchema = z.object({
   key_checked_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
   key_hint: z.string().nullable().exactOptional(),
   key_refused_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
-  label: z.string().nullable().exactOptional(),
   limits: accountLimitsSchema.nullable().exactOptional(),
   logged_in: z.boolean(),
   login: loginKindSchema.nullable().exactOptional(),

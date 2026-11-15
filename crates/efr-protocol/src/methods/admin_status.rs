@@ -108,10 +108,6 @@ pub struct ProviderStatus {
     /// key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_checked_at: Option<Timestamp>,
-    /// The user's name for the account, as [`CatalogStatus::label`]. Absent when the
-    /// config gives none, and from an earlier daemon.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
     /// How full the limits of the account are, as [`CatalogStatus::limits`]. Absent
     /// when efr knows none, and from an earlier daemon.
     #[serde(default, skip_serializing_if = "Option::is_none")]

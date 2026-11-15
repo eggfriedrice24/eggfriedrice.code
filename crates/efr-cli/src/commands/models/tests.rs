@@ -345,7 +345,6 @@ fn signed_out_status() -> AdminStatusResult {
             key_hint: None,
             key_refused_at: None,
             key_checked_at: None,
-            label: None,
             limits: None,
         }],
         catalog: None,

@@ -1552,7 +1552,6 @@ fn answer_fixtures() -> Vec<Fixture> {
                         key_hint: None,
                         key_refused_at: None,
                         key_checked_at: None,
-                        label: None,
                         limits: Some(plan_limits()),
                     },
                     ProviderStatus {
@@ -1564,7 +1563,6 @@ fn answer_fixtures() -> Vec<Fixture> {
                         key_hint: Some("sk-ant-...a1b2".into()),
                         key_refused_at: Some(at("2026-10-03T07:45:00Z")),
                         key_checked_at: Some(at("2026-10-03T07:45:00Z")),
-                        label: Some("Work".into()),
                         limits: Some(key_limits()),
                     },
                 ],

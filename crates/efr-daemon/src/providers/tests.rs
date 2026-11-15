@@ -489,7 +489,6 @@ fn a_replaced_chatgpt_login_is_seen_by_its_expiry() {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
-        label: None,
         limits: None,
     };
 

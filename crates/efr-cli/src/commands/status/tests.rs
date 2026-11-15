@@ -35,7 +35,6 @@ fn result() -> AdminStatusResult {
             key_hint: None,
             key_refused_at: None,
             key_checked_at: None,
-            label: None,
             limits: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
@@ -175,7 +174,6 @@ async fn a_logged_in_provider_needs_no_login_hint() {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
-        label: None,
         limits: None,
     });
     let (exit, _, stderr) = status_of(&status).await;
@@ -195,7 +193,6 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
         key_hint: None,
         key_refused_at: None,
         key_checked_at: None,
-        label: None,
         limits: None,
     };
     vec![

@@ -845,7 +845,8 @@ async fn an_account_that_the_config_names_shows_signed_out_with_its_label_and_a_
     assert_eq!(shown().await, [default.clone(), work.clone()]);
     let providers = status(&client).await.providers;
     let named = providers.iter().find(|status| status.provider == "anthropic-api.work").unwrap();
-    assert_eq!((named.logged_in, named.label.as_deref()), (false, Some("Work")));
+    // NOTE: `efr status` shows the id, so `admin.status` carries no label.
+    assert!(!named.logged_in);
 
     // A reload that names one more account lists it at once, with no restart.
     let config = daemon.dirs().dirs().config();

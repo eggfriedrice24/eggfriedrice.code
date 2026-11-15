@@ -13,9 +13,10 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Added
 
 - `[accounts.labels]` in `config.toml` gives each account a name of your own, such as
-  `"anthropic-api.work" = "Work"`. `efr models`, the model list and `admin.status`
-  carry the label. efr also lists an account that the table names while it has no
-  login, as signed out.
+  `"anthropic-api.work" = "Work"`. `efr models` shows the label after the kind, and
+  the phone app shows it in place of the id; `efr status` shows the id. The model
+  list (`models.list`) carries the label. efr also lists an account that the table
+  names while it has no login, as signed out.
 - When an account reaches a limit, the turn stops and says why: the usage limit of a
   ChatGPT plan, no credit left, a spend limit, or "too many requests" after the
   retries. It gives the reset time when the provider tells it. A named account has its

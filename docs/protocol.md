@@ -1043,7 +1043,9 @@ No protocol version has shipped yet.
   for the account, from `[accounts]` in `config.toml`), `signed_out` (false when
   absent; efrd now also lists an account that `[accounts]` names but that has no
   login) and `limits`, so a phone, which has no `admin` scope, can show them. Each
-  `providers` entry of `admin.status` gains the same `label` and `limits`. A new draft
+  `providers` entry of `admin.status` gains the same `limits`, but no `label`:
+  `efr status` shows the id of an account, and the phone reads the label of
+  `models.list`. A new draft
   part `limits` `{provider, limits}` comes when a model call of the running turn
   carried new values. efrd keeps the limits in memory only, removes a value after its
   reset, and sends none for an account that is signed out. An older efrd sends none

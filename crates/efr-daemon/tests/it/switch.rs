@@ -612,7 +612,6 @@ async fn an_account_at_its_limit_stops_the_turn_and_offers_the_accounts_of_the_m
         account("anthropic-api").limits.as_ref().and_then(|l| l.reached.clone()),
         Some(reached)
     );
-    assert_eq!(account("anthropic-api.work").label.as_deref(), Some("Work"));
 
     // The user switches by naming the account; its own key serves the turn.
     messages.push(MessagesAnswer::text("work answer"));
