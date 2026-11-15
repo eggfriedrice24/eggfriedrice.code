@@ -128,7 +128,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A store build of the phone app no longer holds the dev gallery, the bench and the
   demo machines.
 - The phone app needs a new dev build for the native effort slider. An older build
-  shows the efforts as buttons.
+  shows the efforts as buttons. The same build moves the app to Expo 58.0.25 (React
+  Native 0.88.1) and react-native-enriched-markdown 1.2.0, which draws a code block of
+  more than one line with no patch of efr.
 
 ### Fixed
 
