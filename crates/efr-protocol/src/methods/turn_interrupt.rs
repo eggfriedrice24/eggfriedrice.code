@@ -35,15 +35,18 @@ pub struct TurnInterrupt {
     /// sequence order with newlines into one prompt, which runs next, before the
     /// prompts that wait in the queue. The prompt has the context and the settings of
     /// the interrupted turn's prompt, and its `prompt_queued` names the steers and has
-    /// this request's `command_id`. Absent means none.
+    /// this request's `command_id`. From a client with a remote origin (a phone), the
+    /// prompt does not get the mode of the interrupted turn's prompt, so it runs as
+    /// `cautious`. Absent means none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resend_steers: Vec<Seq>,
     /// How the daemon queues the prompt of `resend_steers`: `queue` with the context,
     /// the last command and the settings of the terminal that interrupts, as a late
     /// steer of `turn.steer` would go. Absent: the context and the settings of the
-    /// interrupted turn's prompt. The resend never makes the interrupt fail: the
-    /// prompt does not count against `max_queued`, and settings that cannot work now
-    /// give way to those of the interrupted turn's prompt. Boxed, so the method stays
+    /// interrupted turn's prompt, without its mode when the client has a remote
+    /// origin. The resend never makes the interrupt fail: the prompt does not count
+    /// against `max_queued`, and settings that cannot work now give way to those of
+    /// the interrupted turn's prompt, by the same rule. Boxed, so the method stays
     /// small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resend_as: Option<Box<LateSteer>>,

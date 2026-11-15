@@ -151,6 +151,9 @@ What a phone may do after the proof, whatever its scopes say:
 
 - A `prompt.send` from a phone runs with a `mode` of at most `auto`, and as
   `cautious` when its `settings` name no `mode`.
+- A `turn.interrupt` from a phone with `resend_steers` and no `resend_as` sends the
+  steers again with the settings of the interrupted turn's prompt, but without its
+  `mode`. So the new prompt runs as `cautious`, also after an `auto` turn.
 - `sandbox.surface_respond` from a phone is `forbidden` with `keep: true`. The
   question stays open for the user's terminal. `keep: false` (Leave) is allowed.
 - A `prompt.send` from a phone whose `context` names a `tty` is `invalid`.
@@ -346,7 +349,7 @@ No protocol version has shipped yet.
   takes optional `resend_steers` (seqs of unread `turn_steered` events to send again
   as one prompt that runs next), `resend_as` (`{kind: "queue"}` with the `context`,
   `last_command` and `settings` of that prompt, as in `if_late`; absent: those of the
-  interrupted turn), `withdraw_steers` (seqs of unread `turn_steered` events to take
+  interrupted turn, without its `mode` for a phone), `withdraw_steers` (seqs of unread `turn_steered` events to take
   back) and `withdraw` (turns of queued prompts to withdraw), all done in the step
   that records `turn_interrupt_requested`; its result gains an optional `resent`
   (`turn_id`, `seq`, `steers`), `withdrawn` and `withdrawn_steers` (`seq`, `text`),
@@ -1125,4 +1128,6 @@ No protocol version has shipped yet.
 - Version 1, behaviour: a `prompt.send` from a phone runs with a `mode` of at most
   `auto` (it was `cautious`), and as `cautious` when its `settings` name no `mode`.
   `sandbox.surface_respond` from a phone takes `keep: false`; `keep: true` stays
-  `forbidden`. No member changes.
+  `forbidden`. The prompt that a `turn.interrupt` from a phone sends again with
+  `resend_steers` has no `mode` of the interrupted turn's prompt, so it runs as
+  `cautious` unless `resend_as` names `auto`. No member changes.
