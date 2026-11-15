@@ -100,14 +100,14 @@ fn the_websocket_message_gives_the_windows_of_the_default_family() {
     });
     assert_eq!(
         plan_windows_message(&message),
-        Some(vec![
+        vec![
             LimitWindow {
                 minutes: Some(300),
                 used_percent: 31,
                 resets_at: Some(Timestamp::from_second(1_794_666_000).unwrap()),
             },
             LimitWindow { minutes: Some(10080), used_percent: 63, resets_at: None },
-        ])
+        ]
     );
 }
 
@@ -120,9 +120,8 @@ fn the_websocket_message_of_another_family_gives_no_window() {
             "rate_limits": {"primary": {"used_percent": 50, "window_minutes": 300}},
         })
     };
-    assert_eq!(plan_windows_message(&named("codex_other")), Some(Vec::new()));
-    assert_eq!(plan_windows_message(&named("Codex")).map(|windows| windows.len()), Some(1));
-    assert_eq!(plan_windows_message(&json!({"type": "response.created"})), None);
+    assert_eq!(plan_windows_message(&named("codex_other")), Vec::new());
+    assert_eq!(plan_windows_message(&named("Codex")).len(), 1);
 }
 
 #[test]

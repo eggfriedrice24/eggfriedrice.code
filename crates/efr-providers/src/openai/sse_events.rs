@@ -340,7 +340,7 @@ impl EventMapper {
                 }
             }
             "codex.rate_limits" => {
-                let windows = limits::plan_windows_message(event).unwrap_or_default();
+                let windows = limits::plan_windows_message(event);
                 if !windows.is_empty() {
                     out.push(ProviderEvent::Limits { windows });
                 }

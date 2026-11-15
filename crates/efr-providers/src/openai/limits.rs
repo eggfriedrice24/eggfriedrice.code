@@ -57,21 +57,18 @@ pub(crate) fn plan_windows(headers: &HeaderMap) -> Vec<LimitWindow> {
 }
 
 /// The usage windows of a `codex.rate_limits` message of the WebSocket, of the default
-/// family only; `None` for any other message.
-pub(crate) fn plan_windows_message(event: &Value) -> Option<Vec<LimitWindow>> {
-    if event.get("type").and_then(Value::as_str) != Some("codex.rate_limits") {
-        return None;
-    }
+/// family only; empty for another family.
+pub(crate) fn plan_windows_message(event: &Value) -> Vec<LimitWindow> {
     let family = event
         .get("metered_limit_name")
         .or_else(|| event.get("limit_name"))
         .and_then(Value::as_str)
         .map(|name| name.trim().to_ascii_lowercase().replace('-', "_"));
     if family.is_some_and(|family| family != DEFAULT_FAMILY) {
-        return Some(Vec::new());
+        return Vec::new();
     }
     let limits = event.get("rate_limits");
-    let windows = PLAN_WINDOWS
+    PLAN_WINDOWS
         .iter()
         .filter_map(|name| {
             let window = limits?.get(name)?;
@@ -80,8 +77,7 @@ pub(crate) fn plan_windows_message(event: &Value) -> Option<Vec<LimitWindow>> {
             let reset_at = window.get("reset_at").and_then(Value::as_i64);
             window_of(percent, minutes, reset_at)
         })
-        .collect();
-    Some(windows)
+        .collect()
 }
 
 /// One window from the values of the provider. A window that is unused, with no length
