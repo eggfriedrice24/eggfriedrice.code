@@ -41,6 +41,7 @@ const CANVAS = [
   "S-ModelSheet",
   "AU-Auto",
   "Q-Quarantine",
+  "S-Lock",
 ];
 
 /** The five errors that the P-Errors board draws. */
@@ -66,7 +67,7 @@ const UNDRAWN = [
 
 describe("the inventory of the gallery", () => {
   it("has every board of the canvas once", () => {
-    expect(CANVAS).toHaveLength(33);
+    expect(CANVAS).toHaveLength(34);
     const drawn = GALLERY_BOARDS.filter((board) => board.drawn).map(
       (board) => board.name.split(" · ")[0] ?? "",
     );

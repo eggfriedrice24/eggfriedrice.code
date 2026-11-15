@@ -258,6 +258,7 @@ const SHEETS: readonly GalleryBoard[] = [
   sheet("S-ModelSheet", "Model sheet · every state (MS-Chosen, MS-SignedOut)"),
   sheet("AU-Auto", "Auto, quarantine and accounts in a transcript (AC-Out, MS-Switched)"),
   sheet("Q-Quarantine", "Quarantine question · strip and sheet"),
+  sheet("S-Lock", "Face ID unlock · lock screen and cover"),
   sheet("Icon", "App icon · the yolk (direction b)"),
 ];
 

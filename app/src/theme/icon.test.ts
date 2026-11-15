@@ -21,6 +21,7 @@ describe("the app icon", () => {
       "layer-background.svg",
       "layer-egg-white.svg",
       "layer-yolk.svg",
+      "mark.svg",
     ]);
   });
 

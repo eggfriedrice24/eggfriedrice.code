@@ -35,6 +35,7 @@ import { ComposerSheet } from "../components/composer-sheet";
 import { IconSheet } from "../components/icon-sheet";
 import { LoadersSheet } from "../components/loaders-sheet";
 import { ModelsSheet } from "../components/models-sheet";
+import { LockBoard } from "../components/lock-board";
 import { QuarantineBoard } from "../components/quarantine-board";
 import { RenderOverlay } from "../components/render-overlay";
 import { SandboxSettings } from "../components/sandbox-settings";
@@ -121,6 +122,8 @@ function Sheet(props: { readonly name: string }) {
       return <TranscriptSheet kind="auto" />;
     case "Q-Quarantine":
       return <QuarantineBoard />;
+    case "S-Lock":
+      return <LockBoard />;
     case "Icon":
       return <IconSheet />;
     default:

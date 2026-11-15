@@ -15,6 +15,7 @@ import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
 import { MachineMenu } from "@/features/machines/components/machine-menu";
 import { AppProviders } from "@/features/navigation/components/app-providers";
+import { LockGate, LockOverlay } from "@/features/navigation/components/lock-overlay";
 import { RootStack } from "@/features/navigation/components/root-stack";
 import { createAppServices } from "@/features/navigation/model/app-services";
 import { linkGate } from "@/features/navigation/model/link-gate";
@@ -25,7 +26,9 @@ export { ErrorBoundary } from "expo-router";
 
 // The root of the app (plan sections 2.2 and 2.5). The services start once, when the app
 // loads: the runtime reads the paired machines and connects them, and the outbox reads
-// the prompts of the last launch. The root stack gives each screen its header.
+// the prompts of the last launch. The root stack gives each screen its header. With the Face
+// ID unlock on, the stack mounts after the first unlock, and the lock screen and the cover
+// lie over the whole window (lock-overlay.tsx).
 
 /** A deep link to a conversation still has the blank root under it. */
 export const unstable_settings = { initialRouteName: "index" };
@@ -88,7 +91,10 @@ function machineMenu(machine: string) {
 export default function RootLayout() {
   return (
     <AppProviders services={services}>
-      <RootStack machineMenu={machineMenu} />
+      <LockGate>
+        <RootStack machineMenu={machineMenu} />
+      </LockGate>
+      <LockOverlay />
     </AppProviders>
   );
 }
