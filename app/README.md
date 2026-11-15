@@ -32,10 +32,14 @@ with iOS 26: pairing, chat, approvals, steer, queue and the conversations sheet 
 - The question of the reviewer off (`surface_question_requested`, Q-Quarantine 1 to 6):
   the waiting card ("git settings changed"), the strip ("keep .git/config
   (core.fsmonitor)?") and the sheet with the changes that went to quarantine, then
-  "kept", "left in quarantine" or "not answered · left in quarantine". efrd takes the
-  answer only from the terminal (`RemoteSurfaceAnswer`), so the strip and the sheet say
-  "answer on <machine>" in place of Keep and Leave, and the status line says "waiting
-  in the terminal".
+  "kept", "left in quarantine" or "not answered · left in quarantine". The phone
+  answers Leave (Q-Quarantine 8, 9); efrd refuses a Keep from a phone
+  (`RemoteSurfaceAnswer`), so the strip and the sheet show "Keep on <machine>" where the
+  Keep button was, and the status line says "waiting for you".
+- The Face ID unlock (S-Lock, round 9): a switch in Settings, off by default. With it
+  on, the app locks at a cold start and after 5 minutes in the background
+  (features/navigation/model/app-lock.ts), the lock screen and the cover lie over the
+  whole window, and links wait for the unlock. Auto from the phone needs it.
 - The app pairs with more than one machine and connects to all of them at the same time.
   The route of a conversation names its machine (`/c/<daemon id>/<conversation id>`).
 - Done and tested on Linux: the protocol types and their zod schemas, the WebSocket
@@ -439,14 +443,36 @@ not a test that pretends.
     - S-ComposerR7: the provider mark stands before the model name at 11 pt (the
       Claude spark orange, the OpenAI mark in the colour of the button). A new thread
       starts with the favourite of the last plan. The mode control (cautious, or 🤖 auto)
-      left of the model button opens a menu with Cautious and Auto, and Auto is off on an
-      iPhone without a passcode.
-    - Face ID (a new dev build with expo-local-authentication): Send in auto shows the
-      system prompt of iOS with the reason "Send this message in auto"; the message stays
-      in the field and Send shows the braille cell. After a cancel or a failure, the
-      message is not sent and one line says why. A steer into a turn that runs in auto
-      asks too. With the passcode only (Face ID off), iOS asks for the passcode. The turn
-      on the desktop runs in auto (`efr status` or the turn line shows the mode).
+      left of the model button opens a menu with Cautious and Auto. With the Face ID
+      unlock off, Auto is greyed and "Turn on Face ID unlock" opens Settings.
+    - Face ID unlock (S-Lock, Settings round 9; a new dev build with
+      expo-local-authentication):
+      1. Unlock on, kill the app, open it: the lock screen and the prompt of iOS at once.
+      2. Home for less than 5 minutes and back: no prompt. For 5 minutes or more: the
+         prompt.
+      3. Cancel the prompt: the line and Unlock, and no second prompt by itself.
+      4. Fail Face ID until iOS asks for the passcode: the passcode opens the app.
+      5. The app switcher shows the cover (the mark), never the transcript, also with the
+         model sheet or the approval sheet open, and after a fast swipe home.
+      6. The lock screen lies over an open model sheet, approval sheet and All
+         conversations sheet on iOS 26. VoiceOver reaches nothing under it.
+      7. The keyboard was up when the app left: it is down on the lock screen.
+      8. Control Center, the notification shade, a paste question of iOS and the camera
+         question of pairing: the cover shows only while iOS is in front.
+      9. The switch asks before it turns on and before it turns off, and does not move
+         before the pass. During that prompt Settings stays visible (no cover).
+      10. After the switch is off, each conversation shows cautious, and a prompt that
+          waited for an offline machine runs as cautious on the desktop.
+      11. Remove the passcode of the iPhone while the unlock is on, then open efr inside
+          5 minutes: the app opens, the switch is off, Settings says why.
+      12. An iPhone with Face ID not set up: the row says "Passcode unlock".
+      13. Unlock on, app killed: open `efr://conversations` from Safari. The lock screen
+          shows with no sheet over it; after the unlock the sheet opens.
+      14. Unlock on, app away for more than 5 minutes: open `efr://pair` from the Camera.
+          Pairing opens only after the unlock.
+      15. Unlock on and auto: a message runs in auto on the desktop with no extra prompt.
+      16. Cold start with the unlock on: after the unlock the first screen comes with no
+          visible blank time.
 
 ### Accounts, limits, auto and quarantine
 

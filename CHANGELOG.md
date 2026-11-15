@@ -19,10 +19,15 @@ into the GitHub release notes, and it stops when the section is missing.
   the favourite of its account, one for each account. A new thread from the phone
   starts with the favourite of the last account that you used. The list has no scroll
   indicator.
+- The phone app has a "Face ID unlock" switch in Settings, under Privacy (off by
+  default). With it on, the app asks for Face ID, Touch ID or the passcode of the iPhone
+  when it opens and when it comes back after 5 minutes or more in the background. The
+  lock screen shows nothing of a conversation, and the app switcher shows only the efr
+  mark. The switch asks iOS before it turns on and before it turns off.
 - The composer of the phone app has a mode control left of the model button: cautious
-  or 🤖 auto, never full. Before a message in auto goes out, the app asks for Face ID,
-  Touch ID or the passcode of the iPhone. When the check does not pass, the message is
-  not sent and stays in the field. The model button has the logo of the provider.
+  or 🤖 auto, never full. Auto needs the Face ID unlock; while it is off, Auto is greyed
+  and the menu opens Settings. Turning the unlock off sets each conversation back to
+  cautious. The model button has the logo of the provider.
 - The phone app can answer Leave to the quarantine question. Keep stays at your own
   machine.
 - `[accounts.labels]` in `config.toml` gives each account a name of your own, such as

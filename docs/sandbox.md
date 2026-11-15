@@ -43,7 +43,7 @@ reviewer decides each exit alone.
   as for a shell command.
 - The lines that you type in your own shell never run in the sandbox.
 - A turn from the phone runs in `auto` only when the phone asks for `auto`. The app
-  asks for Face ID or the passcode first. A phone prompt that names no mode runs as
+  asks for `auto` only while its Face ID unlock is on. A phone prompt that names no mode runs as
   `cautious`, also when your default is `auto`. A phone never runs in full mode.
 - `nested_shell` is not available in `auto`, because no shell outlives a contained
   call. A command for `sudo` or `ssh` is an exit instead.

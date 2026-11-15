@@ -43,8 +43,9 @@ and `/` are a project only when you name them. No tool may write `projects.toml`
 "Config protection".
 
 A turn from the phone runs with at most `auto`: `full` there counts as `auto`. It runs
-in `auto` only when the phone asks for `auto`, and the app asks for Face ID or the
-passcode before it sends such a message. A phone prompt that names no mode runs as
+in `auto` only when the phone asks for `auto`, and the app asks for `auto` only while
+its Face ID unlock is on (Settings of the app; Face ID or the iPhone passcode when the
+app opens). A phone prompt that names no mode runs as
 `cautious`, also when your default is `auto`. In `cautious` the engine asks for
 everything outside `$SCRATCH` for a phone turn. In `auto` a phone turn follows the
 rules of an `auto` turn of your shell; only a call that declares nothing still asks.

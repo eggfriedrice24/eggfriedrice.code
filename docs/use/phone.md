@@ -225,9 +225,16 @@ streams in.
 ### Send a prompt
 
 The composer floats over the end of the transcript. Its status line shows the
-directory and the mode of the conversation and how full the context of the model is,
-such as `ctx 42%`. It shows "waiting for you" while a question of this conversation
-waits, and "reconnecting" while the app connects again.
+directory and how full the context of the model is, such as `ctx 42%`. It shows
+"waiting for you" while a question of this conversation waits, and "reconnecting" while
+the app connects again. At its right end are the mode of the next message and the model
+button. When the line is full, the directory gives way first, then `ctx`.
+
+The mode control shows `cautious`, or `🤖 auto`. Tap it to pick one; the phone keeps the
+mode for the conversation. Full mode is never on the phone. Auto from the phone needs
+the Face ID unlock of the app (see [Settings](#settings)): while it is off, Auto is
+greyed, and the menu has "Turn on Face ID unlock", which opens Settings. While the
+unlock is on, a message in auto goes at once: the unlock is the check.
 
 When no turn runs, Send sends your prompt. While a turn runs:
 
@@ -244,10 +251,21 @@ conversation.
 
 ### Pick a model
 
-The model button at the end of the status line shows the model of the next message
-and its effort, such as `Opus 5.5 · high`. When the model runs on two accounts, the
-button names the account too: `GPT-6.1 Sol · b · medium`. Tap it to open the model
-sheet.
+The model button at the end of the status line shows the logo of the provider, the
+model of the next message and its effort, such as `Opus 5.5 · high`. When the model
+runs on two accounts, the button names the account too: `GPT-6.1 Sol · b · medium`. Tap
+it to open the model sheet.
+
+The search field at the top of the sheet filters the models as you type: each word
+must be in the name or the id of the model. The filter button next to it picks the
+provider (All, Claude, OpenAI) and turns "Legacy models" on or off. A model is legacy
+when the machine lists a newer model of its family, such as Opus 5 next to Opus 5.5.
+Legacy models are hidden by default; a search finds them, and they show under "Legacy"
+at the end of their account.
+
+Tap the star of a row to make that model the favourite of its account. Each account has
+one favourite, and it goes first in its account. A new conversation from the phone
+starts with the favourite of the account that you used last.
 
 The sheet lists the models of each account of the machine, in the order of
 `efr models`. A header names the account: the kind (`Claude API`, `OpenAI API`,
@@ -329,9 +347,9 @@ such as `.git/config (core.fsmonitor); moved to quarantine` or
 whether to keep the changes. The phone shows the question: the card of the command
 says "git settings changed", and the strip above the composer asks, such as
 `keep .git/config (core.fsmonitor)?`. Tap the strip or the card to see the changes.
-Only the terminal can take a git setting out of quarantine, so answer the question
-there: the phone says "answer on desktop", and the status line says "waiting in the
-terminal". After the answer, the card says "kept", "left in quarantine", or "not
+The phone can answer Leave: the changes stay in quarantine. Only the terminal can take
+a git setting out of quarantine, so the strip shows "Keep on desktop" where the Keep
+button would be. After the answer, the card says "kept", "left in quarantine", or "not
 answered · left in quarantine" when the question expired or the turn stopped.
 
 After 3 refused actions in a row, or 10 in a turn, one quiet line says that the reviewer
@@ -357,6 +375,16 @@ time. An API key shows a limit only when the account hit it.
 
 Settings also has the switch "Ask before a costly model switch" (on by default). Turn
 it off, and a tap on a row of the model sheet switches at once, with no confirm.
+
+Under Privacy, the switch "Face ID unlock" (off by default) locks the app. Its name
+follows the iPhone: "Touch ID unlock", or "Passcode unlock" when no Face ID or Touch ID
+is set up. With it on, efr asks for Face ID, with the passcode of the iPhone as the
+fallback, when the app opens and when it comes back after 5 minutes or more in the
+background. A lock screen shows nothing of a conversation, and the app switcher shows
+only the efr mark. Auto from the phone needs this unlock. The switch asks iOS before it
+turns on and before it turns off. When it turns off, each conversation of the phone goes
+back to cautious. An iPhone without a passcode cannot turn it on; when you remove the
+passcode while it is on, efr turns it off and says why. efr has no passcode of its own.
 Settings also has the Haptics switch, which turns off all the haptics of the app, and
 the version of the app.
 
@@ -370,9 +398,11 @@ last machine, the app goes back to the first step of the pairing.
 A phone has fewer rights than your terminal. efrd checks each of these rules itself,
 so a changed app cannot get past them:
 
-- A turn from the phone runs with at most `cautious`. `auto` and `full` count as
-  `cautious`, and efr asks for everything outside `$SCRATCH`. See
-  [Permission modes](modes.md).
+- A turn from the phone runs with at most `auto`, never `full`, and in `auto` only when
+  the prompt asks for `auto`. A prompt that names no mode runs as `cautious`, where efr
+  asks for everything outside `$SCRATCH`. See [Permission modes](modes.md). The app
+  sends `auto` only while its Face ID unlock is on; efrd cannot see the unlock.
+- The phone can answer Leave to the quarantine question, but not Keep.
 - Only your own computer answers some questions: a command that runs as another user
   (`sudo`, `doas`, `su`, `pkexec`, `run0`), a background job, and a delete that full
   mode guards. The strip shows "answer on" and the name of the machine in place of the

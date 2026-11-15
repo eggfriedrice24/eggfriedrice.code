@@ -94,8 +94,9 @@ signed message all depend on them.
    gets `read`, `operate` and `approve`, never `admin` or `terminal`. The `/proc` walk
    of the Unix socket does not apply. A turn from the phone runs with at most `auto`
    (changed in 0.1.0; it was `cautious`), and in `auto` only when its prompt names
-   `auto`: a phone prompt with no mode runs as `cautious`. The app asks for Face ID or
-   the passcode of the iPhone before it sends a message in `auto`. This check is a
+   `auto`: a phone prompt with no mode runs as `cautious`. The app asks for `auto` only
+   while its Face ID unlock is on (a switch of the app, off by default: Face ID or the
+   iPhone passcode when the app opens and after 5 minutes in the background). This is a
    gate of the app; efrd cannot verify it. efrd refuses from a phone: an answer to a
    `local_only` question (a command that runs as another user, a background job, a
    delete that full mode guards), every "always allow" answer, Keep on the quarantine
