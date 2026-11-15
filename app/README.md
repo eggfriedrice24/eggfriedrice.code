@@ -283,10 +283,13 @@ A `preview` or `production` build holds its JavaScript, so each change of the ap
 new build. Collect the changes of native code, so that the builds stay few. The native
 modules of the app are react-native-menu, expo-blur, expo-glass-effect, expo-symbols,
 expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown,
-the effort slider (`@react-native-community/slider`) and the module of the device key.
-A build without the slider still runs the JavaScript of a newer app: the model sheet then
-draws the efforts as buttons. One dev build takes the slider, expo 58.0.25 with the SDK
-packages of `expo install --fix` (React Native 0.88.1) and enriched 1.2.0 together.
+expo-local-authentication (the Face ID unlock, with the Face ID text of `app.json`), the
+effort slider (`@react-native-community/slider`) and the module of the device key. The
+pnpm patch of the slider changes its native code (`RNCSliderComponentView.mm`, the move
+from stop to stop), so a change of that patch needs a new build too. A build without
+the slider still runs the JavaScript of a newer app: the model sheet then draws the
+efforts as buttons. One dev build takes the slider, expo 58.0.25 with the SDK packages
+of `expo install --fix` (React Native 0.88.1) and enriched 1.2.0 together.
 
 ## Device checklist
 
@@ -422,21 +425,26 @@ not a test that pretends.
 
 ### The model sheet
 
-33. The model sheet (`sheetAllowedDetents: "fitToContents"`) fits two accounts, and four
-    accounts make it grow to the full height and scroll, with the slider, the quiet line
-    and the confirm pinned at the bottom.
-34. The effort slider is the native UISlider (`@react-native-community/slider`, a new
-    dev build): it snaps to each step, the thumb moves on a tap of a step label, and
-    VoiceOver reads the efforts. A build from before the slider draws the steps as
+33. The model sheet (detents 0.75 and full) shows the native header with "Model" and
+    "Use" at its right. "Use" is off until something changed, reads "Switch" for a
+    switch that compacts, and is off while the sheet asks efrd what the switch costs.
+    The native search bar and the filter menu sit in the bottom toolbar of iOS 26.
+    While the search has the focus or text, the sheet holds the full height. The
+    slider and the quiet line stay pinned under the list.
+34. The effort slider is the native UISlider (`@react-native-community/slider` with the
+    pnpm patch, a new dev build): the thumb moves from stop to stop while the finger
+    moves, with one haptic per stop, each label stands centred under its stop, a tap of
+    a label moves the thumb there, the panel keeps one height while the effort changes,
+    and VoiceOver reads the efforts. A build from before the slider draws the steps as
     buttons and still works.
 35. The Claude spark keeps its own colour, the OpenAI mark is text_primary, and both
     are sharp at 3x. A signed-out account shows its logos at 40 %.
 36. The model button at the end of the status line gives way to the path first, then
     cuts its own end, on the smallest iPhone.
     - Round 7 (S-ModelSheet r7): the list shows no scroll indicator, and a hairline
-      tops the pinned panel only while rows lie under it. The search field filters as
-      you type and the sheet holds the large detent while it has the focus or text. The
-      filter button opens a native menu (All, Claude, OpenAI, then Legacy models); its
+      tops the pinned panel only while rows lie under it. The native search bar filters
+      as you type and the sheet holds the large detent while it has the focus or text.
+      The filter button of the bottom toolbar opens a native menu (All, Claude, OpenAI, then Legacy models); its
       glyph fills while a filter is on. A tap on a star moves the favourite of its
       account and never selects the row; the favourite goes first the next time the
       sheet opens. VoiceOver reaches the star as an action of the row.

@@ -232,8 +232,9 @@ The mode control shows `cautious`, or `🤖 auto`. Tap it to pick one; the phone
 mode for the conversation. Full mode is never on the phone. Auto from the phone needs
 the Face ID unlock of the app (see [Settings](#settings)): while it is off, Auto is
 greyed, and the menu has "Turn on Face ID unlock", which opens Settings at that row and
-marks it for a moment. While the
-unlock is on, a message in auto goes at once: the unlock is the check.
+marks it for a moment. While the unlock is on, a message in auto goes at once: the
+unlock is the check. A steer adds text to the running turn in the mode of that turn,
+also in auto, with or without the Face ID unlock.
 
 When no turn runs, Send sends your prompt. While a turn runs:
 
@@ -255,9 +256,10 @@ model of the next message and its effort, such as `Opus 5.5 · high`. When the m
 runs on two accounts, the button names the account too: `GPT-6.1 Sol · b · medium`. Tap
 it to open the model sheet.
 
-The search field at the top of the sheet filters the models as you type: each word
-must be in the name or the id of the model. The filter button next to it picks the
-provider (All, Claude, OpenAI) and turns "Legacy models" on or off. A model is legacy
+The search bar in the bottom toolbar filters the models as you type: each word must be
+in the name or the id of the model. While the search has the focus or text, the sheet
+stays at its full height. The filter button next to the search bar picks the provider
+(All, Claude, OpenAI) and turns "Legacy models" on or off. A model is legacy
 when the machine lists a newer model of its family, such as Opus 5 next to Opus 5.5.
 Legacy models are hidden by default, also from a search. Turn "Legacy models" on in the
 filter to see them, under "Legacy" at the end of their account.
@@ -284,12 +286,13 @@ each account. While a turn runs, the status line shows the limit of its account 
   model. A dot marks the model's default. A model without efforts has no slider.
 - The quiet line under the slider shows the context window and whether the model is
   the default of the machine. "Use default" picks the default again.
-- The confirm button shows only when something changed, such as "Use Sonnet 5 ·
-  medium", or "Use ChatGPT plan · b" when only the account changes. While a turn runs,
-  your pick applies to the next message.
-- When the switch compacts the conversation, the sheet says so and the button reads
-  "Switch and compact". "Don't ask again here" stops this warning in this
-  conversation. A switch that only starts a cold cache says nothing.
+- "Use" at the right of the header confirms your pick. It is off until something
+  changed. VoiceOver reads what it uses, such as "Use Sonnet 5 · medium", or "Use
+  ChatGPT plan · b" when only the account changes. While a turn runs, the quiet line
+  says "next message": your pick applies to the next message.
+- When the switch compacts the conversation, the sheet says so and the header button
+  reads "Switch". "Don't ask again here" stops this warning in this conversation. A
+  switch that only starts a cold cache says nothing.
 
 The phone keeps your pick for the conversation, and each prompt from the phone sends
 it. The conversation shows one quiet line above the first answer on the new model,
@@ -384,6 +387,10 @@ only the efr mark. Auto from the phone needs this unlock. The switch asks iOS be
 turns on and before it turns off. When it turns off, each conversation of the phone goes
 back to cautious. An iPhone without a passcode cannot turn it on; when you remove the
 passcode while it is on, efr turns it off and says why. efr has no passcode of its own.
+The app measures the 5 minutes with the clock of the iPhone. A person who sets that
+clock back while the app is away can make the time away look shorter than 5 minutes.
+Then the app opens with no check.
+
 Settings also has the Haptics switch, which turns off all the haptics of the app, and
 the version of the app.
 

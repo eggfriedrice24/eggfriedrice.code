@@ -12,8 +12,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
-- The model sheet of the phone app has a search field, and a filter menu with the
-  provider (All, Claude, OpenAI) and "Legacy models". efrd marks a model legacy when a
+- The model sheet of the phone app has the native search bar and a filter menu in the
+  bottom toolbar. The filter has the provider (All, Claude, OpenAI) and "Legacy
+  models". efrd marks a model legacy when a
   newer model of its family is listed (`legacy` in `models.list`); the sheet shows them
   only while "Legacy models" is on in the filter. A star on a row makes the model
   the favourite of its account, one for each account. A new thread from the phone
@@ -28,8 +29,6 @@ into the GitHub release notes, and it stops when the section is missing.
   or 🤖 auto, never full. Auto needs the Face ID unlock; while it is off, Auto is greyed
   and the menu opens Settings. Turning the unlock off sets each conversation back to
   cautious. The model button has the logo of the provider.
-- The phone app can answer Leave to the quarantine question. Keep stays at your own
-  machine.
 - `[accounts.labels]` in `config.toml` gives each account a name of your own, such as
   `"anthropic-api.work" = "Work"`. `efr models` shows the label after the kind, and
   the phone app shows it in place of the id; `efr status` shows the id. The model
@@ -73,8 +72,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - The phone app has a model sheet. Tap the model button at the end of the status line.
   The sheet lists the models of each account of the machine (Claude API, OpenAI API,
   ChatGPT plan, with the label or the id of the account). It has one effort slider for
-  the selected model, and it shows a confirm only when something changed. A switch
-  that compacts the conversation says so first.
+  the selected model. "Use" in the header confirms the pick, and it is off until
+  something changed. A switch that compacts the conversation says so first, and the
+  button then reads "Switch".
 - The phone app sends the model, the account and the effort that you picked with each
   prompt of that conversation.
 - The phone app shows one quiet line above the first answer on a new model or account,
@@ -102,8 +102,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - The phone app shows on the tool card which changed git settings and other files that
   run programs moved to quarantine, and which stayed in place. With the reviewer off,
   the phone app shows the quarantine question on the tool card, in the strip and in a
-  sheet, and names the computer where you answer it. After the answer, the card says
-  kept or left in quarantine.
+  sheet. You can answer Leave on the phone; for Keep, the app names the computer where
+  you answer it. After the answer, the card says kept or left in quarantine.
 - The phone app lists the web pages that an answer cites at the end of the turn, counts
   the searches on the end line, and says when the search read a stored copy of the
   web and names what gives the live web.
@@ -114,8 +114,8 @@ into the GitHub release notes, and it stops when the section is missing.
   for `auto`; a phone prompt that names no mode runs as `cautious`, also when your
   default is `auto`. A phone never runs in full mode. A phone turn in `auto` follows
   the rules of an `auto` turn of your shell, and your "always allow" rules cover its
-  exits, but the phone still cannot save a new one. The phone can now answer Leave to
-  the quarantine question; Keep stays at your own machine.
+  exits, but the phone still cannot save a new one. efrd takes Leave to the quarantine
+  question from a phone; Keep stays at your own machine.
 - A login or a logout applies at once in `efr status`, the model list and the next
   prompt, with no restart of efrd. A credential file that you put in place, replace or
   remove yourself applies at the next `efr status`, `efr models` or Tab completion, and
