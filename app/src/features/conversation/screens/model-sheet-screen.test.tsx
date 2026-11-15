@@ -163,6 +163,15 @@ const LEGACY_MODELS: ModelsListResult = {
   ),
 };
 
+/** The list with a Claude account next to the plans. */
+const BOTH_KINDS: ModelsListResult = {
+  models: [
+    ...MODELS.models,
+    { id: "claude-opus-5-5", provider: "anthropic-api", source: "builtin" },
+  ],
+  catalogs: [...(MODELS.catalogs ?? []), { provider: "anthropic-api", origin: "builtin" }],
+};
+
 /** The native header button "Use" (or "Switch") of the sheet. */
 function useButton() {
   return within(screen.getByTestId("native-toolbar-right")).getByRole("button");
@@ -403,6 +412,28 @@ describe("the model sheet", () => {
     await act(flush);
     expect(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeNull();
+  });
+
+  it("names the providers All, Claude and OpenAI in the filter, and filters by one", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(async () => {
+      socketOf(services(), DESKTOP).answer("models.list", BOTH_KINDS);
+      await flush();
+    });
+    const items = within(screen.getByTestId("native-menu-Provider")).getAllByRole("menuitem");
+    expect(items.map((item) => within(item).getByText(/./).props.children)).toEqual([
+      "All",
+      "Claude",
+      "OpenAI",
+    ]);
+    expect(screen.getByTestId("model-row-anthropic-api/claude-opus-5-5")).toBeOnTheScreen();
+    await fireEvent.press(within(screen.getByTestId("native-menu-Provider")).getByText("OpenAI"));
+    await act(flush);
+    expect(screen.queryByTestId("model-row-anthropic-api/claude-opus-5-5")).toBeNull();
+    expect(screen.getByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeOnTheScreen();
   });
 
   it("opens with the row of a switch offer selected", async () => {

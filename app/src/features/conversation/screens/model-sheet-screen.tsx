@@ -234,7 +234,7 @@ function SheetBody(props: SheetBodyProps) {
   };
   const { filter, confirm } = view;
   const kinds: [KindFilter, string][] = [
-    ["all", "All providers"],
+    ["all", "All"],
     ["claude", "Claude"],
     ["openai", "OpenAI"],
   ];
