@@ -441,7 +441,9 @@ not a test that pretends.
 35. The Claude spark keeps its own colour, the OpenAI mark is text_primary, and both
     are sharp at 3x. A signed-out account shows its logos at 40 %.
 36. The model button at the end of the status line gives way to the path first, then
-    cuts its own end, on the smallest iPhone.
+    to ctx, then cuts its own end, on the smallest iPhone. The path and ctx each go
+    whole with their "·": no lone "·" and no half-cut `ctx` stays. Look with a long
+    path, with the limit of an account (`5-hour 92%`), and with "waiting for you".
     - Round 7 (S-ModelSheet r7): the list shows no scroll indicator, and a hairline
       tops the pinned panel only while rows lie under it. The native search bar filters
       as you type and the sheet holds the large detent while it has the focus or text.
@@ -450,12 +452,17 @@ not a test that pretends.
       The filter button of the bottom toolbar opens a native menu (All, Claude, OpenAI, then Legacy models); its
       glyph fills while a filter is on. A tap on a star moves the favourite of its
       account and never selects the row; the favourite goes first the next time the
-      sheet opens. VoiceOver reaches the star as an action of the row.
+      sheet opens. VoiceOver reaches the star as an action of the row, and after the
+      action says the result, such as "GPT-6 Astra is the favourite of the ChatGPT
+      plan" or "The ChatGPT plan has no favourite". VoiceOver reads the filter button
+      of the native toolbar with its hint "Opens the filters.".
     - S-ComposerR7: the provider mark stands before the model name at 11 pt (the
       Claude spark orange, the OpenAI mark in the colour of the button). A new thread
       starts with the favourite of the last plan. The mode control (cautious, or 🤖 auto)
       left of the model button opens a menu with Cautious and Auto. With the Face ID
-      unlock off, Auto is greyed and "Turn on Face ID unlock" opens Settings.
+      unlock off, Auto is greyed and "Turn on Face ID unlock" opens Settings. With two
+      or more paired machines, so that the row is below the fold, Settings opens
+      scrolled to Privacy and marks the "Face ID unlock" row for about 1 s.
     - Face ID unlock (S-Lock, Settings round 9; a new dev build with
       expo-local-authentication):
       1. Unlock on, kill the app, open it: the lock screen and the prompt of iOS at once.
@@ -466,7 +473,9 @@ not a test that pretends.
       5. The app switcher shows the cover (the mark), never the transcript, also with the
          model sheet or the approval sheet open, and after a fast swipe home.
       6. The lock screen lies over an open model sheet, approval sheet and All
-         conversations sheet on iOS 26. VoiceOver reaches nothing under it.
+         conversations sheet on iOS 26, and over an open menu: the mode menu, the
+         filter menu of the model sheet and the Steer and Queue menu. VoiceOver reaches
+         nothing under it.
       7. The keyboard was up when the app left: it is down on the lock screen.
       8. Control Center, the notification shade, a paste question of iOS and the camera
          question of pairing: the cover shows only while iOS is in front.
@@ -500,7 +509,7 @@ not a test that pretends.
 
 Each check names the gallery board that shows it (a long press on the version in
 Settings, section About, of a dev or preview build).
-Uniwind draws some classes only on the iPhone: `shrink-[1000]`, `line-through`,
+Uniwind draws some classes only on the iPhone: `shrink-[1000000]`, `line-through`,
 `text-row-strong` and `text-caption-strong`. Look at them in these checks.
 
 37. AC-Out (gallery "AU-Auto"): the end of the stopped turn says why in the words of
@@ -514,7 +523,7 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000]`, `line-through`,
 38. AC-Limits (gallery "S-ModelSheet", Settings and the composer): the model sheet
     shows the warning of a plan near its limit and of a full account with its reset.
     From 90 % the status line shows the limit (`5-hour 92%`) with the warning glyph
-    while a turn runs, and the path gives way first (`shrink-[1000]`). Settings ›
+    while a turn runs, and the path gives way first (`shrink-[1000000]`). Settings ›
     Accounts on <machine> has one row per account, and its screen shows each window
     with "limit reached" in state_error. The strong texts (`text-row-strong`,
     `text-caption-strong`) are heavier than the plain ones.
