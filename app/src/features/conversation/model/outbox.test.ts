@@ -75,12 +75,12 @@ describe("the outbox", () => {
     const known = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a" });
     const fresh = outbox.enqueue({ machine: DESKTOP, target: outbox.newConversation(), text: "n" });
     const snapshot = outbox.store.get();
-    expect(sendParams(snapshot, known)).toEqual({
+    expect(sendParams(snapshot, known, true)).toEqual({
       command_id: known.commandId,
       text: "a",
       conversation_id: CONVERSATION_A,
     });
-    expect(sendParams(snapshot, fresh)).toEqual({
+    expect(sendParams(snapshot, fresh, true)).toEqual({
       command_id: fresh.commandId,
       text: "n",
       new_conversation: true,
@@ -103,13 +103,13 @@ describe("the outbox", () => {
       settings: { model: "claude-haiku-4-5" },
     });
     const snapshot = outbox.store.get();
-    expect(sendParams(snapshot, entry)).toEqual({
+    expect(sendParams(snapshot, entry, true)).toEqual({
       command_id: entry.commandId,
       text: "a",
       conversation_id: CONVERSATION_A,
       settings: { model: "claude-sonnet-5", provider: "anthropic-api.work", effort: "medium" },
     });
-    expect(sendParams(snapshot, plain).settings).toEqual({ model: "claude-haiku-4-5" });
+    expect(sendParams(snapshot, plain, true).settings).toEqual({ model: "claude-haiku-4-5" });
     await outbox.flush();
     const loaded = await storage.load();
     expect(loaded.map((saved) => saved.settings)).toEqual([
@@ -131,14 +131,14 @@ describe("the outbox", () => {
     });
     const cautious = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "c" });
     const snapshot = outbox.store.get();
-    expect(sendParams(snapshot, auto).settings).toEqual({ mode: "auto" });
-    expect(sendParams(snapshot, both).settings).toEqual({
+    expect(sendParams(snapshot, auto, true).settings).toEqual({ mode: "auto" });
+    expect(sendParams(snapshot, both, true).settings).toEqual({
       model: "gpt-6-luna",
       provider: "openai-subscription",
       mode: "auto",
     });
     // No mode at all: efrd runs a phone prompt that names none as cautious.
-    expect(sendParams(snapshot, cautious).settings).toBeUndefined();
+    expect(sendParams(snapshot, cautious, true).settings).toBeUndefined();
     await outbox.flush();
     expect((await storage.load()).map((saved) => saved.auto)).toEqual([true, true, undefined]);
     // The Face ID unlock is off at the moment of the send: no mode.
@@ -193,7 +193,7 @@ describe("the outbox", () => {
     const snapshot = outbox.store.get();
     expect(resolveAlias(snapshot, DESKTOP, target.localId)).toBe(NEW_ID);
     expect(resolveAlias(snapshot, LAPTOP, target.localId)).toBeUndefined();
-    expect(sendParams(snapshot, second)).toEqual({
+    expect(sendParams(snapshot, second, true)).toEqual({
       command_id: second.commandId,
       text: "second",
       conversation_id: NEW_ID,
@@ -229,7 +229,9 @@ describe("the outbox", () => {
     outbox.begin(first.commandId);
     outbox.fail(first.commandId, { code: "invalid", message: "no" });
     expect(due(outbox.store.get())).toEqual(["second"]);
-    expect(sendParams(outbox.store.get(), second)).toMatchObject({ new_conversation: true });
+    expect(sendParams(outbox.store.get(), second, true)).toMatchObject({
+      new_conversation: true,
+    });
   });
 
   it("waits until retryAt and tells the drain when to wake", () => {
@@ -385,7 +387,9 @@ describe("the outbox after a restart", () => {
     if (second === undefined) {
       throw new Error("two entries");
     }
-    expect(sendParams(outbox.store.get(), second)).toMatchObject({ conversation_id: NEW_ID });
+    expect(sendParams(outbox.store.get(), second, true)).toMatchObject({
+      conversation_id: NEW_ID,
+    });
   });
 
   it("sends the rest of a new conversation to it after the echo of the first", async () => {
@@ -407,7 +411,7 @@ describe("the outbox after a restart", () => {
       throw new Error("one entry");
     }
     expect(second.target).toEqual({ kind: "conversation", conversationId: NEW_ID });
-    expect(sendParams(outbox.store.get(), second)).toEqual({
+    expect(sendParams(outbox.store.get(), second, true)).toEqual({
       command_id: second.commandId,
       text: "second",
       conversation_id: NEW_ID,

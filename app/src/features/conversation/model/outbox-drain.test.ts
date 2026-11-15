@@ -52,7 +52,14 @@ function drainOf(
   clock: FakeClock,
   machine = DESKTOP,
 ): OutboxDrain {
-  return createOutboxDrain({ outbox, machine, send, clock, random: () => 0 });
+  return createOutboxDrain({
+    outbox,
+    machine,
+    send,
+    clock,
+    random: () => 0,
+    autoAllowed: () => true,
+  });
 }
 
 function call(calls: readonly Call[], index: number): Call {
@@ -123,6 +130,7 @@ describe("the outbox drain", () => {
       send: (params) => Promise.resolve(efrd.take(params)),
       clock,
       random: () => 0,
+      autoAllowed: () => true,
       onSent: (_entry, result) => sent.push(result),
     });
     const target = outbox.newConversation();

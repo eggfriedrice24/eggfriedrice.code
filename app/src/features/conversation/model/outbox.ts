@@ -288,11 +288,13 @@ export function drainPlan(snapshot: OutboxSnapshot, machine: DaemonId, now: numb
 /**
  * The params of `prompt.send` for an entry: its conversation, the conversation of the
  * alias of its new target, or `new_conversation` when efrd did not make it yet.
+ * `autoAllowed` is true while the Face ID unlock is on; the caller must say it, so a
+ * caller that forgets it never sends auto.
  */
 export function sendParams(
   snapshot: OutboxSnapshot,
   entry: OutboxEntry,
-  autoAllowed = true,
+  autoAllowed: boolean,
 ): PromptSend {
   const params: PromptSend = { command_id: entry.commandId, text: entry.text };
   if (entry.target.kind === "conversation") {
