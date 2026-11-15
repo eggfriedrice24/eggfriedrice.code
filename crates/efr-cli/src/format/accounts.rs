@@ -10,7 +10,8 @@
 //! says them. A command row holds the command alone, so a triple click copies it.
 
 use efr_protocol::{
-    AccountLimits, AccountOut, AccountState, LimitKind, LimitWindow, ModelsListResult, OtherAccount,
+    AccountLimits, AccountOut, AccountState, LimitKind, LimitReached, LimitWindow,
+    ModelsListResult, OtherAccount,
 };
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -124,13 +125,23 @@ fn limit_words(kind: LimitKind) -> &'static str {
     }
 }
 
+/// The reset that the stop of `reached` names. Credit has no reset, and the reset of
+/// "too many requests" is only the end of a wait of some seconds, which TM-Accounts 5
+/// and errata 5 leave out: "efr stopped trying" is enough.
+fn shown_reset(reached: &LimitReached) -> Option<Timestamp> {
+    match reached.kind {
+        LimitKind::Credit | LimitKind::TooManyRequests => None,
+        _ => reached.resets_at,
+    }
+}
+
 /// The reason under `✗ failed` when the account of the turn is out (TM-Accounts 1 to
 /// 5): `the ChatGPT plan reached its usage limit. It resets at 14:20.` A known reset is
 /// its own sentence; with none, no time. The account has the name of the offer rows and
 /// of `efr status` (errata 12): `b reached its usage limit.`, not `the account b`.
 pub(crate) fn stop_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> String {
     let mut reason = format!("{} {}.", short_name(&out.provider), limit_words(out.reached.kind));
-    if let Some(at) = out.reached.resets_at.filter(|_| out.reached.kind != LimitKind::Credit) {
+    if let Some(at) = shown_reset(&out.reached) {
         reason.push_str(&format!(" It resets {}.", reset_phrase(at, now, zone)));
     }
     reason
@@ -141,7 +152,7 @@ pub(crate) fn stop_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> 
 /// offer is not repeated: it is stale once a switch or a reset happened.
 pub(crate) fn history_reason(out: &AccountOut, now: Timestamp, zone: &TimeZone) -> String {
     let mut reason = format!("{} {}", short_name(&out.provider), limit_words(out.reached.kind));
-    if let Some(at) = out.reached.resets_at.filter(|_| out.reached.kind != LimitKind::Credit) {
+    if let Some(at) = shown_reset(&out.reached) {
         reason.push_str(&format!(" (resets {})", reset_time(at, now, zone)));
     }
     reason

@@ -299,9 +299,10 @@ action and your messages. [Providers](../providers.md#the-reviewer) tells more.
 - **An account at its limit.** The ChatGPT plan reached its usage limit, a key has no
   credit left, a key reached its spend limit, or the provider answered "too many
   requests" until efr stopped trying. The turn stops. efr names the limit, the time
-  of the reset when the provider tells it, and the other accounts that serve the same
-  model: each one with a login, and each signed-out one that `[accounts]` names, with
-  its login command. A full account is named only when its reset comes first. efr
+  of the reset when the provider tells it (not for credit and not for "too many
+  requests", whose wait is only some seconds), and the other accounts that serve the
+  same model: each one with a login, and each signed-out one that `[accounts]` names,
+  with its login command. A full account is named only when its reset comes first. efr
   never switches by itself: switch with `,model <account>/<model>`. Each command
   stands alone on its row, so a triple click copies it:
 

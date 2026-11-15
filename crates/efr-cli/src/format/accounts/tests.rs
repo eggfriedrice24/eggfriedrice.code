@@ -208,6 +208,22 @@ fn the_history_reason_keeps_the_reset_in_brackets() {
     assert_eq!(history_reason(&named, now(), &zone), "b reached its usage limit (resets 14:20)");
 }
 
+/// TM-Accounts 5 and errata 5: the wait of "too many requests" is no reset, so neither
+/// the stop nor `efr history` names a time, also when the provider sent one.
+#[test]
+fn too_many_requests_names_no_reset() {
+    let zone = TimeZone::UTC;
+    let out = out("anthropic-api", "claude-opus-5-5", LimitKind::TooManyRequests, Some(at(1)));
+    assert_eq!(
+        stop_reason(&out, now(), &zone),
+        "the Claude API key got \"too many requests\", so efr stopped trying."
+    );
+    assert_eq!(
+        history_reason(&out, now(), &zone),
+        "the Claude API key got \"too many requests\", so efr stopped trying"
+    );
+}
+
 #[test]
 fn windows_are_named_by_their_length() {
     assert_eq!(window_name(Some(300)), "5-hour");
