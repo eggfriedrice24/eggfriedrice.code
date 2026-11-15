@@ -258,16 +258,43 @@ export function createModelChoices(deps: ModelChoicesDeps): ModelChoices {
     saves = saves.then(write).catch((error: unknown) => deps.onStorageError?.(error));
   };
 
+  // NOTE: a part is copied when the change first reads it. The parts that a change does
+  // not read keep their identity, so a selector of one of them (`selectFavourites`) sees
+  // no change and its rows do not render again.
   const update = (change: (draft: Draft) => boolean): void => {
+    const state = store.state;
+    const copies: {
+      choices?: Map<string, ModelChoice>;
+      quiet?: Set<string>;
+      auto?: Set<string>;
+      favourites?: Map<string, string>;
+      plans?: Map<string, string>;
+    } = {};
     const draft: Draft = {
-      choices: new Map(store.state.choices),
-      quiet: new Set(store.state.quiet),
-      auto: new Set(store.state.auto),
-      favourites: new Map(store.state.favourites),
-      plans: new Map(store.state.plans),
+      get choices() {
+        return (copies.choices ??= new Map(state.choices));
+      },
+      get quiet() {
+        return (copies.quiet ??= new Set(state.quiet));
+      },
+      get auto() {
+        return (copies.auto ??= new Set(state.auto));
+      },
+      get favourites() {
+        return (copies.favourites ??= new Map(state.favourites));
+      },
+      get plans() {
+        return (copies.plans ??= new Map(state.plans));
+      },
     };
     if (change(draft)) {
-      store.setState(() => draft);
+      store.setState(() => ({
+        choices: copies.choices ?? state.choices,
+        quiet: copies.quiet ?? state.quiet,
+        auto: copies.auto ?? state.auto,
+        favourites: copies.favourites ?? state.favourites,
+        plans: copies.plans ?? state.plans,
+      }));
       save();
     }
   };

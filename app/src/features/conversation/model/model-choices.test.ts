@@ -124,6 +124,22 @@ describe("the mode, the favourites and the plan", () => {
     expect(favouriteOf(choices.store.get().favourites, DESKTOP, plan)).toBeUndefined();
   });
 
+  it("copies only the part that a change edits, so the favourites keep their map", () => {
+    const choices = createModelChoices({ storage: new MemoryKeyValue() });
+    choices.setFavourite(DESKTOP, "openai-subscription", "gpt-6-luna");
+    const before = choices.store.get();
+    choices.setMode(KEY, "auto");
+    choices.setQuiet(KEY, true);
+    choices.set(KEY, { model: "gpt-6.1-sol", effort: "high" });
+    const after = choices.store.get();
+    expect(selectFavourites(after)).toBe(selectFavourites(before));
+    expect(after.plans).toBe(before.plans);
+    expect(after.auto).not.toBe(before.auto);
+    // A change that changes nothing keeps the state.
+    choices.setMode(KEY, "auto");
+    expect(choices.store.get()).toBe(after);
+  });
+
   it("keeps the account of a choice or a message as the last plan of the machine", () => {
     const choices = createModelChoices({ storage: new MemoryKeyValue() });
     expect(selectPlan(DESKTOP)(choices.store.get())).toBeUndefined();
