@@ -349,6 +349,8 @@ turns.
   (`Toolbox::wake_allowed`) allow one more. The wake turn runs in the mode of the
   newest turn that a prompt started, or of the job's turn when no prompt came since,
   in every mode: outside `auto` its calls ask as in any turn of that mode. A wake turn
+  of a job of a phone turn (a remote origin) never runs in a looser mode than that
+  turn: a later `auto` of a terminal prompt does not reach it. A wake turn
   of `full` runs with at most `auto` (see "Turn settings"). A notice from efrd's restart (`wakes`
   false) never starts one. A notice that could not start a turn records
   `job_notice_held` with the reason, once, and rides in the next turn. A wake turn

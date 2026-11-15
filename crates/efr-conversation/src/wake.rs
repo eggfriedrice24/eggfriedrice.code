@@ -9,7 +9,7 @@
 
 use std::collections::VecDeque;
 
-use efr_protocol::Mode;
+use efr_protocol::{Mode, Origin};
 use jiff::{SignedDuration, Timestamp};
 
 use crate::JobNoticeInput;
@@ -67,8 +67,13 @@ impl WakeWindow {
 /// mode of the turn that started the job when no prompt came since. A mode that the user
 /// chose after the job started reaches its notices; outside `auto` the turn's calls ask
 /// as in any turn of that mode.
-pub(crate) fn wake_mode(start: Mode, newest_prompt: Option<Mode>) -> Mode {
-    newest_prompt.unwrap_or(start)
+///
+/// A wake turn of a remote `origin` (the job of a phone turn) never runs in a looser mode
+/// than the turn that started the job: a phone turn runs in `auto` only when the phone
+/// named `auto`, so a newer `auto` of a terminal prompt does not reach it.
+pub(crate) fn wake_mode(start: Mode, newest_prompt: Option<Mode>, origin: Origin) -> Mode {
+    let newest = newest_prompt.unwrap_or(start);
+    if efr_permissions::is_local(origin) { newest } else { newest.min(start) }
 }
 
 /// The line that stands for the notices that a turn could not take.

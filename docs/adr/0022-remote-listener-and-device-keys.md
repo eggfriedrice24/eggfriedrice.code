@@ -100,7 +100,10 @@ signed message all depend on them.
    gate of the app; efrd cannot verify it. efrd refuses from a phone: an answer to a
    `local_only` question (a command that runs as another user, a background job, a
    delete that full mode guards), every "always allow" answer, Keep on the quarantine
-   question (Leave is allowed), `input.respond`, `turn.undo` and a change of settings. The settings tool counts `remote.enabled` and `remote.tailscaled_socket`
+   question (Leave is allowed), `input.respond`, `turn.undo` and a change of settings.
+   Steers that a phone sends again after an interrupt carry no mode of the interrupted
+   turn, and a turn that a job notice of a phone turn starts never runs in a looser
+   mode than that phone turn. The settings tool counts `remote.enabled` and `remote.tailscaled_socket`
    as changes that loosen permissions, so the agent cannot open the listener without
    the user.
 

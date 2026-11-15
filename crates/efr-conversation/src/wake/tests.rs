@@ -1,4 +1,4 @@
-use efr_protocol::{CallId, Mode, NoticeKind, Seq, TurnId};
+use efr_protocol::{CallId, Mode, NoticeKind, Origin, Seq, TurnId};
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
@@ -62,7 +62,23 @@ fn wake_turn_mode_is_the_newest_prompts(
     #[case] newest: Option<Mode>,
     #[case] wake: Mode,
 ) {
-    assert_eq!(wake_mode(start, newest), wake);
+    assert_eq!(wake_mode(start, newest, Origin::Shell), wake);
+}
+
+/// The review finding: the job of a phone turn in cautious woke in the auto of a later
+/// terminal prompt, so a phone turn ran in auto that the phone never named.
+#[rstest]
+#[case(Mode::Cautious, None, Mode::Cautious)]
+#[case(Mode::Cautious, Some(Mode::Auto), Mode::Cautious)]
+#[case(Mode::Cautious, Some(Mode::Full), Mode::Cautious)]
+#[case(Mode::Auto, Some(Mode::Manual), Mode::Manual)]
+#[case(Mode::Auto, Some(Mode::Auto), Mode::Auto)]
+fn a_phone_wake_turn_is_never_looser_than_the_turn_of_its_job(
+    #[case] start: Mode,
+    #[case] newest: Option<Mode>,
+    #[case] wake: Mode,
+) {
+    assert_eq!(wake_mode(start, newest, Origin::Phone), wake);
 }
 
 fn notice(number: u32, bytes: usize) -> JobNoticeInput {

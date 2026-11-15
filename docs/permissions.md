@@ -658,7 +658,8 @@ full turn left behind can turn the gate on again after you turned it off.
   own that runs with at most `auto`.
 - A turn that a job notice starts runs with at most `auto` (as `cautious` when the
   sandbox cannot run), and records the fallback `a turn that a job notice starts runs
-  with at most auto`.
+  with at most auto`. It runs in the newest mode of the conversation. For a job that a
+  phone turn started, it never runs in a looser mode than that phone turn.
 - efrd refuses full mode while it runs as root, while `snapshot.enabled` or
   `undo.enabled` is `false` (then `efr undo` cannot revert the turn), and when
   `shell.program` is no zsh (then efr cannot clear sudo's cached password before a

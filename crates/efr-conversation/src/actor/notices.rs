@@ -193,7 +193,7 @@ impl ConversationActor {
             return Err(HeldReason::WakesOff);
         }
         let start = wakeable.iter().map(|start| start.mode).min().unwrap_or(first.mode);
-        let mode = wake::wake_mode(start, self.notices.newest_prompt);
+        let mode = wake::wake_mode(start, self.notices.newest_prompt, first.origin);
         // NOTE: the turn resolves these settings when it starts, as a prompt's turn
         // does; a value that cannot work then fails the turn, which the user sees. The
         // model and the effort are the conversation's newest pick (`sticky.rs`), not
