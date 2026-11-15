@@ -6,7 +6,9 @@
 // - Header: the native title "All conversations" in the system size (design item 8.4),
 //   on surface_1 with no hairline, and the close button (UIBarButtonItem, xmark) on the
 //   right. A swipe down also dismisses the sheet.
-// - "New conversation" on top goes back to the blank root.
+// - The native search bar and the compose button (square.and.pencil, "New conversation",
+//   back to the blank root) stand in the bottom toolbar of iOS 26, as the thread list of
+//   t3code (the hard rule of app/AGENTS.md: native parts over JS copies).
 // - A pick dismisses the sheet, then opens the conversation: a push, or a pop back to it
 //   when it is in the stack. A conversation of another machine carries its machine. The
 //   history helper does both, because it plans over the stack with the sheet on top.
@@ -37,8 +39,27 @@ export function ConversationsScreen(props: ConversationsScreenProps) {
     props.machine,
   );
   const open = (ref: ConversationAddress): void => deps.open(ref);
+  const [query, setQuery] = useState("");
   return (
     <>
+      <Stack.SearchBar
+        placeholder="Search"
+        autoCapitalize="none"
+        hideNavigationBar={false}
+        obscureBackground={false}
+        allowToolbarIntegration
+        onChangeText={(event) => setQuery(event.nativeEvent.text)}
+        onCancelButtonPress={() => setQuery("")}
+      />
+      <Stack.Toolbar placement="bottom">
+        <Stack.Toolbar.SearchBarSlot />
+        <Stack.Toolbar.Button
+          icon="square.and.pencil"
+          accessibilityLabel="New conversation"
+          separateBackground
+          onPress={deps.newConversation}
+        />
+      </Stack.Toolbar>
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
           icon="xmark"
@@ -51,7 +72,7 @@ export function ConversationsScreen(props: ConversationsScreenProps) {
         machines={machines}
         now={now}
         onOpen={open}
-        onNew={deps.newConversation}
+        query={query}
       />
     </>
   );

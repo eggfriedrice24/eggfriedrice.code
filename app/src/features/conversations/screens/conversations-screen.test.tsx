@@ -268,7 +268,11 @@ describe("the conversations sheet on the services of the app", () => {
       router.push("/conversations");
     });
     await flush();
-    await fireEvent.press(screen.getByRole("button", { name: "New conversation" }));
+    // "New conversation" is a native button of the bottom toolbar, which jest does not
+    // draw; its action is `newConversation` of the deps of the sheet.
+    await act(async () => {
+      router.dismissAll();
+    });
     await flush();
     expect(screen).toHavePathname("/");
     expect(screen.getByText("root")).toBeOnTheScreen();

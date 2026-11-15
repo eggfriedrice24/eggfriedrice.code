@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { TextInput } from "react-native";
 
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
@@ -17,7 +18,7 @@ import { FakeCaller } from "@/lib/query/testing";
 import { SEARCH_LIMIT } from "../conversations-queries";
 import { october } from "../model/testing";
 import { SEARCH_DEBOUNCE_MS } from "../model/sheet-view";
-import { ConversationsSheet } from "./conversations-sheet";
+import { ConversationsSheet, type ConversationsSheetProps } from "./conversations-sheet";
 import { ROW_GLYPHS } from "./sheet-row";
 
 jest.mock("@/lib/native/clipboard", () => ({
@@ -113,18 +114,30 @@ interface Options {
   readonly caller?: FakeCaller;
   readonly machines?: typeof MACHINES;
   readonly onOpen?: (ref: ConversationAddress) => void;
-  readonly onNew?: () => void;
+}
+
+/**
+ * The sheet with a text field in place of the native search bar of the screen, which
+ * jest does not draw (the device checks of app/README.md cover the native bar).
+ */
+function SearchHost(props: Omit<ConversationsSheetProps, "query">) {
+  const [query, setQuery] = useState("");
+  return (
+    <>
+      <TextInput accessibilityLabel="Search conversations" value={query} onChangeText={setQuery} />
+      <ConversationsSheet {...props} query={query} />
+    </>
+  );
 }
 
 async function renderSheet(options: Options = {}): Promise<FakeCaller> {
   const caller = options.caller ?? sampleCaller();
   await render(
-    <ConversationsSheet
+    <SearchHost
       caller={caller}
       machines={options.machines ?? MACHINES}
       now={NOW}
       onOpen={options.onOpen ?? (() => undefined)}
-      onNew={options.onNew ?? (() => undefined)}
     />,
     { wrapper },
   );
@@ -212,15 +225,6 @@ describe("the sections of the sheet", () => {
     });
     expect(ROW_GLYPHS.running.tone).toBe("accent_primary");
     expect(ROW_GLYPHS.none.tone).toBe("text_subtle");
-  });
-
-  it("has New conversation on top, before the search field", async () => {
-    const onNew = jest.fn<() => void>();
-    await renderSheet({ onNew });
-    const tops = screen.getAllByRole(/button|search/).map((node) => node.props.accessibilityLabel);
-    expect(tops.slice(0, 2)).toEqual(["New conversation", "Search conversations"]);
-    await fireEvent.press(screen.getByRole("button", { name: "New conversation" }));
-    expect(onNew).toHaveBeenCalledTimes(1);
   });
 
   it("shows the loading line while no machine has answered", async () => {

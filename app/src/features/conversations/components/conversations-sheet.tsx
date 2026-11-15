@@ -1,6 +1,9 @@
-// The body of the conversations sheet (design-spec 3.15, board R-AllSheet): the "New
-// conversation" row, then the search field over two panes. Every paired machine is in it; the waiting conversations
-// are in their own section on top, then today, this week and older, newest first.
+// The body of the conversations sheet (design-spec 3.15, board R-AllSheet): two panes
+// under the native search bar of the screen. Every paired machine is in it; the waiting
+// conversations are in their own section on top, then today, this week and older, newest
+// first. The search bar and the compose button ("New conversation") are native parts of
+// the screen, in the bottom toolbar of iOS 26 (the hard rule of app/AGENTS.md, as the
+// thread list of t3code), so this view draws neither.
 //
 // - Sections pane: the empty search of each machine (`sheetQueriesOptions` with ""),
 //   which the persister keeps, so the sheet shows rows before the machines connect.
@@ -12,11 +15,8 @@
 
 import { useQueries } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { Activity, useDeferredValue, useState } from "react";
-import { Pressable, View } from "react-native";
-
-import { BodyText } from "@/components/ui/body-text";
-import { SymbolIcon } from "@/components/ui/symbol";
+import { Activity, useDeferredValue } from "react";
+import { View } from "react-native";
 
 import type { ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
@@ -34,7 +34,6 @@ import {
   sheetPane,
   type SheetMachine,
 } from "../model/sheet-view";
-import { SearchField } from "@/components/ui/search-field";
 import { SheetList, type SheetListSection } from "./sheet-list";
 
 export interface ConversationsSheetProps {
@@ -46,13 +45,13 @@ export interface ConversationsSheetProps {
   readonly now: number;
   /** Opens a picked conversation. */
   readonly onOpen: (ref: ConversationAddress) => void;
-  /** Goes back to the blank root for a new conversation. */
-  readonly onNew: () => void;
+  /** The text of the native search bar of the screen. */
+  readonly query: string;
 }
 
-/** The search field and the two panes of the sheet. */
+/** The two panes of the sheet. */
 export function ConversationsSheet(props: ConversationsSheetProps) {
-  const [text, setText] = useState("");
+  const text = props.query;
   const typed = useDeferredValue(text);
   const [searched] = useDebouncedValue(text, { wait: SEARCH_DEBOUNCE_MS });
   const ids = props.machines.map((machine) => machine.id);
@@ -95,8 +94,6 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
     // child of the formSheet. react-native-screens gives such a scroll view the size of
     // the sheet by force, and then it can cover the views beside it.
     <View collapsable={false} className="flex-1 bg-surface-1">
-      <NewConversationRow onPress={props.onNew} />
-      <SearchField value={text} onChangeText={setText} />
       <View collapsable={false} className="flex-1">
         <Activity mode={pane === "sections" ? "visible" : "hidden"}>
           <SheetList
@@ -126,29 +123,5 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
         </Activity>
       </View>
     </View>
-  );
-}
-
-interface NewConversationRowProps {
-  readonly onPress: () => void;
-}
-
-/** The first row of the sheet: a new conversation on the blank root. */
-function NewConversationRow(props: NewConversationRowProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="New conversation"
-      onPress={props.onPress}
-      className="mb-8 min-h-52 flex-row items-center gap-12 px-gutter active:bg-selection-bg"
-      testID="sheet-new"
-    >
-      <View className="w-20 items-center">
-        <SymbolIcon name="square.and.pencil" size={17} tone="accent_primary" />
-      </View>
-      <BodyText size="row" tone="text_bright">
-        New conversation
-      </BodyText>
-    </Pressable>
   );
 }
