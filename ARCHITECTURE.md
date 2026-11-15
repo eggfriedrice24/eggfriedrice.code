@@ -528,7 +528,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-conversation/src/router.rs` and `crates/efr-daemon/src/providers/routes.rs`.
 - Accounts: which accounts efrd runs and the read of the logins from the credential
   store before `models.list` and `admin.status` (`accounts_to_run`,
-  `Providers::sync_logins`) in `crates/efr-daemon/src/providers.rs`; the labels of
+  `Providers::sync_logins`) in `crates/efr-daemon/src/providers.rs`; the one order of
+  the accounts, by kind, that `models.list`, `admin.status`, `efr status`, `efr models`
+  and the phone share (`group_by_kind`) in
+  `crates/efr-protocol/src/methods/models_list.rs`; the labels of
   `[accounts]` in `crates/efr-config/src/tables/accounts.rs`; the limits that each
   account reached, in memory, and the wrapper that notes them in
   `crates/efr-daemon/src/providers/limits.rs`; the answers that are a limit of the

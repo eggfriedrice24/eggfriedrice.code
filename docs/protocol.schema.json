@@ -541,7 +541,7 @@
           "type": "integer"
         },
         "providers": {
-          "description": "The configured model providers.",
+          "description": "The configured model providers, in the order of `catalogs` in `models.list`, then\nthe ones that it does not list, grouped by kind\n([`group_by_kind`](crate::group_by_kind)).",
           "items": {
             "$ref": "#/$defs/ProviderStatus"
           },
@@ -9787,7 +9787,7 @@
           "description": "Where the provider's catalog came from. Absent when the daemon does not report\nit, as before the catalog came from the backend."
         },
         "catalogs": {
-          "description": "Where the catalog of each provider in `models` came from: the provider of new\nconversations first, then each other provider with a login, then each account\nthat `[accounts]` in `config.toml` names but that has no login\n([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent\nwhen the daemon lists only the provider of new conversations, as before.",
+          "description": "Where the catalog of each provider in `models` came from: the provider of new\nconversations first, then each other provider with a login, then each account\nthat `[accounts]` in `config.toml` names but that has no login\n([`CatalogStatus::signed_out`]), grouped by kind ([`group_by_kind`]). `models`\nhas the same order. Clients show the accounts in this order. Absent when the\ndaemon lists only the provider of new conversations, as before.",
           "items": {
             "$ref": "#/$defs/CatalogStatus"
           },

@@ -151,11 +151,15 @@ new provider, or clear the choice with `,model default`.
 account has the name that `,model` takes, such as `work`, and its kind in words:
 `Claude API`, `ChatGPT plan` or `OpenAI API`. The default account of a kind has no
 name (`,model` takes it as `anthropic`, `openai` or `openai-api`). `active` marks the
-account of new conversations, and it comes first. Under each account with a login,
-its limits stand 2 columns in:
+account of new conversations, and it comes first. The accounts stand in groups by
+kind, so a signed-out account stands inside its kind. In a kind, the active account
+comes first, then the default account of the kind. `efr models` and the model sheet of
+the phone app use the same order. Under each account with a login, its limits stand 2
+columns in:
 
 ```text
 accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
+            personal  Claude API    signed out · efr login anthropic --account personal
                       ChatGPT plan  logged in · token expires in 6d 6h
               5-hour     92%  resets 14:20
               weekly     41%  resets Mon 09:00
@@ -164,7 +168,6 @@ accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
               weekly     63%  resets Mon 09:00
                       OpenAI API    logged in · key sk-…9f2Q
               requests  reached · resets 14:03
-            personal  Claude API    signed out · efr login anthropic --account personal
 models      work: from the backend, fetched 5m ago · b: from the cache, fetched 2h 5m ago
 ```
 
@@ -266,7 +269,7 @@ b · ChatGPT plan · from the cache, fetched 2h 5m ago
 ```
 
 An account that is signed out keeps its head with `signed out`, and its rows are dim.
-`efr models --names` prints only what `,model` takes, one on each line: the ids, and
+It stands inside its kind, in the order of `efr status`. `efr models --names` prints only what `,model` takes, one on each line: the ids, and
 with more than one account each model with its account.
 
 ### Where the list comes from

@@ -6,9 +6,12 @@
 //! a login, in the order of [`PROVIDERS`](crate::providers::PROVIDERS), never marked as
 //! the default; then the models of each account that `[accounts]` names but that has
 //! no login, from its last list, so a client can show them as signed out. Without a
-//! login and a name in `[accounts]`, another provider's list is left out. Each model
-//! names its provider, and the status of each catalog carries the account's label, its
-//! login and the limits that it reached.
+//! login and a name in `[accounts]`, another provider's list is left out. Then the list
+//! is grouped by kind (`efr_protocol::group_by_kind`): the provider of new
+//! conversations leads its kind, then the default account of each kind, so a signed-out
+//! account stands inside its kind; `admin.status` sends the accounts in the same order.
+//! Each model names its provider, and the status of each catalog carries the account's
+//! label, its login and the limits that it reached.
 //!
 //! The turns read the same list in the order of routing ([`Catalogs::routed`]): the
 //! providers without a login move behind the others, so a model id that two providers
@@ -122,7 +125,9 @@ impl Catalogs {
 
     /// The catalogs of the model list of `settings`, in its order: the configured
     /// provider's first, then each other provider with a login, then each account that
-    /// `[accounts]` names but that has no login.
+    /// `[accounts]` names but that has no login; then grouped by kind
+    /// ([`efr_protocol::group_by_kind`]), so a signed-out account stands inside its
+    /// kind (TM-Accounts 8).
     fn shown(&self, settings: &Settings) -> Vec<Arc<Models>> {
         let configured = self.configured(settings);
         let all = self.all();
@@ -132,9 +137,16 @@ impl Catalogs {
         let named = signed_out
             .into_iter()
             .filter(|other| settings.accounts.label(other.provider()).is_some());
-        std::iter::once(Arc::clone(&configured))
+        let mut shown: Vec<Arc<Models>> = std::iter::once(Arc::clone(&configured))
             .chain(logged_in.into_iter().chain(named).map(Arc::clone))
-            .collect()
+            .collect();
+        efr_protocol::group_by_kind(&mut shown, |models| models.provider(), configured.provider());
+        shown
+    }
+
+    /// The providers of the model list of `settings`, in its order.
+    pub(crate) fn order(&self, settings: &Settings) -> Vec<String> {
+        self.shown(settings).iter().map(|models| models.provider().to_owned()).collect()
     }
 
     /// Where the list of `models` came from, with the account's label from

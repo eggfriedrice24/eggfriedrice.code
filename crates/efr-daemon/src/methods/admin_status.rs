@@ -19,6 +19,14 @@ pub(crate) async fn handle(
     // new account.
     state.providers.sync_logins_and_lists().await;
     let settings = Arc::clone(&state.settings.borrow());
+    // NOTE: the accounts in the order of `models.list`, then the ones that it does not
+    // list, each inside its kind: `efr status` and the phone show one order.
+    let order = state.providers.catalogs().order(&settings);
+    let place = |id: &str| order.iter().position(|listed| listed == id).unwrap_or(usize::MAX);
+    let mut providers = state.providers.status().await;
+    providers.sort_by_key(|provider| place(&provider.provider));
+    let configured = order.first().map_or("", String::as_str);
+    efr_protocol::group_by_kind(&mut providers, |provider| provider.provider.as_str(), configured);
     let mut sandbox = state.sandbox.reported(&settings);
     // NOTE: a disabled always rule (phase E, DE44) is a warning of the sandbox, which
     // `efr sandbox check` and `efr sandbox allow` show; efrd runs on.
@@ -32,7 +40,7 @@ pub(crate) async fn handle(
         screen_backend: state.screen_backend.clone(),
         conversations: count(state.conversations.count()),
         shells: count(state.ptys.count()),
-        providers: state.providers.status().await,
+        providers,
         catalog: Some(state.providers.catalogs().status_of(&state.providers.models(), &settings)),
         roots: Some(state.roots.clone()),
         config: Some(reload::status(state).await),

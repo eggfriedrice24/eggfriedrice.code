@@ -209,15 +209,17 @@ fn the_models_of_each_provider_with_a_login_are_listed_under_their_provider() {
     );
 }
 
+/// TM-Commands 2 (D2): an account that logged out and has no list keeps its head inside
+/// its kind, not at the end.
 #[test]
 fn an_account_that_logged_out_keeps_its_head() {
     let mut list = accounts();
     list.models.retain(|model| model.provider.as_deref() != Some("anthropic-api.personal"));
     let out = plain(&list, &personal());
     assert!(
-        out.ends_with(
-            "personal · Claude API · signed out\n\n* the default · underlined: the default \
-             effort · ,model work/claude-sonnet-5 picks one\n"
+        out.contains(
+            "  claude-haiku-4-5   200k            no efforts\n\npersonal · Claude API · signed \
+             out\n\nb · ChatGPT plan · "
         ),
         "{out}"
     );

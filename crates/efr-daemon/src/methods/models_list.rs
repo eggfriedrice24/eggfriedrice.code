@@ -6,8 +6,9 @@
 //! priority first, then the ids of the config's list of its company), with the default
 //! model marked; then the models of each other provider with a login, the same way but
 //! never marked as the default; then those of each account that `[accounts]` names but
-//! that has no login. Each model names its provider, and each catalog the label of its
-//! account, whether it is signed out, and the limits it reached (`catalogs.rs`). A turn
+//! that has no login, grouped by kind. Each model names its provider, and each catalog
+//! the label of its account, whether it is signed out, and the limits it reached
+//! (`catalogs.rs`). A turn
 //! checks its model and effort against the same list when it starts, and goes to the
 //! first provider with a login that lists its model (`Catalogs::routed`). The answer
 //! reads the credential store first, so a login that changed outside efrd shows; the

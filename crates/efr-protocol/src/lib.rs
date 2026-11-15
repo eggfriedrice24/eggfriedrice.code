@@ -131,7 +131,7 @@ pub use methods::jobs_stop::{JobsStop, JobsStopResult};
 pub use methods::lease_report::{LeaseReport, LeaseReportResult};
 pub use methods::models_list::{
     CatalogOrigin, CatalogStatus, EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, is_effort_word, provider_id_named, provider_named,
+    ModelsListResult, group_by_kind, is_effort_word, provider_id_named, provider_named,
 };
 pub use methods::presence_set::{PresenceSet, PresenceSetResult};
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};

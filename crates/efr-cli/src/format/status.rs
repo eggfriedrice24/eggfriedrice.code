@@ -193,8 +193,9 @@ fn narrow(options: &RenderOptions) -> bool {
 
 /// The rows of the accounts (TM-Accounts 8, 9): one for each provider and account that
 /// efrd knows, in the order of `models.list` (the account of new conversations, the
-/// others with a login, then the signed-out ones), then the rest; the name, the kind in
-/// words and the state in columns. The default account of a kind has no name. Under
+/// others with a login, then the signed-out ones), then the rest, grouped by kind: the
+/// account of new conversations first in its kind, then the default account of the
+/// kind. The name, the kind in words and the state stand in columns. The default account of a kind has no name. Under
 /// each account with a login, its limits, 2 columns in.
 fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
     let providers = &view.status.providers;
@@ -202,14 +203,9 @@ fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
         rows.row("accounts", vec![("none configured".to_owned(), Tone::Dim)]);
         return;
     }
-    // NOTE: an account that `models.list` does not name comes after, as before: the
-    // account of new conversations, then the named accounts, then the providers with
-    // no account, each group in efrd's order.
-    let rank = |provider: &ProviderStatus| match provider.active {
-        true => 0,
-        false if provider.provider.contains('.') => 1,
-        false => 2,
-    };
+    // NOTE: efrd sends this order already; an account that `models.list` does not name
+    // comes after the ones that it names, in efrd's order, and each one stands inside
+    // its kind (`efr_protocol::group_by_kind`).
     let place = |provider: &ProviderStatus| {
         view.catalogs
             .iter()
@@ -217,7 +213,12 @@ fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
             .unwrap_or(usize::MAX)
     };
     let mut ordered: Vec<&ProviderStatus> = providers.iter().collect();
-    ordered.sort_by_key(|provider| (place(provider), rank(provider)));
+    // NOTE: without `models.list`, the account of new conversations leads, so its kind
+    // comes first too.
+    ordered.sort_by_key(|provider| (place(provider), !provider.active));
+    let active = providers.iter().find(|provider| provider.active);
+    let active = active.map_or("", |provider| provider.provider.as_str());
+    efr_protocol::group_by_kind(&mut ordered, |provider| provider.provider.as_str(), active);
     let named: Vec<(String, String)> = ordered
         .iter()
         .map(|provider| {

@@ -1,5 +1,6 @@
 //! `efr models` (TM-Commands frame 2): the daemon's model list, grouped by account the
-//! way `,model` takes them. Each account has a head, `work · anthropic-api · from the
+//! way `,model` takes them, in the order of `catalogs` (by kind, as `efr status` and the
+//! phone show them; a signed-out account stands inside its kind). Each account has a head, `work · anthropic-api · from the
 //! backend, fetched 5m ago`, and a row for each model: `*` before the default, the id,
 //! the window (and the largest one that the config's list of models can set), and the
 //! efforts with the model's default effort underlined. An account that logged out keeps
@@ -18,8 +19,8 @@ use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
 use efr_protocol::{
-    AdminStatus, AdminStatusResult, Method, ModelInfo, ModelSource, ModelsList, ModelsListResult,
-    Origin,
+    AdminStatus, AdminStatusResult, CatalogStatus, Method, ModelInfo, ModelSource, ModelsList,
+    ModelsListResult, Origin,
 };
 use efr_render::{Attrs, RenderOptions, Role};
 
@@ -162,6 +163,15 @@ pub(crate) fn listing(
             accounts.push(Account { provider: Some(id), models: Vec::new(), signed_out: true });
         }
     }
+    // NOTE: the order of `catalogs`, so an account with no list yet stands where efrd
+    // puts it, inside its kind (TM-Commands 2), as in `efr status`.
+    let catalogs: Vec<&CatalogStatus> = list.catalogs.iter().chain(&list.catalog).collect();
+    let place = |provider: Option<&str>| {
+        catalogs.iter().position(|catalog| catalog.provider.as_deref() == provider)
+    };
+    accounts.sort_by_key(|account| place(account.provider).unwrap_or(usize::MAX));
+    let first = catalogs.first().and_then(|catalog| catalog.provider.as_deref()).unwrap_or("");
+    efr_protocol::group_by_kind(&mut accounts, |account| account.provider.unwrap_or(""), first);
     let mut out = String::new();
     for account in &accounts {
         block(&mut out, list, account, now, options);

@@ -99,7 +99,10 @@ into the GitHub release notes, and it stops when the section is missing.
   full until the window resets.
 - `efr status` and `efr models` name the kind of each account in words: `Claude API`,
   `ChatGPT plan`, `OpenAI API`. In `efr status` the default account of a kind has no
-  name.
+  name. Both show the accounts in groups by kind, so a signed-out account stands inside
+  its kind. In a kind, the account of new conversations comes first, then the default
+  account of the kind. efrd sends this one order in `models.list` and `admin.status`,
+  so the model sheet of the phone app shows it too.
 - The login command that efr shows for a Claude key is `efr login anthropic`.
 - An allow of the reviewer or of an always rule names what the call gets on the same
   line, such as `github.com:443 reachable, the variable GH_TOKEN`. The whole network

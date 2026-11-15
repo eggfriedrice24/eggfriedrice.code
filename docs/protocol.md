@@ -1098,3 +1098,9 @@ No protocol version has shipped yet.
   as `,model` takes it (`openai/gpt-6.1-sol`), as the phone does with the list. It is
   absent when false, and from an older efrd. The fixture `events/turn_started.json`
   now sets it.
+- Version 1, order only: `models.list` groups `catalogs` and `models` by the kind of
+  the account, and `admin.status` sends `providers` in the same order, then the
+  accounts that `models.list` does not list. The kinds keep the order in which they
+  first come; in a kind, the account of new conversations comes first, then the
+  default account of the kind (`efr_protocol::group_by_kind`). So a signed-out account
+  stands inside its kind, and every client shows one order. No member changes.

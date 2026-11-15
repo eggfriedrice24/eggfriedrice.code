@@ -5969,7 +5969,9 @@ export interface AdminStatusResult {
    */
   protocol: number;
   /**
-   * The configured model providers.
+   * The configured model providers, in the order of `catalogs` in `models.list`, then
+   * the ones that it does not list, grouped by kind
+   * ([`group_by_kind`](crate::group_by_kind)).
    */
   providers: ProviderStatus[];
   /**
@@ -7148,8 +7150,9 @@ export interface ModelsListResult {
    * Where the catalog of each provider in `models` came from: the provider of new
    * conversations first, then each other provider with a login, then each account
    * that `[accounts]` in `config.toml` names but that has no login
-   * ([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent
-   * when the daemon lists only the provider of new conversations, as before.
+   * ([`CatalogStatus::signed_out`]), grouped by kind ([`group_by_kind`]). `models`
+   * has the same order. Clients show the accounts in this order. Absent when the
+   * daemon lists only the provider of new conversations, as before.
    */
   catalogs?: CatalogStatus[];
   /**

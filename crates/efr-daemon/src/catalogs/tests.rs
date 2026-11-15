@@ -101,6 +101,28 @@ fn an_account_that_the_config_names_is_listed_last_as_signed_out_with_its_label(
     assert_eq!(listed.catalogs[2].limits, None);
 }
 
+/// TM-Accounts 8 and TM-Commands 2 (D2): the list is grouped by kind, so a signed-out
+/// account stands inside its kind, and the default account comes first in its kind.
+#[test]
+fn the_list_groups_the_accounts_by_kind_with_a_signed_out_one_inside_its_kind() {
+    let clock = TestClock::new();
+    let catalogs = accounts(&clock);
+    let text = "[accounts.labels]\n\"openai-subscription.c\" = \"Team\"\n";
+    let settings = Settings::parse(std::path::Path::new("/c/config.toml"), Some(text)).unwrap();
+    catalogs.set_logged_in(SUBSCRIPTION, true);
+    catalogs.set_logged_in(API, true);
+    catalogs.set_logged_in(PLAN_B, true);
+
+    assert_eq!(providers(&catalogs, &settings), [SUBSCRIPTION, PLAN_B, PLAN_C, API]);
+    assert_eq!(catalogs.order(&settings), [SUBSCRIPTION, PLAN_B, PLAN_C, API]);
+
+    // NOTE: with b as the account of new conversations, b leads its kind and the
+    // default account of the kind comes next.
+    let mut on_b = settings.clone();
+    on_b.model.provider = PLAN_B.to_owned();
+    assert_eq!(catalogs.order(&on_b), [PLAN_B, SUBSCRIPTION, PLAN_C, API]);
+}
+
 #[test]
 fn the_offer_names_the_accounts_of_the_model_a_full_one_only_when_it_frees_up_first() {
     let clock = TestClock::new();

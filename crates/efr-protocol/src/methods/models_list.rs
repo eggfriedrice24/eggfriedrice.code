@@ -24,8 +24,9 @@ pub struct ModelsListResult {
     /// Where the catalog of each provider in `models` came from: the provider of new
     /// conversations first, then each other provider with a login, then each account
     /// that `[accounts]` in `config.toml` names but that has no login
-    /// ([`CatalogStatus::signed_out`]). Clients show the accounts in this order. Absent
-    /// when the daemon lists only the provider of new conversations, as before.
+    /// ([`CatalogStatus::signed_out`]), grouped by kind ([`group_by_kind`]). `models`
+    /// has the same order. Clients show the accounts in this order. Absent when the
+    /// daemon lists only the provider of new conversations, as before.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub catalogs: Vec<CatalogStatus>,
 }
@@ -165,6 +166,39 @@ pub fn provider_id_named<'a>(name: &str, ids: &[&'a str]) -> Option<&'a str> {
         (Some(id), None) => Some(id),
         _ => None,
     }
+}
+
+/// Groups `items` by the kind of their provider id (`id`), the part before the `.` of
+/// an account: the one order of the accounts in `models.list`, `admin.status`,
+/// `efr status`, `efr models` and the model sheet of the phone, so a signed-out account
+/// stands inside its kind. The kinds keep the order in which they first come. Inside a
+/// kind, the account `configured` of new conversations comes first, then the default
+/// account of the kind, then the others in their order.
+pub fn group_by_kind<T>(items: &mut [T], id: impl Fn(&T) -> &str, configured: &str) {
+    fn kind_of(provider: &str) -> &str {
+        provider.split_once('.').map_or(provider, |(kind, _)| kind)
+    }
+    let mut kinds: Vec<String> = Vec::new();
+    for item in items.iter() {
+        let kind = kind_of(id(item));
+        if !kinds.iter().any(|known| known == kind) {
+            kinds.push(kind.to_owned());
+        }
+    }
+    // NOTE: a stable sort, so the accounts of one rank keep their order.
+    items.sort_by_key(|item| {
+        let provider = id(item);
+        let kind = kind_of(provider);
+        let first = kinds.iter().position(|known| known == kind).unwrap_or(usize::MAX);
+        let own: u8 = if provider == configured {
+            0
+        } else if provider == kind {
+            1
+        } else {
+            2
+        };
+        (first, own)
+    });
 }
 
 impl ModelInfo {

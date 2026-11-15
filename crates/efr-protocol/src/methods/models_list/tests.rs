@@ -66,3 +66,32 @@ fn an_account_name_of_two_providers_names_none() {
     assert_eq!(super::provider_named("work", &models), None);
     assert_eq!(super::provider_named("openai-api.work", &models), Some("openai-api.work"));
 }
+
+#[test]
+fn the_accounts_are_grouped_by_kind_with_the_active_and_the_default_first() {
+    // NOTE: the order of `models.list` before the grouping: the account of new
+    // conversations, the ones with a login, then the signed-out ones (TM-Accounts 8).
+    let mut ids = [
+        "anthropic-api.work",
+        "openai-subscription.b",
+        "openai-api",
+        "openai-subscription",
+        "anthropic-api.personal",
+        "openai-subscription.c",
+    ];
+    super::group_by_kind(&mut ids, |id| id, "anthropic-api.work");
+    assert_eq!(
+        ids,
+        [
+            "anthropic-api.work",
+            "anthropic-api.personal",
+            "openai-subscription",
+            "openai-subscription.b",
+            "openai-subscription.c",
+            "openai-api",
+        ]
+    );
+    let mut plan_first = ["openai-subscription.b", "anthropic-api", "openai-subscription"];
+    super::group_by_kind(&mut plan_first, |id| id, "openai-subscription.b");
+    assert_eq!(plan_first, ["openai-subscription.b", "openai-subscription", "anthropic-api"]);
+}

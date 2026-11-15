@@ -35,7 +35,9 @@ pub struct AdminStatusResult {
     pub conversations: u32,
     /// Hidden shells that are running.
     pub shells: u32,
-    /// The configured model providers.
+    /// The configured model providers, in the order of `catalogs` in `models.list`, then
+    /// the ones that it does not list, grouped by kind
+    /// ([`group_by_kind`](crate::group_by_kind)).
     pub providers: Vec<ProviderStatus>,
     /// Where the model catalog of the active provider came from. Absent when the
     /// daemon does not report it, as before the catalog came from the backend.

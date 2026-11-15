@@ -150,11 +150,11 @@ fn window(minutes: u32, used_percent: u8, resets_at: Timestamp) -> LimitWindow {
     LimitWindow { minutes: Some(minutes), used_percent, resets_at: Some(resets_at) }
 }
 
-/// The accounts of TM-Accounts 8 (TM-Commands 1 of round 6) in the order of
+/// The accounts of TM-Accounts 8 (TM-Commands 1 of round 6) in the order of an older
 /// `models.list`: work, the default ChatGPT plan at 92 %, b at its 5-hour limit since 12
-/// minutes, the OpenAI key at its requests limit, then personal, signed out. The board
-/// draws personal second; `models.list` puts the signed-out accounts last, and the
-/// rows follow it.
+/// minutes, the OpenAI key at its requests limit, then personal, signed out. The rows
+/// group them by kind (D2), so personal stands second, inside its kind, as the board
+/// draws it.
 fn accounts_board() -> (AdminStatusResult, Vec<CatalogStatus>) {
     let monday = later(21 * 60);
     let plan = AccountLimits {
@@ -227,6 +227,7 @@ fn efr_status_shows_the_limits_under_each_account() {
     let piped = shown(&result, &catalogs, &RenderOptions::new(100).with_terminal(false));
     insta::assert_snapshot!(account_block(&piped), @"
     accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
+                personal  Claude API    signed out · efr login anthropic --account personal
                           ChatGPT plan  logged in · token expires in 6d 6h
                   5-hour     92%  resets 14:20
                   weekly     41%  resets Mon 09:00
@@ -235,11 +236,11 @@ fn efr_status_shows_the_limits_under_each_account() {
                   weekly     63%  resets Mon 09:00
                           OpenAI API    logged in · key sk-…9f2Q
                   requests  reached · resets 14:03
-                personal  Claude API    signed out · efr login anthropic --account personal
     ");
     let coloured = shown(&result, &catalogs, &design_options(Depth::Ansi16, 100));
     insta::assert_snapshot!(crate::testing::readable(&account_block(&coloured)), @r"
     \e[2maccounts\e[0m    work      Claude API    \e[32mlogged in\e[0m · key sk-ant-…a1b2 · \e[1mactive\e[0m
+                personal  Claude API    \e[33msigned out\e[0m · \e[32mefr login anthropic --account personal\e[0m
                           ChatGPT plan  \e[32mlogged in\e[0m · token expires in 6d 6h
                   \e[2m5-hour    \e[0m\e[33m 92%\e[0m  \e[2mresets 14:20\e[0m
                   \e[2mweekly    \e[0m 41%  \e[2mresets Mon 09:00\e[0m
@@ -248,11 +249,11 @@ fn efr_status_shows_the_limits_under_each_account() {
                   \e[2mweekly    \e[0m 63%  \e[2mresets Mon 09:00\e[0m
                           OpenAI API    \e[32mlogged in\e[0m · key sk-…9f2Q
                   \e[2mrequests  \e[0m\e[31mreached\e[0m · \e[2mresets 14:03\e[0m
-                personal  Claude API    \e[33msigned out\e[0m · \e[32mefr login anthropic --account personal\e[0m
     ");
     let plain = shown(&result, &catalogs, &design_options(Depth::NoColor, 100));
     insta::assert_snapshot!(crate::testing::readable(&account_block(&plain)), @r"
     \e[2maccounts\e[0m    work      Claude API    logged in · key sk-ant-…a1b2 · \e[1mactive\e[0m
+                personal  Claude API    \e[1msigned out\e[0m · efr login anthropic --account personal
                           ChatGPT plan  logged in · token expires in 6d 6h
                   \e[2m5-hour    \e[0m\e[1m 92%\e[0m  \e[2mresets 14:20\e[0m
                   \e[2mweekly    \e[0m 41%  \e[2mresets Mon 09:00\e[0m
@@ -261,7 +262,6 @@ fn efr_status_shows_the_limits_under_each_account() {
                   \e[2mweekly    \e[0m 63%  \e[2mresets Mon 09:00\e[0m
                           OpenAI API    logged in · key sk-…9f2Q
                   \e[2mrequests  \e[0m\e[1mreached\e[0m · \e[2mresets 14:03\e[0m
-                personal  Claude API    \e[1msigned out\e[0m · efr login anthropic --account personal
     ");
 }
 
@@ -273,6 +273,7 @@ fn a_narrow_status_keeps_the_states_and_gives_the_age_its_own_row() {
     let narrow = shown(&result, &catalogs, &design_options(Depth::Ansi16, 60));
     insta::assert_snapshot!(bare(&account_block(&narrow)), @"
     accounts    work      Claude API    logged in
+                personal  Claude API    signed out
                           ChatGPT plan  logged in
                   5-hour     92%  resets 14:20
                   weekly     41%  resets Mon 09:00
@@ -282,7 +283,6 @@ fn a_narrow_status_keeps_the_states_and_gives_the_age_its_own_row() {
                   weekly     63%  resets Mon 09:00
                           OpenAI API    logged in
                   requests  reached · resets 14:03
-                personal  Claude API    signed out
     ");
 }
 
@@ -298,9 +298,9 @@ fn a_pipe_gets_the_same_rows_without_colour() {
     config      ~/.config/efr/config.toml
 
     accounts    work      Claude API    logged in · key sk-ant-…a1b2 · active
-                b         ChatGPT plan  logged in · token expires in 6d 6h
                 personal  Claude API    signed out · efr login anthropic --account personal
                           ChatGPT plan  not logged in
+                b         ChatGPT plan  logged in · token expires in 6d 6h
     models      work: from the backend, fetched 5m ago · b: from the cache, fetched 2h 5m ago
 
     sandbox     ready · Landlock ABI 10 · bubblewrap 0.13.0 · network proxy

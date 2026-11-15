@@ -426,6 +426,39 @@ async fn a_full_account_whose_reset_comes_first_is_offered_with_its_reset() {
     daemon.stop().await.unwrap();
 }
 
+/// TM-Accounts 8 (D2): `admin.status` sends the accounts in the order of `models.list`,
+/// grouped by kind, so a signed-out account stands inside its kind; the kinds that the
+/// list does not hold come after.
+#[tokio::test]
+async fn admin_status_sends_the_accounts_in_the_order_of_the_model_list_by_kind() {
+    let messages = MessagesServer::start().await;
+    let builder = TestDaemon::builder().config(|config| {
+        config.accounts.labels.insert("anthropic-api.personal".to_owned(), "Personal".to_owned());
+    });
+    let (daemon, client) =
+        built_with(builder, &messages, &[("anthropic-api.work", WORK_KEY)]).await;
+
+    let listed: Vec<String> =
+        models(&client).await.catalogs.into_iter().filter_map(|catalog| catalog.provider).collect();
+    assert_eq!(listed, ["anthropic-api", "anthropic-api.work", "anthropic-api.personal"]);
+    let status: AdminStatusResult =
+        client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+    let ids: Vec<&str> =
+        status.providers.iter().map(|provider| provider.provider.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "anthropic-api",
+            "anthropic-api.work",
+            "anthropic-api.personal",
+            "openai-subscription",
+            "openai-api",
+        ]
+    );
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
 /// An account that `[accounts]` names stays in the model list when it signs out, so
 /// the conversation keeps it: its turn fails as `unauthorized`, and a new login serves
 /// the next one with no restart.
