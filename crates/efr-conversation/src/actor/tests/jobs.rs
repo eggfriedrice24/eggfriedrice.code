@@ -393,6 +393,69 @@ async fn wake_turn_follows_newest_prompt_mode() {
     assert_eq!(started_mode(&h, woke).await, Mode::Manual);
 }
 
+/// The review finding of 391b8dc0, at the actor: the wake turn of a job gets the origin
+/// of the turn that started the job (`notices.rs`, `wake_mode` and `TurnSpec::origin`). A
+/// phone turn in cautious starts a job, a later terminal prompt runs in auto, and the
+/// job ends. The wake turn is still a phone turn: it runs in cautious, not in the auto
+/// of the terminal, and a read outside `$SCRATCH` asks, as in every phone turn.
+#[tokio::test]
+async fn wake_turn_of_a_phone_job_is_a_phone_turn_in_cautious() {
+    let setup = auto();
+    let notes = setup.home().join("notes.txt");
+    let script = Script::new(vec![
+        job("npm run dev"),
+        (DONE, Value::Null),
+        (DONE, Value::Null),
+        ("read_file", json!({ "path": notes })),
+        (DONE, Value::Null),
+    ]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    let cwd = h.cwd.clone();
+
+    // The config default is auto, so only the rule of the phone makes this turn cautious.
+    let params = h.prompt_params(&cwd, "run the dev server");
+    let phone = h.handle.send_prompt(params, efr_protocol::Origin::Phone).await.unwrap();
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Allow).await;
+    h.wait_end(phone.turn_id).await;
+    assert_eq!(started_mode(&h, phone.turn_id).await, Mode::Cautious);
+
+    let params = h.prompt_params(&cwd, "thanks");
+    let terminal = h.handle.send_prompt(params, efr_protocol::Origin::Shell).await.unwrap();
+    h.wait_end(terminal.turn_id).await;
+    assert_eq!(started_mode(&h, terminal.turn_id).await, Mode::Auto);
+    h.presence.set_followed(true);
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let event = h.wait_for(|e| matches!(e, Event::JobNotice { woke: true, .. })).await;
+    let woke = event.turn_id().unwrap();
+    // NOTE: wait for the question or the end, so a wrong origin fails and does not hang.
+    let asked = h
+        .wait_for(|e| {
+            e.turn_id() == Some(woke)
+                && matches!(
+                    e,
+                    Event::ApprovalRequested { .. }
+                        | Event::TurnCompleted { .. }
+                        | Event::TurnFailed { .. }
+                        | Event::TurnInterrupted { .. }
+                )
+        })
+        .await;
+    let Event::ApprovalRequested { call_id, reason, .. } = asked else {
+        panic!("the read of the wake turn ran with no question: {asked:?}");
+    };
+    assert_eq!(
+        reason.as_deref(),
+        Some("A turn from the phone asks for everything outside $SCRATCH."),
+        "the wake turn is a phone turn"
+    );
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(woke).await;
+    assert_eq!(started_mode(&h, woke).await, Mode::Cautious, "not the auto of the terminal");
+    assert!(h.toolbox.invoked().iter().all(|(name, _)| name != "read_file"), "nothing read");
+}
+
 /// A setup whose turns run in full mode, which the daemon allows.
 fn full() -> Setup {
     let mut setup = Setup::new();
