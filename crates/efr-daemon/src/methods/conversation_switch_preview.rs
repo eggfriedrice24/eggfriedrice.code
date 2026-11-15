@@ -20,8 +20,8 @@
 //!   refuses it as a full context and compacts nothing.
 //!
 //! A `provider` that names no account with a login gets `unknown` and no provider. A
-//! conversation that does not exist is `not_found`. The call changes nothing and
-//! records nothing.
+//! conversation that does not exist, or whose delete started, is `not_found`, checked
+//! first. The call changes nothing and records nothing.
 
 use std::sync::Arc;
 
@@ -43,6 +43,9 @@ pub(crate) async fn handle(
     params: ConversationSwitchPreview,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
+    // NOTE: first, as `conversation.context` does: a deleted conversation keeps its
+    // events until the steps of its delete removed them, and it must get no actor.
+    ensure_exists(state, params.conversation_id).await?;
     let settings = Arc::clone(&state.settings.borrow());
     let target = match params.provider.as_deref() {
         Some(name) => state.providers.named(name),
@@ -50,10 +53,7 @@ pub(crate) async fn handle(
     };
     let cost = match target.as_deref() {
         Some(target) => cost(state, &params, target).await?,
-        None => {
-            ensure_exists(state, params.conversation_id).await?;
-            SwitchCost::Unknown
-        }
+        None => SwitchCost::Unknown,
     };
     let result = ConversationSwitchPreviewResult { cost, provider: target };
     let value = serde_json::to_value(&result)
@@ -70,7 +70,6 @@ async fn cost(
 ) -> Result<SwitchCost, DaemonError> {
     let conversation_id = params.conversation_id;
     let Some(newest) = newest_settings(state, conversation_id).await else {
-        ensure_exists(state, conversation_id).await?;
         return Ok(SwitchCost::None);
     };
     if newest.model == params.model && newest.provider.as_deref() == Some(target) {

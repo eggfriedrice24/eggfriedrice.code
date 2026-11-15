@@ -1079,6 +1079,7 @@ No protocol version has shipped yet.
   `compaction.auto` is on, so efrd compacts before the next turn, while with it off
   the answer is `cold_cache` and the next turn refuses a full context; `unknown`: the
   `provider` names no account with a login, and the result has no `provider`) and an
-  optional `provider`, the id that the target names. It changes nothing and records
+  optional `provider`, the id that the target names. A conversation that does not
+  exist, or whose delete started, is `not_found`. It changes nothing and records
   nothing. An older efrd refuses the unknown method. New fixtures `conversation_switch_preview_params.json`,
   `conversation_switch_preview_result.json` and `switch_costs.json`.
