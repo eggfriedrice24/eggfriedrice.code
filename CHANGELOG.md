@@ -77,8 +77,8 @@ into the GitHub release notes, and it stops when the section is missing.
   applies at once in `efr status`, the model list and the next prompt, with no restart
   of efrd. A change of `[accounts]` or `[model] provider` also starts the account at
   once.
-- efr does not send a call again when a ChatGPT plan is at its usage limit. It waits
-  for the reset.
+- efr does not send a call again when a ChatGPT plan is at its usage limit. The turn
+  stops at once and says when the limit resets.
 - When a window of a ChatGPT plan is at 100 %, the switch offer counts that account as
   full until the window resets.
 - `efr status` and `efr models` name the kind of each account in words: `Claude API`,
