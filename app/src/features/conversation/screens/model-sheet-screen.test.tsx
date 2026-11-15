@@ -1,6 +1,7 @@
 // The model sheet on the services of the app over fake sockets (S-ModelSheet, MS-*,
-// AC-Out 5): the model button opens it, a pick shows the confirm, the confirm stores the
-// choice and closes the sheet, and the next prompt carries the model and the account.
+// AC-Out 5): the model button opens it, a pick turns on "Use" in the native header, "Use"
+// stores the choice and closes the sheet, and the next prompt carries the model and the
+// account. The native search bar and toolbar are plain views here (the mock below).
 
 import { afterEach, beforeEach, describe, expect, it, jest } from "@jest/globals";
 import { notifyManager } from "@tanstack/react-query";
@@ -10,9 +11,10 @@ import {
   fireEvent,
   renderRouter,
   screen,
+  within,
   type RenderRouterResult,
 } from "expo-router/testing-library";
-import { ScrollView, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { ReactNode } from "react";
 
 import { flush } from "@/lib/net/testing";
@@ -60,6 +62,81 @@ jest.mock("../components/fade-in", () => ({
 }));
 jest.mock("@/lib/native/haptics", () => ({ haptic: jest.fn(), setHapticsEnabled: jest.fn() }));
 
+// The native search bar and toolbar items of the header are native parts that jest does
+// not draw. Here they are plain views with their props, so a test can press "Use", type
+// a search and pick a filter. How they look is device check 36.
+interface MockProps {
+  readonly children?: ReactNode;
+  readonly [key: string]: unknown;
+}
+
+function mockCall(handler: unknown, ...args: unknown[]): void {
+  if (typeof handler === "function") {
+    handler(...args);
+  }
+}
+
+function MockSearchBar(props: MockProps) {
+  return (
+    <TextInput
+      testID="native-search"
+      placeholder={String(props["placeholder"])}
+      onChangeText={(text) => mockCall(props["onChangeText"], { nativeEvent: { text } })}
+      onFocus={() => mockCall(props["onFocus"])}
+      onBlur={() => mockCall(props["onBlur"])}
+    />
+  );
+}
+
+function MockToolbar(props: MockProps) {
+  return <View testID={`native-toolbar-${String(props["placement"])}`}>{props.children}</View>;
+}
+
+function MockToolbarButton(props: MockProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={String(props["accessibilityLabel"])}
+      accessibilityState={{ disabled: props["disabled"] === true }}
+      disabled={props["disabled"] === true}
+      onPress={() => mockCall(props["onPress"])}
+    >
+      <Text>{props.children}</Text>
+    </Pressable>
+  );
+}
+
+function MockToolbarMenu(props: MockProps) {
+  return <View testID={`native-menu-${String(props["title"])}`}>{props.children}</View>;
+}
+
+function MockToolbarMenuAction(props: MockProps) {
+  return (
+    <Pressable
+      accessibilityRole="menuitem"
+      accessibilityState={{ checked: props["isOn"] === true }}
+      onPress={() => mockCall(props["onPress"])}
+    >
+      <Text>{props.children}</Text>
+    </Pressable>
+  );
+}
+
+jest.mock("expo-router", () => {
+  const actual = jest.requireActual<typeof import("expo-router")>("expo-router");
+  const Toolbar = Object.assign(MockToolbar, {
+    SearchBarSlot: () => null,
+    Button: MockToolbarButton,
+    Menu: MockToolbarMenu,
+    MenuAction: MockToolbarMenuAction,
+  });
+  const Stack = Object.assign((props: MockProps) => <actual.Stack {...props} />, actual.Stack, {
+    SearchBar: MockSearchBar,
+    Toolbar,
+  });
+  return { ...actual, Stack };
+});
+
 const CONVERSATION = conversationId(1);
 const TURN = "019a9b1c-3d00-7a10-8b20-0000000000f1";
 const PLAN = "openai-subscription";
@@ -77,6 +154,19 @@ const MODELS: ModelsListResult = {
     { provider: PLAN_B, origin: "backend" },
   ],
 };
+
+/** The list with gpt-5.5 marked legacy by efrd. */
+const LEGACY_MODELS: ModelsListResult = {
+  ...MODELS,
+  models: MODELS.models.map((model) =>
+    model.id === "gpt-5.5" ? { ...model, legacy: true } : model,
+  ),
+};
+
+/** The native header button "Use" (or "Switch") of the sheet. */
+function useButton() {
+  return within(screen.getByTestId("native-toolbar-right")).getByRole("button");
+}
 
 let test: TestServices | undefined;
 let view: RenderRouterResult | undefined;
@@ -142,7 +232,7 @@ async function openConversation(): Promise<void> {
 }
 
 describe("the model sheet", () => {
-  it("opens from the model button, and a switch of account alone confirms with the account", async () => {
+  it("opens from the model button, and a tap on a row switches at once with Settings off", async () => {
     await openConversation();
     const button = screen.getByTestId("composer-model-button");
     expect(button).toHaveTextContent("GPT-6.1 Sol · ChatGPT plan · medium");
@@ -152,8 +242,7 @@ describe("the model sheet", () => {
     expect(view?.getSearchParams()).toMatchObject({ machine: DESKTOP, id: CONVERSATION });
     expect(screen.getByTestId("model-sheet")).toBeOnTheScreen();
     expect(screen.getByText("ChatGPT plan · b")).toBeOnTheScreen();
-    // "Use" is a native header button now; jest does not draw the native header (device
-    // check 36).
+    // "Use" in the header has its own test below.
 
     await fireEvent.press(screen.getByTestId(`model-row-${PLAN_B}/gpt-6.1-sol`));
     await act(flush);
@@ -242,6 +331,78 @@ describe("the model sheet", () => {
       model: "gpt-5.5",
       provider: PLAN,
     });
+  });
+
+  it("has Use in the header: off with no change, on after a pick, and it stores the choice", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(flush);
+    expect(useButton()).toBeDisabled();
+    expect(useButton()).toHaveTextContent("Use");
+    await fireEvent.press(screen.getByTestId(`model-row-${PLAN_B}/gpt-6.1-sol`));
+    await act(flush);
+    // The cost is not known yet: Use waits.
+    expect(useButton()).toBeDisabled();
+    await act(async () => {
+      socketOf(services(), DESKTOP).answer("conversation.switch_preview", { cost: "cold_cache" });
+      await flush();
+    });
+    expect(useButton()).toBeEnabled();
+    // A switch of account alone names the account.
+    expect(useButton()).toHaveAccessibleName("Use ChatGPT plan · b");
+    await fireEvent.press(useButton());
+    await act(flush);
+    expect(view?.getPathname()).toBe(`/c/${DESKTOP}/${CONVERSATION}`);
+    expect(services().services.modelChoices.choice(draftKey(DESKTOP, CONVERSATION))).toEqual({
+      model: "gpt-6.1-sol",
+      provider: PLAN_B,
+      effort: "medium",
+    });
+  });
+
+  it("names the header button Switch for a switch that compacts", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(flush);
+    await fireEvent.press(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`));
+    await act(flush);
+    await act(async () => {
+      socketOf(services(), DESKTOP).answer("conversation.switch_preview", { cost: "compacts" });
+      await flush();
+    });
+    expect(useButton()).toHaveTextContent("Switch");
+    expect(useButton()).toHaveAccessibleName("Switch and compact");
+    await fireEvent.press(useButton());
+    await act(flush);
+    expect(services().services.modelChoices.choice(draftKey(DESKTOP, CONVERSATION))).toEqual({
+      model: "gpt-5.5",
+      provider: PLAN,
+    });
+  });
+
+  it("filters the rows with the native search bar and keeps legacy models behind the filter", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(async () => {
+      socketOf(services(), DESKTOP).answer("models.list", LEGACY_MODELS);
+      await flush();
+    });
+    expect(screen.queryByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeNull();
+    await fireEvent.press(screen.getByRole("menuitem", { name: "Legacy models" }));
+    await act(flush);
+    expect(services().services.preferences.store.get().showLegacyModels).toBe(true);
+    expect(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeOnTheScreen();
+
+    await fireEvent.changeText(screen.getByTestId("native-search"), "5.5");
+    await act(flush);
+    expect(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeOnTheScreen();
+    expect(screen.queryByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeNull();
   });
 
   it("opens with the row of a switch offer selected", async () => {
