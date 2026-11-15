@@ -598,22 +598,30 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   provider that a prompt with the model alone takes (`Providers::provider_of_model`);
   the answer names it. efrd compares it with the model and the provider of the
   newest `turn_started`: `none` for the same pair or a conversation with no turn,
-  `cold_cache` for another model or account, `compacts` when the estimate of the next
-  request on the target model (the context view of the actor) reaches the trigger of
-  the target's window (with `compaction.auto`) or passes its hard cap. The window is
-  the one of the target's own entry in the model list. A name of no account with a
-  login is `unknown` with no provider; a conversation that does not exist is
-  `not_found`. It changes nothing, records nothing and sends no model call.
+  `cold_cache` for another model or account, `compacts` when `compaction.auto` is on
+  and the estimate of the next request on the target model (the context view of the
+  actor) reaches the trigger of the target's window or passes its hard cap
+  (`ContextLimits::compacts`, the rule of the turn). With `compaction.auto` off the
+  next turn refuses a full context, so the answer is `cold_cache`. The window is the
+  one of the target's own entry in the model list (`efr_conversation::context_window`).
+  A name of no account with a login is `unknown` with no provider; a conversation that
+  does not exist, or whose delete started, is `not_found`, checked first. It changes nothing, records nothing and sends no model call.
 - The accounts (`providers.rs`, `catalogs.rs`, `providers/limits.rs`). efrd runs each
   account that the credential store holds, that `[accounts.labels]` names, or that
   `[model] provider` names (`accounts_to_run`), also one with no login, so a login
   serves it at once. `Providers::sync_logins` reads the store again before each answer
-  of `models.list` and `admin.status` and after a reload that changed `[accounts]` or
-  `[model] provider`: it starts each account that it finds new, and an account whose
+  of `models.list` and `admin.status`, after a reload that changed `[accounts]` or
+  `[model] provider`, and once in `prompt.send` when no login serves the pick
+  (`UnknownProviderName`, `SignedOutAccount`, `NoModelListWithoutKey`), which then
+  picks again: it starts each account that it finds new, and an account whose
   credential appeared or went away outside efrd (a file put in place or removed by
   hand) gains or loses its login at once, as a login or a logout of efrd does
   (`note_login`: a login fetches its list; a logout drops the key's refusal; either
-  drops the limits of the old login). One tokio mutex (`changes`) holds
+  drops the limits of the old login). A ChatGPT login whose stored token has another
+  expiry than at the last read was replaced by hand: its token source reads the store
+  again (`record_replaced`). A prompt that names an account that efrd runs but that
+  has no login fails as `unauthorized` with its login command
+  (`SignedOutAccount`). One tokio mutex (`changes`) holds
   one change of the login set at a time, so a read that started before a login cannot
   mark it as signed out after it. The keys of `[openai]` and `[anthropic]` that need a
   restart (`efr_config::RESTART_KEYS`) still do.

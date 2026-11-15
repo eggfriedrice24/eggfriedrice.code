@@ -103,9 +103,12 @@ A model that two accounts list goes to the provider of new conversations first. 
 never moves a turn to another account by itself, also when a key has no credits
 left. To log out of an account, name it: `efr logout anthropic --account work`.
 
-A login, a logout and a change of a stored credential apply at once, with no restart
-of efrd. This is also true for a credential file that you copy into place or remove
-yourself.
+A login and a logout apply at once, with no restart of efrd. efrd sees a credential
+file that you copy into place, replace or remove yourself at the next `efr status`,
+`efr models` or Tab completion. A prompt that names an account with no login makes
+efrd read the files again first, so a key that you just copied into place serves it.
+A prompt on an account that is signed out says so and names its login, such as
+`personal is signed out; log in with efr login anthropic --account personal`.
 
 ### Name your accounts
 

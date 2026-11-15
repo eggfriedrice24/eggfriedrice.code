@@ -80,10 +80,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
-- A login, a logout, or a credential file that you put in place or remove yourself
-  applies at once in `efr status`, the model list and the next prompt, with no restart
-  of efrd. A change of `[accounts]` or `[model] provider` also starts the account at
-  once.
+- A login or a logout applies at once in `efr status`, the model list and the next
+  prompt, with no restart of efrd. A credential file that you put in place, replace or
+  remove yourself applies at the next `efr status`, `efr models` or Tab completion, and
+  a prompt that names an account with no login reads the files again first. A prompt
+  on an account that is signed out says so and names its login, such as
+  `efr login anthropic --account personal`. A change of `[accounts]` or
+  `[model] provider` also starts the account at once.
 - efr does not send a call again when a ChatGPT plan is at its usage limit. The turn
   stops at once and says when the limit resets.
 - When a window of a ChatGPT plan is at 100 %, the switch offer counts that account as
