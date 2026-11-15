@@ -43,6 +43,7 @@ import {
   type TestServices,
 } from "@/features/navigation/model/testing";
 
+import { composerDraftKey } from "../model/composer-state";
 import { screenRoutes, socketOf, stream } from "./screen-testing";
 
 const mockScrollToIndex = jest.fn<(params: unknown) => Promise<void>>(() => Promise.resolve());
@@ -314,6 +315,40 @@ describe("the conversation screen", () => {
     const sent = socketOf(services(), DESKTOP).requests("prompt.send").at(-1);
     expect(sent?.["params"]).toMatchObject({ conversation_id: CONVERSATION, text: "Push it." });
     expect(screen.getByText("sending")).toBeOnTheScreen();
+  });
+
+  it("gives a retry the model and the mode that a send gets", async () => {
+    test = await testServices(undefined, { lockOn: true });
+    const current = test;
+    await current.connect(DESKTOP);
+    view = await renderRouter(screenRoutes(current), { initialUrl: "/" });
+    await act(async () => {
+      router.push(`/c/${DESKTOP}/${CONVERSATION}`);
+    });
+    await act(flush);
+    const key = composerDraftKey({ machine: DESKTOP, id: CONVERSATION, isBlankRoot: false });
+    await act(() => {
+      current.services.modelChoices.set(key, { model: "gpt-6.1-sol", provider: "plan.b" });
+      current.services.modelChoices.setMode(key, "auto");
+    });
+    await act(async () => {
+      await stream(services(), DESKTOP, CONVERSATION, [finished()]);
+    });
+    await send(promptQueued(NEXT, "Push it."), turnStarted(NEXT), {
+      kind: "turn_failed",
+      turn_id: NEXT,
+      error: { code: "internal", message: "model error: overloaded" },
+    });
+    await typeAndSend("And the disk?");
+    await fireEvent.press(screen.getByRole("button", { name: "Retry the turn" }));
+    await act(flush);
+    const entries = current.services.outbox.store.get().entries;
+    const picked = entries.map((entry) => [entry.text, entry.settings, entry.auto]);
+    const settings = { model: "gpt-6.1-sol", provider: "plan.b" };
+    expect(picked).toEqual([
+      ["And the disk?", settings, true],
+      ["Push it.", settings, true],
+    ]);
   });
 
   it("scrolls to the approval that waits, then clears the request", async () => {

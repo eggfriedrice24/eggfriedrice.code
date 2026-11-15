@@ -88,8 +88,8 @@ export function useComposer(options: ComposerOptions): ComposerModel {
       actions.steer(text);
       return;
     }
-    const auto = mode === "auto";
-    const entry = kind === "send" ? actions.send(text, auto) : actions.queue(text, auto);
+    // NOTE: the prompt reads the mode and the unlock again at the tap (send-prompt.ts).
+    const entry = kind === "send" ? actions.send(text) : actions.queue(text);
     onSend?.(entry);
   };
 

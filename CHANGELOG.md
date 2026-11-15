@@ -188,6 +188,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- Retry of a failed turn in the phone app sends the prompt as Send does: in auto when
+  the conversation is in auto and the Face ID unlock is on, and the account of the
+  chosen model becomes the account of the next new thread. Before, a retry always ran
+  as cautious.
 - `efr compact` and `efr context` wait for the model list of the account of the
   conversation, not only for the one of the provider of new conversations.
 - The context window of a model comes from the account that runs it, when two

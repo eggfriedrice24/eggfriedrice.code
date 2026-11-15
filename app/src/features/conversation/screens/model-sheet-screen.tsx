@@ -57,10 +57,9 @@ import {
 } from "../model/model-choices";
 import {
   choiceOf,
-  currentSettings,
   defaultSelection,
-  freshChoice,
   type KindFilter,
+  nextSettings,
   openingSelection,
   pickRow,
   type Selection,
@@ -159,8 +158,10 @@ function SheetBody(props: SheetBodyProps) {
 
   const favourite = (provider: string | undefined): string | undefined =>
     favouriteOf(favourites, target.machine, provider);
-  const fresh = composer.isBlankRoot ? freshChoice(list, plan, favourite) : undefined;
-  const current = currentSettings(list, choice, last.model === undefined ? undefined : last, fresh);
+  const current = nextSettings(
+    { list, machine: target.machine, isBlankRoot: composer.isBlankRoot, choice, favourites, plan },
+    last.model === undefined ? undefined : last,
+  );
   const preselect =
     target.model === undefined ? undefined : { model: target.model, provider: target.provider };
   const selection = picked ?? openingSelection(list, current, preselect);

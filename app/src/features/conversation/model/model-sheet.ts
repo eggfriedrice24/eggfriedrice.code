@@ -59,7 +59,7 @@ import {
   runsOnMany,
   signedOutOn,
 } from "./accounts";
-import type { ModelChoice } from "./model-choices";
+import { favouriteOf, type ModelChoice } from "./model-choices";
 import { modelName, windowLabel } from "./model-names";
 
 /** What the next message uses now, and where it comes from. */
@@ -209,6 +209,51 @@ export function currentSettings(
     fallback.default_effort ?? undefined,
     "default",
   );
+}
+
+/** What picks the model of the next prompt of one composer. */
+export interface NextChoiceInput {
+  readonly list: ModelsListResult | undefined;
+  /** The daemon id of the machine of the composer. */
+  readonly machine: string;
+  /** True on the blank root: the next prompt starts a new thread. */
+  readonly isBlankRoot: boolean;
+  /** The choice of the sheet for this composer. */
+  readonly choice: ModelChoice | undefined;
+  /** The favourites of every machine (`ModelChoicesState.favourites`). */
+  readonly favourites: ReadonlyMap<string, string>;
+  /** The last plan of the machine. */
+  readonly plan: string | undefined;
+}
+
+/** The favourite of the last plan, for a new thread only (`freshChoice`). */
+function freshOf(input: NextChoiceInput): ModelChoice | undefined {
+  if (!input.isBlankRoot) {
+    return undefined;
+  }
+  return freshChoice(input.list, input.plan, (provider) =>
+    favouriteOf(input.favourites, input.machine, provider),
+  );
+}
+
+/**
+ * The choice that the next prompt of a composer carries: the choice of the sheet, else
+ * on a new thread the favourite of the last plan. A send and a retry both use it, so
+ * they pick the same model.
+ */
+export function promptChoice(input: NextChoiceInput): ModelChoice | undefined {
+  return input.choice ?? freshOf(input);
+}
+
+/**
+ * What the next message of a composer uses, for the model button and the sheet: the
+ * rule of `promptChoice`, then the model of the conversation (`turn`), then the default.
+ */
+export function nextSettings(
+  input: NextChoiceInput,
+  turn: TurnSettingsView | undefined,
+): CurrentSettings | undefined {
+  return currentSettings(input.list, input.choice, turn, freshOf(input));
 }
 
 /** The selection of the row `model` on `provider`: its effort here, else its default. */

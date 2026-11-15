@@ -35,6 +35,7 @@ import { SPACING } from "@/theme/metrics";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
+import { selectLockOn } from "@/features/navigation/model/app-lock";
 import {
   approvalHref,
   type ConversationFocus,
@@ -57,9 +58,10 @@ import { Transcript } from "../components/transcript";
 import type { TranscriptListHandle } from "../components/transcript-list";
 import type { TranscriptActions, TranscriptScope } from "../components/use-transcript-scope";
 import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversation-queries";
-import { composerDraftKey, outboxInput, type ComposerTarget } from "../model/composer-state";
+import { composerDraftKey, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
+import { sendPrompt } from "../model/send-prompt";
 import type { ComposerDeps } from "../use-composer-actions";
 import { useOlderHistory } from "./use-older-history";
 import { useRouteConversation } from "./use-route-conversation";
@@ -183,16 +185,10 @@ function ConversationView(props: ConversationViewProps) {
   const actions: TranscriptActions = {
     withdraw: (turnId) => withdraw.mutate({ commandId: newCommandId(), turnId }),
     // Decision D8: efrd has no retry of a turn, so the prompt goes again as a new one,
-    // with the model that the sheet chose since.
+    // by the rule of a send: the model that the sheet chose since, and the mode now.
     retry: (_turnId, text) => {
-      outbox.enqueue(
-        outboxInput(
-          outbox.store.get(),
-          target,
-          text,
-          modelChoices.choice(composerDraftKey(target)),
-        ),
-      );
+      const lockOn = selectLockOn(appLock.store.get());
+      sendPrompt({ outbox, modelChoices, lockOn }, models, target, text);
     },
     editAndResend: (text) => drafts.set(composerDraftKey(target), text),
     resend: (key) => {

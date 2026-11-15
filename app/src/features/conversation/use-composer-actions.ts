@@ -12,17 +12,16 @@
 //
 // Each write gets a new command id per tap.
 //
-// A prompt carries the choice of the model sheet. A prompt of a new thread without a
-// choice carries the favourite of the last plan (`freshChoice`). A prompt that names an
-// account makes it the last plan of the machine. A prompt carries `auto` when the mode of
-// the composer is auto and the Face ID unlock of the app is on at the tap on Send
-// (features/navigation/model/app-lock.ts).
+// A prompt follows the one rule of model/send-prompt.ts, as a retry of the transcript
+// does: the choice of the model sheet, else on a new thread the favourite of the last
+// plan, and `auto` when the mode of the composer is auto and the Face ID unlock of the
+// app is on at the tap on Send (features/navigation/model/app-lock.ts).
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 
 import type { MachineCaller } from "@/lib/query/machine-caller";
-import type { AppLock } from "@/features/navigation/model/app-lock";
+import { type AppLock, selectLockOn } from "@/features/navigation/model/app-lock";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import {
   interruptMutationOptions,
@@ -31,16 +30,11 @@ import {
   type InterruptInput,
   type SteerInput,
 } from "./conversation-queries";
-import {
-  composerDraftKey,
-  conversationIdOf,
-  outboxInput,
-  type ComposerTarget,
-} from "./model/composer-state";
+import { composerDraftKey, conversationIdOf, type ComposerTarget } from "./model/composer-state";
 import type { Drafts } from "./model/drafts";
-import { favouriteOf, type ModelChoices } from "./model/model-choices";
-import { freshChoice } from "./model/model-sheet";
+import type { ModelChoices } from "./model/model-choices";
 import type { Outbox, OutboxEntry } from "./model/outbox";
+import { sendPrompt } from "./model/send-prompt";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {
@@ -60,9 +54,9 @@ export interface ComposerDeps {
 /** The actions of one composer. */
 export interface ComposerActions {
   /** Sends `text` as a prompt through the outbox and clears the draft. */
-  send(text: string, auto?: boolean): OutboxEntry;
+  send(text: string): OutboxEntry;
   /** Queues `text` behind the running turn through the outbox and clears the draft. */
-  queue(text: string, auto?: boolean): OutboxEntry;
+  queue(text: string): OutboxEntry;
   /** Steers the running turn with `text`. The draft goes when efrd took it. */
   steer(text: string): void;
   /** Stops the running turn. */
@@ -100,19 +94,14 @@ export function useComposerActions(
   const stopMutation = useMutation(interruptMutationOptions(caller, ref));
   const list = useQuery(modelsQueryOptions(caller, target.machine)).data;
 
-  const enqueue = (text: string, auto = false): OutboxEntry => {
-    const choices = deps.modelChoices;
-    let choice = choices.choice(key);
-    if (choice === undefined && target.isBlankRoot) {
-      const { favourites, plans } = choices.store.get();
-      choice = freshChoice(list, plans.get(target.machine), (provider) =>
-        favouriteOf(favourites, target.machine, provider),
-      );
-    }
-    const entry = outbox.enqueue(outboxInput(outbox.store.get(), target, text, choice, auto));
-    if (choice?.provider !== undefined) {
-      choices.setPlan(target.machine, choice.provider);
-    }
+  const enqueue = (text: string): OutboxEntry => {
+    const lockOn = selectLockOn(deps.lock.store.get());
+    const entry = sendPrompt(
+      { outbox, modelChoices: deps.modelChoices, lockOn },
+      list,
+      target,
+      text,
+    );
     drafts.clear(key);
     return entry;
   };

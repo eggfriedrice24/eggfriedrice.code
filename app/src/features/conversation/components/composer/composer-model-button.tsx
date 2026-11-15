@@ -25,18 +25,8 @@ import { roles } from "@/theme/roles";
 import { modelsQueryOptions } from "../../conversation-queries";
 import type { ProviderLogoKind } from "../../model/accounts";
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
-import {
-  favouriteOf,
-  selectFavourites,
-  selectModelChoice,
-  selectPlan,
-} from "../../model/model-choices";
-import {
-  currentSettings,
-  freshChoice,
-  modelButton,
-  type ModelButtonView,
-} from "../../model/model-sheet";
+import { selectFavourites, selectModelChoice, selectPlan } from "../../model/model-choices";
+import { modelButton, type ModelButtonView, nextSettings } from "../../model/model-sheet";
 import { selectLastSettings } from "../../model/selectors";
 import type { ComposerDeps } from "../../use-composer-actions";
 
@@ -62,10 +52,10 @@ export function ComposerModelButton(props: ComposerModelButtonProps) {
   const favourites = useSelector(deps.modelChoices.store, selectFavourites);
   const plan = useSelector(deps.modelChoices.store, selectPlan(target.machine));
   const last = useSelector(props.store ?? NO_STREAM, selectLastSettings, { compare: shallow });
-  const fresh = target.isBlankRoot
-    ? freshChoice(list, plan, (provider) => favouriteOf(favourites, target.machine, provider))
-    : undefined;
-  const current = currentSettings(list, choice, last.model === undefined ? undefined : last, fresh);
+  const current = nextSettings(
+    { list, machine: target.machine, isBlankRoot: target.isBlankRoot, choice, favourites, plan },
+    last.model === undefined ? undefined : last,
+  );
   const button = modelButton(list, current, props.machineName);
   if (button === undefined) {
     return null;
