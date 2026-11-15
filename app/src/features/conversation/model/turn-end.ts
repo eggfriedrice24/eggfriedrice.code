@@ -166,6 +166,19 @@ export function turnEndView(
   }
 }
 
+/**
+ * `view` of a failed turn with `reason` in place of its own reason, in the line and in
+ * the VoiceOver label. The end of a turn whose account is out reads its reason from
+ * `account_out`, so VoiceOver never reads the message of the provider.
+ */
+export function withReason(view: TurnEndView, reason: string): TurnEndView {
+  const old = view.reason ?? "";
+  const tail = `, ${old}`;
+  const head =
+    old !== "" && view.label.endsWith(tail) ? view.label.slice(0, -tail.length) : view.label;
+  return { ...view, reason, label: reason === "" ? head : `${head}, ${reason}` };
+}
+
 function quiet(glyph: TurnEndView["glyph"], detail: string, label: string): TurnEndView {
   return { glyph, lead: undefined, detail, reason: undefined, canRetry: false, label };
 }

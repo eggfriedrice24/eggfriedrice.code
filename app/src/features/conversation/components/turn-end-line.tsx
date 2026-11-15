@@ -44,6 +44,7 @@ import {
   STORED_COPY_NOTE,
   type TurnEndView,
   turnEndView,
+  withReason,
 } from "../model/turn-end";
 import { useTranscriptScope } from "./use-transcript-scope";
 
@@ -127,7 +128,7 @@ export function AccountOutEnd(props: AccountOutEndProps) {
   return (
     <View testID="account-out">
       <TurnEndLineView
-        view={{ ...props.view, reason: offer.reason, canRetry: false }}
+        view={{ ...withReason(props.view, offer.reason), canRetry: false }}
         onRetry={undefined}
       />
       {offer.notes.map((note) => (

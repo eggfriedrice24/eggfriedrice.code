@@ -123,7 +123,7 @@ describe("the turn end row", () => {
     const failed: Event = {
       kind: "turn_failed",
       turn_id: TURN,
-      error: { code: "busy", message: "the ChatGPT plan reached its usage limit" },
+      error: { code: "busy", message: "429 usage_limit_reached: the raw text of the provider" },
       account_out: {
         provider: "openai-subscription",
         model: "gpt-6.1-sol",
@@ -146,6 +146,14 @@ describe("the turn end row", () => {
       </InScope>,
     );
     expect(screen.getByText("the ChatGPT plan reached its usage limit")).toBeOnTheScreen();
+    // VoiceOver reads the reason of the offer too, never the message of the provider.
+    expect(
+      screen.getByLabelText(
+        /^Turn failed, \d\d:\d\d, 2m 10s, the ChatGPT plan reached its usage limit$/,
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.queryByLabelText(/raw text of the provider/)).toBeNull();
+    expect(screen.queryByText(/raw text of the provider/)).toBeNull();
     expect(screen.getByText("c is signed out: efr login openai --account c")).toBeOnTheScreen();
     // A switch stands, so no retry and no copy error.
     expect(screen.queryByRole("button", { name: "Retry the turn" })).toBeNull();
