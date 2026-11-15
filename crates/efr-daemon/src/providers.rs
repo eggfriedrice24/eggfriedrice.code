@@ -134,6 +134,9 @@ pub(crate) struct Providers {
     /// store, to see a login that the user replaced by hand
     /// ([`sync_logins`](Self::sync_logins)).
     seen_logins: Mutex<HashMap<String, Option<Timestamp>>>,
+    /// The error of each credential that the last [`status`](Self::status) could not
+    /// read, so a status read logs a new error once, not at each read.
+    unreadable: Mutex<HashMap<String, String>>,
 }
 
 /// The start of the catalog of one provider: its list and its cache file.
@@ -302,6 +305,7 @@ impl Providers {
             changes: tokio::sync::Mutex::new(()),
             unstarted: Mutex::default(),
             seen_logins: Mutex::default(),
+            unreadable: Mutex::default(),
         })
     }
 
@@ -904,23 +908,45 @@ impl Providers {
         let store = Arc::clone(&self.store);
         let ids = self.ids();
         let loaded = tokio::task::spawn_blocking(move || {
-            ids.into_iter().map(|id| {
-                let record = CredentialId::new(&id).ok().and_then(|id| match store.load(&id) {
-                    Ok(record) => record,
-                    Err(error) => {
-                        tracing::warn!(error = %error, credential = %id, "a credential could not be read");
-                        None
-                    }
-                });
-                (id, record)
-            })
-            .collect::<Vec<_>>()
+            ids.into_iter()
+                .map(|id| {
+                    let loaded = match CredentialId::new(&id) {
+                        Ok(credential) => {
+                            store.load(&credential).map_err(|error| error.to_string())
+                        }
+                        Err(_) => Ok(None),
+                    };
+                    (id, loaded)
+                })
+                .collect::<Vec<_>>()
         })
         .await;
         let Ok(loaded) = loaded else {
             return Vec::new();
         };
         let configured = self.configured();
+        let mut unreadable = self.unreadable.lock().unwrap_or_else(PoisonError::into_inner);
+        let loaded: Vec<_> = loaded
+            .into_iter()
+            .map(|(id, loaded)| match loaded {
+                Ok(record) => {
+                    unreadable.remove(&id);
+                    (id, record)
+                }
+                Err(error) => {
+                    // NOTE: each status read, each sync of the logins included, reads
+                    // the store; an error that stays the same is logged once.
+                    if unreadable.get(&id) == Some(&error) {
+                        tracing::debug!(error = %error, credential = %id, "a credential still could not be read");
+                    } else {
+                        tracing::warn!(error = %error, credential = %id, "a credential could not be read");
+                        unreadable.insert(id.clone(), error);
+                    }
+                    (id, None)
+                }
+            })
+            .collect();
+        drop(unreadable);
         loaded
             .into_iter()
             .map(|(id, record)| {

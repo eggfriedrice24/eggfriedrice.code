@@ -519,6 +519,44 @@ async fn an_account_that_cannot_start_leaves_no_catalog_behind() {
     assert!(providers.catalogs.of("anthropic-api.Not A Name").is_none());
 }
 
+/// A credential file that other users can read stays unread. Each status read reads
+/// the store again, but efrd warns once for the same error, and again only after the
+/// file was read in between.
+#[tokio::test]
+async fn a_credential_that_cannot_be_read_is_logged_once() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let store = store(dir.path());
+    let id = CredentialId::new(API).unwrap();
+    store.save(&id, &CredentialRecord::ApiKey { key: SecretString::from("sk-test") }).unwrap();
+    let file = dir.path().join("secrets").join(format!("{API}.json"));
+    let open =
+        |mode| std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+    let providers =
+        Providers::build(&Settings::default(), store, parts(&clock, dir.path(), None)).unwrap();
+    let warned = || {
+        crate::testing::logged()
+            .lines()
+            .filter(|line| line.contains("WARN") && line.contains("a credential could not be read"))
+            .count()
+    };
+    let before = warned();
+
+    open(0o644);
+    for _ in 0..3 {
+        let status = providers.status().await;
+        assert!(!status.iter().any(|s| s.provider == API && s.logged_in));
+    }
+    assert_eq!(warned() - before, 1, "the same error is logged once");
+
+    open(0o600);
+    assert!(providers.status().await.iter().any(|s| s.provider == API && s.logged_in));
+    open(0o644);
+    providers.status().await;
+    assert_eq!(warned() - before, 2, "an error after a good read is logged again");
+}
+
 #[test]
 fn an_account_has_a_cache_file_of_its_own() {
     let state = std::path::Path::new("/state");
