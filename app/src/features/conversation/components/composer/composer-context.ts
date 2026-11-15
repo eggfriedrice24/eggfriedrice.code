@@ -49,3 +49,20 @@ export const ComposerContext = createContext<ComposerModel | null>(null);
 export const ComposerInputRefContext = createContext<RefObject<TextInputInstance | null> | null>(
   null,
 );
+
+/**
+ * The size of the composer (as t3code and Claude Code): a one-line pill at rest, the full
+ * composer while the input has focus. `Composer.Root` gives it.
+ */
+export interface ComposerSize {
+  /** True while the input has focus: the status line shows and the field grows. */
+  readonly expanded: boolean;
+  /** The input calls it on focus and on blur. */
+  readonly setFocused: (focused: boolean) => void;
+}
+
+/** The size of the composer. Outside `Composer.Root` it is always expanded. */
+export const ComposerSizeContext = createContext<ComposerSize>({
+  expanded: true,
+  setFocused: () => undefined,
+});

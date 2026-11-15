@@ -128,6 +128,8 @@ interface Setup {
   readonly models?: ModelsListResult;
   /** The Face ID unlock of the app is on (and open). */
   readonly lockOn?: boolean;
+  /** True to leave the input without focus, so the composer rests as a one-line pill. */
+  readonly rest?: boolean;
 }
 
 /** A Face ID unlock that is open, or off. */
@@ -209,6 +211,10 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
+  // Most tests look at the full composer, which shows while the input has focus.
+  if (setup.rest !== true) {
+    await fireEvent(screen.getByLabelText("Message"), "focus");
+  }
   return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened };
 }
 
@@ -308,8 +314,37 @@ describe("the states of the composer", () => {
     expect(sendButton()).toBeEnabled();
     expect(sendButton().props.className).toContain("bg-accent-primary");
     expect(input().props.value).toBe("Now write the migration notes");
-    expect(input().props.className).toContain("min-h-field max-h-field-max");
+    expect(input().props.className).toContain("min-h-field");
+    expect(input().props.className).toContain("max-h-field-max");
+    expect(input().props.scrollEnabled).toBe(true);
     expect(input().props.multiline).toBe(true);
+  });
+
+  it("rests as a one-line pill without focus, and grows to the full composer on focus", async () => {
+    await renderComposer({ stream: endedStream(), rest: true, text: "Line one\nLine two" });
+    // At rest: no status line, a one-line field that does not scroll, the action stays.
+    expect(screen.queryByTestId("composer-status-line")).toBeNull();
+    expect(input().props.className).toContain("max-h-field");
+    expect(input().props.className).not.toContain("max-h-field-max");
+    expect(input().props.scrollEnabled).toBe(false);
+    expect(sendButton()).toBeEnabled();
+    await fireEvent(input(), "focus");
+    expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
+    expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
+    expect(input().props.className).toContain("max-h-field-max");
+    expect(input().props.scrollEnabled).toBe(true);
+    // A blur makes it a pill again; the draft stays.
+    await fireEvent(input(), "blur");
+    expect(screen.queryByTestId("composer-status-line")).toBeNull();
+    expect(input().props.value).toBe("Line one\nLine two");
+  });
+
+  it("focuses the input on a tap on the resting pill", async () => {
+    await renderComposer({ rest: true });
+    const focus = textInputFocus();
+    focus.mockClear();
+    await fireEvent.press(screen.getByTestId("composer-pill"));
+    expect(focus).toHaveBeenCalledTimes(1);
   });
 
   it("shows Stop only while a turn runs with an empty field", async () => {
@@ -401,8 +436,9 @@ describe("the states of the composer", () => {
     expect(input().props.className).toContain("opacity-60");
     expect(input().props.placeholder).toBe("laptop is offline");
     expect(sendButton()).toBeDisabled();
-    // The status line keeps the cwd, the mode and the context.
-    expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
+    // The input takes no focus, so the composer rests as a pill and the placeholder says
+    // why.
+    expect(screen.queryByTestId("composer-status-line")).toBeNull();
     // A new try of the client does not turn the input on.
     await act(async () => {
       harness.connection.set({

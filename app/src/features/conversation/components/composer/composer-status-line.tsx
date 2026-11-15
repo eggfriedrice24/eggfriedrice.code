@@ -20,7 +20,7 @@ import { useNow } from "@/features/navigation/use-now";
 import { EMPTY_STREAM, type StreamState } from "@/lib/stream/reducer";
 
 import { BLANK_STATUS, selectComposerStatus, statusParts } from "../../model/composer-state";
-import { ComposerContext } from "./composer-context";
+import { ComposerContext, ComposerSizeContext } from "./composer-context";
 
 /** The store of a composer without a conversation: it never changes. */
 const NO_STREAM: Readable<StreamState> = createStore(EMPTY_STREAM);
@@ -44,10 +44,11 @@ export interface ComposerStatusLineProps {
   readonly children?: ReactNode;
 }
 
-/** The status line row. */
+/** The status line row. It shows only while the composer is expanded (the input has focus). */
 export function ComposerStatusLine(props: ComposerStatusLineProps) {
   const model = use(ComposerContext);
-  if (model === null) {
+  const { expanded } = use(ComposerSizeContext);
+  if (model === null || !expanded) {
     return null;
   }
   return (

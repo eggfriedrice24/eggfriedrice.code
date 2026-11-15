@@ -261,6 +261,9 @@ async function openConversation(): Promise<void> {
 describe("the model sheet", () => {
   it("opens from the model button, and a tap on a row switches at once with Settings off", async () => {
     await openConversation();
+    // The model button is on the status line, which shows while the input has focus.
+    expect(screen.queryByTestId("composer-model-button")).toBeNull();
+    await fireEvent(screen.getByTestId("composer-input"), "focus");
     const button = screen.getByTestId("composer-model-button");
     expect(button).toHaveTextContent("GPT-6.1 Sol · ChatGPT plan · medium");
     await fireEvent.press(button);

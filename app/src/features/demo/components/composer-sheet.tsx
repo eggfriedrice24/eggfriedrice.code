@@ -1,7 +1,8 @@
 // The S-Composer board: the real docked composer in each state of the canvas
 // (model/composer-cases.ts). A list of the states is above it; a tap on a state gives the
 // composer the stores of that state, and it derives its look as on a real screen. The
-// status line reads a stream that is idle or that runs a turn. Its calls never end.
+// status line reads a stream that is idle or that runs a turn. Its calls never end. The
+// composer rests as a one-line pill; a tap on it shows the full composer of the state.
 
 import { createStore, type Store } from "@tanstack/store";
 import { useState } from "react";

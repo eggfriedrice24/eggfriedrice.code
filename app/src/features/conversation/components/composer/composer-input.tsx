@@ -7,6 +7,8 @@
 // - While a send is in flight, the text shows in text_subtle and the changes are dropped.
 //   The native input stays editable, so the keyboard stays up.
 // - Disconnected: the input takes no text, is at 60% and its placeholder says why.
+// - At rest (no focus) the field is one line and does not scroll, so a long draft shows
+//   its first line in the pill. Focus gives it the 6 lines again.
 
 import { use } from "react";
 import { TextInput } from "react-native";
@@ -14,12 +16,13 @@ import { TextInput } from "react-native";
 import { cn } from "@/components/ui/cn";
 import { roles } from "@/theme/roles";
 
-import { ComposerContext, ComposerInputRefContext } from "./composer-context";
+import { ComposerContext, ComposerInputRefContext, ComposerSizeContext } from "./composer-context";
 
 /** The text input of the composer. It reads the draft through the composer. */
 export function ComposerInput() {
   const model = use(ComposerContext);
   const inputRef = use(ComposerInputRefContext);
+  const size = use(ComposerSizeContext);
   if (model === null) {
     return null;
   }
@@ -35,12 +38,16 @@ export function ComposerInput() {
       value={model.value}
       onChangeText={model.setText}
       editable={kind !== "disconnected"}
+      onFocus={() => size.setFocused(true)}
+      onBlur={() => size.setFocused(false)}
+      scrollEnabled={size.expanded}
       placeholder={model.placeholder}
       placeholderTextColor={roles.text_subtle}
       selectionColor={roles.accent_primary}
       cursorColor={roles.accent_primary}
       className={cn(
-        "min-h-field max-h-field-max flex-1 px-16 pt-9 pb-10 text-input",
+        "min-h-field flex-1 px-16 pt-9 pb-10 text-input",
+        size.expanded ? "max-h-field-max" : "max-h-field",
         kind === "sending" ? "text-text-subtle" : "text-text-primary",
         kind === "disconnected" && "opacity-60",
       )}

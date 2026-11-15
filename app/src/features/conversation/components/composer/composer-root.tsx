@@ -14,8 +14,13 @@
 //   controls of their own, so they keep their taps. Disconnected takes no focus.
 // - The blank root has the same pill and the same status line. The user chose this over
 //   design item 8.13, which had no status line and no material there.
+// - At rest the pill is one line, as the native search pill (as t3code and Claude Code):
+//   only the field and the trailing action, 48 pt high. When the input takes focus, the
+//   status line shows and the field grows to 6 lines. A blur makes it a pill again. The
+//   approval strip shows in both sizes. The change has no animation of its own: the
+//   keyboard moves the composer at the same time.
 
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Pressable, View, type LayoutChangeEvent, type TextInputInstance } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,7 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Material } from "@/components/ui/material";
 import { RADII } from "@/theme/metrics";
 
-import { ComposerContext, ComposerInputRefContext } from "./composer-context";
+import { ComposerContext, ComposerInputRefContext, ComposerSizeContext } from "./composer-context";
 import { useComposer, type ComposerOptions } from "./use-composer";
 
 /** The gap between the pill and the keyboard, or between the pill and the bottom edge. */
@@ -56,6 +61,8 @@ export function ComposerRoot(props: ComposerRootProps) {
   const { children, onHeightChange, ...options } = props;
   const model = useComposer(options);
   const inputRef = useRef<TextInputInstance>(null);
+  // Short local UI state: the input has focus.
+  const [focused, setFocused] = useState(false);
   const bottom = bottomEdge(useSafeAreaInsets().bottom);
   const layout = (event: LayoutChangeEvent): void => {
     onHeightChange?.(event.nativeEvent.layout.height);
@@ -63,28 +70,30 @@ export function ComposerRoot(props: ComposerRootProps) {
   return (
     <ComposerContext value={model}>
       <ComposerInputRefContext value={inputRef}>
-        <KeyboardStickyView
-          testID="composer"
-          offset={{ closed: 0, opened: bottom }}
-          onLayout={layout}
-        >
-          <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
-            <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
-            <Pressable
-              testID="composer-pill"
-              accessible={false}
-              onPress={() => {
-                if (model.state.kind !== "disconnected") {
-                  inputRef.current?.focus();
-                }
-              }}
-              className="overflow-hidden rounded-composer"
-            >
-              <Material kind="glass" radius={RADII.composer} />
-              {children}
-            </Pressable>
-          </View>
-        </KeyboardStickyView>
+        <ComposerSizeContext value={{ expanded: focused, setFocused }}>
+          <KeyboardStickyView
+            testID="composer"
+            offset={{ closed: 0, opened: bottom }}
+            onLayout={layout}
+          >
+            <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
+              <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
+              <Pressable
+                testID="composer-pill"
+                accessible={false}
+                onPress={() => {
+                  if (model.state.kind !== "disconnected") {
+                    inputRef.current?.focus();
+                  }
+                }}
+                className="overflow-hidden rounded-composer"
+              >
+                <Material kind="glass" radius={RADII.composer} />
+                {children}
+              </Pressable>
+            </View>
+          </KeyboardStickyView>
+        </ComposerSizeContext>
       </ComposerInputRefContext>
     </ComposerContext>
   );
