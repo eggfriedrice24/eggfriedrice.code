@@ -155,7 +155,7 @@ fn only_the_newest_copies_stay_after_a_migration() {
     let mut pruned = report.pruned.clone();
     pruned.sort();
     assert_eq!(pruned, [backups.join("efr.sqlite.1"), backups.join("efr.sqlite.3")]);
-    assert_eq!(report.not_pruned, Vec::<PathBuf>::new());
+    assert_eq!(report.not_pruned, Vec::new());
     let mut left: Vec<String> = fs::read_dir(&backups)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
@@ -197,6 +197,31 @@ fn a_start_with_no_migration_prunes_too() {
     assert!(!report.applied());
     assert_eq!(report.pruned, [backups.join("efr.sqlite.4")]);
     assert!(backups.join("efr.sqlite.7").exists() && backups.join("efr.sqlite.9").exists());
+}
+
+/// A copy that the prune cannot remove keeps the kind of its error, so the log of efrd
+/// says why it stays.
+#[test]
+fn a_copy_that_stays_names_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let backups = dir.path().join("backups");
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
+    fs::create_dir(&backups).unwrap();
+    for version in [4, 7, 9] {
+        fs::write(backups.join(format!("efr.sqlite.{version}")), b"a copy").unwrap();
+    }
+    fs::set_permissions(&backups, fs::Permissions::from_mode(0o500)).unwrap();
+
+    let report = Migrations::new().migrate(&mut conn, Some(&backups));
+    fs::set_permissions(&backups, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let report = report.unwrap();
+    assert_eq!(report.pruned, Vec::<PathBuf>::new());
+    assert_eq!(
+        report.not_pruned,
+        [(backups.join("efr.sqlite.4"), io::ErrorKind::PermissionDenied)]
+    );
 }
 
 #[test]

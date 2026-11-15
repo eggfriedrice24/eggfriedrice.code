@@ -20,7 +20,8 @@ across a restart:
   does not replay the log. `MigrationReport::rebuilt` says whether a rebuild ran.
   After the migrations, also when none ran, only the newest `KEPT_BACKUPS` (2) copies
   by version stay in `backups/`, the copy of this start among them;
-  `MigrationReport::pruned` and `not_pruned` name the older copies.
+  `MigrationReport::pruned` and `not_pruned` name the older copies; `not_pruned`
+  gives each one with the kind of the error that kept it, for the log of efrd.
 - `StoreWriter` and `WriterHandle`: the single writer. A thread owns the only
   read-write connection; `WriterHandle::append(Batch)` commits events, the projections
   derived from them, command receipts and outbox rows in one transaction, and then

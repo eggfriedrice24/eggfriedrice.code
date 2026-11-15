@@ -74,8 +74,9 @@ pub struct MigrationReport {
     /// [`KEPT_BACKUPS`].
     pub pruned: Vec<PathBuf>,
     /// The older copies that the prune could not remove, or the directory when it could
-    /// not be read. The next start tries again.
-    pub not_pruned: Vec<PathBuf>,
+    /// not be read, each with the kind of its error, such as `PermissionDenied`. The
+    /// next start tries again.
+    pub not_pruned: Vec<(PathBuf, io::ErrorKind)>,
 }
 
 impl MigrationReport {
@@ -205,15 +206,19 @@ impl Migrations {
 /// Removes the copies of the database's file in `dir` beyond the newest
 /// [`KEPT_BACKUPS`] by schema version, where `taken`, the copy that this start took,
 /// counts as the newest: the removed ones, and the ones that could not be removed (or
-/// `dir` when it could not be read). Other files stay.
-fn prune(conn: &Connection, dir: &Path, taken: Option<&Path>) -> (Vec<PathBuf>, Vec<PathBuf>) {
+/// `dir` when it could not be read), each with the kind of its error. Other files stay.
+fn prune(
+    conn: &Connection,
+    dir: &Path,
+    taken: Option<&Path>,
+) -> (Vec<PathBuf>, Vec<(PathBuf, io::ErrorKind)>) {
     let Some(name) = database_file_name(conn) else {
         return (Vec::new(), Vec::new());
     };
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return (Vec::new(), Vec::new()),
-        Err(_) => return (Vec::new(), vec![dir.to_path_buf()]),
+        Err(error) => return (Vec::new(), vec![(dir.to_path_buf(), error.kind())]),
     };
     let prefix = format!("{name}.");
     let mut copies: Vec<(u32, PathBuf)> = entries
@@ -233,7 +238,7 @@ fn prune(conn: &Connection, dir: &Path, taken: Option<&Path>) -> (Vec<PathBuf>, 
     for (_, path) in copies.into_iter().skip(KEPT_BACKUPS) {
         match fs::remove_file(&path) {
             Ok(()) => pruned.push(path),
-            Err(_) => not_pruned.push(path),
+            Err(error) => not_pruned.push((path, error.kind())),
         }
     }
     (pruned, not_pruned)
