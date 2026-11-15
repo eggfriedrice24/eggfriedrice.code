@@ -154,7 +154,8 @@ import is allowed. oxlint enforces it.
   `components/ui`.
 - Use `components/ui` for the parts of the design: `MonoText`, `BodyText`,
   `BrailleCell`, `BlockCursor`, `Material`, `GlassButton`, `Hairline`, `SymbolIcon`,
-  `MenuView`, `PrimaryButton`, `BorderedButton`, `PlainButton`, `CopyButton`,
+  `MenuView`, `PrimaryButton`, `BorderedButton`, `PlainButton`, `SmallFilledButton`
+  and `SmallPlainButton` (the 28 pt buttons of a strip or a sheet), `CopyButton`,
   `KeyValueBox`, `InsetGroup`, `SectionHeader` and `Dot`.
 - `MenuView` never gets an empty image: react-native-menu 2.0.0 then logs a fault.
 - efr is not a TUI. The app uses native iOS parts: the native stack, UIMenu, action
