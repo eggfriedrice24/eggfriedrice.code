@@ -429,6 +429,24 @@ not a test that pretends.
     are sharp at 3x. A signed-out account shows its logos at 40 %.
 36. The model button at the end of the status line gives way to the path first, then
     cuts its own end, on the smallest iPhone.
+    - Round 7 (S-ModelSheet r7): the list shows no scroll indicator, and a hairline
+      tops the pinned panel only while rows lie under it. The search field filters as
+      you type and the sheet holds the large detent while it has the focus or text. The
+      filter button opens a native menu (All, Claude, OpenAI, then Legacy models); its
+      glyph fills while a filter is on. A tap on a star moves the favourite of its
+      account and never selects the row; the favourite goes first the next time the
+      sheet opens. VoiceOver reaches the star as an action of the row.
+    - S-ComposerR7: the provider mark stands before the model name at 11 pt (the
+      Claude spark orange, the OpenAI mark in the colour of the button). A new thread
+      starts with the favourite of the last plan. The mode control (cautious, or 🤖 auto)
+      left of the model button opens a menu with Cautious and Auto, and Auto is off on an
+      iPhone without a passcode.
+    - Face ID (a new dev build with expo-local-authentication): Send in auto shows the
+      system prompt of iOS with the reason "Send this message in auto"; the message stays
+      in the field and Send shows the braille cell. After a cancel or a failure, the
+      message is not sent and one line says why. A steer into a turn that runs in auto
+      asks too. With the passcode only (Face ID off), iOS asks for the passcode. The turn
+      on the desktop runs in auto (`efr status` or the turn line shows the mode).
 
 ### Accounts, limits, auto and quarantine
 
@@ -466,11 +484,13 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000]`, `line-through`,
 42. Quarantine on the card (gallery "AU-Auto"): each changed git setting or other file
     that runs programs is one muted row under the tool card, with `moved to
     quarantine` or `left in place`.
-43. Q-Quarantine (gallery "Q-Quarantine" and "AU-Auto"): with the reviewer off, the
-    waiting tool card, the strip and the sheet show the question and say "answer on
-    <machine>" in place of the buttons. The sheet fits its rows. After the answer in
-    the terminal, the card says "kept" or "left in quarantine", and the sheet adds where
-    it came from.
+43. Q-Quarantine 8, 9 (gallery "Q-Quarantine" and "AU-Auto"): with the reviewer off,
+    the strip has two rows: the question, then "Keep on <machine>" in text_subtle and
+    the capsule Leave. The sheet has the same answer row. A tap on Leave sends the
+    answer and the card says "left in quarantine". The status line says "waiting for
+    you". VoiceOver reads "Leave in quarantine" and "Keep is possible only on
+    <machine>". After an answer in the terminal, the card says "kept" or "left in
+    quarantine", and the sheet adds where it came from.
 44. The web end line (no board; a real turn with web search on the desktop): the end
     line counts the searches (`2 searches`), the sources over it fit on one line each,
     and with `web.search = "cached"` the end line says `, stored copy` and one quiet
