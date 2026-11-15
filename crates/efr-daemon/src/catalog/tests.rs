@@ -145,6 +145,20 @@ fn the_effective_list_is_the_catalog_then_the_configured_ids() {
     assert!(models[0].default);
 }
 
+/// The review finding: no test held the legacy mark of the list that `models.list`
+/// sends, so the phone filter could lose it in silence.
+#[test]
+fn the_effective_list_marks_an_older_model_of_a_family_legacy() {
+    let mut settings = Settings::default();
+    settings.openai.models = Some(vec!["gpt-6-sol".into()]);
+
+    let (models, _) = effective_models(&settings, &listed(&cached_catalog()));
+
+    let legacy: Vec<(&str, bool)> =
+        models.iter().map(|model| (model.id.as_str(), model.legacy)).collect();
+    assert_eq!(legacy, [("gpt-7-luna", false), ("gpt-7-sol", false), ("gpt-6-sol", true)]);
+}
+
 #[test]
 fn a_configured_window_raises_or_lowers_the_window_up_to_the_largest() {
     let mut settings = Settings::default();
