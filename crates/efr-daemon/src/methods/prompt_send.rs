@@ -153,10 +153,16 @@ async fn send(
     // turn resolves again against the settings of its start.
     let settings = Arc::clone(&state.settings.borrow());
     let named = params.settings.provider.as_deref();
-    let provider = state
-        .providers
-        .provider_of_prompt(&settings, params.settings.model.as_deref(), named)
-        .await?;
+    let asked = params.settings.model.as_deref();
+    let mut provider = match state.providers.provider_of_prompt(&settings, asked, named).await {
+        Err(error) if wants_login(&error) => {
+            // NOTE: a credential file put in place by hand shows only after a read of
+            // the store, so a pick that fails for want of a login reads it once.
+            state.providers.sync_logins().await;
+            state.providers.provider_of_prompt(&settings, asked, named).await?
+        }
+        picked => picked?,
+    };
     efr_stdx::mark::hit("ps.provider");
     // NOTE: the prompt carries the id of the provider that it named, so its turn finds
     // it also while that provider's list is still missing.
@@ -167,7 +173,17 @@ async fn send(
     // NOTE: after the wait, so a default of the other company finds the first list of
     // its provider.
     refuse_foreign_model(state, &settings, &params.settings)?;
-    state.providers.check_list(&settings, &provider, asked)?;
+    if let Err(error) = state.providers.check_list(&settings, &provider, asked) {
+        if !wants_login(&error) {
+            return Err(error);
+        }
+        // NOTE: as above; the pick runs again, because it waits for the first list of
+        // a login that the read found.
+        state.providers.sync_logins().await;
+        let named = params.settings.provider.as_deref();
+        provider = state.providers.provider_of_prompt(&settings, asked, named).await?;
+        state.providers.check_list(&settings, &provider, asked)?;
+    }
     validate(&params)?;
     efr_stdx::mark::hit("ps.checked");
     // NOTE: counted before the prompt is recorded, because its turn may end before this
@@ -683,6 +699,17 @@ pub(crate) async fn reprobe_for_auto(state: &State, asked: &TurnSettings) {
 }
 
 /// Refuses a conversation that the log does not hold.
+/// True when the pick of the provider of a prompt failed because no login serves it:
+/// a read of the credential store can change that.
+fn wants_login(error: &DaemonError) -> bool {
+    matches!(
+        error,
+        DaemonError::UnknownProviderName { .. }
+            | DaemonError::SignedOutAccount { .. }
+            | DaemonError::NoModelListWithoutKey { .. }
+    )
+}
+
 pub(crate) async fn ensure_exists(
     state: &State,
     conversation_id: ConversationId,

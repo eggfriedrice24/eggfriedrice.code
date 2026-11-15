@@ -595,6 +595,14 @@ impl Providers {
             let logged_in: Vec<&str> =
                 ids.iter().map(String::as_str).filter(|id| self.catalogs.logged_in(id)).collect();
             let Some(id) = efr_protocol::provider_id_named(name, &logged_in) else {
+                let known: Vec<&str> = ids.iter().map(String::as_str).collect();
+                if let Some(id) = efr_protocol::provider_id_named(name, &known) {
+                    return Err(DaemonError::SignedOutAccount {
+                        name: name.to_owned(),
+                        provider: id.to_owned(),
+                        login: account_login_command(id),
+                    });
+                }
                 return Err(DaemonError::UnknownProviderName {
                     name: name.to_owned(),
                     choices: logged_in.iter().map(|id| (*id).to_owned()).collect(),
@@ -1001,6 +1009,17 @@ pub(crate) fn login_command(provider: &str) -> &'static str {
         ANTHROPIC => "efr login anthropic",
         API => "efr login openai-api",
         _ => "efr login openai",
+    }
+}
+
+/// The command that logs in to the provider `provider`, with `--account` for an
+/// account, such as `efr login anthropic --account personal` for
+/// `anthropic-api.personal` (TM-Accounts 5).
+pub(crate) fn account_login_command(provider: &str) -> String {
+    let base = login_command(provider);
+    match provider.split_once('.') {
+        Some((_, account)) if !account.is_empty() => format!("{base} --account {account}"),
+        _ => base.to_owned(),
     }
 }
 

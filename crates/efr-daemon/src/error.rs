@@ -264,6 +264,18 @@ pub enum DaemonError {
         /// The providers with a login.
         choices: Vec<String>,
     },
+    /// A prompt names an account that efrd knows but that has no login now, such as one
+    /// that logged out while a terminal kept it with `,model`.
+    #[error("{name} is signed out; log in with {login}")]
+    SignedOutAccount {
+        /// The name of the prompt, such as `personal`.
+        name: String,
+        /// The provider id of the account, such as `anthropic-api.personal`.
+        provider: String,
+        /// The command that logs in to it, such as
+        /// `efr login anthropic --account personal`.
+        login: String,
+    },
     /// A login with an API key gives the key of another account of the same provider.
     /// One key under two names has no use, so efrd keeps the other one.
     #[error("this key is the key of {other} already; log out of {other} first, or use another key")]
@@ -891,7 +903,9 @@ impl DaemonError {
             DaemonError::Shell { source } => shell_code(source),
             DaemonError::Login { source } => login_code(source),
             DaemonError::KeyCheck { source, .. } => key_check_code(source),
-            DaemonError::NoModelListWithoutKey { .. } => ErrorCode::Unauthorized,
+            DaemonError::NoModelListWithoutKey { .. } | DaemonError::SignedOutAccount { .. } => {
+                ErrorCode::Unauthorized
+            }
             DaemonError::ModelListFetch { source, .. } => summary_code(source),
             DaemonError::Respond { source: TransportError::Overflow { .. } } => ErrorCode::Overflow,
             DaemonError::Paths { .. }

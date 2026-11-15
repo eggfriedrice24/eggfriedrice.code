@@ -747,8 +747,74 @@ async fn a_credential_put_in_place_or_removed_outside_efrd_shows_at_once() {
     assert_eq!(logged_in(&client, "anthropic-api.home").await, Some(false));
     let Method::PromptSend(mut prompt) = daemon.prompt(1, "hi", TTY) else { unreachable!() };
     prompt.settings.provider = Some("home".to_owned());
-    let missing = client.call::<PromptSendResult>(Method::PromptSend(prompt)).await.unwrap_err();
-    assert!(refusal(missing).message.contains("no provider with a login"));
+    let missing =
+        refusal(client.call::<PromptSendResult>(Method::PromptSend(prompt)).await.unwrap_err());
+    assert_eq!(missing.code, ErrorCode::Unauthorized);
+    assert_eq!(
+        missing.message,
+        "home is signed out; log in with efr login anthropic --account home"
+    );
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// A key file put in place by hand serves the next prompt that names its account, with
+/// no `efr status` or model list before it: the pick reads the store once when no
+/// login serves the name.
+#[tokio::test]
+async fn a_key_put_in_place_serves_the_next_prompt_at_once() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    put_key(&daemon, "anthropic-api.home", ANTHROPIC_KEY);
+    messages.push(MessagesAnswer::text("hello from home"));
+    let Method::PromptSend(mut prompt) = daemon.prompt(1, "hi", TTY) else { unreachable!() };
+    prompt.settings.provider = Some("home".to_owned());
+    prompt.settings.model = Some("claude-opus-5-5".to_owned());
+    let sent: PromptSendResult = client.call(Method::PromptSend(prompt)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let events = events_until(&mut follow, |event| {
+        matches!(event, Event::TurnCompleted { .. } | Event::TurnFailed { .. })
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    let sent = messages.received();
+    assert_eq!(
+        sent.last().unwrap().authorization,
+        Some(format!("Bearer {ANTHROPIC_KEY}")),
+        "the turn ran on the key of home"
+    );
+    drop((follow, client));
+    daemon.stop().await.unwrap();
+}
+
+/// A terminal keeps an account with `,model`, and the account logs out: the next prompt
+/// says that it is signed out and names its login.
+#[tokio::test]
+async fn a_prompt_on_an_account_that_logged_out_names_its_login() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let _: AdminLoginApiKeyResult =
+        client.call(login("anthropic-api.personal", ANTHROPIC_KEY, false)).await.unwrap();
+    let _: AdminLogoutResult = client.call(logout("anthropic-api.personal")).await.unwrap();
+
+    let Method::PromptSend(mut prompt) = daemon.prompt(1, "hi", TTY) else { unreachable!() };
+    prompt.settings.provider = Some("personal".to_owned());
+    prompt.settings.model = Some("claude-opus-5-5".to_owned());
+    let refused =
+        refusal(client.call::<PromptSendResult>(Method::PromptSend(prompt)).await.unwrap_err());
+
+    assert_eq!(refused.code, ErrorCode::Unauthorized);
+    assert_eq!(
+        refused.message,
+        "personal is signed out; log in with efr login anthropic --account personal"
+    );
     drop(client);
     daemon.stop().await.unwrap();
 }
