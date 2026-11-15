@@ -246,8 +246,9 @@ turns.
   (`efr_permissions::exits::unsandboxed_line_problem`): a line that carries more than
   one command gets that text as a tool error with no question, and it is no refusal.
 - Refusals and denials. A floor (`secret`, `config`) refuses the exit before any
-  question and records `exit_judged` (judge `floor`); three such refusals in a row
-  without a person's answer end the turn with `turn_failed` (`forbidden`, "auto stopped
+  question and records `exit_judged` (judge `floor`, with the floor's text, such as `a
+  secret (floor)`, as its rationale and as the call's refusal); three such refusals in
+  a row without a person's answer end the turn with `turn_failed` (`forbidden`, "auto stopped
   this turn: 3 actions were refused in a row. Read the answers, then send a new
   prompt."; in full mode the text starts with "full mode stopped this turn",
   `exit::refusals_stopped`). A classifier allow does not reset that count. The denials
