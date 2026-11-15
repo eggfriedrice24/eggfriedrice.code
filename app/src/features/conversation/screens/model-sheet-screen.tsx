@@ -30,7 +30,7 @@ import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
-import { Keyboard } from "react-native";
+import { AccessibilityInfo, Keyboard } from "react-native";
 
 import { haptic } from "@/lib/native/haptics";
 import { EMPTY_STREAM, runningTurn } from "@/lib/stream/reducer";
@@ -63,6 +63,7 @@ import {
   pickRow,
   type Selection,
   selectionChanged,
+  type SheetInput,
   type SheetRow,
   sheetView,
 } from "../model/model-sheet";
@@ -85,6 +86,11 @@ export interface ModelSheetScreenProps {
 
 /** The stream of a sheet without a conversation: no turn. */
 const NO_STREAM = createStore(EMPTY_STREAM);
+
+/** Says `line` to VoiceOver, such as the result of a tap on a star. */
+function announce(line: string): void {
+  AccessibilityInfo.announceForAccessibility(line);
+}
 
 /** The model sheet. */
 export function ModelSheetScreen(props: ModelSheetScreenProps) {
@@ -169,7 +175,7 @@ function SheetBody(props: SheetBodyProps) {
     enabled: previewOn,
   });
 
-  const view = sheetView({
+  const sheetInput: SheetInput = {
     list,
     current,
     selection,
@@ -184,7 +190,16 @@ function SheetBody(props: SheetBodyProps) {
     showLegacy,
     favourite,
     favouriteAtOpen: (provider) => favouriteOf(favouritesAtOpen, target.machine, provider),
-  });
+  };
+  const view = sheetView(sheetInput);
+  // VoiceOver hears the line of a search that finds nothing, as a status (notes r7).
+  const onQuery = (text: string): void => {
+    setQuery(text);
+    const noMatch = sheetView({ ...sheetInput, query: text }).noMatch;
+    if (noMatch !== undefined && view.noMatch === undefined) {
+      announce(noMatch);
+    }
+  };
   const searching = focused || query !== "";
   let empty: SheetEmpty;
   if (list === undefined) {
@@ -235,6 +250,7 @@ function SheetBody(props: SheetBodyProps) {
   const onStar = (row: SheetRow): void => {
     choices.setFavourite(target.machine, row.provider, row.favourite ? undefined : row.model);
     haptic("light");
+    announce(row.starResult);
   };
   const { filter, confirm } = view;
   const kinds: [KindFilter, string][] = [
@@ -253,7 +269,7 @@ function SheetBody(props: SheetBodyProps) {
         hideNavigationBar={false}
         obscureBackground={false}
         allowToolbarIntegration
-        onChangeText={(event) => setQuery(event.nativeEvent.text)}
+        onChangeText={(event) => onQuery(event.nativeEvent.text)}
         onCancelButtonPress={() => setQuery("")}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -262,6 +278,7 @@ function SheetBody(props: SheetBodyProps) {
         <Stack.Toolbar.SearchBarSlot />
         <Stack.Toolbar.Menu
           accessibilityLabel={filter.label}
+          accessibilityHint="Opens the filters."
           icon={
             filter.on
               ? "line.3.horizontal.decrease.circle.fill"

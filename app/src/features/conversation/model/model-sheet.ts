@@ -297,6 +297,11 @@ export interface SheetRow {
   readonly starrable: boolean;
   /** The words of the star action for VoiceOver. */
   readonly starLabel: string;
+  /**
+   * What VoiceOver says after a tap on the star: "GPT-6 Astra is the favourite of the
+   * ChatGPT plan", or "The ChatGPT plan has no favourite".
+   */
+  readonly starResult: string;
 }
 
 /** The rows of one account. */
@@ -509,6 +514,9 @@ function sections(input: SheetInput): SheetSection[] {
       if (starred) {
         label.push(`favourite of ${subject}`);
       }
+      if (entry.legacy === true) {
+        label.push("legacy");
+      }
       if (dim) {
         label.push(note?.kind === "signed_out" ? "signed out" : "limit reached");
       }
@@ -528,6 +536,9 @@ function sections(input: SheetInput): SheetSection[] {
         starLabel: starred
           ? `Remove the favourite of ${subject}`
           : `Make ${name} the favourite of ${subject}`,
+        starResult: starred
+          ? `${subject.charAt(0).toUpperCase()}${subject.slice(1)} has no favourite`
+          : `${name} is the favourite of ${subject}`,
       };
       (entry.legacy === true ? legacy : rows).push(row);
     }
@@ -616,6 +627,7 @@ function withGone(out: SheetSection[], input: SheetInput): SheetSection[] {
     favourite: false,
     starrable: false,
     starLabel: "",
+    starResult: "",
   };
   const index = out.findIndex((section) => section.key === (current.provider ?? ""));
   if (index < 0) {
@@ -778,10 +790,13 @@ export interface ModelButtonView {
 /**
  * The button of `current`. It names the account when the model runs on two: the label
  * or the id, or the kind for the default account ("GPT-6.1 Sol · ChatGPT plan · medium").
+ * VoiceOver hears the same and at the end "favourite of b" for the favourite of a new
+ * thread, or "signed out on desktop" (`machineName`) for a dim button (S-Composer r7).
  */
 export function modelButton(
   list: ModelsListResult | undefined,
   current: CurrentSettings | undefined,
+  machineName?: string,
 ): ModelButtonView | undefined {
   if (current === undefined) {
     return undefined;
@@ -803,9 +818,12 @@ export function modelButton(
     words += ", chosen for this conversation";
   }
   const catalog = catalogsOf(list).find((one) => (one.provider ?? undefined) === current.provider);
+  if (current.source === "favourite" && current.provider !== undefined) {
+    words += `, favourite of ${accountSubject(current.provider, catalog?.label)}`;
+  }
   const dim = catalog?.signed_out === true;
   if (dim) {
-    words += ", signed out";
+    words += machineName === undefined ? ", signed out" : `, signed out on ${machineName}`;
   }
   return {
     text: parts.join(" · "),

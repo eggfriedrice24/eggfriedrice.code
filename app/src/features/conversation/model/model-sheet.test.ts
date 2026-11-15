@@ -382,6 +382,10 @@ describe("round 7: search, filter, legacy and favourites", () => {
       { key: PLAN, rows: ["gpt-6.1-sol", "gpt-6-luna"], legacy: ["gpt-6-sol"] },
       { key: PLAN_B, rows: ["gpt-6.1-sol"], legacy: [] },
     ]);
+    // VoiceOver says "legacy" for a legacy row (notes r7, table "Model sheet").
+    const work = sheetView(r7({ showLegacy: true })).sections[0];
+    expect(work?.legacy[0]?.label).toBe("Opus 5, legacy");
+    expect(work?.rows[0]?.label).not.toContain("legacy");
   });
 
   it("hides a legacy model while the filter is off, also when it is in use, selected or a favourite", () => {
@@ -499,6 +503,8 @@ describe("round 7: search, filter, legacy and favourites", () => {
       source: "favourite",
     });
     expect(modelButton(R7, current)).toMatchObject({ chosen: false, logo: "openai" });
+    // VoiceOver hears whose favourite it is (S-Composer r7, "VoiceOver").
+    expect(modelButton(R7, current)?.label).toMatch(/, favourite of /);
   });
 
   it("dims the model button of a signed-out account and gives it the logo of its kind", () => {
@@ -512,6 +518,9 @@ describe("round 7: search, filter, legacy and favourites", () => {
       dim: true,
       label: "Model: Opus 5.5, high effort, signed out",
     });
+    expect(modelButton(out, opus, "desktop")?.label).toBe(
+      "Model: Opus 5.5, high effort, signed out on desktop",
+    );
   });
 });
 

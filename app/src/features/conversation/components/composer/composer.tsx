@@ -91,11 +91,17 @@ export function DockedComposer(props: DockedComposerProps) {
         <View className="ml-auto shrink flex-row items-center gap-10">
           <ComposerModeButton deps={root.deps} />
           {onOpenModels === undefined ? null : stream === undefined ? (
-            <ComposerModelButton deps={root.deps} target={root.target} onPress={onOpenModels} />
+            <ComposerModelButton
+              deps={root.deps}
+              target={root.target}
+              machineName={root.machineName}
+              onPress={onOpenModels}
+            />
           ) : (
             <ComposerModelButton
               deps={root.deps}
               target={root.target}
+              machineName={root.machineName}
               store={stream}
               onPress={onOpenModels}
             />

@@ -46,6 +46,8 @@ const NO_STREAM: Readable<StreamState> = createStore(EMPTY_STREAM);
 export interface ComposerModelButtonProps {
   readonly deps: ComposerDeps;
   readonly target: ComposerTarget;
+  /** The machine of the composer, for VoiceOver: "signed out on desktop". */
+  readonly machineName: string;
   /** The stream store of the conversation; none on the blank root. */
   readonly store?: Readable<StreamState>;
   /** Opens the model sheet of this composer. */
@@ -64,7 +66,7 @@ export function ComposerModelButton(props: ComposerModelButtonProps) {
     ? freshChoice(list, plan, (provider) => favouriteOf(favourites, target.machine, provider))
     : undefined;
   const current = currentSettings(list, choice, last.model === undefined ? undefined : last, fresh);
-  const button = modelButton(list, current);
+  const button = modelButton(list, current, props.machineName);
   if (button === undefined) {
     return null;
   }

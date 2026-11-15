@@ -29,6 +29,7 @@ function row(overrides: Partial<SheetRow> = {}): SheetRow {
     favourite: false,
     starrable: true,
     starLabel: "Make Opus 5.5 the favourite of work",
+    starResult: "Opus 5.5 is the favourite of work",
     ...overrides,
   };
 }

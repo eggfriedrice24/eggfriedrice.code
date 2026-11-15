@@ -14,7 +14,15 @@ import {
   within,
   type RenderRouterResult,
 } from "expo-router/testing-library";
-import { Keyboard, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type { ReactNode } from "react";
 
 import { flush } from "@/lib/net/testing";
@@ -440,6 +448,27 @@ describe("the model sheet", () => {
     await act(flush);
     expect(screen.queryByTestId("model-row-anthropic-api/claude-opus-5-5")).toBeNull();
     expect(screen.getByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeOnTheScreen();
+  });
+
+  it("tells VoiceOver the result of a star and a search that finds nothing (notes r7)", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(flush);
+    const announce = jest
+      .spyOn(AccessibilityInfo, "announceForAccessibility")
+      .mockImplementation(() => undefined);
+    await fireEvent(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`), "accessibilityAction", {
+      nativeEvent: { actionName: "star" },
+    });
+    await act(flush);
+    expect(announce).toHaveBeenLastCalledWith("GPT-5.5 is the favourite of the ChatGPT plan");
+    await fireEvent.changeText(screen.getByTestId("native-search"), "xyz");
+    await act(flush);
+    expect(screen.getByTestId("model-no-match")).toBeOnTheScreen();
+    expect(announce).toHaveBeenLastCalledWith(expect.stringContaining('"xyz"'));
+    announce.mockRestore();
   });
 
   it("opens with the row of a switch offer selected", async () => {

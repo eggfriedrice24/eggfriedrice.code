@@ -116,7 +116,13 @@ export function ModelSheetView(props: ModelSheetViewProps) {
           <EmptyLine empty={props.empty} machineName={props.machineName} />
         )}
         {view.noMatch === undefined ? null : (
-          <View testID="model-no-match" className="min-h-44 justify-center px-12">
+          // A status: the screen also says it to VoiceOver when a search finds nothing.
+          <View
+            testID="model-no-match"
+            accessible
+            accessibilityRole="summary"
+            className="min-h-44 justify-center px-12"
+          >
             <MonoText tone="text_muted">{view.noMatch}</MonoText>
           </View>
         )}
@@ -233,6 +239,7 @@ function Section(props: SectionProps) {
         // The label stands in the column of the names: 12 pt inset, 24 pt logo, 12 pt gap.
         <Text
           accessibilityRole="header"
+          accessibilityLabel="Legacy models"
           testID="model-legacy-label"
           className="pt-8 pb-2 pl-48 text-caption text-text-subtle"
         >
