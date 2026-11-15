@@ -51,7 +51,8 @@ efr uses for the mode set what users expect of it.
    changes it and never sets `permissions.mode = "full"`. `permissions.mode = "full"`
    is valid only next to the gate key; without it, the file does not load. A terminal
    chooses full mode with `,mode full`, a prompt with `--mode=full`.
-5. **Where it never runs.** A phone turn runs with at most `cautious`, and a turn
+5. **Where it never runs.** A phone turn runs with at most `auto` (changed in 0.1.0;
+   it was `cautious`; see ADR 0022 item 7), and a turn
    that a job notice starts with at most `auto`. efrd refuses full mode while it runs
    as root, while `snapshot.enabled` or `undo.enabled` is false, and when the hidden
    shell is no zsh (efr clears sudo's cached password before and after each full call

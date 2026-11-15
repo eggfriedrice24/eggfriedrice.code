@@ -30,8 +30,9 @@ milestones.
 
 Yes, with a preview of the efr app for iPhone. The phone connects to efrd directly
 over your Tailscale network, with no relay. efrd admits only a phone of your own
-Tailscale user that you paired with `efr device add`. A turn from the phone runs with
-at most `cautious`, and some questions, such as `sudo`, only your computer can answer.
+Tailscale user that you paired with `efr device add`. A turn from the phone never runs
+in full mode: it runs in `auto` only when you pick `auto` in the app, else in
+`cautious`. Some questions, such as `sudo`, only your computer can answer.
 [The phone app](../use/phone.md) tells more.
 
 ### Does efr wrap another coding agent?

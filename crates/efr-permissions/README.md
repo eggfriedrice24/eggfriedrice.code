@@ -712,8 +712,9 @@ proptest property:
   make a decision about one stricter; a conversation's rules never loosen a secret or
   a system path, they can only tighten it (property). A sealed root, the daemon's own
   credentials, is denied whatever any rule says.
-- A turn from the phone needs approval for everything outside `$SCRATCH`: an `Allow`
-  becomes `Ask`, `Deny` stays `Deny`. Any origin other than shell, CLI or proxy,
+- Outside `auto`, a turn from the phone needs approval for everything outside
+  `$SCRATCH`: an `Allow` becomes `Ask`, `Deny` stays `Deny`. In `auto` a phone turn
+  follows the policy of an `auto` turn of the shell. Any origin other than shell, CLI or proxy,
   including one added to the protocol later, counts as remote (property: the phone is
   never looser than the shell).
 - A call that declares no requirement is allowed for the shell, the CLI and the proxy,

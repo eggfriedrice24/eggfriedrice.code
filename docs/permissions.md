@@ -64,8 +64,8 @@ effect. The strictest effect decides the call, in the order
 2. The rules of one conversation come after the machine policy. They can make any
    decision stricter. They can never loosen a decision about a secret or a system
    path.
-3. A turn from the phone asks for everything outside `$SCRATCH`, also when a rule
-   allows it.
+3. Outside `auto`, a turn from the phone asks for everything outside `$SCRATCH`, also
+   when a rule allows it.
 
 Some floors hold in every mode, whatever the rules say. In full mode most of them hold
 only for what the command line shows; see "Full mode":

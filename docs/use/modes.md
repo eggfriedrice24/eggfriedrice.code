@@ -211,7 +211,9 @@ to a host, or write `config.toml`.
 
 ### Where full mode never runs
 
-- A turn from the phone runs with at most `cautious`.
+- A turn from the phone runs with at most `auto`, and in `auto` only when its prompt
+  names `auto`. A phone prompt with no mode runs as `cautious`. See
+  [the phone app](phone.md).
 - A turn that a job notice starts runs with at most `auto`.
 - efrd refuses full mode when it runs as root, when `snapshot.enabled` or
   `undo.enabled` is `false`, and when the hidden shell is no zsh.

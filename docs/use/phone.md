@@ -218,9 +218,7 @@ streams in.
   signed out gets one quiet line with the command that logs in to it on the machine.
   When each other account of the model is full for longer, the line says when the first
   of them has room again, such as "no other account has room for GPT-6.1 Sol before
-  16:05". When no other account runs the model, the line says so. A turn from the phone runs at most in
-  `cautious`, so a retry of a conversation in `auto` shows `cautious` in the status
-  line.
+  16:05". When no other account runs the model, the line says so.
 
 ### Send a prompt
 
