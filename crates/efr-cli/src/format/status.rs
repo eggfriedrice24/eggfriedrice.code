@@ -195,8 +195,9 @@ fn narrow(options: &RenderOptions) -> bool {
 /// efrd knows, in the order of `models.list` (the account of new conversations, the
 /// others with a login, then the signed-out ones), then the rest, grouped by kind: the
 /// account of new conversations first in its kind, then the default account of the
-/// kind. The name, the kind in words and the state stand in columns. The default account of a kind has no name. Under
-/// each account with a login, its limits, 2 columns in.
+/// kind. The name, the kind in words and the state stand in columns. The default
+/// account of a kind has no name. Under each account with a login, its limits, 2
+/// columns in.
 fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
     let providers = &view.status.providers;
     if providers.is_empty() {
