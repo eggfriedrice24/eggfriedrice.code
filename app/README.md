@@ -426,6 +426,51 @@ not a test that pretends.
 36. The model button at the end of the status line gives way to the path first, then
     cuts its own end, on the smallest iPhone.
 
+### Accounts, limits, auto and quarantine
+
+Each check names the gallery board that shows it (a long press on the version in
+Settings, section About, of a dev or preview build).
+Uniwind draws some classes only on the iPhone: `shrink-[1000]`, `line-through`,
+`text-row-strong` and `text-caption-strong`. Look at them in these checks.
+
+37. AC-Out (gallery "AU-Auto"): the end of the stopped turn says why in the words of
+    the terminal, such as "the ChatGPT plan reached its usage limit · resets 14:20",
+    with one plain "switch to ChatGPT plan · b" per account that serves the model. A
+    signed-out account gets one quiet line with its login command and no action. With
+    the real efrd: a tap opens the model sheet on that account, and after the confirm
+    the switch actions become "retry", and the retry runs on the new account. A stop of
+    "too many requests" names no reset, and its offer stays.
+38. AC-Limits (gallery "S-ModelSheet", Settings and the composer): the model sheet
+    shows the warning of a plan near its limit and of a full account with its reset.
+    From 90 % the status line shows the limit (`5-hour 92%`) with the warning glyph
+    while a turn runs, and the path gives way first (`shrink-[1000]`). Settings ›
+    Accounts on <machine> has one row per account, and its screen shows each window
+    with "limit reached" in state_error. The strong texts (`text-row-strong`,
+    `text-caption-strong`) are heavier than the plain ones.
+39. MS-Switched (gallery "AU-Auto"): one quiet line in text_subtle above the first
+    answer on a new model or account, which names both accounts of a switch on the
+    same model.
+40. The gone model (gallery "S-ModelSheet", "a model that is gone"): its name is struck
+    through (`line-through`) in text_subtle.
+41. AU-Auto (gallery "AU-Auto"): under a tool card, "reviewing" while the reviewer
+    works, then the verdict on one line, such as `reviewer allowed: <line> for this call
+    (low risk; <reason>): github.com:443 reachable`, with `host network` in the
+    warning colour. A refusal reads `reviewer refused: <line>: <reason>` in text_muted,
+    and a refusal of efr's floor `efr: <line>: a secret (floor)`. The pause of the
+    reviewer is one quiet mono line in its turn. Long lines wrap and stay readable.
+42. Quarantine on the card (gallery "AU-Auto"): each changed git setting or other file
+    that runs programs is one muted row under the tool card, with `moved to
+    quarantine` or `left in place`.
+43. Q-Quarantine (gallery "Q-Quarantine" and "AU-Auto"): with the reviewer off, the
+    waiting tool card, the strip and the sheet show the question and say "answer on
+    <machine>" in place of the buttons. The sheet fits its rows. After the answer in
+    the terminal, the card says "kept" or "left in quarantine", and the sheet adds where
+    it came from.
+44. The web end line (no board; a real turn with web search on the desktop): the end
+    line counts the searches (`2 searches`), the sources over it fit on one line each,
+    and with `web.search = "cached"` the end line says `, stored copy` and one quiet
+    line says what gives the live web.
+
 ## Rules of the app
 
 - No image, no video and no raw HTML in Markdown, and no WebView with JavaScript. The app
