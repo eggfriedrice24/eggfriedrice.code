@@ -165,6 +165,17 @@ interface ModelRowProps {
   readonly onPress: () => void;
 }
 
+/** The style of the name of `row`. */
+function nameClass(row: SheetRow): string {
+  if (row.gone !== undefined) {
+    return "text-row text-text-subtle line-through";
+  }
+  if (row.disabled) {
+    return "text-row text-text-muted";
+  }
+  return row.selected ? "text-row text-text-bright" : "text-row text-text-primary";
+}
+
 function ModelRow(props: ModelRowProps) {
   const { row } = props;
   return (
@@ -181,22 +192,16 @@ function ModelRow(props: ModelRowProps) {
       )}
     >
       <ProviderLogo logo={row.logo} dim={row.disabled} />
-      <Text
-        numberOfLines={1}
-        className={cn(
-          "flex-1 text-row",
-          row.disabled
-            ? "text-text-muted"
-            : row.selected
-              ? "text-text-bright"
-              : "text-text-primary",
-        )}
-      >
+      <Text numberOfLines={1} className={cn("flex-1", nameClass(row))}>
         {row.name}
-        {row.gone === undefined ? null : (
-          <Text className="text-caption text-text-subtle">{`  ${row.gone}`}</Text>
-        )}
       </Text>
+      {/* A model that is gone (S-ModelSheet, cell "gone"): the name struck through, and the
+        words at the right end, so a long name never cuts them. */}
+      {row.gone === undefined ? null : (
+        <Text testID="model-row-gone" className="flex-none text-caption text-text-subtle">
+          {row.gone}
+        </Text>
+      )}
       {row.checked ? (
         <SymbolIcon name="checkmark" size={17} tone="accent_primary" weight="semibold" />
       ) : null}
