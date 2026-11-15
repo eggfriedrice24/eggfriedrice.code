@@ -30,9 +30,10 @@ import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
-import { AccessibilityInfo, Keyboard } from "react-native";
+import { AccessibilityInfo } from "react-native";
 
 import { haptic } from "@/lib/native/haptics";
+import { searchBarRef } from "@/lib/native/search-bars";
 import { EMPTY_STREAM, runningTurn } from "@/lib/stream/reducer";
 import type { MachineId } from "@/features/machines/model/machine-ref";
 import {
@@ -151,6 +152,9 @@ function SheetBody(props: SheetBodyProps) {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
   const [focused, setFocused] = useState(false);
+  // The native search bar is not a TextInput of React Native, so `Keyboard.dismiss` does
+  // not reach it. The ref blurs it, and the lock blurs it too (lib/native/search-bars.ts).
+  const [searchBar] = useState(searchBarRef);
 
   const favourite = (provider: string | undefined): string | undefined =>
     favouriteOf(favourites, target.machine, provider);
@@ -231,7 +235,7 @@ function SheetBody(props: SheetBodyProps) {
       select(pickRow(list, current, row.model, row.provider));
       // The keyboard goes, so the slider and the quiet line of the pick show again
       // (S-ModelSheet r7 "Keyboard"). The search text stays in the bar.
-      Keyboard.dismiss();
+      searchBar.current?.blur();
     }
   };
   const onEffort = (effort: string): void => {
@@ -264,6 +268,7 @@ function SheetBody(props: SheetBodyProps) {
       {/* The native search bar of iOS, in the bottom toolbar (the hard rule of
           app/AGENTS.md: native parts over JS copies). */}
       <Stack.SearchBar
+        ref={searchBar}
         placeholder={filter.placeholder}
         autoCapitalize="none"
         hideNavigationBar={false}

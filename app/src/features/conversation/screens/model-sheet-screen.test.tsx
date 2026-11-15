@@ -14,18 +14,12 @@ import {
   within,
   type RenderRouterResult,
 } from "expo-router/testing-library";
-import {
-  AccessibilityInfo,
-  Keyboard,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import type { ReactNode } from "react";
+import { AccessibilityInfo, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useImperativeHandle, type ReactNode, type Ref } from "react";
+import type { SearchBarCommands } from "react-native-screens";
 
 import { flush } from "@/lib/net/testing";
+import { blurSearchBars } from "@/lib/native/search-bars";
 import type { Event } from "@/lib/protocol/wire";
 import type { ModelsListResult } from "@/lib/protocol/generated";
 import {
@@ -84,7 +78,23 @@ function mockCall(handler: unknown, ...args: unknown[]): void {
   }
 }
 
-function MockSearchBar(props: MockProps) {
+/** The blur of the fake native search bar, which the screen and the lock call by its ref. */
+const mockBlur = jest.fn();
+
+interface MockSearchBarProps extends MockProps {
+  readonly ref?: Ref<SearchBarCommands>;
+}
+
+function MockSearchBar({ ref, ...props }: MockSearchBarProps) {
+  // react-native-screens hands the commands of the bar to the ref in the same way.
+  useImperativeHandle(ref, () => ({
+    focus: () => undefined,
+    blur: mockBlur,
+    clearText: () => undefined,
+    toggleCancelButton: () => undefined,
+    setText: () => undefined,
+    cancelSearch: () => undefined,
+  }));
   return (
     <TextInput
       testID="native-search"
@@ -421,11 +431,34 @@ describe("the model sheet", () => {
     expect(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeNull();
 
-    // A tap on a row during a search closes the keyboard, so the panel shows again.
-    const dismiss = jest.spyOn(Keyboard, "dismiss");
+    // A tap on a row during a search blurs the native bar, so its keyboard goes and the
+    // panel shows again. Keyboard.dismiss does not reach a native bar.
+    mockBlur.mockClear();
     await fireEvent.press(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`));
-    expect(dismiss).toHaveBeenCalled();
-    dismiss.mockRestore();
+    expect(mockBlur).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the lock blur the native search bar while the sheet is open, and not after", async () => {
+    await openConversation();
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(async () => {
+      socketOf(services(), DESKTOP).answer("models.list", MODELS);
+      await flush();
+    });
+    await fireEvent(screen.getByTestId("native-search"), "focus");
+    mockBlur.mockClear();
+    blurSearchBars();
+    expect(mockBlur).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      router.back();
+    });
+    expect(screen.queryByTestId("native-search")).toBeNull();
+    mockBlur.mockClear();
+    blurSearchBars();
+    expect(mockBlur).not.toHaveBeenCalled();
   });
 
   it("names the providers All, Claude and OpenAI in the filter, and filters by one", async () => {

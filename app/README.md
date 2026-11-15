@@ -445,6 +445,8 @@ not a test that pretends.
     - Round 7 (S-ModelSheet r7): the list shows no scroll indicator, and a hairline
       tops the pinned panel only while rows lie under it. The native search bar filters
       as you type and the sheet holds the large detent while it has the focus or text.
+      Type a search, then tap a row while the keyboard is up: the keyboard goes, the
+      search text stays in the bar, and the slider and the quiet line show again.
       The filter button of the bottom toolbar opens a native menu (All, Claude, OpenAI, then Legacy models); its
       glyph fills while a filter is on. A tap on a star moves the favourite of its
       account and never selects the row; the favourite goes first the next time the
@@ -490,6 +492,9 @@ not a test that pretends.
       19. The mark stands at the same place on the cover and on the lock screen, with
           and without the line. At the largest accessibility text size, Unlock grows
           with its label and the line wraps under the mark.
+      20. Unlock on: open the model sheet and tap the search, so its keyboard is up. Go
+          home for 5 minutes and come back. The keyboard is down on the lock screen, and
+          what you type reaches nothing.
 
 ### Accounts, limits, auto and quarantine
 

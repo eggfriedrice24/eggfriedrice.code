@@ -10,6 +10,7 @@ import { systemClock } from "@/lib/native/clock";
 import { newCommandId, openAppDatabase, openEventCaches } from "@/lib/native/database";
 import { setHapticsEnabled } from "@/lib/native/haptics";
 import { checkOwner, hasPasscode, ownerFacts } from "@/lib/native/owner-check";
+import { blurSearchBars } from "@/lib/native/search-bars";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
 import { animationFrames } from "@/lib/store/frame-store";
 import { SqliteOutboxStorage } from "@/features/conversation/model/outbox-storage";
@@ -79,9 +80,11 @@ const services = createAppServices({
     ownerFacts,
     hasPasscode,
     // An action sheet (the question of a link) closes with the keyboard, so no answer
-    // waits under the lock screen.
+    // waits under the lock screen. `Keyboard.dismiss` does not reach a native search bar,
+    // so the lock blurs those itself.
     dismissInput: () => {
       Keyboard.dismiss();
+      blurSearchBars();
       ActionSheetIOS.dismissActionSheet();
     },
     announce: (line) => AccessibilityInfo.announceForAccessibility(line),
