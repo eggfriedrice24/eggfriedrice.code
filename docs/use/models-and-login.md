@@ -118,7 +118,8 @@ the account:
 openai-subscription = "Home plan"
 ```
 
-The model list and the phone show the label. efr also lists an account that this
+`efr models` shows the label after the kind of the account, and the phone shows it in
+place of the id. `efr status` shows the id. efr also lists an account that this
 table names while it has no login, as signed out, so you see that you can log in to
 it. A label has 1 to 40 characters. efrd reads the change at once.
 

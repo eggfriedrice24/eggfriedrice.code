@@ -105,9 +105,10 @@
 # workspace_id = "wrkspc_01AbC"
 
 [accounts]
-# A name of your own for each account: a provider id, then the label. efr status, the
-# model list and the phone show the label. efr also lists an account that this table
-# names while it has no login, as signed out. A label has 1 to 40 characters.
+# A name of your own for each account: a provider id, then the label. efr models shows
+# the label after the kind of the account, and the phone shows it in place of the id.
+# efr status shows the id. efr also lists an account that this table names while it
+# has no login, as signed out. A label has 1 to 40 characters.
 # labels = { "anthropic-api.work" = "Work", openai-subscription = "Home plan" }
 
 [permissions]
