@@ -1212,7 +1212,7 @@ fn diff_groups_with_a_bad_name_or_glob_are_refused_with_the_key_and_place() {
 fn an_account_of_a_provider_is_a_provider_of_the_config() {
     let settings = parse("[model]\nprovider = \"anthropic-api.work\"\n").unwrap();
     assert_eq!(settings.model.provider, "anthropic-api.work");
-    assert_eq!(crate::provider_kind(&settings.model.provider), "anthropic-api");
+    assert_eq!(efr_protocol::provider_kind(&settings.model.provider), "anthropic-api");
     assert_eq!(
         crate::ModelCompany::of_provider("anthropic-api.work"),
         Some(crate::ModelCompany::Anthropic)

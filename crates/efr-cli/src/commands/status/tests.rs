@@ -195,14 +195,9 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
         key_checked_at: None,
         limits: None,
     };
+    // NOTE: in efrd's order, the account of new conversations first, which `efr status`
+    // keeps.
     vec![
-        ProviderStatus {
-            logged_in: true,
-            expires_at: Some(now() + SignedDuration::from_hours(150)),
-            login: Some(LoginKind::Subscription),
-            ..provider("openai-subscription")
-        },
-        provider("openai-api"),
         ProviderStatus {
             logged_in: anthropic_key.is_some(),
             active: true,
@@ -213,6 +208,13 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
             key_checked_at: anthropic_key.map(|_| now()),
             ..provider("anthropic-api")
         },
+        ProviderStatus {
+            logged_in: true,
+            expires_at: Some(now() + SignedDuration::from_hours(150)),
+            login: Some(LoginKind::Subscription),
+            ..provider("openai-subscription")
+        },
+        provider("openai-api"),
     ]
 }
 
@@ -247,7 +249,7 @@ async fn an_active_provider_without_a_login_gets_the_hint_of_its_own_login() {
 async fn a_refused_key_shows_when_it_was_refused_and_the_active_one_gets_a_warning() {
     let mut status = result();
     status.providers = three_providers(Some("sk-ant-...a1b2"));
-    status.providers[2].key_refused_at = Some(now() - SignedDuration::from_mins(5));
+    status.providers[0].key_refused_at = Some(now() - SignedDuration::from_mins(5));
     let (exit, stdout, stderr) = status_of(&status).await;
     assert_eq!(exit, Exit::Success);
     assert!(

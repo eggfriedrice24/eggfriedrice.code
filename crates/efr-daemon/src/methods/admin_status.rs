@@ -22,11 +22,9 @@ pub(crate) async fn handle(
     // NOTE: the accounts in the order of `models.list`, then the ones that it does not
     // list, each inside its kind: `efr status` and the phone show one order.
     let order = state.providers.catalogs().order(&settings);
-    let place = |id: &str| order.iter().position(|listed| listed == id).unwrap_or(usize::MAX);
+    let order: Vec<&str> = order.iter().map(String::as_str).collect();
     let mut providers = state.providers.status().await;
-    providers.sort_by_key(|provider| place(&provider.provider));
-    let configured = order.first().map_or("", String::as_str);
-    efr_protocol::group_by_kind(&mut providers, |provider| provider.provider.as_str(), configured);
+    efr_protocol::order_by_list(&mut providers, |provider| provider.provider.as_str(), &order);
     let mut sandbox = state.sandbox.reported(&settings);
     // NOTE: a disabled always rule (phase E, DE44) is a warning of the sandbox, which
     // `efr sandbox check` and `efr sandbox allow` show; efrd runs on.

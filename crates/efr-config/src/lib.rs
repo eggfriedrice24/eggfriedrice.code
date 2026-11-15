@@ -105,7 +105,7 @@ pub use tables::web::{WebSearch, WebSettings};
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings,
-    ScreenChoice, ShellSettings, SudoCache, WebSocketChoice, is_provider, provider_kind,
+    ScreenChoice, ShellSettings, SudoCache, WebSocketChoice, is_provider,
 };
 pub use theme_file::ThemeFile;
 pub use writer::{ConfigFile, Edit};

@@ -235,7 +235,7 @@ impl Providers {
             }
             credential.add_catalog(&id, catalog.clone());
             let id = id.as_str();
-            let fetcher = match (efr_config::provider_kind(id), &catalog) {
+            let fetcher = match (efr_protocol::provider_kind(id), &catalog) {
                 _ if injected => None,
                 _ => credential.fetcher(id, &catalog)?,
             };
@@ -473,7 +473,7 @@ impl Providers {
     /// them apart; a refresh of efrd's own changes it too, which only costs one more
     /// read of the store. The first read sees nothing to compare.
     fn record_replaced(&self, status: &ProviderStatus) -> bool {
-        if efr_config::provider_kind(&status.provider) != SUBSCRIPTION {
+        if efr_protocol::provider_kind(&status.provider) != SUBSCRIPTION {
             return false;
         }
         let mut seen = self.seen_logins.lock().unwrap_or_else(PoisonError::into_inner);
@@ -487,7 +487,7 @@ impl Providers {
     /// Makes the ChatGPT login `id` read its token from the store again, so its provider
     /// does not keep the token of an old login. Nothing for another kind.
     fn clear_tokens(&self, id: &str) {
-        if efr_config::provider_kind(id) != SUBSCRIPTION {
+        if efr_protocol::provider_kind(id) != SUBSCRIPTION {
             return;
         }
         match &self.credential {
@@ -765,7 +765,8 @@ impl Providers {
     /// sign-in, and every login refuses the ChatGPT account of another login, before
     /// anything is saved.
     pub(crate) async fn start_login(&self, provider: &str) -> Result<PendingLogin, DaemonError> {
-        if !efr_config::is_provider(provider) || efr_config::provider_kind(provider) != SUBSCRIPTION
+        if !efr_config::is_provider(provider)
+            || efr_protocol::provider_kind(provider) != SUBSCRIPTION
         {
             return Err(DaemonError::NoSuchProvider { provider: provider.to_owned() });
         }
@@ -783,7 +784,7 @@ impl Providers {
         let others: Vec<String> = self
             .ids()
             .into_iter()
-            .filter(|id| id != provider && efr_config::provider_kind(id) == SUBSCRIPTION)
+            .filter(|id| id != provider && efr_protocol::provider_kind(id) == SUBSCRIPTION)
             .collect();
         let store = Arc::clone(&self.store);
         let loaded = tokio::task::spawn_blocking(move || {
@@ -870,11 +871,11 @@ impl Providers {
 
     /// The other account of the kind of `provider` whose stored key is `key`.
     async fn account_with_key(&self, provider: &str, key: &SecretString) -> Option<String> {
-        let kind = efr_config::provider_kind(provider).to_owned();
+        let kind = efr_protocol::provider_kind(provider).to_owned();
         let others: Vec<String> = self
             .ids()
             .into_iter()
-            .filter(|id| id != provider && efr_config::provider_kind(id) == kind)
+            .filter(|id| id != provider && efr_protocol::provider_kind(id) == kind)
             .collect();
         let store = Arc::clone(&self.store);
         // NOTE: the key stays a secret: compared inside the task, never copied out.
@@ -909,7 +910,7 @@ impl Providers {
             .await
             .map_err(|_| DaemonError::TaskPanicked { task: "delete a credential" })?
             .map_err(|source| DaemonError::Credentials { source })?;
-        if efr_config::provider_kind(provider) == SUBSCRIPTION {
+        if efr_protocol::provider_kind(provider) == SUBSCRIPTION {
             // The running provider must not keep the token of the deleted login.
             match &self.credential {
                 Some(credential) => credential.token_source(provider)?.clear_cache(),
@@ -1082,7 +1083,7 @@ pub(crate) fn provider_status(
 
 /// The command that logs in to `provider`.
 pub(crate) fn login_command(provider: &str) -> &'static str {
-    match efr_config::provider_kind(provider) {
+    match efr_protocol::provider_kind(provider) {
         ANTHROPIC => "efr login anthropic",
         API => "efr login openai-api",
         _ => "efr login openai",
@@ -1233,7 +1234,7 @@ impl CredentialProviders {
     /// The fetch of the catalog `catalog` of the provider `id`, with its stored key or
     /// its ChatGPT login; `None` for a catalog of another form.
     fn fetcher(&self, id: &str, catalog: &ProviderCatalog) -> Result<Option<Fetcher>, DaemonError> {
-        Ok(match (efr_config::provider_kind(id), catalog) {
+        Ok(match (efr_protocol::provider_kind(id), catalog) {
             (SUBSCRIPTION, ProviderCatalog::OpenAi(shared)) => {
                 let base_url = self.openai.subscription_base_url.as_deref();
                 let openai = openai_config(OpenAiConfig::subscription(), &self.openai, base_url)?;
@@ -1285,7 +1286,7 @@ impl ProviderFactory for CredentialProviders {
         let Some(catalog) = catalog else {
             return Err(DaemonError::UnknownProvider { id: id.to_owned() });
         };
-        let (config, tokens) = match efr_config::provider_kind(id) {
+        let (config, tokens) = match efr_protocol::provider_kind(id) {
             API => {
                 let tokens = stored_key(&self.store, id)?;
                 let base_url = self.openai.api_base_url.as_deref();

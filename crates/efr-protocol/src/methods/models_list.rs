@@ -176,6 +176,24 @@ pub fn provider_id_named<'a>(name: &str, ids: &[&'a str]) -> Option<&'a str> {
     }
 }
 
+/// The kind of the provider `id`: `id` itself, or the part before the `.` of an
+/// account, such as `anthropic-api` of `anthropic-api.work`.
+pub fn provider_kind(id: &str) -> &str {
+    id.split_once('.').map_or(id, |(kind, _)| kind)
+}
+
+/// Puts `items` in the order of the accounts of `models.list`, `order`, with the account
+/// of new conversations first. The items that `order` does not name come after the
+/// others and keep their order. Then [`group_by_kind`] groups them, with the first
+/// account of `order` first in its kind. `admin.status` and `efr models` order their
+/// accounts with it.
+pub fn order_by_list<T>(items: &mut [T], id: impl Fn(&T) -> &str, order: &[&str]) {
+    let place = |provider: &str| order.iter().position(|listed| *listed == provider);
+    // NOTE: a stable sort, so the items that `order` does not name keep their order.
+    items.sort_by_key(|item| place(id(item)).unwrap_or(usize::MAX));
+    group_by_kind(items, id, order.first().copied().unwrap_or(""));
+}
+
 /// Groups `items` by the kind of their provider id (`id`), the part before the `.` of
 /// an account: the one order of the accounts in `models.list`, `admin.status`,
 /// `efr status`, `efr models` and the model sheet of the phone, so a signed-out account
@@ -183,12 +201,9 @@ pub fn provider_id_named<'a>(name: &str, ids: &[&'a str]) -> Option<&'a str> {
 /// kind, the account `configured` of new conversations comes first, then the default
 /// account of the kind, then the others in their order.
 pub fn group_by_kind<T>(items: &mut [T], id: impl Fn(&T) -> &str, configured: &str) {
-    fn kind_of(provider: &str) -> &str {
-        provider.split_once('.').map_or(provider, |(kind, _)| kind)
-    }
     let mut kinds: Vec<String> = Vec::new();
     for item in items.iter() {
-        let kind = kind_of(id(item));
+        let kind = provider_kind(id(item));
         if !kinds.iter().any(|known| known == kind) {
             kinds.push(kind.to_owned());
         }
@@ -196,7 +211,7 @@ pub fn group_by_kind<T>(items: &mut [T], id: impl Fn(&T) -> &str, configured: &s
     // NOTE: a stable sort, so the accounts of one rank keep their order.
     items.sort_by_key(|item| {
         let provider = id(item);
-        let kind = kind_of(provider);
+        let kind = provider_kind(provider);
         let first = kinds.iter().position(|known| known == kind).unwrap_or(usize::MAX);
         let own: u8 = if provider == configured {
             0

@@ -40,12 +40,6 @@ pub const DEFAULT_PROVIDER: &str = "openai-subscription";
 /// The providers the daemon knows how to build.
 pub const PROVIDERS: &[&str] = &["openai-subscription", "openai-api", "anthropic-api"];
 
-/// The kind of the provider `id`: `id` itself, or the part before the `.` of an
-/// account, such as `anthropic-api` of `anthropic-api.work`.
-pub fn provider_kind(id: &str) -> &str {
-    id.split_once('.').map_or(id, |(kind, _)| kind)
-}
-
 /// True when `id` is a provider of the config: one of [`PROVIDERS`], alone for its
 /// default account or with a `.` and an account name of lowercase letters, digits and
 /// `-` that starts with a letter, at most 32 bytes.

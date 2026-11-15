@@ -78,10 +78,12 @@ fn status_result() -> AdminStatusResult {
         screen_backend: "vt100".to_owned(),
         conversations: 2,
         shells: 1,
+        // NOTE: in efrd's order (`efr_protocol::order_by_list`), which `efr status`
+        // keeps.
         providers: vec![
-            provider("openai-subscription"),
             work(),
             provider("anthropic-api.personal"),
+            provider("openai-subscription"),
             ProviderStatus {
                 logged_in: true,
                 expires_at: Some(after((6 * 24 + 6) * 3_600)),
@@ -181,10 +183,10 @@ fn accounts_board() -> (AdminStatusResult, Vec<CatalogStatus>) {
     };
     let result = AdminStatusResult {
         providers: vec![
-            provider("anthropic-api.personal"),
-            subscription("openai-subscription.b", 12 * 24, full),
             work(),
+            provider("anthropic-api.personal"),
             subscription("openai-subscription", 6 * 24 + 6, plan),
+            subscription("openai-subscription.b", 12 * 24, full),
             ProviderStatus {
                 logged_in: true,
                 login: Some(LoginKind::ApiKey),

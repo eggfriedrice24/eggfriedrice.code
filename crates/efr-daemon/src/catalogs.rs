@@ -210,8 +210,8 @@ impl Catalogs {
                 listed.iter().any(|info| info.id == model)
                     || (listed.is_empty()
                         && !self.logged_in(other.provider())
-                        && efr_config::provider_kind(other.provider())
-                            == efr_config::provider_kind(provider))
+                        && efr_protocol::provider_kind(other.provider())
+                            == efr_protocol::provider_kind(provider))
             })
             .filter_map(|other| {
                 let id = other.provider();

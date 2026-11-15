@@ -204,23 +204,9 @@ fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
         rows.row("accounts", vec![("none configured".to_owned(), Tone::Dim)]);
         return;
     }
-    // NOTE: efrd sends this order already; an account that `models.list` does not name
-    // comes after the ones that it names, in efrd's order, and each one stands inside
-    // its kind (`efr_protocol::group_by_kind`).
-    let place = |provider: &ProviderStatus| {
-        view.catalogs
-            .iter()
-            .position(|catalog| catalog.provider.as_deref() == Some(provider.provider.as_str()))
-            .unwrap_or(usize::MAX)
-    };
-    let mut ordered: Vec<&ProviderStatus> = providers.iter().collect();
-    // NOTE: without `models.list`, the account of new conversations leads, so its kind
-    // comes first too.
-    ordered.sort_by_key(|provider| (place(provider), !provider.active));
-    let active = providers.iter().find(|provider| provider.active);
-    let active = active.map_or("", |provider| provider.provider.as_str());
-    efr_protocol::group_by_kind(&mut ordered, |provider| provider.provider.as_str(), active);
-    let named: Vec<(String, String)> = ordered
+    // NOTE: efrd sends the accounts in this order (`efr_protocol::order_by_list`), so
+    // `efr status` keeps it.
+    let named: Vec<(String, String)> = providers
         .iter()
         .map(|provider| {
             let id = &provider.provider;
@@ -230,7 +216,7 @@ fn account_rows(rows: &mut Labelled<'_>, view: &StatusView<'_>) {
     let name_w = named.iter().map(|(name, _)| name.width()).max().unwrap_or(0);
     let kind_w = named.iter().map(|(_, kind)| kind.width()).max().unwrap_or(0);
     let narrow = narrow(rows.options);
-    for (at, (provider, (name, kind))) in ordered.iter().zip(&named).enumerate() {
+    for (at, (provider, (name, kind))) in providers.iter().zip(&named).enumerate() {
         let label = if at == 0 { "accounts" } else { "" };
         // NOTE: with only default accounts, no account has a name and the column goes.
         let name = if name_w == 0 {

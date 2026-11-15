@@ -96,3 +96,19 @@ fn the_accounts_are_grouped_by_kind_with_the_active_and_the_default_first() {
     super::group_by_kind(&mut plan_first, |id| id, "openai-subscription.b");
     assert_eq!(plan_first, ["openai-subscription.b", "openai-subscription", "anthropic-api"]);
 }
+
+#[test]
+fn the_accounts_take_the_order_of_the_list_and_the_unlisted_ones_come_after_in_their_kind() {
+    let order = ["openai-subscription.b", "anthropic-api", "openai-subscription"];
+    let mut ids = ["openai-api", "anthropic-api.old", "openai-subscription", "anthropic-api"];
+    super::order_by_list(&mut ids, |id| id, &order);
+    assert_eq!(ids, ["anthropic-api", "anthropic-api.old", "openai-subscription", "openai-api"]);
+    let mut none: [&str; 0] = [];
+    super::order_by_list(&mut none, |id| id, &[]);
+}
+
+#[test]
+fn the_kind_of_an_account_is_the_part_before_the_dot() {
+    assert_eq!(super::provider_kind("anthropic-api.work"), "anthropic-api");
+    assert_eq!(super::provider_kind("openai-subscription"), "openai-subscription");
+}

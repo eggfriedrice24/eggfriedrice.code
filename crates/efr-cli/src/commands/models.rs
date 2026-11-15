@@ -19,8 +19,8 @@ use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
 use efr_protocol::{
-    AdminStatus, AdminStatusResult, CatalogStatus, Method, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, Origin,
+    AdminStatus, AdminStatusResult, Method, ModelInfo, ModelSource, ModelsList, ModelsListResult,
+    Origin,
 };
 use efr_render::{Attrs, RenderOptions, Role};
 
@@ -165,13 +165,13 @@ pub(crate) fn listing(
     }
     // NOTE: the order of `catalogs`, so an account with no list yet stands where efrd
     // puts it, inside its kind (TM-Commands 2), as in `efr status`.
-    let catalogs: Vec<&CatalogStatus> = list.catalogs.iter().chain(&list.catalog).collect();
-    let place = |provider: Option<&str>| {
-        catalogs.iter().position(|catalog| catalog.provider.as_deref() == provider)
-    };
-    accounts.sort_by_key(|account| place(account.provider).unwrap_or(usize::MAX));
-    let first = catalogs.first().and_then(|catalog| catalog.provider.as_deref()).unwrap_or("");
-    efr_protocol::group_by_kind(&mut accounts, |account| account.provider.unwrap_or(""), first);
+    let order: Vec<&str> = list
+        .catalogs
+        .iter()
+        .chain(&list.catalog)
+        .map(|catalog| catalog.provider.as_deref().unwrap_or(""))
+        .collect();
+    efr_protocol::order_by_list(&mut accounts, |account| account.provider.unwrap_or(""), &order);
     let mut out = String::new();
     for account in &accounts {
         block(&mut out, list, account, now, options);
@@ -334,7 +334,7 @@ fn legend(accounts: &[Account<'_>], options: &RenderOptions) -> String {
 /// adds the models that its catalog does not hold. An older daemon names no provider;
 /// it runs only OpenAI.
 fn config_table(provider: Option<&str>) -> &'static str {
-    match provider.map(|id| id.split_once('.').map_or(id, |(kind, _)| kind)) {
+    match provider.map(efr_protocol::provider_kind) {
         Some(ANTHROPIC) => "[anthropic] models",
         _ => "[openai] models",
     }

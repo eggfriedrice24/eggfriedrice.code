@@ -24,8 +24,7 @@ use crate::error::login_command;
 /// the phone name it: `Claude API`, `ChatGPT plan`, `OpenAI API`; another kind by its
 /// id.
 pub(crate) fn kind_words(id: &str) -> String {
-    let kind = id.split_once('.').map_or(id, |(kind, _)| kind);
-    match kind {
+    match efr_protocol::provider_kind(id) {
         "anthropic-api" => "Claude API".to_owned(),
         "openai-subscription" => "ChatGPT plan".to_owned(),
         "openai-api" => "OpenAI API".to_owned(),
