@@ -413,15 +413,20 @@ impl Providers {
         clippy::await_holding_invalid_type,
         reason = "the guard holds one change of the login set at a time, store reads included"
     )]
-    pub(crate) async fn sync_logins(&self) {
+    pub(crate) async fn sync_logins(&self) -> Vec<String> {
         let _change = self.changes.lock().await;
         let settings = self.settings();
+        let mut new = Vec::new();
         for id in accounts_to_run(&settings, Arc::clone(&self.store)).await {
+            let runs = self.catalogs.of(&id).is_some();
             let started = self.add_account(&id).await;
             let mut unstarted = self.unstarted.lock().unwrap_or_else(PoisonError::into_inner);
             match started {
                 Ok(()) => {
                     unstarted.remove(&id);
+                    if !runs && self.catalogs.of(&id).is_some() {
+                        new.push(id);
+                    }
                 }
                 Err(error) if unstarted.insert(id.clone()) => {
                     tracing::warn!(provider = %id, error = %error, "an account could not start; a turn on it fails");
@@ -444,6 +449,21 @@ impl Providers {
             tracing::info!(provider = %id, logged_in = status.logged_in, "the credential store changed the login of a provider");
             self.clear_tokens(id);
             self.note_login(id, status.logged_in);
+        }
+        new.retain(|id| self.catalogs.logged_in(id));
+        new
+    }
+
+    /// Reads the logins as [`sync_logins`](Self::sync_logins) does, then waits, as a
+    /// prompt does ([`Models::ready`]), for the first fetch of each account with a login
+    /// that this read started. So the answer of `models.list` or `admin.status` after a
+    /// key file that the user put in place by hand lists the models of its account,
+    /// and `,model work/claude-opus-5-5` finds them.
+    pub(crate) async fn sync_logins_and_lists(&self) {
+        for id in self.sync_logins().await {
+            if let Some(models) = self.models_of(&id) {
+                models.ready().await;
+            }
         }
     }
 

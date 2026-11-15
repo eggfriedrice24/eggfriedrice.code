@@ -617,7 +617,10 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   credential appeared or went away outside efrd (a file put in place or removed by
   hand) gains or loses its login at once, as a login or a logout of efrd does
   (`note_login`: a login fetches its list; a logout drops the key's refusal; either
-  drops the limits of the old login). A ChatGPT login whose stored token has another
+  drops the limits of the old login). `models.list` and `admin.status` then wait, as a
+  prompt does (`Models::ready`), for the first fetch of each account with a login that
+  this read started (`sync_logins_and_lists`), so `,model home/claude-opus-5-5` right
+  after a key file put in place finds the model. A ChatGPT login whose stored token has another
   expiry than at the last read was replaced by hand: its token source reads the store
   again (`record_replaced`). A prompt that names an account that efrd runs but that
   has no login fails as `unauthorized` with its login command

@@ -792,6 +792,30 @@ async fn a_key_put_in_place_serves_the_next_prompt_at_once() {
     daemon.stop().await.unwrap();
 }
 
+/// A key file put in place by hand: the next model list waits for the first fetch of
+/// its account, so `,model home/claude-opus-5-5` right after it finds the model.
+#[tokio::test]
+async fn the_model_list_after_a_key_put_in_place_holds_the_models_of_its_account() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model("claude-opus-5-5")]);
+    let daemon = TestDaemon::builder().messages(&messages).start().await.unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+
+    put_key(&daemon, "anthropic-api.home", ANTHROPIC_KEY);
+    let list: ModelsListResult =
+        client.call(Method::ModelsList(ModelsList::default())).await.unwrap();
+
+    let home: Vec<&str> = list
+        .models
+        .iter()
+        .filter(|model| model.provider.as_deref() == Some("anthropic-api.home"))
+        .map(|model| model.id.as_str())
+        .collect();
+    assert_eq!(home, ["claude-opus-5-5"], "{:#?}", list.models);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
 /// A terminal keeps an account with `,model`, and the account logs out: the next prompt
 /// says that it is signed out and names its login.
 #[tokio::test]

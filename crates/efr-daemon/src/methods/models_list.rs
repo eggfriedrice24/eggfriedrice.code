@@ -25,8 +25,9 @@ pub(crate) async fn handle(
     _params: ModelsList,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    // NOTE: a credential that changed outside efrd shows at once.
-    state.providers.sync_logins().await;
+    // NOTE: a credential that changed outside efrd shows at once, with the list of a
+    // new account.
+    state.providers.sync_logins_and_lists().await;
     // NOTE: the settings are cloned out so the watch's read lock is not held while the
     // answer is sent.
     let settings = std::sync::Arc::clone(&state.settings.borrow());
