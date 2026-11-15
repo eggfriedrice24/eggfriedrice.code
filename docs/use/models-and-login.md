@@ -322,7 +322,10 @@ action and your messages. [Providers](../providers.md#the-reviewer) tells more.
     ,model b/gpt-6.1-sol
   ```
 
-  With no other account, one muted line says `no other account runs gpt-5.5`. A
+  With no other account, one muted line says `no other account runs gpt-5.5`. When
+  each other account of the model is full until after the stopped one, one muted line
+  says when the first of them has room again, such as `no other account has room for
+  gpt-6.1-sol before 16:05`. The phone app says the same. A
   signed-out account gets one muted line with its login, such as `personal is signed
   out: efr login anthropic --account personal`. `efr history` keeps the reason on the
   row of the failure, such as `✗ failed  2m 10s  the ChatGPT plan reached its usage

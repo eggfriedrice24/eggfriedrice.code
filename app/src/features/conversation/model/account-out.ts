@@ -12,7 +12,9 @@
 //   in the history it is old. One plain "switch to <account>" per account that serves
 //   the model (efrd lists only those that are ready, or full with an earlier reset).
 //   A signed-out account gets one quiet line with its login command, and no action.
-//   With no other account: "no other account runs GPT-5.5", and retry stays.
+//   When each other account of the model is full until after the stopped one: "no other
+//   account has room for GPT-6.1 Sol before 06:02", and retry stays. With no other
+//   account: "no other account runs GPT-5.5", and retry stays.
 // - A tap on a switch action opens the model sheet with that model selected on that
 //   account. After the confirm, the switch actions become "retry".
 //
@@ -25,6 +27,7 @@ import {
   accountSubject,
   isoMs,
   loginCommand,
+  resetClock,
   resetText,
 } from "./accounts";
 import type { ModelChoice } from "./model-choices";
@@ -120,14 +123,30 @@ export function accountOutView(out: AccountOut, context: AccountOutContext): Acc
     model: out.model,
     provider: other.provider,
   }));
-  const notes = others
-    .filter((other) => other.state === "signed_out")
-    .map(
-      (other) =>
+  const notes: string[] = [];
+  const room = out.others_full ?? undefined;
+  if (offerable.length === 0 && room !== undefined) {
+    notes.push(roomNote(out.model, isoMs(room.resets_at), context.now));
+  }
+  for (const other of others) {
+    if (other.state === "signed_out") {
+      notes.push(
         `${accountShort(other.provider, other.label)} is signed out: ${loginCommand(other.provider)}`,
-    );
-  if (others.length === 0) {
+      );
+    }
+  }
+  if (others.length === 0 && room === undefined) {
     notes.push(`no other account runs ${modelName(out.model)}`);
   }
   return { reason, switches, notes, retry: switches.length === 0 };
+}
+
+/**
+ * The quiet line when each other account of `model` is full until after the stopped one
+ * (`others_full`): they run the model, but none has room before the soonest of their
+ * resets, as the terminal says it.
+ */
+function roomNote(model: string, at: number | undefined, now: number): string {
+  const base = `no other account has room for ${modelName(model)}`;
+  return at === undefined ? base : `${base} before ${resetClock(at, now)}`;
 }

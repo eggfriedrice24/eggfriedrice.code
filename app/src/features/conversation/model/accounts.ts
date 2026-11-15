@@ -288,17 +288,20 @@ export function statusLimit(
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** When a limit resets: "resets 14:20" today, "resets Mon 09:00" on another day. */
-export function resetText(at: number, now: number): string {
+/** The time of a reset: "14:20" today, "Mon 09:00" on another day. */
+export function resetClock(at: number, now: number): string {
   const date = new Date(at);
   const today = new Date(now);
   const sameDay =
     date.getFullYear() === today.getFullYear() &&
     date.getMonth() === today.getMonth() &&
     date.getDate() === today.getDate();
-  return sameDay
-    ? `resets ${clockTime(at)}`
-    : `resets ${DAYS[date.getDay()] ?? ""} ${clockTime(at)}`;
+  return sameDay ? clockTime(at) : `${DAYS[date.getDay()] ?? ""} ${clockTime(at)}`;
+}
+
+/** When a limit resets: "resets 14:20" today, "resets Mon 09:00" on another day. */
+export function resetText(at: number, now: number): string {
+  return `resets ${resetClock(at, now)}`;
 }
 
 /** How old a value is: "just now", "12m ago", "3h ago", "2d ago". */

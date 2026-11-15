@@ -1104,3 +1104,11 @@ No protocol version has shipped yet.
   first come; in a kind, the account of new conversations comes first, then the
   default account of the kind (`efr_protocol::group_by_kind`). So a signed-out account
   stands inside its kind, and every client shows one order. No member changes.
+- Version 1, additive: `account_out` of `turn_failed` gains an optional `others_full`
+  `{resets_at?}`: other accounts list the model, but efrd leaves them out of `others`,
+  because each one is full and its reset does not come first. `resets_at` is the
+  soonest reset of those accounts, absent when none is known. When `others` offers no
+  account, a client says that no other account has room for the model before that
+  time (`no other account has room for gpt-6.1-sol before 16:05`), not that no other
+  account runs it. An older efrd sends none. The fixture
+  `events/turn_failed_account_out.json` now sets it.

@@ -192,6 +192,7 @@ import type {
   NoticeKind,
   Origin,
   OtherAccount,
+  OthersFull,
   OverriddenSettings,
   PageCursor,
   PairEnd,
@@ -354,10 +355,15 @@ export const otherAccountSchema = z.object({
   state: accountStateSchema,
 }) satisfies z.ZodType<OtherAccount>;
 
+export const othersFullSchema = z.object({
+  resets_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
+}) satisfies z.ZodType<OthersFull>;
+
 export const accountOutSchema = z.object({
   label: z.string().nullable().exactOptional(),
   model: z.string(),
   others: z.array(otherAccountSchema).exactOptional(),
+  others_full: othersFullSchema.nullable().exactOptional(),
   provider: z.string(),
   reached: limitReachedSchema,
 }) satisfies z.ZodType<AccountOut>;

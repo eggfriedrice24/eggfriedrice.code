@@ -53,6 +53,17 @@
           },
           "type": "array"
         },
+        "others_full": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OthersFull"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The other accounts that list the model but that `others` leaves out, because each\none is full and its reset does not come first. Absent when efrd leaves out none.\nWhen `others` offers no account, a client says that no other account has room for\nthe model before the soonest of their resets, not that no other account runs it."
+        },
         "provider": {
           "description": "The account of the turn, as a provider id such as `openai-subscription`.",
           "type": "string"
@@ -10044,6 +10055,20 @@
         "provider",
         "state"
       ],
+      "type": "object"
+    },
+    "OthersFull": {
+      "description": "The other accounts of an [`AccountOut`] that are full for longer than the stopped\naccount.",
+      "properties": {
+        "resets_at": {
+          "description": "The soonest reset of those accounts, such as `06:02`: before it, no other account\nhas room for the model. Absent when none of them has a known reset.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "OverriddenSettings": {

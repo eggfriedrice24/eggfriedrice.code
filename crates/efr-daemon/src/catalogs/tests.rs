@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::Settings;
-use efr_protocol::{AccountOut, AccountState, LimitKind, LimitReached};
+use efr_protocol::{AccountOut, AccountState, LimitKind, LimitReached, OthersFull};
 use efr_providers::openai::{Backend, Catalog, ModelCatalog};
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
@@ -162,6 +162,40 @@ fn the_offer_names_the_accounts_of_the_model_a_full_one_only_when_it_frees_up_fi
     // An account that does not list the model is never named.
     let out = catalogs.account_out(&settings, SUBSCRIPTION, "no-such-model", sooner);
     assert_eq!(out.others, []);
+    assert_eq!(out.others_full, None);
+}
+
+/// D3: each other account of the model is full until after the stopped one, so the
+/// offer names none; `others_full` says so with the soonest reset of those accounts.
+#[test]
+fn the_accounts_that_are_full_for_longer_give_the_soonest_reset() {
+    let clock = TestClock::new();
+    let catalogs = accounts(&clock);
+    let settings = Settings::default();
+    for provider in [SUBSCRIPTION, PLAN_B, PLAN_C] {
+        catalogs.set_logged_in(provider, true);
+    }
+    let model = plan_model(&catalogs, &settings);
+    let stopped = usage_until(&clock, Duration::from_secs(3600));
+    let b_later = usage_until(&clock, Duration::from_secs(7200));
+    let c_latest = usage_until(&clock, Duration::from_secs(9000));
+    catalogs.limits().note(PLAN_B, &b_later);
+    catalogs.limits().note(PLAN_C, &c_latest);
+
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped.clone());
+    assert_eq!(out.others, [], "no account frees up first");
+    assert_eq!(out.others_full, Some(OthersFull { resets_at: b_later.resets_at }));
+
+    // A full account with no reset counts too, but gives no time.
+    catalogs.limits().note(PLAN_B, &LimitReached { kind: LimitKind::Credit, resets_at: None });
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped.clone());
+    assert_eq!(out.others_full, Some(OthersFull { resets_at: c_latest.resets_at }));
+
+    // A ready account is offered, and the full one still counts.
+    catalogs.limits().clear(PLAN_C);
+    let out = catalogs.account_out(&settings, SUBSCRIPTION, &model, stopped);
+    assert_eq!(offered(&out), [(PLAN_C, AccountState::Ready, None)]);
+    assert_eq!(out.others_full, Some(OthersFull { resets_at: None }));
 }
 
 /// An account that `[accounts]` names and that never had a login has no list. It is of

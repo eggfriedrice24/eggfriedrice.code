@@ -220,6 +220,7 @@ fn a_turn_whose_account_was_out_keeps_its_reason_and_not_the_offer() {
             state: efr_protocol::AccountState::Ready,
             resets_at: None,
         }],
+        others_full: None,
     };
     let page = ConversationHistoryResult {
         events: vec![envelope(

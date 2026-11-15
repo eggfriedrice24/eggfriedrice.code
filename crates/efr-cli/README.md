@@ -297,6 +297,9 @@ Replies:
   alone on its row in `code`; a full account whose reset comes first as `gpt-6.1-sol
   runs again on the ChatGPT plan at 14:20, before b:` and its command; a muted `personal
   is signed out: efr login anthropic --account personal` for each signed-out one; `no
+  other account has room for <model> before 16:05` when efrd offers no account but
+  `others_full` says that other accounts of the model are full for longer (the soonest
+  of their resets, `14:20` or `Mon 09:00`; no time when none is known); `no
   other account runs <model>` when efrd names none (`format::accounts`, TM-Accounts 1
   to 5 and 17). A named account is `b` in the limit too (`b reached its usage limit.`),
   as in the offer and in `efr status` (errata 12). Before it shows the offer, the

@@ -24,7 +24,9 @@ into the GitHub release notes, and it stops when the section is missing.
   name alone, such as `b reached its usage limit.`, as in `efr status`. Under the
   failed turn, efr names the other accounts that serve the same model: ready ones, and
   full ones whose reset comes first. Each one has its `,model` command on a row of its
-  own, so a triple click copies it. When two kinds have an account with the same name,
+  own, so a triple click copies it. When each other account of the model is full for
+  longer, efr says when the first of them has room again, such as `no other account
+  has room for gpt-6.1-sol before 16:05`. When two kinds have an account with the same name,
   such as `openai-api.work` and `anthropic-api.work`, the command uses the full id
   (`,model openai-api.work/gpt-6.1`). A signed-out account gets its login command
   instead. efr never switches by itself. `efr history` keeps the limit on the row of
@@ -62,7 +64,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - When the account of a turn reached a limit or has no credit left, the phone app says
   why and when the limit resets, in the words of the terminal, such as "the ChatGPT
   plan reached its usage limit · resets 14:20". It offers the same model on each other account that
-  can serve it, and it never switches by itself.
+  can serve it, and it never switches by itself. When each other account of the model is
+  full for longer, it says so in the words of the terminal, such as "no other account
+  has room for GPT-6.1 Sol before 16:05".
 - The phone app shows the limits of each account: a warning in the model sheet from
   80 %, "limit reached" at 100 %, the limit in the status line of a running turn from
   90 %, and a screen per account in Settings. Each turn starts with no limit in the

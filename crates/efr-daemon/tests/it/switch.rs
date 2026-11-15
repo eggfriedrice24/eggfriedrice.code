@@ -590,6 +590,7 @@ async fn an_account_at_its_limit_stops_the_turn_and_offers_the_accounts_of_the_m
                 other("anthropic-api.work", "Work", AccountState::Ready),
                 other("anthropic-api.home", "Home", AccountState::SignedOut),
             ],
+            others_full: None,
         })
     );
     let keys: Vec<Option<String>> =

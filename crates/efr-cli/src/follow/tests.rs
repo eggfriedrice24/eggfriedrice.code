@@ -289,6 +289,7 @@ async fn the_offer_of_an_account_that_is_out_names_each_account_as_model_takes_i
                 state: AccountState::Ready,
                 resets_at: None,
             }],
+            others_full: None,
         };
         let failed = Event::TurnFailed {
             turn_id: turn(),

@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use efr_config::Settings;
 use efr_protocol::{
-    AccountOut, AccountState, CatalogStatus, LimitReached, ModelInfo, OtherAccount,
+    AccountOut, AccountState, CatalogStatus, LimitReached, ModelInfo, OtherAccount, OthersFull,
 };
 
 use crate::catalog::Models;
@@ -185,7 +185,9 @@ impl Catalogs {
     /// order: each one that is ready, each one that is signed out, and each one that is
     /// full when its reset comes before the one of `reached`, or `reached` has none. A
     /// signed-out account with no list at all, which never had a login, counts as
-    /// listing `model` when it is of the kind of `provider`.
+    /// listing `model` when it is of the kind of `provider`. A full account that the
+    /// offer leaves out counts in `others_full`, with the soonest known reset of those
+    /// accounts, so a client never says that no other account runs the model.
     /// efrd never switches by itself; the user picks one.
     pub(crate) fn account_out(
         &self,
@@ -195,6 +197,7 @@ impl Catalogs {
         reached: LimitReached,
     ) -> AccountOut {
         let label = |id: &str| settings.accounts.label(id).map(str::to_owned);
+        let mut later: Option<OthersFull> = None;
         let others = self
             .shown(settings)
             .iter()
@@ -222,6 +225,11 @@ impl Catalogs {
                             (None, _) => false,
                         };
                         if !sooner {
+                            let full_later = later.get_or_insert(OthersFull { resets_at: None });
+                            full_later.resets_at = match (full_later.resets_at, full.resets_at) {
+                                (Some(soonest), Some(at)) => Some(soonest.min(at)),
+                                (soonest, at) => soonest.or(at),
+                            };
                             return None;
                         }
                         (AccountState::Full, full.resets_at)
@@ -236,6 +244,7 @@ impl Catalogs {
             model: model.to_owned(),
             reached,
             others,
+            others_full: later,
         }
     }
 

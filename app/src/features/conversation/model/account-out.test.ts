@@ -89,6 +89,38 @@ describe("the end of a turn whose account is out", () => {
     });
   });
 
+  it("says that no other account has room before the soonest reset, not that none runs it", () => {
+    // NOTE: D3: b runs the model too, but it is full until after the plan.
+    const out: AccountOut = {
+      provider: PLAN,
+      model: "gpt-6.1-sol",
+      reached: { kind: "usage", resets_at: at(14, 20) },
+      others_full: { resets_at: at(16, 5) },
+    };
+    expect(accountOutView(out, LIVE)).toEqual({
+      reason: "the ChatGPT plan reached its usage limit · resets 14:20",
+      switches: [],
+      notes: ["no other account has room for GPT-6.1 Sol before 16:05"],
+      retry: true,
+    });
+    const nextDay = new Date(2026, 10, 16, 9, 0).toISOString();
+    const withSignedOut: AccountOut = {
+      ...out,
+      others: [{ provider: "openai-subscription.c", state: "signed_out" }],
+      others_full: { resets_at: nextDay },
+    };
+    expect(accountOutView(withSignedOut, LIVE).notes).toEqual([
+      "no other account has room for GPT-6.1 Sol before Mon 09:00",
+      "c is signed out: efr login openai --account c",
+    ]);
+    const noTime: AccountOut = { ...out, others_full: {} };
+    expect(accountOutView(noTime, LIVE).notes).toEqual([
+      "no other account has room for GPT-6.1 Sol",
+    ]);
+    const ready: AccountOut = { ...out, others: [{ provider: PLAN_B, state: "ready" }] };
+    expect(accountOutView(ready, LIVE).notes).toEqual([]);
+  });
+
   it("never offers a signed-out account: one quiet line with its login", () => {
     const out: AccountOut = {
       provider: "anthropic-api.work",

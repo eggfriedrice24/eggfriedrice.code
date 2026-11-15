@@ -32,6 +32,9 @@
         "state": "full",
         "resets_at": "2026-10-03T12:03:00Z"
       }
-    ]
+    ],
+    "others_full": {
+      "resets_at": "2026-10-03T14:00:00Z"
+    }
   }
 }

@@ -129,6 +129,22 @@ pub struct AccountOut {
     /// so and offers nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub others: Vec<OtherAccount>,
+    /// The other accounts that list the model but that `others` leaves out, because each
+    /// one is full and its reset does not come first. Absent when efrd leaves out none.
+    /// When `others` offers no account, a client says that no other account has room for
+    /// the model before the soonest of their resets, not that no other account runs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub others_full: Option<OthersFull>,
+}
+
+/// The other accounts of an [`AccountOut`] that are full for longer than the stopped
+/// account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct OthersFull {
+    /// The soonest reset of those accounts, such as `06:02`: before it, no other account
+    /// has room for the model. Absent when none of them has a known reset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<Timestamp>,
 }
 
 /// Another account that lists the model of a failed turn.

@@ -39,6 +39,7 @@ pub trait ProviderRouter: Send + Sync + fmt::Debug {
             model: model.to_owned(),
             reached,
             others: Vec::new(),
+            others_full: None,
         }
     }
 }

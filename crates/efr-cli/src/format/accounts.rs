@@ -197,8 +197,10 @@ fn and_list(names: &[String]) -> String {
 /// The rows of the offer under the reason, 2 columns in (TM-Accounts 1, 2, 3, 5, 17):
 /// one muted line naming the ready accounts, then a `,model` row in `code` for each
 /// one; a full account whose reset comes first with its own line and row; a muted line
-/// with the login command for each account that is signed out; and `no other account
-/// runs <model>` when efrd names none. efr never switches by itself.
+/// with the login command for each account that is signed out; `no other account has
+/// room for <model> before 06:02` when every other account of the model is full for
+/// longer (`others_full`, the soonest reset of them); and `no other account runs
+/// <model>` when efrd names none. efr never switches by itself.
 ///
 /// `providers` holds the providers that `models.list` names ([`listed_providers`]),
 /// and is empty when efrd did not tell them: a command names an account by its short
@@ -225,9 +227,21 @@ pub(crate) fn offer_rows(
     let command =
         |other: &OtherAccount| vec![(model_command(&other.provider, &model, &ids), Tone::Code)];
     let mut rows = Vec::new();
-    if ready.is_empty() && full.is_empty() && signed_out.is_empty() {
-        rows.push(muted(format!("no other account runs {model}")));
-        return rows;
+    if ready.is_empty() && full.is_empty() {
+        // NOTE: the other accounts of the model are full for longer, so they run it but
+        // have no room before their reset (D3).
+        match out.others_full.as_ref().map(|later| later.resets_at) {
+            Some(Some(at)) => rows.push(muted(format!(
+                "no other account has room for {model} before {}",
+                reset_time(at, now, zone)
+            ))),
+            Some(None) => rows.push(muted(format!("no other account has room for {model}"))),
+            None if signed_out.is_empty() => {
+                rows.push(muted(format!("no other account runs {model}")));
+                return rows;
+            }
+            None => {}
+        }
     }
     if !ready.is_empty() {
         let names: Vec<String> = ready.iter().map(|other| short_name(&other.provider)).collect();

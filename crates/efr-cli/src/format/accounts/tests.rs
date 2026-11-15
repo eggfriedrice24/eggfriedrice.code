@@ -1,5 +1,6 @@
 use efr_protocol::{
     AccountLimits, AccountOut, AccountState, LimitKind, LimitReached, LimitWindow, OtherAccount,
+    OthersFull,
 };
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
@@ -34,6 +35,7 @@ fn out(provider: &str, model: &str, kind: LimitKind, resets_at: Option<Timestamp
         model: model.to_owned(),
         reached: LimitReached { kind, resets_at },
         others: Vec::new(),
+        others_full: None,
     }
 }
 
@@ -148,6 +150,41 @@ fn no_other_account_says_so() {
     assert_eq!(
         shown(&empty),
         ["the OpenAI API key has no credit left.", "no other account runs gpt-5.5 [muted]"]
+    );
+}
+
+/// D3: each other account of the model is full until after the stopped one. They run
+/// the model, so efr does not say that none does: no other account has room before the
+/// soonest of their resets, in the form of the reset (14:20, Mon 09:00).
+#[test]
+fn accounts_that_are_full_for_longer_have_no_room_before_their_reset() {
+    let mut plan = out("openai-subscription", "gpt-6.1-sol", LimitKind::Usage, Some(at(62)));
+    plan.others_full = Some(OthersFull { resets_at: Some(at_1420()) });
+    assert_eq!(
+        shown(&plan),
+        [
+            "the ChatGPT plan reached its usage limit. It resets at 13:02.",
+            "no other account has room for gpt-6.1-sol before 14:20 [muted]",
+        ]
+    );
+    plan.others_full = Some(OthersFull { resets_at: Some(at(21 * 60)) });
+    plan.others = vec![other("openai-subscription.c", AccountState::SignedOut, None)];
+    assert_eq!(
+        shown(&plan)[1..],
+        [
+            "no other account has room for gpt-6.1-sol before Mon 09:00 [muted]",
+            "c is signed out: efr login openai --account c [muted]",
+        ]
+    );
+    // NOTE: a full account with no known reset still runs the model.
+    plan.others_full = Some(OthersFull { resets_at: None });
+    plan.others = Vec::new();
+    assert_eq!(shown(&plan)[1..], ["no other account has room for gpt-6.1-sol [muted]"]);
+    // A ready account is offered, and the line goes.
+    plan.others = vec![other("openai-subscription.b", AccountState::Ready, None)];
+    assert_eq!(
+        shown(&plan)[1..],
+        ["gpt-6.1-sol also runs on b: [muted]", ",model b/gpt-6.1-sol [code]"]
     );
 }
 

@@ -106,6 +106,7 @@ fn plan_out(others: Vec<OtherAccount>) -> AccountOut {
             resets_at: Some(at(0) + SignedDuration::from_mins(140)),
         },
         others,
+        others_full: None,
     }
 }
 
@@ -130,8 +131,19 @@ fn a_signed_out_account_is_never_offered() {
         model: "claude-opus-5-5".to_owned(),
         reached: LimitReached { kind: LimitKind::TooManyRequests, resets_at: None },
         others: vec![other("anthropic-api.personal", AccountState::SignedOut)],
+        others_full: None,
     };
     insta::assert_snapshot!(every_way(&[Sent(0, turn_started()), failed(38_000, out)]));
+}
+
+/// D3: b runs the model too, but it is full until after the plan: no other account has
+/// room for the model before b's reset.
+#[test]
+fn accounts_that_are_full_for_longer_have_no_room_before_their_reset() {
+    let mut out = plan_out(vec![]);
+    out.others_full =
+        Some(efr_protocol::OthersFull { resets_at: Some(at(0) + SignedDuration::from_mins(200)) });
+    insta::assert_snapshot!(every_way(&[Sent(0, turn_started()), failed(12_000, out)]));
 }
 
 /// TM-Accounts 3 and 4: no other account runs the model.
