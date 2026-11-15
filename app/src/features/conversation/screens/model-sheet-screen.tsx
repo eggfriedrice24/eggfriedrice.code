@@ -29,7 +29,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 import { AccessibilityInfo } from "react-native";
 
 import { SHEET_SEARCH_BAR } from "@/components/ui/native/sheet-search-bar";
@@ -60,12 +60,17 @@ import {
   defaultSelection,
   type KindFilter,
   nextSettings,
+  noMatchOf,
   openingSelection,
   pickRow,
+  type RowsInput,
+  sectionNotes,
   type Selection,
   selectionChanged,
   type SheetInput,
   type SheetRow,
+  sheetRows,
+  sheetSections,
   sheetView,
 } from "../model/model-sheet";
 import { selectLastSettings } from "../model/selectors";
@@ -181,27 +186,37 @@ function SheetBody(props: SheetBodyProps) {
     enabled: previewOn,
   });
 
-  const sheetInput: SheetInput = {
+  // NOTE: the rows follow the search at the priority of a transition, so a key press
+  // never waits for them. They hold no effort, no cost and no time: the React Compiler
+  // keeps them while only those change, and a new minute only renews the notes.
+  const shownQuery = useDeferredValue(query);
+  const rowsInput: RowsInput = {
     list,
     current,
-    selection,
+    selectedModel: selection?.model,
+    selectedProvider: selection?.provider,
     machineName,
-    now,
-    running,
-    asks,
-    cost: previewOn ? preview.data?.cost : undefined,
-    costPending: previewOn && preview.isPending && preview.fetchStatus === "fetching",
-    query,
+    query: shownQuery,
     kind,
     showLegacy,
     favourite,
     favouriteAtOpen: (provider) => favouriteOf(favouritesAtOpen, target.machine, provider),
   };
-  const view = sheetView(sheetInput);
+  const shown = sheetSections(sheetRows(rowsInput), sectionNotes(list, machineName, now));
+  const sheetInput: SheetInput = {
+    ...rowsInput,
+    selection,
+    now,
+    running,
+    asks,
+    cost: previewOn ? preview.data?.cost : undefined,
+    costPending: previewOn && preview.isPending && preview.fetchStatus === "fetching",
+  };
+  const view = sheetView(sheetInput, shown);
   // VoiceOver hears the line of a search that finds nothing, as a status (notes r7).
   const onQuery = (text: string): void => {
     setQuery(text);
-    const noMatch = sheetView({ ...sheetInput, query: text }).noMatch;
+    const noMatch = noMatchOf({ ...rowsInput, query: text });
     if (noMatch !== undefined && view.noMatch === undefined) {
       announce(noMatch);
     }

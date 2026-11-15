@@ -10,10 +10,14 @@ import {
   freshChoice,
   modelButton,
   NO_FILTER,
+  noMatchOf,
   normalEffort,
   openingSelection,
   pickRow,
+  sectionNotes,
   selectionChanged,
+  sheetRows,
+  sheetSections,
   sheetView,
   type SheetInput,
 } from "./model-sheet";
@@ -187,6 +191,45 @@ describe("the sections", () => {
     expect(row?.gone).toBe("gone from desktop");
     expect(row?.checked).toBe(true);
     expect(row?.disabled).toBe(true);
+  });
+
+  it("keeps the rows of an account that is not dim when the minute changes", () => {
+    const groups = sheetRows({
+      list: LIST,
+      current: currentSettings(LIST, undefined, undefined),
+      selectedModel: "claude-opus-5-5",
+      selectedProvider: WORK,
+      machineName: "desktop",
+      ...NO_FILTER,
+    });
+    const before = sheetSections(groups, sectionNotes(LIST, "desktop", NOW));
+    const after = sheetSections(groups, sectionNotes(LIST, "desktop", NOW + 60_000));
+    expect(after[0]?.rows).toBe(before[0]?.rows);
+    // The signed-out account dims its rows, and only its rows get new objects.
+    expect(after[1]?.rows).not.toBe(groups[1]?.rows);
+    expect(after[1]?.rows.map((row) => [row.disabled, row.starrable, row.label])).toEqual([
+      [true, false, "Opus 5.5, signed out"],
+    ]);
+    expect(before).toEqual(
+      sheetView(input({ selection: { model: "claude-opus-5-5", provider: WORK, effort: "low" } }))
+        .sections,
+    );
+  });
+
+  it("finds the line of a search with no match without building a row", () => {
+    const rows = {
+      list: LIST,
+      current: currentSettings(LIST, undefined, undefined),
+      selectedModel: undefined,
+      selectedProvider: undefined,
+      machineName: "desktop",
+      ...NO_FILTER,
+    };
+    expect(noMatchOf({ ...rows, query: "sonnet" })).toBeUndefined();
+    expect(noMatchOf({ ...rows, query: "xyz" })).toBe('no model matches "xyz"');
+    expect(noMatchOf({ ...rows, query: "opus", kind: "openai" })).toBe(
+      'no OpenAI model matches "opus"',
+    );
   });
 });
 

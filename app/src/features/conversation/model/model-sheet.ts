@@ -496,8 +496,87 @@ function noteOf(
   return { note: undefined, dim: false };
 }
 
-/** The sections of the sheet, in the order of the catalogs. */
-function sections(input: SheetInput): SheetSection[] {
+/**
+ * What the rows of the sheet show from. It holds no effort, no cost and no time, so the
+ * screen keeps the rows while only they change (the React Compiler keeps the result of
+ * `sheetRows` while each field keeps its value).
+ */
+export interface RowsInput {
+  readonly list: ModelsListResult | undefined;
+  readonly current: CurrentSettings | undefined;
+  /** The model of the selection: a value, not the selection, whose effort changes. */
+  readonly selectedModel: string | undefined;
+  readonly selectedProvider: string | undefined;
+  readonly machineName: string;
+  readonly query: string;
+  readonly kind: KindFilter;
+  readonly showLegacy: boolean;
+  readonly favourite: FavouriteOf;
+  readonly favouriteAtOpen: FavouriteOf;
+}
+
+/** The rows of one account, before the note of its account dims them. */
+export type RowGroup = Omit<SheetSection, "note" | "dim">;
+
+/** The note of each account at `now`, by section key: it changes with the time. */
+export type SectionNotes = ReadonlyMap<
+  string,
+  { readonly note: SectionNote | undefined; readonly dim: boolean }
+>;
+
+/** The rows of `input`, without the note of each account. */
+function rowsOf(input: SheetInput): RowsInput {
+  return {
+    list: input.list,
+    current: input.current,
+    selectedModel: input.selection?.model,
+    selectedProvider: input.selection?.provider,
+    machineName: input.machineName,
+    query: input.query,
+    kind: input.kind,
+    showLegacy: input.showLegacy,
+    favourite: input.favourite,
+    favouriteAtOpen: input.favouriteAtOpen,
+  };
+}
+
+/** The note of each account of `list` at `now` (signed out, near its limit, full). */
+export function sectionNotes(
+  list: ModelsListResult | undefined,
+  machineName: string,
+  now: number,
+): SectionNotes {
+  const notes = new Map<string, { note: SectionNote | undefined; dim: boolean }>();
+  for (const catalog of catalogsOf(list)) {
+    const key = catalog.provider ?? "";
+    if (!notes.has(key)) {
+      notes.set(key, noteOf(catalog, machineName, now));
+    }
+  }
+  return notes;
+}
+
+/**
+ * The sections of the sheet from its rows and the notes of the accounts. Only the rows
+ * of a dim account get new objects, so a new minute keeps every other row.
+ */
+export function sheetSections(groups: readonly RowGroup[], notes: SectionNotes): SheetSection[] {
+  return groups.map((group) => {
+    const { note, dim } = notes.get(group.key) ?? { note: undefined, dim: false };
+    if (!dim) {
+      return { ...group, note, dim };
+    }
+    const words = note?.kind === "signed_out" ? "signed out" : LIMIT_REACHED;
+    const dimmed = (row: SheetRow): SheetRow =>
+      row.gone === undefined
+        ? { ...row, disabled: true, starrable: false, label: `${row.label}, ${words}` }
+        : row;
+    return { ...group, note, dim, rows: group.rows.map(dimmed), legacy: group.legacy.map(dimmed) };
+  });
+}
+
+/** The rows of the sheet by account, in the order of the catalogs. */
+export function sheetRows(input: RowsInput): RowGroup[] {
   const models = modelsOf(input.list);
   const catalogs = catalogsOf(input.list);
   const order: (string | undefined)[] = [];
@@ -513,16 +592,15 @@ function sections(input: SheetInput): SheetSection[] {
       order.push(provider);
     }
   }
-  const { current, selection, machineName, now } = input;
+  const { current, selectedModel, selectedProvider } = input;
   const words = searchWords(input.query);
   const filtered = words.length > 0 || input.kind !== "all";
-  const out: SheetSection[] = [];
+  const out: RowGroup[] = [];
   for (const provider of order) {
     if (input.kind !== "all" && providerLogo(provider) !== input.kind) {
       continue;
     }
     const catalog = catalogs.find((one) => (one.provider ?? undefined) === provider);
-    const { note, dim } = noteOf(catalog, machineName, now);
     const subject =
       provider === undefined ? "this machine" : accountSubject(provider, catalog?.label);
     const favourite = input.favourite(provider);
@@ -532,15 +610,12 @@ function sections(input: SheetInput): SheetSection[] {
       if ((entry.provider ?? undefined) !== provider) {
         continue;
       }
+      if (!rowShows(entry, words, input.showLegacy)) {
+        continue;
+      }
       const name = modelName(entry.id);
-      if (!holdsEveryWord(words, [name, entry.id])) {
-        continue;
-      }
-      if (entry.legacy === true && !input.showLegacy) {
-        continue;
-      }
       const checked = current?.model === entry.id && current.provider === provider;
-      const selected = selection?.model === entry.id && selection.provider === provider;
+      const selected = selectedModel === entry.id && selectedProvider === provider;
       const starred = favourite === entry.id;
       const label = [name];
       if (checked) {
@@ -552,9 +627,6 @@ function sections(input: SheetInput): SheetSection[] {
       if (entry.legacy === true) {
         label.push("legacy");
       }
-      if (dim) {
-        label.push(note?.kind === "signed_out" ? "signed out" : LIMIT_REACHED);
-      }
       const row: SheetRow = {
         key: rowKey(provider, entry.id),
         model: entry.id,
@@ -563,11 +635,11 @@ function sections(input: SheetInput): SheetSection[] {
         logo: providerLogo(provider),
         checked,
         selected,
-        disabled: dim,
+        disabled: false,
         gone: undefined,
         label: label.join(", "),
         favourite: starred,
-        starrable: !dim,
+        starrable: true,
         starLabel: starred
           ? `Remove the favourite of ${subject}`
           : `Make ${name} the favourite of ${subject}`,
@@ -585,8 +657,6 @@ function sections(input: SheetInput): SheetSection[] {
     out.push({
       key: provider ?? "",
       title,
-      note,
-      dim,
       rows: favouriteFirst(rows, first),
       legacy: favouriteFirst(legacy, first),
     });
@@ -605,13 +675,31 @@ function favouriteFirst(rows: SheetRow[], model: string | undefined): SheetRow[]
 }
 
 /** The line of a search that finds nothing. */
-function noMatchLine(input: SheetInput, shown: readonly SheetSection[]): string | undefined {
+export function noMatchOf(input: RowsInput): string | undefined {
   const query = input.query.trim();
-  if (query === "" || shown.some((one) => one.rows.length > 0 || one.legacy.length > 0)) {
+  if (query === "") {
+    return undefined;
+  }
+  // NOTE: it builds no row, so the screen can ask it at each key; a gone row shows for
+  // any search (`withGone`).
+  const words = searchWords(query);
+  const shows = modelsOf(input.list).some(
+    (entry) =>
+      (input.kind === "all" || providerLogo(entry.provider ?? undefined) === input.kind) &&
+      rowShows(entry, words, input.showLegacy),
+  );
+  if (shows || goneCurrent(input) !== undefined) {
     return undefined;
   }
   const kind = input.kind === "all" ? "" : `${KIND_WORDS[input.kind]} `;
   return `no ${kind}model matches "${query}"`;
+}
+
+/** True when the search `words` and the legacy filter show the row of `entry`. */
+function rowShows(entry: ModelInfo, words: readonly string[], showLegacy: boolean): boolean {
+  return (
+    (entry.legacy !== true || showLegacy) && holdsEveryWord(words, [modelName(entry.id), entry.id])
+  );
 }
 
 /** The filter button of the sheet. */
@@ -637,14 +725,20 @@ function filterView(input: SheetInput): FilterView {
   };
 }
 
-/** The sections with a row for the current model when the machine lists it no more. */
-function withGone(out: SheetSection[], input: SheetInput): SheetSection[] {
-  const { current, selection } = input;
+/** The current model when the machine lists it no more, else undefined. */
+function goneCurrent(input: RowsInput): CurrentSettings | undefined {
+  const { current } = input;
   const models = modelsOf(input.list);
   if (current === undefined || models.length === 0) {
-    return out;
+    return undefined;
   }
-  if (findEntry(models, current.model, current.provider) !== undefined) {
+  return findEntry(models, current.model, current.provider) === undefined ? current : undefined;
+}
+
+/** The groups with a row for the current model when the machine lists it no more. */
+function withGone(out: RowGroup[], input: RowsInput): RowGroup[] {
+  const current = goneCurrent(input);
+  if (current === undefined) {
     return out;
   }
   const name = modelName(current.model);
@@ -655,7 +749,7 @@ function withGone(out: SheetSection[], input: SheetInput): SheetSection[] {
     name,
     logo: providerLogo(current.provider),
     checked: true,
-    selected: selection?.model === current.model && selection.provider === current.provider,
+    selected: input.selectedModel === current.model && input.selectedProvider === current.provider,
     disabled: true,
     gone: `gone from ${input.machineName}`,
     label: `${name}, in use, gone from ${input.machineName}`,
@@ -666,15 +760,13 @@ function withGone(out: SheetSection[], input: SheetInput): SheetSection[] {
   };
   const index = out.findIndex((section) => section.key === (current.provider ?? ""));
   if (index < 0) {
-    const section: SheetSection = {
+    const group: RowGroup = {
       key: `gone:${current.model}`,
       title: undefined,
-      note: undefined,
-      dim: false,
       rows: [gone],
       legacy: [],
     };
-    return [section, ...out];
+    return [group, ...out];
   }
   const section = out[index];
   if (section === undefined) {
@@ -775,17 +867,25 @@ function confirmView(input: SheetInput): ConfirmView | undefined {
   };
 }
 
-/** The sheet of `input`. */
-export function sheetView(input: SheetInput): SheetView {
+/**
+ * The sheet of `input`. The screen gives `shown` from `sheetRows` and `sectionNotes`
+ * apart, so a change of the effort, the cost or the minute builds no row again.
+ */
+export function sheetView(
+  input: SheetInput,
+  shown: readonly SheetSection[] = sheetSections(
+    sheetRows(rowsOf(input)),
+    sectionNotes(input.list, input.machineName, input.now),
+  ),
+): SheetView {
   const selection = input.selection;
   const entry =
     selection === undefined
       ? undefined
       : findEntry(modelsOf(input.list), selection.model, selection.provider);
-  const shown = sections(input);
   return {
     sections: shown,
-    noMatch: noMatchLine(input, shown),
+    noMatch: noMatchOf(rowsOf(input)),
     filter: filterView(input),
     effort: selection === undefined ? undefined : effortView(entry, selection.effort),
     quiet: quietLine(input, entry),
