@@ -4336,6 +4336,14 @@ export interface EffectiveSettings {
    */
   fallback?: ModeFallback | null;
   /**
+   * True when two or more accounts list the model in `models.list` when the turn
+   * starts, such as the ChatGPT plan and `b`. Only for display: a client then names
+   * the account of the turn also when it is the default account of its kind, as
+   * `,model` takes it (`openai/gpt-6.1-sol`). Absent when it is false, and from a
+   * daemon before it told it.
+   */
+  many_accounts?: boolean;
+  /**
    * The permission mode. For a turn from a remote origin it is at most `cautious`,
    * whatever the prompt or the config asked for.
    */

@@ -227,7 +227,10 @@ When two accounts list the same model, name the account before the model:
 The part before `/` is the account's name, or a provider id such as
 `anthropic-api.work`, or a kind such as `anthropic` or `openai`. A conversation keeps
 the account of its pick: its next prompts without a model stay on it. A model without
-`/` goes to the first provider with a login that lists it. `efr send` and `efr new` take
+`/` goes to the first provider with a login that lists it. The status row of a running
+turn and `efr history` name the model in the same form. They name the default account
+of a kind only while two or more accounts list the model, such as `openai/gpt-6.1-sol`
+when `b` lists it too; else the model is bare. `efr send` and `efr new` take
 `--model` and `--effort` for one prompt. `EFR_MODEL` and `EFR_EFFORT` give a new shell
 its first values.
 

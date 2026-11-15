@@ -712,17 +712,19 @@ fn effective_settings() -> EffectiveSettings {
         model: "gpt-5.4".into(),
         effort: Some("high".into()),
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
         fallback: None,
         default_effort: None,
     }
 }
 
-/// An `auto` turn that runs as `cautious`, so `events/turn_started.json` freezes the
-/// fallback.
+/// An `auto` turn that runs as `cautious` on a model that two accounts list, so
+/// `events/turn_started.json` freezes the fallback and `many_accounts`.
 fn fallen_back_settings() -> EffectiveSettings {
     EffectiveSettings {
         mode: Mode::Cautious,
+        many_accounts: true,
         fallback: Some(ModeFallback {
             asked: Mode::Auto,
             reason: "Landlock ABI 6 found; auto needs 9 (Linux 7.1)".into(),

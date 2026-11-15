@@ -113,7 +113,11 @@ into the GitHub release notes, and it stops when the section is missing.
   names the command and the reason in one row, such as `! efr: echo Host x >>
   ~/.ssh/config: a secret (floor)`.
 - The `⇄` line of a switch to another account on the same model names both accounts,
-  such as `was openai/gpt-6.1-sol medium`.
+  such as `was openai/gpt-6.1-sol medium`. The status row of a running turn and the
+  model line of `efr history` also name the default account of a kind while two or
+  more accounts list the model, such as `openai/gpt-6.1-sol low` when `b` lists it
+  too. With one account the model stays bare. The settings of a turn carry
+  `many_accounts` for this.
 - When the output is not a terminal, efr writes a citation mark as plain `[1]`. The
   list of sources on stderr names each address. `efr history` does the same.
 - The model knows that `gh` needs `api.github.com`, which the proxy does not list. It

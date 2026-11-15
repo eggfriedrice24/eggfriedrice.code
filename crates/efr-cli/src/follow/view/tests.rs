@@ -1424,6 +1424,7 @@ fn started_in(scope: Scope, fallback: Option<ModeFallback>) -> Event {
             model: "gpt-5.5".to_owned(),
             effort: None,
             provider: None,
+            many_accounts: false,
             overridden: OverriddenSettings::default(),
             fallback,
             default_effort: None,

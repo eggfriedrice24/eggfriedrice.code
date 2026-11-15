@@ -2,7 +2,7 @@
 source: crates/efr-cli/src/commands/history/tests.rs
 expression: text
 ---
-(no title) · 019a9b1c · 3 turns
+(no title) · 019a9b1c · 5 turns
 
 › an old turn  12:00
 
@@ -11,5 +11,11 @@ expression: text
 
 › and check  12:00
   gpt-5.5 medium · cautious
+
+› while b runs the model too  12:00
+  openai/gpt-6.1-sol medium · cautious
+
+› on the plan alone  12:00
+  gpt-6.1-sol medium · cautious
 
 efr history --verbose adds the output tails and the tokens of each turn

@@ -1,0 +1,56 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout/accounts.rs
+expression: "every_way(&[Sent(0, plan_turn_started(true)), Shot(\"b lists the model too\"),\nSent(500, plan_turn_started(false)), Shot(\"one account lists the model\"),])"
+---
+=== 40 columns, colour
+[b lists the model too]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+[one account lists the model]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+[end]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+=== 40 columns, NO_COLOR
+[b lists the model too]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+[one account lists the model]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+[end]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol\e[0m
+
+=== 80 columns, colour
+[b lists the model too]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mopenai/gpt-6.1-sol medium\e[0m
+
+[one account lists the model]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol medium\e[0m
+
+[end]
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol medium\e[0m
+
+=== 80 columns, NO_COLOR
+[b lists the model too]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mopenai/gpt-6.1-sol medium\e[0m
+
+[one account lists the model]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol medium\e[0m
+
+[end]
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m   \e[2mgpt-6.1-sol medium\e[0m
+
+=== not a terminal
+[b lists the model too]
+stdout:
+stderr:
+
+[one account lists the model]
+stdout:
+stderr:
+
+[end]
+stdout:
+stderr:

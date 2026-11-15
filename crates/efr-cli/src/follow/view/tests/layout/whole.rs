@@ -856,6 +856,7 @@ fn work_opus() -> efr_protocol::EffectiveSettings {
         model: "claude-opus-5-5".to_owned(),
         effort: Some("high".to_owned()),
         provider: Some("anthropic-api.work".to_owned()),
+        many_accounts: false,
         overridden: efr_protocol::OverriddenSettings::default(),
         fallback: None,
         default_effort: None,

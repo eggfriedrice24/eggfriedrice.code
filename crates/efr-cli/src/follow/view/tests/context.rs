@@ -277,6 +277,7 @@ fn settings(provider: &str, model: &str, effort: &str) -> EffectiveSettings {
         model: model.to_owned(),
         effort: Some(effort.to_owned()),
         provider: Some(provider.to_owned()),
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
         default_effort: None,

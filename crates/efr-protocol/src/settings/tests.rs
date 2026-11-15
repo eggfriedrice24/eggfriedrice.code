@@ -92,6 +92,7 @@ fn effective_settings_leave_out_an_absent_effort_and_unset_flags() {
         model: "gpt-5.5".to_owned(),
         effort: None,
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
         default_effort: None,
@@ -100,6 +101,16 @@ fn effective_settings_leave_out_an_absent_effort_and_unset_flags() {
     assert_eq!(value, json!({ "mode": "cautious", "model": "gpt-5.5" }));
     let back: EffectiveSettings = serde_json::from_value(value).unwrap();
     assert_eq!(back, settings);
+}
+
+#[test]
+fn many_accounts_is_written_only_when_true() {
+    let settings: EffectiveSettings =
+        serde_json::from_value(json!({ "mode": "cautious", "model": "gpt-6.1-sol" })).unwrap();
+    assert!(!settings.many_accounts, "a daemon before the member tells nothing");
+    let many = EffectiveSettings { many_accounts: true, ..settings };
+    let value = serde_json::to_value(&many).unwrap();
+    assert_eq!(value, json!({ "mode": "cautious", "model": "gpt-6.1-sol", "many_accounts": true }));
 }
 
 #[test]

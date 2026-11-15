@@ -180,6 +180,7 @@ fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
         model: "gpt-5.5".to_owned(),
         effort: Some("medium".to_owned()),
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings { effort: true, ..OverriddenSettings::default() },
         fallback: None,
         default_effort: None,

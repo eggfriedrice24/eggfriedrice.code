@@ -422,6 +422,7 @@ fn a_fallback_says_which_mode_was_asked_for_and_why() {
         model: "gpt-5.5".to_owned(),
         effort: None,
         provider: None,
+        many_accounts: false,
         overridden: Default::default(),
         fallback: Some(ModeFallback {
             asked: Mode::Auto,

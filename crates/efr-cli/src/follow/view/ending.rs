@@ -182,8 +182,15 @@ impl TurnView {
                 settings.effort.clone().or_else(|| settings.default_effort.clone())
             });
         }
-        // NOTE: the status row names the model that the turn runs on now.
-        let model = super::status::Model::switched_to(&to);
+        // NOTE: the status row names the model that the turn runs on now. The same model
+        // on another account runs on two accounts, as the `⇄` line says.
+        let many = (from.model == to.model && from.provider != to.provider)
+            || self
+                .ending
+                .settings
+                .as_ref()
+                .is_some_and(|settings| settings.many_accounts && settings.model == to.model);
+        let model = super::status::Model::switched_to(&to, many);
         if let Some(status) = &mut self.status {
             status.set_model(Some(model.clone()));
         }

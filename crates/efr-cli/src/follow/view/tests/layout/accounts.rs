@@ -4,8 +4,8 @@
 //! row of a running turn (TM-Sequence 14).
 
 use efr_protocol::{
-    AccountLimits, AccountOut, AccountState, DraftPart, ErrorBody, ErrorCode, Event, LimitKind,
-    LimitReached, LimitWindow, OtherAccount,
+    AccountLimits, AccountOut, AccountState, DraftPart, EffectiveSettings, ErrorBody, ErrorCode,
+    Event, LimitKind, LimitReached, LimitWindow, Mode, OtherAccount, OverriddenSettings,
 };
 use jiff::SignedDuration;
 
@@ -36,6 +36,38 @@ fn the_limits_draft_puts_the_fullest_window_in_the_status_row() {
         Shot("close to the limit"),
         Drafted(limits(30)),
         Shot("after a reset"),
+    ]));
+}
+
+/// The start of a turn on gpt-6.1-sol medium of the default ChatGPT plan; `many` when
+/// another account lists the model too.
+fn plan_turn_started(many: bool) -> Event {
+    let Event::TurnStarted { turn_id, cwd, scope, .. } = turn_started() else {
+        unreachable!("turn_started() is a turn_started event");
+    };
+    let settings = EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "gpt-6.1-sol".to_owned(),
+        effort: Some("medium".to_owned()),
+        default_effort: None,
+        provider: Some("openai-subscription".to_owned()),
+        many_accounts: many,
+        overridden: OverriddenSettings::default(),
+        fallback: None,
+    };
+    Event::TurnStarted { turn_id, cwd, scope, settings: Some(settings) }
+}
+
+/// TM-Accounts 10 and 18 (D1): the status row names the default account of a kind only
+/// while another account lists the model too, as `,model` takes it; else the model is
+/// bare (TM-Legend 53).
+#[test]
+fn the_status_row_names_the_default_account_while_two_accounts_list_the_model() {
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, plan_turn_started(true)),
+        Shot("b lists the model too"),
+        Sent(500, plan_turn_started(false)),
+        Shot("one account lists the model"),
     ]));
 }
 

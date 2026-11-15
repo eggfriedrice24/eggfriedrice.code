@@ -3993,6 +3993,10 @@
           ],
           "description": "Why the turn runs with a stricter mode than it asked for, such as `auto` without\na working sandbox; `mode` is the mode it runs with. Absent when it runs with the\nmode it asked for."
         },
+        "many_accounts": {
+          "description": "True when two or more accounts list the model in `models.list` when the turn\nstarts, such as the ChatGPT plan and `b`. Only for display: a client then names\nthe account of the turn also when it is the default account of its kind, as\n`,model` takes it (`openai/gpt-6.1-sol`). Absent when it is false, and from a\ndaemon before it told it.",
+          "type": "boolean"
+        },
         "mode": {
           "$ref": "#/$defs/Mode",
           "description": "The permission mode. For a turn from a remote origin it is at most `cautious`,\nwhatever the prompt or the config asked for."

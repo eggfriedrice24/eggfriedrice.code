@@ -769,6 +769,7 @@ fn effective(overridden: OverriddenSettings) -> EffectiveSettings {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         provider: None,
+        many_accounts: false,
         overridden,
         fallback: None,
         default_effort: None,

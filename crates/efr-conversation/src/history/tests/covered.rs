@@ -240,6 +240,7 @@ impl Script {
             model: model.to_owned(),
             effort: None,
             provider: None,
+            many_accounts: false,
             overridden: OverriddenSettings::default(),
             fallback: None,
             default_effort: None,

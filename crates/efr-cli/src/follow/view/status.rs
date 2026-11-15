@@ -20,7 +20,9 @@
 //! ([`State::Web`]), which a cut keeps.
 //!
 //! The model is `account/model effort`, as `,model` takes it, such as
-//! `work/claude-opus-5-5 high`, from the settings of the turn ([`Model`]). The scope is
+//! `work/claude-opus-5-5 high`, from the settings of the turn ([`Model`]). The default
+//! account of a kind has a name only while two or more accounts list the model, such as
+//! `openai/gpt-6.1-sol` when `b` lists it too; else the model is bare. The scope is
 //! the scope of the prompt, such as `app` or `⌂ /etc/nftables.d`, muted; a turn in full
 //! mode adds ` · full` with `full` in the `error` role. A turn that waits behind another
 //! one shows no gauge and no model.
@@ -115,21 +117,21 @@ impl Model {
         // NOTE: a turn that sends no effort runs on the model's default, which `,model`
         // names too (TM-Live 1).
         let effort = settings.effort.as_deref().or(settings.default_effort.as_deref());
-        Model::named(settings.provider.as_deref(), &settings.model, effort)
+        Model::named(settings.provider.as_deref(), settings.many_accounts, &settings.model, effort)
     }
 
-    /// The model of the new side of a switch of model (`model_switched`).
-    pub(crate) fn switched_to(side: &efr_protocol::SwitchedModel) -> Model {
+    /// The model of the new side of a switch of model (`model_switched`); `many` when
+    /// two or more accounts list it.
+    pub(crate) fn switched_to(side: &efr_protocol::SwitchedModel, many: bool) -> Model {
         let effort = side.effort.as_deref().or(side.default_effort.as_deref());
-        Model::named(side.provider.as_deref(), &side.model, effort)
+        Model::named(side.provider.as_deref(), many, &side.model, effort)
     }
 
-    /// The model `name` of `provider`, whose account is the part after its `.`, with
-    /// `effort`.
-    fn named(provider: Option<&str>, name: &str, effort: Option<&str>) -> Model {
-        let account = provider
-            .and_then(|provider| provider.split_once('.'))
-            .map(|(_, account)| format::one_line(account));
+    /// The model `name` of `provider` with `effort`. The account is the part after the
+    /// `.` of `provider`, and the default account of a kind (`openai`) only when two or
+    /// more accounts list the model (`many`, TM-Accounts 10).
+    fn named(provider: Option<&str>, many: bool, name: &str, effort: Option<&str>) -> Model {
+        let account = format::accounts::model_account(provider, many);
         Model { account, name: format::one_line(name), effort: effort.map(format::one_line) }
     }
 

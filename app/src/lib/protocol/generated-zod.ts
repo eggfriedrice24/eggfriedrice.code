@@ -1435,6 +1435,7 @@ export const effectiveSettingsSchema = z.object({
   default_effort: z.string().nullable().exactOptional(),
   effort: z.string().nullable().exactOptional(),
   fallback: modeFallbackSchema.nullable().exactOptional(),
+  many_accounts: z.boolean().exactOptional(),
   mode: modeSchema,
   model: z.string(),
   overridden: overriddenSettingsSchema.exactOptional(),

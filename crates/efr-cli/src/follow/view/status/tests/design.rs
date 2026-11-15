@@ -166,6 +166,7 @@ fn a_turn_on_the_default_effort_names_that_effort_live_1() {
         effort: None,
         default_effort: Some("high".to_owned()),
         provider: Some("anthropic-api.work".to_owned()),
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
     };

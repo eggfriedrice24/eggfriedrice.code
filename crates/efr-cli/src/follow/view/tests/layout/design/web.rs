@@ -46,6 +46,7 @@ fn play_of(turn_id: TurnId, depth: Depth, cols: u16) -> Play {
         model: "claude-opus-5-5".to_owned(),
         effort: Some("high".to_owned()),
         provider: Some("anthropic-api.work".to_owned()),
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
         default_effort: None,

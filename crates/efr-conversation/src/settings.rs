@@ -123,12 +123,14 @@ pub(crate) fn resolve(
     // NOTE: for display only: the effort that the model takes when none is sent.
     let default_effort =
         effort.is_none().then(|| info.and_then(|info| info.default_effort.clone())).flatten();
+    let many_accounts = many_accounts(&model, &config.models);
     Ok(EffectiveSettings {
         mode,
         model,
         effort,
         default_effort,
         provider,
+        many_accounts,
         overridden: OverriddenSettings {
             mode: asked.mode.is_some(),
             model: asked.model.is_some(),
@@ -256,6 +258,18 @@ fn check_provider<'a>(
             from_config: false,
         }),
     }
+}
+
+/// True when two or more providers of `models` list `model`, such as the ChatGPT plan
+/// and `b`: a client then names the account of the turn also when it is the default
+/// account of its kind ([`EffectiveSettings::many_accounts`]). The list is the one of
+/// `models.list`, so a signed-out account with a list counts too, as on the phone.
+fn many_accounts(model: &str, models: &[ModelInfo]) -> bool {
+    let mut listing = models.iter().filter(|info| info.id == model).map(|info| &info.provider);
+    let Some(first) = listing.next() else {
+        return false;
+    };
+    listing.any(|provider| provider != first)
 }
 
 /// The default effort of the config for the model `info`: the one of the model's

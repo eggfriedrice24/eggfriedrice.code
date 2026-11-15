@@ -1091,3 +1091,10 @@ No protocol version has shipped yet.
   exist, or whose delete started, is `not_found`. It changes nothing and records
   nothing. An older efrd refuses the unknown method. New fixtures `conversation_switch_preview_params.json`,
   `conversation_switch_preview_result.json` and `switch_costs.json`.
+- Version 1, additive: the effective settings of a turn (`turn_started.settings`, the
+  result of `prompt.send`) gain `many_accounts`, true when two or more accounts list
+  the model in `models.list` when the turn starts. It is for display only: a client
+  then names the account of the turn also when it is the default account of its kind,
+  as `,model` takes it (`openai/gpt-6.1-sol`), as the phone does with the list. It is
+  absent when false, and from an older efrd. The fixture `events/turn_started.json`
+  now sets it.

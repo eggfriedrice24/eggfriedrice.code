@@ -431,6 +431,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings { mode: true, ..OverriddenSettings::default() },
         fallback: None,
         default_effort: None,
@@ -440,10 +441,23 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
         model: "gpt-5.5".to_owned(),
         effort: None,
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
         // NOTE: no effort sent: the line names the model's default (TM-Commands 4).
         default_effort: Some("medium".to_owned()),
+    };
+    // NOTE: TM-Accounts 7 (D1): the default ChatGPT plan has a name only while another
+    // account lists the model too.
+    let plan = |many_accounts: bool| EffectiveSettings {
+        mode: Mode::Cautious,
+        model: "gpt-6.1-sol".to_owned(),
+        effort: Some("medium".to_owned()),
+        provider: Some("openai-subscription".to_owned()),
+        many_accounts,
+        overridden: OverriddenSettings::default(),
+        fallback: None,
+        default_effort: None,
     };
     let page = ConversationHistoryResult {
         events: vec![
@@ -453,6 +467,10 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
             started(4, Some(auto)),
             prompt(5, "and check"),
             started(6, Some(cautious)),
+            prompt(7, "while b runs the model too"),
+            started(8, Some(plan(true))),
+            prompt(9, "on the plan alone"),
+            started(10, Some(plan(false))),
         ],
         next_cursor: None,
     };
@@ -470,6 +488,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
         model: "gpt-5.5".to_owned(),
         effort: None,
         provider: None,
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: Some(ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() }),
         default_effort: None,
@@ -2161,6 +2180,7 @@ fn two_turns() -> ConversationHistoryResult {
             model: model.to_owned(),
             effort: Some(effort.to_owned()),
             provider: Some(provider.to_owned()),
+            many_accounts: false,
             overridden: OverriddenSettings::default(),
             fallback: None,
             default_effort: None,
@@ -2309,6 +2329,7 @@ fn first_turn_with_calls() -> ConversationHistoryResult {
                     model: "claude-opus-5-5".to_owned(),
                     effort: Some("high".to_owned()),
                     provider: Some("anthropic-api.work".to_owned()),
+                    many_accounts: false,
                     overridden: OverriddenSettings::default(),
                     fallback: None,
                     default_effort: None,
@@ -2477,6 +2498,7 @@ fn commands_4() -> ConversationHistoryResult {
                     effort: None,
                     default_effort: Some("medium".to_owned()),
                     provider: Some("openai-subscription.b".to_owned()),
+                    many_accounts: false,
                     overridden: OverriddenSettings::default(),
                     fallback: None,
                 }),

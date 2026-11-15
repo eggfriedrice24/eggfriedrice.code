@@ -91,6 +91,7 @@ fn a_prompt_without_settings_runs_with_the_config_defaults() {
             model: "gpt-5.5".to_owned(),
             effort: Some("high".to_owned()),
             provider: None,
+            many_accounts: false,
             overridden: OverriddenSettings::default(),
             fallback: None,
             default_effort: None,
@@ -604,4 +605,24 @@ fn a_prompt_names_one_of_two_accounts_that_list_its_model() {
         missing.to_string(),
         "the provider work does not list gpt-6-sol; choose one of: anthropic-api"
     );
+}
+
+#[test]
+fn the_settings_tell_when_two_accounts_list_the_model() {
+    let mut config = config();
+    config.models[0].provider = Some("openai-subscription".to_owned());
+    config.models[1].provider = Some("openai-subscription".to_owned());
+    let mut b = config.models[1].clone();
+    b.provider = Some("openai-subscription.b".to_owned());
+    config.models.push(b);
+    let run = |model: &str| {
+        resolve(&asked(None, Some(model), None), &config, Origin::Shell, place(&ready())).unwrap()
+    };
+
+    assert!(run("gpt-5.5").many_accounts, "the plan and b list gpt-5.5");
+    assert!(!run("gpt-6-sol").many_accounts, "only the plan lists gpt-6-sol");
+    let mut one = ConversationConfig::new("gpt-5.5", "/scratch");
+    one.models = vec![model("gpt-5.5", &["low"], "low")];
+    let alone = resolve(&TurnSettings::default(), &one, Origin::Shell, place(&ready())).unwrap();
+    assert!(!alone.many_accounts, "one account");
 }

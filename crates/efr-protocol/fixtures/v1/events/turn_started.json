@@ -10,6 +10,7 @@
     "mode": "cautious",
     "model": "gpt-5.4",
     "effort": "high",
+    "many_accounts": true,
     "overridden": {
       "mode": true,
       "model": true,

@@ -108,6 +108,7 @@ async fn a_prompts_settings_reach_the_request_and_are_recorded() {
         model: "gpt-5.4".to_owned(),
         effort: Some("high".to_owned()),
         provider: Some("replay".to_owned()),
+        many_accounts: false,
         overridden: OverriddenSettings { mode: true, model: true, effort: true },
         fallback: None,
         default_effort: None,

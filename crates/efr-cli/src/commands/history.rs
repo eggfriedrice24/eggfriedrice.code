@@ -1336,16 +1336,17 @@ impl<'a> Transcript<'a> {
     }
 
     /// The muted line under a prompt at 2 columns: the model as `,model` takes it, its
-    /// effort and the mode, such as `work/claude-opus-5-5 high · cautious`.
+    /// effort and the mode, such as `work/claude-opus-5-5 high · cautious`. The default
+    /// account of a kind has a name only when two or more accounts listed the model when
+    /// the turn ran, such as `openai/gpt-6.1-sol` (TM-Accounts 7).
     fn model_line(&mut self, settings: &EffectiveSettings) {
         let dot = format::status::separator(self.options);
         let model = format::one_line(&settings.model);
-        let mut line = match settings.provider.as_deref() {
-            Some(provider) if provider.contains('.') => {
-                format!("{}/{model}", accounts::account_of(provider))
-            }
-            _ => model,
-        };
+        let mut line =
+            match accounts::model_account(settings.provider.as_deref(), settings.many_accounts) {
+                Some(account) => format!("{account}/{model}"),
+                None => model,
+            };
         if let Some(effort) = settings.effort.as_ref().or(settings.default_effort.as_ref()) {
             let _ = write!(line, " {}", format::one_line(effort));
         }

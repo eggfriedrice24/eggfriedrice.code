@@ -1180,6 +1180,7 @@ pub(crate) fn default_settings() -> Option<EffectiveSettings> {
         effort: None,
         // NOTE: the id of the harness's ReplayProvider.
         provider: Some("replay".to_owned()),
+        many_accounts: false,
         overridden: OverriddenSettings::default(),
         fallback: None,
         default_effort: None,

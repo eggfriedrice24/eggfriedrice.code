@@ -438,6 +438,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_reply_has_no_first_line() {
             model: "gpt-5.4".to_owned(),
             effort: Some("high".to_owned()),
             provider: None,
+            many_accounts: false,
             overridden: OverriddenSettings { mode: true, model: true, effort: false },
             fallback: None,
             default_effort: None,

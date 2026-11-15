@@ -203,6 +203,13 @@ pub struct EffectiveSettings {
     /// before it recorded the provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// True when two or more accounts list the model in `models.list` when the turn
+    /// starts, such as the ChatGPT plan and `b`. Only for display: a client then names
+    /// the account of the turn also when it is the default account of its kind, as
+    /// `,model` takes it (`openai/gpt-6.1-sol`). Absent when it is false, and from a
+    /// daemon before it told it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub many_accounts: bool,
     /// Which values came from the prompt rather than from the config. Absent when none
     /// did.
     #[serde(default, skip_serializing_if = "OverriddenSettings::is_empty")]

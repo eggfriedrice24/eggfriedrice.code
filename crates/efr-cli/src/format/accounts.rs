@@ -74,6 +74,20 @@ pub(crate) fn account_of(id: &str) -> String {
     }
 }
 
+/// The account that a model of the provider `provider` names in the status row of a
+/// turn and in `efr history`, as `,model` takes it: a named account always, such as
+/// `b`; the default account of a kind only when two or more accounts list the model
+/// (`many`), such as `openai` (TM-Accounts 10, errata 8). Else none: the bare model is
+/// enough.
+pub(crate) fn model_account(provider: Option<&str>, many: bool) -> Option<String> {
+    let provider = provider?;
+    match account_name(provider) {
+        Some(name) => Some(name),
+        None if many && !provider.contains('.') => Some(account_of(provider)),
+        None => None,
+    }
+}
+
 /// The name that `,model` takes for the provider `id` among the providers `ids`: its
 /// short name (`b`, `openai`) when that names `id` alone
 /// ([`efr_protocol::provider_id_named`]), else the id itself, such as

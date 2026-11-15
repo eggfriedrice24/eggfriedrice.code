@@ -28,7 +28,9 @@ turns.
   and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a queued
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
-  the choices when they no longer fit, and records them on `turn_started`. An effort
+  the choices when they no longer fit, and records them on `turn_started`. The settings
+  say `many_accounts` when two or more providers of the list list the model, so a
+  client names the default account of a kind too (`openai/gpt-6.1-sol`). An effort
   from the config (`ConversationConfig::provider_efforts` for the model's provider,
   else `ConversationConfig::effort`) that the model does not take gives way to the
   model's own default effort and never fails a turn. A prompt that names no model,
