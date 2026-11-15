@@ -73,6 +73,7 @@ export function QuarantineSheet(props: QuarantineSheetProps) {
     <QuarantineSheetView
       model={model}
       leaving={leave.leaving}
+      failed={leave.failed}
       onLeave={() => leave.leave(model.questionId)}
       onClose={props.onClose}
     />
@@ -90,6 +91,8 @@ export interface QuarantineSheetViewProps {
   readonly model: QuarantineSheetModel;
   /** True while efrd has not taken the Leave yet. */
   readonly leaving: boolean;
+  /** The last Leave did not arrive. */
+  readonly failed?: boolean;
   readonly onLeave: () => void;
   readonly onClose: () => void;
 }
@@ -98,13 +101,31 @@ interface LeaveRowProps {
   readonly keepElsewhere: string;
   readonly keepLabel: string;
   readonly leaving: boolean;
+  /** The last Leave did not arrive: "not sent" in state_error. */
+  readonly failed?: boolean;
+  /** The machine is not connected: "offline", and Leave takes no tap. */
+  readonly offline?: boolean;
   readonly onLeave: () => void;
 }
 
-/** "Keep on desktop" where the Keep button was, then the capsule Leave. */
+/**
+ * "Keep on desktop" where the Keep button was, then the capsule Leave. A Leave that did
+ * not arrive says "not sent", and an offline machine says "offline", as the approval
+ * strip does (round 5).
+ */
 function LeaveRow(props: LeaveRowProps) {
   return (
     <>
+      {props.failed === true && !props.leaving ? (
+        <MonoText testID="quarantine-not-sent" tone="state_error" className="text-mono-xs">
+          not sent
+        </MonoText>
+      ) : null}
+      {props.offline === true ? (
+        <MonoText tone="text_subtle" className="text-mono-xs">
+          offline
+        </MonoText>
+      ) : null}
       <MonoText
         testID="quarantine-keep-elsewhere"
         accessibilityLabel={props.keepLabel}
@@ -119,6 +140,7 @@ function LeaveRow(props: LeaveRowProps) {
         accessibilityHint={LEAVE_HINT}
         pending={props.leaving}
         pendingLabel="Leaving in quarantine"
+        disabled={props.offline === true}
         onPress={props.onLeave}
       />
     </>
@@ -164,6 +186,7 @@ export function QuarantineSheetView(props: QuarantineSheetViewProps) {
             keepElsewhere={model.keepElsewhere}
             keepLabel={model.keepLabel}
             leaving={props.leaving}
+            failed={props.failed === true}
             onLeave={props.onLeave}
           />
         )}
@@ -177,6 +200,10 @@ export interface QuarantineStripViewProps {
   readonly model: QuarantineStripModel;
   /** True while efrd has not taken the Leave yet. */
   readonly leaving: boolean;
+  /** The last Leave did not arrive. */
+  readonly failed?: boolean;
+  /** The machine is not connected. */
+  readonly offline?: boolean;
   readonly onOpen: () => void;
   readonly onLeave: () => void;
 }
@@ -203,6 +230,8 @@ export function QuarantineStripView(props: QuarantineStripViewProps) {
           keepElsewhere={model.keepElsewhere}
           keepLabel={model.keepLabel}
           leaving={props.leaving}
+          failed={props.failed === true}
+          offline={props.offline === true}
           onLeave={props.onLeave}
         />
       </View>

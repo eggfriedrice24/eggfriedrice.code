@@ -1,6 +1,7 @@
 // The Leave of a quarantine question from the phone (Q-Quarantine 8, 9): the mutation
 // `sandbox.surface_respond` with `keep: false`, in the scope of the conversation, with a
-// new command id per tap. The strip and the sheet show the braille cell while it runs.
+// new command id per tap. The strip and the sheet show the braille cell while it runs,
+// and "not sent" in state_error when it failed (the words of the approval strip).
 
 import { useMutation } from "@tanstack/react-query";
 
@@ -15,6 +16,11 @@ export interface LeaveQuarantine {
   leave(questionId: string): void;
   /** True while efrd has not taken the answer yet. */
   readonly leaving: boolean;
+  /**
+   * True when the last Leave did not arrive: efrd refused it, the question expired, or
+   * the connection failed. The strip and the sheet say "not sent", as for an approval.
+   */
+  readonly failed: boolean;
 }
 
 /** The Leave of the quarantine questions of `conversation`. */
@@ -28,5 +34,6 @@ export function useLeaveQuarantine(
       mutation.mutate({ questionId, commandId: newCommandId() });
     },
     leaving: mutation.isPending,
+    failed: mutation.isError,
   };
 }

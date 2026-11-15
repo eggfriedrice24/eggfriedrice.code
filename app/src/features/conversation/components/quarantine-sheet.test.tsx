@@ -144,6 +144,32 @@ describe("the quarantine strip", () => {
     });
   });
 
+  it("says not sent when the Leave does not arrive, and offline with no tap when down", async () => {
+    // No handler: the fake caller fails as an offline machine does.
+    const caller = new FakeCaller({});
+    const strip = (connected: boolean) => (
+      <ApprovalStrip
+        stream={streamWith([FSMONITOR])}
+        conversation={REF}
+        machineName="desktop"
+        connected={connected}
+        caller={caller}
+        onOpen={() => undefined}
+      />
+    );
+    const view = await render(wrapper(strip(true)));
+    expect(screen.queryByTestId("quarantine-not-sent")).toBeNull();
+    await fireEvent.press(screen.getByRole("button", { name: "Leave in quarantine" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("quarantine-not-sent")).toHaveTextContent("not sent");
+
+    await view.rerender(wrapper(strip(false)));
+    expect(screen.getByText("offline")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Leave in quarantine" })).toBeDisabled();
+  });
+
   it("counts many changes", async () => {
     await render(
       wrapper(

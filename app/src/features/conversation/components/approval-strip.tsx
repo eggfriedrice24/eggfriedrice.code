@@ -84,6 +84,8 @@ export function ApprovalStrip(props: ApprovalStripProps) {
       <QuarantineStripView
         model={strip}
         leaving={leave.leaving}
+        failed={leave.failed}
+        offline={!props.connected}
         onOpen={() => open(strip.callId)}
         onLeave={() => leave.leave(strip.questionId)}
       />
