@@ -306,3 +306,130 @@ async fn bench_search_reset() {
     }
     report("bench_search_reset", &lines);
 }
+
+/// The writer time of one step of a delete with `secure-delete`, as of the other
+/// writer jobs: a turn's commit waits for at most one step.
+const DELETE_STEP_MAX: Duration = Duration::from_millis(10);
+
+/// The writer time of the delete of the conversation with the most docs on the index
+/// of corpus L: each `delete_step` job (at most `STEP_DOCS` docs with at most
+/// `STEP_TEXT_BYTES` of text, or one longer doc), with the FTS5 option `secure-delete`
+/// of migration 12 and with it off, as before. It fails when a step with the option
+/// takes more than `DELETE_STEP_MAX`. As for a backfill page, the steps with a
+/// checkpoint of the write-ahead log are on a line of their own and do not count, and
+/// so are the steps of one longer doc, whose words go in one FTS5 `'delete'`.
+#[tokio::test]
+#[ignore = "a bench: `just bench-search` runs it in release"]
+async fn bench_search_delete() {
+    use efr_protocol::{ConversationId, Event, Origin};
+    use efr_store::Batch;
+    use efr_store::deletes::{DeleteStep, STEP_DOCS, STEP_TEXT_BYTES};
+
+    let mut lines = Vec::new();
+    let mut secure_max = Duration::ZERO;
+    for secure in [true, false] {
+        let (_dir, path) = corpus_copy(CorpusSize::L, Shape::Indexed).await;
+        let clock = TestClock::new();
+        // NOTE: the corpus has the schema of this build, which sets the option.
+        if !secure {
+            let conn = efr_store::db::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO search_fts (search_fts, rank) VALUES ('secure-delete', 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let store = open(&path, &clock).await;
+        let (id, docs): (String, i64) = store
+            .readers()
+            .with(|conn| {
+                Ok(conn.query_row(
+                    "SELECT conversation_id, COUNT(*) AS docs FROM search_docs \
+                     GROUP BY conversation_id ORDER BY docs DESC LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?)
+            })
+            .await
+            .unwrap();
+        let id: ConversationId = id.parse().unwrap();
+        let tombstone = Batch::new().event(id, Event::ConversationDeleted { origin: Origin::Cli });
+        store.writer().append(tombstone).await.unwrap();
+        let text_left = || {
+            let id = id.to_string();
+            store.readers().with(move |conn| {
+                Ok(conn.query_row(
+                    "SELECT COALESCE(SUM(length(CAST(text AS BLOB))), 0) FROM search_docs \
+                     WHERE conversation_id = ?1",
+                    [id],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+        };
+        // The steps of at most `STEP_TEXT_BYTES` of text, without and with a
+        // checkpoint, and the steps of one longer doc.
+        let (mut times, mut plain, mut checkpointed, mut long) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut left = text_left().await.unwrap();
+        loop {
+            let before = wal_frames_waiting(&path);
+            let started = std::time::Instant::now();
+            let step = store.writer().delete_step(id).await.unwrap();
+            let time = started.elapsed();
+            let after = wal_frames_waiting(&path);
+            let now = text_left().await.unwrap();
+            let text = usize::try_from(left - now).unwrap();
+            left = now;
+            times.push(time);
+            if text > STEP_TEXT_BYTES {
+                &mut long
+            } else if after < before {
+                &mut checkpointed
+            } else {
+                &mut plain
+            }
+            .push(time);
+            if step == DeleteStep::RowsDone {
+                break;
+            }
+        }
+        let all: Duration = times.iter().sum();
+        if secure {
+            secure_max = percentiles(&plain).2;
+        }
+        let data: i64 = store
+            .readers()
+            .with(|conn| {
+                Ok(conn.query_row(
+                    "SELECT SUM(pgsize) FROM dbstat WHERE name = 'search_fts_data'",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+        store.close().await;
+        let label = if secure { "secure-delete on" } else { "secure-delete off" };
+        lines.push(format!(
+            "{label}: {docs} docs in {} steps of at most {STEP_DOCS} docs and \
+             {STEP_TEXT_BYTES} bytes, {:.1} ms in all, search_fts_data {:.3} MB after",
+            times.len(),
+            all.as_secs_f64() * 1000.0,
+            mb(data)
+        ));
+        lines.push(line("  delete_step (a step)", &times));
+        lines.push(line("  without a checkpoint", &plain));
+        lines.push(line("  with a checkpoint", &checkpointed));
+        lines.push(line("  one longer doc", &long));
+        lines.push(format!(
+            "  the max of one step: {:.3} ms ({:.3} ms without a checkpoint or a longer doc)",
+            percentiles(&times).2.as_secs_f64() * 1000.0,
+            percentiles(&plain).2.as_secs_f64() * 1000.0
+        ));
+    }
+    report("bench_search_delete", &lines);
+    assert!(
+        secure_max <= DELETE_STEP_MAX,
+        "the max of a step with secure-delete is {secure_max:?}, more than {DELETE_STEP_MAX:?}"
+    );
+}

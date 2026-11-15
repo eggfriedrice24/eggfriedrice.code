@@ -261,8 +261,8 @@ async fn delete(writer: &WriterHandle, n: u64) -> Seq {
     writer.append(batch).await.unwrap().last_seq()
 }
 
-/// Steps of `limit` events until the rows of conversation `n` are gone; the number of
-/// steps.
+/// Steps of `limit` events (and every search doc of them) until the rows of
+/// conversation `n` are gone; the number of steps.
 async fn steps(writer: &WriterHandle, n: u64, limit: u32) -> usize {
     let mut taken = 0;
     loop {
@@ -270,7 +270,7 @@ async fn steps(writer: &WriterHandle, n: u64, limit: u32) -> usize {
         let at = sql::truncate_to_micros(testing::start());
         let step = testing::on_writer(writer, move |conn| {
             let tx = conn.unchecked_transaction()?;
-            let step = step(&tx, id(n), limit, at)?;
+            let step = step(&tx, id(n), limit, u32::MAX, usize::MAX, at)?;
             tx.commit()?;
             Ok(step)
         })
@@ -436,4 +436,205 @@ async fn a_page_of_the_indexer_read_before_the_delete_writes_no_doc_of_it() {
 
     assert_eq!(found(&writer, "rsync").await, Vec::<i64>::new());
     assert_eq!(rows_of(&writer, GONE).await[8], ("search_docs", 0));
+}
+
+/// A second turn of conversation `n` with `count` short answers that hold `word`, so
+/// the conversation has more search docs than one step of a delete removes.
+async fn answers(writer: &WriterHandle, n: u64, count: u32, word: &str) {
+    let texts = (0..count).map(|index| format!("{word} part {index}"));
+    answer_turn(writer, n, &format!("{word} again"), texts).await;
+}
+
+/// A second turn of conversation `n` with the prompt `prompt` and an answer of each
+/// text of `texts`.
+async fn answer_turn(
+    writer: &WriterHandle,
+    n: u64,
+    prompt: &str,
+    texts: impl IntoIterator<Item = String>,
+) {
+    let second = turn(n, 2);
+    let mut batch = Batch::new()
+        .event(id(n), testing::queued(second, prompt))
+        .event(id(n), testing::started(second, "/etc/nixos"));
+    for (index, text) in (0..).zip(texts) {
+        batch = batch.event(
+            id(n),
+            Event::AssistantMessageCompleted { turn_id: testing::turn(second), index, text },
+        );
+    }
+    writer.append(batch.event(id(n), completed(second))).await.unwrap();
+}
+
+/// The search docs of conversation `n`.
+async fn docs_of(writer: &WriterHandle, n: u64) -> i64 {
+    let conversation = id(n).to_string();
+    testing::on_writer(writer, move |conn| {
+        Ok(conn.query_row(
+            "SELECT count(*) FROM search_docs WHERE conversation_id = ?1",
+            [conversation],
+            |row| row.get(0),
+        )?)
+    })
+    .await
+    .unwrap()
+}
+
+/// True when a segment of the full text index still holds the bytes of `word`. A word
+/// whose first letter no other word of the index has is stored whole, so the test
+/// words start with a letter of their own.
+async fn segments_hold(writer: &WriterHandle, word: &'static str) -> bool {
+    testing::on_writer(writer, move |conn| {
+        let count: i64 = conn.query_row(
+            "SELECT count(*) FROM search_fts_data WHERE instr(block, CAST(?1 AS BLOB)) > 0",
+            [word],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    })
+    .await
+    .unwrap()
+}
+
+/// Steps of the writer until the rows of conversation `n` are gone, each with at most
+/// [`STEP_DOCS`] search docs; the number of steps.
+async fn writer_steps(writer: &WriterHandle, n: u64) -> usize {
+    let mut taken = 0;
+    let mut left = docs_of(writer, n).await;
+    loop {
+        taken += 1;
+        let step = writer.delete_step(id(n)).await.unwrap();
+        let now = docs_of(writer, n).await;
+        assert!(left - now <= i64::from(STEP_DOCS), "a step removed {} docs", left - now);
+        left = now;
+        if step == DeleteStep::RowsDone {
+            assert_eq!(left, 0);
+            return taken;
+        }
+    }
+}
+
+async fn integrity_check(writer: &WriterHandle) {
+    testing::on_writer(writer, |conn| {
+        conn.execute("INSERT INTO search_fts (search_fts) VALUES ('integrity-check')", [])?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+}
+
+/// Decision 5: the delete of a conversation removes its words from the FTS5 segments,
+/// not only from what a query matches, and the words of the other conversations stay.
+#[tokio::test]
+async fn a_delete_removes_the_words_from_the_segments_of_the_index() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    fill(&writer, GONE, "zebrafish").await;
+    fill(&writer, KEPT, "docker").await;
+    index_all(&writer).await;
+    assert!(segments_hold(&writer, "zebrafish").await, "the control: the index has the word");
+
+    delete(&writer, GONE).await;
+    writer_steps(&writer, GONE).await;
+
+    assert!(!segments_hold(&writer, "zebrafish").await);
+    assert!(segments_hold(&writer, "docker").await);
+    integrity_check(&writer).await;
+}
+
+/// A step takes at most [`STEP_DOCS`] docs, because each doc costs writer time with
+/// `secure-delete`, and a turn of another conversation commits between two steps
+/// while the delete is not over.
+#[tokio::test]
+async fn a_step_removes_at_most_step_docs_and_a_turn_commits_between_two_steps() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    fill(&writer, GONE, "zebrafish").await;
+    answers(&writer, GONE, 3 * STEP_DOCS, "zebrafish").await;
+    fill(&writer, KEPT, "docker").await;
+    index_all(&writer).await;
+    let docs = docs_of(&writer, GONE).await;
+    assert!(docs > i64::from(3 * STEP_DOCS), "{docs} docs");
+    delete(&writer, GONE).await;
+
+    let first = writer.delete_step(id(GONE)).await.unwrap();
+    assert!(matches!(first, DeleteStep::Removed(_)), "{first:?}");
+    assert_eq!(docs_of(&writer, GONE).await, docs - i64::from(STEP_DOCS));
+    let second = turn(KEPT, 2);
+    let batch = Batch::new()
+        .event(id(KEPT), testing::queued(second, "docker again"))
+        .event(id(KEPT), testing::started(second, "/etc/nixos"))
+        .event(id(KEPT), answer(second, "docker answer"))
+        .event(id(KEPT), completed(second));
+    writer.append(batch).await.unwrap();
+    assert!(docs_of(&writer, GONE).await > 0, "the delete is not over");
+
+    let taken = writer_steps(&writer, GONE).await;
+    let left = docs - i64::from(STEP_DOCS);
+    assert!(taken > usize::try_from(left / i64::from(STEP_DOCS)).unwrap(), "{taken} steps");
+    assert!(!segments_hold(&writer, "zebrafish").await);
+    integrity_check(&writer).await;
+}
+
+/// Docs go into one step while their text stays within [`STEP_TEXT_BYTES`], and a
+/// longer doc takes a step alone.
+#[tokio::test]
+async fn a_step_holds_at_most_step_text_bytes_but_always_one_doc() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    fill(&writer, GONE, "zebrafish").await;
+    let half = format!("zebrafish {}", "y".repeat(STEP_TEXT_BYTES / 2 - 20));
+    let long = "x".repeat(STEP_TEXT_BYTES + 1);
+    answer_turn(&writer, GONE, "zebrafish again", [long, half.clone(), half.clone(), half]).await;
+    index_all(&writer).await;
+    delete(&writer, GONE).await;
+
+    let mut taken = Vec::new();
+    let mut left = docs_of(&writer, GONE).await;
+    while let DeleteStep::Removed(_) = writer.delete_step(id(GONE)).await.unwrap() {
+        let now = docs_of(&writer, GONE).await;
+        taken.push(left - now);
+        left = now;
+    }
+
+    // The 4 short docs, the long one alone, two halves, the last half.
+    assert_eq!(taken, [4, 1, 2, 1]);
+    assert_eq!(left, 0);
+}
+
+/// A stop of efrd in the middle of a delete: the start after it finds no doc of the
+/// conversation in a search, lists the delete as open, and its steps go on to the end.
+#[tokio::test]
+async fn a_delete_that_a_restart_broke_off_finds_nothing_and_goes_on() {
+    use crate::search::SearchStop;
+    use crate::{Store, StoreConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = StoreConfig::in_data_dir(dir.path());
+    let store = Store::open(config.clone(), TestClock::new()).await.unwrap();
+    fill(store.writer(), GONE, "zebrafish").await;
+    answers(store.writer(), GONE, 3 * STEP_DOCS, "zebrafish").await;
+    fill(store.writer(), KEPT, "docker").await;
+    index_all(store.writer()).await;
+    delete(store.writer(), GONE).await;
+    let first = store.writer().delete_step(id(GONE)).await.unwrap();
+    assert!(matches!(first, DeleteStep::Removed(_)), "{first:?}");
+    assert!(docs_of(store.writer(), GONE).await > 0, "docs wait for the next start");
+    store.close().await;
+
+    let store = Store::open(config, TestClock::new()).await.unwrap();
+    let searched = |query: &'static str| {
+        store.readers().with(move |conn| {
+            let found = search::search(conn, query, 10, &SearchStop::new())?;
+            Ok(found.rows.iter().map(|row| row.conversation_id).collect::<Vec<_>>())
+        })
+    };
+    assert_eq!(searched("zebrafish").await.unwrap(), []);
+    assert_eq!(searched("docker").await.unwrap(), [id(KEPT)]);
+    let open = store.readers().with(pending).await.unwrap();
+    let open: Vec<_> = open.iter().map(|t| (t.conversation_id, t.rows_done)).collect();
+    assert_eq!(open, [(id(GONE), false)]);
+
+    writer_steps(store.writer(), GONE).await;
+    assert!(!segments_hold(store.writer(), "zebrafish").await);
+    assert!(segments_hold(store.writer(), "docker").await);
+    integrity_check(store.writer()).await;
+    store.close().await;
 }

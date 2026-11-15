@@ -191,9 +191,11 @@ conversations or the daemon's socket. The config root stays readable and read-on
      (`conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`,
      `job_notices`). From this commit on, no list, search or read shows the
      conversation, and every later event of it fails its batch;
-  3. writer jobs of at most 2,000 events each delete its events before the tombstone,
-     their `search_docs` rows and the `receipts` that name them; the last job deletes
-     its `turn_messages`, its `search_titles` row, its `outbox` rows (by the
+  3. writer jobs delete its events before the tombstone, the `receipts` that name
+     them and their `search_docs` rows. One job deletes at most 2,000 events and at
+     most 10 docs with at most 512 bytes of text; a longer doc takes a job alone. So
+     other writes, such as the commit of a turn, run between two jobs. The last job
+     deletes its `turn_messages`, its `search_titles` row, its `outbox` rows (by the
      `conversation_id` of their payload) and the `recording_segments` of its PTYs,
      and sets `rows_done_at`;
   4. efrd deletes its snapshot refs in every store (`refs/efr/<conversation>/`,
@@ -212,8 +214,14 @@ conversations or the daemon's socket. The config root stays readable and read-on
   the prune of the delete when they are older than an hour, else at a later
   collection. `secure_delete` writes zeros over the deleted rows in the database
   file. The write-ahead log can keep a page from before the delete until a later
-  checkpoint writes over that part of the log. The FTS5 segments keep the tokens of
-  the deleted docs, which no query matches any more, until a merge. Each copy of
+  checkpoint writes over that part of the log. The search index has the FTS5 option
+  `secure-delete` (migration 12): the job that deletes a doc also removes its tokens
+  from the FTS5 segments (`search_fts_data`), not a later merge. That costs about 5
+  ms of writer time per KiB of text, so step 3 bounds the text of a job. Until its
+  job runs, a doc keeps its tokens, but no search finds it, because the conversation
+  has no row in the projections. A stop of efrd in that time leaves the docs to the
+  next start, which finishes the delete. A doc that a delete removed before migration
+  12 keeps its tokens, which no query matches, until a merge. Each copy of
   `backups/` from before the delete keeps the conversation, until a later start
   removes that copy (only the newest 2 stay).
 
@@ -245,12 +253,13 @@ conversations or the daemon's socket. The config root stays readable and read-on
   `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of
   phase C), `0008_routes.sql` (the route columns of the conversations, v0.0.4) and
   `0009_search.sql` (the search index, v0.0.4), `0010_deletes.sql` (the tombstones
-  of deleted conversations, v0.0.5) and `0011_devices.sql` (the enrolled devices of
-  the remote milestone). Each step has a flag that says whether it changes a
-  projection. The first start of an efrd with such a migration rebuilds the
+  of deleted conversations, v0.0.5), `0011_devices.sql` (the enrolled devices of
+  the remote milestone) and `0012_search_secure_delete.sql` (the FTS5 option
+  `secure-delete` of the search index). Each step has a flag that says whether it
+  changes a projection. The first start of an efrd with such a migration rebuilds the
   projections from the log once: about 3 s for 100,000 events in a debug build.
-  `0009_search.sql`, `0010_deletes.sql` and `0011_devices.sql` have no flag, so they
-  rebuild nothing.
+  `0009_search.sql`, `0010_deletes.sql`, `0011_devices.sql` and
+  `0012_search_secure_delete.sql` have no flag, so they rebuild nothing.
 - `0009_search.sql` creates the search tables empty, with the cursor at 0. After the
   start, efrd's indexer fills them in the background from the log (the backfill): it
   reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and

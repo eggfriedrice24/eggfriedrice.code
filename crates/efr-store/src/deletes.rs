@@ -7,8 +7,11 @@
 //! and each later event of it fails its batch, because the conversations projection has
 //! no row for it. Then [`WriterHandle::delete_step`](crate::WriterHandle::delete_step)
 //! removes the rest of its rows in short transactions, each the same work again after a
-//! stop: a page of its events with their search docs and receipts, and at the end its
+//! stop: a page of its events with their search docs and receipts, with a bound on
+//! the docs and their text ([`STEP_DOCS`], [`STEP_TEXT_BYTES`]), and at the end its
 //! saved messages, its search title, its outbox rows and the index of its recordings.
+//! The search docs that wait for their step are in no search, because the
+//! conversation has no projection row.
 //! The daemon then removes the files of the conversation and marks the delete done
 //! ([`WriterHandle::delete_done`](crate::WriterHandle::delete_done)). A start of efrd
 //! finishes each delete that [`pending`] lists.
@@ -30,6 +33,22 @@ const TABLE: &str = "conversation_deletes";
 /// The most events that one step of a delete removes, with their search docs and
 /// receipts, so a long conversation never holds the writer for long.
 pub const STEP_EVENTS: u32 = 2_000;
+
+/// The most search docs that one step of a delete removes. The FTS5 option
+/// `secure-delete` (migration 12) makes the delete of a doc write the index pages of
+/// each of its words again, so the time of a step follows the text of its docs more
+/// than their number: [`STEP_TEXT_BYTES`] is the bound that counts.
+pub const STEP_DOCS: u32 = 10;
+
+/// The most text, in bytes, that the search docs of one step of a delete hold, unless
+/// the first doc of the step is longer: a step always takes one doc. With
+/// `secure-delete`, a doc costs about 5 ms per KiB of text, and 10 ms on a busy machine
+/// (`bench_search_delete`). So a step of 512 bytes stays below the 10 ms of the other
+/// writer jobs also on a busy machine, and a turn's commit waits for one short step,
+/// not for the whole delete. The words of one doc go in one FTS5 `'delete'`, so a
+/// longer doc takes its step alone: an answer of 16 KiB holds the writer for about
+/// 25 ms, and 50 ms on a busy machine.
+pub const STEP_TEXT_BYTES: usize = 512;
 
 /// A delete as its tombstone row holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -191,11 +210,15 @@ pub fn pending(conn: &Connection) -> Result<Vec<Tombstone>, StoreError> {
 
 /// One step of the delete of `conversation_id` in the writer's transaction: at most
 /// `limit` of its events before the tombstone with their search docs and receipts, or,
-/// when none is left, the rest of its rows.
+/// when none is left, the rest of its rows. A step removes at most `docs` search docs
+/// with at most `text_bytes` of text, but always its first doc: it ends before the
+/// event of the next doc, and a later step goes on from there.
 pub(crate) fn step(
     conn: &Connection,
     conversation_id: ConversationId,
     limit: u32,
+    docs: u32,
+    text_bytes: usize,
     at: Timestamp,
 ) -> Result<DeleteStep, StoreError> {
     let Some(tombstone) = get(conn, conversation_id)? else {
@@ -206,7 +229,7 @@ pub(crate) fn step(
     }
     let id = conversation_id.to_string();
     let before = sql::seq(tombstone.seq);
-    let page: Vec<i64> = {
+    let mut page: Vec<i64> = {
         let mut stmt = conn.prepare(
             "SELECT seq FROM events WHERE conversation_id = ?1 AND seq < ?2 ORDER BY seq LIMIT ?3",
         )?;
@@ -214,6 +237,37 @@ pub(crate) fn step(
         rows.collect::<Result<_, _>>()?
     };
     if let (Some(&first), Some(&last)) = (page.first(), page.last()) {
+        let docs = docs.max(1);
+        // One doc more than the step takes, so the step knows where the next one starts.
+        let mut found: Vec<(i64, String, i64, String)> = {
+            let mut stmt = conn.prepare(
+                "SELECT d.seq, d.conversation_id, d.kind, d.text FROM events AS e \
+                 JOIN search_docs AS d ON d.seq = e.seq \
+                 WHERE e.conversation_id = ?1 AND e.seq BETWEEN ?2 AND ?3 ORDER BY e.seq LIMIT ?4",
+            )?;
+            let rows = stmt.query_map(params![id, first, last, docs.saturating_add(1)], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let most = usize::try_from(docs).unwrap_or(usize::MAX);
+        let mut bytes = 0_usize;
+        let taken = found
+            .iter()
+            .enumerate()
+            .position(|(at, (.., text))| {
+                bytes = bytes.saturating_add(text.len());
+                at > 0 && (at >= most || bytes > text_bytes)
+            })
+            .unwrap_or(found.len());
+        let last = match found.get(taken) {
+            Some(&(next, ..)) => {
+                found.truncate(taken);
+                page.retain(|&seq| seq < next);
+                page.last().copied().unwrap_or(first)
+            }
+            None => last,
+        };
         // NOTE: `receipts.seq` has no index; one scan per page, with the page's numbers
         // from the index of the events.
         conn.execute(
@@ -221,21 +275,14 @@ pub(crate) fn step(
              (SELECT seq FROM events WHERE conversation_id = ?1 AND seq BETWEEN ?2 AND ?3)",
             params![id, first, last],
         )?;
-        let mut read =
-            conn.prepare("SELECT conversation_id, kind, text FROM search_docs WHERE seq = ?1")?;
         let mut delete_fts = conn.prepare(
             "INSERT INTO search_fts (search_fts, rowid, text, conversation_id, kind) \
              VALUES ('delete', ?1, ?2, ?3, ?4)",
         )?;
         let mut delete_doc = conn.prepare("DELETE FROM search_docs WHERE seq = ?1")?;
-        for &seq in &page {
-            let doc: Option<(String, i64, String)> = read
-                .query_row([seq], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-                .optional()?;
-            if let Some((conversation, kind, text)) = doc {
-                delete_fts.execute(params![seq, text, conversation, kind])?;
-                delete_doc.execute([seq])?;
-            }
+        for (seq, conversation, kind, text) in found {
+            delete_fts.execute(params![seq, text, conversation, kind])?;
+            delete_doc.execute([seq])?;
         }
         conn.execute(
             "DELETE FROM events WHERE conversation_id = ?1 AND seq BETWEEN ?2 AND ?3",

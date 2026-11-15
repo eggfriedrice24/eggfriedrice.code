@@ -98,7 +98,11 @@ across a restart:
   steer or an answer, or the command line of a `shell` call. `search_fts` is an FTS5
   index over it: external content, `unicode61 remove_diacritics 2`, and a prefix
   index of 3 characters, so a search expands no prefix shorter than 3. Its merges run
-  in short steps (`automerge` 8, leaves of 1,000 bytes). `search_titles` holds the
+  in short steps (`automerge` 8, leaves of 1,000 bytes). From migration 12 it has the
+  option `secure-delete`: the FTS5 `'delete'` of a doc removes its tokens from the
+  segments (`search_fts_data`) in the same write, not at a later merge. This costs
+  about 5 ms of writer time per KiB of text, so a step of a delete bounds the text
+  that it deletes (`deletes`). `search_titles` holds the
   title of each conversation, from the first prompt doc that is not blank.
   `search_state` holds the cursor and the version of the redaction. efrd's indexer
   fills the tables in the background. `pending` reads the next page of source text
@@ -169,9 +173,15 @@ across a restart:
   on no read finds the conversation, and every later event of it fails its batch
   (`UnknownConversation`, or `ConversationExists` for a new `conversation_created` of
   its id). `WriterHandle::delete_step` then removes the rest in short transactions
-  (`STEP_EVENTS`, 2,000 events with their search docs and receipts each; the last one
-  the saved messages, the search title, the outbox rows and the recording segments),
-  each of which a stop may break off and a later step does again, and
+  (`STEP_EVENTS`, 2,000 events with their receipts each, and of their search docs at
+  most `STEP_DOCS`, 10, with at most `STEP_TEXT_BYTES`, 512 bytes of text, but always
+  one doc; the last one the saved messages, the search title, the outbox rows and the
+  recording segments), each of which a stop may break off and a later step does
+  again. The other jobs of the writer, such as the commit of a turn, run between two
+  steps, so a turn waits for one step, not for the whole delete: a step of 512 bytes
+  takes about 3 ms, and a doc of 16 KiB alone about 25 ms. Until its step runs, a doc
+  keeps its tokens in the index, but no search finds it, because the conversation has
+  no projection row. Then
   `WriterHandle::delete_done` marks the end once efrd removed the files too.
   `pending` lists the deletes that a start of efrd finishes. The trigger of the log
   lets only an event of a deleted conversation from before its tombstone go; the
@@ -289,7 +299,12 @@ max of a page counts the pages without a checkpoint only, because a checkpoint's
 takes 10 to 150 ms on some disks and the backfill runs once, in the background. The
 jobs with a checkpoint are on a line of their own. `bench_search_reset` reports the one job
 that empties the index of corpus L and of XL after a change of the redaction; it has
-no budget. The normal test
+no budget. `bench_search_delete` deletes the conversation with the most docs of
+corpus L (240 docs), with `secure-delete` and without it, and reports each
+`delete_step` job. It fails when a step with `secure-delete` of at most
+`STEP_TEXT_BYTES` of text and without a checkpoint takes more than 10 ms; the steps
+with a checkpoint and the steps of one longer doc are on lines of their own. The
+normal test
 `search_jobs_checkpoint_and_turn_commits_seldom_do` checks where the checkpoints run.
 
 The module `search_query` of `tests/it` checks the reads on the corpus:

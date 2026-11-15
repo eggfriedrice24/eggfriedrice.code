@@ -212,16 +212,23 @@ impl WriterHandle {
     }
 
     /// One step of the delete of `conversation_id`, in one transaction: at most
-    /// [`deletes::STEP_EVENTS`] of its events with their search docs and receipts, or,
-    /// when none is left, its saved messages, its search title, its outbox rows and the
-    /// index of its recordings. The caller repeats it until it answers
-    /// [`DeleteStep::RowsDone`]; a step that a stop broke off left nothing half done.
+    /// [`deletes::STEP_EVENTS`] of its events with their receipts and at most
+    /// [`deletes::STEP_DOCS`] of their search docs with at most
+    /// [`deletes::STEP_TEXT_BYTES`] of text (but at least one doc), or, when none is
+    /// left, its saved
+    /// messages, its search title, its outbox rows and the index of its recordings. The
+    /// caller repeats it until it answers [`DeleteStep::RowsDone`]; the other jobs of
+    /// the writer, such as the commit of a turn, run between two steps. A step that a
+    /// stop broke off left nothing half done.
     pub async fn delete_step(
         &self,
         conversation_id: ConversationId,
     ) -> Result<DeleteStep, StoreError> {
         self.run(move |state| {
-            state.write(|tx, at| deletes::step(tx, conversation_id, deletes::STEP_EVENTS, at))
+            state.write(|tx, at| {
+                let (events, docs) = (deletes::STEP_EVENTS, deletes::STEP_DOCS);
+                deletes::step(tx, conversation_id, events, docs, deletes::STEP_TEXT_BYTES, at)
+            })
         })
         .await
     }

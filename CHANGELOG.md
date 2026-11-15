@@ -169,7 +169,10 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Security
 
 - The database writes zeros over the content that a delete frees (`secure_delete`).
-  The receipt of a delete keeps no title of the deleted conversation.
+  The delete of a conversation also removes its words from the pages of the search
+  index (`secure-delete` of FTS5), not at a later merge. It deletes in short steps,
+  so the turns of other conversations do not wait for the whole delete. The receipt
+  of a delete keeps no title of the deleted conversation.
 - The phone app build tools use @expo/cli 58.1.20, which drops zod 3, and node-forge
   1.4.3.
 
