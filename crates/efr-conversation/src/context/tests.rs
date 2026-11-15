@@ -38,6 +38,19 @@ fn with_auto_off_a_client_counts_against_the_hard_cap() {
     assert_eq!(limits.limit(), 200_000 * HARD_CAP_PERCENT / 100);
 }
 
+/// The rule of the guard of a turn, which the switch preview of the daemon uses too: a
+/// full request compacts only with auto compaction on; with it off, it is refused.
+#[test]
+fn a_full_request_compacts_only_with_auto_compaction_on() {
+    let on = ContextLimits::new(Some(200_000), CompactionConfig::new(true, 76));
+    let off = ContextLimits::new(Some(200_000), CompactionConfig::new(false, 76));
+
+    assert!(!on.full(on.trigger - 1) && !on.compacts(on.trigger - 1));
+    assert!(on.full(on.trigger) && on.compacts(on.trigger));
+    assert!(off.full(off.hard_cap + 1), "above the cap is full");
+    assert!(!off.compacts(off.hard_cap + 1), "with auto off nothing compacts");
+}
+
 #[test]
 fn an_unknown_window_counts_as_the_default_and_auto_at_stays_in_range() {
     let unknown = ContextLimits::new(None, CompactionConfig::default());

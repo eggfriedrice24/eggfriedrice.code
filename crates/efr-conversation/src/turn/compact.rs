@@ -117,7 +117,7 @@ impl Turn {
     ) -> Result<Guard, ConversationError> {
         let limits = self.limits();
         let mut estimate = self.estimate(base, window);
-        let full = estimate >= limits.trigger || estimate > limits.hard_cap;
+        let full = limits.full(estimate);
         // NOTE: a history that leaves out a turn would leave out one more at each turn
         // and change the start of every request; a summary in their place keeps the
         // start the same from then on.

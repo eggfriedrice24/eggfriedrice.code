@@ -68,8 +68,10 @@ impl ProviderRouter for OneProvider {
 /// The context window of `model` on `provider` in the model list `models`: the window
 /// of the entry that `provider` lists, else of the first entry of the model, as for a
 /// list whose entries name no provider. Two accounts can list one model with other
-/// windows, such as a ChatGPT plan and an API key. `None` when no entry gives one.
-pub(crate) fn context_window(models: &[ModelInfo], model: &str, provider: &str) -> Option<u64> {
+/// windows, such as a ChatGPT plan and an API key. `None` when no entry gives one. A
+/// turn, a compaction, the context view and the switch preview of the daemon all use
+/// it.
+pub fn context_window(models: &[ModelInfo], model: &str, provider: &str) -> Option<u64> {
     let mut entries = models.iter().filter(|info| info.id == model);
     let own =
         models.iter().find(|info| info.id == model && info.provider.as_deref() == Some(provider));

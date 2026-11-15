@@ -675,3 +675,34 @@ async fn a_switch_preview_names_the_cost_of_the_target() {
     assert_eq!(body.code, ErrorCode::NotFound);
     assert_eq!(messages.received().len(), 1, "a preview sends no model call");
 }
+
+/// With `compaction.auto` off, the next turn refuses a request above the hard cap and
+/// compacts nothing, so the preview does not promise a compaction.
+#[tokio::test]
+async fn a_switch_preview_with_auto_compaction_off_promises_no_compaction() {
+    let messages = MessagesServer::start().await;
+    messages.set_models(vec![MessagesServer::model(CLAUDE)]);
+    let tiny: efr_config::ModelEntry =
+        serde_json::from_value(json!({ "id": "claude-tiny", "context_window": 1000 })).unwrap();
+    let daemon = TestDaemon::builder()
+        .messages(&messages)
+        .config(move |config| {
+            config.anthropic.models = Some(vec![tiny]);
+            config.compaction.auto = false;
+        })
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    messages.push(MessagesAnswer::text("claude answer"));
+    let (conversation_id, events) = ending(&daemon, 1, Some(CLAUDE), None).await;
+    assert_eq!(events.last().unwrap().event.kind(), "turn_completed", "{events:#?}");
+    let method = Method::ConversationSwitchPreview(ConversationSwitchPreview {
+        conversation_id,
+        model: "claude-tiny".to_owned(),
+        provider: None,
+    });
+    let result: ConversationSwitchPreviewResult = client.call(method).await.unwrap();
+
+    assert_eq!(result.cost, SwitchCost::ColdCache, "the turn would say the context is full");
+}

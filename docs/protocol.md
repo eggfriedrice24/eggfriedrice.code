@@ -1075,8 +1075,10 @@ No protocol version has shipped yet.
   `TurnSettings`). The result has `cost` with the new wire enum `switch_cost`
   (`none`: the same model on the same account; `cold_cache`: another model or the
   same model on another account, so the provider's cache does not serve the next
-  request; `compacts`: the context does not fit the target's window, so efrd compacts
-  before the next turn; `unknown`) and an optional `provider`, the id that the target
-  names. It changes nothing and records nothing. An older efrd refuses the unknown
-  method. New fixtures `conversation_switch_preview_params.json`,
+  request; `compacts`: the context does not fit the target's window and
+  `compaction.auto` is on, so efrd compacts before the next turn, while with it off
+  the answer is `cold_cache` and the next turn refuses a full context; `unknown`: the
+  `provider` names no account with a login, and the result has no `provider`) and an
+  optional `provider`, the id that the target names. It changes nothing and records
+  nothing. An older efrd refuses the unknown method. New fixtures `conversation_switch_preview_params.json`,
   `conversation_switch_preview_result.json` and `switch_costs.json`.

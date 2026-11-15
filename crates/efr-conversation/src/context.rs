@@ -119,6 +119,20 @@ impl ContextLimits {
     pub fn gauge(&self, tokens: u64) -> ContextUse {
         ContextUse { tokens, limit: self.limit(), window: self.window }
     }
+
+    /// True when a request of `estimate` tokens is at the trigger or above the hard
+    /// cap: the guard of a turn compacts it first when auto compaction may run.
+    pub fn full(&self, estimate: u64) -> bool {
+        estimate >= self.trigger || estimate > self.hard_cap
+    }
+
+    /// True when the next turn compacts a request of `estimate` tokens before it sends
+    /// it: it is [`full`](Self::full) and auto compaction is on. With auto compaction
+    /// off, a request above the hard cap is refused, not compacted. The open breaker of
+    /// a turn is not known here.
+    pub fn compacts(&self, estimate: u64) -> bool {
+        self.auto && self.full(estimate)
+    }
 }
 
 /// The estimated tokens of `bytes` bytes of request JSON: one token per

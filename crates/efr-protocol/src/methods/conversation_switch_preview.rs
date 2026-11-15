@@ -47,11 +47,14 @@ pub enum SwitchCost {
     /// request pays for its whole context once: another model, or the same model on
     /// another account. A client says nothing about it.
     ColdCache,
-    /// The context does not fit the target's window, so efrd compacts the conversation
-    /// before the next turn, and the cache starts cold. A client asks before it
-    /// switches.
+    /// The context does not fit the target's window and auto compaction is on, so efrd
+    /// compacts the conversation before the next turn, and the cache starts cold. A
+    /// client asks before it switches. With auto compaction off, efrd answers
+    /// `cold_cache`: the next turn then refuses the request as a full context.
     Compacts,
-    /// A cost that this build does not know.
+    /// efrd cannot tell the cost: the `provider` of the params names no account with a
+    /// login, and the result then has no `provider`. A client also reads a cost that
+    /// this build does not know as `unknown`.
     #[serde(other)]
     Unknown,
 }
