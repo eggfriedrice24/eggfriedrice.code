@@ -410,7 +410,7 @@ export function surfaceLines(changes: readonly SurfaceChange[], cwd: string | un
 }
 
 /** `path` relative to `cwd` when it lies in it, else with `~` for the home directory. */
-function placeOf(path: string, cwd: string | undefined): string {
+export function placeOf(path: string, cwd: string | undefined): string {
   if (cwd !== undefined && cwd !== "") {
     const root = cwd.endsWith("/") ? cwd : `${cwd}/`;
     if (path.startsWith(root) && path.length > root.length) {

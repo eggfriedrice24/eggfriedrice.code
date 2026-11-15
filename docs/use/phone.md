@@ -323,8 +323,13 @@ dangerous ones to quarantine, where nothing reads them. With the reviewer on (th
 default), nothing asks you: the card of the command has one quiet line for each file,
 such as `.git/config (core.fsmonitor); moved to quarantine` or
 `.envrc (a new agent or editor config); left in place`. With the reviewer off, efr asks
-whether to keep the changes. The phone cannot answer that question yet: answer it in
-the terminal.
+whether to keep the changes. The phone shows the question: the card of the command
+says "git settings changed", and the strip above the composer asks, such as
+`keep .git/config (core.fsmonitor)?`. Tap the strip or the card to see the changes.
+Only the terminal can take a git setting out of quarantine, so answer the question
+there: the phone says "answer on desktop", and the status line says "waiting in the
+terminal". After the answer, the card says "kept", "left in quarantine", or "not
+answered · left in quarantine" when the question expired or the turn stopped.
 
 After 3 refused actions in a row, or 10 in a turn, one quiet line says that the reviewer
 paused for this turn. A pause asks nothing. The next action that needs the reviewer

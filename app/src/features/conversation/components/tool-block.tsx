@@ -19,6 +19,9 @@
 // - In auto, a quiet mono line under the header gives the verdict on the exit of the
 //   call and what it got (AU-Auto), and one line per changed file that runs code says
 //   whether it moved to quarantine or stayed in place (Q-Quarantine 7).
+// - With the reviewer off, a call whose git settings went to quarantine is a waiting card
+//   too (Q-Quarantine 1): "git settings changed" and the chevron; a tap opens the sheet
+//   that lists them. After the answer only the status word changes, in text_muted.
 // - The writing block shows a tool input that the model still writes: "writing patch",
 //   the braille cell and the size that grows.
 
@@ -76,7 +79,7 @@ export function ToolBlockView(props: ToolBlockViewProps) {
   const status0 = toolStatus(call, props.turnEnded, 0, approval, left, stopped);
   // NOTE: "allowed" turns into the loader 2 s after the answer, so the clock runs then.
   const running = status0.kind === "running" || status0.kind === "allowed";
-  const waiting = status0.kind === "waiting";
+  const waiting = status0.kind === "waiting" || status0.kind === "settings";
   const closed = status0.kind === "closed";
   const now = useNow(running);
   const header = toolHeader(call);
@@ -115,7 +118,9 @@ export function ToolBlockView(props: ToolBlockViewProps) {
             accessibilityState={waiting ? {} : { expanded }}
             accessibilityHint={
               waiting
-                ? "Opens the approval."
+                ? status0.kind === "settings"
+                  ? "Opens the changed git settings."
+                  : "Opens the approval."
                 : expanded
                   ? "Shows less output."
                   : "Shows all the output."
@@ -269,6 +274,18 @@ export function StatusMark(props: { readonly status: ToolStatus }) {
         <SymbolIcon name="chevron.right" size={10} tone="text_muted" weight="heavy" />
       </View>
     );
+  }
+  if (status.kind === "settings") {
+    return (
+      <View className="flex-row items-center gap-6">
+        <Dot size="large" />
+        <Text className="text-mono-xs text-accent-primary">git settings changed</Text>
+        <SymbolIcon name="chevron.right" size={10} tone="text_muted" weight="heavy" />
+      </View>
+    );
+  }
+  if (status.kind === "quarantined") {
+    return <Text className="text-mono-xs text-text-muted">{status.word}</Text>;
   }
   if (status.kind === "reviewing") {
     return (

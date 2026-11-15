@@ -120,6 +120,33 @@ export interface ToolCallView {
   readonly exit?: ExitCallView;
   /** The git settings and other files that run code which the call changed (auto). */
   readonly surface?: readonly SurfaceChange[];
+  /**
+   * The question whether to keep the changes that went to quarantine, with the reviewer
+   * off (`surface_question_requested`). The call ran; its turn waits for the answer.
+   */
+  readonly quarantine?: QuarantineQuestionView;
+}
+
+/** What became of a quarantine question. */
+export type QuarantineAnswer =
+  | "pending"
+  /** The changes moved back from quarantine. */
+  | "kept"
+  /** A person left the changes in quarantine. */
+  | "left"
+  /** The question expired or the turn stopped: the changes stay in quarantine. */
+  | "not_answered";
+
+/** A quarantine question of a tool call. */
+export interface QuarantineQuestionView {
+  readonly questionId: string;
+  readonly turnId: string;
+  readonly callId: string;
+  /** The changes that went to quarantine. */
+  readonly changes: readonly SurfaceChange[];
+  readonly answer: QuarantineAnswer;
+  /** The surface that answered; none while it waits and for no answer. */
+  readonly origin: Origin | undefined;
 }
 
 /** The exit of a tool call: what it needs beyond the sandbox, and the verdict. */
@@ -783,6 +810,28 @@ function applyEventBody(
           surface: [...(call.surface ?? []), ...event.changes],
         })),
       );
+    case "surface_question_requested":
+      return updateTurn(state, event.turn_id, (turn) =>
+        updateTool(turn, event.call_id, (call) =>
+          call.quarantine?.questionId === event.question_id
+            ? call
+            : {
+                ...call,
+                quarantine: {
+                  questionId: event.question_id,
+                  turnId: event.turn_id,
+                  callId: event.call_id,
+                  changes: event.changes,
+                  answer: "pending",
+                  origin: undefined,
+                },
+              },
+        ),
+      );
+    case "surface_question_answered":
+      return updateTurn(state, event.turn_id, (turn) =>
+        answerQuarantine(turn, event.question_id, event.keep, event.origin ?? undefined),
+      );
     case "classifier_paused":
       return updateTurn(state, event.turn_id, (turn) =>
         turn.pause !== undefined
@@ -995,7 +1044,8 @@ function endTurn(turn: TurnView, end: TurnEnd): TurnView {
     }
   }
   const approvals = expired ?? turn.approvals;
-  return { ...turn, end, messages, approvals, toolInputs: new Map() };
+  const tools = closeQuarantine(turn.tools);
+  return { ...turn, end, messages, approvals, tools, toolInputs: new Map() };
 }
 
 function completeTool(
@@ -1380,6 +1430,52 @@ function updateMessage(
   return { ...turn, messages };
 }
 
+/**
+ * `turn` with the answer to quarantine question `questionId`. The first answer wins. No
+ * origin means that the question expired or the turn stopped: no one answered.
+ */
+function answerQuarantine(
+  turn: TurnView,
+  questionId: string,
+  keep: boolean,
+  origin: Origin | undefined,
+): TurnView {
+  for (const call of turn.tools.values()) {
+    const question = call.quarantine;
+    if (question?.questionId !== questionId) {
+      continue;
+    }
+    if (question.answer !== "pending") {
+      return turn;
+    }
+    let answer: QuarantineAnswer = "left";
+    if (keep) {
+      answer = "kept";
+    } else if (origin === undefined) {
+      answer = "not_answered";
+    }
+    return updateTool(turn, call.callId, (held) => ({
+      ...held,
+      quarantine: { ...question, answer, origin },
+    }));
+  }
+  return turn;
+}
+
+/** A quarantine question that is still open when its turn ends can never be answered. */
+function closeQuarantine(
+  tools: ReadonlyMap<string, ToolCallView>,
+): ReadonlyMap<string, ToolCallView> {
+  let closed: Map<string, ToolCallView> | undefined;
+  for (const [callId, call] of tools) {
+    if (call.quarantine?.answer === "pending") {
+      closed ??= new Map(tools);
+      closed.set(callId, { ...call, quarantine: { ...call.quarantine, answer: "not_answered" } });
+    }
+  }
+  return closed ?? tools;
+}
+
 function updateTool(
   turn: TurnView,
   callId: string,
@@ -1476,6 +1572,37 @@ export function pendingApprovals(state: StreamState): ApprovalView[] {
     }
   }
   return pending;
+}
+
+/** The quarantine questions of the conversation that wait for an answer, oldest first. */
+export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] {
+  const pending: QuarantineQuestionView[] = [];
+  for (const turnId of state.order) {
+    const turn = state.turns.get(turnId);
+    if (turn === undefined || turn.end !== undefined) {
+      continue;
+    }
+    for (const call of turn.tools.values()) {
+      if (call.quarantine?.answer === "pending") {
+        pending.push(call.quarantine);
+      }
+    }
+  }
+  return pending;
+}
+
+/** The quarantine question of the tool call `callId`, in any turn. */
+export function findQuarantine(
+  state: StreamState,
+  callId: string,
+): QuarantineQuestionView | undefined {
+  for (const turnId of state.order) {
+    const question = state.turns.get(turnId)?.tools.get(callId)?.quarantine;
+    if (question !== undefined) {
+      return question;
+    }
+  }
+  return undefined;
 }
 
 /** The approval of `callId`, in any turn. */

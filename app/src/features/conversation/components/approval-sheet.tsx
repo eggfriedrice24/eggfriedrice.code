@@ -24,7 +24,7 @@ import { MonoText } from "@/components/ui/mono-text";
 import { SmallFilledButton, SmallPlainButton } from "@/components/ui/small-buttons";
 import type { Clock } from "@/lib/net/clock";
 import type { MachineCaller } from "@/lib/query/machine-caller";
-import { findApproval, type StreamState } from "@/lib/stream/reducer";
+import { findApproval, findQuarantine, type StreamState } from "@/lib/stream/reducer";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import type { PhoneDecision } from "../conversation-queries";
 import type { Subject } from "../model/approval-block-text";
@@ -33,6 +33,7 @@ import { compareApprovals, selectPendingApprovals } from "../model/selectors";
 import { useAnswerApproval, useExpiryLabel } from "../use-answer-approval";
 import { ApprovalDiff } from "./approval-block-diff";
 import { AnswerButtons, MetaTexts } from "./approval-strip";
+import { QuarantineSheet } from "./quarantine-sheet";
 
 /** The smallest space under the answer row, on a screen without a home indicator. */
 const MIN_BOTTOM = 12;
@@ -61,6 +62,10 @@ export interface ApprovalSheetProps {
 export function ApprovalSheet(props: ApprovalSheetProps) {
   const { callId } = props;
   const approval = useSelector(props.stream, (state) => findApproval(state, callId));
+  const asksQuarantine = useSelector(
+    props.stream,
+    (state) => findQuarantine(state, callId) !== undefined,
+  );
   const waiting = useSelector(props.stream, selectPendingApprovals, {
     compare: compareApprovals,
   });
@@ -79,7 +84,17 @@ export function ApprovalSheet(props: ApprovalSheetProps) {
     props.clock,
   );
   if (approval === undefined) {
-    return <GoneSheet onClose={props.onClose} />;
+    // The waiting card or the strip of a quarantine question opens this sheet too.
+    return asksQuarantine ? (
+      <QuarantineSheet
+        stream={props.stream}
+        callId={callId}
+        machineName={props.machineName}
+        onClose={props.onClose}
+      />
+    ) : (
+      <GoneSheet onClose={props.onClose} />
+    );
   }
   const model = approvalSheet(
     approval,

@@ -23,11 +23,14 @@ import {
   type MessageView,
   type PromptView,
   pendingApprovals,
+  pendingQuarantine,
+  type QuarantineQuestionView,
   runningTurn,
   type SteerView,
   type StreamState,
   type ToolCallView,
   type TurnEnd,
+  type TurnView,
 } from "@/lib/stream/reducer";
 import type { TextBuffer } from "@/lib/stream/text-buffer";
 import type { TurnSettingsView } from "./model-sheet";
@@ -211,6 +214,15 @@ export interface StatusView {
   readonly loaded: boolean;
 }
 
+function hasPendingQuarantine(turn: TurnView): boolean {
+  for (const call of turn.tools.values()) {
+    if (call.quarantine?.answer === "pending") {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** The status selector. Compare with `shallow`. */
 export function selectStatus(state: StreamState): StatusView {
   const running = runningTurn(state);
@@ -222,6 +234,11 @@ export function selectStatus(state: StreamState): StatusView {
         break;
       }
     }
+  }
+  // NOTE: efrd takes the answer to a quarantine question only from the terminal (a phone
+  // may not take a git setting out of quarantine), so such a question waits there.
+  if (waiting === "none" && running !== undefined && hasPendingQuarantine(running)) {
+    waiting = "computer";
   }
   let queued = 0;
   let cwd: string | undefined;
@@ -258,6 +275,19 @@ export const compareShallow: <T>(a: T, b: T) => boolean = shallow;
 /** The pending approvals of the conversation, oldest first. */
 export function selectPendingApprovals(state: StreamState): readonly ApprovalView[] {
   return pendingApprovals(state);
+}
+
+/** The quarantine questions that wait, oldest first. Compare with `compareQuarantine`. */
+export function selectPendingQuarantine(state: StreamState): readonly QuarantineQuestionView[] {
+  return pendingQuarantine(state);
+}
+
+/** The compare of `selectPendingQuarantine`: the same question objects in the same order. */
+export function compareQuarantine(
+  a: readonly QuarantineQuestionView[],
+  b: readonly QuarantineQuestionView[],
+): boolean {
+  return a === b || (a.length === b.length && a.every((question, i) => question === b[i]));
 }
 
 /** The compare of `selectPendingApprovals`: the same approval objects in the same order. */

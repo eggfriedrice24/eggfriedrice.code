@@ -4,7 +4,8 @@
 
 import { useSelector } from "@tanstack/react-store";
 
-import type { ReviewerPause, StreamState } from "@/lib/stream/reducer";
+import type { SurfaceChange } from "@/lib/protocol/generated";
+import type { ReviewerPause, StreamState, ToolCallView } from "@/lib/stream/reducer";
 import { approvalCall, shortTimeLeft } from "../model/approval-strip";
 import { exitNote, stoppedByPause, surfaceLines } from "../model/exit-words";
 import { rowFlag } from "../model/row-ui-state";
@@ -30,6 +31,16 @@ function selectPause(turnId: string): (state: StreamState) => ReviewerPause | un
 
 function selectCwd(turnId: string): (state: StreamState) => string | undefined {
   return (state) => state.turns.get(turnId)?.cwd;
+}
+
+/**
+ * The changed files that the card of `call` lists. When efr asks about the quarantined
+ * ones (the reviewer off), the sheet of the question lists those, so the card keeps only
+ * the ones left in place, as the terminal does.
+ */
+function cardChanges(call: ToolCallView): readonly SurfaceChange[] {
+  const changes = call.surface ?? [];
+  return call.quarantine === undefined ? changes : changes.filter((change) => !change.quarantined);
 }
 
 export interface ToolRowProps {
@@ -86,7 +97,7 @@ export function ToolRow(props: ToolRowProps) {
       onOpenApproval={() => scope.actions.openApproval(callId)}
       note={note}
       stopped={stopped}
-      surface={call.surface === undefined ? undefined : surfaceLines(call.surface, cwd)}
+      surface={call.surface === undefined ? undefined : surfaceLines(cardChanges(call), cwd)}
     />
   );
 }

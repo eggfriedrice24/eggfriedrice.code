@@ -18,6 +18,10 @@
 //   exit of the call; "refused" when the reviewer or efr's own floor refused it; "did not
 //   run" when no reviewer answered, or when the pause of the reviewer stopped the turn at
 //   it. The line under the header (exit-words.ts) gives the verdict in efr's words.
+// - With the reviewer off, a call that changed git settings that went to quarantine waits
+//   for the answer whether to keep them (Q-Quarantine 1 to 6): the waiting card with "git
+//   settings changed", then "kept", "left in quarantine", or "not answered · left in
+//   quarantine" in text_muted, with the command as it was, because it ran.
 // - The word "error" in an output line is red (design: stderr "error" words).
 // - A step of the provider's web search (TM-Web) has the verb `web` and the query, or
 //   `open` and the page without `https://` and `www.`. Done: `✓ 10 results · 6s` (the
@@ -85,10 +89,20 @@ export type ToolStatus =
   /** The reviewer judges its exit now (auto). */
   | { readonly kind: "reviewing" }
   /** It did not run: its approval was denied or expired, or efr refused its exit. */
-  | { readonly kind: "closed"; readonly word: ClosedWord };
+  | { readonly kind: "closed"; readonly word: ClosedWord }
+  /**
+   * It ran and changed git settings that went to quarantine, and efr asks whether to
+   * keep them (reviewer off, Q-Quarantine 1): the waiting card, "git settings changed".
+   */
+  | { readonly kind: "settings" }
+  /** The quarantine question of the call has its answer (Q-Quarantine 3 and 6). */
+  | { readonly kind: "quarantined"; readonly word: QuarantineWord };
 
 /** The status word of a call that did not run. */
 export type ClosedWord = "denied" | "expired" | "refused" | "did not run";
+
+/** The status word of a call whose quarantine question has its answer. */
+export type QuarantineWord = "kept" | "left in quarantine" | "not answered · left in quarantine";
 
 /** The approval question of a call, as its tool block needs it. */
 export interface ToolApproval {
@@ -118,6 +132,20 @@ export function toolStatus(
 ): ToolStatus {
   if (call.web !== undefined) {
     return webStatus(call, call.web, turnEnded, now);
+  }
+  const quarantine = call.quarantine;
+  if (quarantine !== undefined) {
+    // The call ran; the status tells the question about its git settings.
+    if (quarantine.answer === "kept") {
+      return { kind: "quarantined", word: "kept" };
+    }
+    if (quarantine.answer === "left") {
+      return { kind: "quarantined", word: "left in quarantine" };
+    }
+    if (quarantine.answer === "not_answered" || turnEnded) {
+      return { kind: "quarantined", word: "not answered · left in quarantine" };
+    }
+    return { kind: "settings" };
   }
   switch (approval?.status) {
     case "denied":
@@ -404,6 +432,12 @@ function leftWords(left: string | undefined): string {
 }
 
 /** The VoiceOver label of a tool block: what ran and how it ended. */
+const QUARANTINE_LABELS: Readonly<Record<QuarantineWord, string>> = {
+  kept: "kept",
+  "left in quarantine": "left in quarantine",
+  "not answered · left in quarantine": "left in quarantine, not answered",
+};
+
 export function toolLabel(header: ToolHeader, status: ToolStatus, approval?: ToolApproval): string {
   const what =
     header.verb === "$" ? `Command ${header.subject}` : `${header.verb} ${header.subject}`;
@@ -414,6 +448,10 @@ export function toolLabel(header: ToolHeader, status: ToolStatus, approval?: Too
       return `${what.trim()}, allowed${answeredWords(approval)}`;
     case "reviewing":
       return `${what.trim()}, the reviewer judges it`;
+    case "settings":
+      return `${what.trim()}, git settings changed, waiting for you`;
+    case "quarantined":
+      return `${what.trim()}, git settings ${QUARANTINE_LABELS[status.word]}`;
     case "closed":
       switch (status.word) {
         case "denied":

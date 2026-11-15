@@ -8,6 +8,8 @@
 //   itself.
 // - It answers the question that waits first. Once efrd confirms an answer, the next
 //   question takes the row ("1 of 3" while more wait).
+// - When no approval waits, a quarantine question of the reviewer off takes the row
+//   (Q-Quarantine 1, quarantine-sheet.tsx).
 //
 // `ApprovalStrip` reads the questions from the stream store and answers through
 // `useAnswerApproval`. `ApprovalStripView` draws a model only, for the gallery and tests.
@@ -26,8 +28,15 @@ import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import type { PhoneDecision } from "../conversation-queries";
 import type { ApprovalButtons } from "../model/approval-block";
 import { approvalStrip, type ApprovalMeta, type ApprovalStripModel } from "../model/approval-strip";
-import { compareApprovals, selectPendingApprovals } from "../model/selectors";
+import { quarantineStrip } from "../model/quarantine";
+import {
+  compareApprovals,
+  compareQuarantine,
+  selectPendingApprovals,
+  selectPendingQuarantine,
+} from "../model/selectors";
 import { useAnswerApproval, useExpiryLabel } from "../use-answer-approval";
+import { QuarantineStripView } from "./quarantine-sheet";
 
 export interface ApprovalStripProps {
   /** The stream store of the conversation. */
@@ -50,8 +59,13 @@ export function ApprovalStrip(props: ApprovalStripProps) {
   const waiting = useSelector(props.stream, selectPendingApprovals, {
     compare: compareApprovals,
   });
+  const quarantine = useSelector(props.stream, selectPendingQuarantine, {
+    compare: compareQuarantine,
+  });
   const first = waiting[0];
-  const turnId = first?.turnId;
+  // An approval comes first; a quarantine question takes the row when none waits.
+  const asked = first === undefined ? quarantine[0] : undefined;
+  const turnId = first?.turnId ?? asked?.turnId;
   const cwd = useSelector(props.stream, (state) =>
     turnId === undefined ? undefined : state.turns.get(turnId)?.cwd,
   );
@@ -61,6 +75,13 @@ export function ApprovalStrip(props: ApprovalStripProps) {
     approval: first,
   });
   const expiry = useExpiryLabel(first?.expiresAt, props.clock);
+  if (asked !== undefined) {
+    const strip = quarantineStrip(asked, cwd, props.machineName);
+    const open = props.onOpen;
+    return strip === undefined ? null : (
+      <QuarantineStripView model={strip} onOpen={() => open(strip.callId)} />
+    );
+  }
   if (first === undefined) {
     return null;
   }
