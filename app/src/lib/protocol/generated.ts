@@ -2419,7 +2419,9 @@ export type ConversationDeleteResult =
        */
       not_removed?: string[];
       /**
-       * Its title, for the line of the client.
+       * Its title, for the line of the client. Absent from the answer to a retry of
+       * the command, which comes from its receipt: the receipt keeps no title of a
+       * deleted conversation.
        */
       title?: string | null;
     }

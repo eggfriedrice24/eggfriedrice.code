@@ -85,13 +85,15 @@ async fn delete(
     }
     state.conversations.set_deleting(conversation_id, true);
     let mut stopped = stop_all(state, conversation_id).await;
-    let deleted = |jobs_stopped: usize, not_removed| ConversationDeleteResult::Deleted {
+    let deleted = |jobs_stopped: usize, not_removed, title| ConversationDeleteResult::Deleted {
         conversation_id,
-        title: summary.title.clone(),
+        title,
         jobs_stopped: u32::try_from(jobs_stopped).unwrap_or(u32::MAX),
         not_removed,
     };
-    let value = encode(&deleted(stopped, Vec::new()))?;
+    // NOTE: the receipt lives on for days after the delete, so it keeps no title of the
+    // deleted conversation: a retry answers without one.
+    let value = encode(&deleted(stopped, Vec::new(), None))?;
     let tombstone = Event::ConversationDeleted { origin: context.surface() };
     let batch = Batch::new()
         .event(conversation_id, tombstone)
@@ -118,7 +120,7 @@ async fn delete(
     // started an actor, a job or a shell; their events fail now, and they stop here.
     stopped += stop_all(state, conversation_id).await;
     let finished = deletes::finish(state, conversation_id).await;
-    encode(&deleted(stopped, finished.not_removed))
+    encode(&deleted(stopped, finished.not_removed, summary.title.clone()))
 }
 
 /// Stops the actor, every running job and the hidden shell of `conversation_id`, in

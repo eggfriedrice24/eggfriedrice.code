@@ -46,7 +46,9 @@ pub enum ConversationDeleteResult {
     Deleted {
         /// The conversation.
         conversation_id: ConversationId,
-        /// Its title, for the line of the client.
+        /// Its title, for the line of the client. Absent from the answer to a retry of
+        /// the command, which comes from its receipt: the receipt keeps no title of a
+        /// deleted conversation.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
         /// The background jobs that efrd stopped first. Absent when none.

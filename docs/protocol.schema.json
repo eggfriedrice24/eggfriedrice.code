@@ -2223,7 +2223,7 @@
               "type": "array"
             },
             "title": {
-              "description": "Its title, for the line of the client.",
+              "description": "Its title, for the line of the client. Absent from the answer to a retry of\nthe command, which comes from its receipt: the receipt keeps no title of a\ndeleted conversation.",
               "type": [
                 "string",
                 "null"

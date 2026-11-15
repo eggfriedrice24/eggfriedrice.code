@@ -280,6 +280,11 @@ async fn delete_answers_show_the_redacted_title() {
     );
     let ConversationDeleteResult::Deleted { title, .. } = forced else { panic!("{forced:?}") };
     assert_eq!(title, shown);
+    // NOTE: the receipt stays for days, so it keeps no title of the deleted
+    // conversation: a retry of the command answers without one.
+    let again = delete(&client, 2, theirs.conversation_id, true).await.unwrap();
+    let ConversationDeleteResult::Deleted { title, .. } = again else { panic!("{again:?}") };
+    assert_eq!(title, None);
     drop(client);
     place.stop().await;
 }
