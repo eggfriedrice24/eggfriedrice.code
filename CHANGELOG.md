@@ -18,11 +18,15 @@ into the GitHub release notes, and it stops when the section is missing.
   login, as signed out.
 - When an account reaches a limit, the turn stops and says why: the usage limit of a
   ChatGPT plan, no credit left, a spend limit, or "too many requests" after the
-  retries. It gives the reset time when the provider tells it. Under the failed turn,
-  efr names the other accounts that serve the same model: ready ones, and full ones
-  whose reset comes first. Each one has its `,model` command on a row of its own, so a
-  triple click copies it. A signed-out account gets its login command instead. efr
-  never switches by itself. `efr history` keeps the limit on the row of the failure.
+  retries. It gives the reset time when the provider tells it. A named account has its
+  name alone, such as `b reached its usage limit.`, as in `efr status`. Under the
+  failed turn, efr names the other accounts that serve the same model: ready ones, and
+  full ones whose reset comes first. Each one has its `,model` command on a row of its
+  own, so a triple click copies it. When two kinds have an account with the same name,
+  such as `openai-api.work` and `anthropic-api.work`, the command uses the full id
+  (`,model openai-api.work/gpt-6.1`). A signed-out account gets its login command
+  instead. efr never switches by itself. `efr history` keeps the limit on the row of
+  the failure, with the same names.
 - When the rate limit of an API key stops a turn, efr names the limit that ran out
   (requests, tokens, input tokens or output tokens) and when it resets. A key shows a
   rate limit only when it was hit, until a call works again.
@@ -39,7 +43,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - `conversation.switch_preview` tells a client what a switch of the model or the
   account costs: nothing, a cold cache, or a compaction.
 - With more than one account, Tab after `,model` also completes each model with its
-  account, such as `b/gpt-6.1-sol`.
+  account, such as `b/gpt-6.1-sol`. An account whose name another kind shares gets its
+  full id, and so does the example line of `efr models`.
 - Set `EFR_WARM=0` to turn off the warm-up of the connection while you type a prompt
   line. The change applies from the next line.
 - The phone app has a model sheet. Tap the model button at the end of the status line.
@@ -52,11 +57,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - The phone app shows one quiet line above the first answer on a new model or account,
   such as "⇄ GPT-6.1 Sol on b · medium · compacted".
 - When the account of a turn reached a limit or has no credit left, the phone app says
-  why and when the limit resets. It offers the same model on each other account that
+  why and when the limit resets, in the words of the terminal, such as "the ChatGPT
+  plan reached its usage limit · resets 14:20". It offers the same model on each other account that
   can serve it, and it never switches by itself.
 - The phone app shows the limits of each account: a warning in the model sheet from
   80 %, "limit reached" at 100 %, the limit in the status line of a running turn from
-  90 %, and a screen per account in Settings.
+  90 %, and a screen per account in Settings. Each turn starts with no limit in the
+  status line, and a window goes away at its reset.
 - Settings in the phone app has the switch "Ask before a costly model switch" (on by
   default), and the model sheet has "Don't ask again here" for one conversation.
 - The phone app answers a question in a strip above the composer, with Deny and Allow.
