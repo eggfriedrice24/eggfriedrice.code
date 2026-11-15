@@ -1,7 +1,8 @@
 // A code block of an assistant message (design 3.5, decision D12): our own frame around
-// the fence, because enriched 1.1.1 draws no code block header. A box with radius 10
-// and a 1 pt border_subtle edge, no fill; a 32 pt header with the language label in
-// mono 11 text_subtle and the copy button; a hairline; then the body.
+// the fence, because enriched draws no code block header in the CommonMark flavour that
+// the app uses. A box with radius 10 and a 1 pt border_subtle edge, no fill; a 32 pt
+// header with the language label in mono 11 text_subtle and the copy button; a
+// hairline; then the body.
 //
 // - The body is an enriched text that holds only this fence, for the highlighter, with
 //   the frame's style (FENCE_MARKDOWN_STYLE). It uses enriched's CommonMark flavour, so

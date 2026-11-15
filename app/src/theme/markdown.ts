@@ -3,7 +3,8 @@
 // Markdown elements take the `markdown_*` roles, code tokens the `syntax_*` roles. Each
 // colour that enriched has a default for is set here, so no default of enriched shows.
 //
-// Limits of enriched 1.1.1, so the style differs from the design here:
+// Limits of enriched, found in 1.1.1 (device check 10 looks at them again in 1.2.0), so
+// the style differs from the design here:
 // - A link underline takes the colour of the link text: enriched sets the underline
 //   colour to the link colour, so the `markdown_link` underline of the design cannot
 //   show.

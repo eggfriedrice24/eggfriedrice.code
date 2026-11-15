@@ -98,12 +98,12 @@ Every version is pinned exactly. Do not change a version without a reason, and b
 
 - Node 24.22.1 (`devEngines.runtime` in `package.json`; pnpm downloads it), pnpm 11.28.8
   (`packageManager`).
-- Expo SDK 58 (expo ~58.0.19), React Native 0.88.0, React 19.3.0.
+- Expo SDK 58 (expo ~58.0.25), React Native 0.88.1, React 19.3.0.
 - TypeScript 7.0.2. Expo pins an older version, so `expo.install.exclude` keeps it out of
   `expo install`.
 - oxlint 1.89.0 with oxlint-tsgolint 7.0.2005 (type-aware, warnings fail), oxfmt 0.74.0,
   vitest 5.0.5, fast-check 4.10.2, json-schema-to-typescript 16.0.0.
-- jest 30.5.2 with jest-expo 58.0.12, @testing-library/react-native 14.1.0 and
+- jest 30.5.2 with jest-expo 58.0.14, @testing-library/react-native 14.1.0 and
   test-renderer 1.3.1 for the tests of the components and the routes (`*.test.tsx`).
 - The React Compiler (`experiments.reactCompiler` in `app.json`) and uniwind 1.13.0 with
   tailwindcss 4.3.3 (`metro.config.js`). Metro writes `uniwind-types.d.ts` again on each
@@ -281,7 +281,8 @@ modules of the app are react-native-menu, expo-blur, expo-glass-effect, expo-sym
 expo-clipboard, expo-web-browser, NetInfo, expo-device, react-native-enriched-markdown,
 the effort slider (`@react-native-community/slider`) and the module of the device key.
 A build without the slider still runs the JavaScript of a newer app: the model sheet then
-draws the efforts as buttons.
+draws the efforts as buttons. One dev build takes the slider, expo 58.0.25 with the SDK
+packages of `expo install --fix` (React Native 0.88.1) and enriched 1.2.0 together.
 
 ## Device checklist
 
@@ -320,11 +321,14 @@ not a test that pretends.
    history. Measure the largest drift and the slowest commit. Only `src/features/conversation/components/transcript-list.tsx` knows the list
    library. Legend List is not installed yet: add it before you try it.
 9. Stream a long reply (about 10,000 tokens). Look at the memory and the lag of
-   react-native-enriched-markdown 1.1.1, the frames of the code blocks, and the fade of
-   the streaming tail.
-10. Markdown with enriched 1.1.1: code blocks use Menlo, the underline of a link is cyan
+   react-native-enriched-markdown 1.2.0, the frames of the code blocks, and the fade of
+   the streaming tail. A fence body of more than one line draws its text in the
+   sideways scroll of its frame: 1.2.0 has the fix of upstream PR #1017, so the app
+   has no patch of enriched any more.
+10. Markdown with enriched 1.2.0: code blocks use Menlo, the underline of a link is cyan
     (not purple), strong text is bold (not semibold), and a table has one border width.
-    Check that these look right.
+    Check that these look right, and that the limits in `src/theme/markdown.ts` still
+    hold.
 11. Recycled rows: scroll fast up and down a long conversation with many replies. Each
     row must show its own text, and a "copied" or a cursor of one reply must never show
     on another one. The jest tests mock the list, so only the phone shows this.

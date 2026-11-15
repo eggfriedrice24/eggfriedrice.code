@@ -1,8 +1,8 @@
 // The segments of an assistant message: what the message row draws, each in a view of
-// its own (plan section 2.7 and decision D12). Enriched 1.1.1 draws no code block
-// header, so each fenced code block becomes a segment that our code block frame holds
-// (language label, "streaming", copy), and the Markdown between the fences becomes
-// Markdown segments.
+// its own (plan section 2.7 and decision D12). Enriched draws no code block header in
+// its CommonMark flavour, so each fenced code block becomes a segment that our code
+// block frame holds (language label, "streaming", copy), and the Markdown between the
+// fences becomes Markdown segments.
 //
 // It reads the block split of blocks.ts, so a block that the splitter called final
 // never changes its segment:
@@ -22,10 +22,10 @@
 // A segment's key is the offset where it begins, so a segment keeps its view while it
 // grows, and an open fence keeps its view when it closes.
 //
-// The text of a Markdown segment is inert (inertMarkdown): enriched 1.1.1 loads each
-// image URL with no tap, and makes a `<video src>` HTML block into a video. A reply of
-// the model could send a request from the phone with them. So no image and no HTML block
-// stays in the Markdown.
+// The text of a Markdown segment is inert (inertMarkdown): enriched (seen in 1.1.1)
+// loads each image URL with no tap, and makes a `<video src>` HTML block into a video. A
+// reply of the model could send a request from the phone with them. So no image and no
+// HTML block stays in the Markdown.
 
 import { type BlockSplit, completeBlocks } from "./blocks";
 
