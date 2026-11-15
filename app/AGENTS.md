@@ -160,6 +160,14 @@ import is allowed. oxlint enforces it.
 - `MenuView` never gets an empty image: react-native-menu 2.0.0 then logs a fault.
 - efr is not a TUI. The app uses native iOS parts: the native stack, UIMenu, action
   sheets and form sheets.
+- Hard rule: when iOS has a native part, use it. Never draw a JS copy of it. A search is
+  the native search bar (`Stack.SearchBar`, in the iOS 26 bottom toolbar with
+  `Stack.Toolbar.SearchBarSlot`). A filter or an action of a screen or a sheet is a
+  native toolbar or header item (`Stack.Toolbar.Button`, `Stack.Toolbar.Menu`,
+  `Stack.Toolbar.MenuAction`). A sheet that needs such items shows the native header. A
+  design brief asks for the native part, and a build that finds none asks the user
+  first. The mobile app of t3code shows how (its model sheet: search and filter in the
+  bottom toolbar).
 
 ## Data
 
