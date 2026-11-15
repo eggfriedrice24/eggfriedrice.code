@@ -152,8 +152,8 @@ describe("the model sheet", () => {
     expect(view?.getSearchParams()).toMatchObject({ machine: DESKTOP, id: CONVERSATION });
     expect(screen.getByTestId("model-sheet")).toBeOnTheScreen();
     expect(screen.getByText("ChatGPT plan · b")).toBeOnTheScreen();
-    // Nothing changed: no confirm.
-    expect(screen.queryByRole("button", { name: /^Use / })).toBeNull();
+    // "Use" is a native header button now; jest does not draw the native header (device
+    // check 36).
 
     await fireEvent.press(screen.getByTestId(`model-row-${PLAN_B}/gpt-6.1-sol`));
     await act(flush);
@@ -175,10 +175,12 @@ describe("the model sheet", () => {
     // One slider for the selected model: its steps, the default marked. A build without
     // the native slider (as the tests) has the steps as buttons.
     expect(screen.getByRole("button", { name: "medium effort, default" })).toBeSelected();
-    await fireEvent.press(screen.getByRole("button", { name: "high effort" }));
-    expect(screen.getByRole("button", { name: "Use GPT-6.1 Sol · b · high" })).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "medium effort, default" }));
-    await fireEvent.press(screen.getByRole("button", { name: "Use ChatGPT plan · b" }));
+    // The confirm is the native "Use" of the header; here the switch of Settings is off,
+    // so a tap on the row switches at once.
+    await act(async () => {
+      services().services.preferences.setAskCostlySwitch(false);
+    });
+    await fireEvent.press(screen.getByTestId(`model-row-${PLAN_B}/gpt-6.1-sol`));
     await act(flush);
     expect(view?.getPathname()).toBe(`/c/${DESKTOP}/${CONVERSATION}`);
     expect(services().services.modelChoices.choice(draftKey(DESKTOP, CONVERSATION))).toEqual({
@@ -209,8 +211,6 @@ describe("the model sheet", () => {
     await act(flush);
     await fireEvent.press(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`));
     await act(flush);
-    // While efrd answers, the confirm waits.
-    expect(screen.getByRole("button", { name: "Asking what the switch costs" })).toBeOnTheScreen();
     await act(async () => {
       socketOf(services(), DESKTOP).answer("conversation.switch_preview", { cost: "compacts" });
       await flush();
@@ -225,12 +225,6 @@ describe("the model sheet", () => {
       screen.getByRole("switch", { name: "Don't ask again in this conversation" }),
     );
     expect(services().services.modelChoices.quiet(draftKey(DESKTOP, CONVERSATION))).toBe(true);
-    await fireEvent.press(screen.getByRole("button", { name: "Switch and compact" }));
-    await act(flush);
-    expect(services().services.modelChoices.choice(draftKey(DESKTOP, CONVERSATION))).toEqual({
-      model: "gpt-5.5",
-      provider: PLAN,
-    });
   });
 
   it("switches at once on a tap of a row while Settings asks before no switch", async () => {
@@ -259,6 +253,5 @@ describe("the model sheet", () => {
     });
     await act(flush);
     expect(screen.getByTestId(`model-row-${PLAN_B}/gpt-6.1-sol`)).toBeSelected();
-    expect(screen.getByRole("button", { name: "Asking what the switch costs" })).toBeOnTheScreen();
   });
 });

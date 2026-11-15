@@ -68,16 +68,11 @@ async function draw(
         empty={undefined}
         machineName="desktop"
         quiet={false}
-        query=""
-        onQuery={jest.fn()}
-        onKind={jest.fn()}
-        onLegacy={jest.fn()}
         onStar={onStar}
         onRow={onRow}
         onEffort={jest.fn()}
         onUseDefault={onUseDefault}
         onQuiet={jest.fn()}
-        onConfirm={jest.fn()}
         fallbackSlider
       />
     </SafeAreaProvider>,
@@ -134,10 +129,9 @@ describe("the model sheet view", () => {
 });
 
 describe("the model sheet of round 7", () => {
-  it("draws no scroll indicator and puts the search field under the grabber", async () => {
+  it("draws no scroll indicator and no search field of its own (the native one is the screen's)", async () => {
     await draw(view([row()]));
-    expect(screen.getByTestId("model-search")).toBeOnTheScreen();
-    expect(screen.getByLabelText("Search models")).toBeOnTheScreen();
+    expect(screen.queryByLabelText("Search models")).toBeNull();
     expect(screen.getByTestId("model-list").props.showsVerticalScrollIndicator).toBe(false);
   });
 
@@ -189,19 +183,5 @@ describe("the model sheet of round 7", () => {
   it("says when a search finds nothing", async () => {
     await draw({ ...view([]), sections: [], noMatch: 'no model matches "xyz"' });
     expect(screen.getByTestId("model-no-match")).toHaveTextContent('no model matches "xyz"');
-  });
-
-  it("offers the provider and Legacy models in the filter menu", async () => {
-    await draw(view([row()]));
-    expect(
-      screen.getByLabelText("Filter models, all providers, legacy models hidden"),
-    ).toBeOnTheScreen();
-    const actions = screen.getByTestId("model-filter-menu").props.actions;
-    expect(actions.map((action: { id: string; title: string }) => action.title)).toEqual([
-      "All",
-      "Claude",
-      "OpenAI",
-      "",
-    ]);
   });
 });

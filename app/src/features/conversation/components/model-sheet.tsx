@@ -12,10 +12,11 @@
 //   changed. A switch that compacts adds one line with the warning glyph above it and the
 //   plain toggle "Don't ask again here" on its left.
 //
-// Round 7 (S-ModelSheet r7):
-// - The search field and the filter button are pinned under the grabber. The filter is a
-//   native pull-down (UIMenu): one choice of provider, then "Legacy models". Its glyph
-//   fills in text_bright while a filter is on.
+// Round 7 (S-ModelSheet r7), native after the device check:
+// - The search, the filter and the confirm are native parts of the sheet, not views of
+//   this file: the screen puts the search bar and the filter menu into the bottom
+//   toolbar of iOS 26 and "Use" into the header (model-sheet-screen.tsx). The pinned
+//   panel keeps the slider, the quiet line, and the warning of a switch that compacts.
 // - The list draws no scroll indicator. While rows lie under the pinned panel, the panel
 //   has a hairline at its top; at the end of the list the hairline goes. A drag closes
 //   the keyboard.
@@ -35,16 +36,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { cn } from "@/components/ui/cn";
-import type { MenuEntry } from "@/components/ui/menu-actions";
-import { MenuView } from "@/components/ui/menu-view";
 import { MonoText } from "@/components/ui/mono-text";
-import { SearchField } from "@/components/ui/search-field";
-import { SmallFilledButton } from "@/components/ui/small-buttons";
 import { SymbolIcon } from "@/components/ui/symbol";
 import {
   COMPACTS_TEXT,
-  type FilterView,
-  type KindFilter,
   type SheetRow,
   type SheetSection,
   type SheetView,
@@ -52,8 +47,11 @@ import {
 import { EffortSlider } from "./effort-slider";
 import { ProviderLogo } from "./provider-logo";
 
-/** The smallest space under the confirm, on a screen without a home indicator. */
+/** The smallest space under the panel, on a screen without a home indicator. */
 const MIN_BOTTOM = 12;
+
+/** The room of the bottom toolbar of iOS 26 (the search bar and the filter) over the panel. */
+export const TOOLBAR_ROOM = 56;
 
 /** The 16 pt line of "Use default" with a touch of 44 pt, as the other controls. */
 const USE_DEFAULT_SLOP = { top: 14, bottom: 14, left: 8, right: 8 } as const;
@@ -72,14 +70,6 @@ export interface ModelSheetViewProps {
   readonly onEffort: (effort: string) => void;
   readonly onUseDefault: () => void;
   readonly onQuiet: () => void;
-  readonly onConfirm: () => void;
-  /** The words of the search field. */
-  readonly query: string;
-  readonly onQuery: (query: string) => void;
-  /** Called with true when the search field gets the focus and with false when it loses it. */
-  readonly onSearchFocus?: ((focused: boolean) => void) | undefined;
-  readonly onKind: (kind: KindFilter) => void;
-  readonly onLegacy: (on: boolean) => void;
   /** A tap on the star of `row`: it sets, moves or removes the favourite. */
   readonly onStar: (row: SheetRow) => void;
   /** True to draw the effort steps as buttons, as a build without the native slider. */
@@ -92,24 +82,12 @@ const END_SLACK = 1;
 /** The sheet. */
 export function ModelSheetView(props: ModelSheetViewProps) {
   const { view } = props;
-  const bottom = Math.max(useSafeAreaInsets().bottom, MIN_BOTTOM);
+  const bottom = Math.max(useSafeAreaInsets().bottom, MIN_BOTTOM) + TOOLBAR_ROOM;
   // Short local UI state: rows lie under the pinned panel.
   const [under, setUnder] = useState(false);
   const [box, setBox] = useState({ content: 0, frame: 0 });
   return (
-    <View testID="model-sheet" className="bg-surface-1">
-      <View className="flex-row items-center gap-4 pt-14 pr-8 pl-16">
-        <SearchField
-          value={props.query}
-          onChangeText={props.onQuery}
-          placeholder={view.filter.placeholder}
-          accessibilityLabel="Search models"
-          className="mx-0 flex-1"
-          testID="model-search"
-          onFocusChange={props.onSearchFocus}
-        />
-        <FilterButton filter={view.filter} onKind={props.onKind} onLegacy={props.onLegacy} />
-      </View>
+    <View testID="model-sheet" className="flex-1 bg-surface-1">
       <ScrollView
         bounces={false}
         testID="model-list"
@@ -130,7 +108,8 @@ export function ModelSheetView(props: ModelSheetViewProps) {
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
           setUnder(contentSize.height - contentOffset.y - layoutMeasurement.height > END_SLACK);
         }}
-        className="shrink grow-0"
+        contentInsetAdjustmentBehavior="automatic"
+        className="flex-1"
         contentContainerClassName="px-16 pt-6"
       >
         {props.empty === undefined ? null : (
@@ -196,77 +175,6 @@ function EmptyLine(props: { readonly empty: "loading" | "offline"; readonly mach
     <View className="min-h-44 justify-center px-12">
       <MonoText tone="text_muted">{`${props.machineName} is offline`}</MonoText>
     </View>
-  );
-}
-
-/** The items of the filter menu. */
-export function filterEntries(filter: FilterView): MenuEntry[] {
-  const legacy: MenuEntry = {
-    id: "legacy",
-    title: "Legacy models",
-    state: filter.legacy ? "on" : "off",
-  };
-  if (!filter.kinds) {
-    return [legacy];
-  }
-  const kinds: [KindFilter, string][] = [
-    ["all", "All"],
-    ["claude", "Claude"],
-    ["openai", "OpenAI"],
-  ];
-  return [
-    ...kinds.map(([kind, title]): MenuEntry => ({
-      id: `kind:${kind}`,
-      title,
-      state: filter.kind === kind ? "on" : "off",
-    })),
-    { section: "legacy", items: [legacy] },
-  ];
-}
-
-function isKind(id: string): id is KindFilter {
-  return id === "all" || id === "claude" || id === "openai";
-}
-
-interface FilterButtonProps {
-  readonly filter: FilterView;
-  readonly onKind: (kind: KindFilter) => void;
-  readonly onLegacy: (on: boolean) => void;
-}
-
-/** The filter button right of the search field: 44 pt touch, a 22 pt glyph. */
-function FilterButton(props: FilterButtonProps) {
-  const { filter } = props;
-  const pick = (id: string): void => {
-    if (id === "legacy") {
-      props.onLegacy(!filter.legacy);
-      return;
-    }
-    const kind = id.slice("kind:".length);
-    if (isKind(kind)) {
-      props.onKind(kind);
-    }
-  };
-  return (
-    <MenuView testID="model-filter-menu" entries={filterEntries(filter)} onAction={pick}>
-      <View
-        testID="model-filter"
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel={filter.label}
-        className="h-44 w-44 items-center justify-center"
-      >
-        <SymbolIcon
-          name={
-            filter.on
-              ? "line.3.horizontal.decrease.circle.fill"
-              : "line.3.horizontal.decrease.circle"
-          }
-          size={22}
-          tone={filter.on ? "text_bright" : "text_muted"}
-        />
-      </View>
-    </MenuView>
   );
 }
 
@@ -464,14 +372,9 @@ function ConfirmRow(props: ModelSheetViewProps) {
             </Text>
           </Pressable>
         ) : null}
-        {confirm.next ? <Text className="text-reason text-text-subtle">next message</Text> : null}
-        <View className="flex-1" />
-        <SmallFilledButton
-          label={confirm.label}
-          pending={confirm.pending}
-          pendingLabel="Asking what the switch costs"
-          onPress={props.onConfirm}
-        />
+        {confirm.next ? (
+          <Text className="text-reason text-text-subtle">{`${confirm.label} · next message`}</Text>
+        ) : null}
       </View>
     </View>
   );

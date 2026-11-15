@@ -15,11 +15,15 @@
 //   (`conversation.switch_preview`). Only a compaction shows. With the Settings switch
 //   off, a tap on a row switches at once and closes the sheet, and a move of the slider
 //   switches the effort at once.
-// - Round 7: the search and the provider filter live while the sheet is open; the
+// - Round 7, native after the device check (the hard rule of app/AGENTS.md, as the model
+//   sheet of t3code): the native header says "Model" and has "Use" (or "Switch" for a
+//   switch that compacts) at its right, off until something changed. The native search
+//   bar and the filter menu (the provider, then "Legacy models") are in the bottom
+//   toolbar of iOS 26. The search and the provider live while the sheet is open; the
 //   provider goes back to All when it closes. "Legacy models" is a preference of the
-//   phone. While the field has the focus or text, the sheet holds the large detent, so
-//   the results do not move it. A star sets the favourite of its account at once; the
-//   rows keep the order of the time when the sheet opened.
+//   phone. While the search has the focus or text, the sheet holds the full height. A
+//   star sets the favourite of its account at once; the rows keep the order of the time
+//   when the sheet opened.
 
 import { useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
@@ -228,29 +232,85 @@ function SheetBody(props: SheetBodyProps) {
     choices.setFavourite(target.machine, row.provider, row.favourite ? undefined : row.model);
     haptic("light");
   };
+  const { filter, confirm } = view;
+  const kinds: [KindFilter, string][] = [
+    ["all", "All providers"],
+    ["claude", "Claude"],
+    ["openai", "OpenAI"],
+  ];
   return (
     <>
-      <Stack.Screen options={{ sheetAllowedDetents: searching ? [1] : "fitToContents" }} />
+      <Stack.Screen options={{ sheetAllowedDetents: searching ? [1] : [0.75, 1] }} />
+      {/* The native search bar of iOS, in the bottom toolbar (the hard rule of
+          app/AGENTS.md: native parts over JS copies). */}
+      <Stack.SearchBar
+        placeholder={filter.placeholder}
+        autoCapitalize="none"
+        hideNavigationBar={false}
+        obscureBackground={false}
+        allowToolbarIntegration
+        onChangeText={(event) => setQuery(event.nativeEvent.text)}
+        onCancelButtonPress={() => setQuery("")}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+      <Stack.Toolbar placement="bottom">
+        <Stack.Toolbar.SearchBarSlot />
+        <Stack.Toolbar.Menu
+          accessibilityLabel={filter.label}
+          icon={
+            filter.on
+              ? "line.3.horizontal.decrease.circle.fill"
+              : "line.3.horizontal.decrease.circle"
+          }
+          separateBackground
+          title="Model filters"
+        >
+          {filter.kinds ? (
+            <Stack.Toolbar.Menu inline title="Provider">
+              {kinds.map(([option, title]) => (
+                <Stack.Toolbar.MenuAction
+                  key={option}
+                  isOn={filter.kind === option}
+                  onPress={() => setKind(option)}
+                >
+                  {title}
+                </Stack.Toolbar.MenuAction>
+              ))}
+            </Stack.Toolbar.Menu>
+          ) : null}
+          <Stack.Toolbar.MenuAction
+            isOn={filter.legacy}
+            onPress={() => preferences.setShowLegacyModels(!filter.legacy)}
+          >
+            Legacy models
+          </Stack.Toolbar.MenuAction>
+        </Stack.Toolbar.Menu>
+      </Stack.Toolbar>
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Button
+          accessibilityLabel={confirm?.label ?? "Nothing changed"}
+          disabled={confirm === undefined || confirm.pending}
+          variant="done"
+          onPress={() => {
+            if (selection !== undefined && confirm !== undefined) {
+              commit(selection);
+            }
+          }}
+        >
+          {confirm?.compacts === true ? "Switch" : "Use"}
+        </Stack.Toolbar.Button>
+      </Stack.Toolbar>
       <ModelSheetView
         view={view}
         empty={empty}
         machineName={machineName}
         quiet={quiet}
-        query={query}
-        onQuery={setQuery}
-        onSearchFocus={setFocused}
-        onKind={setKind}
-        onLegacy={(on) => preferences.setShowLegacyModels(on)}
         onStar={onStar}
         onRow={onRow}
         onEffort={onEffort}
         onUseDefault={() => select(defaultSelection(list))}
         onQuiet={() => choices.setQuiet(key, !quiet)}
-        onConfirm={() => {
-          if (selection !== undefined) {
-            commit(selection);
-          }
-        }}
       />
     </>
   );

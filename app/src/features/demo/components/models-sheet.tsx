@@ -74,22 +74,17 @@ export function ModelsSheet() {
     <SheetScroll>
       {cases.map((one) => (
         <SheetCase key={one.name} name={one.name}>
-          <View className="overflow-hidden rounded-box border border-border-subtle">
+          <View className="h-640 overflow-hidden rounded-box border border-border-subtle">
             <ModelSheetView
               view={one.view}
               empty={undefined}
               machineName="desktop"
               quiet={false}
-              query=""
-              onQuery={() => undefined}
-              onKind={() => undefined}
-              onLegacy={() => undefined}
               onStar={() => undefined}
               onRow={() => undefined}
               onEffort={() => undefined}
               onUseDefault={() => undefined}
               onQuiet={() => undefined}
-              onConfirm={() => undefined}
               fallbackSlider={one.fallback}
             />
           </View>

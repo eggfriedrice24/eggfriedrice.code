@@ -98,15 +98,22 @@ export const APPROVAL_OPTIONS: NativeStackNavigationOptions = {
 };
 
 /**
- * The model sheet (S-ModelSheet): a custom detent that fits the content, the grabber
- * only, no bar. The rows scroll inside it when they do not fit, and the sheet then grows
- * to the full height; the slider and the confirm stay at its bottom.
+ * The model sheet (S-ModelSheet, native since the device check of round 7): a form sheet
+ * with the native header ("Model", and "Use" at the right), the native search bar and the
+ * filter menu in the bottom toolbar of iOS 26, as the model sheet of t3code. It opens at
+ * three quarters and grows to the full height; the screen holds the full height while
+ * the search has the focus.
  */
 export const MODEL_OPTIONS: NativeStackNavigationOptions = {
   presentation: "formSheet",
-  sheetAllowedDetents: "fitToContents",
+  sheetAllowedDetents: [0.75, 1],
   sheetGrabberVisible: true,
-  headerShown: false,
+  headerShown: true,
+  title: "Model",
+  headerTintColor: roles.text_primary,
+  headerTitleStyle: { color: roles.text_bright },
+  headerStyle: { backgroundColor: roles.surface_1 },
+  headerShadowVisible: false,
   contentStyle: { backgroundColor: roles.surface_1 },
 };
 
