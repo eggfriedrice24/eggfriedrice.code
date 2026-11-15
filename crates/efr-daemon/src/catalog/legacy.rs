@@ -23,6 +23,8 @@
 //! `claude-sonnet-4-5` is `claude-sonnet-*`, so the first stays current next to the
 //! second.
 
+use std::collections::HashMap;
+
 use efr_protocol::ModelInfo;
 
 /// The models that are never legacy, by the id without its date.
@@ -36,14 +38,22 @@ const DATE_YEARS: std::ops::RangeInclusive<u32> = 1990..=2100;
 
 /// Sets [`ModelInfo::legacy`] for each model of `models`, by the ids of the same list.
 pub(crate) fn mark(models: &mut [ModelInfo]) {
+    // NOTE: one pass finds the newest version of each family, so a list of n models
+    // costs n reads of an id, not n * n. efrd calls this on each prompt.
     let versions: Vec<Option<(String, Vec<u32>)>> =
         models.iter().map(|model| family(&model.id)).collect();
-    for (at, model) in models.iter_mut().enumerate() {
-        model.legacy = !model.default
-            && !KEEP.contains(&undated(&model.id).as_str())
-            && versions[at].as_ref().is_some_and(|(own, version)| {
-                versions.iter().flatten().any(|(other, newer)| other == own && newer > version)
-            });
+    let mut newest: HashMap<&str, &[u32]> = HashMap::with_capacity(versions.len());
+    for (name, version) in versions.iter().flatten() {
+        let slot = newest.entry(name.as_str()).or_insert(version.as_slice());
+        if version.as_slice() > *slot {
+            *slot = version.as_slice();
+        }
+    }
+    for (model, own) in models.iter_mut().zip(&versions) {
+        let outdated = own.as_ref().is_some_and(|(name, version)| {
+            newest.get(name.as_str()).is_some_and(|newest| *newest > version.as_slice())
+        });
+        model.legacy = outdated && !model.default && !KEEP.contains(&undated(&model.id).as_str());
     }
 }
 
