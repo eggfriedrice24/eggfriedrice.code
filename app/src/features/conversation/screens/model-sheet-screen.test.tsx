@@ -392,6 +392,24 @@ describe("the model sheet", () => {
     });
   });
 
+  it("has Use default on the left of the header while the quiet line says chosen here", async () => {
+    await openConversation();
+    services().services.modelChoices.set(draftKey(DESKTOP, CONVERSATION), {
+      model: "gpt-5.5",
+      provider: PLAN,
+    });
+    await act(async () => {
+      router.push(`/model?machine=${DESKTOP}&id=${CONVERSATION}`);
+    });
+    await act(flush);
+    expect(screen.getByTestId("model-quiet-line")).toHaveTextContent(/chosen here/);
+    const left = screen.getByTestId("native-toolbar-left");
+    await fireEvent.press(within(left).getByRole("button", { name: "Use default" }));
+    await act(flush);
+    expect(screen.getByTestId("model-quiet-line")).toHaveTextContent(/desktop default/);
+    expect(screen.queryByTestId("native-toolbar-left")).toBeNull();
+  });
+
   it("names the header button Switch for a switch that compacts", async () => {
     await openConversation();
     await act(async () => {

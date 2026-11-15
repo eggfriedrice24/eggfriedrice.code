@@ -114,6 +114,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- The approval sheet and the quarantine sheet of the phone app show the native header
+  with Close, and Next after a question closed while more wait. Deny, Allow and Leave
+  stay the large buttons of the sheet. "Use default" of the model sheet moved to the
+  left of its native header.
 - `efr conversation delete` and Ctrl+D in the `,resume` picker answer as soon as the
   conversation is hidden. efrd removes its rows, its search text and its files after
   the answer, so the answer no longer names a file that efrd could not remove: the log

@@ -87,12 +87,7 @@ export function QuarantineBoard() {
               </View>
             )}
             <View className="overflow-hidden rounded-box border border-border-subtle">
-              <QuarantineSheetView
-                model={one.sheet}
-                leaving={false}
-                onLeave={() => undefined}
-                onClose={() => undefined}
-              />
+              <QuarantineSheetView model={one.sheet} leaving={false} onLeave={() => undefined} />
             </View>
           </View>
         </SheetCase>

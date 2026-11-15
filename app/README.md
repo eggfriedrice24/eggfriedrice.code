@@ -421,8 +421,9 @@ not a test that pretends.
     composer and still takes taps.
 31. The approval sheet (`sheetAllowedDetents: "fitToContents"`) fits a short command,
     and a long diff makes it grow to the full height and scroll, with the answer row
-    pinned at the bottom. Swipe down closes it. The conversation under it keeps its
-    stream, and the strip shows the next question after an answer in the sheet.
+    pinned at the bottom. Swipe down and Close in the header (check 45) close it. The
+    conversation under it keeps its stream, and the strip shows the next question
+    after an answer in the sheet.
 32. The waiting tool card shows the pressed fill (selection_bg) and opens the sheet.
     VoiceOver reads "waiting for approval" and "Opens the approval." on the card, and
     reaches Deny and Allow of the strip as their own buttons.
@@ -556,6 +557,21 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000000]`, `line-through
     line counts the searches (`2 searches`), the sources over it fit on one line each,
     and with `web.search = "cached"` the end line says `, stored copy` and one quiet
     line says what gives the live web.
+45. The header of the approval sheet (no board yet; AP-Sheets has no header): the sheet
+    shows the native header with no title, on surface_1 with no hairline, and the
+    native xmark Close at its right. With the header, `fitToContents` still fits a
+    short command, and a long diff still grows to the full height. Close goes back to
+    the conversation. After a question closes in the sheet while more wait, the native
+    "Next" stands left of Close and shows the next question; with none waiting, only
+    Close shows. Deny and Allow stay the large buttons of the sheet. VoiceOver reads
+    "Close" and "Next question".
+46. The header of the quarantine sheet and of a question that is not open now (from
+    the strip or the waiting card): the same header with Close only. Leave stays the
+    large button of the sheet, and after an answer the sheet dims with no button.
+47. "Use default" of the model sheet: while the quiet line says "chosen here", the
+    native header shows "Use default" at its left, and a tap selects the default model
+    of the machine ("desktop default" in the quiet line) and takes the item away. It
+    never shows next to "desktop default".
 
 ## Rules of the app
 

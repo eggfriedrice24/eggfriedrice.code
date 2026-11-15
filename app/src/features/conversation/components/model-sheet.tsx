@@ -54,9 +54,6 @@ const MIN_BOTTOM = 12;
 /** The room of the bottom toolbar of iOS 26 (the search bar and the filter) over the panel. */
 const TOOLBAR_ROOM = 56;
 
-/** The 16 pt line of "Use default" with a touch of 44 pt, as the other controls. */
-const USE_DEFAULT_SLOP = { top: 14, bottom: 14, left: 8, right: 8 } as const;
-
 /** What the sheet shows while it has no list. */
 export type SheetEmpty = "loading" | "offline" | undefined;
 
@@ -69,7 +66,6 @@ export interface ModelSheetViewProps {
   readonly quiet: boolean;
   readonly onRow: (row: SheetRow) => void;
   readonly onEffort: (effort: string) => void;
-  readonly onUseDefault: () => void;
   readonly onQuiet: () => void;
   /** A tap on the star of `row`: it sets, moves or removes the favourite. */
   readonly onStar: (row: SheetRow) => void;
@@ -150,20 +146,10 @@ export function ModelSheetView(props: ModelSheetViewProps) {
             testID="model-quiet-line"
             className="min-h-32 flex-row flex-wrap items-start gap-x-4"
           >
+            {/* "Use default" is an item of the native header (model-sheet-screen.tsx). */}
             <Text className="shrink text-caption text-text-subtle">
               {view.confirm?.next === true ? `${view.quiet.text} · next message` : view.quiet.text}
             </Text>
-            {view.quiet.useDefault ? (
-              // A control of its own, so the touch reaches 44 pt like every other one.
-              <Pressable
-                accessibilityRole="button"
-                hitSlop={USE_DEFAULT_SLOP}
-                onPress={props.onUseDefault}
-                className="active:opacity-60"
-              >
-                <Text className="text-caption-strong text-text-bright">Use default</Text>
-              </Pressable>
-            ) : null}
           </View>
         )}
         <ConfirmRow {...props} />

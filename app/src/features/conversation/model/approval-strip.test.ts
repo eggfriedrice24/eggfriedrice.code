@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { ApprovalView } from "@/lib/stream/reducer";
 import { NO_ANSWER, type ApprovalBlockContext } from "./approval-block";
 import { TIME_UP } from "./approval-block-text";
-import { approvalCall, approvalSheet, approvalStrip, shortTimeLeft } from "./approval-strip";
+import {
+  approvalCall,
+  approvalSheet,
+  approvalStrip,
+  nextQuestion,
+  shortTimeLeft,
+} from "./approval-strip";
 
 const PUSH: ApprovalView = {
   callId: "c1",
@@ -107,13 +113,16 @@ describe("approvalSheet", () => {
   it("says how a question ended while it showed, how many more wait, and which is next", () => {
     const other = { ...PUSH, callId: "c2" };
     const third = { ...PUSH, callId: "c3" };
-    const sheet = approvalSheet({ ...PUSH, status: "expired", closedAt: 9_000 }, CONTEXT, [
-      other,
-      third,
-    ]);
+    const expired = { ...PUSH, status: "expired" as const, closedAt: 9_000 };
+    const sheet = approvalSheet(expired, CONTEXT, [other, third]);
     expect(sheet.open).toBeUndefined();
-    expect(sheet.closed).toEqual({ parts: ["expired", "2 more waiting"], next: "c2" });
+    expect(sheet.closed).toEqual({ parts: ["expired", "2 more waiting"] });
     expect(sheet.subject.kind).toBe("command");
+    // Next of the native header: only after the question closed, and only when more wait.
+    expect(nextQuestion(expired, [other, third])).toBe("c2");
+    expect(nextQuestion(expired, [expired])).toBeUndefined();
+    expect(nextQuestion(PUSH, [PUSH, other])).toBeUndefined();
+    expect(nextQuestion(undefined, [other])).toBeUndefined();
   });
 
   it("names what an allow gives the call, a full-rights run, the reviewer and the facts", () => {
@@ -152,7 +161,7 @@ describe("approvalSheet", () => {
       CONTEXT,
       [],
     );
-    expect(sheet.closed).toEqual({ parts: ["denied in a terminal on desktop"], next: undefined });
+    expect(sheet.closed).toEqual({ parts: ["denied in a terminal on desktop"] });
   });
 });
 

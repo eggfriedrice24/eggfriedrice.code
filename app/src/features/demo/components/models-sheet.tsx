@@ -47,7 +47,7 @@ function modelCases(now: number): ModelCase[] {
     ["a switch that compacts", input({ selection: plan, cost: "compacts" }), false],
     ["while a turn runs: next message", input({ selection: plan, running: true }), false],
     [
-      "chosen here, with Use default",
+      "chosen here (Use default is in the native header)",
       input({ current: currentSettings(list, b, undefined) }),
       false,
     ],
@@ -83,7 +83,6 @@ export function ModelsSheet() {
               onStar={() => undefined}
               onRow={() => undefined}
               onEffort={() => undefined}
-              onUseDefault={() => undefined}
               onQuiet={() => undefined}
               fallbackSlider={one.fallback}
             />

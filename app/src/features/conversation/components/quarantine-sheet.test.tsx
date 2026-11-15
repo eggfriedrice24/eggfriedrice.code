@@ -190,7 +190,6 @@ describe("the quarantine strip", () => {
 describe("the quarantine sheet", () => {
   it("lists the quarantined changes, and dims with the answer of the terminal", async () => {
     const stream = streamWith([FSMONITOR, HOOK]);
-    const onClose = jest.fn<() => void>();
     await render(
       wrapper(
         <ApprovalSheet
@@ -200,8 +199,7 @@ describe("the quarantine sheet", () => {
           machineName="desktop"
           connected
           caller={new FakeCaller()}
-          onClose={onClose}
-          onNext={jest.fn()}
+          onClose={jest.fn()}
         />,
       ),
     );
@@ -239,8 +237,8 @@ describe("the quarantine sheet", () => {
     expect(screen.getByText("left in quarantine · on desktop")).toBeOnTheScreen();
     expect(screen.queryByText("Keep on desktop")).toBeNull();
     expect(screen.queryByRole("button", { name: "Leave in quarantine" })).toBeNull();
-    await fireEvent.press(screen.getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Close is an item of the native header of the route (device check), not of the sheet.
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("says offline and takes no tap on Leave while the machine is down, as the strip", async () => {
@@ -254,7 +252,6 @@ describe("the quarantine sheet", () => {
         connected={connected}
         caller={caller}
         onClose={jest.fn()}
-        onNext={jest.fn()}
       />
     );
     const view = await render(wrapper(sheet(false)));

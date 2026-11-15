@@ -14,8 +14,9 @@
 //   marks the default, and selecting a model moves the thumb to its effort here, else
 //   its default. A model without efforts has no slider; the quiet line says so.
 // - The quiet line is the only place for the context window and the default:
-//   "Opus 5.5 · 200k context · desktop default", "chosen here" with "Use default", and
-//   "on ChatGPT plan · b" for a model that runs on two accounts.
+//   "Opus 5.5 · 200k context · desktop default", "chosen here" (with "Use default" as a
+//   native header item on the left), and "on ChatGPT plan · b" for a model that runs on
+//   two accounts.
 // - The confirm is the native header button "Use", on only when something changed. Its
 //   VoiceOver label says what it uses: "Use Sonnet 5 · medium", or "Use ChatGPT plan · b"
 //   for a switch of account alone. While a turn runs, the quiet line says "next
@@ -393,7 +394,7 @@ export interface EffortView {
 /** The quiet line under the slider. */
 export interface QuietLine {
   readonly text: string;
-  /** True when the line ends with the plain button "Use default". */
+  /** True when the native header shows "Use default" on the left. */
   readonly useDefault: boolean;
 }
 

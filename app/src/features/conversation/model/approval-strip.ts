@@ -8,8 +8,9 @@
 //   answer shows "answer on <machine>" in place of the buttons.
 // - The sheet has no title, no labels and no boxes: the full command (or the edit line
 //   and the diff), one quiet line (where it runs and why it asks), the small text, then
-//   Deny and Allow. A question that closed while the sheet is open dims, says how it
-//   ended and how many more wait, and offers Close and, when more wait, Next.
+//   Deny and Allow. A question that closed while the sheet is open dims and says how it
+//   ended and how many more wait. Close and, when more wait, Next are items of the native
+//   header of the sheet (`nextQuestion`).
 // - Neither opens by itself: a tap on the strip or on the waiting tool card opens the
 //   sheet.
 
@@ -190,13 +191,14 @@ export interface ApprovalSheetModel {
         readonly error: string | undefined;
       }
     | undefined;
-  /** The question closed while the sheet is open: the content dims. */
+  /**
+   * The question closed while the sheet is open: the content dims. Next of the native
+   * header shows the next question that waits (`nextQuestion`).
+   */
   readonly closed:
     | {
         /** `expired · 2 more waiting`. */
         readonly parts: readonly string[];
-        /** The next question that waits, for Next. */
-        readonly next: string | undefined;
       }
     | undefined;
 }
@@ -224,6 +226,21 @@ function exitNotes(approval: ApprovalView): string[] {
 /** The sentence without its last full stop, for one part of a quiet line. */
 function clause(text: string): string {
   return text.trim().replace(/\.$/, "");
+}
+
+/**
+ * The question that Next of the sheet header shows: after `approval` closed, the oldest
+ * other question of `waiting`. None while `approval` waits for its answer, and none for a
+ * question that the stream does not hold.
+ */
+export function nextQuestion(
+  approval: ApprovalView | undefined,
+  waiting: readonly ApprovalView[],
+): string | undefined {
+  if (approval === undefined || approval.status === "pending") {
+    return undefined;
+  }
+  return waiting.find((one) => one.callId !== approval.callId)?.callId;
 }
 
 /**
@@ -284,5 +301,5 @@ export function approvalSheet(
   if (others.length > 0) {
     parts.push(`${String(others.length)} more waiting`);
   }
-  return { ...sheet, open: undefined, closed: { parts, next: others[0]?.callId } };
+  return { ...sheet, open: undefined, closed: { parts } };
 }

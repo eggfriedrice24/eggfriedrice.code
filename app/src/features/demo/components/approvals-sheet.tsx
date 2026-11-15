@@ -102,12 +102,7 @@ export function ApprovalsSheet() {
               </View>
             )}
             <View className="overflow-hidden rounded-box border border-border-subtle">
-              <ApprovalSheetView
-                model={sheet}
-                onAnswer={() => undefined}
-                onClose={() => undefined}
-                onNext={() => undefined}
-              />
+              <ApprovalSheetView model={sheet} onAnswer={() => undefined} />
             </View>
           </View>
         </SheetCase>

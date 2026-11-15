@@ -248,7 +248,6 @@ describe("the approval sheet", () => {
           connected
           caller={caller}
           onClose={onClose}
-          onNext={jest.fn()}
         />,
       ),
     );
@@ -263,13 +262,12 @@ describe("the approval sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("dims a question that closed while it shows, with Close and Next", async () => {
+  it("dims a question that closed while it shows, with Close and Next in the header", async () => {
     const stream = streamWith(
       ask("c1", "git push -u origin fix/steer-race", { expires_in_secs: 60 }),
       ask("c2", "gh pr create --draft --fill"),
       ask("c3", "cargo publish -p efr-proto"),
     );
-    const onNext = jest.fn<(callId: string) => void>();
     await render(
       wrapper(
         <ApprovalSheet
@@ -280,7 +278,6 @@ describe("the approval sheet", () => {
           connected
           caller={new FakeCaller()}
           onClose={jest.fn()}
-          onNext={onNext}
         />,
       ),
     );
@@ -293,9 +290,10 @@ describe("the approval sheet", () => {
     expect(screen.getByText("expired")).toBeOnTheScreen();
     expect(screen.getByText("· 2 more waiting")).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
-    await fireEvent.press(screen.getByRole("button", { name: "Next" }));
-    expect(onNext).toHaveBeenCalledWith("c2");
-    expect(screen.getByRole("button", { name: "Close" })).toBeOnTheScreen();
+    // Close and Next are items of the native header of the route (`nextQuestion`, device
+    // check), not buttons of the sheet.
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("says why only the terminal can answer, with no buttons", async () => {
@@ -315,7 +313,6 @@ describe("the approval sheet", () => {
           connected
           caller={new FakeCaller()}
           onClose={jest.fn()}
-          onNext={jest.fn()}
         />,
       ),
     );
@@ -326,8 +323,7 @@ describe("the approval sheet", () => {
     expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
   });
 
-  it("offers Close for a question that the stream does not hold", async () => {
-    const onClose = jest.fn<() => void>();
+  it("says so for a question that the stream does not hold", async () => {
     await render(
       wrapper(
         <ApprovalSheet
@@ -337,13 +333,10 @@ describe("the approval sheet", () => {
           machineName="desktop"
           connected
           caller={new FakeCaller()}
-          onClose={onClose}
-          onNext={jest.fn()}
+          onClose={jest.fn()}
         />,
       ),
     );
     expect(screen.getByText("The question is not open now.")).toBeOnTheScreen();
-    await fireEvent.press(screen.getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

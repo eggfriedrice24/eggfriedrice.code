@@ -155,8 +155,9 @@ import is allowed. oxlint enforces it.
 - Use `components/ui` for the parts of the design: `MonoText`, `BodyText`,
   `BrailleCell`, `BlockCursor`, `Material`, `GlassButton`, `Hairline`, `SymbolIcon`,
   `MenuView`, `PrimaryButton`, `BorderedButton`, `PlainButton`, `SmallFilledButton`
-  and `SmallPlainButton` (the 28 pt buttons of a strip or a sheet), `CopyButton`,
-  `KeyValueBox`, `InsetGroup`, `SectionHeader` and `Dot`.
+  and `SmallPlainButton` (the 28 pt buttons of a strip, or of the decision of a sheet;
+  see the hard rule below), `CopyButton`, `KeyValueBox`, `InsetGroup`, `SectionHeader`
+  and `Dot`.
 - `MenuView` never gets an empty image: react-native-menu 2.0.0 then logs a fault.
 - efr is not a TUI. The app uses native iOS parts: the native stack, UIMenu, action
   sheets and form sheets.
@@ -164,10 +165,13 @@ import is allowed. oxlint enforces it.
   the native search bar (`Stack.SearchBar`, in the iOS 26 bottom toolbar with
   `Stack.Toolbar.SearchBarSlot`). A filter or an action of a screen or a sheet is a
   native toolbar or header item (`Stack.Toolbar.Button`, `Stack.Toolbar.Menu`,
-  `Stack.Toolbar.MenuAction`). A sheet that needs such items shows the native header. A
-  design brief asks for the native part, and a build that finds none asks the user
-  first. The mobile app of t3code shows how (its model sheet: search and filter in the
-  bottom toolbar).
+  `Stack.Toolbar.MenuAction`). A sheet that needs such items shows the native header:
+  Close, Next and a secondary action such as "Use default" are header items. The one
+  exception is the main decision of a sheet: Deny and Allow of the approval sheet and
+  Leave of the quarantine sheet stay large buttons in the sheet, next to what they
+  decide. A design brief asks for the native part, and a build that finds none asks the
+  user first. The mobile app of t3code shows how (its model sheet: search and filter in
+  the bottom toolbar).
 
 ## Data
 

@@ -8,7 +8,9 @@
 // quarantine, so it stays at the terminal: both show "Keep on <machine>" in mono 11
 // text_subtle where the Keep button was, then the filled capsule Leave. The strip has two
 // rows, the question alone on the first, so it stays readable at 402 pt. After the answer
-// the sheet dims, says how the question ended and offers Close.
+// the sheet dims and says how the question ended. Close is an item of the native header
+// of the sheet (screens/approval-sheet-screen.tsx); Leave, the decision of the sheet,
+// stays a large button in the sheet.
 //
 // `QuarantineSheet` reads the question from the stream store; the views draw a model
 // only, for the gallery and the tests.
@@ -21,7 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "@/components/ui/cn";
 import { Dot } from "@/components/ui/dot";
 import { MonoText } from "@/components/ui/mono-text";
-import { SmallFilledButton, SmallPlainButton } from "@/components/ui/small-buttons";
+import { SmallFilledButton } from "@/components/ui/small-buttons";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import { findQuarantine, type StreamState } from "@/lib/stream/reducer";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
@@ -50,7 +52,6 @@ export interface QuarantineSheetProps {
   readonly conversation: ConversationRef;
   /** The runtime, which sends `sandbox.surface_respond`. */
   readonly caller: MachineCaller;
-  readonly onClose: () => void;
 }
 
 /** The sheet of the quarantine question of `callId`. */
@@ -78,7 +79,6 @@ export function QuarantineSheet(props: QuarantineSheetProps) {
       failed={leave.failed}
       offline={!props.connected}
       onLeave={() => leave.leave(model.questionId)}
-      onClose={props.onClose}
     />
   );
 }
@@ -99,7 +99,6 @@ export interface QuarantineSheetViewProps {
   /** The machine is not connected. */
   readonly offline?: boolean;
   readonly onLeave: () => void;
-  readonly onClose: () => void;
 }
 
 interface LeaveRowProps {
@@ -196,7 +195,6 @@ export function QuarantineSheetView(props: QuarantineSheetViewProps) {
             onLeave={props.onLeave}
           />
         )}
-        {closed === undefined ? null : <SmallPlainButton label="Close" onPress={props.onClose} />}
       </View>
     </View>
   );

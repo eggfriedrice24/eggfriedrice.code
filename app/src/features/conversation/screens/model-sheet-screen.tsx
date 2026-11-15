@@ -341,6 +341,19 @@ function SheetBody(props: SheetBodyProps) {
           {confirm?.compacts === true ? "Switch" : "Use"}
         </Stack.Toolbar.Button>
       </Stack.Toolbar>
+      {/* A secondary action of the sheet, so a native header item (app/AGENTS.md), shown
+          while the quiet line says "chosen here". */}
+      {view.quiet?.useDefault === true ? (
+        <Stack.Toolbar placement="left">
+          <Stack.Toolbar.Button
+            accessibilityLabel="Use default"
+            accessibilityHint="Selects the default model of this machine."
+            onPress={() => select(defaultSelection(list))}
+          >
+            Use default
+          </Stack.Toolbar.Button>
+        </Stack.Toolbar>
+      ) : null}
       <ModelSheetView
         view={view}
         empty={empty}
@@ -349,7 +362,6 @@ function SheetBody(props: SheetBodyProps) {
         onStar={onStar}
         onRow={onRow}
         onEffort={onEffort}
-        onUseDefault={() => select(defaultSelection(list))}
         onQuiet={() => choices.setQuiet(key, !quiet)}
       />
     </>

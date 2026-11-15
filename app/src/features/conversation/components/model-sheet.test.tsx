@@ -59,7 +59,6 @@ function view(rows: readonly SheetRow[], extra: Partial<SheetView> = {}): SheetV
 
 async function draw(
   sheet: SheetView,
-  onUseDefault = jest.fn<() => void>(),
   onStar = jest.fn<(row: SheetRow) => void>(),
   onRow = jest.fn<(row: SheetRow) => void>(),
 ) {
@@ -73,7 +72,6 @@ async function draw(
         onStar={onStar}
         onRow={onRow}
         onEffort={jest.fn()}
-        onUseDefault={onUseDefault}
         onQuiet={jest.fn()}
         fallbackSlider
       />
@@ -109,24 +107,18 @@ describe("the model sheet view", () => {
     expect(screen.queryByTestId("model-row-gone")).toBeNull();
   });
 
-  it("gives the selected name, the step in use and Use default the weight of the board", async () => {
-    const onUseDefault = jest.fn<() => void>();
+  it("gives the selected name and the step in use the weight of the board", async () => {
     await draw(
       view([row({ selected: true })], {
         effort: { steps: ["low", "medium", "high"], index: 2, defaultIndex: 1 },
         quiet: { text: "chosen here", useDefault: true },
       }),
-      onUseDefault,
     );
     expect(screen.getByText("Opus 5.5").props.className).toContain("text-row-strong");
     expect(screen.getByText("high").props.className).toContain("text-caption-strong");
     expect(screen.getByText("medium").props.className).not.toContain("text-caption-strong");
-    // "Use default" is a control of its own with a 44 pt touch, not a run of the text.
-    const use = screen.getByRole("button", { name: "Use default" });
-    expect(use.props.hitSlop).toMatchObject({ top: 14, bottom: 14 });
-    expect(screen.getByText("Use default").props.className).toContain("text-caption-strong");
-    await fireEvent.press(use);
-    expect(onUseDefault).toHaveBeenCalledTimes(1);
+    // "Use default" is an item of the native header (model-sheet-screen.test.tsx).
+    expect(screen.queryByRole("button", { name: "Use default" })).toBeNull();
   });
 });
 
@@ -141,7 +133,7 @@ describe("the model sheet of round 7", () => {
     const onStar = jest.fn<(row: SheetRow) => void>();
     const onRow = jest.fn<(row: SheetRow) => void>();
     const one = row();
-    await draw(view([one]), undefined, onStar, onRow);
+    await draw(view([one]), onStar, onRow);
     await fireEvent.press(
       screen.getByTestId(`model-star-${one.key}`, { includeHiddenElements: true }),
     );
@@ -152,7 +144,7 @@ describe("the model sheet of round 7", () => {
   it("gives VoiceOver the star as an action of the row", async () => {
     const onStar = jest.fn<(row: SheetRow) => void>();
     const one = row({ favourite: true, starLabel: "Remove the favourite of work" });
-    await draw(view([one]), undefined, onStar);
+    await draw(view([one]), onStar);
     const button = screen.getByTestId(`model-row-${one.key}`);
     expect(button.props.accessibilityActions).toEqual([
       { name: "star", label: "Remove the favourite of work" },

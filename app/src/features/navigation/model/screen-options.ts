@@ -85,15 +85,20 @@ export const CONVERSATIONS_OPTIONS: NativeStackNavigationOptions = {
 };
 
 /**
- * The approval sheet (AP-Sheets): a custom detent that fits the content, the grabber
- * only, no bar. Swipe down or a tap outside closes it. A long diff scrolls inside the
- * sheet, which then grows to the full height.
+ * The approval sheet (AP-Sheets): a custom detent that fits the content, the grabber,
+ * and the native header with no title for Close and Next (the hard rule of
+ * app/AGENTS.md), on surface_1 with no hairline. Swipe down or a tap outside closes it
+ * too. A long diff scrolls inside the sheet, which then grows to the full height.
  */
 export const APPROVAL_OPTIONS: NativeStackNavigationOptions = {
   presentation: "formSheet",
   sheetAllowedDetents: "fitToContents",
   sheetGrabberVisible: true,
-  headerShown: false,
+  headerShown: true,
+  title: "",
+  headerTintColor: roles.text_primary,
+  headerStyle: { backgroundColor: roles.surface_1 },
+  headerShadowVisible: false,
   contentStyle: { backgroundColor: roles.surface_1 },
 };
 

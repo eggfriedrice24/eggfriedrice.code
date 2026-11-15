@@ -7,8 +7,10 @@
 //
 // - It opens only from a tap on the strip or on the waiting tool card.
 // - When efrd takes an answer of this sheet, the sheet closes.
-// - A question that closed while the sheet is open dims, says how it ended and how many
-//   more wait, and offers Close and, when more wait, Next (the primary, so filled).
+// - A question that closed while the sheet is open dims and says how it ended and how
+//   many more wait. Close and Next are items of the native header of the sheet
+//   (screens/approval-sheet-screen.tsx); Deny and Allow, the decision of the sheet, stay
+//   large buttons in the sheet.
 //
 // `ApprovalSheet` reads the question from the stream store; `ApprovalSheetView` draws a
 // model only, for the gallery and the tests.
@@ -21,7 +23,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BodyText } from "@/components/ui/body-text";
 import { cn } from "@/components/ui/cn";
 import { MonoText } from "@/components/ui/mono-text";
-import { SmallFilledButton, SmallPlainButton } from "@/components/ui/small-buttons";
 import type { Clock } from "@/lib/net/clock";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import { findApproval, findQuarantine, type StreamState } from "@/lib/stream/reducer";
@@ -52,10 +53,8 @@ export interface ApprovalSheetProps {
   readonly caller: MachineCaller;
   /** The clock of the seconds left. The default is the real one. */
   readonly clock?: Clock;
-  /** Closes the sheet. */
+  /** Closes the sheet, after efrd took an answer. */
   readonly onClose: () => void;
-  /** Shows the question of tool call `callId` in the sheet. */
-  readonly onNext: (callId: string) => void;
 }
 
 /** The sheet of the question of `callId`. */
@@ -93,10 +92,9 @@ export function ApprovalSheet(props: ApprovalSheetProps) {
         connected={props.connected}
         conversation={props.conversation}
         caller={props.caller}
-        onClose={props.onClose}
       />
     ) : (
-      <GoneSheet onClose={props.onClose} />
+      <GoneSheet />
     );
   }
   const model = approvalSheet(
@@ -110,21 +108,12 @@ export function ApprovalSheet(props: ApprovalSheetProps) {
     },
     waiting,
   );
-  return (
-    <ApprovalSheetView
-      model={model}
-      onAnswer={answering.answer}
-      onClose={props.onClose}
-      onNext={props.onNext}
-    />
-  );
+  return <ApprovalSheetView model={model} onAnswer={answering.answer} />;
 }
 
 export interface ApprovalSheetViewProps {
   readonly model: ApprovalSheetModel;
   readonly onAnswer: (decision: PhoneDecision) => void;
-  readonly onClose: () => void;
-  readonly onNext: (callId: string) => void;
 }
 
 /** The sheet of a model. */
@@ -133,7 +122,6 @@ export function ApprovalSheetView(props: ApprovalSheetViewProps) {
   const bottom = Math.max(useSafeAreaInsets().bottom, MIN_BOTTOM);
   const open = model.open;
   const closed = model.closed;
-  const next = closed?.next;
   return (
     <View testID="approval-sheet" role="dialog" aria-label="Approval" className="bg-surface-1">
       <ScrollView bounces={false} className="grow-0" contentContainerClassName="px-22 pt-14">
@@ -177,14 +165,6 @@ export function ApprovalSheetView(props: ApprovalSheetViewProps) {
         {open?.buttons === undefined ? null : (
           <AnswerButtons buttons={open.buttons} onAnswer={props.onAnswer} />
         )}
-        {closed === undefined ? null : (
-          <View className="flex-row items-center gap-4">
-            <SmallPlainButton label="Close" onPress={props.onClose} />
-            {next === undefined ? null : (
-              <SmallFilledButton label="Next" onPress={() => props.onNext(next)} />
-            )}
-          </View>
-        )}
       </View>
     </View>
   );
@@ -216,8 +196,8 @@ function SubjectText(props: { readonly subject: Subject }) {
   );
 }
 
-/** The sheet of a question that the stream does not hold (any more). */
-function GoneSheet(props: { readonly onClose: () => void }) {
+/** The sheet of a question that the stream does not hold (any more). Close is in the header. */
+function GoneSheet() {
   const bottom = Math.max(useSafeAreaInsets().bottom, MIN_BOTTOM);
   return (
     <View
@@ -226,7 +206,6 @@ function GoneSheet(props: { readonly onClose: () => void }) {
       style={{ paddingBottom: bottom }}
     >
       <MonoText className="flex-1">The question is not open now.</MonoText>
-      <SmallPlainButton label="Close" onPress={props.onClose} />
     </View>
   );
 }
