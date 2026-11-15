@@ -190,6 +190,25 @@ fn a_phone_turn_says_that_it_asks_outside_scratch() {
     );
 }
 
+/// The review finding: in a phone turn in auto, a call that declares nothing (the jobs
+/// tools) asked with the reason of the `$SCRATCH` rule, which does not hold in auto.
+#[test]
+fn a_phone_turn_in_auto_says_why_a_call_that_declares_nothing_asks() {
+    let decision = decide_with(
+        &engine_with(Policy::empty()),
+        Requirements::none(),
+        Mode::Auto,
+        Origin::Phone,
+        Policy::empty(),
+    );
+    assert_eq!(decision.effect(), Effect::Ask, "{decision:?}");
+    let mode = efr_permissions::effective_mode(Mode::Auto, Origin::Phone);
+    assert_eq!(
+        approval_reason(&decision, mode).as_deref(),
+        Some("A turn from the phone asks for a call that efr cannot judge."),
+    );
+}
+
 #[test]
 fn an_exit_of_auto_names_what_the_sandbox_holds_back() {
     let decision = decide_with(

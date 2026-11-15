@@ -288,8 +288,9 @@ pub enum Cause {
     NoRule,
     /// The path is relative, so its class is unknown.
     NotAbsolute,
-    /// A rule allowed the requirement, or the call declared none, but the turn comes from
-    /// a remote origin, which needs approval for everything outside `$SCRATCH`.
+    /// The turn comes from a remote origin. Outside `auto`, a rule allowed the
+    /// requirement, but a remote turn needs approval for everything outside `$SCRATCH`.
+    /// In every mode, the call declared nothing, so the engine cannot judge it.
     RemoteOrigin {
         /// The origin.
         origin: Origin,

@@ -59,6 +59,17 @@ pub(super) fn approval_reason(decision: &Decision, mode: Mode) -> Option<String>
                     exit_parts.push(part);
                 }
             }
+            // NOTE: a call that declares nothing asks for a remote turn in every mode, also
+            // in auto, so the sentence of the `$SCRATCH` rule would not be true there.
+            Cause::RemoteOrigin { origin } if reason.subject == Subject::Nothing => {
+                add(
+                    &mut sentences,
+                    format!(
+                        "A turn from {} asks for a call that efr cannot judge.",
+                        origin_name(*origin)
+                    ),
+                );
+            }
             cause => {
                 if let Some(sentence) = cause_sentence(cause) {
                     add(&mut sentences, sentence);
