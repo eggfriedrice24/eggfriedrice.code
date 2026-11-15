@@ -29,7 +29,7 @@
 //! once, and the model catalog is fetched again. A daemon with a factory never fetches
 //! the catalog.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
@@ -50,6 +50,7 @@ use efr_providers::anthropic::{AnthropicConfig, AnthropicProvider, CacheTtl};
 use efr_providers::openai::{OpenAiConfig, OpenAiProvider, WebSocketMode};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
+use jiff::Timestamp;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -129,6 +130,10 @@ pub(crate) struct Providers {
     /// The accounts whose start failed and was logged, so each sync that tries again
     /// logs the failure once, not at each call.
     unstarted: Mutex<HashSet<String>>,
+    /// The expiry of the stored token of each ChatGPT login at the last read of the
+    /// store, to see a login that the user replaced by hand
+    /// ([`sync_logins`](Self::sync_logins)).
+    seen_logins: Mutex<HashMap<String, Option<Timestamp>>>,
 }
 
 /// The start of the catalog of one provider: its list and its cache file.
@@ -296,6 +301,7 @@ impl Providers {
             warmups,
             changes: tokio::sync::Mutex::new(()),
             unstarted: Mutex::default(),
+            seen_logins: Mutex::default(),
         })
     }
 
@@ -423,23 +429,51 @@ impl Providers {
         }
         for status in self.status().await {
             let id = status.provider.as_str();
+            let replaced = self.record_replaced(&status);
             if self.catalogs.logged_in(id) == status.logged_in {
+                if replaced {
+                    tracing::info!(provider = %id, "the credential store holds another ChatGPT login of a provider");
+                    self.clear_tokens(id);
+                }
                 continue;
             }
             tracing::info!(provider = %id, logged_in = status.logged_in, "the credential store changed the login of a provider");
-            if efr_config::provider_kind(id) == SUBSCRIPTION {
-                // NOTE: the provider must not keep the token of the old login.
-                match &self.credential {
-                    Some(credential) => {
-                        if let Ok(source) = credential.token_source(id) {
-                            source.clear_cache();
-                        }
-                    }
-                    None if id == SUBSCRIPTION => self.subscription.clear_cache(),
-                    None => {}
+            self.clear_tokens(id);
+            self.note_login(id, status.logged_in);
+        }
+    }
+
+    /// True when the stored ChatGPT login of `status` is not the one that the last read
+    /// of the store saw, such as a credential file that the user replaced by hand while
+    /// the provider has a login before and after. The expiry of the stored token tells
+    /// them apart; a refresh of efrd's own changes it too, which only costs one more
+    /// read of the store. The first read sees nothing to compare.
+    fn record_replaced(&self, status: &ProviderStatus) -> bool {
+        if efr_config::provider_kind(&status.provider) != SUBSCRIPTION {
+            return false;
+        }
+        let mut seen = self.seen_logins.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = status.logged_in.then_some(status.expires_at).flatten();
+        match seen.insert(status.provider.clone(), now) {
+            Some(before) => now.is_some() && before.is_some() && before != now,
+            None => false,
+        }
+    }
+
+    /// Makes the ChatGPT login `id` read its token from the store again, so its provider
+    /// does not keep the token of an old login. Nothing for another kind.
+    fn clear_tokens(&self, id: &str) {
+        if efr_config::provider_kind(id) != SUBSCRIPTION {
+            return;
+        }
+        match &self.credential {
+            Some(credential) => {
+                if let Ok(source) = credential.token_source(id) {
+                    source.clear_cache();
                 }
             }
-            self.note_login(id, status.logged_in);
+            None if id == SUBSCRIPTION => self.subscription.clear_cache(),
+            None => {}
         }
     }
 

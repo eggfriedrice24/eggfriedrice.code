@@ -469,6 +469,37 @@ async fn a_stored_key_of_an_account_runs_as_a_provider_of_its_own() {
     assert_eq!(work.id().as_str(), "anthropic-api.work");
 }
 
+/// A ChatGPT login that the user replaced by hand, with a login before and after, makes
+/// the provider read its token again: the expiry of the stored token tells the two
+/// logins apart. The first read and an API key compare nothing.
+#[test]
+fn a_replaced_chatgpt_login_is_seen_by_its_expiry() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = TestClock::new();
+    let providers =
+        Providers::build(&Settings::default(), store(dir.path()), parts(&clock, dir.path(), None))
+            .unwrap();
+    let now = clock.shared().now();
+    let login = |provider: &str, hours: i64| efr_protocol::ProviderStatus {
+        provider: provider.to_owned(),
+        logged_in: true,
+        expires_at: Some(now + jiff::SignedDuration::from_hours(hours)),
+        active: false,
+        login: None,
+        key_hint: None,
+        key_refused_at: None,
+        key_checked_at: None,
+        label: None,
+        limits: None,
+    };
+
+    assert!(!providers.record_replaced(&login(SUBSCRIPTION, 1)), "the first read");
+    assert!(!providers.record_replaced(&login(SUBSCRIPTION, 1)), "the same login");
+    assert!(providers.record_replaced(&login(SUBSCRIPTION, 9)), "another login");
+    assert!(!providers.record_replaced(&login(API, 1)));
+    assert!(!providers.record_replaced(&login(API, 9)), "a key has no token to keep");
+}
+
 /// An account whose provider cannot be built leaves no catalog behind, so a sync that
 /// tries again does not grow the table by one entry each time.
 #[tokio::test]
