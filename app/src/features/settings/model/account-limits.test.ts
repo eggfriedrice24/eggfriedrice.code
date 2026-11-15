@@ -88,8 +88,22 @@ describe("the accounts in Settings", () => {
       title: "ChatGPT plan · b",
       header: "On desktop",
       rows: [
-        { key: "w0", name: "5-hour", value: "limit reached · resets 14:20", reached: true },
-        { key: "w1", name: "weekly", value: "63% · resets Mon 09:00", reached: false },
+        {
+          key: "w0",
+          name: "5-hour",
+          value: "limit reached",
+          reset: " · resets 14:20",
+          reached: true,
+          label: "5-hour, limit reached, resets 14:20",
+        },
+        {
+          key: "w1",
+          name: "weekly",
+          value: "63%",
+          reset: " · resets Mon 09:00",
+          reached: false,
+          label: "weekly, 63%, resets Mon 09:00",
+        },
       ],
       footer:
         'From the last call on this account, 12m ago. "limit reached" clears after its reset time.',
@@ -98,7 +112,14 @@ describe("the accounts in Settings", () => {
 
   it("shows the rate limit of an API key only when it was hit", () => {
     expect(accountScreen(CATALOGS, "openai-api", "desktop", NOW)?.rows).toEqual([
-      { key: "r:requests", name: "requests", value: "limit reached · resets 14:09", reached: true },
+      {
+        key: "r:requests",
+        name: "requests",
+        value: "limit reached",
+        reset: " · resets 14:09",
+        reached: true,
+        label: "requests, limit reached, resets 14:09",
+      },
     ]);
     const quiet = accountScreen(CATALOGS, "anthropic-api.work", "desktop", NOW);
     expect(quiet?.rows).toEqual([]);

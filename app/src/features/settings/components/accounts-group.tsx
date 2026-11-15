@@ -67,7 +67,7 @@ function AccountRowContent(props: { readonly row: AccountRow }) {
         </View>
       ) : null}
       {value.kind === "reached" ? (
-        <Text className="text-row text-state-error">{value.text}</Text>
+        <Text className="text-mono-shell text-state-error">{value.text}</Text>
       ) : null}
       <SymbolIcon name="chevron.right" size={13} tone="text_subtle" weight="semibold" />
     </>

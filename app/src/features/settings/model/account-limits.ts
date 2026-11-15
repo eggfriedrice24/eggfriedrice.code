@@ -82,9 +82,16 @@ export interface LimitRow {
   readonly key: string;
   /** "5-hour", "weekly", "requests". */
   readonly name: string;
-  /** "limit reached · resets 14:20" or "63% · resets Mon 09:00". */
+  /**
+   * "limit reached" in state_error, or "63%" in text_muted: mono 13, as AC-Limits 5 and
+   * 6 draw it.
+   */
   readonly value: string;
+  /** " · resets 14:20" after the value, in text_subtle; none when the reset is not known. */
+  readonly reset: string | undefined;
   readonly reached: boolean;
+  /** The VoiceOver label of the row: "5-hour, limit reached, resets 14:20". */
+  readonly label: string;
 }
 
 /** The screen of one account. */
@@ -95,10 +102,26 @@ export interface AccountScreenView {
   readonly footer: string;
 }
 
-function withReset(words: string, resetsAt: string | null | undefined, now: number): string {
+function limitRow(
+  key: string,
+  name: string,
+  value: string,
+  resetsAt: string | null | undefined,
+  now: number,
+): LimitRow {
   const at = isoMs(resetsAt);
-  return at === undefined ? words : `${words} · ${resetText(at, now)}`;
+  const words = at === undefined ? undefined : resetText(at, now);
+  return {
+    key,
+    name,
+    value,
+    reset: words === undefined ? undefined : ` · ${words}`,
+    reached: value === LIMIT_REACHED,
+    label: [name, value, words].filter((part) => part !== undefined).join(", "),
+  };
 }
+
+const LIMIT_REACHED = "limit reached";
 
 /** The screen of account `provider`; undefined when the list does not name it. */
 export function accountScreen(
@@ -126,25 +149,21 @@ export function accountScreen(
   const rows: LimitRow[] = [];
   for (const [index, window] of (held?.windows ?? []).entries()) {
     const reached = window.used_percent >= 100;
-    rows.push({
-      key: `w${String(index)}`,
-      name: windowName(window.minutes),
-      value: withReset(
-        reached ? "limit reached" : `${String(window.used_percent)}%`,
+    rows.push(
+      limitRow(
+        `w${String(index)}`,
+        windowName(window.minutes),
+        reached ? LIMIT_REACHED : `${String(window.used_percent)}%`,
         window.resets_at,
         now,
       ),
-      reached,
-    });
+    );
   }
   const stop = held?.reached;
   if (stop !== undefined && !(stop.kind === "usage" && rows.some((row) => row.reached))) {
-    rows.push({
-      key: `r:${stop.kind}`,
-      name: limitWords(stop.kind),
-      value: withReset("limit reached", stop.resets_at, now),
-      reached: true,
-    });
+    rows.push(
+      limitRow(`r:${stop.kind}`, limitWords(stop.kind), LIMIT_REACHED, stop.resets_at, now),
+    );
   }
   const parts: string[] = [];
   const observedAt = held?.observedAt;

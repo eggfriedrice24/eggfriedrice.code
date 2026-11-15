@@ -383,15 +383,25 @@ describe("the other groups", () => {
     expect(screen.getByRole("header", { name: "Accounts on desktop" })).toBeOnTheScreen();
     expect(screen.getByText("signed out on desktop")).toBeOnTheScreen();
     expect(screen.getByText("92%")).toBeOnTheScreen();
-    expect(screen.getByText("limit reached").props.className).toContain("text-state-error");
+    // AC-Limits 4: the value in mono 13.
+    expect(screen.getByText("limit reached").props.className).toBe(
+      "text-mono-shell text-state-error",
+    );
     await fireEvent.press(screen.getByRole("button", { name: "ChatGPT plan · b, limit reached" }));
     expect(screen).toHavePathname("/account");
     expect(screen.getByText("On desktop")).toBeOnTheScreen();
     expect(screen.getByText("5-hour")).toBeOnTheScreen();
     expect(screen.getByText("weekly")).toBeOnTheScreen();
-    expect(screen.getByText(/^limit reached · resets /u).props.className).toContain(
-      "text-state-error",
+    // AC-Limits 5 and 6: only "limit reached" in state_error, the reset quiet after it.
+    const reached = screen.getByText(/^limit reached · resets /u);
+    expect(reached.props.className).toBe("text-mono-shell text-state-error");
+    expect(screen.getByText(/^63% · resets /u).props.className).toBe(
+      "text-mono-shell text-text-muted",
     );
+    const resets = screen.getAllByText(/^· resets /u);
+    expect(resets).toHaveLength(2);
+    expect(resets[0]?.props.className).toBe("text-mono-shell text-text-subtle");
+    expect(screen.getByLabelText(/^5-hour, limit reached, resets /u)).toBeOnTheScreen();
   });
 
   it("show the version of the app", async () => {

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { ScrollView, Text } from "react-native";
 
+import { cn } from "@/components/ui/cn";
 import { InsetGroup, InsetRow } from "@/components/ui/inset-group";
 import { MonoText } from "@/components/ui/mono-text";
 import { modelsQueryOptions } from "@/features/conversation/conversation-queries";
@@ -62,15 +63,23 @@ function AccountBody(props: AccountBodyProps) {
       ) : (
         <InsetGroup header={view.header} footer={view.footer}>
           {view.rows.map((row) => (
-            <InsetRow key={row.key} accessibilityLabel={`${row.name}, ${row.value}`}>
+            <InsetRow key={row.key} accessibilityLabel={row.label}>
               <Text numberOfLines={1} className="text-row flex-1 text-text-primary">
                 {row.name}
               </Text>
+              {/* AC-Limits 5 and 6: the value in mono 13, only "limit reached" in
+                state_error, and the reset quiet after it. */}
               <Text
                 numberOfLines={1}
-                className={row.reached ? "text-row text-state-error" : "text-row text-text-muted"}
+                className={cn(
+                  "text-mono-shell",
+                  row.reached ? "text-state-error" : "text-text-muted",
+                )}
               >
                 {row.value}
+                {row.reset === undefined ? null : (
+                  <Text className="text-mono-shell text-text-subtle">{row.reset}</Text>
+                )}
               </Text>
             </InsetRow>
           ))}
