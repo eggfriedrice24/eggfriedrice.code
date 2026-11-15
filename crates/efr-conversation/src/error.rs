@@ -111,8 +111,8 @@ pub enum ConversationError {
         question_id: QuestionId,
     },
 
-    /// A quarantine question takes an answer only from the user's own machine: an
-    /// answer from a phone leaves the changes in quarantine.
+    /// Only the user's own machine takes changes out of quarantine: a Keep from a phone
+    /// is refused, and the question stays open. A phone may answer Leave.
     #[error("an answer from {origin:?} cannot take changes out of quarantine")]
     RemoteSurfaceAnswer {
         /// The surface that answered.

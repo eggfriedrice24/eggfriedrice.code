@@ -15,7 +15,8 @@
 //!   cannot split is a [`Construct`] and asks by default.
 //! - [`Engine::decide`]: the [`Decision`], `Allow`, `Contain`, `Ask` or `Deny`, with a
 //!   [`Reason`] for every requirement, by the mode's policy and then the user's rules;
-//!   [`effective_mode`] caps the mode of a remote turn at `cautious`.
+//!   [`effective_mode`] caps the mode of a remote turn at `auto`, and [`is_local`] says
+//!   which origins are on this machine.
 //! - The `auto` mode: a shell call runs contained in a kernel sandbox, and
 //!   [`exits::predict`] finds what leaves it, each an [`ExitNeed`] that asks, with the
 //!   [`AutoSupport`] of the machine and the [`CallFacts`] that the daemon collected.
@@ -80,7 +81,7 @@ pub use bus::{BusFilter, BusRule, check_rules};
 pub use command::{Construct, runs_as_another_user};
 pub use critical::{CriticalDelete, CriticalTarget, CriticalWhy};
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
-pub use engine::{Engine, effective_mode};
+pub use engine::{Engine, effective_mode, is_local};
 pub use error::{AllowRuleProblem, BusRuleProblem, HostError, PermissionsError};
 pub use exits::{Approver, ExitNeed, FactRequest, Installed, PathFacts, Rebuild, WriteBind};
 pub use jobs::{JOB_REFUSAL, SERVICE_SOCKETS, job_refusal, service_socket};

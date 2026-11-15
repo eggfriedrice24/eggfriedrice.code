@@ -702,7 +702,7 @@ async fn surface_question_expiry_keeps_quarantine() {
 }
 
 #[tokio::test]
-async fn a_no_keeps_the_change_in_quarantine_and_a_phone_cannot_answer() {
+async fn a_no_keeps_the_change_in_quarantine_and_a_phone_cannot_keep() {
     let (setup, state) = auto("plant");
     let plant = json!({ "command": "plant-hook" });
     let note = format!(
@@ -730,6 +730,39 @@ async fn a_no_keeps_the_change_in_quarantine_and_a_phone_cannot_answer() {
     h.wait_end(sent.turn_id).await;
 
     assert!(h.toolbox.restored().is_empty());
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_phone_may_leave_the_change_in_quarantine() {
+    let (setup, state) = auto("plant");
+    let plant = json!({ "command": "plant-hook" });
+    let note = format!(
+        "done\n[The user did not keep the git change; it stays in quarantine: {} \
+         (core.fsmonitor).]",
+        planted().path.display()
+    );
+    let records = one_call(&setup, &state, "plant", &plant, &note, false, "Left it.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("plant").await;
+    let question_id = h.wait_question().await;
+    let leave = SandboxSurfaceRespond {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        question_id,
+        keep: false,
+    };
+    h.handle.respond_surface(leave, Origin::Phone).await.expect("a Leave from the phone");
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.restored().is_empty());
+    let events = h.events().await;
+    let answered = find(&events, |e| matches!(e, Event::SurfaceQuestionAnswered { .. }));
+    assert!(matches!(
+        answered,
+        Event::SurfaceQuestionAnswered { keep: false, origin: Some(Origin::Phone), .. }
+    ));
     h.finish();
 }
 

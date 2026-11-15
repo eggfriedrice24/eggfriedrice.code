@@ -128,23 +128,24 @@ fn no_effort_leaves_it_to_the_backend() {
 }
 
 #[test]
-fn a_remote_turn_runs_with_at_most_cautious() {
+fn a_remote_turn_runs_in_auto_only_when_its_prompt_asks_for_auto() {
     let mut config = config();
     config.mode = Mode::Auto;
-    let from_config =
-        resolve(&TurnSettings::default(), &config, Origin::Phone, place(&ready())).unwrap();
-    let asked_auto =
-        resolve(&asked(Some(Mode::Auto), None, None), &config, Origin::Phone, place(&ready()))
-            .unwrap();
-    let asked_manual =
-        resolve(&asked(Some(Mode::Manual), None, None), &config, Origin::Phone, place(&ready()))
-            .unwrap();
+    let on_phone = |mode: Option<Mode>| {
+        resolve(&asked(mode, None, None), &config, Origin::Phone, place(&ready())).unwrap()
+    };
     let local = resolve(&TurnSettings::default(), &config, Origin::Proxy, place(&ready())).unwrap();
 
-    assert_eq!(from_config.mode, Mode::Cautious);
-    assert_eq!(asked_auto.mode, Mode::Cautious);
-    assert_eq!(asked_manual.mode, Mode::Manual, "a stricter mode stays");
+    assert_eq!(on_phone(None).mode, Mode::Cautious, "an auto default never reaches the phone");
+    assert_eq!(on_phone(Some(Mode::Auto)).mode, Mode::Auto);
+    assert!(on_phone(Some(Mode::Auto)).overridden.mode);
+    assert_eq!(on_phone(Some(Mode::Full)).mode, Mode::Auto, "never full from the phone");
+    assert_eq!(on_phone(Some(Mode::Manual)).mode, Mode::Manual, "a stricter mode stays");
     assert_eq!(local.mode, Mode::Auto);
+
+    config.mode = Mode::Manual;
+    let manual = resolve(&TurnSettings::default(), &config, Origin::Phone, place(&ready()));
+    assert_eq!(manual.unwrap().mode, Mode::Manual, "a stricter default stays");
 }
 
 #[test]
@@ -343,16 +344,13 @@ fn only_auto_needs_the_sandbox() {
                 .unwrap();
         assert_eq!((settings.mode, settings.fallback), (mode, None));
     }
-    // A phone turn is capped at cautious before the sandbox matters, so it falls back
-    // from nothing.
-    let phone = resolve(
-        &asked(Some(Mode::Auto), None, None),
-        &config(),
-        Origin::Phone,
-        place(&unavailable),
-    )
-    .unwrap();
-    assert_eq!((phone.mode, phone.fallback), (Mode::Cautious, None));
+    // A phone turn in auto falls back as a local one.
+    let auto = asked(Some(Mode::Auto), None, None);
+    let phone = resolve(&auto, &config(), Origin::Phone, place(&unavailable)).unwrap();
+    let local = resolve(&auto, &config(), Origin::Shell, place(&unavailable)).unwrap();
+    assert_eq!(phone.mode, Mode::Cautious);
+    assert!(phone.fallback.is_some());
+    assert_eq!(phone.fallback, local.fallback);
 }
 
 /// `config` with full mode allowed by `permissions.allow_full`, and `refused` as the
@@ -465,10 +463,10 @@ fn a_refused_config_default_of_full_runs_as_auto_with_the_reason() {
 fn a_phone_full_prompt_is_capped_before_the_gate() {
     let full = asked(Some(Mode::Full), None, None);
     let phone = resolve(&full, &config(), Origin::Phone, place(&ready())).unwrap();
-    assert_eq!((phone.mode, phone.fallback), (Mode::Cautious, None), "no error, no fallback");
+    assert_eq!((phone.mode, phone.fallback), (Mode::Auto, None), "no error, no fallback");
     let refused = allowing_full(Some(FullRefusal::Root));
     let phone = resolve(&full, &refused, Origin::Phone, place(&ready())).unwrap();
-    assert_eq!(phone.mode, Mode::Cautious);
+    assert_eq!(phone.mode, Mode::Auto);
 }
 
 #[test]
@@ -567,10 +565,10 @@ fn wake_turn_of_full_with_the_gate_off_runs_as_auto() {
 }
 
 #[test]
-fn a_phone_wake_turn_of_full_runs_as_cautious_with_no_fallback() {
+fn a_phone_wake_turn_of_full_runs_as_auto_with_no_fallback() {
     let full = asked(Some(Mode::Full), None, None);
     let settings = resolve(&full, &allowing_full(None), Origin::Phone, woke(&ready())).unwrap();
-    assert_eq!((settings.mode, settings.fallback), (Mode::Cautious, None));
+    assert_eq!((settings.mode, settings.fallback), (Mode::Auto, None));
 }
 
 #[test]

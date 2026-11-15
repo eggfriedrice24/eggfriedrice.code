@@ -169,10 +169,12 @@ fn a_job_outside_auto_asks_the_user_whatever_the_rules_say(#[case] mode: Mode) {
 }
 
 #[test]
-fn an_auto_turn_from_a_phone_asks_as_cautious() {
-    let decision = decide_in(&engine(), job("ls"), Mode::Auto, Origin::Phone);
-    assert_eq!(decision.effect(), Effect::Ask);
-    assert!(decision.reasons().iter().any(|reason| reason.cause == Cause::JobAsks));
+fn an_auto_job_from_a_phone_is_judged_as_a_local_one() {
+    let phone = decide_in(&engine(), job("ls"), Mode::Auto, Origin::Phone);
+    assert_eq!(phone, decide_in(&engine(), job("ls"), Mode::Auto, Origin::Shell));
+    assert!(!phone.reasons().iter().any(|reason| reason.cause == Cause::JobAsks));
+    let cautious = decide_in(&engine(), job("ls"), Mode::Cautious, Origin::Phone);
+    assert!(cautious.reasons().iter().any(|reason| reason.cause == Cause::JobAsks));
 }
 
 #[rstest]

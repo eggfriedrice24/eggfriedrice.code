@@ -782,7 +782,7 @@ impl ConversationActor {
         }
         // NOTE: a full turn's model acts on a steer with no sandbox and no question, so
         // the phone's text goes the late way: refused, or a prompt of its own that runs
-        // with at most `cautious` (efr's full mode: the phone is never full).
+        // with at most `auto` (efr's full mode: the phone is never full).
         if efr_permissions::effective_mode(Mode::Full, origin) != Mode::Full
             && self.may_run_full(running)
         {
@@ -1029,16 +1029,14 @@ impl ConversationActor {
         // NOTE: a remote surface answers no privilege exit, no delete that full mode
         // guards and no job's question; the question stays open for the user's own
         // terminal.
-        if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto
-            && approvals.local_only(call_id)
-        {
+        if !efr_permissions::is_local(origin) && approvals.local_only(call_id) {
             return Err(ConversationError::RemotePrivilegeAnswer { origin, call_id });
         }
         // NOTE: an `a` answer saves a standing rule, so only the user's own terminal
         // gives it, and only to a question that offers one; both refusals leave the
         // question open, never a "yes" in its place (phase E).
         if params.decision == ApprovalDecision::AllowAlways {
-            if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto {
+            if !efr_permissions::is_local(origin) {
                 return Err(ConversationError::RemoteAlwaysAnswer { origin, call_id });
             }
             if !approvals.offers_always(call_id) {
@@ -1064,9 +1062,9 @@ impl ConversationActor {
         origin: Origin,
     ) -> Result<SandboxSurfaceRespondResult, ConversationError> {
         self.check_conversation(Some(params.conversation_id))?;
-        // NOTE: a phone may not take a planted git setting out of quarantine; the
-        // question stays open for the user's own terminal.
-        if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto {
+        // NOTE: a phone may leave the changes in quarantine, but it may not take a
+        // planted git setting out of it; a Keep stays open for the user's own terminal.
+        if params.keep && !efr_permissions::is_local(origin) {
             return Err(ConversationError::RemoteSurfaceAnswer { origin });
         }
         let question_id = params.question_id;

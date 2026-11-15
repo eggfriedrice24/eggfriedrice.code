@@ -404,12 +404,13 @@ fn always_allow_never_unsandboxed() {
 }
 
 #[test]
-fn always_allow_ignored_for_phone_turn() {
+fn always_allow_covers_a_phone_auto_turn_as_a_local_one() {
+    // A phone turn in `auto` has the exits of a local one, so the user's own standing
+    // rules cover them; only the phone may not save a new one (the conversation refuses
+    // its `a` answer).
     let engine = engine(vec![write("~/notes")]);
     let decision = decide_as(&engine, notes_write(), Origin::Phone);
-    assert_eq!(decision.exits().count(), 0, "a phone turn runs as cautious: no exit");
-    assert_eq!(engine.always(&decision, Some(Path::new(APP))), AlwaysVerdict::None);
-    // The same call in a local turn is covered.
+    assert_eq!(engine.always(&decision, Some(Path::new(APP))), AlwaysVerdict::Covered { index: 0 });
     assert_eq!(judge(&engine, notes_write()).1, AlwaysVerdict::Covered { index: 0 });
 }
 

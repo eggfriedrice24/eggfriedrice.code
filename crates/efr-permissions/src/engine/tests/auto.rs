@@ -2332,7 +2332,7 @@ fn auto_write_file_to_git_hooks_asks() {
 }
 
 #[test]
-fn auto_phone_turn_never_contains() {
+fn auto_phone_turn_contains_as_a_local_one() {
     for requirements in [
         shell("ls"),
         shell("cargo test"),
@@ -2340,13 +2340,14 @@ fn auto_phone_turn_never_contains() {
         shell("echo x > ~/notes.txt").with_write("/home/u/notes.txt"),
         Requirements::none().with_read("/home/u/.zsh_history"),
     ] {
-        let mut input = in_auto(requirements.clone());
-        input.origin = Origin::Phone;
-        let decision = engine().decide(&input);
-        assert_ne!(decision.effect(), Effect::Contain, "{requirements:?}");
-        assert!(decision.reasons().iter().all(|reason| reason.effect != Effect::Contain));
-        assert_eq!(kinds(&decision), [], "{requirements:?}");
+        let local = in_auto(requirements.clone());
+        let mut phone = local.clone();
+        phone.origin = Origin::Phone;
+        assert_eq!(engine().decide(&phone), engine().decide(&local), "{requirements:?}");
     }
+    let mut ls = in_auto(shell("ls"));
+    ls.origin = Origin::Phone;
+    assert_eq!(engine().decide(&ls).effect(), Effect::Contain);
 }
 
 #[test]

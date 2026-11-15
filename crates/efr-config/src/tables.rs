@@ -332,8 +332,8 @@ pub struct PermissionSettings {
     /// The default permission mode of a turn: `manual`, `cautious`, `auto` or `full`. A
     /// prompt may choose another one for its turn. `full` needs
     /// `permissions.allow_full = true`; without it, efrd does not load the file. A turn
-    /// from the phone runs with at most `cautious`, and a turn that a job notice starts
-    /// with at most `auto`.
+    /// from the phone runs with at most `auto`, and as `cautious` when its prompt names
+    /// no mode; a turn that a job notice starts runs with at most `auto`.
     // NOTE: the file is read as the protocol's `Mode`; the schema gives the values with
     // the words of this file, and says that `full` needs the gate key.
     #[schemars(with = "ConfigMode")]

@@ -386,13 +386,14 @@ fn full_interactive_line_runs(#[case] line: &str) {
 }
 
 #[test]
-fn full_phone_runs_as_cautious() {
+fn full_phone_runs_as_auto() {
     let mut input = in_full(shell("cargo test"));
     input.origin = Origin::Phone;
     let decision = engine().decide(&input);
-    assert_eq!(decision.effect(), Effect::Ask);
-    // Rule 0 of the cautious policy, not a full reason.
-    assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, index: 0 });
+    let mut auto = input.clone();
+    auto.mode = Mode::Auto;
+    assert_eq!(decision, engine().decide(&auto));
+    assert_eq!(decision.effect(), Effect::Contain);
     assert!(!decision.reasons().iter().any(|reason| reason.cause == Cause::Full));
 }
 

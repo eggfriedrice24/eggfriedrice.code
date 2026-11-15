@@ -396,7 +396,7 @@ async fn phone_prompt(
 }
 
 #[tokio::test]
-async fn phone_prompt_in_full_runs_as_cautious() {
+async fn phone_prompt_in_full_runs_as_auto() {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let notes = dirs.home().join("notes.txt");
     let model = Recorder::new(vec![None, write_file(&notes, "from the phone\n")]);
@@ -410,11 +410,13 @@ async fn phone_prompt_in_full_runs_as_cautious() {
     let sent = phone_prompt(&daemon, &phone, 2, first.conversation_id, Some(Mode::Full)).await;
     let events = next_stop(&daemon, &client, sent.conversation_id, sent.turn_id, &[]).await;
 
-    // The phone's turn runs as cautious with no error, so the write asks.
-    assert_eq!(started(&events, sent.turn_id).mode, Mode::Cautious);
-    let (call_id, summary, expires) = question(&events);
+    // The phone's turn runs as auto with no error, never full, so the write of a file
+    // in home asks. With no sandbox here, auto falls back to cautious.
+    let settings = started(&events, sent.turn_id);
+    let auto = (settings.mode, settings.fallback.map(|fallback| fallback.asked));
+    assert!(matches!(auto, (Mode::Auto, None) | (Mode::Cautious, Some(Mode::Auto))), "{auto:?}");
+    let (call_id, summary, _) = question(&events);
     assert!(!summary.starts_with(FULL_ASKS), "{summary}");
-    assert_eq!(expires, None);
     let _: ApprovalRespondResult = client
         .call(respond(10, sent.conversation_id, call_id, ApprovalDecision::Deny))
         .await
@@ -581,7 +583,7 @@ async fn config_default_full_still_caps_wake_and_phone() {
     assert_eq!(settings.mode, Mode::Auto);
     assert_eq!(settings.fallback.map(|fallback| fallback.asked), Some(Mode::Full));
 
-    // A phone's turn that names no mode runs with at most cautious.
+    // A phone's turn that names no mode runs as cautious, not with the default.
     let phone = daemon.connect(daemon.connect_options_from(Origin::Phone)).await.unwrap();
     let from_phone = phone_prompt(&daemon, &phone, 2, sent.conversation_id, None).await;
     let events = next_stop(&daemon, &client, sent.conversation_id, from_phone.turn_id, &[]).await;

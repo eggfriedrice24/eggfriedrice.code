@@ -178,12 +178,12 @@ fn a_phone_turn_says_that_it_asks_outside_scratch() {
     let decision = decide_with(
         &engine_with(Policy::empty()),
         Requirements::none().with_write("/home/u/p/app/src/main.rs"),
-        Mode::Auto,
+        Mode::Cautious,
         Origin::Phone,
         Policy::empty(),
     );
     assert_eq!(decision.effect(), Effect::Ask);
-    let mode = efr_permissions::effective_mode(Mode::Auto, Origin::Phone);
+    let mode = efr_permissions::effective_mode(Mode::Cautious, Origin::Phone);
     assert_eq!(
         approval_reason(&decision, mode).as_deref(),
         Some("A turn from the phone asks for everything outside $SCRATCH."),

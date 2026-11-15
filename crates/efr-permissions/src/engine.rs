@@ -32,8 +32,10 @@ use crate::{
 ///    secrets and system paths, where it may only make the effect stricter, so an
 ///    approval collected in one conversation never opens a key or `/etc`.
 /// 3. A turn from a remote origin (the phone, or any origin newer than this crate) runs
-///    with at most the `cautious` mode, and needs approval for everything outside
-///    `$SCRATCH`: an `Allow` becomes `Ask`. An interactive call always needs approval.
+///    with at most the `auto` mode, never full. Outside `auto` it needs approval for
+///    everything outside `$SCRATCH`: an `Allow` becomes `Ask`. In `auto` it is judged as
+///    a local `auto` turn, because the sandbox holds its shell calls and each exit asks
+///    or goes to the reviewer. An interactive call always needs approval.
 ///
 /// A change of efr's own settings ([`Requirements::settings`](crate::Requirements),
 /// declared only by the settings tool) needs approval in every mode, whatever the
@@ -62,8 +64,8 @@ use crate::{
 ///
 /// A call that declares no requirement gets one reason, [`Subject::Nothing`]. It is
 /// allowed for the local origins (shell, CLI and proxy) and needs approval for any other,
-/// because the engine cannot see what an undeclared call does, and a remote turn fails
-/// closed.
+/// in every mode, because the engine cannot see what an undeclared call does, and a
+/// remote turn fails closed.
 ///
 /// In the `auto` mode a shell call runs in the kernel sandbox: its command line is at
 /// least [`Effect::Contain`], and a user's rule that allows it cannot lift the sandbox.
@@ -385,7 +387,7 @@ impl Engine {
                 _ => None,
             };
             let (effect, cause) = judge.network(commands, &parts, opaque);
-            let (effect, cause) = clamp_remote(effect, cause, None, input.origin);
+            let (effect, cause) = clamp_remote(effect, cause, None, input.origin, mode);
             reasons.push(Reason { subject: Subject::Network, effect, cause });
         }
         if requirements.interactive {
@@ -494,8 +496,15 @@ impl Engine {
             reasons = crate::full::settle(reasons, job, |cause| judge.built_in(cause));
         }
         if reasons.is_empty() {
-            let (effect, cause) =
-                clamp_remote(Effect::Allow, Cause::NoRequirements, None, input.origin);
+            // NOTE: `Mode::Cautious` in place of the turn's mode: a remote turn asks for
+            // an undeclared call also in `auto`, because no sandbox or exit sees it.
+            let (effect, cause) = clamp_remote(
+                Effect::Allow,
+                Cause::NoRequirements,
+                None,
+                input.origin,
+                Mode::Cautious,
+            );
             reasons.push(Reason { subject: Subject::Nothing, effect, cause });
         }
         let notes = match (&exit_input, auto) {
@@ -685,10 +694,10 @@ fn exit_reason(need: ExitNeed) -> Reason {
 }
 
 /// The permission mode that a turn from `origin` runs with when it asks for `mode`: at
-/// most [`Mode::Cautious`] for a remote origin, any origin other than the shell, the
-/// CLI and the proxy, so a phone can never run the `auto` list.
+/// most [`Mode::Auto`] for a remote origin (any origin other than the shell, the CLI and
+/// the proxy), so a phone never runs in full mode.
 pub fn effective_mode(mode: Mode, origin: Origin) -> Mode {
-    if is_local(origin) { mode } else { mode.min(Mode::Cautious) }
+    if is_local(origin) { mode } else { mode.min(Mode::Auto) }
 }
 
 /// The simple commands of a line as rules match them, each with the place where it
@@ -727,6 +736,11 @@ struct Judge<'a> {
 }
 
 impl Judge<'_> {
+    /// The mode the turn runs with, after the cap of its origin.
+    fn mode(&self) -> Mode {
+        effective_mode(self.input.mode, self.input.origin)
+    }
+
     /// One path with its class: the rules, then what lies below it, then the origin. In
     /// full mode a question of a built-in rule runs, so what lies below such a path is
     /// read too.
@@ -767,7 +781,8 @@ impl Judge<'_> {
             }
         }
         let (effect, cause) = self.contained(effect, cause);
-        let (effect, cause) = clamp_remote(effect, cause, Some(class), self.input.origin);
+        let (effect, cause) =
+            clamp_remote(effect, cause, Some(class), self.input.origin, self.mode());
         Reason { subject: Subject::Path { path, access, class: Some(class) }, effect, cause }
     }
 
@@ -871,7 +886,7 @@ impl Judge<'_> {
                 }
             }
         };
-        let (effect, cause) = clamp_remote(effect, cause, None, self.input.origin);
+        let (effect, cause) = clamp_remote(effect, cause, None, self.input.origin, self.mode());
         Reason { subject: Subject::Command { line: line.to_owned(), deciding }, effect, cause }
     }
 
@@ -1079,15 +1094,21 @@ impl Judge<'_> {
     }
 }
 
-/// Step 3 for one requirement: outside `$SCRATCH`, a remote turn needs approval. A
-/// requirement without a class, such as a command or no requirement at all, is outside.
+/// Step 3 for one requirement: outside `$SCRATCH`, a remote turn that runs in `mode`
+/// needs approval, unless `mode` is `auto`. A requirement without a class, such as a
+/// command or no requirement at all, is outside.
 fn clamp_remote(
     effect: Effect,
     cause: Cause,
     class: Option<PathClass>,
     origin: Origin,
+    mode: Mode,
 ) -> (Effect, Cause) {
-    if effect == Effect::Allow && !is_local(origin) && class != Some(PathClass::Scratch) {
+    if effect == Effect::Allow
+        && !is_local(origin)
+        && mode != Mode::Auto
+        && class != Some(PathClass::Scratch)
+    {
         (Effect::Ask, Cause::RemoteOrigin { origin })
     } else {
         (effect, cause)
@@ -1096,7 +1117,7 @@ fn clamp_remote(
 
 /// Origins on this machine. Anything else, including an origin added to the protocol
 /// after this crate was written, is treated as remote, so the engine fails closed.
-fn is_local(origin: Origin) -> bool {
+pub fn is_local(origin: Origin) -> bool {
     matches!(origin, Origin::Shell | Origin::Cli | Origin::Proxy)
 }
 

@@ -299,10 +299,11 @@ async fn a_prompt_with_its_own_model_runs_while_the_default_is_foreign() {
 }
 
 #[tokio::test]
-async fn a_phone_turn_runs_with_at_most_cautious() {
+async fn a_phone_turn_runs_in_auto_when_its_prompt_asks() {
     let mut setup = Setup::new();
     setup.config.mode = Mode::Auto;
-    let state = setup.live_state(&setup.cwd, "hello");
+    let mut state = setup.live_state(&setup.cwd, "hello");
+    state.mode = Mode::Auto;
     let records = vec![
         expect_request(request(vec![setup.prompt(&state, "hello")])),
         answer(&text_answer("Hi.")),
@@ -316,13 +317,13 @@ async fn a_phone_turn_runs_with_at_most_cautious() {
     h.wait_end(sent.turn_id).await;
 
     let settings = sent.settings.unwrap();
-    assert_eq!(settings.mode, Mode::Cautious);
-    assert!(settings.overridden.mode, "the prompt asked for a mode, capped for a phone");
+    assert_eq!(settings.mode, Mode::Auto);
+    assert!(settings.overridden.mode, "the prompt asked for the mode");
     let events = h.events().await;
     let started = find(&events, |e| matches!(e, Event::TurnStarted { .. }));
     assert!(matches!(
         started,
-        Event::TurnStarted { settings: Some(EffectiveSettings { mode: Mode::Cautious, .. }), .. }
+        Event::TurnStarted { settings: Some(EffectiveSettings { mode: Mode::Auto, .. }), .. }
     ));
     h.finish();
 }

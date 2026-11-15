@@ -54,8 +54,10 @@ pub(crate) struct Place<'a> {
 }
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
-/// `config`. A turn from a remote origin runs with at most `cautious`
-/// ([`efr_permissions::effective_mode`]), and an `auto` turn that `place` cannot hold
+/// `config`. A turn from a remote origin runs with at most `auto`
+/// ([`efr_permissions::effective_mode`]), and only when its prompt names a mode: with
+/// no mode it runs as `cautious`, not with the config default, so only a phone that
+/// checked its user (Face ID or the passcode) asks for `auto`. An `auto` turn that `place` cannot hold
 /// runs as `cautious` with the reason in `fallback`. A wake turn runs with at most
 /// `auto`, with [`ModeFallback::WAKE_REASON`]. A `full` turn after those caps fails
 /// unless the daemon allows full mode ([`ConversationConfig::full_mode`]); it never
@@ -67,8 +69,15 @@ pub(crate) fn resolve(
     origin: Origin,
     place: Place<'_>,
 ) -> Result<EffectiveSettings, ConversationError> {
+    // NOTE: a remote prompt without a mode never takes the config default: an `auto`
+    // default must not reach a phone that did not check its user.
+    let default = if efr_permissions::is_local(origin) {
+        config.mode
+    } else {
+        config.mode.min(Mode::Cautious)
+    };
     // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
-    let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
+    let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(default), origin);
     // NOTE: before the gate, so a wake turn of a full conversation runs as `auto` also
     // after the user turned full mode off (DF15).
     let woke = place.wake && mode == Mode::Full;

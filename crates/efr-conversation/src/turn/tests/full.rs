@@ -302,7 +302,7 @@ async fn steer_as_prompt(
 }
 
 #[tokio::test]
-async fn a_phone_steer_with_mode_full_runs_as_cautious() {
+async fn a_phone_steer_with_mode_full_runs_as_auto() {
     let mut setup = full(None);
     setup.config.mode = Mode::Cautious;
     let script = Script::new(Vec::new());
@@ -310,7 +310,7 @@ async fn a_phone_steer_with_mode_full_runs_as_cautious() {
     let queued = steer_as_prompt(&mut h, Mode::Full, Origin::Phone).await.unwrap();
     assert!(queued.queued, "no turn runs, so the steer queues as a prompt");
     h.wait_end(queued.turn_id).await;
-    assert_eq!(started(&h, queued.turn_id).await, (Mode::Cautious, None));
+    assert_eq!(started(&h, queued.turn_id).await.0, Mode::Auto, "never full from the phone");
 }
 
 #[tokio::test]
@@ -334,7 +334,7 @@ async fn a_phone_steer_into_a_running_full_turn_is_not_read() {
     answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
     h.wait_end(turn_id).await;
     h.wait_end(queued.turn_id).await;
-    assert_eq!(started(&h, queued.turn_id).await, (Mode::Cautious, None));
+    assert_eq!(started(&h, queued.turn_id).await.0, Mode::Auto, "never full from the phone");
     let read = script.requests().into_iter().any(|request| {
         request.messages.iter().flat_map(|message| &message.content).any(|block| {
             matches!(block, ContentBlock::Text { text } if text.contains("delete my notes"))

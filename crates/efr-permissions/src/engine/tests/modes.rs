@@ -156,28 +156,48 @@ fn the_network_reason_names_the_command_that_asks() {
 }
 
 #[rstest]
-#[case::shell(Origin::Shell, Mode::Auto)]
-#[case::cli(Origin::Cli, Mode::Auto)]
-#[case::proxy(Origin::Proxy, Mode::Auto)]
-#[case::phone(Origin::Phone, Mode::Cautious)]
-fn a_remote_turn_runs_with_at_most_the_cautious_mode(#[case] origin: Origin, #[case] mode: Mode) {
-    assert_eq!(effective_mode(Mode::Auto, origin), mode);
+#[case::shell(Origin::Shell, Mode::Full)]
+#[case::cli(Origin::Cli, Mode::Full)]
+#[case::proxy(Origin::Proxy, Mode::Full)]
+#[case::phone(Origin::Phone, Mode::Auto)]
+fn a_remote_turn_runs_with_at_most_the_auto_mode(#[case] origin: Origin, #[case] full: Mode) {
+    assert_eq!(effective_mode(Mode::Auto, origin), Mode::Auto);
     // T14: a phone never runs in full mode.
-    let full = if mode == Mode::Auto { Mode::Full } else { Mode::Cautious };
     assert_eq!(effective_mode(Mode::Full, origin), full);
     assert_eq!(effective_mode(Mode::Manual, origin), Mode::Manual);
     assert_eq!(effective_mode(Mode::Cautious, origin), Mode::Cautious);
 }
 
 #[test]
-fn a_phone_turn_in_auto_is_judged_by_the_cautious_rules() {
-    let mut input = in_mode(Mode::Auto, run_in("cargo test", APP), Scope::Project(app()));
-    input.origin = Origin::Phone;
-    let decision = engine().decide(&input);
+fn a_phone_turn_in_auto_is_judged_as_a_local_auto_turn() {
+    for requirements in [
+        run_in("cargo test", APP),
+        run_in("git push origin main", APP).with_network(),
+        Requirements::none().with_read("/home/u/p/app/src/main.rs"),
+        Requirements::none().with_write("/home/u/p/app/src/main.rs"),
+    ] {
+        let local = in_mode(Mode::Auto, requirements, Scope::Project(app()));
+        let phone = DecisionInput { origin: Origin::Phone, ..local.clone() };
+        assert_eq!(engine().decide(&phone), engine().decide(&local), "{:?}", local.requirements);
+    }
+}
+
+#[test]
+fn a_phone_turn_in_auto_still_asks_for_a_call_that_declares_nothing() {
+    let input = in_mode(Mode::Auto, Requirements::none(), Scope::Project(app()));
+    let phone = DecisionInput { origin: Origin::Phone, ..input };
+    let decision = engine().decide(&phone);
     assert_eq!(decision.effect(), Effect::Ask);
-    // Rule 0 of the cautious policy, not the auto row that the remote clamp would have
-    // turned into a question.
-    assert_eq!(decision.reasons()[0].cause, Cause::Rule { layer: Layer::Machine, index: 0 });
+    assert_eq!(decision.reasons()[0].cause, Cause::RemoteOrigin { origin: Origin::Phone });
+}
+
+#[test]
+fn a_phone_turn_in_cautious_asks_outside_scratch_as_before() {
+    let input = in_mode(Mode::Cautious, run_in("ls", APP), Scope::Project(app()));
+    let phone = DecisionInput { origin: Origin::Phone, ..input };
+    let decision = engine().decide(&phone);
+    assert_eq!(decision.effect(), Effect::Ask);
+    assert_eq!(decision.reasons()[0].cause, Cause::RemoteOrigin { origin: Origin::Phone });
 }
 
 #[test]

@@ -55,8 +55,8 @@ pub enum Mode {
     Auto,
     /// Every call runs at once as the user, with no sandbox and no question. efr still
     /// reads each line for a small set of floors (`docs/permissions.md`, "Full mode").
-    /// The user allows it with `permissions.allow_full`; a phone turn runs with at most
-    /// `cautious`, a turn that a job notice starts with at most `auto`.
+    /// The user allows it with `permissions.allow_full`; a phone turn and a turn that a
+    /// job notice starts run with at most `auto`.
     Full,
 }
 

@@ -9676,7 +9676,7 @@
         },
         {
           "const": "full",
-          "description": "Every call runs at once as the user, with no sandbox and no question. efr still\nreads each line for a small set of floors (`docs/permissions.md`, \"Full mode\").\nThe user allows it with `permissions.allow_full`; a phone turn runs with at most\n`cautious`, a turn that a job notice starts with at most `auto`.",
+          "description": "Every call runs at once as the user, with no sandbox and no question. efr still\nreads each line for a small set of floors (`docs/permissions.md`, \"Full mode\").\nThe user allows it with `permissions.allow_full`; a phone turn and a turn that a\njob notice starts run with at most `auto`.",
           "type": "string"
         }
       ]

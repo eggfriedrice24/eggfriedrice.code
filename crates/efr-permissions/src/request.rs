@@ -22,7 +22,7 @@ pub struct DecisionInput {
     /// The surface that the turn came from.
     pub origin: Origin,
     /// The permission mode the turn runs with, which picks the built-in policy. The
-    /// engine caps it at `cautious` for a remote origin
+    /// engine caps it at `auto` for a remote origin
     /// ([`effective_mode`](crate::effective_mode)).
     pub mode: Mode,
     /// The conversation's `$SCRATCH` and its own rules.

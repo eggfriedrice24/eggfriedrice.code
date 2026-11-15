@@ -2,9 +2,9 @@
 //! keep git changes that a contained call made and the launcher moved aside (efr's
 //! auto spec, section 5.6).
 //!
-//! The method needs `approve`, which a model-side peer never holds, and the
-//! conversation refuses an answer from a phone. A retried command answers from its
-//! receipt, as `approval.respond` does.
+//! The method needs `approve`, which a model-side peer never holds. A phone may answer
+//! Leave; the conversation refuses a Keep from a phone. A retried command answers from
+//! its receipt, as `approval.respond` does.
 
 use efr_conversation::ConversationError;
 use efr_protocol::SandboxSurfaceRespond;

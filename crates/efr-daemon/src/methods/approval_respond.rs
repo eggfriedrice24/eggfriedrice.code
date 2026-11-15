@@ -11,7 +11,7 @@
 //! question that offers no rule is `invalid`. Both leave the question open.
 
 use efr_conversation::ConversationError;
-use efr_protocol::{ApprovalDecision, ApprovalRespond, CallId, ErrorBody, ErrorCode, Mode, Origin};
+use efr_protocol::{ApprovalDecision, ApprovalRespond, CallId, ErrorBody, ErrorCode, Origin};
 use efr_transport::{ConnectionContext, Responder};
 
 use crate::methods::prompt_send::ensure_exists;
@@ -81,7 +81,7 @@ pub(crate) fn remote_always(
     surface: Origin,
     call_id: CallId,
 ) -> Option<DaemonError> {
-    let remote = efr_permissions::effective_mode(Mode::Auto, surface) != Mode::Auto;
+    let remote = !efr_permissions::is_local(surface);
     (decision == ApprovalDecision::AllowAlways && remote).then(|| {
         let error = ConversationError::RemoteAlwaysAnswer { origin: surface, call_id };
         DaemonError::Rejected { body: ErrorBody::new(ErrorCode::Forbidden, error.to_string()) }

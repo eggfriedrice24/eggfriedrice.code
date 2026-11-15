@@ -1446,8 +1446,8 @@ impl Turn {
         tracing::debug!(phase = "engine", elapsed_ms = %watch, "phase=engine elapsed_ms={}", watch);
         let watch = Stopwatch::start();
         let requirements = input.requirements;
-        // NOTE: only a shell call of a local `auto` turn runs in the sandbox; the file
-        // tools run in the daemon, and a remote turn never runs as `auto`.
+        // NOTE: only a shell call of an `auto` turn runs in the sandbox, from any origin;
+        // the file tools run in the daemon.
         let sandboxed = efr_permissions::effective_mode(input.mode, input.origin) == Mode::Auto
             && requirements.command.is_some();
         let launch = if sandboxed { exit::grant(&decision) } else { Launch::Direct };

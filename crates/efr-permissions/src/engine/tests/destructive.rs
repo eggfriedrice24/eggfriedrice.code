@@ -205,11 +205,17 @@ fn apply_patch_delete_asks_in_cautious_and_manual(#[case] mode: Mode) {
 }
 
 #[test]
-fn apply_patch_delete_from_the_phone_asks() {
-    // A remote turn runs as `cautious`, so coverage never lifts its question.
+fn apply_patch_delete_from_the_phone_is_judged_by_its_mode() {
+    // A phone turn in `auto` is a local `auto` turn: undo covers the move. In `cautious`
+    // coverage never lifts its question.
     let requirements = answered(moved(), &[OLD, NEW]);
-    let decision = decide(&undo_engine(), requirements, Mode::Auto, Origin::Phone, Policy::empty());
-    assert!(asks_destructive(&decision));
+    let engine = undo_engine();
+    let phone = decide(&engine, requirements.clone(), Mode::Auto, Origin::Phone, Policy::empty());
+    let local = decide(&engine, requirements.clone(), Mode::Auto, Origin::Shell, Policy::empty());
+    assert_eq!(phone, local);
+    assert!(!asks_destructive(&phone));
+    let cautious = decide(&engine, requirements, Mode::Cautious, Origin::Phone, Policy::empty());
+    assert!(asks_destructive(&cautious));
 }
 
 #[test]
