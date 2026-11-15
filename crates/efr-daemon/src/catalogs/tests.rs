@@ -142,6 +142,35 @@ fn the_offer_names_the_accounts_of_the_model_a_full_one_only_when_it_frees_up_fi
     assert_eq!(out.others, []);
 }
 
+/// An account that `[accounts]` names and that never had a login has no list. It is of
+/// the kind of the account that is out, so the offer names it with its login line
+/// (TM-Accounts 5). One of another kind with no list is not named.
+#[test]
+fn a_named_account_that_never_had_a_login_is_offered_signed_out() {
+    let anthropic = |provider: &str| {
+        let catalog = ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new());
+        Arc::new(Models::fixed(provider, catalog))
+    };
+    let catalogs = Catalogs::new(
+        anthropic(ANTHROPIC),
+        vec![anthropic("anthropic-api.personal"), anthropic("anthropic-api.work")],
+        Arc::new(LimitBook::new(TestClock::new().shared())),
+    );
+    let text = "[model]\nprovider = \"anthropic-api\"\n\n[accounts.labels]\n\
+                \"anthropic-api.personal\" = \"Personal\"\n";
+    let settings = Settings::parse(std::path::Path::new("/c/config.toml"), Some(text)).unwrap();
+    catalogs.set_logged_in(ANTHROPIC, true);
+    let spend = LimitReached { kind: LimitKind::SpendLimit, resets_at: None };
+
+    let out = catalogs.account_out(&settings, ANTHROPIC, "claude-opus-5-5", spend);
+
+    // NOTE: work has no login and `[accounts]` does not name it.
+    assert_eq!(offered(&out), [("anthropic-api.personal", AccountState::SignedOut, None)]);
+    let other_kind = LimitReached { kind: LimitKind::Credit, resets_at: None };
+    let out = catalogs.account_out(&settings, "openai-api", "claude-opus-5-5", other_kind);
+    assert_eq!(offered(&out), [], "the Claude accounts are of another kind");
+}
+
 /// The providers of the listed models, each once, in their order.
 fn providers(catalogs: &Catalogs, settings: &Settings) -> Vec<String> {
     let mut seen: Vec<String> = Vec::new();

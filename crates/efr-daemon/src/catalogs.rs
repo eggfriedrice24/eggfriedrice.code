@@ -171,7 +171,9 @@ impl Catalogs {
     /// Why the account `provider` cannot serve a turn on `model`: it reached `reached`.
     /// The offer names the other accounts of the model list that list `model`, in its
     /// order: each one that is ready, each one that is signed out, and each one that is
-    /// full when its reset comes before the one of `reached`, or `reached` has none.
+    /// full when its reset comes before the one of `reached`, or `reached` has none. A
+    /// signed-out account with no list at all, which never had a login, counts as
+    /// listing `model` when it is of the kind of `provider`.
     /// efrd never switches by itself; the user picks one.
     pub(crate) fn account_out(
         &self,
@@ -185,7 +187,17 @@ impl Catalogs {
             .shown(settings)
             .iter()
             .filter(|other| other.provider() != provider)
-            .filter(|other| other.effective(settings).iter().any(|info| info.id == model))
+            .filter(|other| {
+                let listed = other.effective(settings);
+                // NOTE: an account that never had a login has no list to hold the
+                // model; one of the same kind as the account that is out serves the
+                // same models, so it gets its login line (TM-Accounts 5).
+                listed.iter().any(|info| info.id == model)
+                    || (listed.is_empty()
+                        && !self.logged_in(other.provider())
+                        && efr_config::provider_kind(other.provider())
+                            == efr_config::provider_kind(provider))
+            })
             .filter_map(|other| {
                 let id = other.provider();
                 let (state, resets_at) = match self.limits.reached(id) {
