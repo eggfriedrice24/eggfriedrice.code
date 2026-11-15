@@ -104,6 +104,21 @@ describe("the blank root", () => {
     expect(screen.getByTestId("composer-input").props.placeholder).toBe("Message efr");
   });
 
+  it("shows the mode of the mode control in the shell block (round 7, item 8)", async () => {
+    test = await testServices(undefined, { lockOn: true });
+    const current = test;
+    view = await renderRouter(screenRoutes(current), { initialUrl: "/" });
+    await act(async () => {
+      await current.answerCheck({ kind: "passed" });
+    });
+    await fireEvent(screen.getByTestId("composer-mode-menu"), "pressAction", {
+      nativeEvent: { event: "auto" },
+    });
+    await act(flush);
+    expect(screen.getByLabelText("desktop, in ~, auto")).toBeOnTheScreen();
+    expect(screen.getByTestId("shell-block")).toHaveTextContent("desktop ~ auto");
+  });
+
   it("follows a pick of the machine menu", async () => {
     const { services } = await open();
     await act(async () => {

@@ -15,6 +15,7 @@
 //
 // The header belongs to the root stack (features/navigation), so this screen sets none.
 
+import { useSelector } from "@tanstack/react-store";
 import { useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { useDeferredValue, useState, type ReactNode } from "react";
@@ -25,6 +26,7 @@ import { MonoText } from "@/components/ui/mono-text";
 import { newCommandId } from "@/lib/native/database";
 import type { Machine } from "@/features/machines/model/machine";
 import { isTailnetDown } from "@/features/machines/model/machine-status";
+import { selectLockOn } from "@/features/navigation/model/app-lock";
 import { modelSheetHref } from "@/features/navigation/model/routes";
 import {
   useDrafts,
@@ -37,7 +39,8 @@ import {
 import { useMachineConnections, useRootMachine } from "@/features/navigation/use-machines";
 import { useOpenConversation } from "@/features/navigation/use-open-conversation";
 import { DockedComposer } from "../components/composer/composer";
-import { BLANK_CWD, BLANK_MODE, type ComposerTarget } from "../model/composer-state";
+import { BLANK_CWD, composerDraftKey, type ComposerTarget } from "../model/composer-state";
+import { effectiveMode, selectMode, type PhoneMode } from "../model/model-choices";
 import type { Outbox, OutboxEntry } from "../model/outbox";
 import type { ComposerDeps } from "../use-composer-actions";
 
@@ -93,6 +96,9 @@ function BlankRoot(props: BlankRootProps) {
     lock: appLock,
   };
   const target: ComposerTarget = { machine: machine.id, id: localId, isBlankRoot: true };
+  // The shell block shows the mode of the mode control (round 7, item 8).
+  const stored = useSelector(modelChoices.store, selectMode(composerDraftKey(target)));
+  const mode = effectiveMode(stored, useSelector(appLock.store, selectLockOn));
   const onSend = (entry: OutboxEntry): void => {
     if (entry.target.kind !== "new") {
       return;
@@ -108,7 +114,7 @@ function BlankRoot(props: BlankRootProps) {
       onPress={() => Keyboard.dismiss()}
       className="flex-1 bg-surface-1"
     >
-      <ShellBlock top={top + SHELL_TOP} machineName={machine.name} />
+      <ShellBlock top={top + SHELL_TOP} machineName={machine.name} mode={mode} />
       {supervisor === undefined ? null : (
         // The wrapper fills the screen for the same reason as in conversation-screen.tsx:
         // a shorter one would drop the taps on the composer that the keyboard moved up.
@@ -134,6 +140,8 @@ interface ShellBlockProps {
   /** The distance from the top of the screen. */
   readonly top: number;
   readonly machineName: string;
+  /** The mode of the next message, as the mode control shows it. */
+  readonly mode: PhoneMode;
 }
 
 /** The two lines of the shell block (design 3.2): mono 13/19 at the gutter. */
@@ -141,9 +149,10 @@ function ShellBlock(props: ShellBlockProps) {
   return (
     <View className="px-gutter" style={{ paddingTop: props.top }}>
       <MonoText
+        testID="shell-block"
         size="monoShell"
         tone="text_subtle"
-        accessibilityLabel={`${props.machineName}, in ${BLANK_CWD}, ${BLANK_MODE}`}
+        accessibilityLabel={`${props.machineName}, in ${BLANK_CWD}, ${props.mode}`}
       >
         <MonoText size="monoShell" tone="text_bright">
           {props.machineName}
@@ -151,7 +160,7 @@ function ShellBlock(props: ShellBlockProps) {
         <MonoText size="monoShell" tone="prompt_directory">
           {BLANK_CWD}
         </MonoText>
-        {` ${BLANK_MODE}`}
+        {` ${props.mode}`}
       </MonoText>
       <View className="flex-row items-center" accessibilityElementsHidden>
         <Text className="text-mono-shell text-accent-primary">❯ </Text>
