@@ -28,6 +28,8 @@ export interface OutboxDrainsDeps {
   readonly clock: Clock;
   /** A random value in [0, 1) for the backoff ladders. */
   readonly random: () => number;
+  /** True while an entry may go out in auto: the Face ID unlock is on. */
+  readonly autoAllowed?: () => boolean;
 }
 
 interface MachineDrain {
@@ -63,6 +65,7 @@ export function wireOutboxDrains(deps: OutboxDrainsDeps): () => void {
         runtime.call(machine, "prompt.send", params),
       clock: deps.clock,
       random: deps.random,
+      autoAllowed: () => deps.autoAllowed?.() ?? true,
     });
     const isOnline = (): boolean => supervisor.connection.get().view.kind === "online";
     const entry: MachineDrain = {

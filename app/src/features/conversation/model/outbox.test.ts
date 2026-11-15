@@ -141,6 +141,38 @@ describe("the outbox", () => {
     expect(sendParams(snapshot, cautious).settings).toBeUndefined();
     await outbox.flush();
     expect((await storage.load()).map((saved) => saved.auto)).toEqual([true, true, undefined]);
+    // The Face ID unlock is off at the moment of the send: no mode.
+    expect(sendParams(snapshot, auto, false).settings).toBeUndefined();
+    expect(sendParams(snapshot, both, false).settings).toEqual({
+      model: "gpt-6-luna",
+      provider: "openai-subscription",
+    });
+  });
+
+  it("drops auto from each entry that efrd did not take, also on the disk", async () => {
+    const storage = new MemoryOutboxStorage();
+    const { outbox } = testOutbox(storage);
+    const sent = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "sent", auto: true });
+    outbox.begin(sent.commandId);
+    outbox.succeed(sent.commandId, result(CONVERSATION_A, 4));
+    const sending = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "sending", auto: true });
+    outbox.begin(sending.commandId);
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "pending", auto: true });
+    outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "plain" });
+    outbox.dropAuto();
+    expect(outbox.store.get().entries.map((entry) => [entry.text, entry.auto])).toEqual([
+      ["sent", true],
+      ["sending", undefined],
+      ["pending", undefined],
+      ["plain", undefined],
+    ]);
+    await outbox.flush();
+    const saved = await storage.load();
+    expect(saved.find((entry) => entry.text === "pending")?.auto).toBeUndefined();
+    // Nothing to drop: the store keeps its object.
+    const before = outbox.store.get();
+    outbox.dropAuto();
+    expect(outbox.store.get()).toBe(before);
   });
 
   it("resolves the local id of a new conversation once efrd made it", () => {

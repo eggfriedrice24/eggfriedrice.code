@@ -40,6 +40,14 @@ export interface ModelChoice {
 /** The mode of the next messages of a composer. The phone never sends full. */
 export type PhoneMode = "cautious" | "auto";
 
+/**
+ * The mode that the next message of a composer runs with: auto only when the composer is
+ * in auto AND the Face ID unlock of the app is on (round 9).
+ */
+export function effectiveMode(stored: PhoneMode, lockOn: boolean): PhoneMode {
+  return stored === "auto" && lockOn ? "auto" : "cautious";
+}
+
 /** The choices by draft key. */
 export interface ModelChoicesState {
   readonly choices: ReadonlyMap<string, ModelChoice>;
@@ -121,6 +129,8 @@ export interface ModelChoices {
   mode(key: DraftKey): PhoneMode;
   /** Sets the mode of the next messages of `key`. */
   setMode(key: DraftKey, mode: PhoneMode): void;
+  /** Sets every composer back to cautious: the Face ID unlock turned off (D3). */
+  clearAuto(): void;
   /** Makes `model` the favourite of `provider` on `machine`; undefined removes it. */
   setFavourite(machine: DaemonId, provider: string | undefined, model: string | undefined): void;
   /** Keeps `provider` as the last plan of `machine`. */
@@ -312,6 +322,15 @@ export function createModelChoices(deps: ModelChoicesDeps): ModelChoices {
         } else {
           auto.delete(key);
         }
+        return true;
+      });
+    },
+    clearAuto(): void {
+      update(({ auto }) => {
+        if (auto.size === 0) {
+          return false;
+        }
+        auto.clear();
         return true;
       });
     },

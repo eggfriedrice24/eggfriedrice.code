@@ -72,6 +72,8 @@ export interface OutboxDrainOptions {
   readonly backoff?: BackoffConfig;
   /** Called after efrd took an entry, with its result. */
   readonly onSent?: (entry: OutboxEntry, result: PromptSendResult) => void;
+  /** True while an entry may go out in auto: the Face ID unlock is on. Default: true. */
+  readonly autoAllowed?: () => boolean;
 }
 
 /** The drain of one machine. */
@@ -184,7 +186,7 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
   };
 
   const sendOne = (entry: OutboxEntry): void => {
-    const params = sendParams(outbox.store.get(), entry);
+    const params = sendParams(outbox.store.get(), entry, options.autoAllowed?.() ?? true);
     if (!outbox.begin(entry.commandId)) {
       return;
     }

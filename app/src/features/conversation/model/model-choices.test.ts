@@ -5,6 +5,7 @@ import { MemoryKeyValue } from "@/lib/store/testing";
 import { draftKey } from "./drafts";
 import {
   createModelChoices,
+  effectiveMode,
   favouriteOf,
   MODEL_CHOICES_KEY,
   sameChoice,
@@ -147,5 +148,26 @@ describe("the mode, the favourites and the plan", () => {
     expect(favouriteOf(state.favourites, DESKTOP, "anthropic-api")).toBeUndefined();
     expect(favouriteOf(state.favourites, LAPTOP, "anthropic-api")).toBe("claude-sonnet-5-5");
     expect(state.plans.get(DESKTOP)).toBeUndefined();
+  });
+});
+
+describe("auto and the Face ID unlock", () => {
+  it("runs auto only while the unlock is on", () => {
+    expect(effectiveMode("auto", true)).toBe("auto");
+    expect(effectiveMode("auto", false)).toBe("cautious");
+    expect(effectiveMode("cautious", true)).toBe("cautious");
+    expect(effectiveMode("cautious", false)).toBe("cautious");
+  });
+
+  it("sets every composer back to cautious and saves it (D3)", async () => {
+    const storage = new MemoryKeyValue();
+    const choices = createModelChoices({ storage });
+    choices.setMode(KEY, "auto");
+    choices.setMode(draftKey(LAPTOP, CONVERSATION_A), "auto");
+    choices.clearAuto();
+    expect(choices.mode(KEY)).toBe("cautious");
+    expect(choices.mode(draftKey(LAPTOP, CONVERSATION_A))).toBe("cautious");
+    await choices.settled();
+    expect(createModelChoices({ storage }).mode(KEY)).toBe("cautious");
   });
 });

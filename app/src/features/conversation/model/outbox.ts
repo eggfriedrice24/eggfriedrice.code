@@ -80,8 +80,9 @@ export interface OutboxEntry {
   /** The model, account and effort that the user chose; absent: what efrd runs. */
   readonly settings?: OutboxSettings;
   /**
-   * True when the prompt runs in auto: the owner passed the check of the iPhone at the
-   * tap on Send. Absent: no mode, which efrd runs as cautious for a phone.
+   * True when the prompt runs in auto: the mode of the conversation was auto and the Face
+   * ID unlock of the app was on at the tap on Send. Absent: no mode, which efrd runs as
+   * cautious for a phone.
    */
   readonly auto?: true;
 }
@@ -180,6 +181,12 @@ export interface Outbox {
   settle(machine: DaemonId, conversationId: ConversationId, cursor: number): void;
   /** Removes every entry and alias of a forgotten machine, also on the disk. */
   removeMachine(machine: DaemonId): Promise<void>;
+  /**
+   * Removes `auto` from each entry that efrd did not take, in the store and on the disk:
+   * the Face ID unlock turned off or on (app-lock.ts). The prompt still goes out, as
+   * cautious.
+   */
+  dropAuto(): void;
   /** Resolves when every disk write so far is done. */
   flush(): Promise<void>;
 }
@@ -282,7 +289,11 @@ export function drainPlan(snapshot: OutboxSnapshot, machine: DaemonId, now: numb
  * The params of `prompt.send` for an entry: its conversation, the conversation of the
  * alias of its new target, or `new_conversation` when efrd did not make it yet.
  */
-export function sendParams(snapshot: OutboxSnapshot, entry: OutboxEntry): PromptSend {
+export function sendParams(
+  snapshot: OutboxSnapshot,
+  entry: OutboxEntry,
+  autoAllowed = true,
+): PromptSend {
   const params: PromptSend = { command_id: entry.commandId, text: entry.text };
   if (entry.target.kind === "conversation") {
     params.conversation_id = entry.target.conversationId;
@@ -304,7 +315,8 @@ export function sendParams(snapshot: OutboxSnapshot, entry: OutboxEntry): Prompt
       params.settings.effort = settings.effort;
     }
   }
-  if (entry.auto === true) {
+  // NOTE: auto goes out only while the Face ID unlock is on at the moment of the send.
+  if (entry.auto === true && autoAllowed) {
     params.settings = { ...params.settings, mode: "auto" };
   }
   return params;
@@ -605,6 +617,25 @@ export function createOutbox(deps: OutboxDeps): Outbox {
         await disk.put(entry);
       });
       return entry;
+    },
+
+    dropAuto(): void {
+      const changed: OutboxEntry[] = [];
+      const entries = store.state.entries.map((entry) => {
+        if (entry.auto !== true || entry.state === "sent") {
+          return entry;
+        }
+        const { auto: _auto, ...rest } = entry;
+        changed.push(rest);
+        return rest;
+      });
+      if (changed.length === 0) {
+        return;
+      }
+      store.setState((state) => ({ entries, aliases: state.aliases }));
+      for (const entry of changed) {
+        write((disk) => disk.put(entry));
+      }
     },
 
     discard(commandId: CommandId): void {
