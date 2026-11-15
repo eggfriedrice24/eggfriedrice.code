@@ -17,6 +17,7 @@ import {
   accountName,
   accountKind,
   ageText,
+  isoMs,
   limitLevel,
   limitsNow,
   limitWords,
@@ -94,16 +95,8 @@ export interface AccountScreenView {
   readonly footer: string;
 }
 
-function ms(time: string | null | undefined): number | undefined {
-  if (time === undefined || time === null) {
-    return undefined;
-  }
-  const parsed = Date.parse(time);
-  return Number.isNaN(parsed) ? undefined : parsed;
-}
-
 function withReset(words: string, resetsAt: string | null | undefined, now: number): string {
-  const at = ms(resetsAt);
+  const at = isoMs(resetsAt);
   return at === undefined ? words : `${words} · ${resetText(at, now)}`;
 }
 

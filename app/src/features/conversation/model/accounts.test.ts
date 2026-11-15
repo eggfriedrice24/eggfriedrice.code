@@ -141,3 +141,13 @@ describe("the limits of an account", () => {
     );
   });
 });
+
+describe("the times of efrd", () => {
+  it("reads an ISO time in milliseconds, and nothing for a missing or broken one", () => {
+    expect(isoMs("2026-11-14T14:20:00Z")).toBe(Date.UTC(2026, 10, 14, 14, 20));
+    expect(isoMs("2026-11-14T15:20:00+01:00")).toBe(Date.UTC(2026, 10, 14, 14, 20));
+    expect(isoMs(undefined)).toBeUndefined();
+    expect(isoMs(null)).toBeUndefined();
+    expect(isoMs("soon")).toBeUndefined();
+  });
+});

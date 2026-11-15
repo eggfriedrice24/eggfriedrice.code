@@ -18,7 +18,14 @@
 // Pure TypeScript.
 
 import type { AccountOut, LimitKind, LimitReached } from "@/lib/protocol/generated";
-import { accountName, accountShort, accountSubject, loginCommand, resetText } from "./accounts";
+import {
+  accountName,
+  accountShort,
+  accountSubject,
+  isoMs,
+  loginCommand,
+  resetText,
+} from "./accounts";
 import type { ModelChoice } from "./model-choices";
 import { modelName } from "./model-names";
 
@@ -51,12 +58,7 @@ export interface AccountOutContext {
 }
 
 function resetAt(reached: LimitReached): number | undefined {
-  const at = reached.resets_at ?? undefined;
-  if (at === undefined) {
-    return undefined;
-  }
-  const parsed = Date.parse(at);
-  return Number.isNaN(parsed) ? undefined : parsed;
+  return isoMs(reached.resets_at);
 }
 
 /** What the account did, after its name, as the terminal says it. */

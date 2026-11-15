@@ -186,7 +186,12 @@ export interface LimitsNow {
   readonly reached: LimitReached | undefined;
 }
 
-function ms(time: string | null | undefined): number | undefined {
+/**
+ * An ISO time of efrd in milliseconds, or `undefined` when it is missing or does not
+ * parse. The model sheet, Settings and the turn end all read a reset through it, so they
+ * agree.
+ */
+export function isoMs(time: string | null | undefined): number | undefined {
   if (time === undefined || time === null) {
     return undefined;
   }
@@ -195,7 +200,7 @@ function ms(time: string | null | undefined): number | undefined {
 }
 
 function passed(resetsAt: string | null | undefined, now: number): boolean {
-  const at = ms(resetsAt);
+  const at = isoMs(resetsAt);
   return at !== undefined && at <= now;
 }
 
@@ -213,7 +218,7 @@ export function limitsNow(
   if (windows.length === 0 && reached === undefined) {
     return undefined;
   }
-  return { observedAt: ms(limits.observed_at), windows, reached };
+  return { observedAt: isoMs(limits.observed_at), windows, reached };
 }
 
 /** How full an account is, as the sheet header and Settings show it. */
@@ -252,11 +257,11 @@ export function limitLevel(
     return { kind: "none" };
   }
   if (held.reached !== undefined) {
-    return { kind: "reached", resetsAt: ms(held.reached.resets_at) };
+    return { kind: "reached", resetsAt: isoMs(held.reached.resets_at) };
   }
   const full = held.windows.find((window) => window.used_percent >= 100);
   if (full !== undefined) {
-    return { kind: "reached", resetsAt: ms(full.resets_at) };
+    return { kind: "reached", resetsAt: isoMs(full.resets_at) };
   }
   const tightest = tightestWindow(held.windows);
   if (tightest === undefined || tightest.used_percent < from) {
