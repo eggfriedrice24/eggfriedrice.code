@@ -240,13 +240,12 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     ownerFacts: lock.ownerFacts,
     hasPasscode: lock.hasPasscode,
     save: ({ on, notice }) => preferences.setFaceIdUnlock(on, notice),
-    // NOTE: off sets every composer back to cautious (D3); on and off both drop the old
-    // auto of the outbox, so no auto comes back by itself.
-    onSwitch: (on) => {
+    // NOTE: each change sets every composer back to cautious and drops the old auto of
+    // the outbox (D3), so no auto comes back by itself: not an auto that an old build
+    // stored with no switch, and not one whose clear did not reach the storage.
+    onSwitch: () => {
       outbox.dropAuto();
-      if (!on) {
-        modelChoices.clearAuto();
-      }
+      modelChoices.clearAuto();
     },
     onLock: lock.dismissInput,
     announce: lock.announce,

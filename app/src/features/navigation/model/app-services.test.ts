@@ -361,6 +361,19 @@ describe("the Face ID unlock in the services", () => {
     expect(lockView(test.services.appLock.store.get())).toBe("app");
   });
 
+  it("brings no stored auto back when the switch turns on (D3)", async () => {
+    parts = await testServices();
+    const test = parts;
+    const key = draftKey(DESKTOP, CONVERSATION);
+    // An auto that a round 7 build stored with no switch.
+    test.services.modelChoices.setMode(key, "auto");
+    test.services.appLock.setOn(true);
+    await flush();
+    await test.answerCheck({ kind: "passed" });
+    expect(test.services.appLock.store.get().on).toBe(true);
+    expect(test.services.modelChoices.mode(key)).toBe("cautious");
+  });
+
   it("sets the composers back to cautious and drops the auto of the outbox when it turns off", async () => {
     parts = await testServices(undefined, { lockOn: true });
     const test = parts;
