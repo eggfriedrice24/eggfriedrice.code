@@ -137,8 +137,15 @@ export function ModelSheetView(props: ModelSheetViewProps) {
           />
         )}
         {view.quiet === undefined ? null : (
-          <View testID="model-quiet-line" className="flex-row flex-wrap items-center gap-x-4">
-            <Text className="shrink text-caption text-text-subtle">{view.quiet.text}</Text>
+          // NOTE: two lines of room at all times, so a change of the effort never moves the
+          // slider above it.
+          <View
+            testID="model-quiet-line"
+            className="min-h-32 flex-row flex-wrap items-start gap-x-4"
+          >
+            <Text className="shrink text-caption text-text-subtle">
+              {view.confirm?.next === true ? `${view.quiet.text} · next message` : view.quiet.text}
+            </Text>
             {view.quiet.useDefault ? (
               // A control of its own, so the touch reaches 44 pt like every other one.
               <Pressable
@@ -339,20 +346,22 @@ function ModelRow(props: ModelRowProps) {
   );
 }
 
+/**
+ * The warning of a switch that compacts, with "Don't ask again here". The confirm itself
+ * is the native "Use" of the header, so a change of the effort alone adds no row here.
+ */
 function ConfirmRow(props: ModelSheetViewProps) {
   const confirm = props.view.confirm;
-  if (confirm === undefined) {
+  if (confirm?.compacts !== true) {
     return null;
   }
   return (
     <View className="gap-6">
-      {confirm.compacts ? (
-        <View testID="model-cost-line" className="flex-row items-center gap-7">
-          <SymbolIcon name="exclamationmark.triangle" size={13} tone="state_warning" />
-          <Text className="flex-1 text-reason text-text-muted">{COMPACTS_TEXT}</Text>
-        </View>
-      ) : null}
-      <View className="min-h-44 flex-row items-center gap-10">
+      <View testID="model-cost-line" className="flex-row items-center gap-7">
+        <SymbolIcon name="exclamationmark.triangle" size={13} tone="state_warning" />
+        <Text className="flex-1 text-reason text-text-muted">{COMPACTS_TEXT}</Text>
+      </View>
+      <View className="min-h-28 flex-row items-center gap-10">
         {confirm.compacts ? (
           <Pressable
             accessibilityRole="switch"
@@ -371,9 +380,6 @@ function ConfirmRow(props: ModelSheetViewProps) {
               {props.quiet ? "✓ Don't ask again here" : "Don't ask again here"}
             </Text>
           </Pressable>
-        ) : null}
-        {confirm.next ? (
-          <Text className="text-reason text-text-subtle">{`${confirm.label} · next message`}</Text>
         ) : null}
       </View>
     </View>
