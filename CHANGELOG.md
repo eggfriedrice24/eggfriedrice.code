@@ -76,10 +76,13 @@ into the GitHub release notes, and it stops when the section is missing.
   of an always rule or of efr, and what the call got, in the words of the terminal. A
   pause of the reviewer is one quiet line.
 - The phone app shows on the tool card which changed git settings and other files that
-  run programs moved to quarantine, and which stayed in place.
+  run programs moved to quarantine, and which stayed in place. With the reviewer off,
+  the phone app shows the quarantine question on the tool card, in the strip and in a
+  sheet, and names the computer where you answer it. After the answer, the card says
+  kept or left in quarantine.
 - The phone app lists the web pages that an answer cites at the end of the turn, counts
   the searches on the end line, and says when the search read a stored copy of the
-  web.
+  web and names what gives the live web.
 
 ### Changed
 
