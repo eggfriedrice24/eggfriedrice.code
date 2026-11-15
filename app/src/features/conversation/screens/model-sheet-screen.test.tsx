@@ -14,7 +14,7 @@ import {
   within,
   type RenderRouterResult,
 } from "expo-router/testing-library";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Keyboard, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { ReactNode } from "react";
 
 import { flush } from "@/lib/net/testing";
@@ -412,6 +412,12 @@ describe("the model sheet", () => {
     await act(flush);
     expect(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`)).toBeOnTheScreen();
     expect(screen.queryByTestId(`model-row-${PLAN}/gpt-6.1-sol`)).toBeNull();
+
+    // A tap on a row during a search closes the keyboard, so the panel shows again.
+    const dismiss = jest.spyOn(Keyboard, "dismiss");
+    await fireEvent.press(screen.getByTestId(`model-row-${PLAN}/gpt-5.5`));
+    expect(dismiss).toHaveBeenCalled();
+    dismiss.mockRestore();
   });
 
   it("names the providers All, Claude and OpenAI in the filter, and filters by one", async () => {

@@ -30,6 +30,7 @@ import { useSelector } from "@tanstack/react-store";
 import { createStore, shallow } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
+import { Keyboard } from "react-native";
 
 import { haptic } from "@/lib/native/haptics";
 import { EMPTY_STREAM, runningTurn } from "@/lib/stream/reducer";
@@ -213,6 +214,9 @@ function SheetBody(props: SheetBodyProps) {
   const onRow = (row: SheetRow): void => {
     if (!row.disabled) {
       select(pickRow(list, current, row.model, row.provider));
+      // The keyboard goes, so the slider and the quiet line of the pick show again
+      // (S-ModelSheet r7 "Keyboard"). The search text stays in the bar.
+      Keyboard.dismiss();
     }
   };
   const onEffort = (effort: string): void => {
