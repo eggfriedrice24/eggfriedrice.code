@@ -24,7 +24,9 @@ import type { Readable } from "@tanstack/store";
 import type { StreamState } from "@/lib/stream/reducer";
 
 import { ComposerInput } from "./composer-input";
+import { ComposerModeButton } from "./composer-mode-button";
 import { ComposerModelButton } from "./composer-model-button";
+import { ComposerNotSent } from "./composer-not-sent";
 import { ComposerRoot, type ComposerRootProps } from "./composer-root";
 import { ComposerStatus, ComposerStatusLine } from "./composer-status-line";
 import { ComposerTrailing } from "./composer-trailing";
@@ -84,18 +86,23 @@ export function DockedComposer(props: DockedComposerProps) {
   return (
     <ComposerRoot {...root}>
       {strip}
+      <ComposerNotSent />
       <ComposerStatusLine>
         {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
-        {onOpenModels === undefined ? null : stream === undefined ? (
-          <ComposerModelButton deps={root.deps} target={root.target} onPress={onOpenModels} />
-        ) : (
-          <ComposerModelButton
-            deps={root.deps}
-            target={root.target}
-            store={stream}
-            onPress={onOpenModels}
-          />
-        )}
+        {/* The two settings of the next message stand together at the right end. */}
+        <View className="ml-auto shrink flex-row items-center gap-10">
+          <ComposerModeButton deps={root.deps} />
+          {onOpenModels === undefined ? null : stream === undefined ? (
+            <ComposerModelButton deps={root.deps} target={root.target} onPress={onOpenModels} />
+          ) : (
+            <ComposerModelButton
+              deps={root.deps}
+              target={root.target}
+              store={stream}
+              onPress={onOpenModels}
+            />
+          )}
+        </View>
       </ComposerStatusLine>
       <ComposerRow>
         <ComposerLeading />

@@ -81,6 +81,9 @@ export function ComposerSheet() {
       preferences: env.preferences,
       modelChoices: env.modelChoices,
       newCommandId: () => "0199d3e0-de39-7000-8000-0000000000ff",
+      // The gallery never asks iOS: each check passes.
+      checkOwner: () => Promise.resolve({ kind: "passed" as const }),
+      hasPasscode: () => Promise.resolve(true),
     },
     target: env.target,
     connection: env.connection,

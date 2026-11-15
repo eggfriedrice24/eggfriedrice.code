@@ -37,4 +37,5 @@ export const outboxEntrySchema = z.object({
       effort: z.string().exactOptional(),
     })
     .exactOptional(),
+  auto: z.literal(true).exactOptional(),
 }) satisfies z.ZodType<OutboxEntry>;

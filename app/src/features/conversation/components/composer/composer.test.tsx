@@ -24,6 +24,7 @@ import { createDrafts, type Drafts } from "../../model/drafts";
 import { createModelChoices, type ModelChoice, type ModelChoices } from "../../model/model-choices";
 import type { Outbox, OutboxEntry } from "../../model/outbox";
 import { CONVERSATION_A, DESKTOP, idMaker, testOutbox } from "../../model/outbox-testing";
+import type { OwnerCheck } from "../../model/owner-check";
 import type { ComposerDeps } from "../../use-composer-actions";
 import { DockedComposer, type DockedComposerProps } from "./composer";
 import { bottomEdge, KEYBOARD_GAP, SCRIM_CLASS } from "./composer-root";
@@ -109,6 +110,8 @@ interface Harness {
   readonly sent: OutboxEntry[];
   /** How often the model button opened the sheet. */
   readonly opened: { count: number };
+  /** How often the composer asked iOS to check the owner. */
+  readonly checks: { count: number };
 }
 
 interface Setup {
@@ -124,6 +127,12 @@ interface Setup {
   readonly choice?: ModelChoice;
   /** The answer of `models.list`; with it the status line has the model button. */
   readonly models?: ModelsListResult;
+  /** What the check of the owner answers; it passes when absent. */
+  readonly check?: OwnerCheck;
+  /** The running turn runs in auto. */
+  readonly runningAuto?: boolean;
+  /** False: the iPhone has no passcode. */
+  readonly passcode?: boolean;
 }
 
 async function renderComposer(setup: Setup = {}): Promise<Harness> {
@@ -139,6 +148,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
     modelChoices.set(composerDraftKey(target), setup.choice);
   }
   const opened = { count: 0 };
+  const checks = { count: 0 };
   const connection = createAtom<MachineConnection>({
     client: { state: "off" },
     view: setup.view ?? ONLINE,
@@ -154,6 +164,11 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
     preferences,
     modelChoices,
     newCommandId: idMaker("c0000000"),
+    checkOwner: () => {
+      checks.count += 1;
+      return Promise.resolve(setup.check ?? { kind: "passed" });
+    },
+    hasPasscode: () => Promise.resolve(setup.passcode !== false),
   };
   const sent: OutboxEntry[] = [];
   // No garbage collection timer, so jest ends when the tests do.
@@ -177,6 +192,9 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
   if (setup.runningTurnId !== undefined) {
     props.runningTurnId = setup.runningTurnId;
   }
+  if (setup.runningAuto !== undefined) {
+    props.runningAuto = setup.runningAuto;
+  }
   if (setup.stream !== undefined) {
     props.stream = setup.stream;
   }
@@ -195,7 +213,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       </QueryClientProvider>
     </SafeAreaProvider>,
   );
-  return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened };
+  return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened, checks };
 }
 
 /** Lets TanStack Query tell the observers of a mutation (it notifies on a timer of 0 ms). */
@@ -610,5 +628,102 @@ describe("the actions of the composer", () => {
     await fireEvent.changeText(input(), "a");
     await fireEvent.changeText(input(), "ab");
     expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("ab");
+  });
+});
+
+/** Picks `mode` in the mode menu of the composer. */
+async function pickMode(mode: "cautious" | "auto"): Promise<void> {
+  await fireEvent(screen.getByTestId("composer-mode-menu"), "pressAction", {
+    nativeEvent: { event: mode },
+  });
+}
+
+describe("the mode and the check of the owner (S-ComposerR7, AU-Auto 4-6)", () => {
+  it("is cautious by default, and the menu offers Cautious and Auto, never Full", async () => {
+    await renderComposer({ text: "Push the fix." });
+    await settleQuery();
+    const button = screen.getByTestId("composer-mode-button");
+    expect(button).toHaveTextContent("cautious");
+    expect(button).toHaveAccessibleName(
+      "Mode: cautious. efr asks you before a call leaves the sandbox.",
+    );
+    const menu = screen.getByTestId("composer-mode-menu");
+    expect(
+      menu.props.actions.map((action: { id: string; subtitle: string; state: string }) => [
+        action.id,
+        action.subtitle,
+        action.state,
+      ]),
+    ).toEqual([
+      ["cautious", "efr asks you before a call leaves the sandbox.", "on"],
+      ["auto", "A reviewer decides each call. Face ID first.", "off"],
+    ]);
+    await pickMode("auto");
+    expect(screen.getByTestId("composer-mode-button")).toHaveTextContent("🤖auto");
+    expect(screen.getByRole("button", { name: "Send in auto. Face ID first." })).toBeOnTheScreen();
+  });
+
+  it("sends in cautious with no check and no mode", async () => {
+    const harness = await renderComposer({ text: "Push the fix." });
+    await fireEvent.press(sendButton());
+    expect(harness.checks.count).toBe(0);
+    expect(harness.outbox.store.get().entries[0]?.auto).toBeUndefined();
+  });
+
+  it("checks the owner at the tap on Send in auto, then sends the message in auto", async () => {
+    const harness = await renderComposer({ text: "Push the fix." });
+    await pickMode("auto");
+    expect(harness.modelChoices.mode(composerDraftKey(CONVERSATION))).toBe("auto");
+    await fireEvent.press(screen.getByRole("button", { name: "Send in auto. Face ID first." }));
+    await settleQuery();
+    expect(harness.checks.count).toBe(1);
+    const entries = harness.outbox.store.get().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ text: "Push the fix.", auto: true });
+  });
+
+  it("keeps the message and says why when the check does not pass", async () => {
+    const harness = await renderComposer({
+      text: "Push the fix.",
+      check: { kind: "failed", method: "Face ID" },
+    });
+    await pickMode("auto");
+    await fireEvent.press(screen.getByRole("button", { name: "Send in auto. Face ID first." }));
+    await settleQuery();
+    expect(harness.outbox.store.get().entries).toHaveLength(0);
+    expect(input().props.value).toBe("Push the fix.");
+    expect(screen.getByTestId("composer-not-sent")).toHaveTextContent(
+      "Not sent. Face ID did not pass. Tap Send to try again.",
+    );
+    // A change of mode takes the line away.
+    await pickMode("cautious");
+    expect(screen.queryByTestId("composer-not-sent")).toBeNull();
+  });
+
+  it("offers no Auto on an iPhone without a passcode", async () => {
+    await renderComposer({ text: "Push the fix.", passcode: false });
+    await settleQuery();
+    const auto = screen
+      .getByTestId("composer-mode-menu")
+      .props.actions.find((action: { id: string }) => action.id === "auto");
+    expect(auto).toMatchObject({
+      subtitle: "Needs a passcode on this iPhone.",
+      attributes: { disabled: true },
+    });
+    await pickMode("auto");
+    expect(screen.getByTestId("composer-mode-button")).toHaveTextContent("cautious");
+  });
+
+  it("checks a steer into a turn that runs in auto", async () => {
+    const harness = await renderComposer({
+      runningTurnId: "t1",
+      runningAuto: true,
+      text: "Use TurnState",
+    });
+    harness.caller.answer({ "turn.steer": () => ({ seq: 12, turn_id: "t1" }) });
+    await fireEvent.press(screen.getByRole("button", { name: "Steer, more options" }));
+    await settleQuery();
+    expect(harness.checks.count).toBe(1);
+    expect(harness.caller.callsOf("turn.steer")).toHaveLength(1);
   });
 });

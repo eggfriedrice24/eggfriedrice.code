@@ -31,6 +31,10 @@
         }
       ],
       ["expo-secure-store", { "faceIDPermission": false }],
+      [
+        "expo-local-authentication",
+        { "faceIDPermission": "efr checks that it is you before a message runs in auto." }
+      ],
       "expo-sqlite"
     ],
     "experiments": {

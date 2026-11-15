@@ -235,10 +235,10 @@ export function selectStatus(state: StreamState): StatusView {
       }
     }
   }
-  // NOTE: efrd takes the answer to a quarantine question only from the terminal (a phone
-  // may not take a git setting out of quarantine), so such a question waits there.
+  // NOTE: the phone can answer Leave to a quarantine question (Q-Quarantine 8), so such a
+  // question waits for the user here too; only Keep stays at the terminal.
   if (waiting === "none" && running !== undefined && hasPendingQuarantine(running)) {
-    waiting = "computer";
+    waiting = "phone";
   }
   let queued = 0;
   let cwd: string | undefined;

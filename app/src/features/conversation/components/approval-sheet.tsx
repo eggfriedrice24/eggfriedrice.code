@@ -90,6 +90,8 @@ export function ApprovalSheet(props: ApprovalSheetProps) {
         stream={props.stream}
         callId={callId}
         machineName={props.machineName}
+        conversation={props.conversation}
+        caller={props.caller}
         onClose={props.onClose}
       />
     ) : (

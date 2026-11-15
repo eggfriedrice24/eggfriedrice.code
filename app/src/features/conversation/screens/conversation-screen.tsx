@@ -59,6 +59,7 @@ import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversati
 import { composerDraftKey, outboxInput, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
+import { checkOwner, hasPasscode } from "../native/owner-check";
 import type { ComposerDeps } from "../use-composer-actions";
 import { useOlderHistory } from "./use-older-history";
 import { useRouteConversation } from "./use-route-conversation";
@@ -134,6 +135,8 @@ function ConversationView(props: ConversationViewProps) {
   const held = stream ?? NO_STREAM;
   const loadOlder = useOlderHistory(stream, held.store, ref);
   const runningTurnId = useSelector(held.store, (state) => runningTurn(state)?.turnId);
+  // A steer into a turn that runs in auto needs the check of the owner too.
+  const runningAuto = useSelector(held.store, (state) => runningTurn(state)?.mode === "auto");
   const pending = useSelector(
     outbox.store,
     (snapshot) => outboxPrompts(snapshot, machine, props.routeId),
@@ -165,6 +168,8 @@ function ConversationView(props: ConversationViewProps) {
     preferences,
     modelChoices,
     newCommandId,
+    checkOwner,
+    hasPasscode,
   };
   const openModels = (select?: { readonly model: string; readonly provider?: string }): void => {
     const sheet: { -readonly [K in keyof ModelSheetTarget]: ModelSheetTarget[K] } = {
@@ -219,12 +224,17 @@ function ConversationView(props: ConversationViewProps) {
         onOpen={openApproval}
       />
     );
-  const composer: { stream?: Readable<StreamState>; runningTurnId?: string } = {};
+  const composer: {
+    stream?: Readable<StreamState>;
+    runningTurnId?: string;
+    runningAuto?: boolean;
+  } = {};
   if (stream !== undefined) {
     composer.stream = stream.store;
   }
   if (runningTurnId !== undefined) {
     composer.runningTurnId = runningTurnId;
+    composer.runningAuto = runningAuto;
   }
   return (
     <View className="flex-1 bg-surface-1">

@@ -78,11 +78,21 @@ export function QuarantineBoard() {
           <View className="gap-12">
             {one.strip === undefined ? null : (
               <View className="overflow-hidden rounded-box border border-border-subtle">
-                <QuarantineStripView model={one.strip} onOpen={() => undefined} />
+                <QuarantineStripView
+                  model={one.strip}
+                  leaving={false}
+                  onOpen={() => undefined}
+                  onLeave={() => undefined}
+                />
               </View>
             )}
             <View className="overflow-hidden rounded-box border border-border-subtle">
-              <QuarantineSheetView model={one.sheet} onClose={() => undefined} />
+              <QuarantineSheetView
+                model={one.sheet}
+                leaving={false}
+                onLeave={() => undefined}
+                onClose={() => undefined}
+              />
             </View>
           </View>
         </SheetCase>

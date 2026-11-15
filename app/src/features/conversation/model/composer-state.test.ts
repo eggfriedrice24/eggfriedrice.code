@@ -367,7 +367,7 @@ function limits(used: number, provider = "openai-subscription", resets?: string)
 }
 
 describe("the status line", () => {
-  it("shows the cwd, the mode and the context", () => {
+  it("shows the cwd and the context; the mode is a control of its own (S-ComposerR7 8)", () => {
     expect(
       statusParts({
         cwd: "/home/egg/code/efr",
@@ -378,7 +378,6 @@ describe("the status line", () => {
       }),
     ).toEqual([
       { key: "cwd", text: "~/code/efr", tone: "text_muted" },
-      { key: "mode", text: "cautious", tone: "text_subtle" },
       { key: "context", text: "ctx 42%", tone: "text_subtle" },
     ]);
   });
@@ -392,7 +391,7 @@ describe("the status line", () => {
         waiting: "phone",
         limit: "5-hour 92%",
       }).map((part) => part.key),
-    ).toEqual(["mode", "context", "limit", "waiting"]);
+    ).toEqual(["context", "limit", "waiting"]);
   });
 
   it("takes the limit from 90 % of the account of the running turn only", () => {
@@ -453,11 +452,8 @@ describe("the status line", () => {
     expect(statusParts({ ...base, waiting: "none" })).toEqual([]);
   });
 
-  it("shows the cwd and the mode of a new conversation on the blank root, with no ctx", () => {
-    expect(statusParts(BLANK_STATUS)).toEqual([
-      { key: "cwd", text: "~", tone: "text_muted" },
-      { key: "mode", text: "cautious", tone: "text_subtle" },
-    ]);
+  it("shows the cwd of a new conversation on the blank root, with no ctx", () => {
+    expect(statusParts(BLANK_STATUS)).toEqual([{ key: "cwd", text: "~", tone: "text_muted" }]);
   });
 
   it("reads the stream store", () => {

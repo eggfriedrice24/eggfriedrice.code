@@ -4,9 +4,11 @@
 // text_bright, what it does in 12/16 text_subtle, a hairline between them, then one quiet
 // line. model/quarantine.ts says what each state shows.
 //
-// efrd takes the answer only from the terminal, so both say "answer on <machine>" in
-// place of Keep and Leave, as for an approval that only the terminal can answer. After
-// the answer the sheet dims, says how the question ended and offers Close.
+// The phone can answer Leave only (Q-Quarantine 8, 9). Keep takes a git setting out of
+// quarantine, so it stays at the terminal: both show "Keep on <machine>" in mono 11
+// text_subtle where the Keep button was, then the filled capsule Leave. The strip has two
+// rows, the question alone on the first, so it stays readable at 402 pt. After the answer
+// the sheet dims, says how the question ended and offers Close.
 //
 // `QuarantineSheet` reads the question from the stream store; the views draw a model
 // only, for the gallery and the tests.
@@ -19,13 +21,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cn } from "@/components/ui/cn";
 import { Dot } from "@/components/ui/dot";
 import { MonoText } from "@/components/ui/mono-text";
-import { SmallPlainButton } from "@/components/ui/small-buttons";
+import { SmallFilledButton, SmallPlainButton } from "@/components/ui/small-buttons";
+import type { MachineCaller } from "@/lib/query/machine-caller";
 import { findQuarantine, type StreamState } from "@/lib/stream/reducer";
+import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import {
+  LEAVE,
+  LEAVE_HINT,
+  LEAVE_LABEL,
   quarantineSheet,
   type QuarantineSheetModel,
   type QuarantineStripModel,
 } from "../model/quarantine";
+import { useLeaveQuarantine } from "../use-leave-quarantine";
 
 /** The smallest space under the answer row, on a screen without a home indicator. */
 const MIN_BOTTOM = 12;
@@ -37,12 +45,16 @@ export interface QuarantineSheetProps {
   readonly callId: string;
   /** The short name of the machine, such as `desktop`. */
   readonly machineName: string;
+  readonly conversation: ConversationRef;
+  /** The runtime, which sends `sandbox.surface_respond`. */
+  readonly caller: MachineCaller;
   readonly onClose: () => void;
 }
 
 /** The sheet of the quarantine question of `callId`. */
 export function QuarantineSheet(props: QuarantineSheetProps) {
   const { callId } = props;
+  const leave = useLeaveQuarantine(props.caller, props.conversation);
   const question = useSelector(props.stream, (state) => findQuarantine(state, callId));
   const turnId = question?.turnId;
   const turn = useSelector(
@@ -57,7 +69,14 @@ export function QuarantineSheet(props: QuarantineSheetProps) {
     return null;
   }
   const model = quarantineSheet(question, turn?.cwd, props.machineName, turn?.ended === true);
-  return <QuarantineSheetView model={model} onClose={props.onClose} />;
+  return (
+    <QuarantineSheetView
+      model={model}
+      leaving={leave.leaving}
+      onLeave={() => leave.leave(model.questionId)}
+      onClose={props.onClose}
+    />
+  );
 }
 
 function sameTurn(
@@ -69,7 +88,41 @@ function sameTurn(
 
 export interface QuarantineSheetViewProps {
   readonly model: QuarantineSheetModel;
+  /** True while efrd has not taken the Leave yet. */
+  readonly leaving: boolean;
+  readonly onLeave: () => void;
   readonly onClose: () => void;
+}
+
+interface LeaveRowProps {
+  readonly keepElsewhere: string;
+  readonly keepLabel: string;
+  readonly leaving: boolean;
+  readonly onLeave: () => void;
+}
+
+/** "Keep on desktop" where the Keep button was, then the capsule Leave. */
+function LeaveRow(props: LeaveRowProps) {
+  return (
+    <>
+      <MonoText
+        testID="quarantine-keep-elsewhere"
+        accessibilityLabel={props.keepLabel}
+        tone="text_subtle"
+        className="text-mono-xs"
+      >
+        {props.keepElsewhere}
+      </MonoText>
+      <SmallFilledButton
+        label={LEAVE}
+        voiceLabel={LEAVE_LABEL}
+        accessibilityHint={LEAVE_HINT}
+        pending={props.leaving}
+        pendingLabel="Leaving in quarantine"
+        onPress={props.onLeave}
+      />
+    </>
+  );
 }
 
 /** The sheet of a model. */
@@ -106,8 +159,13 @@ export function QuarantineSheetView(props: QuarantineSheetViewProps) {
       >
         {closed === undefined ? null : <MonoText>{closed}</MonoText>}
         <View className="flex-1" />
-        {model.terminal === undefined ? null : (
-          <MonoText tone="accent_ui">{model.terminal}</MonoText>
+        {model.keepElsewhere === undefined ? null : (
+          <LeaveRow
+            keepElsewhere={model.keepElsewhere}
+            keepLabel={model.keepLabel}
+            leaving={props.leaving}
+            onLeave={props.onLeave}
+          />
         )}
         {closed === undefined ? null : <SmallPlainButton label="Close" onPress={props.onClose} />}
       </View>
@@ -117,27 +175,37 @@ export function QuarantineSheetView(props: QuarantineSheetViewProps) {
 
 export interface QuarantineStripViewProps {
   readonly model: QuarantineStripModel;
+  /** True while efrd has not taken the Leave yet. */
+  readonly leaving: boolean;
   readonly onOpen: () => void;
+  readonly onLeave: () => void;
 }
 
-/** The strip of a quarantine question: the dot, the question, then where to answer. */
+/** The strip of a quarantine question: the dot and the question, then the answer row. */
 export function QuarantineStripView(props: QuarantineStripViewProps) {
   const { model } = props;
   return (
-    <View testID="quarantine-strip" className="min-h-44 flex-row items-center gap-4 pr-12 pl-16">
+    <View testID="quarantine-strip" className="pr-12 pl-16">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={model.label}
         accessibilityHint="Opens the changed git settings."
         onPress={props.onOpen}
-        className="min-h-44 flex-1 flex-row items-center gap-8 active:opacity-60"
+        className="min-h-44 flex-row items-center gap-8 active:opacity-60"
       >
         <Dot size="large" />
         <Text numberOfLines={1} className="flex-1 text-mono-sm text-text-bright">
           {model.line}
         </Text>
       </Pressable>
-      <MonoText tone="accent_ui">{model.terminal}</MonoText>
+      <View className="min-h-44 flex-row items-center justify-end gap-12">
+        <LeaveRow
+          keepElsewhere={model.keepElsewhere}
+          keepLabel={model.keepLabel}
+          leaving={props.leaving}
+          onLeave={props.onLeave}
+        />
+      </View>
     </View>
   );
 }

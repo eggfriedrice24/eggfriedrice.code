@@ -36,6 +36,7 @@ import {
   selectPendingQuarantine,
 } from "../model/selectors";
 import { useAnswerApproval, useExpiryLabel } from "../use-answer-approval";
+import { useLeaveQuarantine } from "../use-leave-quarantine";
 import { QuarantineStripView } from "./quarantine-sheet";
 
 export interface ApprovalStripProps {
@@ -75,11 +76,17 @@ export function ApprovalStrip(props: ApprovalStripProps) {
     approval: first,
   });
   const expiry = useExpiryLabel(first?.expiresAt, props.clock);
+  const leave = useLeaveQuarantine(props.caller, props.conversation);
   if (asked !== undefined) {
     const strip = quarantineStrip(asked, cwd, props.machineName);
     const open = props.onOpen;
     return strip === undefined ? null : (
-      <QuarantineStripView model={strip} onOpen={() => open(strip.callId)} />
+      <QuarantineStripView
+        model={strip}
+        leaving={leave.leaving}
+        onOpen={() => open(strip.callId)}
+        onLeave={() => leave.leave(strip.questionId)}
+      />
     );
   }
   if (first === undefined) {

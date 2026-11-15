@@ -85,7 +85,7 @@ function questionOf(state: StreamState) {
 }
 
 describe("the quarantine question", () => {
-  it("waits on the card of its call, and the terminal answers it", () => {
+  it("waits on the card of its call, and the phone can answer it", () => {
     const state = stateOf(asked([FSMONITOR]));
     const question = questionOf(state);
     expect(question.answer).toBe("pending");
@@ -98,11 +98,11 @@ describe("the quarantine question", () => {
     expect(toolLabel(toolHeader(call), toolStatus(call, false, 0))).toBe(
       "Command pre-commit install, git settings changed, waiting for you",
     );
-    // efrd refuses an answer from a phone, so the question waits in the terminal.
+    // The phone can answer Leave (Q-Quarantine 8), so the question waits for the user here.
     expect(statusParts(selectComposerStatus(state, 0)).at(-1)).toEqual({
       key: "waiting",
-      text: "waiting in the terminal",
-      tone: "text_muted",
+      text: "waiting for you",
+      tone: "accent_primary",
     });
   });
 
@@ -115,9 +115,11 @@ describe("the quarantine question", () => {
     );
     expect(quarantineStrip(questionOf(stateOf(asked([FSMONITOR]))), CWD, "desktop")).toEqual({
       callId: "c1",
+      questionId: QUESTION,
       line: "keep .git/config (core.fsmonitor)?",
-      label: "Git settings changed: keep .git/config (core.fsmonitor)? Answer on desktop.",
-      terminal: "answer on desktop",
+      label: "Git settings changed: keep .git/config (core.fsmonitor)?",
+      keepElsewhere: "Keep on desktop",
+      keepLabel: "Keep is possible only on desktop",
     });
   });
 
@@ -129,7 +131,9 @@ describe("the quarantine question", () => {
         { path: ".git/hooks/pre-commit", what: "a new hook" },
       ],
       quiet: "Git settings that run programs, moved to quarantine, where nothing reads them.",
-      terminal: "answer on desktop",
+      questionId: QUESTION,
+      keepElsewhere: "Keep on desktop",
+      keepLabel: "Keep is possible only on desktop",
       closed: undefined,
     });
   });
@@ -143,7 +147,7 @@ describe("the quarantine question", () => {
     expect(toolStatus(call, false, 0)).toEqual({ kind: "quarantined", word: "left in quarantine" });
     expect(pendingQuarantine(left)).toEqual([]);
     expect(quarantineSheet(questionOf(left), CWD, "desktop", false)).toMatchObject({
-      terminal: undefined,
+      keepElsewhere: undefined,
       closed: "left in quarantine · on desktop",
     });
     const kept = stateOf(asked([FSMONITOR]), answered(true, "shell"));

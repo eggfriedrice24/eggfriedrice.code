@@ -20,6 +20,9 @@ export interface SmallButtonProps {
   /** The VoiceOver label while pending, such as "Allowing". */
   readonly pendingLabel?: string;
   readonly disabled?: boolean;
+  /** The VoiceOver label when it says more than the short visible label. */
+  readonly voiceLabel?: string;
+  readonly accessibilityHint?: string;
 }
 
 /** The filled yolk capsule: Allow, Next. */
@@ -29,7 +32,10 @@ export function SmallFilledButton(props: SmallButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={pending ? (props.pendingLabel ?? props.label) : props.label}
+      accessibilityLabel={
+        pending ? (props.pendingLabel ?? props.label) : (props.voiceLabel ?? props.label)
+      }
+      accessibilityHint={props.accessibilityHint}
       accessibilityState={{ disabled: disabled || pending, busy: pending }}
       disabled={disabled || pending}
       hitSlop={SLOP}

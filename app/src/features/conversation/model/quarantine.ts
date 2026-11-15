@@ -6,11 +6,11 @@
 //   .git/config (core.fsmonitor)?` or `keep 4 git changes?`.
 // - The sheet lists only the changes that went to quarantine (a file left in place cannot
 //   be kept): the path, and what it does in efr's words. One quiet line follows.
-// - efrd takes the answer only from the terminal: a phone may not take a git setting out
-//   of quarantine (efr-conversation refuses it with `RemoteSurfaceAnswer`). So the strip
-//   and the sheet say "answer on <machine>" in place of Keep and Leave, as for an approval
-//   that only the terminal can answer, and the status line says "waiting in the
-//   terminal".
+// - The phone can answer Leave only (Q-Quarantine 8, 9): a phone may not take a git
+//   setting out of quarantine (efr-conversation refuses a Keep with
+//   `RemoteSurfaceAnswer`). The strip has two rows: the question, then "Keep on
+//   <machine>" in mono 11 text_subtle where the Keep button was, and the capsule Leave.
+//   The sheet has the same answer row. The status line says "waiting for you".
 // - After the answer: "kept", "left in quarantine", or "not answered · left in
 //   quarantine" when the question expired or the turn stopped. An answer of the terminal
 //   while the sheet shows adds where it came from: "left in quarantine · on desktop".
@@ -26,13 +26,26 @@ export const QUARANTINE_QUIET =
 /** The strip of the question that waits first. */
 export interface QuarantineStripModel {
   readonly callId: string;
+  /** The question that the Leave answers. */
+  readonly questionId: string;
   /** `keep .git/config (core.fsmonitor)?` or `keep 4 git changes?`. */
   readonly line: string;
   /** The VoiceOver label of the strip. */
   readonly label: string;
-  /** `answer on desktop`, in place of the buttons. */
-  readonly terminal: string;
+  /** `Keep on desktop`: not a control, the words where the Keep button was. */
+  readonly keepElsewhere: string;
+  /** The VoiceOver words of `keepElsewhere`. */
+  readonly keepLabel: string;
 }
+
+/** The visible label of the answer of the phone; VoiceOver says `LEAVE_LABEL`. */
+export const LEAVE = "Leave";
+
+/** The VoiceOver label of Leave. */
+export const LEAVE_LABEL = "Leave in quarantine";
+
+/** The VoiceOver hint of Leave. */
+export const LEAVE_HINT = "The git settings stay in quarantine.";
 
 /** One change of the sheet. */
 export interface QuarantineRow {
@@ -46,8 +59,12 @@ export interface QuarantineRow {
 export interface QuarantineSheetModel {
   readonly rows: readonly QuarantineRow[];
   readonly quiet: string;
-  /** `answer on desktop` while the question waits. */
-  readonly terminal: string | undefined;
+  /** The question that the Leave answers. */
+  readonly questionId: string;
+  /** `Keep on desktop` while the question waits; with it the row offers Leave. */
+  readonly keepElsewhere: string | undefined;
+  /** The VoiceOver words of `keepElsewhere`. */
+  readonly keepLabel: string;
   /** How the question ended, such as `left in quarantine · on desktop`; dims the rows. */
   readonly closed: string | undefined;
 }
@@ -86,9 +103,11 @@ export function quarantineStrip(
   const line = quarantineLine(question, cwd);
   return {
     callId: question.callId,
+    questionId: question.questionId,
     line,
-    label: `Git settings changed: ${line} Answer on ${machine}.`,
-    terminal: `answer on ${machine}`,
+    label: `Git settings changed: ${line}`,
+    keepElsewhere: `Keep on ${machine}`,
+    keepLabel: `Keep is possible only on ${machine}`,
   };
 }
 
@@ -126,7 +145,9 @@ export function quarantineSheet(
   return {
     rows: rowsOf(question, cwd),
     quiet: QUARANTINE_QUIET,
-    terminal: closed === undefined ? `answer on ${machine}` : undefined,
+    questionId: question.questionId,
+    keepElsewhere: closed === undefined ? `Keep on ${machine}` : undefined,
+    keepLabel: `Keep is possible only on ${machine}`,
     closed,
   };
 }

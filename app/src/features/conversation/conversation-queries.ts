@@ -60,6 +60,18 @@ export function modelsQueryOptions(caller: MachineCaller, machine: string) {
   });
 }
 
+/**
+ * Whether the iPhone has a passcode: without one, Auto cannot be picked (S-ComposerR7 8).
+ * It is asked again each time a composer mounts, as the user can set one at any time.
+ */
+export function passcodeQueryOptions(hasPasscode: () => Promise<boolean>) {
+  return queryOptions({
+    queryKey: ["device", "passcode"] as const,
+    queryFn: hasPasscode,
+    staleTime: 0,
+  });
+}
+
 /** How long the cost of a switch counts as new: the context changes with each turn. */
 export const SWITCH_PREVIEW_STALE_MS = 10_000;
 
@@ -186,6 +198,30 @@ export function answerApprovalMutationOptions(caller: MachineCaller, ref: Conver
     onSettled: (_data, _error, _answer, _result, context) => {
       void context.client.invalidateQueries({ queryKey: conversationsKeys.lists(ref.machine) });
     },
+  });
+}
+
+/** What a Leave of a quarantine question sends. */
+export interface LeaveInput {
+  readonly questionId: string;
+  readonly commandId: string;
+}
+
+/**
+ * Answers a quarantine question of `ref` with Leave (Q-Quarantine 8, 9): the changes stay
+ * in quarantine. efrd refuses a Keep from a phone, so the phone sends only Leave.
+ */
+export function leaveQuarantineMutationOptions(caller: MachineCaller, ref: ConversationAddress) {
+  return mutationOptions({
+    mutationKey: [...conversationKeys.conversation(ref), "sandbox.surface_respond"] as const,
+    mutationFn: (input: LeaveInput) =>
+      caller.call(ref.machine, "sandbox.surface_respond", {
+        command_id: input.commandId,
+        conversation_id: ref.id,
+        question_id: input.questionId,
+        keep: false,
+      }),
+    scope: conversationScope(ref),
   });
 }
 

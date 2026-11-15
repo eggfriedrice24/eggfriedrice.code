@@ -108,8 +108,9 @@ function streamWith(changes: readonly SurfaceChange[]) {
 }
 
 describe("the quarantine strip", () => {
-  it("asks about the one change, says where to answer, and opens the sheet", async () => {
+  it("asks about the one change, offers Leave only, and opens the sheet", async () => {
     const onOpen = jest.fn<(callId: string) => void>();
+    const caller = new FakeCaller({ "sandbox.surface_respond": () => ({ seq: 7 }) });
     await render(
       wrapper(
         <ApprovalStrip
@@ -117,21 +118,30 @@ describe("the quarantine strip", () => {
           conversation={REF}
           machineName="desktop"
           connected
-          caller={new FakeCaller()}
+          caller={caller}
           onOpen={onOpen}
         />,
       ),
     );
     expect(screen.getByText("keep .git/config (core.fsmonitor)?")).toBeOnTheScreen();
-    expect(screen.getByText("answer on desktop")).toBeOnTheScreen();
-    // efrd takes the answer only from the terminal: no Keep and no Leave on the phone.
-    expect(screen.queryByRole("button", { name: /^(Keep|Leave)/ })).toBeNull();
+    // Keep stays at the terminal: words where the Keep button was, not a control.
+    expect(screen.getByText("Keep on desktop")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Keep is possible only on desktop")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: /^Keep/ })).toBeNull();
     await fireEvent.press(
       screen.getByRole("button", {
-        name: "Git settings changed: keep .git/config (core.fsmonitor)? Answer on desktop.",
+        name: "Git settings changed: keep .git/config (core.fsmonitor)?",
       }),
     );
     expect(onOpen).toHaveBeenCalledWith("c1");
+    await fireEvent.press(screen.getByRole("button", { name: "Leave in quarantine" }));
+    const sent = caller.callsOf("sandbox.surface_respond");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.params).toMatchObject({
+      conversation_id: REF.id,
+      question_id: QUESTION,
+      keep: false,
+    });
   });
 
   it("counts many changes", async () => {
@@ -181,7 +191,8 @@ describe("the quarantine sheet", () => {
         "Git settings that run programs, moved to quarantine, where nothing reads them.",
       ),
     ).toBeOnTheScreen();
-    expect(screen.getByText("answer on desktop")).toBeOnTheScreen();
+    expect(screen.getByText("Keep on desktop")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Leave in quarantine" })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
     await act(async () => {
       stream.setState((state) =>
@@ -200,7 +211,8 @@ describe("the quarantine sheet", () => {
       );
     });
     expect(screen.getByText("left in quarantine · on desktop")).toBeOnTheScreen();
-    expect(screen.queryByText("answer on desktop")).toBeNull();
+    expect(screen.queryByText("Keep on desktop")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Leave in quarantine" })).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });

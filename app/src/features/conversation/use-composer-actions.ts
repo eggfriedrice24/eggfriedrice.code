@@ -11,14 +11,20 @@
 //   stuck call.
 //
 // Each write gets a new command id per tap.
+//
+// A prompt carries the choice of the model sheet. A prompt of a new thread without a
+// choice carries the favourite of the last plan (`freshChoice`). A prompt that names an
+// account makes it the last plan of the machine. A prompt in auto carries `auto`: the
+// composer sends it only after the check of the owner passed (model/owner-check.ts).
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
 
 import type { MachineCaller } from "@/lib/query/machine-caller";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import {
   interruptMutationOptions,
+  modelsQueryOptions,
   steerMutationOptions,
   type InterruptInput,
   type SteerInput,
@@ -30,8 +36,10 @@ import {
   type ComposerTarget,
 } from "./model/composer-state";
 import type { Drafts } from "./model/drafts";
-import type { ModelChoices } from "./model/model-choices";
+import { favouriteOf, type ModelChoices } from "./model/model-choices";
+import { freshChoice } from "./model/model-sheet";
 import type { Outbox, OutboxEntry } from "./model/outbox";
+import type { CheckOwner } from "./model/owner-check";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {
@@ -44,14 +52,18 @@ export interface ComposerDeps {
   readonly modelChoices: ModelChoices;
   /** A new command id, such as `newCommandId` of src/lib/native/database.ts. */
   readonly newCommandId: () => string;
+  /** Checks the owner of the iPhone before a message in auto (native/owner-check.ts). */
+  readonly checkOwner: CheckOwner;
+  /** True when the iPhone has a passcode: without one, Auto cannot be picked. */
+  readonly hasPasscode: () => Promise<boolean>;
 }
 
 /** The actions of one composer. */
 export interface ComposerActions {
   /** Sends `text` as a prompt through the outbox and clears the draft. */
-  send(text: string): OutboxEntry;
+  send(text: string, auto?: boolean): OutboxEntry;
   /** Queues `text` behind the running turn through the outbox and clears the draft. */
-  queue(text: string): OutboxEntry;
+  queue(text: string, auto?: boolean): OutboxEntry;
   /** Steers the running turn with `text`. The draft goes when efrd took it. */
   steer(text: string): void;
   /** Stops the running turn. */
@@ -87,11 +99,21 @@ export function useComposerActions(
     },
   });
   const stopMutation = useMutation(interruptMutationOptions(caller, ref));
+  const list = useQuery(modelsQueryOptions(caller, target.machine)).data;
 
-  const enqueue = (text: string): OutboxEntry => {
-    const entry = outbox.enqueue(
-      outboxInput(outbox.store.get(), target, text, deps.modelChoices.choice(key)),
-    );
+  const enqueue = (text: string, auto = false): OutboxEntry => {
+    const choices = deps.modelChoices;
+    let choice = choices.choice(key);
+    if (choice === undefined && target.isBlankRoot) {
+      const { favourites, plans } = choices.store.get();
+      choice = freshChoice(list, plans.get(target.machine), (provider) =>
+        favouriteOf(favourites, target.machine, provider),
+      );
+    }
+    const entry = outbox.enqueue(outboxInput(outbox.store.get(), target, text, choice, auto));
+    if (choice?.provider !== undefined) {
+      choices.setPlan(target.machine, choice.provider);
+    }
     drafts.clear(key);
     return entry;
   };

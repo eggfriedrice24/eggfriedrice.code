@@ -118,6 +118,31 @@ describe("the outbox", () => {
     ]);
   });
 
+  it("sends the mode auto only for a prompt that passed the check, and keeps it on the disk", async () => {
+    const storage = new MemoryOutboxStorage();
+    const { outbox } = testOutbox(storage);
+    const auto = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a", auto: true });
+    const both = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "b",
+      settings: { model: "gpt-6-luna", provider: "openai-subscription" },
+      auto: true,
+    });
+    const cautious = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "c" });
+    const snapshot = outbox.store.get();
+    expect(sendParams(snapshot, auto).settings).toEqual({ mode: "auto" });
+    expect(sendParams(snapshot, both).settings).toEqual({
+      model: "gpt-6-luna",
+      provider: "openai-subscription",
+      mode: "auto",
+    });
+    // No mode at all: efrd runs a phone prompt that names none as cautious.
+    expect(sendParams(snapshot, cautious).settings).toBeUndefined();
+    await outbox.flush();
+    expect((await storage.load()).map((saved) => saved.auto)).toEqual([true, true, undefined]);
+  });
+
   it("resolves the local id of a new conversation once efrd made it", () => {
     const { outbox } = testOutbox();
     const target = outbox.newConversation();

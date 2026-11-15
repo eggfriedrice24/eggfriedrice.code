@@ -293,13 +293,15 @@ export function outboxTargetOf(snapshot: OutboxSnapshot, target: ComposerTarget)
 /**
  * The outbox input of a prompt `text` of `target`. The model, account and effort that the
  * sheet chose for the composer go with it; without a choice, efrd runs the model of the
- * conversation, or the machine's default.
+ * conversation, or the machine's default. `auto` is true when the owner passed the check
+ * of the iPhone for a message in auto.
  */
 export function outboxInput(
   snapshot: OutboxSnapshot,
   target: ComposerTarget,
   text: string,
   choice: ModelChoice | undefined,
+  auto = false,
 ): OutboxInput {
   const input: { -readonly [K in keyof OutboxInput]: OutboxInput[K] } = {
     machine: target.machine,
@@ -308,6 +310,9 @@ export function outboxInput(
   };
   if (choice !== undefined) {
     input.settings = choice;
+  }
+  if (auto) {
+    input.auto = true;
   }
   return input;
 }
@@ -346,9 +351,9 @@ export interface ComposerStatus {
 export const BLANK_CWD = "~";
 
 /**
- * The mode of a new conversation. A turn from the phone runs with at most `cautious`,
- * which is also the default mode of efrd (docs/config.md, `permissions.mode`). The phone
- * cannot read the config of the machine, so it shows the most that its turns can get.
+ * The mode of a new conversation. A prompt from the phone that names no mode runs as
+ * `cautious` (docs/config.md, `permissions.mode`); the mode control of the composer
+ * shows the mode of the next message instead (S-ComposerR7 8).
  */
 export const BLANK_MODE: Mode = "cautious";
 
@@ -397,23 +402,21 @@ export type StatusTone = "text_muted" | "text_subtle" | "accent_primary";
 /** One part of the status line. The line puts a "·" between two parts. */
 export interface StatusPart {
   /** `limit` leads with the warning glyph in state_warning. */
-  readonly key: "cwd" | "mode" | "context" | "limit" | "waiting";
+  readonly key: "cwd" | "context" | "limit" | "waiting";
   readonly text: string;
   readonly tone: StatusTone;
 }
 
 /**
- * The parts of the status line: the cwd, the mode, `ctx 42%`, the limit of the account
- * from 90 % while a turn runs (`5-hour 92%`), and "waiting for you" while an approval
- * waits on this phone. A part without a value is not there.
+ * The left words of the status line: the cwd, `ctx 42%`, the limit of the account from
+ * 90 % while a turn runs (`5-hour 92%`), and "waiting for you" while an approval waits on
+ * this phone. A part without a value is not there. The mode is no word here: it is a
+ * control left of the model button (S-ComposerR7 8).
  */
 export function statusParts(status: ComposerStatus): readonly StatusPart[] {
   const parts: StatusPart[] = [];
   if (status.cwd !== undefined && status.cwd !== "") {
     parts.push({ key: "cwd", text: shortPath(status.cwd), tone: "text_muted" });
-  }
-  if (status.mode !== undefined) {
-    parts.push({ key: "mode", text: status.mode, tone: "text_subtle" });
   }
   const gauge = status.context === undefined ? undefined : contextGauge(status.context);
   if (gauge !== undefined) {

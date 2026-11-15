@@ -31,6 +31,12 @@ const NO_STREAM: Readable<StreamState> = createStore(EMPTY_STREAM);
  */
 export const CWD_SHRINK = "shrink-[1000]";
 
+/** ctx gives way after the path and before the model button (S-ComposerR7 6). */
+export const CONTEXT_SHRINK = "shrink-[100]";
+
+/** The shrink class of each part that gives way. */
+const SHRINKS: Partial<Record<string, string>> = { cwd: CWD_SHRINK, context: CONTEXT_SHRINK };
+
 export interface ComposerStatusLineProps {
   /** The content of the line, such as `Composer.Status`. */
   readonly children?: ReactNode;
@@ -78,7 +84,7 @@ export function ComposerStatus(props: ComposerStatusProps) {
             tone={part.tone}
             numberOfLines={1}
             ellipsizeMode="middle"
-            className={part.key === "cwd" ? CWD_SHRINK : ""}
+            className={SHRINKS[part.key] ?? ""}
           >
             {part.text}
           </MonoText>

@@ -38,7 +38,13 @@ export function ComposerTrailing() {
   const trailing = model.trailing;
   switch (trailing.kind) {
     case "send":
-      return <SendButton enabled={trailing.enabled} onPress={model.submit} />;
+      return (
+        <SendButton
+          enabled={trailing.enabled}
+          label={model.checks ? "Send in auto. Face ID first." : "Send"}
+          onPress={model.submit}
+        />
+      );
     case "stop":
       return (
         <>
@@ -52,7 +58,7 @@ export function ComposerTrailing() {
       return (
         <>
           {trailing.stop ? <StopButton onPress={model.stop} /> : null}
-          <SendingButton />
+          <SendingButton label={model.checking ? "Checking that it is you" : "Sending"} />
         </>
       );
   }
@@ -60,6 +66,7 @@ export function ComposerTrailing() {
 
 interface SendButtonProps {
   readonly enabled: boolean;
+  readonly label: string;
   readonly onPress: () => void;
 }
 
@@ -68,7 +75,7 @@ function SendButton(props: SendButtonProps) {
     <Pressable
       testID="composer-send"
       accessibilityRole="button"
-      accessibilityLabel="Send"
+      accessibilityLabel={props.label}
       accessibilityState={{ disabled: !props.enabled }}
       disabled={!props.enabled}
       hitSlop={SLOP}
@@ -88,13 +95,13 @@ function SendButton(props: SendButtonProps) {
   );
 }
 
-function SendingButton() {
+function SendingButton(props: { readonly label: string }) {
   return (
     <View
       testID="composer-sending"
       accessible
       accessibilityRole="button"
-      accessibilityLabel="Sending"
+      accessibilityLabel={props.label}
       accessibilityState={{ disabled: true, busy: true }}
       className={cn(CIRCLE, "bg-accent-primary")}
     >

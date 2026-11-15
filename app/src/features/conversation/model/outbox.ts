@@ -79,6 +79,11 @@ export interface OutboxEntry {
   readonly sent: OutboxSent | null;
   /** The model, account and effort that the user chose; absent: what efrd runs. */
   readonly settings?: OutboxSettings;
+  /**
+   * True when the prompt runs in auto: the owner passed the check of the iPhone at the
+   * tap on Send. Absent: no mode, which efrd runs as cautious for a phone.
+   */
+  readonly auto?: true;
 }
 
 /** The model settings of a prompt, as the model sheet chose them. */
@@ -135,6 +140,7 @@ export interface OutboxInput {
   readonly target: OutboxTarget;
   readonly text: string;
   readonly settings?: OutboxSettings;
+  readonly auto?: true;
 }
 
 /** The outbox of all machines. */
@@ -297,6 +303,9 @@ export function sendParams(snapshot: OutboxSnapshot, entry: OutboxEntry): Prompt
     if (settings.effort !== undefined) {
       params.settings.effort = settings.effort;
     }
+  }
+  if (entry.auto === true) {
+    params.settings = { ...params.settings, mode: "auto" };
   }
   return params;
 }
@@ -495,6 +504,9 @@ export function createOutbox(deps: OutboxDeps): Outbox {
       };
       if (input.settings !== undefined) {
         entry.settings = input.settings;
+      }
+      if (input.auto === true) {
+        entry.auto = true;
       }
       store.setState((state) => ({ entries: [...state.entries, entry], aliases: state.aliases }));
       write((disk) => disk.put(entry));
