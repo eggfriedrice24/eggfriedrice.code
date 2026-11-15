@@ -262,7 +262,10 @@ impl TurnView {
         let outcome = end_lines::failed_line(took, self.options.glyphs());
         if let Some(out) = account_out {
             let zone = self.ending.zone.clone().unwrap_or(TimeZone::UTC);
-            let now = self.event_at.unwrap_or_else(Timestamp::now);
+            // NOTE: each event of the turn has its time (`View::envelope`). Time is
+            // injected, so with none the reset names its full date, which reads right at
+            // any time.
+            let now = self.event_at.unwrap_or(Timestamp::UNIX_EPOCH);
             let mut under = vec![vec![(accounts::stop_reason(out, now, &zone), Tone::Text)]];
             let providers = self.ending.providers.as_deref().unwrap_or_default();
             under.extend(accounts::offer_rows(out, providers, now, &zone));

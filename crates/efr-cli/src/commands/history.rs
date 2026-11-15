@@ -1145,7 +1145,9 @@ impl<'a> Transcript<'a> {
                 // outcome; the offer is not repeated: it is stale once a switch or a
                 // reset happened (TM-Accounts 7).
                 if let Some(out) = account_out {
-                    let now = self.at.unwrap_or_else(Timestamp::now);
+                    // NOTE: each envelope has its time. Time is injected, so with none the
+                    // reset names its full date, which reads right at any time.
+                    let now = self.at.unwrap_or(Timestamp::UNIX_EPOCH);
                     let reason = accounts::history_reason(out, now, self.zone);
                     let note = self.outcome_line(failed, Some(reason));
                     self.stored_copy_note(note);
