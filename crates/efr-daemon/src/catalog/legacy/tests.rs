@@ -98,6 +98,40 @@ fn families_and_versions() {
     }
 }
 
+/// The review finding: a date of 4 digits or less was read as version numbers, so an
+/// old snapshot hid a current model.
+#[test]
+fn a_short_date_ends_the_version_and_leaves_the_family() {
+    let cases: [(&str, Family); 4] = [
+        ("gpt-5-2025-08-07", Some(("gpt-*", &[5]))),
+        ("gpt-4-0613", Some(("gpt-*", &[4]))),
+        ("gpt-4.1-2025-04", Some(("gpt-*", &[4, 1]))),
+        ("gpt-5-mini-2025-08-07", Some(("gpt-*-mini", &[5]))),
+    ];
+    for (id, expected) in cases {
+        let expected = expected.map(|(name, version)| (name.to_owned(), version.to_vec()));
+        assert_eq!(family(id), expected, "{id}");
+    }
+    assert_eq!(legacy(&["gpt-5-2025-08-07", "gpt-5", "gpt-5.5"]), ["gpt-5-2025-08-07", "gpt-5"]);
+    assert_eq!(legacy(&["gpt-4-0613", "gpt-4.1"]), ["gpt-4-0613"]);
+}
+
+#[test]
+fn a_kept_model_stays_current_with_its_date() {
+    assert_eq!(
+        legacy(&["claude-fable-5-2", "claude-fable-5-1-20260301", "claude-fable-5-1"]),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn the_default_model_is_never_legacy() {
+    let mut models = vec![model("gpt-6.1-sol"), model("gpt-6-sol")];
+    models[1].default = true;
+    mark(&mut models);
+    assert!(!models[1].legacy, "the phone must not hide the model in use");
+}
+
 #[test]
 fn a_version_compares_number_by_number() {
     assert_eq!(legacy(&["gpt-5.10-sol", "gpt-5.9-sol"]), ["gpt-5.9-sol"]);

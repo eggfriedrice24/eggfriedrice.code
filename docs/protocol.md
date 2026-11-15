@@ -1118,7 +1118,9 @@ No protocol version has shipped yet.
 - Version 1, additive: a model of `models.list` gains an optional `legacy` flag, true
   when the same list has a newer model of the same family, such as `claude-opus-5`
   next to `claude-opus-5-5`. efrd keeps some models out of the rule, such as
-  `claude-fable-5-1`. A prompt can still name a legacy model. It is absent when false,
+  `claude-fable-5-1`, and never marks the default model. A date in the id, such as
+  `2025-08-07` or `0613`, is no part of the version. A prompt can still name a legacy
+  model. It is absent when false,
   and from an older efrd. The fixture `models_list_result.json` now sets it.
 - Version 1, behaviour: a `prompt.send` from a phone runs with a `mode` of at most
   `auto` (it was `cautious`), and as `cautious` when its `settings` name no `mode`.

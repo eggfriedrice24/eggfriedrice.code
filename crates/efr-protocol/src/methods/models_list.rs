@@ -122,7 +122,8 @@ pub struct ModelInfo {
     /// True when the same list has a newer model of the same family, such as
     /// `claude-opus-5` when `claude-opus-5-5` is listed, or `gpt-6-sol` when
     /// `gpt-6.1-sol` is. efrd keeps some models out of the rule, such as
-    /// `claude-fable-5-1`. A prompt can still name a legacy model; a client shows it
+    /// `claude-fable-5-1`, and the default model is never legacy. A date in the id is no
+    /// part of the version. A prompt can still name a legacy model; a client shows it
     /// only on request. False when absent, as from an earlier daemon.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy: bool,

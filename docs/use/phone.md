@@ -261,7 +261,7 @@ in the name or the id of the model. While the search has the focus or text, the 
 stays at its full height. The filter button next to the search bar picks the provider
 (All, Claude, OpenAI) and turns "Legacy models" on or off. A model is legacy
 when the machine lists a newer model of its family, such as Opus 5 next to Opus 5.5.
-Legacy models are hidden by default, also from a search. Turn "Legacy models" on in the
+The default model of the machine is never legacy. Legacy models are hidden by default, also from a search. Turn "Legacy models" on in the
 filter to see them, under "Legacy" at the end of their account.
 
 Tap the star of a row to make that model the favourite of its account. Each account has
