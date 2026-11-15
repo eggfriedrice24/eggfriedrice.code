@@ -894,6 +894,16 @@ async fn three_unnamed_guarded_exits_in_a_row_pause_and_then_stop_the_turn() {
              send a new prompt that names what you want."
         )
     );
+    // NOTE: the stop text stands once, under `✗ failed` (TM-Calls 30): the row of the
+    // stopped call says only why it did not run.
+    let refusals: Vec<Option<&str>> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::ToolCallCompleted { refusal, .. } => Some(refusal.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refusals.last(), Some(&Some("the reviewer paused for this turn")));
 
     let judge = FakeJudge::answering(vec![allows(), allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));

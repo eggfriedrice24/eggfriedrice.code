@@ -138,6 +138,11 @@ pub(crate) fn reviewer_denied(judgement: &Judgement) -> String {
     )
 }
 
+/// Why the exit that a paused reviewer stops did not run, on the row of its call, such
+/// as `refused · the reviewer paused for this turn`. The turn's stop says the rest
+/// ([`reviewer_stopped`]).
+pub(crate) const PAUSED_REFUSAL: &str = "the reviewer paused for this turn";
+
 /// What a turn fails with when the classifier stopped for the turn and the model then
 /// tries another exit: nobody asks the user, so nobody could decide it. The count holds
 /// the refusals of the reviewer and of efr's own rules.

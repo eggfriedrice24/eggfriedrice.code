@@ -199,7 +199,12 @@ impl Turn {
             self.record(vec![requested]).await?;
             let message = exit::reviewer_stopped(reason, denials);
             self.stop = Some(ErrorBody::new(ErrorCode::Forbidden, message.clone()));
-            return Ok(Reviewed::Decided(Authorization::Denied { message, refusal: None }));
+            // NOTE: the stop text stands once, under `✗ failed` (TM-Calls 30); the row of
+            // the call says only why it did not run.
+            return Ok(Reviewed::Decided(Authorization::Denied {
+                message,
+                refusal: Some(exit::PAUSED_REFUSAL.to_owned()),
+            }));
         }
         let unreviewed = if ruling.approver == Some(Approver::Guarded) {
             let names = exit::missing_names(decision, &self.user_messages.naming);
