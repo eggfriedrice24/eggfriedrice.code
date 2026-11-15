@@ -374,7 +374,7 @@ that stays in place still gets its row under the call:
 
 ```
  ? keep the git settings that the last command changed
-    ~/p/app/.git/commondir (core.fsmonitor); moved to quarantine
+    ~/p/app/.git/commondir (a commondir that points git at another config); moved to quarantine
     y keep   n leave in quarantine
 ```
 
