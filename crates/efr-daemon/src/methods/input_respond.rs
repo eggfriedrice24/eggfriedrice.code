@@ -55,9 +55,10 @@ pub(crate) async fn handle(
     Ok(())
 }
 
-/// Refuses an answer from a phone, whatever scopes its connection holds.
+/// Refuses an answer from a phone (any remote origin), whatever scopes its connection
+/// holds.
 fn from_terminal(origin: Origin) -> Result<(), DaemonError> {
-    if origin == Origin::Phone { Err(DaemonError::PhoneInput) } else { Ok(()) }
+    if efr_permissions::is_local(origin) { Ok(()) } else { Err(DaemonError::PhoneInput) }
 }
 
 /// The daemon error for an answer that the shell did not type. This is the one mapping

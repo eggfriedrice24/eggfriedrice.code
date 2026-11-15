@@ -26,8 +26,8 @@ use std::path::{Path, PathBuf};
 
 use efr_conversation::{UndoCandidate, UndoRequest};
 use efr_protocol::{
-    MAX_UNDO_ENTRIES, Origin, RefChange, TurnId, TurnUndoResult, UndoAction, UndoEntry, UndoId,
-    UndoReason, UndoRefused, UndoableTurn,
+    MAX_UNDO_ENTRIES, RefChange, TurnId, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason,
+    UndoRefused, UndoableTurn,
 };
 use efr_snapshot::{
     Expect, HomeEntry, HomePlan, HomeState, HomeStep, Limits, ObjectId, PlanAction, PlanEntry,
@@ -107,7 +107,7 @@ impl DaemonToolbox {
         &self,
         request: UndoRequest,
     ) -> Result<TurnUndoResult, UndoRefused> {
-        if request.origin == Origin::Phone {
+        if !efr_permissions::is_local(request.origin) {
             return Err(UndoRefused::PhoneOrigin);
         }
         let enabled = self.settings.borrow().undo.enabled;

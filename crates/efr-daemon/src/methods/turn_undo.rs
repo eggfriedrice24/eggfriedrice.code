@@ -13,7 +13,7 @@
 //! receipt.
 
 use efr_conversation::{ConversationError, UndoBusyReason, UndoCandidate};
-use efr_protocol::{ErrorBody, ErrorCode, JobId, Origin, TurnId, TurnUndo, UndoRefused};
+use efr_protocol::{ErrorBody, ErrorCode, JobId, TurnId, TurnUndo, UndoRefused};
 use efr_store::conversations::{Turn, TurnStatus};
 use efr_transport::{ConnectionContext, Responder};
 use jiff::Timestamp;
@@ -53,7 +53,7 @@ async fn undo(
     params: TurnUndo,
 ) -> Result<serde_json::Value, DaemonError> {
     let origin = context.surface();
-    if origin == Origin::Phone {
+    if !efr_permissions::is_local(origin) {
         return Err(DaemonError::Rejected { body: phone_refusal() });
     }
     let conversation_id = match (params.conversation_id, params.turn_id) {

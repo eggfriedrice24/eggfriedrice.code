@@ -1113,8 +1113,9 @@ impl ConversationActor {
             let _ = reply.send(Err(error));
             return;
         }
-        // NOTE: the daemon refuses a phone before it asks; this is the second lock.
-        if origin == Origin::Phone {
+        // NOTE: the daemon refuses a phone before it asks; this is the second lock. Any
+        // remote origin fails closed, also one that is newer than this crate.
+        if !efr_permissions::is_local(origin) {
             let _ = reply.send(Err(ConversationError::UndoRefused(UndoRefused::PhoneOrigin)));
             return;
         }
