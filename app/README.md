@@ -385,9 +385,10 @@ not a test that pretends.
     last machine, go to the root with a short cross-fade (`animation: "fade"` on the
     screen that goes, set just before the reset), and with none when Reduce Motion is
     on.
-23. The conversations sheet: its two sizes, the search field under "New conversation"
-    and not under the bar, the status glyphs, and that a tap on a row closes the sheet
-    and opens the conversation.
+23. The conversations sheet: its two sizes, the native search bar and the compose
+    button (New conversation) in the bottom toolbar of iOS 26, the status glyphs, that
+    the list ends above the toolbar, and that a tap on a row closes the sheet and opens
+    the conversation.
 
 ### The composer
 

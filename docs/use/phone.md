@@ -175,10 +175,11 @@ Settings and New (`+`) at the right. New goes back to the blank root.
 
 ### Find a conversation
 
-- Tap the title of the bar. A sheet opens with the conversations of every machine:
-  "New conversation" on top, then the ones that wait for an answer, today, this week
-  and older. Pull it up to see more. The search field finds a conversation by its
-  title, its machine or its directory, and then asks efrd.
+- Tap the title of the bar. A sheet opens with the conversations of every machine: the
+  ones that wait for an answer, today, this week and older. Pull it up to see more. The
+  search bar at the bottom finds a conversation by its title, its machine or its
+  directory, and then asks efrd. The button next to it (a pencil) starts a new
+  conversation.
 - Tap a row to open the conversation. The sheet closes.
 - Touch and hold a row of the sheet to copy its title or its id.
 
