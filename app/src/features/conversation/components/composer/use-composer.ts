@@ -31,7 +31,7 @@ import {
 import { selectDraft } from "../../model/drafts";
 import { selectMode, type PhoneMode } from "../../model/model-choices";
 import type { OutboxEntry } from "../../model/outbox";
-import { notSentLine, type NotSentLine } from "../../model/owner-check";
+import { CHECK_REASON, notSentLine, type NotSentLine } from "@/lib/lock/owner-check";
 import { useComposerActions, type ComposerDeps } from "../../use-composer-actions";
 import type { ComposerModel } from "./composer-context";
 
@@ -109,7 +109,7 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     const auto = kind !== "steer";
     setChecking(true);
     void deps
-      .checkOwner()
+      .checkOwner(CHECK_REASON)
       .then((check) => {
         const line = notSentLine(check);
         if (line === undefined) {

@@ -59,7 +59,7 @@ import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversati
 import { composerDraftKey, outboxInput, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
-import { checkOwner, hasPasscode } from "../native/owner-check";
+import { checkOwner, hasPasscode } from "@/lib/native/owner-check";
 import type { ComposerDeps } from "../use-composer-actions";
 import { useOlderHistory } from "./use-older-history";
 import { useRouteConversation } from "./use-route-conversation";

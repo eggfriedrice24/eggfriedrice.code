@@ -8,7 +8,7 @@ import type { TextInputInstance } from "react-native";
 import type { SendMode } from "@/features/settings/model/preferences";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
 import type { PhoneMode } from "../../model/model-choices";
-import type { NotSentLine } from "../../model/owner-check";
+import type { NotSentLine } from "@/lib/lock/owner-check";
 
 /** What the slots of the composer read. */
 export interface ComposerModel {

@@ -39,7 +39,7 @@ import type { Drafts } from "./model/drafts";
 import { favouriteOf, type ModelChoices } from "./model/model-choices";
 import { freshChoice } from "./model/model-sheet";
 import type { Outbox, OutboxEntry } from "./model/outbox";
-import type { CheckOwner } from "./model/owner-check";
+import type { CheckOwner } from "@/lib/lock/owner-check";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {

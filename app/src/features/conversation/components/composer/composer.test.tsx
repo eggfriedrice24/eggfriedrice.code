@@ -24,7 +24,7 @@ import { createDrafts, type Drafts } from "../../model/drafts";
 import { createModelChoices, type ModelChoice, type ModelChoices } from "../../model/model-choices";
 import type { Outbox, OutboxEntry } from "../../model/outbox";
 import { CONVERSATION_A, DESKTOP, idMaker, testOutbox } from "../../model/outbox-testing";
-import type { OwnerCheck } from "../../model/owner-check";
+import type { OwnerCheck } from "@/lib/lock/owner-check";
 import type { ComposerDeps } from "../../use-composer-actions";
 import { DockedComposer, type DockedComposerProps } from "./composer";
 import { bottomEdge, KEYBOARD_GAP, SCRIM_CLASS } from "./composer-root";

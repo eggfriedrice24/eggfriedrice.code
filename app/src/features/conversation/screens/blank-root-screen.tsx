@@ -38,7 +38,7 @@ import { useOpenConversation } from "@/features/navigation/use-open-conversation
 import { DockedComposer } from "../components/composer/composer";
 import { BLANK_CWD, BLANK_MODE, type ComposerTarget } from "../model/composer-state";
 import type { Outbox, OutboxEntry } from "../model/outbox";
-import { checkOwner, hasPasscode } from "../native/owner-check";
+import { checkOwner, hasPasscode } from "@/lib/native/owner-check";
 import type { ComposerDeps } from "../use-composer-actions";
 
 /** The space between the bottom of the bar and the shell block (top 128 on the canvas). */
