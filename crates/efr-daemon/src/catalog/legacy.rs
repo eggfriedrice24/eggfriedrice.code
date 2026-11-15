@@ -14,7 +14,9 @@
 //!
 //! [`KEEP`] lists the models that stay out of the rule, also with a date: the user keeps
 //! them with the current models although a newer one of their family exists. The
-//! default model of the list is never legacy, so the phone never hides the model in use.
+//! default model of the list is never legacy, so the phone never hides the default
+//! model. A conversation can still run a legacy model that is not the default (picked
+//! with `,model` at the terminal); the phone hides it while its legacy filter is off.
 //!
 //! A known limit: the family is the text around the version, so an old name order never
 //! meets a new one. `claude-3-7-sonnet-20250219` is `claude-*-sonnet`, and

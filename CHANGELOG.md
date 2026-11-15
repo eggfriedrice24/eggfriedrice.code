@@ -14,8 +14,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - The model sheet of the phone app has the native search bar and a filter menu in the
   bottom toolbar. The filter has the provider (All, Claude, OpenAI) and "Legacy
-  models". efrd marks a model legacy when a
-  newer model of its family is listed (`legacy` in `models.list`); the sheet shows them
+  models". efrd marks a model legacy when a newer model of its family is listed
+  (`legacy` in `models.list`), but never the default model; the sheet shows them
   only while "Legacy models" is on in the filter. A star on a row makes the model
   the favourite of its account, one for each account. A new thread from the phone
   starts with the favourite of the last account that you used. The list has no scroll

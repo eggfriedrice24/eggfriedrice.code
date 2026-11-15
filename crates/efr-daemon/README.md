@@ -278,7 +278,11 @@ the list came from and when.
   and output limit as well (`openai_config`, `anthropic_config`). Each model of the
   list is legacy when the same list has a newer model of its family
   (`catalog/legacy.rs`: the id without its version is the family, so `claude-opus-5`
-  is legacy next to `claude-opus-5-5`); `claude-fable-5-1` stays out of the rule.
+  is legacy next to `claude-opus-5-5`). A date ends the version and is no part of the
+  family, also a short one, such as `2025-08-07` or `0613` (month and day). So
+  `gpt-5-2025-08-07` and `gpt-4-0613` keep the versions 5 and 4. The default model of
+  the list is never legacy, also when the list has a newer model of its family.
+  `claude-fable-5-1` stays out of the rule.
 - The default model (`default_model`) is `[model] name`, else the catalog's default
   (OpenAI's best priority; Anthropic's `claude-opus-5-5` when listed, else its first
   model), else the first id of the config's list, else `claude-opus-5-5` for
