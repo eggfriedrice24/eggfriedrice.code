@@ -133,7 +133,7 @@ use crate::keys::{self, Key, KeyReader};
 use crate::notify::WaitNotice;
 use crate::output::Output;
 use crate::row::Action;
-use view::{AnswerKind, Preview};
+use view::{AnswerKind, Preview, UserWait};
 
 pub(crate) use view::{
     Ask, Call, Look, Outcome, Step, TICK, TurnEnd, TurnView, plain_marks, spinner,
@@ -489,7 +489,7 @@ struct Follower<'a> {
     /// A tick came while a change waited for its frame: it goes with that frame.
     tick_waits: bool,
     /// The time of the desktop notice of a wait of the user.
-    notice: WaitNotice,
+    notice: WaitNotice<UserWait>,
     /// A question took the keys while a paste into the row went on: until this time,
     /// the rest of the paste still goes into the row.
     paste_until: Option<Timestamp>,
@@ -823,8 +823,7 @@ impl Follower<'_> {
                     }
                     self.watch_silence(view);
                     self.watch_tick(view);
-                    self.notice
-                        .watch(view.notifies() && view.waits_for_user(), self.ctx.clock.as_ref());
+                    self.notice.watch(view.user_wait(), self.ctx.clock.as_ref());
                     tokio::select! {
                         () = &mut interrupt => {
                             // Ctrl+C at the line of a command left running in the hidden
@@ -847,6 +846,7 @@ impl Follower<'_> {
                         }
                         key = next_key(&mut self.keys) => {
                             self.notice.key();
+                            view.keyed(self.ctx.clock.now());
                             self.key(key, out, view).await?;
                         }
                         () = self.notice.due() => {

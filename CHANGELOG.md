@@ -22,7 +22,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - efr sends a desktop notice through the terminal (OSC 777, `[notify]`) when a
   question or an answer line waited 10 seconds and you typed no key, and when a turn
   that took at least `notify.after_secs` (30) ends: `app: done in 4m 12s` or
-  `app: failed after 1m 3s`. An interrupted turn sends none. `notify.terminal = "auto"`
+  `app: failed after 1m 3s`. An interrupted turn sends none, and no notice goes out
+  within 10 seconds after a key, such as the answer to a card. `notify.terminal = "auto"`
   sends it only in Ghostty and never through tmux, GNU screen or zellij. Leave
   Ghostty's `notify-on-command-finish` at `never` for efr, or you get two notices at
   the end of a turn.

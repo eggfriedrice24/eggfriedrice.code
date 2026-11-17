@@ -25,6 +25,15 @@ pub fn notice_body(place: &str, what: &str) -> String {
     }
 }
 
+/// The `<place>` of a desktop notice: `project`, the name of the conversation's
+/// project, else the last part of the directory `dir`, else `~`. efrd and the CLI use
+/// this one rule, so a notice of each names the same place.
+pub fn notice_place(project: Option<String>, dir: Option<&std::path::Path>) -> String {
+    project
+        .or_else(|| dir?.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "~".to_owned())
+}
+
 /// `text` on one line of at most `max` characters: each control character, a line
 /// break too, becomes a space, and each format character ([`is_format`]) becomes
 /// U+FFFD. A longer text is cut and ends with `...`.

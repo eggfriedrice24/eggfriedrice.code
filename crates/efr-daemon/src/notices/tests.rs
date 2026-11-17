@@ -9,7 +9,7 @@ use efr_protocol::{
 use pretty_assertions::assert_eq;
 
 use crate::notices::{
-    Known, Wake, append, desktop_what, file_name, line, line_with, not_run, place, wake_of,
+    Known, Wake, append, desktop_what, file_name, line, line_with, not_run, wake_of,
 };
 
 fn turn() -> TurnId {
@@ -213,15 +213,6 @@ fn only_the_rows_that_need_the_user_give_a_desktop_notice() {
     for (case, event, wake, what) in cases {
         assert_eq!(desktop_what(&event, wake), what, "{case}");
     }
-}
-
-#[test]
-fn the_place_is_the_project_else_the_last_part_of_the_cwd_else_home() {
-    let cwd = std::path::Path::new("/home/me/p/app/src");
-    assert_eq!(place(Some("app".to_owned()), Some(cwd)), "app");
-    assert_eq!(place(None, Some(cwd)), "src");
-    assert_eq!(place(None, Some(std::path::Path::new("/"))), "~");
-    assert_eq!(place(None, None), "~");
 }
 
 #[test]

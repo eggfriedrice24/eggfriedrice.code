@@ -497,6 +497,10 @@ model, because your system keeps a history of notices:
 - The time of a turn counts from its start to its end, also the waits. An
   interrupted, cancelled or withdrawn turn sends none. `notify.after_secs = 0` sends
   one at the end of every turn.
+- No notice goes out within 10 seconds after a key, because you are at the keys. So
+  the answer to a card right before the end of a turn sends no end notice. Ghostty
+  on Linux shows a notice also in the split that has the focus, so a turn that you
+  watch with no key still sends its end notice.
 - At a waiting prompt, a line that efrd shows at once sends its notice; a line that
   shows at your next Enter sends none, because you are at that terminal.
 

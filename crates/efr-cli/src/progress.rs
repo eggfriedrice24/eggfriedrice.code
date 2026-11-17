@@ -34,18 +34,10 @@ const GHOSTTY: [u64; 3] = [1, 2, 0];
 /// The first `TERM_PROGRAM_VERSION` of kitty that draws the bar.
 const KITTY: [u64; 3] = [0, 47, 0];
 
-/// True when the bar goes out: `on` and `auto` only when replies are formatted (stdout
-/// is a terminal), `auto` only in a terminal that is known to draw it and not through a
-/// multiplexer.
+/// True when the bar goes out ([`TermFacts::allows`]): `auto` only in a terminal that
+/// is known to draw it.
 pub(crate) fn wanted(setting: AutoOnOff, facts: &TermFacts) -> bool {
-    if !facts.formats_stdout() {
-        return false;
-    }
-    match setting {
-        AutoOnOff::On => true,
-        AutoOnOff::Auto => !facts.multiplexer && draws_it(facts),
-        _ => false,
-    }
+    facts.allows(setting, draws_it(facts))
 }
 
 /// True for a terminal that is known to draw the bar.

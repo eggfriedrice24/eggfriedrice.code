@@ -8,6 +8,7 @@ use std::fmt;
 use std::io::{self, IsTerminal as _};
 use std::os::fd::AsFd as _;
 
+use efr_config::AutoOnOff;
 use efr_render::{ColourMode, Glyphs, RenderOptions, WidthMethod};
 
 use crate::settings::Settings;
@@ -96,6 +97,21 @@ impl TermFacts {
     /// desktop notice ask this one test.
     pub(crate) fn ghostty(&self) -> bool {
         self.term_program.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("ghostty"))
+    }
+
+    /// True when a sequence that only some terminals know (the progress bar, the
+    /// desktop notice) goes out with `setting`: `on` and `auto` only when replies are
+    /// formatted, `auto` only in a terminal that is `known` to handle it and not through
+    /// a multiplexer, `off` never.
+    pub(crate) fn allows(&self, setting: AutoOnOff, known: bool) -> bool {
+        if !self.formats_stdout() {
+            return false;
+        }
+        match setting {
+            AutoOnOff::On => true,
+            AutoOnOff::Auto => known && !self.multiplexer,
+            _ => false,
+        }
     }
 
     /// How the terminal counts the width of text: by grapheme cluster in Ghostty

@@ -2741,6 +2741,21 @@ fn a_long_turn_ends_with_a_desktop_notice_of_its_time() {
 }
 
 #[test]
+fn the_end_right_after_a_key_sends_no_desktop_notice() {
+    // A card waited 40 s, and the user answered it 2 s before the end of the turn.
+    let noticed = |key_before_end: i64| {
+        let mut view = started_view(ALL).with_notices(notices(30));
+        view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+        view.frame(SIZE, at(0));
+        view.keyed(at(42_000 - key_before_end));
+        view.envelope(&sent(12, 42_000, completed_turn()), SIZE, false);
+        view.frame(SIZE, at(42_000)).contains("\x1b]777;")
+    };
+    assert!(!noticed(2_000), "the user is at the keys");
+    assert!(noticed(10_000), "the last key is as old as the time of a wait");
+}
+
+#[test]
 fn a_short_turn_an_interrupt_and_the_setting_off_send_no_desktop_notice() {
     assert!(!ended_noticed(30, completed_turn(), 29_000).contains("\x1b]777;"));
     let interrupted = Event::TurnInterrupted {

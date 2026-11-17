@@ -62,7 +62,7 @@ use efr_protocol::{
     ApprovedBy, CallId, ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, InputWait,
     JobState, JobStopBy, RouteScope, Scope, ShellCommandEnd, TurnId,
 };
-use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, one_line};
+use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, notice_place, one_line};
 use jiff::Timestamp;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -623,16 +623,8 @@ pub(crate) fn desktop_what(event: &Event, wake: Option<&Wake>) -> Option<&'stati
     }
 }
 
-/// The `<place>` of a desktop notice: `project`, the name of the conversation's
-/// project, else the last part of its working directory `cwd`, else `~`.
-pub(crate) fn place(project: Option<String>, cwd: Option<&Path>) -> String {
-    project
-        .or_else(|| cwd?.file_name().map(|name| name.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "~".to_owned())
-}
-
-/// The [`place`] of a conversation of the scope `scope` and the working directory
-/// `cwd`. Only a project's name reads the registry.
+/// The [`notice_place`] of a conversation of the scope `scope` and the working
+/// directory `cwd`. Only a project's name reads the registry.
 async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> String {
     let project = match scope {
         Some(Scope::Project(id)) => {
@@ -642,7 +634,7 @@ async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> S
         }
         _ => None,
     };
-    place(project, cwd)
+    notice_place(project, cwd)
 }
 
 /// Makes `dir`, the notices directory, mode 0700, when it is missing.

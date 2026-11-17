@@ -82,7 +82,8 @@
 //! when the terminal draws one. A desktop notice (OSC 777, `crate::notify`) goes with
 //! the frame when the follow loop says that a wait of the user is old
 //! ([`TurnView::wait_noticed`]), and at the end of the last turn of the view when that
-//! turn took at least `notify.after_secs`; an interrupted turn sends none.
+//! turn took at least `notify.after_secs` and no key came in the last 10 s
+//! ([`TurnView::keyed`]); an interrupted turn sends none.
 //!
 //! The model's context shows as a gauge, `ctx 43%` in the colour of its level
 //! (`format::context`): in the status row and in the running call's line, from the
@@ -366,6 +367,19 @@ pub(crate) enum Ask {
     /// The model's question, with this many options: a digit answers it, `t` opens its
     /// answer line ([`TurnView::user_typing`]), Esc skips it.
     Question { question_id: QuestionId, options: u8 },
+}
+
+/// A wait of the user ([`TurnView::user_wait`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UserWait(Waits);
+
+/// What a wait of the user is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Waits {
+    /// A card, with what it asks about when it shows.
+    Card(Option<About>),
+    /// The answer line of a call.
+    Line(CallId),
 }
 
 /// What a question on the screen asks about.
@@ -1450,7 +1464,9 @@ impl TurnView {
                 out.push(BELL);
             }
         }
-        if let Some(body) = self.notice.take() {
+        if let Some(body) = self.notice.take()
+            && !self.notices.as_ref().is_some_and(|notices| notices.at_the_keys(now))
+        {
             out.push_str(&notify::sequence(&body));
         }
         if !hide && self.cursor_hidden {
@@ -1485,9 +1501,30 @@ impl TurnView {
             || self.left.as_ref().is_some_and(|left| left.asking.is_some())
     }
 
-    /// True when the view sends desktop notices (`notify.terminal`).
-    pub(crate) fn notifies(&self) -> bool {
-        self.notices.is_some()
+    /// The wait of the user here, for the time of its desktop notice: `None` while
+    /// nothing waits or the view sends no notices. Another value is another wait, so a
+    /// card that follows a card, or an answer line that waits on after a card, gets a
+    /// time of its own.
+    pub(crate) fn user_wait(&self) -> Option<UserWait> {
+        self.notices.as_ref()?;
+        if self.question_pending() {
+            let about = self.question.as_ref().map(|shown| shown.about);
+            return Some(UserWait(Waits::Card(about)));
+        }
+        let running = self.running.as_ref().filter(|running| running.asking.is_some());
+        let left = self.left.as_ref().filter(|left| left.asking.is_some());
+        running
+            .map(|running| running.call_id)
+            .or_else(|| left.map(|left| left.call_id))
+            .map(|call_id| UserWait(Waits::Line(call_id)))
+    }
+
+    /// A key came at `now`: for [`notify::WAIT_AFTER`] the user is at the keys, and the
+    /// end of the turn sends no desktop notice ([`Notices::at_the_keys`]).
+    pub(crate) fn keyed(&mut self, now: Timestamp) {
+        if let Some(notices) = &mut self.notices {
+            notices.keyed(now);
+        }
     }
 
     /// The wait of the user is old and no key came: the next frame sends the desktop

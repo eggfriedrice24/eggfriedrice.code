@@ -114,21 +114,21 @@ fn a_body_carries_no_control_character_of_the_place() {
 async fn a_wait_sends_its_notice_once_after_its_time_with_no_key() {
     let clock = TestClock::new();
     let mut notice = WaitNotice::default();
-    notice.watch(false, &clock);
+    notice.watch(None, &clock);
     assert!(!notice.runs(), "no wait, no time");
-    notice.watch(true, &clock);
+    notice.watch(Some(1), &clock);
     assert!(notice.runs());
     clock.advance(WAIT_AFTER - Duration::from_millis(1));
     assert!(notice.due().now_or_never().is_none(), "not yet");
     clock.advance(Duration::from_millis(1));
     assert!(notice.due().now_or_never().is_some());
     // The same wait goes on: no second notice.
-    notice.watch(true, &clock);
+    notice.watch(Some(1), &clock);
     assert!(!notice.runs());
     assert!(notice.due().now_or_never().is_none());
     // The next wait has its own time.
-    notice.watch(false, &clock);
-    notice.watch(true, &clock);
+    notice.watch(None, &clock);
+    notice.watch(Some(1), &clock);
     assert!(notice.runs());
 }
 
@@ -136,16 +136,29 @@ async fn a_wait_sends_its_notice_once_after_its_time_with_no_key() {
 async fn a_key_or_the_end_of_the_wait_stops_its_time() {
     let clock = TestClock::new();
     let mut notice = WaitNotice::default();
-    notice.watch(true, &clock);
+    notice.watch(Some(1), &clock);
     notice.key();
-    notice.watch(true, &clock);
+    notice.watch(Some(1), &clock);
     clock.advance(WAIT_AFTER);
     assert!(notice.due().now_or_never().is_none(), "a key came in this wait");
     let mut ended = WaitNotice::default();
-    ended.watch(true, &clock);
-    ended.watch(false, &clock);
+    ended.watch(Some(1), &clock);
+    ended.watch(None, &clock);
     clock.advance(WAIT_AFTER);
     assert!(ended.due().now_or_never().is_none(), "the wait ended");
+}
+
+#[tokio::test]
+async fn a_wait_that_follows_another_at_once_has_its_own_time() {
+    let clock = TestClock::new();
+    let mut notice = WaitNotice::default();
+    // A card, answered with a key, while the answer line of a command still waits.
+    notice.watch(Some(1), &clock);
+    notice.key();
+    notice.watch(Some(2), &clock);
+    assert!(notice.runs());
+    clock.advance(WAIT_AFTER);
+    assert!(notice.due().now_or_never().is_some(), "the answer line sends its notice");
 }
 
 #[test]

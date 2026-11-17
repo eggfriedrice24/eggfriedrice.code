@@ -1,8 +1,18 @@
 use pretty_assertions::assert_eq;
 
 use super::{
-    FORMAT_CHARS, INPUT_WAITS, NOTICE_BODY_MAX, QUESTION_WAITS, is_format, notice_body, one_line,
+    FORMAT_CHARS, INPUT_WAITS, NOTICE_BODY_MAX, QUESTION_WAITS, is_format, notice_body,
+    notice_place, one_line,
 };
+
+#[test]
+fn the_place_is_the_project_else_the_last_part_of_the_dir_else_home() {
+    let cwd = std::path::Path::new("/home/me/p/app/src");
+    assert_eq!(notice_place(Some("app".to_owned()), Some(cwd)), "app");
+    assert_eq!(notice_place(None, Some(cwd)), "src");
+    assert_eq!(notice_place(None, Some(std::path::Path::new("/"))), "~");
+    assert_eq!(notice_place(None, None), "~");
+}
 
 #[test]
 fn a_notice_body_names_the_place_and_what_waits() {
