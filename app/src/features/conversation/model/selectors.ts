@@ -24,6 +24,7 @@ import {
   type PromptView,
   pendingApprovals,
   pendingQuarantine,
+  pendingQuestions,
   type QuarantineQuestionView,
   runningTurn,
   type SteerView,
@@ -31,6 +32,7 @@ import {
   type ToolCallView,
   type TurnEnd,
   type TurnView,
+  type UserQuestionView,
 } from "@/lib/stream/reducer";
 import type { TextBuffer } from "@/lib/stream/text-buffer";
 import type { TurnSettingsView } from "./model-sheet";
@@ -214,9 +216,10 @@ export interface StatusView {
   readonly loaded: boolean;
 }
 
-function hasPendingQuarantine(turn: TurnView): boolean {
+/** True when a quarantine question or a question of the model of `turn` waits. */
+function hasPendingQuestion(turn: TurnView): boolean {
   for (const call of turn.tools.values()) {
-    if (call.quarantine?.answer === "pending") {
+    if (call.quarantine?.answer === "pending" || call.question?.answer.kind === "pending") {
       return true;
     }
   }
@@ -235,9 +238,9 @@ export function selectStatus(state: StreamState): StatusView {
       }
     }
   }
-  // NOTE: the phone can answer Leave to a quarantine question (Q-Quarantine 8), so such a
-  // question waits for the user here too; only Keep stays at the terminal.
-  if (waiting === "none" && running !== undefined && hasPendingQuarantine(running)) {
+  // NOTE: the phone can answer Leave to a quarantine question (Q-Quarantine 8) and every
+  // question of the model (S-Ask), so such a question waits for the user here too.
+  if (waiting === "none" && running !== undefined && hasPendingQuestion(running)) {
     waiting = "phone";
   }
   let queued = 0;
@@ -282,15 +285,49 @@ export function selectPendingQuarantine(state: StreamState): readonly Quarantine
   return pendingQuarantine(state);
 }
 
-/** The compare of `selectPendingQuarantine`: the same question objects in the same order. */
-export function compareQuarantine(
-  a: readonly QuarantineQuestionView[],
-  b: readonly QuarantineQuestionView[],
-): boolean {
-  return a === b || (a.length === b.length && a.every((question, i) => question === b[i]));
+/** True when `a` and `b` hold the same objects in the same order. */
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a === b || (a.length === b.length && a.every((item, i) => item === b[i]));
 }
 
+/** The compare of `selectPendingQuarantine`: the same question objects in the same order. */
+export const compareQuarantine: (
+  a: readonly QuarantineQuestionView[],
+  b: readonly QuarantineQuestionView[],
+) => boolean = sameItems;
+
 /** The compare of `selectPendingApprovals`: the same approval objects in the same order. */
-export function compareApprovals(a: readonly ApprovalView[], b: readonly ApprovalView[]): boolean {
-  return a === b || (a.length === b.length && a.every((approval, i) => approval === b[i]));
+export const compareApprovals: (a: readonly ApprovalView[], b: readonly ApprovalView[]) => boolean =
+  sameItems;
+
+/** The questions of the model that wait, oldest first. Compare with `compareQuestions`. */
+export function selectPendingQuestions(state: StreamState): readonly UserQuestionView[] {
+  return pendingQuestions(state);
 }
+
+/**
+ * The selector of question `questionId` of the model while it waits; undefined for none,
+ * and once it ended (the answer state of the composer then ends too).
+ */
+export function selectWaitingQuestion(
+  questionId: string | undefined,
+): (state: StreamState) => UserQuestionView | undefined {
+  return (state) => {
+    if (questionId === undefined) {
+      return undefined;
+    }
+    const running = runningTurn(state);
+    for (const call of running?.tools.values() ?? []) {
+      if (call.question?.questionId === questionId) {
+        return call.question.answer.kind === "pending" ? call.question : undefined;
+      }
+    }
+    return undefined;
+  };
+}
+
+/** The compare of `selectPendingQuestions`: the same question objects in the same order. */
+export const compareQuestions: (
+  a: readonly UserQuestionView[],
+  b: readonly UserQuestionView[],
+) => boolean = sameItems;

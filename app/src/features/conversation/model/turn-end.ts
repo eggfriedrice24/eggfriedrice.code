@@ -17,6 +17,7 @@ import type { Origin, StopReason, StoredCopyReason } from "@/lib/protocol/genera
 import type { TurnEnd, TurnWebView } from "@/lib/stream/reducer";
 import { between, clockTime } from "./durations";
 import { tokens } from "./format";
+import { TERMINAL_ORIGINS } from "./quarantine";
 import { webPage } from "./tool-block";
 
 /** The parts of a turn end line. */
@@ -42,8 +43,6 @@ const STOPS: Readonly<Record<StopReason, string | undefined>> = {
   content_filter: "the provider filtered the answer",
   pause_turn: "the model paused",
 };
-
-const TERMINAL_ORIGINS: ReadonlySet<Origin> = new Set(["shell", "cli", "proxy"]);
 
 /**
  * The count of the searches of a turn, last on its end line as in the terminal (TM-Web

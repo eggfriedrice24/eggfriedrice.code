@@ -13,20 +13,25 @@ import {
   textPart,
   toolCallStarted,
   turnStarted,
+  userQuestionAnswered,
+  userQuestionRequested,
 } from "@/lib/stream/testing";
 import {
   compareApprovals,
+  compareQuestions,
   compareRows,
   compareShallow,
   createRowsSelector,
   selectApproval,
   selectMessage,
   selectPendingApprovals,
+  selectPendingQuestions,
   selectPrompt,
   selectReasoning,
   selectStatus,
   selectTool,
   selectTurnEnd,
+  selectWaitingQuestion,
 } from "./selectors";
 
 const TURN = "t1";
@@ -132,5 +137,36 @@ describe("the approvals selector", () => {
     const answered = reduce(state, event(approvalResolved(TURN, "a", "allow")));
     expect(selectPendingApprovals(answered)).toEqual([]);
     expect(compareApprovals(pending, selectPendingApprovals(answered))).toBe(false);
+  });
+});
+
+/** A turn whose `ask_user` call asks question `q1`. */
+const asked = (): SubscribeItem[] => [
+  event(turnStarted(TURN)),
+  event(toolCallStarted(TURN, "k1", "ask_user")),
+  event(userQuestionRequested(TURN, "k1", "q1")),
+];
+
+describe("the questions of the model", () => {
+  it("wait for the user on the status line", () => {
+    expect(selectStatus(run(asked())).waiting).toBe("phone");
+  });
+
+  it("give the question that the composer answers while it waits", () => {
+    const state = run(asked());
+    const question = selectPendingQuestions(state)[0];
+    expect(question?.questionId).toBe("q1");
+    expect(selectWaitingQuestion("q1")(state)).toBe(question);
+    expect(selectWaitingQuestion("other")(state)).toBeUndefined();
+    expect(selectWaitingQuestion(undefined)(state)).toBeUndefined();
+    const ended = reduce(
+      state,
+      event(userQuestionAnswered(TURN, "q1", { kind: "replied", reply: { kind: "skipped" } })),
+    );
+    expect(selectWaitingQuestion("q1")(ended)).toBeUndefined();
+    expect(selectPendingQuestions(ended)).toEqual([]);
+    expect(compareQuestions(selectPendingQuestions(state), selectPendingQuestions(state))).toBe(
+      true,
+    );
   });
 });

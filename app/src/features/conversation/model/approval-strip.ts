@@ -70,8 +70,11 @@ export function shortTimeLeft(expiry: string | undefined): string | undefined {
   return seconds?.[1];
 }
 
-/** The small texts of an open question: the time left, the place, offline, a failed answer. */
-function metaOf(
+/**
+ * The small texts of an open question: the time left, the place, offline, a failed
+ * answer. The strip of a question of the model shows the same texts.
+ */
+export function metaOf(
   failed: boolean,
   expiry: string | undefined,
   queue: ApprovalQueue,

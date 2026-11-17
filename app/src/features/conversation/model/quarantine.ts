@@ -70,7 +70,7 @@ export interface QuarantineSheetModel {
 }
 
 /** The terminals of efr: an answer from one of them names the machine. */
-const TERMINAL_ORIGINS: ReadonlySet<Origin> = new Set(["shell", "cli", "proxy"]);
+export const TERMINAL_ORIGINS: ReadonlySet<Origin> = new Set(["shell", "cli", "proxy"]);
 
 function rowsOf(question: QuarantineQuestionView, cwd: string | undefined): QuarantineRow[] {
   return question.changes

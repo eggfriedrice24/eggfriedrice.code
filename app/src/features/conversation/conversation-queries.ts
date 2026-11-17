@@ -19,7 +19,12 @@ import { infiniteQueryOptions, mutationOptions, queryOptions } from "@tanstack/r
 import { conversationsKeys } from "@/features/conversations/conversations-queries";
 import { conversationScope, machineKey, type ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
-import type { ConversationSwitchPreview, TurnInterrupt, TurnSteer } from "@/lib/protocol/generated";
+import type {
+  ConversationSwitchPreview,
+  QuestionReply,
+  TurnInterrupt,
+  TurnSteer,
+} from "@/lib/protocol/generated";
 import type { HistoryPage } from "@/lib/protocol/wire";
 
 /** The most history pages in memory. Older pages past it are fetched again on scroll. */
@@ -210,6 +215,34 @@ export function leaveQuarantineMutationOptions(caller: MachineCaller, ref: Conve
         keep: false,
       }),
     scope: conversationScope(ref),
+  });
+}
+
+/** What an answer to a question of the model sends. */
+export interface QuestionAnswerInput {
+  readonly questionId: string;
+  readonly answer: QuestionReply;
+  readonly commandId: string;
+}
+
+/**
+ * Answers a question of the model in `ref` (S-Ask): an option, a typed text, or a skip.
+ * An answer is information for the model, never a permission.
+ */
+export function answerQuestionMutationOptions(caller: MachineCaller, ref: ConversationAddress) {
+  return mutationOptions({
+    mutationKey: [...conversationKeys.conversation(ref), "question.respond"] as const,
+    mutationFn: (input: QuestionAnswerInput) =>
+      caller.call(ref.machine, "question.respond", {
+        command_id: input.commandId,
+        conversation_id: ref.id,
+        question_id: input.questionId,
+        answer: input.answer,
+      }),
+    scope: conversationScope(ref),
+    onSettled: (_data, _error, _input, _result, context) => {
+      void context.client.invalidateQueries({ queryKey: conversationsKeys.lists(ref.machine) });
+    },
   });
 }
 
