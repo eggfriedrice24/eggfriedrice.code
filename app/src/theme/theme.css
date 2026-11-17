@@ -91,6 +91,7 @@
   --spacing-float: 8px;
   --spacing-action: 32px;
   --spacing-field: 40px;
+  --spacing-field-focused: 72px;
   --spacing-field-max: 145px;
   --spacing-button: 50px;
 }

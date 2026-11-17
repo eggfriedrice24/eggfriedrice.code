@@ -33,6 +33,8 @@ export const SPACING = {
   action: 32,
   /** The smallest height of the composer input (one line). */
   field: 40,
+  /** The smallest height of the input of a focused composer: about 3 lines (t3code's 72). */
+  fieldFocused: 72,
   /** The tallest composer input: six lines. Then the text scrolls inside it. */
   fieldMax: 145,
   /** The height of a primary or a bordered pairing button. */

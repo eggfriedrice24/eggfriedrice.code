@@ -8,7 +8,8 @@
 //   The native input stays editable, so the keyboard stays up.
 // - Disconnected: the input takes no text, is at 60% and its placeholder says why.
 // - At rest (no focus) the field is one line and does not scroll, so a long draft shows
-//   its first line in the pill. Focus gives it the 6 lines again.
+//   its first line in the pill. Focus makes it at least 72 pt (about 3 lines, as t3code)
+//   and lets it grow to the 6 lines.
 
 import { use } from "react";
 import { TextInput } from "react-native";
@@ -46,8 +47,8 @@ export function ComposerInput() {
       selectionColor={roles.accent_primary}
       cursorColor={roles.accent_primary}
       className={cn(
-        "min-h-field flex-1 px-16 pt-9 pb-10 text-input",
-        size.expanded ? "max-h-field-max" : "max-h-field",
+        "flex-1 px-16 pt-9 pb-10 text-input",
+        size.expanded ? "min-h-field-focused max-h-field-max" : "min-h-field max-h-field",
         kind === "sending" ? "text-text-subtle" : "text-text-primary",
         kind === "disconnected" && "opacity-60",
       )}

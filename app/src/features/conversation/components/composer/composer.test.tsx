@@ -314,8 +314,10 @@ describe("the states of the composer", () => {
     expect(sendButton()).toBeEnabled();
     expect(sendButton().props.className).toContain("bg-accent-primary");
     expect(input().props.value).toBe("Now write the migration notes");
-    expect(input().props.className).toContain("min-h-field");
+    // Focused: at least 72 pt (about 3 lines), up to six lines.
+    expect(input().props.className).toContain("min-h-field-focused");
     expect(input().props.className).toContain("max-h-field-max");
+    expect(SPACING.fieldFocused).toBe(72);
     expect(input().props.scrollEnabled).toBe(true);
     expect(input().props.multiline).toBe(true);
   });
@@ -324,14 +326,15 @@ describe("the states of the composer", () => {
     await renderComposer({ stream: endedStream(), rest: true, text: "Line one\nLine two" });
     // At rest: no status line, a one-line field that does not scroll, the action stays.
     expect(screen.queryByTestId("composer-status-line")).toBeNull();
-    expect(input().props.className).toContain("max-h-field");
+    expect(input().props.className).toContain("min-h-field max-h-field");
     expect(input().props.className).not.toContain("max-h-field-max");
+    expect(input().props.className).not.toContain("min-h-field-focused");
     expect(input().props.scrollEnabled).toBe(false);
     expect(sendButton()).toBeEnabled();
     await fireEvent(input(), "focus");
     expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
     expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
-    expect(input().props.className).toContain("max-h-field-max");
+    expect(input().props.className).toContain("min-h-field-focused max-h-field-max");
     expect(input().props.scrollEnabled).toBe(true);
     // A blur makes it a pill again; the draft stays.
     await fireEvent(input(), "blur");
