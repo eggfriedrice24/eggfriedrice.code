@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_protocol::{
-    ConversationId, ConversationsList, ConversationsListResult, ErrorCode, Event, JobsStop,
-    JobsStopResult, Method, Mode, NewReason, Origin, PromptSend, PromptSendResult, RouteScope,
-    ShellContext, Switch, TurnSettings,
+    Attention, ConversationId, ConversationStatus, ConversationsList, ConversationsListResult,
+    ErrorCode, Event, JobsStop, JobsStopResult, Method, Mode, NewReason, Origin, PromptSend,
+    PromptSendResult, RouteScope, ShellContext, Switch, TurnSettings,
 };
 use efr_test_daemon::{
     ClientError, FakeLauncher, FakeProcView, TestDaemon, TestDaemonBuilder, command_id,
@@ -331,6 +331,29 @@ async fn a_closed_split_is_picked_up_by_a_new_one() {
     );
     assert_eq!(place.held_by("pts-1").await, Vec::<ConversationId>::new());
     assert_eq!(place.held_by("pts-2").await, [one.conversation_id]);
+    place.stop().await;
+}
+
+#[tokio::test]
+async fn a_conversation_whose_last_turn_failed_is_picked_up() {
+    let place = Place::start().await;
+    let one = place.at(1, &place.app, "pts-1", 100).await;
+    let client = place.daemon.client().await.unwrap();
+    let list: ConversationsListResult =
+        client.call(Method::ConversationsList(ConversationsList::default())).await.unwrap();
+    let [summary] = list.conversations.as_slice() else { panic!("one: {list:?}") };
+    assert_eq!(
+        (summary.id, summary.status, summary.attention),
+        (one.conversation_id, ConversationStatus::Idle, Some(Attention::Failed))
+    );
+    place.procs.kill(100);
+    place.procs.peer_on_tty("pts-2");
+
+    let two = place.picked_up(Place::prompt(2, &place.app, "pts-2", 200)).await;
+
+    assert_eq!(two.conversation_id, one.conversation_id);
+    assert!(matches!(switch(&two), Some(Switch::PickedUp { .. })), "{two:?}");
+    drop(client);
     place.stop().await;
 }
 
