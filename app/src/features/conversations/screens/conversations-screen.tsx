@@ -24,6 +24,13 @@ import { ConversationsSheet } from "../components/conversations-sheet";
 import { sheetMachines } from "../model/sheet-view";
 import { useSheetDeps } from "./use-sheet-deps";
 
+/**
+ * The width of the fixed spacer between the search pill and the pencil. Any fixed spacer
+ * starts a new glass group; 1 pt adds almost nothing to the gap that iOS puts between
+ * groups. A width of 0 would make a flexible spacer.
+ */
+const TOOLBAR_GROUP_GAP = 1;
+
 export interface ConversationsScreenProps {
   /** The machine on screen when the sheet opened; its search hits come first. */
   readonly machine?: string;
@@ -51,6 +58,9 @@ export function ConversationsScreen(props: ConversationsScreenProps) {
       />
       <Stack.Toolbar placement="bottom">
         <Stack.Toolbar.SearchBarSlot />
+        {/* A fixed spacer splits the glass: the pencil stands in a circle of its own
+            next to the search pill, as the Clear button of a focused search does. */}
+        <Stack.Toolbar.Spacer width={TOOLBAR_GROUP_GAP} />
         <Stack.Toolbar.Button
           icon="square.and.pencil"
           accessibilityLabel="New conversation"
