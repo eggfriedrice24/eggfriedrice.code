@@ -433,20 +433,54 @@ pub(crate) fn notice_rides(job_id: &JobId) -> String {
     format!("the model also reads a notice of job {job_id}; it is not your input")
 }
 
-/// The line of a job event of the conversation, which belongs to no turn: the end of a
-/// job, a matched line, a notice that did not start a turn, a port that efr forwards or
-/// not. `None` for any other event.
-pub(crate) fn conversation_line(event: &Event) -> Option<String> {
+/// A row of a job event of the conversation, on one line and safe to print.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct JobRow {
+    /// The words of the row.
+    pub(crate) text: String,
+    /// True for the row of a batch of matched lines: a terminal shows it on one row,
+    /// with the cut mark at the end (TM-Endings 0.0.12, frame 1). False for a row that
+    /// wraps.
+    pub(crate) one_row: bool,
+}
+
+impl JobRow {
+    /// The row as a screen shows it: a row of matched lines cut to `columns`, the room
+    /// and the way to count widths of a terminal; else the full text.
+    pub(crate) fn shown(&self, columns: Option<(usize, WidthMethod)>) -> String {
+        match columns {
+            Some((room, method)) if self.one_row => cut(&self.text, room.max(1), method),
+            _ => self.text.clone(),
+        }
+    }
+}
+
+/// The rows of a job event of the conversation, which belongs to no turn: the end of a
+/// job (after the row of the matched lines that waited at the end, when there are
+/// some), a batch of matched lines, a notice that did not start a turn, a port that efr
+/// forwards or not. Empty for any other event.
+pub(crate) fn conversation_rows(event: &Event) -> Vec<JobRow> {
+    let wraps = |text: String| JobRow { text, one_row: false };
     match event {
-        Event::JobEnded { .. } => Ended::of(event).map(|(job_id, end)| ended(job_id, &end)),
+        Event::JobEnded { matched: batch, matched_dropped, .. } => {
+            let Some((job_id, end)) = Ended::of(event) else { return Vec::new() };
+            let mut rows = Vec::with_capacity(2);
+            if let Some((first, more)) = batch.split_first() {
+                let text = matched(job_id, first, more.len(), *matched_dropped);
+                rows.push(JobRow { text, one_row: true });
+            }
+            rows.push(wraps(ended(job_id, &end)));
+            rows
+        }
         Event::JobWatchMatched { job_id, line, more, dropped, .. } => {
-            Some(matched(job_id, line, more.len(), *dropped))
+            vec![JobRow { text: matched(job_id, line, more.len(), *dropped), one_row: true }]
         }
-        Event::JobNoticeHeld { job_id, reason, .. } => Some(held(job_id, *reason)),
+        Event::JobNoticeHeld { job_id, reason, .. } => vec![wraps(held(job_id, *reason))],
         Event::JobPortForwarded { job_id, listen, port, outcome, by_job, reason } => {
-            Some(forward(job_id, listen, *port, *outcome, by_job.as_ref(), reason.as_deref()))
+            let text = forward(job_id, listen, *port, *outcome, by_job.as_ref(), reason.as_deref());
+            vec![wraps(text)]
         }
-        _ => None,
+        _ => Vec::new(),
     }
 }
 

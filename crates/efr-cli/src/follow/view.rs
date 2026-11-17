@@ -1603,11 +1603,24 @@ impl TurnView {
         // NOTE: a job outlives its turn, so its end, a matched line, a notice that did
         // not start a turn and a port of it belong to the conversation; they show while
         // the view follows any turn of it.
-        if let Some(line) = jobs::conversation_line(event) {
+        let job_rows = jobs::conversation_rows(event);
+        if !job_rows.is_empty() {
             let url = jobs::link_of(event);
             return self.rendered_after(
                 String::new(),
-                |options| jobs::linked(&rows(&line, Tone::Dim, options), url.as_deref(), options),
+                |options| {
+                    let columns = format::columns(options);
+                    let mut out = String::new();
+                    for row in &job_rows {
+                        let text = row.shown(columns);
+                        out.push_str(&jobs::linked(
+                            &rows(&text, Tone::Dim, options),
+                            url.as_deref(),
+                            options,
+                        ));
+                    }
+                    out
+                },
                 size,
             );
         }

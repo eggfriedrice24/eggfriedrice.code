@@ -824,10 +824,13 @@ impl<'a> Transcript<'a> {
             | Event::JobWatchMatched { .. }
             | Event::JobNoticeHeld { .. }
             | Event::JobPortForwarded { .. }) => {
-                if let Some(line) = jobs::conversation_line(event) {
-                    let url = jobs::link_of(event);
+                let url = jobs::link_of(event);
+                // NOTE: a row of matched lines takes the room after the indent.
+                let columns = format::columns(self.options)
+                    .map(|(width, method)| (width.saturating_sub(INDENT.len()), method));
+                for row in jobs::conversation_rows(event) {
                     self.out.push_str(self.spacing.before(Block::Row));
-                    let painted = format::paint(&line, Tone::Dim, self.options);
+                    let painted = format::paint(&row.shown(columns), Tone::Dim, self.options);
                     let _ = writeln!(
                         self.out,
                         "{INDENT}{}",

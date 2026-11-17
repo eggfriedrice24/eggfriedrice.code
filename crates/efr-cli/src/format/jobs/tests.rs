@@ -4,19 +4,27 @@ use efr_protocol::{
     BlockReason, Blocked, Event, ForwardOutcome, HeldReason, JobId, JobState, JobStopBy,
     PortForward, Seq, SurfaceChange,
 };
-use efr_render::{Glyphs, RenderOptions};
+use efr_render::{Glyphs, RenderOptions, WidthMethod};
 use efr_test_support::design::{Depth, Frame, assert_rows};
 use pretty_assertions::assert_eq;
 
 use super::{
-    Ended, ListRow, conversation_line, ended, held, link_of, linked, list, matched, minutes,
-    move_exit, move_risk, moved_exits, not_moved, output_name, ports, started, tail_lines,
+    Ended, JobRow, ListRow, conversation_rows, ended, held, link_of, linked, list, matched,
+    minutes, move_exit, move_risk, moved_exits, not_moved, output_name, ports, started, tail_lines,
 };
 use crate::format::{Tone, paint};
 use crate::testing::{design_options, job, now};
 
 fn j3() -> JobId {
     JobId::nth(3)
+}
+
+/// The text of the one row of a job event that has one row; `None` for an event with
+/// no row.
+fn conversation_line(event: &Event) -> Option<String> {
+    let mut rows = conversation_rows(event);
+    assert!(rows.len() <= 1, "{rows:?}");
+    rows.pop().map(|row| row.text)
 }
 
 /// The `job_ended` of job 3 with these facts; the rest empty.
@@ -278,6 +286,40 @@ fn a_watch_batch_counts_its_lines_before_the_first_one() {
         matched(&j3(), "x", 0, u32::MAX),
         "job j3 matched 4294967296 lines (4294967295 not shown): x"
     );
+}
+
+#[test]
+fn the_batch_that_waited_at_the_end_shows_before_the_end() {
+    let mut event = job_ended(JobState::Exited, Some(1), None);
+    if let Event::JobEnded { matched, matched_dropped, .. } = &mut event {
+        *matched = vec!["FAIL tests/a.rs".to_owned(), "FAIL tests/b.rs".to_owned()];
+        *matched_dropped = 3;
+    }
+    assert_eq!(
+        conversation_rows(&event),
+        [
+            JobRow {
+                text: "job j3 matched 5 lines (4 not shown): FAIL tests/a.rs".to_owned(),
+                one_row: true,
+            },
+            JobRow {
+                text: "job j3 ended with exit 1 after 92 minutes; 1.2 MB output".to_owned(),
+                one_row: false,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_terminal_cuts_a_row_of_matched_lines_to_one_row() {
+    let long = format!("job j3 matched: {}", "x".repeat(200));
+    let row = JobRow { text: long.clone(), one_row: true };
+    let shown = row.shown(Some((40, WidthMethod::default())));
+    assert_eq!(shown.chars().count(), 40, "{shown}");
+    assert!(shown.starts_with("job j3 matched: xxx"), "{shown}");
+    assert_eq!(row.shown(None), long, "piped output stays whole");
+    let wraps = JobRow { text: long.clone(), one_row: false };
+    assert_eq!(wraps.shown(Some((40, WidthMethod::default()))), long);
 }
 
 #[test]

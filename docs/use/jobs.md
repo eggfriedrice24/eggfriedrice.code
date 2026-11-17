@@ -206,8 +206,10 @@ job j3 matched: error: worker 2 exited
 job j3 matched 20 lines (19 not shown): FAIL src/app.test.ts
 ```
 
-The count is all the lines of the notice, and the lines that efr left out. `efr
-history` shows the same row.
+The count is all the lines of the notice, and the lines that efr left out. On a
+terminal the row is one row: a long line ends with `…`. The lines that went into the
+notice of the job's end show in the same row, right above the row of the end. `efr
+history` shows the same rows.
 
 The tool text tells the agent how: make the command print one line for each event,
 give a pattern that matches each end state (the failure and the success), and name a
