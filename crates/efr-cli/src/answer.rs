@@ -1,5 +1,7 @@
 //! The line that the user types for a running command that waits for input, such as the
-//! password that `sudo` asks for.
+//! password that `sudo` asks for, and for the answer to the model's question.
+//! [`Sequences`] drops the escape sequences of the keys, also for the one-key answers
+//! of that question, where a byte of a sequence must never count as a digit.
 //!
 //! The key thread hands over single bytes in non-canonical mode, so this module does
 //! the line editing that the terminal would do in canonical mode: printable text is
@@ -32,10 +34,11 @@ pub(crate) enum Edit {
     Submit,
 }
 
-/// Where the line is in an escape sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Where the keys are in an escape sequence.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum Escape {
     /// Not in one.
+    #[default]
     None,
     /// After ESC.
     Start,
@@ -45,13 +48,59 @@ enum Escape {
     Ss3,
 }
 
+/// Drops the escape sequences of the keys whole: the arrow keys, the function keys and
+/// Alt with a key. So a byte of a sequence, such as the `1` of F5 (`ESC [ 1 5 ~`), never
+/// counts as a key of its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Sequences {
+    escape: Escape,
+}
+
+impl Sequences {
+    /// `byte` when it stands outside an escape sequence; `None` for a byte of one. A
+    /// lone ESC that a byte other than a printable one follows ends there, and that
+    /// byte means what it always means.
+    pub(crate) fn plain(&mut self, byte: u8) -> Option<u8> {
+        match self.escape {
+            Escape::None if byte == 0x1b => {
+                self.escape = Escape::Start;
+                None
+            }
+            Escape::None => Some(byte),
+            Escape::Start => {
+                match byte {
+                    b'[' => self.escape = Escape::Csi,
+                    b'O' => self.escape = Escape::Ss3,
+                    // Alt and a key: the key goes with the ESC.
+                    0x20..=0x7e => self.escape = Escape::None,
+                    _ => {
+                        self.escape = Escape::None;
+                        return self.plain(byte);
+                    }
+                }
+                None
+            }
+            Escape::Csi => {
+                if (0x40..=0x7e).contains(&byte) {
+                    self.escape = Escape::None;
+                }
+                None
+            }
+            Escape::Ss3 => {
+                self.escape = Escape::None;
+                None
+            }
+        }
+    }
+}
+
 /// A line of text typed one byte at a time.
 pub(crate) struct AnswerLine {
     text: Zeroizing<String>,
     /// The bytes of a UTF-8 character that has not arrived whole.
     pending: Zeroizing<[u8; 4]>,
     pending_len: usize,
-    escape: Escape,
+    sequences: Sequences,
 }
 
 impl fmt::Debug for AnswerLine {
@@ -67,7 +116,7 @@ impl AnswerLine {
             text: Zeroizing::new(String::with_capacity(InputRespond::MAX_TEXT_BYTES)),
             pending: Zeroizing::new([0; 4]),
             pending_len: 0,
-            escape: Escape::None,
+            sequences: Sequences::default(),
         }
     }
 
@@ -79,42 +128,22 @@ impl AnswerLine {
     /// Takes the text to send and leaves the line empty. The allocation moves into the
     /// [`SecretText`], which zeroes it when it is dropped.
     pub(crate) fn take(&mut self) -> SecretText {
+        SecretText::new(self.take_text())
+    }
+
+    /// Takes the text of a line that is never a secret, such as the answer to the
+    /// model's question, and leaves the line empty.
+    pub(crate) fn take_text(&mut self) -> String {
         self.drop_pending();
-        self.escape = Escape::None;
-        let text =
-            std::mem::replace(&mut *self.text, String::with_capacity(InputRespond::MAX_TEXT_BYTES));
-        SecretText::new(text)
+        self.sequences = Sequences::default();
+        std::mem::replace(&mut *self.text, String::with_capacity(InputRespond::MAX_TEXT_BYTES))
     }
 
     /// Takes one key.
     pub(crate) fn key(&mut self, byte: u8) -> Edit {
-        match self.escape {
-            Escape::None => {}
-            Escape::Start => {
-                match byte {
-                    b'[' => self.escape = Escape::Csi,
-                    b'O' => self.escape = Escape::Ss3,
-                    // Alt and a key: the key goes with the ESC.
-                    0x20..=0x7e => self.escape = Escape::None,
-                    // A lone ESC: the key after it means what it always means.
-                    _ => {
-                        self.escape = Escape::None;
-                        return self.key(byte);
-                    }
-                }
-                return Edit::Unchanged;
-            }
-            Escape::Csi => {
-                if (0x40..=0x7e).contains(&byte) {
-                    self.escape = Escape::None;
-                }
-                return Edit::Unchanged;
-            }
-            Escape::Ss3 => {
-                self.escape = Escape::None;
-                return Edit::Unchanged;
-            }
-        }
+        let Some(byte) = self.sequences.plain(byte) else {
+            return Edit::Unchanged;
+        };
         if self.pending_len > 0 || byte >= 0x80 {
             return self.utf8(byte);
         }
@@ -123,10 +152,6 @@ impl AnswerLine {
             0x7f | 0x08 => self.backspace(),
             // Ctrl+U, the terminal's line kill.
             0x15 => self.clear(),
-            0x1b => {
-                self.escape = Escape::Start;
-                Edit::Unchanged
-            }
             0x00..=0x1f => Edit::Unchanged,
             _ => self.push_char(char::from(byte)),
         }

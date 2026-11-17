@@ -1,7 +1,7 @@
 use efr_protocol::InputRespond;
 use pretty_assertions::assert_eq;
 
-use super::{AnswerLine, Edit};
+use super::{AnswerLine, Edit, Sequences};
 
 /// Types `bytes` and returns the edit of each key.
 fn type_bytes(line: &mut AnswerLine, bytes: &[u8]) -> Vec<Edit> {
@@ -78,6 +78,26 @@ fn escape_sequences_are_ignored_whole() {
     assert_eq!(line.text(), "ab");
     type_bytes(&mut line, b"c");
     assert_eq!(line.text(), "abc");
+}
+
+#[test]
+fn only_the_bytes_outside_a_sequence_are_keys() {
+    let mut sequences = Sequences::default();
+    let mut plain = |bytes: &[u8]| -> Vec<u8> {
+        bytes.iter().filter_map(|byte| sequences.plain(*byte)).collect()
+    };
+    // F5 holds a 1 and Delete a 3: neither is a key of its own.
+    assert_eq!(plain(b"\x1b[15~\x1b[3~\x1bOP2"), b"2");
+    // Alt and a key go together; a lone ESC before Enter leaves Enter.
+    assert_eq!(plain(b"\x1b1\x1b\r"), b"\r");
+}
+
+#[test]
+fn the_text_of_a_visible_line_is_taken_as_it_is() {
+    let mut line = AnswerLine::new();
+    type_bytes(&mut line, "port 5433 \u{e9}".as_bytes());
+    assert_eq!(line.take_text(), "port 5433 \u{e9}");
+    assert_eq!(line.text(), "");
 }
 
 #[test]
