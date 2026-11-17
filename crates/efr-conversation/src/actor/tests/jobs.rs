@@ -379,6 +379,34 @@ async fn wake_turn_runs_in_cautious_and_asks() {
     assert_eq!(started_mode(&h, woke).await, Mode::Cautious);
 }
 
+/// The model's question in a wake turn: its text starts with the words of a notice
+/// turn, and with no client that can answer it, it waits the away wait and the model
+/// goes on with the text for an away user.
+#[tokio::test]
+async fn a_wake_turn_asks_and_with_nobody_there_waits_the_away_wait() {
+    let ask = (
+        crate::ASK_USER,
+        json!({ "question": "Restart the server?", "options": [
+            { "label": "Restart" }, { "label": "Leave it" }] }),
+    );
+    let (mut h, script, _) = with_job(auto(), vec![ask]).await;
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let asked = h.wait_for(|e| matches!(e, Event::UserQuestionRequested { .. })).await;
+    let Event::UserQuestionRequested { turn_id: woke, question, .. } = asked else {
+        unreachable!("wait_for returns an event it accepted");
+    };
+    assert_eq!(question, format!("{WAKE_QUESTION}Restart the server?"));
+    while !h.clock.requested_sleeps().contains(&Duration::from_secs(300)) {
+        h.clock.wait_for_sleeps(h.clock.pending_sleeps() + 1).await;
+    }
+    h.clock.advance(Duration::from_secs(300));
+    h.wait_end(woke).await;
+
+    let results = script.results();
+    assert_eq!(results.last(), Some(&(crate::ask::unanswered(true), true)));
+}
+
 #[tokio::test]
 async fn wake_turn_follows_newest_prompt_mode() {
     let (mut h, _, _) = with_job(auto(), vec![(DONE, Value::Null), shell("sudo true")]).await;

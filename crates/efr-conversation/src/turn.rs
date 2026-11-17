@@ -49,6 +49,7 @@ mod hosted;
 mod reason;
 mod review;
 mod stream;
+mod wait;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -64,8 +65,9 @@ use efr_permissions::{
 use efr_protocol::{
     AccountOut, ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody,
     ErrorCode, Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, LimitKind, LimitReached,
-    Mode, Origin, Presence, QuestionId, RecentCommand, Scope, ShellContext, StopReason as WireStop,
-    SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnStop, Verdict,
+    Mode, Origin, QuestionId, QuestionReply, RecentCommand, Scope, ShellContext,
+    StopReason as WireStop, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnStop,
+    UserAnswer, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
@@ -87,7 +89,9 @@ use self::drafter::Drafter;
 use self::hosted::{MAX_PAUSES, WebState};
 use self::review::Reviewed;
 use self::stream::Response;
+use self::wait::{Answerer, Ended, Wait, Waited};
 use crate::approvals::{self, Approvals};
+use crate::ask::{self, Question};
 use crate::compaction::{Placed, Window, with_window};
 use crate::context::{self, Meter};
 use crate::drafts::LiveStatus;
@@ -98,7 +102,6 @@ use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls, end_marke
 use crate::interrupt::Interrupt;
 use crate::notice;
 use crate::preamble::{self, LiveState};
-use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
 use crate::settings::{self, Place};
@@ -147,7 +150,10 @@ pub(crate) struct Shared {
     pub(crate) deps: ConversationDeps,
     pub(crate) scratch: Mutex<Scratch>,
     pub(crate) approvals: Approvals,
-    pub(crate) questions: Questions,
+    /// The quarantine questions: true keeps the changes.
+    pub(crate) questions: Questions<bool>,
+    /// The model's questions (`ask_user`), each with its number of options.
+    pub(crate) user_questions: Questions<QuestionReply, u8>,
     /// The compactions in a row that missed, carried from turn to turn so that the
     /// breaker stays open until the context is below the trigger again.
     pub(crate) misses: AtomicU32,
@@ -474,6 +480,10 @@ struct Turn {
     calls: usize,
     /// True once the turn recorded the `job_notice` events of its notices.
     notices_recorded: bool,
+    /// Set when a question of the model in this turn ended with no answer, true when
+    /// the user was away: each later `ask_user` of the turn gets the same answer at
+    /// once and asks nobody.
+    unanswered: Option<bool>,
 }
 
 /// What the check point found about one call before the call's start is recorded.
@@ -575,6 +585,7 @@ impl Turn {
             jobs: Vec::new(),
             calls: 0,
             notices_recorded: false,
+            unanswered: None,
         }
     }
 
@@ -784,7 +795,7 @@ impl Turn {
             model: settings.model.clone(),
             system: config.system_prompt.clone().filter(|system| !system.is_empty()),
             messages: Vec::new(),
-            tools: shared.deps.toolbox.definitions(self.edit_tool),
+            tools: ask::definitions(&*shared.deps.toolbox, self.edit_tool, &config),
             hosted: web::hosted_tools(self.web.plan, settings.mode, config.web.max_searches),
             max_output_tokens: config.max_output_tokens,
             effort: settings.effort.clone(),
@@ -1080,17 +1091,6 @@ impl Turn {
         self.provider.clone().unwrap_or_else(|| self.shared.deps.providers.default_provider())
     }
 
-    /// True when nobody can answer a question of the turn now: the user is away, or,
-    /// in a turn that job notices started, no client that can answer follows the
-    /// conversation. Nobody typed the input of such a turn, so a user who typed in
-    /// another terminal a while ago does not count as there (phase C).
-    fn nobody_there(&self) -> bool {
-        let presence = &self.shared.deps.presence;
-        let conversation_id = self.shared.conversation_id;
-        presence.presence(conversation_id) == Presence::Away
-            || (self.spec.is_wake() && !presence.followed(conversation_id))
-    }
-
     /// True when the turn is a wake turn that judged [`wake::WAKE_TURN_MAX_CALLS`]
     /// calls: no more calls run in it.
     fn capped(&self) -> bool {
@@ -1245,9 +1245,16 @@ impl Turn {
             // NOTE: checked before the engine, so a call of a full turn whose gate went
             // off is never judged and never runs (DF16).
             let gate = if skipped { None } else { self.full_gate(&tool_call.context) };
+            // NOTE: the model's question goes to the user after the skip, the cap and
+            // the gate, and never to the engine: it asks for no permission and gives
+            // none. Only a turn that offers the tool asks.
+            let asks = !skipped
+                && gate.is_none()
+                && self.config.ask_user
+                && tool_call.name == ask::ASK_USER;
             // NOTE: judged before the start is recorded, so `tool_call_started` says how
             // the call runs; the engine is pure, and nothing runs until it allows.
-            let judged = if skipped || gate.is_some() {
+            let judged = if skipped || gate.is_some() || asks {
                 None
             } else {
                 Some(self.judge(&tool_call).await)
@@ -1292,6 +1299,7 @@ impl Turn {
                         refused = Some(approvals::brief(&message));
                         (ToolOutcome::error(message), false)
                     }
+                    None if asks => self.ask_user(call_id, &tool_call.input).await?,
                     None => (ToolOutcome::error(NOT_RUN), true),
                 },
                 Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
@@ -1743,7 +1751,7 @@ impl Turn {
         let deadline = (!critical.is_empty()).then(|| {
             config.approval_timeout.map_or(exit::CRITICAL_WAIT, |t| t.min(exit::CRITICAL_WAIT))
         });
-        let at_once = deadline.is_some() && self.nobody_there();
+        let at_once = deadline.is_some() && self.nobody_there(Answerer::User);
         let answer = self.shared.approvals.park(turn_id, call_id, local_only, offer.clone());
         events.push(Event::ApprovalRequested {
             turn_id,
@@ -1763,54 +1771,10 @@ impl Turn {
             return Err(error);
         }
         tracing::debug!(phase = "approval_request", elapsed_ms = %watch, "phase=approval_request elapsed_ms={}", watch);
-        let interrupt = self.control.interrupt.clone();
-        let clock = Arc::clone(&self.shared.deps.clock);
-        let presence = Arc::clone(&self.shared.deps.presence);
-        let conversation_id = self.shared.conversation_id;
-        let parked = clock.now();
         let mut answer = answer;
-        // NOTE: presence is read when the question parks and again every
-        // `PRESENCE_CHECK` while it waits, so a user who leaves, or says so with
-        // `efr away`, after it parked still gets the away wait, from the moment efr
-        // sees it. A user who comes back gets the normal wait again.
-        let mut away_from: Option<Duration> = None;
-        let mut pushed = false;
         let watch = Stopwatch::start();
-        let waited = loop {
-            let elapsed =
-                Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
-            if self.nobody_there() {
-                away_from.get_or_insert(elapsed);
-                if !pushed && !at_once {
-                    presence.push(conversation_id, call_id);
-                    pushed = true;
-                }
-            } else {
-                away_from = None;
-            }
-            let left = match away_from {
-                Some(from) => Some((from + config.away_wait).saturating_sub(elapsed)),
-                None => config.approval_timeout.map(|timeout| timeout.saturating_sub(elapsed)),
-            };
-            // NOTE: the smallest of the deadline of a guarded delete and the other waits.
-            let left = match (left, deadline) {
-                _ if at_once => Some(Duration::ZERO),
-                (Some(left), Some(deadline)) => Some(left.min(deadline.saturating_sub(elapsed))),
-                (None, Some(deadline)) => Some(deadline.saturating_sub(elapsed)),
-                (left, None) => left,
-            };
-            if deadline.is_some() && left == Some(Duration::ZERO) {
-                break Waited::TimedOut;
-            }
-            tokio::select! {
-                biased;
-                () = interrupt.raised() => break Waited::Interrupted,
-                received = &mut answer => break Waited::Answer(received.ok()),
-                () = sleep_or_pending(&*clock, left) => break Waited::TimedOut,
-                () = clock.sleep(PRESENCE_CHECK) => {}
-            }
-        };
-        let away = away_from.is_some();
+        let wait = Wait { call_id, answerer: Answerer::User, deadline, at_once };
+        let Ended { waited, away, parked } = self.wait_for_person(wait, &mut answer).await;
         tracing::debug!(phase = "approval_wait", elapsed_ms = %watch, "phase=approval_wait elapsed_ms={}", watch);
         // NOTE: the actor takes an `a` only for a question that offers a rule; any
         // other `a` falls to the denial below.
@@ -1849,7 +1813,8 @@ impl Turn {
                 let expired = self.expire(call_id, away, &kinds, full).await?;
                 if !critical.is_empty() && expired {
                     let waited = (!at_once).then(|| {
-                        Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default()
+                        let now = self.shared.deps.clock.now();
+                        Duration::try_from(now.duration_since(parked)).unwrap_or_default()
                     });
                     return Ok(self.critical_expired(&critical, waited));
                 }
@@ -1949,7 +1914,7 @@ impl Turn {
         let turn_id = self.turn_id();
         let question_id =
             QuestionId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
-        let mut answer = self.shared.questions.park(turn_id, question_id);
+        let mut answer = self.shared.questions.park(turn_id, question_id, ());
         let requested = Event::SurfaceQuestionRequested {
             turn_id,
             call_id: context.call_id,
@@ -1960,34 +1925,23 @@ impl Turn {
             self.shared.questions.withdraw(question_id);
             return Err(error);
         }
-        let interrupt = self.control.interrupt.clone();
-        let clock = Arc::clone(&self.shared.deps.clock);
-        let timeout = self.shared.config.current().approval_timeout;
-        let waited = tokio::select! {
-            biased;
-            () = interrupt.raised() => None,
-            answer = &mut answer => Some(answer.ok()),
-            () = sleep_or_pending(&*clock, timeout) => None,
+        // NOTE: as an approval: while nobody is there, the question ends after the away
+        // wait and the change stays in quarantine.
+        let wait = Wait {
+            call_id: context.call_id,
+            answerer: Answerer::User,
+            deadline: None,
+            at_once: false,
         };
-        let interrupted = interrupt.is_raised();
-        let kept = match waited {
-            Some(Some(keep)) => Kept::Answer(keep),
-            // NOTE: the actor took the question but could not record the answer.
-            Some(None) => Kept::Unanswered,
-            None if self.shared.questions.withdraw(question_id) => {
-                self.record(vec![Event::SurfaceQuestionAnswered {
-                    turn_id,
-                    question_id,
-                    keep: false,
-                    origin: None,
-                }])
-                .await?;
-                Kept::Unanswered
-            }
-            // NOTE: the actor took the question at this moment and records the answer,
-            // so the turn waits for it and records none of its own.
-            None => answer.await.map_or(Kept::Unanswered, Kept::Answer),
-        };
+        let ended = self.wait_for_person(wait, &mut answer).await;
+        let interrupted = self.control.interrupt.is_raised();
+        let unanswered =
+            Event::SurfaceQuestionAnswered { turn_id, question_id, keep: false, origin: None };
+        let questions = &self.shared.questions;
+        let kept = self
+            .settle(questions, question_id, ended.waited, answer, unanswered)
+            .await?
+            .map_or(Kept::Unanswered, Kept::Answer);
         let names = exit::change_names(&changes);
         let note = match kept {
             Kept::Answer(true) => {
@@ -2009,6 +1963,66 @@ impl Turn {
             }
         };
         Ok((note, interrupted))
+    }
+
+    /// Asks the user the model's question of the call `call_id`, whose input is
+    /// `input`, and waits for the answer as for an approval, with the rule of
+    /// [`Answerer::Questions`]. Returns what the model reads, and true when the user
+    /// interrupted the turn. A bad input asks nobody, and after one question of the
+    /// turn went unanswered, each later one asks nobody either.
+    async fn ask_user(
+        &mut self,
+        call_id: CallId,
+        input: &Value,
+    ) -> Result<(ToolOutcome, bool), ConversationError> {
+        let Question { question, options } = match Question::parse(input) {
+            Ok(question) => question,
+            Err(message) => return Ok((ToolOutcome::error(message), false)),
+        };
+        if let Some(away) = self.unanswered {
+            return Ok((ToolOutcome::error(ask::unanswered(away)), false));
+        }
+        let turn_id = self.turn_id();
+        let question_id =
+            QuestionId::from_uuid(uuid_v7(&*self.shared.deps.clock, &*self.shared.deps.rng));
+        // NOTE: `parse` allows at most 4 options.
+        let count = u8::try_from(options.len()).unwrap_or(u8::MAX);
+        let mut answer = self.shared.user_questions.park(turn_id, question_id, count);
+        // NOTE: a present user sees that a notice, not the user, led to the question.
+        let shown =
+            if self.spec.is_wake() { format!("{WAKE_QUESTION}{question}") } else { question };
+        let requested = Event::UserQuestionRequested {
+            turn_id,
+            call_id,
+            question_id,
+            question: shown,
+            options: options.clone(),
+        };
+        if let Err(error) = self.record(vec![requested]).await {
+            self.shared.user_questions.withdraw(question_id);
+            return Err(error);
+        }
+        let wait = Wait { call_id, answerer: Answerer::Questions, deadline: None, at_once: false };
+        let ended = self.wait_for_person(wait, &mut answer).await;
+        let interrupted = self.control.interrupt.is_raised();
+        let end = if interrupted {
+            UserAnswer::Interrupted
+        } else {
+            UserAnswer::Unanswered { away: ended.away }
+        };
+        let unanswered =
+            Event::UserQuestionAnswered { turn_id, question_id, answer: end, origin: None };
+        let questions = &self.shared.user_questions;
+        let reply = self.settle(questions, question_id, ended.waited, answer, unanswered).await?;
+        let outcome = match reply {
+            Some(reply) => ToolOutcome::ok(ask::replied(&reply, &options)),
+            None if interrupted => ToolOutcome::error(NOT_RUN),
+            None => {
+                self.unanswered = Some(ended.away);
+                ToolOutcome::error(ask::unanswered(ended.away))
+            }
+        };
+        Ok((outcome, interrupted))
     }
 
     /// Runs an authorized call, recording its output as it grows and each change of
@@ -2124,13 +2138,6 @@ impl Turn {
         self.drafter.recorded(committed.last_seq());
         Ok(committed)
     }
-}
-
-/// What a parked approval ended with.
-enum Waited {
-    Answer(Option<ApprovalDecision>),
-    Interrupted,
-    TimedOut,
 }
 
 /// A tool call from the model's answer, before it has a daemon call id.

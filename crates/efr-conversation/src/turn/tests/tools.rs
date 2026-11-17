@@ -16,7 +16,7 @@ use crate::ConversationStart;
 use crate::preamble::LiveState;
 use crate::testing::{
     FakeToolbox, Harness, MODEL, Setup, answer, expect_request, freeform_answer, freeform_message,
-    request, result_message, text_answer, tool_answer, tool_message,
+    offered, request, result_message, text_answer, tool_answer, tool_message,
 };
 use crate::turn::edit_tool;
 
@@ -32,7 +32,7 @@ async fn start(setup: Setup, records: Vec<Record>, models: Vec<ModelInfo>) -> Ha
 
 /// The request of the turn's model, which changes files with `edit`.
 fn request_for(edit: EditTool, messages: Vec<Message>) -> Request {
-    Request { tools: FakeToolbox::tools_for(edit), ..request(messages) }
+    Request { tools: offered(FakeToolbox::tools_for(edit)), ..request(messages) }
 }
 
 fn names(request: &Request) -> Vec<&str> {
@@ -43,8 +43,14 @@ fn names(request: &Request) -> Vec<&str> {
 fn a_model_gets_one_edit_tool_in_the_same_place_of_the_list() {
     let patch = request_for(EditTool::ApplyPatch, Vec::new());
     let replace = request_for(EditTool::Replace, Vec::new());
-    assert_eq!(names(&patch), ["read_file", "write_file", "shell", "hang", "note", "apply_patch"]);
-    assert_eq!(names(&replace), ["read_file", "write_file", "shell", "hang", "note", "edit"]);
+    assert_eq!(
+        names(&patch),
+        ["read_file", "write_file", "shell", "hang", "note", "apply_patch", "ask_user"]
+    );
+    assert_eq!(
+        names(&replace),
+        ["read_file", "write_file", "shell", "hang", "note", "edit", "ask_user"]
+    );
 }
 
 #[tokio::test]

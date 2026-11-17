@@ -129,6 +129,7 @@ pub(crate) fn unanswered() -> JudgeOutcome {
 pub(crate) struct FakePresence {
     away: Mutex<bool>,
     followed: Mutex<bool>,
+    question_followed: Mutex<bool>,
     pushed: Mutex<Vec<CallId>>,
     reads: Mutex<usize>,
     read: tokio::sync::Notify,
@@ -159,6 +160,12 @@ impl FakePresence {
         *self.followed.lock().unwrap_or_else(PoisonError::into_inner) = followed;
     }
 
+    /// Counts a client that can answer the model's question as following the
+    /// conversation from now on, or none.
+    pub(crate) fn set_question_followed(&self, followed: bool) {
+        *self.question_followed.lock().unwrap_or_else(PoisonError::into_inner) = followed;
+    }
+
     /// How many times a turn read the presence.
     pub(crate) fn reads(&self) -> usize {
         *self.reads.lock().unwrap_or_else(PoisonError::into_inner)
@@ -187,6 +194,10 @@ impl PresenceReader for FakePresence {
 
     fn followed(&self, _conversation_id: ConversationId) -> bool {
         *self.followed.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn question_followed(&self, _conversation_id: ConversationId) -> bool {
+        *self.question_followed.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

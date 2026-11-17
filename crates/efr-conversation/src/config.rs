@@ -110,6 +110,10 @@ pub struct ConversationConfig {
     /// Whether a turn's requests carry the provider's web tool (`[web]`). Read when the
     /// turn starts; the tool list stays the same for the whole turn.
     pub web: WebConfig,
+    /// True when a request offers the model's question to the user, the tool
+    /// `ask_user` (`conversation.ask_user`). Read when the turn starts; the tool list
+    /// stays the same for the whole turn.
+    pub ask_user: bool,
 }
 
 /// A default model of another company than the provider of the config (`[model] name`
@@ -155,8 +159,8 @@ impl ConversationConfig {
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
     /// question while the user is away, 6 turns per hour that job notices start, 64
     /// model calls per turn, 16 queued prompts, no full mode, 8 recent commands, a
-    /// default model that fits its provider and web search by the mode
-    /// ([`WebConfig::default`]).
+    /// default model that fits its provider, web search by the mode
+    /// ([`WebConfig::default`]) and the tool `ask_user` on.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -185,6 +189,7 @@ impl ConversationConfig {
             recent_commands: 8,
             foreign_model: None,
             web: WebConfig::default(),
+            ask_user: true,
         }
     }
 

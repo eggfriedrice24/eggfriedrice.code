@@ -107,6 +107,7 @@ pub(crate) fn conversation_config(
     // gate of a remote subscriber, which `conversation.subscribe` applies.
     config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
     config.web = WebConfig::new(web_search(settings.web.search), settings.web.max_searches);
+    config.ask_user = settings.conversation.ask_user;
     // NOTE: a default of another company goes to its provider when one with a login
     // lists it; it fails only without one.
     config.foreign_model = settings

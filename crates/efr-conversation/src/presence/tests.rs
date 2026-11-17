@@ -21,3 +21,10 @@ fn presence_followed_defaults_to_false() {
     assert!(AlwaysPresent.followed(id), "always present keeps its meaning");
     assert_eq!(AlwaysPresent.presence(id), Presence::Present);
 }
+
+#[test]
+fn question_followed_defaults_to_false() {
+    let id = ConversationId::from_str("01928c4e-7a3b-7c1d-8e2f-000000000002").unwrap();
+    assert!(!OnlyPresence.question_followed(id), "an older reader knows no answerer");
+    assert!(AlwaysPresent.question_followed(id));
+}

@@ -37,6 +37,14 @@ pub trait PresenceReader: Send + Sync + fmt::Debug {
     fn followed(&self, _conversation_id: ConversationId) -> bool {
         false
     }
+
+    /// True while a client that can answer the model's question (the tool `ask_user`)
+    /// follows `conversation_id`. While none does, the question waits only
+    /// [`ConversationConfig::away_wait`](crate::ConversationConfig::away_wait). The
+    /// default does not know, and a reader that does not know counts nobody there.
+    fn question_followed(&self, _conversation_id: ConversationId) -> bool {
+        false
+    }
 }
 
 /// A reader that counts a person present at every conversation, and every conversation
@@ -50,6 +58,10 @@ impl PresenceReader for AlwaysPresent {
     }
 
     fn followed(&self, _conversation_id: ConversationId) -> bool {
+        true
+    }
+
+    fn question_followed(&self, _conversation_id: ConversationId) -> bool {
         true
     }
 }

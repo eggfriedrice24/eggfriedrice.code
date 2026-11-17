@@ -111,6 +111,18 @@ pub enum ConversationError {
         question_id: QuestionId,
     },
 
+    /// An answer to the model's question that efr does not take: an option outside the
+    /// question's options, a text that is empty, too long or holds a control character,
+    /// or a reply of a kind that this build does not know. The question stays open. The
+    /// reason never quotes the answer.
+    #[error("the answer to the question {question_id} is not valid: {reason}")]
+    InvalidAnswer {
+        /// The question.
+        question_id: QuestionId,
+        /// What is wrong with the answer.
+        reason: &'static str,
+    },
+
     /// Only the user's own machine takes changes out of quarantine: a Keep from a phone
     /// is refused, and the question stays open. A phone may answer Leave.
     #[error("an answer from {origin:?} cannot take changes out of quarantine")]

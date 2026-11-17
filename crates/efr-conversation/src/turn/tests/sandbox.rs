@@ -701,6 +701,34 @@ async fn surface_question_expiry_keeps_quarantine() {
     h.finish();
 }
 
+/// The question waits as an approval does: while the user is away, it ends after the
+/// away wait, and the change stays in quarantine. It goes to the phones once, with the
+/// call of the change.
+#[tokio::test]
+async fn an_away_user_s_surface_question_ends_after_the_away_wait() {
+    let (setup, state) = auto("plant");
+    setup.presence.set_away(true);
+    let plant = json!({ "command": "plant-hook" });
+    let note = format!(
+        "done\n[Nobody answered; the git change stayed in quarantine: {} (core.fsmonitor).]",
+        planted().path.display()
+    );
+    let records = one_call(&setup, &state, "plant", &plant, &note, false, "Left it.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("plant").await;
+    h.wait_question().await;
+    h.clock.wait_for_sleeps(1).await;
+    h.clock.advance(Duration::from_secs(299));
+    assert!(!h.has_ended(sent.turn_id), "it waits the whole away wait");
+    h.clock.advance(Duration::from_secs(1));
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.restored().is_empty());
+    assert_eq!(h.presence.pushed(), h.call_ids().await, "one push, with the call id");
+    h.finish();
+}
+
 #[tokio::test]
 async fn a_no_keeps_the_change_in_quarantine_and_a_phone_cannot_keep() {
     let (setup, state) = auto("plant");

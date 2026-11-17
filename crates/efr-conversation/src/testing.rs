@@ -23,9 +23,9 @@ use efr_protocol::{
     ConversationId, EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait,
     JobId, JobInfo, JobState, LateSteer, Launch, Mode, ModelInfo, ModelSource, Needs, NetworkMode,
     Origin, OverriddenSettings, ProjectId, PromptSend, PromptSendResult, PromptWithdraw,
-    QuestionId, ReportedFile, SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq,
-    ShellContext, SurfaceChange, TurnId, TurnInterrupt, TurnSettings, TurnSteer, TurnUndoInfo,
-    TurnUndoResult, UndoRefused, WithdrawTarget,
+    QuestionId, QuestionReply, QuestionRespond, QuestionRespondResult, ReportedFile, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId, TurnInterrupt,
+    TurnSettings, TurnSteer, TurnUndoInfo, TurnUndoResult, UndoRefused, WithdrawTarget,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, ProviderEvent, ProviderId,
@@ -53,9 +53,9 @@ use crate::resolver::machine;
 use crate::scratch;
 use crate::{
     CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
-    ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
-    ProviderRouter, ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges,
-    UndoBusyReason, UndoRequest, draft_channel,
+    ConversationDraft, ConversationError, ConversationHandle, ConversationStart, HistoryLimits,
+    HostInfo, OutputSink, ProviderRouter, ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome,
+    Toolbox, TurnChanges, UndoBusyReason, UndoRequest, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -1117,6 +1117,35 @@ impl Harness {
         self.handle.respond_surface(params, Origin::Shell).await.expect("answer accepted").seq
     }
 
+    /// Waits until the model asks the user a question, and returns its id.
+    pub(crate) async fn wait_user_question(&mut self) -> QuestionId {
+        match self.wait_for(|event| matches!(event, Event::UserQuestionRequested { .. })).await {
+            Event::UserQuestionRequested { question_id, .. } => question_id,
+            _ => unreachable!("wait_for returns an event it accepted"),
+        }
+    }
+
+    /// Answers the model's question `question_id` with `answer` from `origin`.
+    pub(crate) async fn reply_from(
+        &mut self,
+        question_id: QuestionId,
+        answer: QuestionReply,
+        origin: Origin,
+    ) -> Result<QuestionRespondResult, ConversationError> {
+        let params = QuestionRespond {
+            command_id: self.command_id(),
+            conversation_id: self.conversation_id,
+            question_id,
+            answer,
+        };
+        self.handle.respond_question(params, origin).await
+    }
+
+    /// Answers the model's question `question_id` with `answer` from the shell.
+    pub(crate) async fn reply(&mut self, question_id: QuestionId, answer: QuestionReply) -> Seq {
+        self.reply_from(question_id, answer, Origin::Shell).await.expect("answer accepted").seq
+    }
+
     /// Every event in the log.
     pub(crate) async fn envelopes(&self) -> Vec<EventEnvelope> {
         self.store.events().await.expect("events")
@@ -1200,6 +1229,12 @@ pub(crate) fn conversation_id() -> ConversationId {
     ConversationId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1)))
 }
 
+/// The tools of a request of the default config: `tools`, then `ask_user`.
+pub(crate) fn offered(mut tools: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
+    tools.push(crate::ask::definition());
+    tools
+}
+
 /// The request a turn sends with `messages`: the conversation id is its prompt cache
 /// key.
 pub(crate) fn request(messages: Vec<Message>) -> Request {
@@ -1212,7 +1247,7 @@ pub(crate) fn request(messages: Vec<Message>) -> Request {
         model: MODEL.to_owned(),
         system: Some(SYSTEM.to_owned()),
         messages,
-        tools: FakeToolbox::tools(),
+        tools: offered(FakeToolbox::tools()),
         hosted: Vec::new(),
         max_output_tokens: None,
         effort: None,

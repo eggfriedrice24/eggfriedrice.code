@@ -54,10 +54,11 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, CommandId,
     ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
     ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin,
-    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand,
-    ResentSteers, Routed, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext,
-    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo,
-    TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId,
+    QuestionRespond, QuestionRespondResult, RecentCommand, ResentSteers, Routed,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
+    UndoRefused, UserAnswer, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::{Clock, Sleep};
@@ -96,6 +97,7 @@ const TURN_STEER: &str = "turn.steer";
 const TURN_INTERRUPT: &str = "turn.interrupt";
 const APPROVAL_RESPOND: &str = "approval.respond";
 const SURFACE_RESPOND: &str = "sandbox.surface_respond";
+const QUESTION_RESPOND: &str = "question.respond";
 const PROMPT_WITHDRAW: &str = "prompt.withdraw";
 
 /// The actor of one conversation. It runs in its own task; the
@@ -229,6 +231,8 @@ pub struct ConversationState {
     pub pending_approvals: Vec<CallId>,
     /// The quarantine questions that wait for the user's answer.
     pub pending_questions: Vec<QuestionId>,
+    /// The questions of the model (`ask_user`) that wait for an answer.
+    pub pending_user_questions: Vec<QuestionId>,
     /// True while a manual compaction runs.
     pub compacting: bool,
     /// True while an undo runs.
@@ -371,6 +375,11 @@ enum Request {
         origin: Origin,
         reply: Reply<SandboxSurfaceRespondResult>,
     },
+    Question {
+        params: QuestionRespond,
+        origin: Origin,
+        reply: Reply<QuestionRespondResult>,
+    },
     Compact {
         params: ConversationCompact,
         reply: Reply<ConversationCompactResult>,
@@ -417,6 +426,7 @@ impl ConversationActor {
             scratch,
             approvals: Approvals::default(),
             questions: Questions::default(),
+            user_questions: Questions::default(),
             misses: AtomicU32::new(0),
             status: Arc::default(),
             gap: CallGap::default(),
@@ -529,6 +539,9 @@ impl ConversationActor {
             }
             Request::Surface { params, origin, reply } => {
                 let _ = reply.send(self.respond_surface(params, origin).await);
+            }
+            Request::Question { params, origin, reply } => {
+                let _ = reply.send(self.respond_question(params, origin).await);
             }
             Request::Compact { params, reply } => self.compact(params, reply),
             Request::Undo { params, candidates, origin, reply } => {
@@ -1095,6 +1108,45 @@ impl ConversationActor {
         Ok(SandboxSurfaceRespondResult { seq: committed.last_seq() })
     }
 
+    /// Answers a question of the model (`ask_user`), from any surface that may operate
+    /// the conversation. The answer is checked against the question before the
+    /// question is taken out, so a bad answer leaves it open; it is taken out before
+    /// the answer is recorded, so a turn that expires at the same moment waits for
+    /// this answer and records none of its own. The answer approves nothing.
+    async fn respond_question(
+        &mut self,
+        params: QuestionRespond,
+        origin: Origin,
+    ) -> Result<QuestionRespondResult, ConversationError> {
+        self.check_conversation(Some(params.conversation_id))?;
+        let question_id = params.question_id;
+        let questions = &self.shared.user_questions;
+        let Some(options) = questions.fact(question_id) else {
+            return Err(ConversationError::QuestionNotPending { question_id });
+        };
+        if let Some(reason) = crate::ask::refusal(&params.answer, options) {
+            return Err(ConversationError::InvalidAnswer { question_id, reason });
+        }
+        let Some(taken) = questions.take(question_id) else {
+            return Err(ConversationError::QuestionNotPending { question_id });
+        };
+        let event = Event::UserQuestionAnswered {
+            turn_id: taken.turn_id,
+            question_id,
+            answer: UserAnswer::Replied { reply: params.answer.clone() },
+            origin: Some(origin),
+        };
+        let result = QuestionRespondResult { seq: Seq::ZERO };
+        // NOTE: when the answer cannot be recorded, `taken` drops unanswered and the
+        // model reads that nobody answered.
+        let receipt = receipt(params.command_id, QUESTION_RESPOND, &result)?;
+        let committed = self.append(vec![event], receipt).await?;
+        if !taken.answer(params.answer) {
+            tracing::warn!(question_id = %question_id, "an answer to the model's question was recorded after its turn stopped waiting");
+        }
+        Ok(QuestionRespondResult { seq: committed.last_seq() })
+    }
+
     /// Starts an undo in a task of its own, or refuses it: while a turn, a compaction or
     /// another undo runs, a call of the conversation still runs after its tool
     /// answered, or a background job may write in a root of the turn (`UndoBusy`), and
@@ -1302,6 +1354,7 @@ impl ConversationActor {
             queued: self.queue.iter().map(|spec| spec.turn_id).collect(),
             pending_approvals: self.shared.approvals.parked(),
             pending_questions: self.shared.questions.parked(),
+            pending_user_questions: self.shared.user_questions.parked(),
             compacting: self.compacting.is_some(),
             undoing: self.undoing.is_some(),
         }
@@ -1714,6 +1767,19 @@ impl ConversationHandle {
         origin: Origin,
     ) -> Result<SandboxSurfaceRespondResult, ConversationError> {
         self.request(|reply| Request::Surface { params, origin, reply }).await
+    }
+
+    /// Answers the model's question (`ask_user`) that a turn waits for: an option, a
+    /// typed text or a skip. Every surface that may operate the conversation answers,
+    /// a phone too. An answer outside the question is `InvalidAnswer`, and the
+    /// question stays open. The answer approves nothing: the model reads it as the
+    /// call's result.
+    pub async fn respond_question(
+        &self,
+        params: QuestionRespond,
+        origin: Origin,
+    ) -> Result<QuestionRespondResult, ConversationError> {
+        self.request(|reply| Request::Question { params, origin, reply }).await
     }
 
     /// Compacts the conversation's context now: prunes and writes a summary of the

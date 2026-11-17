@@ -86,7 +86,11 @@ pub(super) async fn run(
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),
         messages: Vec::new(),
-        tools: shared.deps.toolbox.definitions(crate::turn::edit_tool(&*provider, &model)),
+        tools: crate::ask::definitions(
+            &*shared.deps.toolbox,
+            crate::turn::edit_tool(&*provider, &model),
+            &config,
+        ),
         hosted,
         max_output_tokens: config.max_output_tokens,
         effort,
