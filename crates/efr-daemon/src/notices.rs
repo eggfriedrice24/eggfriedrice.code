@@ -39,6 +39,16 @@
 //! leaves as soon as it has shown the end, often before this task reads the commit.
 //! `connections.rs` holds such a notice and hands it back here once nobody was handed
 //! its event.
+//!
+//! After each line, the daemon wakes the terminal's waiting prompt through its FIFO
+//! ([`wake_fifo`]), so the plugin prints the rows at once and not at the next Enter.
+//! A row that needs the user also gives the body of a desktop notice ([`desktop_what`]):
+//! a question, the end of a job notice turn, job notices held at the wake limit and a
+//! command left in the hidden shell that waits for input. The body is `<place>: <what>`
+//! and holds no text of the event. The plugin is the one gate of the desktop notice
+//! (`notify.terminal`, which efrd gives it in `prompt.tsv`). A notice that was held
+//! gets no body: it is written when the client in its terminal ends, so the user was
+//! at that terminal a moment before.
 
 use std::collections::HashMap;
 use std::fs::{DirBuilder, OpenOptions};
@@ -50,9 +60,9 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovedBy, CallId, ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, InputWait,
-    JobState, JobStopBy, ShellCommandEnd, TurnId,
+    JobState, JobStopBy, RouteScope, Scope, ShellCommandEnd, TurnId,
 };
-use efr_stdx::text::is_format;
+use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, one_line};
 use jiff::Timestamp;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -60,6 +70,8 @@ use tokio_util::sync::CancellationToken;
 use crate::DaemonError;
 use crate::connections::{Decision, Notice};
 use crate::state::State;
+
+mod wake_fifo;
 
 /// The directory under the runtime root.
 pub(crate) const NOTICES_DIR: &str = "notices";
@@ -138,7 +150,7 @@ pub(crate) fn line_with(
 ) -> Option<String> {
     let named = title.filter(|title| !title.trim().is_empty());
     let title = named.unwrap_or("a conversation");
-    let text = match event {
+    match event {
         Event::TurnCompleted { .. } => {
             let Some(wake) = wake else {
                 return Some(one_line(&format!("efr: turn finished: {title}"), MAX_CHARS));
@@ -146,24 +158,30 @@ pub(crate) fn line_with(
             let head =
                 format!("efr: job notice turn finished ({}): {title}", job_words(&wake.jobs));
             // NOTE: the hint goes on after the cut, so a long answer cannot push it out.
-            return Some(match &wake.answer {
+            Some(match &wake.answer {
                 Some(answer) => with_extra(&format!("{head}: {answer}"), HISTORY_HINT),
                 None => one_line(&head, MAX_CHARS),
-            });
+            })
         }
         Event::TurnFailed { error, .. } => {
-            let head = match wake {
-                Some(wake) => format!("efr: job notice turn failed ({})", job_words(&wake.jobs)),
-                None => "efr: turn failed".to_owned(),
+            // NOTE: the hint goes on after the cut, so a long title cannot push it out.
+            let hint = if error.code == ErrorCode::Unauthorized { LOGIN_HINT } else { "" };
+            let rest = format!(": {title}: {}", error.message);
+            let Some(wake) = wake else {
+                return Some(with_extra(&format!("efr: turn failed{rest}"), hint));
             };
-            let text = format!("{head}: {title}: {}", error.message);
-            if error.code == ErrorCode::Unauthorized {
-                // NOTE: the hint goes on after the cut, so a long title cannot push it out.
-                return Some(with_extra(&text, LOGIN_HINT));
-            }
-            text
+            // NOTE: nobody saw this turn, so its head is in the error role, as
+            // `TM-Endings` draws it; the rest stays muted.
+            let head = format!("efr: job notice turn failed ({})", job_words(&wake.jobs));
+            let head = one_line(&head, MAX_CHARS);
+            let room = MAX_CHARS.saturating_sub(head.chars().count() + hint.chars().count());
+            let mut tail = one_line(&rest, room);
+            tail.push_str(hint);
+            Some(painted(&[("error", &head), ("muted", &tail)]))
         }
-        Event::ApprovalRequested { .. } => return Some(question_line(named, known)),
+        Event::ApprovalRequested { .. } | Event::UserQuestionRequested { .. } => {
+            Some(question_line(named, known))
+        }
         Event::JobEnded {
             job_id,
             state,
@@ -188,12 +206,12 @@ pub(crate) fn line_with(
                 return Some(exited_line(job_id, *exit_code, *ran_secs, known.command, &extra));
             }
             let what = job_end(*state, *exit_code, *stopped_by, *quarantined);
-            return Some(with_extra(&format!("efr: job {job_id} {what}: {title}"), &extra));
+            Some(with_extra(&format!("efr: job {job_id} {what}: {title}"), &extra))
         }
         Event::JobNoticeHeld { job_id, reason, .. } => {
             let extra = format!("; no wake turn ({})", held_reason(*reason));
             let text = format!("efr: job {job_id} waits for your next prompt: {title}");
-            return Some(with_extra(&text, &extra));
+            Some(with_extra(&text, &extra))
         }
         Event::JobPortForwarded { job_id, listen, port, outcome, by_job, reason } => {
             // NOTE: the title comes first, so a long one is cut and the URL at the end
@@ -207,11 +225,10 @@ pub(crate) fn line_with(
                 reason.as_deref(),
             );
             let forward = one_line(&forward, MAX_CHARS);
-            return Some(with_extra(&format!("efr: {title}"), &format!(": {forward}")));
+            Some(with_extra(&format!("efr: {title}"), &format!(": {forward}")))
         }
-        _ => return None,
-    };
-    Some(one_line(&text, MAX_CHARS))
+        _ => None,
+    }
 }
 
 /// The most characters of a command line in a notice, so the rest of the line fits.
@@ -575,35 +592,89 @@ pub(crate) fn not_run(conversation: ConversationId, count: usize) -> String {
     one_line(&text, MAX_CHARS)
 }
 
-/// `text` without control characters, cut to `max` characters with `...` at the cut. A
-/// format character, which draws nothing or turns the text around it, shows as
-/// `U+FFFD`.
-fn one_line(text: &str, max: usize) -> String {
-    let clean = text.chars().map(|c| match c {
-        c if c.is_control() => ' ',
-        c if is_format(c) => '\u{fffd}',
-        c => c,
-    });
-    if text.chars().count() <= max {
-        return clean.collect();
+/// The `<what>` of the desktop notice at the end of a job notice turn.
+const WAKE_FINISHED: &str = "job notice turn finished";
+
+/// The `<what>` of the desktop notice when a job notice turn failed.
+const WAKE_FAILED: &str = "job notice turn failed";
+
+/// The `<what>` of the desktop notice when job notices wait at the wake limit.
+const WAKE_HELD: &str = "job notices wait for your next prompt";
+
+/// The `<what>` of the desktop notice that the row of `event` asks for, or `None` for
+/// a row that does not need the user now. `wake` is the job notice turn that a
+/// `turn_completed` or `turn_failed` ends. A shell event gets one only when its row is
+/// a wait for input ([`shell_line`]).
+pub(crate) fn desktop_what(event: &Event, wake: Option<&Wake>) -> Option<&'static str> {
+    match event {
+        Event::ApprovalRequested { .. } | Event::UserQuestionRequested { .. } => {
+            Some(QUESTION_WAITS)
+        }
+        Event::TurnCompleted { .. } => wake.map(|_| WAKE_FINISHED),
+        Event::TurnFailed { .. } => wake.map(|_| WAKE_FAILED),
+        Event::JobNoticeHeld { reason: HeldReason::WakeLimit, .. } => Some(WAKE_HELD),
+        Event::ShellCommandDetached { input, .. }
+        | Event::ShellCommandInputChanged { input, .. }
+            if *input != InputWait::None =>
+        {
+            Some(INPUT_WAITS)
+        }
+        _ => None,
     }
-    let mut line: String = clean.take(max.saturating_sub(3)).collect();
-    line.push_str("...");
-    line
 }
 
-/// Appends `line` to the notice file of `tty` under `dir`. Blocks; async code calls it
-/// on the blocking pool.
-pub(crate) fn append(dir: &Path, tty: &str, line: &str) -> Result<Option<PathBuf>, DaemonError> {
-    let Some(name) = file_name(tty) else {
-        return Ok(None);
+/// The `<place>` of a desktop notice: `project`, the name of the conversation's
+/// project, else the last part of its working directory `cwd`, else `~`.
+pub(crate) fn place(project: Option<String>, cwd: Option<&Path>) -> String {
+    project
+        .or_else(|| cwd?.file_name().map(|name| name.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "~".to_owned())
+}
+
+/// The [`place`] of a conversation of the scope `scope` and the working directory
+/// `cwd`. Only a project's name reads the registry.
+async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> String {
+    let project = match scope {
+        Some(Scope::Project(id)) => {
+            let registry = crate::engine::load_registry(&state.engine_parts.registry).await;
+            let key = RouteScope::Project(*id);
+            crate::routing::label(&registry, &key, Path::new("")).name
+        }
+        _ => None,
     };
+    place(project, cwd)
+}
+
+/// Makes `dir`, the notices directory, mode 0700, when it is missing.
+fn make_dir(dir: &Path) -> Result<(), DaemonError> {
     DirBuilder::new()
         .recursive(true)
         .mode(DIR_MODE)
         .create(dir)
-        .map_err(|source| DaemonError::Io { path: dir.to_path_buf(), source })?;
-    let path = dir.join(name);
+        .map_err(|source| DaemonError::Io { path: dir.to_path_buf(), source })
+}
+
+/// Appends `line` to the notice file of `tty` under `dir` and wakes the terminal's
+/// prompt with an empty line: the row needs no desktop notice. Blocks; async code calls
+/// it on the blocking pool.
+pub(crate) fn append(dir: &Path, tty: &str, line: &str) -> Result<Option<PathBuf>, DaemonError> {
+    append_and_wake(dir, tty, line, None)
+}
+
+/// [`append`], and then wakes the terminal's prompt with `body`, the body of the
+/// desktop notice that the row asks for ([`wake_fifo::send`]). A wake that fails
+/// changes nothing: the row shows at the next prompt.
+pub(crate) fn append_and_wake(
+    dir: &Path,
+    tty: &str,
+    line: &str,
+    body: Option<&str>,
+) -> Result<Option<PathBuf>, DaemonError> {
+    let Some(name) = file_name(tty) else {
+        return Ok(None);
+    };
+    make_dir(dir)?;
+    let path = dir.join(&name);
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -612,7 +683,22 @@ pub(crate) fn append(dir: &Path, tty: &str, line: &str) -> Result<Option<PathBuf
         .map_err(|source| DaemonError::Io { path: path.clone(), source })?;
     file.write_all(format!("{line}\n").as_bytes())
         .map_err(|source| DaemonError::Io { path: path.clone(), source })?;
+    if let Err(error) = wake_fifo::send(&wake_fifo::path(dir, &name), body) {
+        tracing::debug!(error = %error, "the prompt of a terminal could not be woken");
+    }
     Ok(Some(path))
+}
+
+/// Makes the wake FIFO of the terminal `tty` on the blocking pool ([`wake_fifo`]), and
+/// does not wait for it: a prompt never waits for a file of its terminal's plugin.
+pub(crate) fn ensure_wake(state: &State, tty: &str) {
+    let dir = state.dirs.runtime().join(NOTICES_DIR);
+    let tty = tty.to_owned();
+    drop(tokio::task::spawn_blocking(move || {
+        if let Err(error) = wake_fifo::ensure(&dir, &tty) {
+            tracing::warn!(error = %error, "the wake FIFO of a terminal could not be made");
+        }
+    }));
 }
 
 /// Writes a notice for every committed event that deserves one, and every held notice
@@ -648,7 +734,7 @@ pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
 /// Writes the held notices that became ready.
 async fn write_ready(state: &State) {
     for notice in state.connections.take_ready() {
-        write(state, notice).await;
+        write(state, notice, None).await;
     }
 }
 
@@ -689,7 +775,17 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     };
     let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
     match state.connections.decide(notice, state.clock.now()) {
-        Decision::Write(notice) => write(state, notice).await,
+        Decision::Write(notice) => {
+            let body = match desktop_what(&envelope.event, wake.as_ref()) {
+                Some(what) => {
+                    let place =
+                        place_of(state, summary.scope.as_ref(), summary.cwd.as_deref()).await;
+                    Some(notice_body(&place, what))
+                }
+                None => None,
+            };
+            write(state, notice, body).await;
+        }
         Decision::Shown | Decision::Held => {}
     }
 }
@@ -757,11 +853,14 @@ pub(crate) async fn wake_turn(
     })
 }
 
-/// Appends a decided notice to its terminal's file under the runtime root.
-async fn write(state: &State, notice: Notice) {
+/// Appends a decided notice to its terminal's file under the runtime root and wakes the
+/// terminal's prompt with `body`, the body of its desktop notice.
+async fn write(state: &State, notice: Notice, body: Option<String>) {
     let dir = state.dirs.runtime().join(NOTICES_DIR);
     let Notice { tty, conversation: conversation_id, text, .. } = notice;
-    match tokio::task::spawn_blocking(move || append(&dir, &tty, &text)).await {
+    let written =
+        tokio::task::spawn_blocking(move || append_and_wake(&dir, &tty, &text, body.as_deref()));
+    match written.await {
         Ok(Ok(_)) => {}
         Ok(Err(error)) => {
             tracing::warn!(error = %error, %conversation_id, "a notice could not be written");

@@ -1,6 +1,6 @@
 use std::os::unix::fs::PermissionsExt as _;
 
-use efr_config::{ColorValue, RenderColors, Settings};
+use efr_config::{AutoOnOff, ColorValue, RenderColors, Settings};
 use efr_protocol::Mode;
 use pretty_assertions::assert_eq;
 
@@ -30,6 +30,26 @@ fn a_full_default_that_efrd_refuses_runs_as_auto() {
     let none = RenderColors::default();
     assert_eq!(written(&settings(Mode::Full), true, &none), "mode\tauto\n");
     assert_eq!(written(&settings(Mode::Cautious), true, &none), "mode\tcautious\n");
+}
+
+#[test]
+fn the_desktop_notice_setting_follows_the_mode_unless_it_is_auto() {
+    let none = RenderColors::default();
+    let mut colours = RenderColors::default();
+    colours.error = Some(ColorValue::Number(1));
+    for (terminal, line) in [(AutoOnOff::On, "notify\ton\n"), (AutoOnOff::Off, "notify\toff\n")] {
+        let mut settings = settings(Mode::Auto);
+        settings.notify.terminal = terminal;
+        assert_eq!(written(&settings, false, &none), format!("mode\tauto\n{line}"));
+        assert_eq!(
+            written(&settings, false, &colours),
+            format!("mode\tauto\n{line}color.error\t1\n")
+        );
+    }
+    // NOTE: the default has no line; the plugin reads none as `auto`.
+    let mut settings = settings(Mode::Auto);
+    settings.notify.terminal = AutoOnOff::Auto;
+    assert_eq!(written(&settings, false, &none), "mode\tauto\n");
 }
 
 #[test]

@@ -14,6 +14,10 @@
 //!   file of `render.palette` sets it, as `#rrggbb` or a slot from 0 to 15. A role
 //!   that neither sets has no line: the plugin then uses the role's default (dim,
 //!   slot 3, slot 1). The plugin uses a colour only in truecolor, as efr does.
+//! - `notify`: `notify.terminal`, `on` or `off`, the gate of the desktop notices that
+//!   the plugin sends when efrd wakes its prompt (`notices::wake_fifo`). The default,
+//!   `auto`, has no line, as a role without a colour; the plugin reads no line as
+//!   `auto`, and a plugin of 0.0.11 skips the key.
 //!
 //! efrd writes it at start, after each reload that installs new settings, and at a
 //! prompt, next to the projects file. A theme file that cannot be read gives no
@@ -21,7 +25,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_config::{RenderColors, RoleColor, Settings, ThemeFile};
+use efr_config::{AutoOnOff, RenderColors, RoleColor, Settings, ThemeFile};
 
 use crate::state::State;
 
@@ -45,6 +49,9 @@ pub(crate) fn text(settings: &Settings, full_refused: bool, colors: &RenderColor
         mode => mode,
     };
     let mut text = format!("mode\t{}\n", mode.as_str());
+    if settings.notify.terminal != AutoOnOff::Auto {
+        text.push_str(&format!("notify\t{}\n", settings.notify.terminal.as_str()));
+    }
     let set = colors.colors();
     for role in ROLES {
         let Some((_, colour)) = set.iter().find(|(name, _)| *name == role) else { continue };

@@ -194,6 +194,11 @@ async fn send(
     // NOTE: only a prompt whose own context names the terminal moves its slot, as the
     // projection's rule for `prompt_queued` does.
     let context_tty = params.context.as_ref().and_then(|context| context.tty.clone());
+    // NOTE: the notices of the conversation go to this terminal, so its plugin needs
+    // the FIFO that wakes its waiting prompt.
+    if let Some(tty) = &context_tty {
+        crate::notices::ensure_wake(state, tty);
+    }
     let routing = match (prompt_tty(&params, hello_tty), params.conversation_id) {
         (Some(tty), None) => Some(route(state, context, &params, tty, shell_pid).await?),
         _ => None,

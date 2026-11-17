@@ -26,7 +26,8 @@ pub(crate) fn logged() -> String {
     String::from_utf8_lossy(&logs().lock().unwrap()).into_owned()
 }
 
-/// Every file under `root` that holds `needle`.
+/// Every regular file under `root` that holds `needle`. A FIFO, such as the wake FIFO
+/// of a terminal's notices, is not read: a read of it waits for a writer.
 pub(crate) fn files_holding(root: &Path, needle: &[u8]) -> Vec<String> {
     let mut found = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
@@ -42,7 +43,8 @@ pub(crate) fn files_holding(root: &Path, needle: &[u8]) -> Vec<String> {
             }
             if path.is_dir() {
                 dirs.push(path);
-            } else if let Ok(bytes) = std::fs::read(&path)
+            } else if path.is_file()
+                && let Ok(bytes) = std::fs::read(&path)
                 && bytes.windows(needle.len()).any(|window| window == needle)
             {
                 found.push(path.display().to_string());

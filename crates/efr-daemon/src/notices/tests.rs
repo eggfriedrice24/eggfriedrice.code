@@ -4,11 +4,13 @@ use std::os::unix::fs::PermissionsExt as _;
 
 use efr_protocol::{
     CallId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, ForwardOutcome, HeldReason,
-    JobId, JobState, JobStopBy, Seq, TurnId,
+    InputWait, JobId, JobState, JobStopBy, Seq, TurnId,
 };
 use pretty_assertions::assert_eq;
 
-use crate::notices::{Known, Wake, append, file_name, line, line_with, not_run, wake_of};
+use crate::notices::{
+    Known, Wake, append, desktop_what, file_name, line, line_with, not_run, place, wake_of,
+};
 
 fn turn() -> TurnId {
     TurnId::from_uuid(uuid::Uuid::from_u128(1))
@@ -123,6 +125,103 @@ fn a_question_names_its_conversation_its_terminal_and_how_to_resume_it() {
             "warning\tefr: a question waits in \"fix steer race\" (/dev/pts/4) \u{b7} ,resume 019a7c02"
         )
     );
+}
+
+fn question() -> Event {
+    Event::UserQuestionRequested {
+        turn_id: turn(),
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
+        question_id: efr_protocol::QuestionId::from_uuid(uuid::Uuid::from_u128(3)),
+        question: "Which branch do I deploy?".to_owned(),
+        options: Vec::new(),
+    }
+}
+
+/// The model's question gets the row of an approval: what waits, never what it asks.
+#[test]
+fn a_question_of_the_model_gets_the_row_of_a_question() {
+    let conversation: ConversationId = "019a9b11-7a00-7000-8000-000000000003".parse().unwrap();
+    let known = Known { conversation: Some(conversation), tty: Some("/dev/pts/4"), command: None };
+
+    assert_eq!(
+        line_with(&question(), Some("deploy the app"), None, known).as_deref(),
+        Some(
+            "warning\tefr: a question waits in \"deploy the app\" (/dev/pts/4) \u{b7} ,resume 019a9b11"
+        )
+    );
+}
+
+/// TM-Endings 7.2, frame 3: the rows that need the user give a desktop notice; the
+/// others give none.
+#[test]
+fn only_the_rows_that_need_the_user_give_a_desktop_notice() {
+    let wake = Wake { jobs: "j3".to_owned(), answer: None };
+    let failed = Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(ErrorCode::Internal, "overloaded"),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+        account_out: None,
+    };
+    let held =
+        |reason| Event::JobNoticeHeld { job_id: JobId::nth(2), source_seq: Seq::new(7), reason };
+    let detached = |input| Event::ShellCommandDetached {
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(4)),
+        command: "rsync -a src host:dst".to_owned(),
+        since: jiff::Timestamp::UNIX_EPOCH,
+        contained: false,
+        input,
+        looks_secret: false,
+        prompt: "Continue? [y/N]".to_owned(),
+        approved_by: Some(efr_protocol::ApprovedBy::You),
+    };
+    let changed = |input| Event::ShellCommandInputChanged {
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(4)),
+        input,
+        contained: false,
+        looks_secret: false,
+        prompt: "Password:".to_owned(),
+    };
+    let approval = Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
+        summary: "write /etc/hosts".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+        expires_in_secs: None,
+        local_only: false,
+        reason: None,
+    };
+    let cases: [(&str, Event, Option<&Wake>, Option<&str>); 13] = [
+        ("approval", approval, None, Some("a question waits")),
+        ("question", question(), None, Some("a question waits")),
+        ("wake end", completed(), Some(&wake), Some("job notice turn finished")),
+        ("wake failed", failed.clone(), Some(&wake), Some("job notice turn failed")),
+        ("held", held(HeldReason::WakeLimit), None, Some("job notices wait for your next prompt")),
+        ("input", detached(InputWait::Visible), None, Some("a command waits for input")),
+        ("password", changed(InputWait::Hidden), None, Some("a command waits for input")),
+        ("prompt end", completed(), None, None),
+        ("prompt failed", failed, None, None),
+        ("not auto", held(HeldReason::NotAuto), None, None),
+        ("still runs", detached(InputWait::None), None, None),
+        ("no wait", changed(InputWait::None), None, None),
+        ("job end", job_ended(JobState::Exited, Some(0), None), None, None),
+    ];
+    for (case, event, wake, what) in cases {
+        assert_eq!(desktop_what(&event, wake), what, "{case}");
+    }
+}
+
+#[test]
+fn the_place_is_the_project_else_the_last_part_of_the_cwd_else_home() {
+    let cwd = std::path::Path::new("/home/me/p/app/src");
+    assert_eq!(place(Some("app".to_owned()), Some(cwd)), "app");
+    assert_eq!(place(None, Some(cwd)), "src");
+    assert_eq!(place(None, Some(std::path::Path::new("/"))), "~");
+    assert_eq!(place(None, None), "~");
 }
 
 #[test]
@@ -481,10 +580,38 @@ fn wake_turn_finished_names_the_job() {
         undo: None,
         account_out: None,
     };
+    // TM-Endings 7.2, frame 2: nobody saw the turn, so its head is in the error role.
     assert_eq!(
         line(&failed, Some("fix nginx"), Some(&wake)).as_deref(),
-        Some("efr: job notice turn failed (job j2): fix nginx: the provider stream broke")
+        Some(
+            "error\tefr: job notice turn failed (job j2)\tmuted\t: fix nginx: the provider \
+             stream broke"
+        )
     );
+}
+
+#[test]
+fn a_failed_job_notice_turn_keeps_its_login_hint_and_one_short_line() {
+    let wake = Wake { jobs: "j2".to_owned(), answer: None };
+    let failed = |code, message: &str| Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(code, message),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+        account_out: None,
+    };
+
+    let text =
+        line(&failed(ErrorCode::Unauthorized, &"x".repeat(400)), Some("t"), Some(&wake)).unwrap();
+
+    let pieces: Vec<&str> = text.split('\t').collect();
+    assert_eq!(pieces[..3], ["error", "efr: job notice turn failed (job j2)", "muted"]);
+    assert!(pieces[3].ends_with("...; run efr login openai"), "{text}");
+    assert_eq!(pieces[1].chars().count() + pieces[3].chars().count(), 200);
+    let text = line(&failed(ErrorCode::Internal, "a\nb\tc"), Some("t"), Some(&wake)).unwrap();
+    assert_eq!(text, "error\tefr: job notice turn failed (job j2)\tmuted\t: t: a b c");
 }
 
 #[test]
