@@ -347,16 +347,35 @@ describe("the states of the composer", () => {
     expect(input().props.className).not.toContain("max-h-field-max");
     expect(input().props.className).not.toContain("min-h-field-focused");
     expect(input().props.scrollEnabled).toBe(false);
+    // One row: the field takes the room between the buttons, with no row of actions.
+    expect(input().props.className).toContain("flex-1 px-4");
+    expect(screen.queryByTestId("composer-actions")).toBeNull();
     expect(sendButton()).toBeEnabled();
     await fireEvent(input(), "focus");
     expect(screen.getByTestId("composer-status-line")).toBeOnTheScreen();
     expect(screen.getByText("~/code/efr")).toBeOnTheScreen();
     expect(input().props.className).toContain("min-h-field-focused max-h-field-max");
+    // The full width under the status line, with its 16 pt sides; the actions go under it.
+    expect(input().props.className).toContain("px-16");
+    expect(input().props.className).not.toContain("flex-1");
+    expect(screen.getByTestId("composer-actions")).toContainElement(sendButton());
+    expect(screen.getByTestId("composer-actions")).toContainElement(
+      screen.getByTestId("composer-attach"),
+    );
     expect(input().props.scrollEnabled).toBe(true);
     // A blur makes it a pill again; the draft stays.
     await fireEvent(input(), "blur");
     expect(screen.queryByTestId("composer-status-line")).toBeNull();
+    expect(screen.queryByTestId("composer-actions")).toBeNull();
     expect(input().props.value).toBe("Line one\nLine two");
+  });
+
+  it("draws the placeholder smaller than the text", async () => {
+    await renderComposer();
+    expect(input().props.className).toContain("text-input-empty");
+    await fireEvent.changeText(input(), "a");
+    expect(input().props.className).toContain("text-input");
+    expect(input().props.className).not.toContain("text-input-empty");
   });
 
   it("focuses the input on a tap on the resting pill", async () => {

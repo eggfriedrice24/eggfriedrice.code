@@ -36,6 +36,11 @@ export const TYPE = {
   body: { fontSize: 14, lineHeight: 21 },
   /** The composer input (Subheadline based). */
   input: { fontSize: 15, lineHeight: 21 },
+  /**
+   * The composer input while it is empty, so the placeholder is smaller than the text.
+   * The same line height keeps the field one height when the first letter comes.
+   */
+  inputEmpty: { fontSize: 13, lineHeight: 21 },
   /** Titles and values of Settings rows, titles of sheet rows and the search text. */
   row: { fontSize: 15, lineHeight: 20 },
   /**

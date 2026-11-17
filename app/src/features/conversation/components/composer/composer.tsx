@@ -8,23 +8,24 @@
 //       <ComposerModeButton ... />             the mode control, then
 //       <ComposerModelButton ... />            the model button at its end
 //     </Composer.StatusLine>
-//     <Composer.Row>
-//       <Composer.Leading>                     slot B: the attach button (off for now)
+//     <Composer.Body>                          at rest one row, focused a column:
+//       attach (slot B, off for now)
 //       <Composer.Input />                     slot C: reads its own draft
-//       <ComposerVoiceButton />                the voice button (off for now)
+//       voice (off for now)
 //       <Composer.Trailing />                  slot D: Send | Stop | Stop + Steer/Queue | sending
-//     </Composer.Row>
+//     </Composer.Body>
 //   </Composer.Root>                           slot E: the bottom edge, or 6 pt over the keyboard
 //
 // `DockedComposer` is this tree with the slots of v1.
 
-import type { ReactNode } from "react";
+import { use, type ReactNode } from "react";
 import { View } from "react-native";
 
 import type { Readable } from "@tanstack/store";
 
 import type { StreamState } from "@/lib/stream/reducer";
 
+import { ComposerSizeContext } from "./composer-context";
 import { ComposerInput } from "./composer-input";
 import { ComposerAttachButton, ComposerVoiceButton } from "./composer-media-buttons";
 import { ComposerModeButton } from "./composer-mode-button";
@@ -33,28 +34,37 @@ import { ComposerRoot, type ComposerRootProps } from "./composer-root";
 import { ComposerStatus, ComposerStatusLine } from "./composer-status-line";
 import { ComposerTrailing } from "./composer-trailing";
 
-export interface ComposerRowProps {
-  readonly children: ReactNode;
-}
-
 /**
- * The row of the field and the actions: gap 8, aligned at the bottom as the field grows.
- * With 4 pt above and under the 40 pt field, a one-line pill is 48 pt high. The 8 pt on
- * each side put the 32 pt attach button and the 32 pt action in the middle of the round
- * ends of the pill.
+ * The field and the actions, in the two sizes of the composer (as t3code):
+ *
+ * - At rest, one row: attach, the field, voice, then the trailing action, gap 8, aligned
+ *   at the bottom. With 4 pt above and under the 40 pt field, the pill is 48 pt high.
+ *   The 8 pt on each side put the 32 pt buttons in the middle of the round ends.
+ * - Focused, a column: the field over the full width under the status line, so its text
+ *   starts at the top left with the 16 pt sides of the line, then a row of the actions:
+ *   attach at the left, voice and the trailing action at the right.
+ *
+ * The field keeps its place among the children in both sizes, so React keeps the same
+ * native input and the focus stays when the size changes.
  */
-export function ComposerRow(props: ComposerRowProps) {
-  return <View className="flex-row items-end gap-8 px-8 py-4">{props.children}</View>;
-}
-
-export interface ComposerLeadingProps {
-  /** The attach button (a 32 pt circle, as the actions). */
-  readonly children?: ReactNode;
-}
-
-/** Slot B. Empty, it takes no width, so the row adds no gap for it. */
-export function ComposerLeading(props: ComposerLeadingProps) {
-  return props.children ?? null;
+export function ComposerBody() {
+  const { expanded } = use(ComposerSizeContext);
+  return (
+    <View className={expanded ? "pb-4" : "flex-row items-end gap-8 px-8 py-4"}>
+      {expanded ? null : <ComposerAttachButton />}
+      <ComposerInput />
+      {expanded ? null : <ComposerVoiceButton />}
+      {expanded ? null : <ComposerTrailing />}
+      {expanded ? (
+        <View testID="composer-actions" className="flex-row items-center gap-8 px-8">
+          <ComposerAttachButton />
+          <View className="flex-1" />
+          <ComposerVoiceButton />
+          <ComposerTrailing />
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 /** The slots of the composer. */
@@ -62,8 +72,7 @@ export const Composer = {
   Root: ComposerRoot,
   StatusLine: ComposerStatusLine,
   Status: ComposerStatus,
-  Row: ComposerRow,
-  Leading: ComposerLeading,
+  Body: ComposerBody,
   Input: ComposerInput,
   Trailing: ComposerTrailing,
 } as const;
@@ -112,14 +121,7 @@ export function DockedComposer(props: DockedComposerProps) {
           )}
         </View>
       </ComposerStatusLine>
-      <ComposerRow>
-        <ComposerLeading>
-          <ComposerAttachButton />
-        </ComposerLeading>
-        <ComposerInput />
-        <ComposerVoiceButton />
-        <ComposerTrailing />
-      </ComposerRow>
+      <ComposerBody />
     </ComposerRoot>
   );
 }
