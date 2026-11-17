@@ -13,12 +13,12 @@ of the user named the target or the host.
 
 Daily use showed the cost of that design:
 
-- Over 613 `auto` turns, 20 of each 100 turns had a question. The rate did not fall
-  with time.
-- In three weeks the user got 103 questions and said no to 3 of them.
-- The reviewer decided 227 exits. It allowed 170, refused 1 and handed 56 to the user,
-  who then allowed 43. In 17 of the 56, the reviewer's own category was "fits the
-  request": the reviewer agreed, and a rule of efr asked.
+- About one `auto` turn in five had a question. The rate did not fall with time.
+- The user said yes to almost every question.
+- The reviewer allowed most exits, refused almost none and handed about a quarter to
+  the user, who then allowed most of them. In about a third of those hand-overs, the
+  reviewer's own category was "fits the request": the reviewer agreed, and a rule of
+  efr asked.
 
 So the questions were not a control. They were a habit of saying yes, and each one
 stopped the work. Other agents of the same kind ask nothing in their automatic mode: a
@@ -99,7 +99,7 @@ as a full call does, so the password that the user types approves that one line.
   Two earlier forms of the second rule (0.0.9, before the release) were removed: a
   question to the user, from facts about each file (555 lines), and then a note for
   the reviewer from the words of the line (about 400 lines). Most of their cases were
-  lines that the one-command rule already refuses, and in the 1b count over 100,418
+  lines that the one-command rule already refuses, and in a count over a large set of
   real calls the note never fired. Claude Code's auto mode asks about none of them.
   The plan of 2026-11-13 (`research/auto-direction/plan.md`, not in git) moves more
   exits into the sandbox instead: an HTTP upload that carries no credential runs
