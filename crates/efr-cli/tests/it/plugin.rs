@@ -3549,3 +3549,4 @@ fn e2e_efr_warm_0_turns_the_warm_up_off_from_the_next_line() {
 }
 
 mod look;
+mod wake;

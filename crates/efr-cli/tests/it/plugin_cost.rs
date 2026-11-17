@@ -12,7 +12,8 @@
 //! a `PWD` of 3 and 12 dirs below the home; no projects file and one of 20 projects; a command line
 //! of about 60 and of 2,000 characters; the prompt corner (`efr_corner`, with efrd's
 //! `prompt.tsv` and its colours in truecolor), whose precmd builds the corner's text
-//! and whose `RPROMPT` the bench expands as zsh does for each prompt.
+//! and whose `RPROMPT` the bench expands as zsh does for each prompt; the wake FIFO of
+//! the terminal, which the first precmd opens and each one empties.
 
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
@@ -83,13 +84,16 @@ struct Case {
     line: usize,
     /// `efr_corner` in `.zshrc`, with efrd's `prompt.tsv`.
     corner: bool,
+    /// The wake FIFO of the terminal, as efrd makes it: the first precmd opens it, and
+    /// each one empties it.
+    wake: bool,
 }
 
 impl Case {
     fn label(&self) -> String {
         format!(
-            "vars {} drafts {} pwd depth {} projects {} line {} corner {}",
-            self.vars, self.drafts, self.depth, self.projects, self.line, self.corner
+            "vars {} drafts {} pwd depth {} projects {} line {} corner {} wake {}",
+            self.vars, self.drafts, self.depth, self.projects, self.line, self.corner, self.wake
         )
     }
 }
@@ -173,6 +177,16 @@ fn run(zsh: &str, case: Case, prompts: usize) -> Run {
     let out_file = dir.path().join("bench.out");
     let calls = dir.path().join("calls");
     let (master, slave) = super::picker::pty();
+    if case.wake {
+        use std::os::fd::AsRawFd as _;
+        let tty = std::fs::read_link(format!("/proc/self/fd/{}", slave.as_raw_fd())).unwrap();
+        let name = tty.to_str().unwrap().trim_start_matches("/dev/").replace('/', "-");
+        let notices = runtime.join("notices");
+        std::fs::create_dir(&notices).unwrap();
+        let fifo = notices.join(format!("{name}.wake"));
+        rustix::fs::mkfifoat(rustix::fs::CWD, &fifo, rustix::fs::Mode::from_raw_mode(0o600))
+            .unwrap();
+    }
     let mut command = efr_stdx::process::command(zsh, &home).into_std();
     command
         .env_clear()
@@ -245,7 +259,8 @@ fn bench_perf_zsh_prompt() {
         report.finish();
         return;
     };
-    let base = Case { vars: 50, drafts: 0, depth: 3, projects: 0, line: 0, corner: false };
+    let base =
+        Case { vars: 50, drafts: 0, depth: 3, projects: 0, line: 0, corner: false, wake: false };
     let cases = [
         base,
         Case { vars: 500, ..base },
@@ -256,6 +271,7 @@ fn bench_perf_zsh_prompt() {
         Case { projects: 20, depth: 12, ..base },
         Case { line: 2_000, ..base },
         Case { projects: 20, corner: true, ..base },
+        Case { wake: true, ..base },
     ];
     let mut var_points = Vec::new();
     let mut tty_set = 0;
@@ -276,6 +292,7 @@ fn bench_perf_zsh_prompt() {
             && case.projects == 0
             && case.line == 0
             && !case.corner
+            && !case.wake
         {
             var_points.push((case.vars as u64, stats.p50));
         }

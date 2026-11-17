@@ -179,7 +179,7 @@ zmodload zsh/parameter zsh/zleparameter 2>/dev/null
 zmodload -F zsh/files b:zf_mv b:zf_rm 2>/dev/null
 zmodload -F zsh/datetime p:EPOCHSECONDS p:EPOCHREALTIME 2>/dev/null
 zmodload -F zsh/stat b:zstat 2>/dev/null
-zmodload -F zsh/system p:sysparams 2>/dev/null
+zmodload -F zsh/system p:sysparams b:sysopen b:sysread 2>/dev/null
 autoload -Uz add-zsh-hook
 
 typeset -g _efr_sticky=0
@@ -296,9 +296,13 @@ typeset -gi _efr_has_corner _efr_corner_export
 # the corner.
 typeset -g _efr_corner_text _efr_corner_rprompt _efr_theme_rprompt _efr_theme_right
 # The prompt file's stamp that _efr_read_prompt_file read last, the default mode that
-# efrd wrote there, and the colour of each role that it wrote, by role.
-typeset -g _efr_prompt_seen _efr_default_mode
+# efrd wrote there, the colour of each role that it wrote, by role, and
+# notify.terminal (auto, on or off), the gate of the desktop notice.
+typeset -g _efr_prompt_seen _efr_default_mode _efr_notify=auto
 typeset -gA _efr_colors
+# The descriptor of this terminal's wake FIFO while this shell reads it (see
+# _efr_open_wake), else empty. Re-sourcing keeps it, so the shell never opens a second.
+typeset -g _efr_wake_fd=${_efr_wake_fd-}
 # The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
 # the registered project that holds $PWD, the home mark (`⌂`) anywhere else, or
 # empty while efrd never wrote its projects file. precmd sets it. Each `%` of the name
@@ -1458,16 +1462,17 @@ efr_prompt_info() {
 # --- the prompt corner -------------------------------------------------------------
 
 # Reads efrd's prompt file (prompt.tsv in the runtime root, see _efr_runtime_root) into
-# _efr_default_mode and _efr_colors, again only when its inode, time or size changed,
-# as _efr_read_projects reads the projects file. Each line is `<key><tab><value>`:
-# `mode` and `color.<role>`. Returns 1 when there is no file, such as before efrd ever
-# ran. It runs no program.
+# _efr_default_mode, _efr_colors and _efr_notify, again only when its inode, time or
+# size changed, as _efr_read_projects reads the projects file. Each line is
+# `<key><tab><value>`: `mode`, `color.<role>` and `notify` (on or off; no line is
+# auto). Returns 1 when there is no file, such as before efrd ever ran. It runs no
+# program.
 _efr_read_prompt_file() {
   emulate -L zsh -o extended_glob
   local REPLY file
   local -A stat
   if ! _efr_runtime_root || ! zstat -H stat -- $REPLY/prompt.tsv 2>/dev/null; then
-    _efr_prompt_seen= _efr_default_mode=
+    _efr_prompt_seen= _efr_default_mode= _efr_notify=auto
     _efr_colors=()
     return 1
   fi
@@ -1475,7 +1480,7 @@ _efr_read_prompt_file() {
   local stamp="$file:$stat[inode]:$stat[mtime]:$stat[size]"
   [[ $stamp == "$_efr_prompt_seen" ]] && return 0
   _efr_prompt_seen=$stamp
-  _efr_default_mode=
+  _efr_default_mode= _efr_notify=auto
   _efr_colors=()
   local line key value
   [[ -r $file ]] || return 0
@@ -1484,6 +1489,7 @@ _efr_read_prompt_file() {
     key=${line%%$'\t'*} value=${line#*$'\t'}
     case $key in
       (mode) [[ $value == (manual|cautious|auto|full) ]] && _efr_default_mode=$value ;;
+      (notify) [[ $value == (auto|on|off) ]] && _efr_notify=$value ;;
       (color.(text|muted|accent|warning|error))
         [[ $value == (\#[[:xdigit:]](#c6)|<0-15>) ]] && _efr_colors[${key#color.}]=$value ;;
     esac
@@ -1727,6 +1733,15 @@ _efr_runtime_root() {
 # zsh/datetime is missing, drops nothing.
 (( ${+_efr_shell_start} )) || typeset -gi _efr_shell_start=${${EPOCHREALTIME-0}%%[.,]*}
 
+# Sets REPLY to the notice file of this terminal under the runtime root:
+# notices/<tty>, with $TTY without /dev/ and each / as -, so /dev/pts/3 is pts-3.
+# Returns 1 without a terminal or a runtime root.
+_efr_notice_file() {
+  [[ -n $TTY ]] || return 1
+  _efr_runtime_root || return 1
+  REPLY="$REPLY/notices/${${TTY#/dev/}//\//-}"
+}
+
 # The daemon leaves notices (a question waiting, a finished turn, a job's end) in one
 # file per terminal under its runtime root; the prompt shows them, one row each. Moving
 # the file first means a notice written while printing lands in a new file instead of
@@ -1736,10 +1751,9 @@ _efr_runtime_root() {
 # `<role><tab><text>` one after the other, such as a failed exit code in the error
 # colour and a waiting question in the warning colour.
 _efr_print_notices() {
-  [[ -n $TTY ]] || return 0
   local REPLY
-  _efr_runtime_root || return 0
-  local file="$REPLY/notices/${${TTY#/dev/}//\//-}"
+  _efr_notice_file || return 0
+  local file=$REPLY
   [[ -s $file ]] || return 0
   local shown="$file.shown.$$"
   zf_mv -f -- "$file" "$shown" 2>/dev/null || return 0
@@ -1758,6 +1772,122 @@ _efr_print_notices() {
     fi
   done
   zf_rm -f -- "$shown" 2>/dev/null
+}
+
+# --- the wake of a waiting prompt -------------------------------------------------
+
+# efrd wakes a waiting prompt when it writes a notice for this terminal. After each
+# line of the notice file it writes one line to the terminal's FIFO next to it
+# (notices/<tty>.wake): the body of a desktop notice for a row that needs you, such as
+# `app: a question waits`, else an empty line. While the prompt waits, zle watches the
+# FIFO (zle -F), and _efr_notice_wake prints the rows above the prompt at once, keeps
+# the typed text, and sends the desktop notice. A notice that comes while a program
+# runs in this terminal shows at the next prompt, as before, and precmd sends no
+# desktop notice: you are at the terminal then.
+#
+# efrd makes the FIFO at a prompt of this terminal, because zsh has no builtin that
+# makes one. The plugin opens it for reading and writing, so it never sees an end,
+# without blocking, and with close-on-exec, so no program that you start keeps it. One
+# shell per terminal reads it: the plugin exports EFR_WAKE_TTY=<tty>:<pid>, and a
+# nested zsh on the same terminal leaves the FIFO to a shell that still runs and shows
+# its notices at its next prompt. After `exec zsh` the pid stays, so the new shell
+# opens the FIFO again. Each process of the user can write the FIFO, so the plugin
+# trusts no text of it: a body loses its control characters and keeps 200 characters.
+
+# Opens the wake FIFO of this terminal and registers _efr_notice_wake for it, when the
+# FIFO exists, this shell does not read it yet and no other shell on this terminal
+# does. Runs from precmd; it runs no program.
+_efr_open_wake() {
+  emulate -L zsh
+  [[ -n $TTY && -z $_efr_wake_fd ]] || return 0
+  (( $+builtins[sysopen] )) || return 0
+  local REPLY owner=${EFR_WAKE_TTY-} fd
+  if [[ $owner == "$TTY":<-> && ${owner##*:} != $$ ]] && kill -0 ${owner##*:} 2>/dev/null; then
+    return 0
+  fi
+  _efr_notice_file || return 0
+  [[ -p $REPLY.wake ]] || return 0
+  sysopen -rw -o cloexec,nonblock,nofollow -u fd $REPLY.wake 2>/dev/null || return 0
+  _efr_wake_fd=$fd
+  export EFR_WAKE_TTY="$TTY:$$"
+  zle -F -w $fd _efr_notice_wake
+}
+
+# Sets REPLY to what waits in the wake FIFO now, at most 64 KiB, the size of a pipe;
+# the rest wakes the prompt again. Returns 1 when the descriptor fails.
+_efr_drain_wake() {
+  emulate -L zsh
+  local chunk
+  local -i reads=0
+  REPLY=
+  while (( reads++ < 8 )); do
+    sysread -s 8192 -t 0 -i $_efr_wake_fd chunk
+    case $? in
+      (0) REPLY+=$chunk ;;
+      (4) return 0 ;;
+      (*) return 1 ;;
+    esac
+  done
+}
+
+# Stops reading the wake FIFO: removes the handler and closes the descriptor. The
+# notices then show at the next prompt.
+_efr_close_wake() {
+  emulate -L zsh
+  [[ -n $_efr_wake_fd ]] || return 0
+  zle -F $_efr_wake_fd 2>/dev/null
+  exec {_efr_wake_fd}<&-
+  _efr_wake_fd=
+  [[ ${EFR_WAKE_TTY-} == "$TTY:$$" ]] && unset EFR_WAKE_TTY
+  return 0
+}
+
+# Empties the wake FIFO with no desktop notice, before precmd prints the notices.
+_efr_skip_wake() {
+  [[ -n $_efr_wake_fd ]] || return 0
+  local REPLY
+  _efr_drain_wake || _efr_close_wake
+}
+
+# Returns 0 when a desktop notice may go to this terminal: notify.terminal (see
+# _efr_read_prompt_file) is on, or auto in Ghostty with no terminal multiplexer (tmux,
+# GNU screen, zellij), by efr's own rule; and stdout is a terminal.
+_efr_notify_wanted() {
+  emulate -L zsh
+  [[ -t 1 ]] || return 1
+  _efr_read_prompt_file
+  case $_efr_notify in
+    (on) return 0 ;;
+    (off) return 1 ;;
+  esac
+  [[ ${(L)TERM_PROGRAM-} == ghostty && $TERM != (screen|tmux)* ]] || return 1
+  (( ! ${+TMUX} && ! ${+STY} && ! ${+ZELLIJ} ))
+}
+
+# The widget of zle -F for the wake FIFO: prints the notices of this terminal above the
+# waiting prompt, then sends the desktop notice of each body (OSC 777, title efr) when
+# _efr_notify_wanted allows it. It starts no program. On an error of the descriptor it
+# stops reading the FIFO.
+_efr_notice_wake() {
+  emulate -L zsh
+  local REPLY body
+  if ! _efr_drain_wake; then
+    _efr_close_wake
+    return 0
+  fi
+  # NOTE: each body once: Ghostty shows the same text only once in 5 seconds anyway.
+  local -a bodies=(${(fu)REPLY})
+  if _efr_notice_file && [[ -s $REPLY ]]; then
+    zle -I
+    _efr_print_notices
+  fi
+  if (( $#bodies )) && _efr_notify_wanted; then
+    for body in $bodies; do
+      body=${body//[[:cntrl:]]/}
+      print -rn -- $'\e]777;notify;efr;'"${body[1,200]}"$'\e\\'
+    done
+  fi
+  zle -R
 }
 
 # --- last command -----------------------------------------------------------------
@@ -1851,6 +1981,8 @@ _efr_precmd() {
   _efr_history_line=
   _efr_remember_command $exit_status
   _efr_take_draft
+  _efr_open_wake
+  _efr_skip_wake
   _efr_print_notices
   _efr_register_completion
   if [[ -o prompt_bang ]]; then _efr_prompt_bang=1; else _efr_prompt_bang=0; fi
@@ -1996,6 +2128,7 @@ case ${widgets[_efr_orig_accept_line]-} in
 esac
 zle -N accept-line _efr_accept_line
 zle -N _efr_toggle_sticky
+zle -N _efr_notice_wake
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-init _efr_line_init
 add-zle-hook-widget line-pre-redraw _efr_warm_line
