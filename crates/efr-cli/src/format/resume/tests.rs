@@ -43,6 +43,7 @@ fn row(
             id: format!("019a9b1c-3d00-7a10-8b20-{n:012x}").parse::<ConversationId>().unwrap(),
             title: title.map(str::to_owned),
             status: ConversationStatus::Idle,
+            attention: None,
             created_at: ago(minutes + 60),
             updated_at: ago(minutes),
             last_seq: Seq::new(1),

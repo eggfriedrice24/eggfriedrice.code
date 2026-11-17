@@ -2039,6 +2039,7 @@ async fn turn_cost(daemon: &TestDaemon, n: u128, cwd: &Path, mode: Mode, calls: 
         conversation_id: sent.conversation_id,
         after_seq: Some(sent.seq),
         answers_input: false,
+        answers_questions: false,
         drafts: false,
     };
     let mut follow = client.stream(Method::ConversationSubscribe(params)).await.unwrap();

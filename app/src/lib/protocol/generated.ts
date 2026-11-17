@@ -240,6 +240,10 @@ export type Method =
   | {
       method: "conversation.switch_preview";
       params: ConversationSwitchPreview;
+    }
+  | {
+      method: "question.respond";
+      params: QuestionRespond;
     };
 /**
  * An enrolled device such as a phone. The Unix socket does not use it.
@@ -385,6 +389,36 @@ export type JobId = string;
  * phone's enroll and the confirmation at the terminal.
  */
 export type PairingId = string;
+/**
+ * What a person answered to the model's question.
+ *
+ * On the wire an object with a `kind` member: `{"kind": "option", "index": 1}`,
+ * `{"kind": "text", "text": "..."}` or `{"kind": "skipped"}`. A kind that this build
+ * does not know reads as `unknown`; efrd refuses it as `invalid`.
+ */
+export type QuestionReply =
+  | {
+      /**
+       * The place of the option in the question's `options`, from 0.
+       */
+      index: number;
+      kind: "option";
+    }
+  | {
+      kind: "text";
+      /**
+       * The answer: not empty, at most [`MAX_TEXT_BYTES`](Self::MAX_TEXT_BYTES)
+       * bytes, with no control character. It goes to the event log and to the
+       * model, as a prompt does.
+       */
+      text: string;
+    }
+  | {
+      kind: "skipped";
+    }
+  | {
+      kind: "unknown";
+    };
 /**
  * What went wrong with a request, as a closed set that every client can handle.
  *
@@ -1384,6 +1418,52 @@ export type Event =
     }
   | {
       /**
+       * The call of `ask_user`.
+       */
+      call_id: CallId;
+      kind: "user_question_requested";
+      /**
+       * The choices, from [`MIN_QUESTION_OPTIONS`](crate::MIN_QUESTION_OPTIONS) to
+       * [`MAX_QUESTION_OPTIONS`](crate::MAX_QUESTION_OPTIONS), the one that the model
+       * recommends first.
+       */
+      options: QuestionOption[];
+      /**
+       * The question, at most [`MAX_QUESTION_CHARS`](crate::MAX_QUESTION_CHARS)
+       * characters. The model wrote it, so a client shows it as text that a program
+       * wrote.
+       */
+      question: string;
+      /**
+       * The question, which `question.respond` answers.
+       */
+      question_id: QuestionId;
+      /**
+       * The turn, which waits for the answer.
+       */
+      turn_id: TurnId;
+    }
+  | {
+      /**
+       * How it ended.
+       */
+      answer: UserAnswer;
+      kind: "user_question_answered";
+      /**
+       * The surface that answered; absent unless a person answered.
+       */
+      origin?: Origin | null;
+      /**
+       * The question.
+       */
+      question_id: QuestionId;
+      /**
+       * The turn.
+       */
+      turn_id: TurnId;
+    }
+  | {
+      /**
        * The files.
        */
       files: ReportedFile[];
@@ -1553,16 +1633,29 @@ export type Event =
     }
   | {
       /**
+       * The lines that matched between the first `BATCH_HEAD` lines and the last
+       * `BATCH_TAIL` lines and that the event leaves out; the output file has them.
+       * 0 when absent.
+       */
+      dropped?: number;
+      /**
        * The job.
        */
       job_id: JobId;
       kind: "job_watch_matched";
       /**
-       * The line, at most 4 KiB.
+       * The first line of the batch, at most 4 KiB.
        */
       line: string;
       /**
-       * How many more matches may wake the model.
+       * The other lines of the batch after `line`, each at most 4 KiB: with `line`, at
+       * most the first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last
+       * [`BATCH_TAIL`](crate::BATCH_TAIL) lines. Absent when the batch has one line,
+       * and from an efrd before 0.0.12.
+       */
+      more?: string[];
+      /**
+       * How many more notices may wake the model.
        */
       wakes_left: number;
     }
@@ -1626,6 +1719,19 @@ export type Event =
        * processes may still run. False when absent.
        */
       launcher_lost?: boolean;
+      /**
+       * The lines that matched the job's `watch` right before the end and that no
+       * `job_watch_matched` told: the batch that waited when the job ended, at most
+       * the first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last
+       * [`BATCH_TAIL`](crate::BATCH_TAIL) lines, each at most 4 KiB. The job wrote
+       * them. Absent when none.
+       */
+      matched?: string[];
+      /**
+       * The lines of that batch that `matched` leaves out, between its first
+       * `BATCH_HEAD` lines and its last `BATCH_TAIL` lines. 0 when absent.
+       */
+      matched_dropped?: number;
       /**
        * The bytes that the job wrote to its output.
        */
@@ -2145,6 +2251,34 @@ export type PauseReason = "in_a_row" | "per_turn";
  */
 export type PresenceSource = "input" | "user" | "timeout";
 /**
+ * How the model's question ended, as `user_question_answered` records it.
+ *
+ * On the wire an object with a `kind` member: `{"kind": "replied", "reply": {...}}`,
+ * `{"kind": "unanswered"}` (with `"away": true` when the user was away) or
+ * `{"kind": "interrupted"}`. A kind that this build does not know reads as `unknown`.
+ */
+export type UserAnswer =
+  | {
+      kind: "replied";
+      /**
+       * The answer.
+       */
+      reply: QuestionReply;
+    }
+  | {
+      /**
+       * True when the user was away. False when absent.
+       */
+      away?: boolean;
+      kind: "unanswered";
+    }
+  | {
+      kind: "interrupted";
+    }
+  | {
+      kind: "unknown";
+    };
+/**
  * Why the searches of a turn read the provider's stored copy of the web, so a client
  * can name the setting that gives the live web.
  */
@@ -2294,7 +2428,8 @@ export type MethodName =
   | "device.revoke"
   | "conversations.watch"
   | "provider.warm"
-  | "conversation.switch_preview";
+  | "conversation.switch_preview"
+  | "question.respond";
 /**
  * One item of an `admin.login_openai` stream.
  */
@@ -2516,6 +2651,15 @@ export type ConversationSubscribeItem =
   | (Draft & {
       kind: "draft";
     });
+/**
+ * Who can act on a conversation, next to its [`ConversationStatus`].
+ *
+ * It is a member of its own, not a value of `status`: a released client reads
+ * `status` with a closed set of values, so a new value there would fail its whole
+ * list. A value that this build does not know reads as `unknown`, which a client
+ * reads as no attention.
+ */
+export type Attention = "answer" | "terminal" | "failed" | "unknown";
 /**
  * What a conversation is doing.
  */
@@ -3019,6 +3163,12 @@ export interface Capabilities {
    * and the reasoning of the running turn so far.
    */
   snapshot_live?: boolean | null;
+  /**
+   * The daemon answers `question.respond`, so a client can answer the model's
+   * question (`user_question_requested`). Only the daemon sends it. Absent: a
+   * daemon from before the question, and a client shows no way to answer.
+   */
+  user_questions?: boolean | null;
   [k: string]: unknown;
 }
 /**
@@ -3062,6 +3212,15 @@ export interface ConversationSubscribe {
    * can answer. Absent means false, so an older client counts as one that cannot.
    */
   answers_input?: boolean;
+  /**
+   * True when a person at this client can answer the model's question with
+   * `question.respond`. A question waits without end while a live subscription of
+   * its conversation that can answer it follows, and only the time of
+   * `presence.away_wait_secs` when none does. efrd counts the flag only on a
+   * connection that holds `operate`. Absent means false, so an older client counts
+   * as one that cannot answer.
+   */
+  answers_questions?: boolean;
   /**
    * The conversation to follow.
    */
@@ -4312,6 +4471,34 @@ export interface ConversationSwitchPreview {
   provider?: string | null;
 }
 /**
+ * The params of `question.respond`, a unary method with the scope `operate`. efrd
+ * announces it with the capability `user_questions`.
+ *
+ * efrd answers `not_found` when no such question waits, and `invalid` for an `index`
+ * outside the options, for a `text` that is empty, longer than
+ * [`QuestionReply::MAX_TEXT_BYTES`] or holds a control character, and for a reply of
+ * the kind `unknown`. A retried command answers from its receipt. The answer approves
+ * nothing: it is information for the model.
+ */
+export interface QuestionRespond {
+  /**
+   * The answer.
+   */
+  answer: QuestionReply;
+  /**
+   * Makes the answer idempotent.
+   */
+  command_id: CommandId;
+  /**
+   * The conversation of the waiting turn.
+   */
+  conversation_id: ConversationId;
+  /**
+   * The question, from `user_question_requested`.
+   */
+  question_id: QuestionId;
+}
+/**
  * Cancel a request in flight.
  */
 export interface ClientCancel {
@@ -5225,6 +5412,23 @@ export interface TargetFact {
   synced: boolean;
 }
 /**
+ * One choice of a question. The model wrote it, so a client shows it as text that a
+ * program wrote, on one line.
+ */
+export interface QuestionOption {
+  /**
+   * What the choice means or costs, at most
+   * [`MAX_DESCRIPTION_CHARS`](Self::MAX_DESCRIPTION_CHARS) characters. Absent when
+   * the model gave none.
+   */
+  description?: string | null;
+  /**
+   * The choice in a few words, at most [`MAX_LABEL_CHARS`](Self::MAX_LABEL_CHARS)
+   * characters.
+   */
+  label: string;
+}
+/**
  * A file that the turn changed and that runs code later outside the sandbox, for the
  * turn-end report.
  */
@@ -5549,8 +5753,9 @@ export interface MovedCall {
  */
 export interface Watch {
   /**
-   * How many matches may wake the model, after efr's own limit
-   * (`jobs.max_wakes_per_watch`).
+   * How many notices may wake the model, after efr's own limit
+   * (`jobs.max_wakes_per_watch`). It counts notices, not lines: the lines that match
+   * within one batch window are one notice (`job_watch_matched`).
    */
   max_wakes: number;
   /**
@@ -5628,6 +5833,7 @@ export interface MethodParams {
   "pty.attach": PtyAttach;
   "pty.resize": PtyResize;
   "pty.write": PtyWrite;
+  "question.respond": QuestionRespond;
   "sandbox.explain": SandboxExplain;
   "sandbox.surface_respond": SandboxSurfaceRespond;
   "shell.interrupt": ShellInterrupt;
@@ -5683,6 +5889,7 @@ export interface MethodResults {
   "pty.attach": PtyAttachItem;
   "pty.resize": PtyResizeResult;
   "pty.write": PtyWriteResult;
+  "question.respond": QuestionRespondResult;
   "sandbox.explain": SandboxExplainResult;
   "sandbox.surface_respond": SandboxSurfaceRespondResult;
   "shell.interrupt": ShellInterruptResult;
@@ -6658,6 +6865,11 @@ export interface ConversationSnapshot {
  */
 export interface ConversationSummary {
   /**
+   * Who can act on the conversation now, when it needs someone or its last turn
+   * failed. Absent when none of these holds, and from an efrd before 0.0.12.
+   */
+  attention?: Attention | null;
+  /**
    * When the conversation began.
    */
   created_at: string;
@@ -7489,6 +7701,15 @@ export interface PtyResizeResult {
  */
 export interface PtyWriteResult {}
 /**
+ * The result of `question.respond`.
+ */
+export interface QuestionRespondResult {
+  /**
+   * The sequence number of the `user_question_answered` event.
+   */
+  seq: Seq;
+}
+/**
  * The result of `sandbox.explain`.
  */
 export interface SandboxExplainResult {
@@ -7880,6 +8101,8 @@ export const EVENT_KINDS = [
   "sandbox_surface_changed",
   "surface_question_requested",
   "surface_question_answered",
+  "user_question_requested",
+  "user_question_answered",
   "turn_surface_report",
   "turn_web_report",
   "conversation_compacted",
@@ -7970,6 +8193,7 @@ export const METHOD_NAMES = [
   "conversations.watch",
   "provider.warm",
   "conversation.switch_preview",
+  "question.respond",
 ] as const satisfies readonly MethodName[];
 
 /** Every error code. The set is closed: a new code bumps the protocol version. */

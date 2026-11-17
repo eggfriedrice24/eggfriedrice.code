@@ -28,6 +28,14 @@ pub struct ConversationSubscribe {
     /// can answer. Absent means false, so an older client counts as one that cannot.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub answers_input: bool,
+    /// True when a person at this client can answer the model's question with
+    /// `question.respond`. A question waits without end while a live subscription of
+    /// its conversation that can answer it follows, and only the time of
+    /// `presence.away_wait_secs` when none does. efrd counts the flag only on a
+    /// connection that holds `operate`. Absent means false, so an older client counts
+    /// as one that cannot answer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub answers_questions: bool,
     /// True when the client wants [`Draft`] items: the text, the reasoning and the
     /// tool input of a running turn as they arrive from the model, before the event
     /// log has them. Absent means false, so an older client gets no drafts.

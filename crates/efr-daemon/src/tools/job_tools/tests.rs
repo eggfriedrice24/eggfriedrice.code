@@ -134,6 +134,8 @@ async fn job_stop_of_ended_job_returns_state() {
                 output_bytes: 11,
                 ran_secs: 3,
                 tail: "built\ndone".to_owned(),
+                matched: Vec::new(),
+                matched_dropped: 0,
                 surface_changes: Vec::new(),
                 quarantined: false,
                 survivors: Vec::new(),

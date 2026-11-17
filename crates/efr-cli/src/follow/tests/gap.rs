@@ -44,6 +44,7 @@ pub(super) fn snapshot(
             id: conversation(),
             title: None,
             status: ConversationStatus::Running,
+            attention: None,
             created_at: now(),
             updated_at: now(),
             last_seq: Seq::new(hwm),

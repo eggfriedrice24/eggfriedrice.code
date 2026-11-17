@@ -796,6 +796,31 @@
         }
       ]
     },
+    "Attention": {
+      "description": "Who can act on a conversation, next to its [`ConversationStatus`].\n\nIt is a member of its own, not a value of `status`: a released client reads\n`status` with a closed set of values, so a new value there would fail its whole\nlist. A value that this build does not know reads as `unknown`, which a client\nreads as no attention.",
+      "oneOf": [
+        {
+          "const": "answer",
+          "description": "A question of the model waits for an answer (status `running`).",
+          "type": "string"
+        },
+        {
+          "const": "terminal",
+          "description": "Only the user's own machine can answer what waits: an approval that only the\nterminal may give, or a command that waits for input, and nothing waits that\na phone can answer (status `awaiting_approval` or `running`).",
+          "type": "string"
+        },
+        {
+          "const": "failed",
+          "description": "No turn runs, and the last turn that ended failed (status `idle`).",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A value that this build does not know.",
+          "type": "string"
+        }
+      ]
+    },
     "Base64Bytes": {
       "contentEncoding": "base64",
       "type": "string"
@@ -1242,6 +1267,13 @@
         },
         "snapshot_live": {
           "description": "The daemon fills `live` in the snapshot of `conversation.subscribe`: the text\nand the reasoning of the running turn so far.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "user_questions": {
+          "description": "The daemon answers `question.respond`, so a client can answer the model's\nquestion (`user_question_requested`). Only the daemon sends it. Absent: a\ndaemon from before the question, and a client shows no way to answer.",
           "type": [
             "boolean",
             "null"
@@ -2681,6 +2713,10 @@
           "description": "True when a person at this client can type answers to a running command that\nwaits for input, with `input.respond`. The daemon stops a command that waits for\nhidden input, such as a password, when no live subscription of its conversation\ncan answer. Absent means false, so an older client counts as one that cannot.",
           "type": "boolean"
         },
+        "answers_questions": {
+          "description": "True when a person at this client can answer the model's question with\n`question.respond`. A question waits without end while a live subscription of\nits conversation that can answer it follows, and only the time of\n`presence.away_wait_secs` when none does. efrd counts the flag only on a\nconnection that holds `operate`. Absent means false, so an older client counts\nas one that cannot answer.",
+          "type": "boolean"
+        },
         "conversation_id": {
           "$ref": "#/$defs/ConversationId",
           "description": "The conversation to follow."
@@ -2745,6 +2781,17 @@
     "ConversationSummary": {
       "description": "What a list shows about one conversation.",
       "properties": {
+        "attention": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Attention"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who can act on the conversation now, when it needs someone or its last turn\nfailed. Absent when none of these holds, and from an efrd before 0.0.12."
+        },
         "created_at": {
           "description": "When the conversation began.",
           "format": "date-time",
@@ -5867,6 +5914,86 @@
           "type": "object"
         },
         {
+          "description": "The model asked the user a question (the tool `ask_user`), and the turn waits for\nthe answer. It asks for no permission and gives none. The call's\n`tool_call_started` comes before it.",
+          "properties": {
+            "call_id": {
+              "$ref": "#/$defs/CallId",
+              "description": "The call of `ask_user`."
+            },
+            "kind": {
+              "const": "user_question_requested",
+              "type": "string"
+            },
+            "options": {
+              "description": "The choices, from [`MIN_QUESTION_OPTIONS`](crate::MIN_QUESTION_OPTIONS) to\n[`MAX_QUESTION_OPTIONS`](crate::MAX_QUESTION_OPTIONS), the one that the model\nrecommends first.",
+              "items": {
+                "$ref": "#/$defs/QuestionOption"
+              },
+              "type": "array"
+            },
+            "question": {
+              "description": "The question, at most [`MAX_QUESTION_CHARS`](crate::MAX_QUESTION_CHARS)\ncharacters. The model wrote it, so a client shows it as text that a program\nwrote.",
+              "type": "string"
+            },
+            "question_id": {
+              "$ref": "#/$defs/QuestionId",
+              "description": "The question, which `question.respond` answers."
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn, which waits for the answer."
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "call_id",
+            "question_id",
+            "question",
+            "options"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model's question ended: a person answered, nobody answered in time, or the\nturn was interrupted. The answer is information for the model: it is never a\npermission, and never a message of the user for efr's rules.",
+          "properties": {
+            "answer": {
+              "$ref": "#/$defs/UserAnswer",
+              "description": "How it ended."
+            },
+            "kind": {
+              "const": "user_question_answered",
+              "type": "string"
+            },
+            "origin": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Origin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The surface that answered; absent unless a person answered."
+            },
+            "question_id": {
+              "$ref": "#/$defs/QuestionId",
+              "description": "The question."
+            },
+            "turn_id": {
+              "$ref": "#/$defs/TurnId",
+              "description": "The turn."
+            }
+          },
+          "required": [
+            "kind",
+            "turn_id",
+            "question_id",
+            "answer"
+          ],
+          "type": "object"
+        },
+        {
           "description": "At the end of an `auto` turn: the files it changed that run code later outside\nthe sandbox.",
           "properties": {
             "files": {
@@ -6162,8 +6289,14 @@
           "type": "object"
         },
         {
-          "description": "A line of a job's output matched the job's `watch` pattern. It belongs to the\nconversation, not to a turn: the job outlives its turn. The line is the job's\noutput, so a client shows it as text that a program wrote.",
+          "description": "Lines of a job's output matched the job's `watch` pattern: one batch, the lines\nthat matched within one batch window. It is one notice and uses one wake of the\nwatch. It belongs to the conversation, not to a turn: the job outlives its turn.\nThe lines are the job's output, so a client shows them as text that a program\nwrote.",
           "properties": {
+            "dropped": {
+              "description": "The lines that matched between the first `BATCH_HEAD` lines and the last\n`BATCH_TAIL` lines and that the event leaves out; the output file has them.\n0 when absent.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "job_id": {
               "$ref": "#/$defs/JobId",
               "description": "The job."
@@ -6173,11 +6306,18 @@
               "type": "string"
             },
             "line": {
-              "description": "The line, at most 4 KiB.",
+              "description": "The first line of the batch, at most 4 KiB.",
               "type": "string"
             },
+            "more": {
+              "description": "The other lines of the batch after `line`, each at most 4 KiB: with `line`, at\nmost the first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last\n[`BATCH_TAIL`](crate::BATCH_TAIL) lines. Absent when the batch has one line,\nand from an efrd before 0.0.12.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "wakes_left": {
-              "description": "How many more matches may wake the model.",
+              "description": "How many more notices may wake the model.",
               "format": "uint8",
               "maximum": 255,
               "minimum": 0,
@@ -6294,6 +6434,19 @@
             "launcher_lost": {
               "description": "True when the job's launcher ended without its result, so the job's\nprocesses may still run. False when absent.",
               "type": "boolean"
+            },
+            "matched": {
+              "description": "The lines that matched the job's `watch` right before the end and that no\n`job_watch_matched` told: the batch that waited when the job ended, at most\nthe first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last\n[`BATCH_TAIL`](crate::BATCH_TAIL) lines, each at most 4 KiB. The job wrote\nthem. Absent when none.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "matched_dropped": {
+              "description": "The lines of that batch that `matched` leaves out, between its first\n`BATCH_HEAD` lines and its last `BATCH_TAIL` lines. 0 when absent.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
             },
             "output_bytes": {
               "description": "The bytes that the job wrote to its output.",
@@ -9179,6 +9332,23 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "`question.respond`: answer the model's question.",
+          "properties": {
+            "method": {
+              "const": "question.respond",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/QuestionRespond"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -9234,7 +9404,8 @@
         "device.revoke",
         "conversations.watch",
         "provider.warm",
-        "conversation.switch_preview"
+        "conversation.switch_preview",
+        "question.respond"
       ],
       "type": "string"
     },
@@ -9371,6 +9542,9 @@
         "pty.write": {
           "$ref": "#/$defs/PtyWrite"
         },
+        "question.respond": {
+          "$ref": "#/$defs/QuestionRespond"
+        },
         "sandbox.explain": {
           "$ref": "#/$defs/SandboxExplain"
         },
@@ -9443,7 +9617,8 @@
         "device.revoke",
         "conversations.watch",
         "provider.warm",
-        "conversation.switch_preview"
+        "conversation.switch_preview",
+        "question.respond"
       ],
       "type": "object"
     },
@@ -9580,6 +9755,9 @@
         "pty.write": {
           "$ref": "#/$defs/PtyWriteResult"
         },
+        "question.respond": {
+          "$ref": "#/$defs/QuestionRespondResult"
+        },
         "sandbox.explain": {
           "$ref": "#/$defs/SandboxExplainResult"
         },
@@ -9652,7 +9830,8 @@
         "device.revoke",
         "conversations.watch",
         "provider.warm",
-        "conversation.switch_preview"
+        "conversation.switch_preview",
+        "question.respond"
       ],
       "type": "object"
     },
@@ -10898,6 +11077,137 @@
       "description": "A question to the user that is not an approval of a tool call, such as whether\nto keep a git setting that a sandboxed call changed.",
       "format": "uuid",
       "type": "string"
+    },
+    "QuestionOption": {
+      "description": "One choice of a question. The model wrote it, so a client shows it as text that a\nprogram wrote, on one line.",
+      "properties": {
+        "description": {
+          "description": "What the choice means or costs, at most\n[`MAX_DESCRIPTION_CHARS`](Self::MAX_DESCRIPTION_CHARS) characters. Absent when\nthe model gave none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "The choice in a few words, at most [`MAX_LABEL_CHARS`](Self::MAX_LABEL_CHARS)\ncharacters.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "QuestionReply": {
+      "description": "What a person answered to the model's question.\n\nOn the wire an object with a `kind` member: `{\"kind\": \"option\", \"index\": 1}`,\n`{\"kind\": \"text\", \"text\": \"...\"}` or `{\"kind\": \"skipped\"}`. A kind that this build\ndoes not know reads as `unknown`; efrd refuses it as `invalid`.",
+      "oneOf": [
+        {
+          "description": "The person picked an option.",
+          "properties": {
+            "index": {
+              "description": "The place of the option in the question's `options`, from 0.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "option",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The person typed an answer of their own.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "description": "The answer: not empty, at most [`MAX_TEXT_BYTES`](Self::MAX_TEXT_BYTES)\nbytes, with no control character. It goes to the event log and to the\nmodel, as a prompt does.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The person skipped the question.",
+          "properties": {
+            "kind": {
+              "const": "skipped",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A reply that this build does not know.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "QuestionRespond": {
+      "description": "The params of `question.respond`, a unary method with the scope `operate`. efrd\nannounces it with the capability `user_questions`.\n\nefrd answers `not_found` when no such question waits, and `invalid` for an `index`\noutside the options, for a `text` that is empty, longer than\n[`QuestionReply::MAX_TEXT_BYTES`] or holds a control character, and for a reply of\nthe kind `unknown`. A retried command answers from its receipt. The answer approves\nnothing: it is information for the model.",
+      "properties": {
+        "answer": {
+          "$ref": "#/$defs/QuestionReply",
+          "description": "The answer."
+        },
+        "command_id": {
+          "$ref": "#/$defs/CommandId",
+          "description": "Makes the answer idempotent."
+        },
+        "conversation_id": {
+          "$ref": "#/$defs/ConversationId",
+          "description": "The conversation of the waiting turn."
+        },
+        "question_id": {
+          "$ref": "#/$defs/QuestionId",
+          "description": "The question, from `user_question_requested`."
+        }
+      },
+      "required": [
+        "command_id",
+        "conversation_id",
+        "question_id",
+        "answer"
+      ],
+      "type": "object"
+    },
+    "QuestionRespondResult": {
+      "description": "The result of `question.respond`.",
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/Seq",
+          "description": "The sequence number of the `user_question_answered` event."
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "type": "object"
     },
     "RecentCommand": {
       "description": "A command line that the user ran in the terminal before a prompt: one entry of the\nzsh plugin's list of the terminal's recent commands.\n\nIt travels like [`PromptSend::last_command`]: never in a [`ShellContext`], never in\nan event, and only to the turn's preamble. `Debug` shows the command only by its\nlength.",
@@ -13391,6 +13701,72 @@
       ],
       "type": "object"
     },
+    "UserAnswer": {
+      "description": "How the model's question ended, as `user_question_answered` records it.\n\nOn the wire an object with a `kind` member: `{\"kind\": \"replied\", \"reply\": {...}}`,\n`{\"kind\": \"unanswered\"}` (with `\"away\": true` when the user was away) or\n`{\"kind\": \"interrupted\"}`. A kind that this build does not know reads as `unknown`.",
+      "oneOf": [
+        {
+          "description": "A person answered.",
+          "properties": {
+            "kind": {
+              "const": "replied",
+              "type": "string"
+            },
+            "reply": {
+              "$ref": "#/$defs/QuestionReply",
+              "description": "The answer."
+            }
+          },
+          "required": [
+            "kind",
+            "reply"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Nobody answered in time, and the model goes on without an answer.",
+          "properties": {
+            "away": {
+              "description": "True when the user was away. False when absent.",
+              "type": "boolean"
+            },
+            "kind": {
+              "const": "unanswered",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The turn was interrupted while the question waited.",
+          "properties": {
+            "kind": {
+              "const": "interrupted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An end that this build does not know.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "UserAuthorization": {
       "description": "How clearly the user's messages authorize an exit, as the classifier rates it.",
       "oneOf": [
@@ -13440,7 +13816,7 @@
       "description": "A pattern that wakes the model when a line of the job's output matches it.",
       "properties": {
         "max_wakes": {
-          "description": "How many matches may wake the model, after efr's own limit\n(`jobs.max_wakes_per_watch`).",
+          "description": "How many notices may wake the model, after efr's own limit\n(`jobs.max_wakes_per_watch`). It counts notices, not lines: the lines that match\nwithin one batch window are one notice (`job_watch_matched`).",
           "format": "uint8",
           "maximum": 255,
           "minimum": 0,

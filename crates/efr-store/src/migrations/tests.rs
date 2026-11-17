@@ -845,6 +845,8 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
         output_bytes: 12,
         ran_secs: 1,
         tail: "-- No entries --\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: Vec::new(),

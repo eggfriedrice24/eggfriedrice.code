@@ -33,6 +33,7 @@ async fn subscribe_resume_after_seq() {
             conversation_id,
             after_seq: Some(after),
             answers_input: false,
+            answers_questions: false,
             drafts: false,
         }))
         .await
@@ -72,6 +73,7 @@ async fn subscribe_gap_too_large_snapshot() {
                     conversation_id,
                     after_seq,
                     answers_input: false,
+                    answers_questions: false,
                     drafts: false,
                 },
             ))
@@ -114,6 +116,7 @@ async fn a_small_gap_is_replayed_event_by_event() {
             conversation_id,
             after_seq: Some(log[2].seq),
             answers_input: false,
+            answers_questions: false,
             drafts: false,
         }))
         .await

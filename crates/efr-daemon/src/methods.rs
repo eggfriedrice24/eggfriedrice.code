@@ -18,7 +18,8 @@
 //! and `device.prove`, and after that it holds its device's scopes, at most the phone's
 //! ([`authorize_remote`]). The Unix socket refuses `device.enroll` and `device.prove`.
 //!
-//! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
+//! Presence: a prompt, a steer, an interrupt, a withdraw, an answer (to an approval or
+//! to a question of the model), a compaction, an
 //! undo, a resume, a stop of a command left running in the hidden shell, a move of a
 //! running call to the background and keys for the hidden shell are input of a person, so each one makes
 //! its conversation present (`presence.rs`). `Input` takes a side for every method, as the scope does.
@@ -78,6 +79,7 @@ mod provider_warm;
 mod pty_attach;
 mod pty_resize;
 mod pty_write;
+mod question_respond;
 mod recent_rows;
 mod sandbox_explain;
 mod sandbox_surface_respond;
@@ -168,6 +170,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationsWatch(_) => ScopeName::Read,
         Method::ProviderWarm(_) => ScopeName::Operate,
         Method::ConversationSwitchPreview(_) => ScopeName::Operate,
+        Method::QuestionRespond(_) => ScopeName::Operate,
     }
 }
 
@@ -205,6 +208,7 @@ impl Input {
             Method::ApprovalRespond(params) => Some(params.conversation_id),
             Method::InputRespond(params) => Some(params.conversation_id),
             Method::SandboxSurfaceRespond(params) => Some(params.conversation_id),
+            Method::QuestionRespond(params) => Some(params.conversation_id),
             Method::ConversationCompact(params) => Some(params.conversation_id),
             Method::TurnUndo(params) => params.conversation_id,
             // NOTE: a resume is the user's choice of a conversation, so it ends their
@@ -635,6 +639,7 @@ impl Dispatcher for Methods {
                 Method::ConversationSwitchPreview(params) => {
                     conversation_switch_preview::handle(state, params, &responder).await
                 }
+                Method::QuestionRespond(params) => question_respond::handle(state, params).await,
             };
             state.presence.record(touched).await;
             if handled.is_ok() {

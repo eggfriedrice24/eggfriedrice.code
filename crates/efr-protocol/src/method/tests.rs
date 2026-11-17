@@ -12,8 +12,9 @@ use crate::{
     ConversationsRecent, ConversationsSearch, ConversationsWatch, Hello, InputRespond, JobId,
     JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
     ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt,
-    ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    QuestionReply, QuestionRespond, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText,
+    ShellContext, ShellInterrupt, ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer,
+    TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -65,6 +66,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 conversation_id: conversation(),
                 after_seq: None,
                 answers_input: false,
+                answers_questions: false,
                 drafts: false,
             }),
             "conversation.subscribe",
@@ -431,6 +433,18 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             ScopeName::Read,
             false,
             true,
+        ),
+        (
+            Method::QuestionRespond(QuestionRespond {
+                command_id: command(),
+                conversation_id: conversation(),
+                question_id: QuestionId::from_str(CALL).unwrap(),
+                answer: QuestionReply::Skipped,
+            }),
+            "question.respond",
+            ScopeName::Operate,
+            true,
+            false,
         ),
     ]
 }

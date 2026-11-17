@@ -58,6 +58,8 @@ fn job_ended(n: u32, state: JobState, stopped_by: Option<JobStopBy>) -> Event {
         output_bytes: 512,
         ran_secs: 30,
         tail: "done\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: Vec::new(),
@@ -297,6 +299,8 @@ async fn undelivered_notices_skip_delivered_ones() {
     let watched = Event::JobWatchMatched {
         job_id: JobId::nth(1),
         line: "error: port in use".to_owned(),
+        more: Vec::new(),
+        dropped: 0,
         wakes_left: 2,
     };
     let committed = writer

@@ -5,8 +5,9 @@ use efr_protocol::{
     ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsSearch,
     ConversationsWatch, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
     PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
-    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
-    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
+    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, QuestionReply, QuestionRespond,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt,
+    TurnSteer, TurnUndo, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -42,6 +43,7 @@ fn every_method() -> Vec<Method> {
             conversation_id,
             after_seq: None,
             answers_input: false,
+            answers_questions: false,
             drafts: false,
         }),
         Method::ConversationHistory(ConversationHistory {
@@ -146,13 +148,19 @@ fn every_method() -> Vec<Method> {
             limit: None,
         }),
         Method::ConversationsWatch(ConversationsWatch { limit: None }),
+        Method::QuestionRespond(QuestionRespond {
+            command_id,
+            conversation_id,
+            question_id: QuestionId::from_uuid(id(5)),
+            answer: QuestionReply::Option { index: 0 },
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 31, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 32, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -197,8 +205,27 @@ fn the_scope_table_is_the_designed_one() {
             ("conversations.search", ScopeName::Read),
             ("conversation.search", ScopeName::Read),
             ("conversations.watch", ScopeName::Read),
+            ("question.respond", ScopeName::Operate),
         ]
     );
+}
+
+/// An answer to the model's question is information for the model, not a permission:
+/// it needs `operate`, as a steer does, so a phone may give it and a model-side peer
+/// may not.
+#[test]
+fn question_respond_needs_operate_scope() {
+    let method =
+        every_method().into_iter().find(|method| method.name() == "question.respond").unwrap();
+    assert_eq!(scope(&method), ScopeName::Operate);
+    assert!(authorize(Origin::Phone, PeerSide::User, &method).is_ok(), "a phone may answer");
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        let refused = authorize(Origin::Shell, peer, &method);
+        assert!(
+            matches!(refused, Err(DaemonError::ModelSidePeer { method: "question.respond" })),
+            "{refused:?}"
+        );
+    }
 }
 
 /// An undo writes the user's files, so it needs `operate`: a model-side peer holds
@@ -359,6 +386,7 @@ mod subscribe {
             id: efr_protocol::ConversationId::from_uuid(id(5)),
             title: None,
             status: ConversationStatus::Idle,
+            attention: None,
             created_at: at(),
             updated_at: at(),
             last_seq: Seq::new(9),

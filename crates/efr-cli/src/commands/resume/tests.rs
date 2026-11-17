@@ -38,6 +38,7 @@ fn summary(n: u64, title: &str) -> ConversationSummary {
         id: id(n),
         title: Some(title.to_owned()),
         status: ConversationStatus::Idle,
+        attention: None,
         created_at: now(),
         updated_at: now(),
         last_seq: Seq::new(n),

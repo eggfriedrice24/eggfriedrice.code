@@ -16,6 +16,7 @@ fn summary() -> ConversationSummary {
         id: conversation(),
         title: Some("run the tests".to_owned()),
         status: ConversationStatus::Idle,
+        attention: None,
         created_at: now(),
         updated_at: now(),
         last_seq: Seq::new(9),

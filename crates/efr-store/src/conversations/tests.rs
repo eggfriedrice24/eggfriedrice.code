@@ -54,6 +54,7 @@ async fn a_new_conversation_is_idle_with_its_tty_and_no_title() {
             id,
             title: None,
             status: ConversationStatus::Idle,
+            attention: None,
             created_at: at,
             updated_at: at,
             last_seq: Seq::new(1),

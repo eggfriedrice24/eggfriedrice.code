@@ -29,6 +29,8 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
         output_bytes: 1_200_000,
         ran_secs: 92 * 60 + 5,
         tail: String::new(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: Vec::new(),
@@ -241,7 +243,13 @@ fn watch_line_goes_through_one_line() {
     let line = "ready\u{1b}[2J on \u{202e}port 3000\n\tnext";
     let shown = matched(&j3(), line);
     assert_eq!(shown, "job j3 matched: ready\u{241b}[2J on \u{fffd}port 3000  next");
-    let event = Event::JobWatchMatched { job_id: j3(), line: line.to_owned(), wakes_left: 1 };
+    let event = Event::JobWatchMatched {
+        job_id: j3(),
+        line: line.to_owned(),
+        more: Vec::new(),
+        dropped: 0,
+        wakes_left: 1,
+    };
     assert_eq!(conversation_line(&event).unwrap(), shown);
 }
 

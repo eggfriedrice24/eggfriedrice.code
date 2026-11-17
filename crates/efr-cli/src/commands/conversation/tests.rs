@@ -27,6 +27,7 @@ fn listed() -> Vec<ConversationSummary> {
         id: id(),
         title: Some("why is the build slow".to_owned()),
         status: ConversationStatus::Idle,
+        attention: None,
         created_at: now(),
         updated_at: now(),
         last_seq: Seq::new(2),

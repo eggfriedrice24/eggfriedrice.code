@@ -146,6 +146,7 @@ fn row(conversation: ConversationId, title: &str) -> RecentConversation {
             id: conversation,
             title: Some(title.to_owned()),
             status: ConversationStatus::Idle,
+            attention: None,
             created_at: jiff::Timestamp::UNIX_EPOCH,
             updated_at: jiff::Timestamp::UNIX_EPOCH,
             last_seq: Seq::new(1),

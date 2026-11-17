@@ -12,8 +12,8 @@ use crate::{
     ConversationsWatch, DeviceEnroll, DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve,
     DeviceRevoke, Hello, InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet,
     ProjectsList, PromptSend, PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt,
-    TurnSteer, TurnUndo,
+    QuestionRespond, SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus,
+    TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -190,6 +190,9 @@ pub enum Method {
     /// conversation would cost its next turn.
     #[serde(rename = "conversation.switch_preview")]
     ConversationSwitchPreview(ConversationSwitchPreview),
+    /// `question.respond`: answer the model's question.
+    #[serde(rename = "question.respond")]
+    QuestionRespond(QuestionRespond),
 }
 
 impl Method {
@@ -247,6 +250,7 @@ impl Method {
             Method::ConversationsWatch(_) => "conversations.watch",
             Method::ProviderWarm(_) => "provider.warm",
             Method::ConversationSwitchPreview(_) => "conversation.switch_preview",
+            Method::QuestionRespond(_) => "question.respond",
         }
     }
 
@@ -269,6 +273,7 @@ impl Method {
             Method::ShellInterrupt(params) => Some(params.command_id),
             Method::CallBackground(params) => Some(params.command_id),
             Method::ConversationDelete(params) => Some(params.command_id),
+            Method::QuestionRespond(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -361,7 +366,8 @@ impl Method {
             | Method::DeviceList(_)
             | Method::DeviceRevoke(_)
             | Method::ProviderWarm(_)
-            | Method::ConversationSwitchPreview(_) => false,
+            | Method::ConversationSwitchPreview(_)
+            | Method::QuestionRespond(_) => false,
         }
     }
 }
@@ -411,7 +417,10 @@ impl ScopeName {
             | Method::ProviderWarm(_)
             // NOTE: it changes nothing, but it answers for the next prompt, so it needs
             // the scope of a prompt.
-            | Method::ConversationSwitchPreview(_) => ScopeName::Operate,
+            | Method::ConversationSwitchPreview(_)
+            // NOTE: an answer to the model's question is information for the model, not
+            // a permission, so it needs the scope of a steer, not `approve`.
+            | Method::QuestionRespond(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

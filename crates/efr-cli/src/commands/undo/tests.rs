@@ -71,6 +71,7 @@ fn summary() -> ConversationSummary {
         id: conversation(),
         title: Some("change a.txt".to_owned()),
         status: ConversationStatus::Idle,
+        attention: None,
         created_at: now(),
         updated_at: now(),
         last_seq: Seq::new(9),

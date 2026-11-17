@@ -75,6 +75,7 @@ async fn subscribe_after(
         conversation_id,
         after_seq: Some(after),
         answers_input,
+        answers_questions: false,
         drafts: false,
     };
     client.stream(Method::ConversationSubscribe(params)).await.unwrap()

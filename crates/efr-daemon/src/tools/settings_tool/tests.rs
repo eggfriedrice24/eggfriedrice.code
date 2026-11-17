@@ -609,6 +609,7 @@ mod daemon {
                 conversation_id: sent.conversation_id,
                 after_seq: Some(sent.seq),
                 answers_input: false,
+                answers_questions: false,
                 drafts: false,
             }))
             .await;

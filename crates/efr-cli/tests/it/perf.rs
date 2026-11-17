@@ -727,6 +727,7 @@ fn gap_turn(conn: &mut Conn, gap: u64, pages: &AtomicU64) {
             id: CONVERSATION.parse().unwrap(),
             title: None,
             status: ConversationStatus::Running,
+            attention: None,
             created_at: at,
             updated_at: at,
             last_seq: Seq::new(last),

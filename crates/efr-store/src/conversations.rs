@@ -775,6 +775,7 @@ impl RawSummary {
             id: sql::parse(&self.id, CONVERSATIONS, "id")?,
             title: self.title,
             status: sql::from_wire(&self.status, CONVERSATIONS, "status")?,
+            attention: None,
             created_at: sql::to_timestamp(self.created_at, CONVERSATIONS, "created_at")?,
             updated_at: sql::to_timestamp(self.updated_at, CONVERSATIONS, "updated_at")?,
             last_seq: sql::to_seq(self.last_seq, CONVERSATIONS, "last_seq")?,

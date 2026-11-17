@@ -550,6 +550,7 @@ fn summary(id: &str, tty: Option<&str>) -> ConversationSummary {
         id: id.parse().unwrap(),
         title: None,
         status: ConversationStatus::Running,
+        attention: None,
         created_at: now(),
         updated_at: now(),
         last_seq: Seq::new(1),

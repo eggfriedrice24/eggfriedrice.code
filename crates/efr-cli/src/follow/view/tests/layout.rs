@@ -1748,6 +1748,8 @@ fn view_shows_job_start_and_end() {
         output_bytes: 1_200_000,
         ran_secs: 92 * 60,
         tail: "ready on :3000\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: vec!["node".to_owned()],
@@ -1761,6 +1763,8 @@ fn view_shows_job_start_and_end() {
     let matched = Event::JobWatchMatched {
         job_id: job.id.clone(),
         line: "error: port 3000 in use".to_owned(),
+        more: Vec::new(),
+        dropped: 0,
         wakes_left: 2,
     };
     let held = Event::JobNoticeHeld {

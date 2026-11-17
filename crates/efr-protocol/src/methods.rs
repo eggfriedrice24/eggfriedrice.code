@@ -57,6 +57,7 @@ pub(crate) mod provider_warm;
 pub(crate) mod pty_attach;
 pub(crate) mod pty_resize;
 pub(crate) mod pty_write;
+pub(crate) mod question_respond;
 pub(crate) mod sandbox_explain;
 pub(crate) mod sandbox_surface_respond;
 pub(crate) mod shell_interrupt;

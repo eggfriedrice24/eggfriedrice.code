@@ -160,6 +160,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &ShellArgs) -> Re
         conversation_id,
         after_seq: None,
         answers_input: true,
+        answers_questions: false,
         drafts: false,
     });
     let stream = client.stream(method).await?;

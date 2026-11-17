@@ -284,6 +284,8 @@ async fn restart_records_held_notice_once() {
         output_bytes: 10,
         ran_secs: 3,
         tail: "error\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: Vec::new(),

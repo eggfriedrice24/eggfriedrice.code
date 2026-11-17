@@ -69,6 +69,7 @@ async fn starts(client: &Client, conversation_id: ConversationId) -> Start {
             conversation_id,
             after_seq: None,
             answers_input: false,
+            answers_questions: false,
             drafts: false,
         };
         let begin = Instant::now();

@@ -32,6 +32,7 @@ fn row(n: u64, title: &str) -> SearchRow {
                 id: id(n),
                 title: Some(title.to_owned()),
                 status: ConversationStatus::Idle,
+                attention: None,
                 created_at: now(),
                 updated_at: now(),
                 last_seq: Seq::new(n),

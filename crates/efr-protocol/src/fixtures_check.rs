@@ -21,8 +21,8 @@ use crate::{
     AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult, AdminProjectAdd, AdminProjectAddResult,
     AdminProjectRemove, AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult,
     AdminStatus, AdminStatusResult, AlwaysSaved, ApprovalDecision, ApprovalRespond,
-    ApprovalRespondResult, ApprovedBy, AttachHow, Base64Bytes, BlockReason, Blocked, BusKind,
-    BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary, CallBackground,
+    ApprovalRespondResult, ApprovedBy, AttachHow, Attention, Base64Bytes, BlockReason, Blocked,
+    BusKind, BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary, CallBackground,
     CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep,
     ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction, CompactionBrief,
     CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError, ConfigStatus, ContextItem,
@@ -51,19 +51,20 @@ use crate::{
     ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
     PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
     ProviderStatus, ProviderWarm, ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
-    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
-    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
-    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
-    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
-    StoredCopyReason, SurfaceChange, Switch, SwitchCost, SwitchedModel, TargetFact, TextRange,
-    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
-    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
-    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, QuestionOption, QuestionReply,
+    QuestionRespond, QuestionRespondResult, RecentCommand, RecentConversation, RefChange, RepoHint,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
+    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
+    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
+    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, StoredCopyReason, SurfaceChange, Switch,
+    SwitchCost, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAnswer,
+    UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult, WebSource, WithdrawTarget,
+    WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -169,6 +170,8 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
     fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures.push(fixture("pair_ends.json", &PairEnd::ALL.to_vec()));
+    fixtures.push(fixture("user_answers.json", &user_answer_samples()));
+    fixtures.push(fixture("conversation_attention.json", &attention_samples()));
     fixtures.push(fixture("device_prove_message.json", &prove_vector()));
     fixtures.push(fixture("pairing_qr_url.json", &qr_vector()));
     fixtures
@@ -973,6 +976,7 @@ fn summary() -> ConversationSummary {
         id: conversation_id(),
         title: Some("why is the disk full".into()),
         status: ConversationStatus::Running,
+        attention: Some(Attention::Answer),
         created_at: at("2026-10-03T11:58:00Z"),
         updated_at: at("2026-10-03T12:00:05.5Z"),
         last_seq: Seq::new(42),
@@ -1052,6 +1056,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
                 approval_local_only: None,
                 device_prove: None,
                 conversations_watch: None,
+                user_questions: None,
                 extra: Default::default(),
             },
             tty: Some("/dev/pts/3".into()),
@@ -1067,6 +1072,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             after_seq: Some(Seq::new(40)),
             answers_input: true,
+            answers_questions: true,
             drafts: true,
         }),
         Method::ConversationHistory(ConversationHistory {
@@ -1275,7 +1281,44 @@ pub(crate) fn method_samples() -> Vec<Method> {
             model: "gpt-6.1-sol".into(),
             provider: Some("b".into()),
         }),
+        Method::QuestionRespond(QuestionRespond {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            question_id: question_id(),
+            answer: QuestionReply::Text { text: "Postgres, on the shared cluster".into() },
+        }),
     ]
+}
+
+/// Every way that the model's question can end, with each kind of reply, so
+/// `user_answers.json` freezes the wire form of each.
+pub(crate) fn user_answer_samples() -> Vec<UserAnswer> {
+    vec![
+        UserAnswer::Replied { reply: QuestionReply::Option { index: 1 } },
+        UserAnswer::Replied { reply: QuestionReply::Text { text: "the shared one".into() } },
+        UserAnswer::Replied { reply: QuestionReply::Skipped },
+        UserAnswer::Replied { reply: QuestionReply::Unknown },
+        UserAnswer::Unanswered { away: false },
+        UserAnswer::Unanswered { away: true },
+        UserAnswer::Interrupted,
+        UserAnswer::Unknown,
+    ]
+}
+
+/// One summary for each value of `attention`, and one with none, so
+/// `conversation_attention.json` freezes how a list carries each.
+pub(crate) fn attention_samples() -> Vec<ConversationSummary> {
+    let status = |attention| match attention {
+        Some(Attention::Failed) | None => ConversationStatus::Idle,
+        Some(Attention::Terminal) => ConversationStatus::AwaitingApproval,
+        Some(_) => ConversationStatus::Running,
+    };
+    Attention::ALL
+        .into_iter()
+        .map(Some)
+        .chain([None])
+        .map(|attention| ConversationSummary { status: status(attention), attention, ..summary() })
+        .collect()
 }
 
 /// A list with every kind of change and every member set.
@@ -1347,6 +1390,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     approval_local_only: None,
                     device_prove: None,
                     conversations_watch: None,
+                    user_questions: Some(true),
                     extra: Default::default(),
                 },
                 paths: DaemonPaths {
@@ -1677,6 +1721,7 @@ fn answer_fixtures() -> Vec<Fixture> {
             "sandbox_surface_respond_result.json",
             &SandboxSurfaceRespondResult { seq: Seq::new(47) },
         ),
+        fixture("question_respond_result.json", &QuestionRespondResult { seq: Seq::new(48) }),
         fixture(
             "turn_undo_result.json",
             &TurnUndoResult {
@@ -1997,6 +2042,7 @@ pub(crate) fn remote_hello_result() -> HelloResult {
             approval_local_only: Some(true),
             device_prove: Some(true),
             conversations_watch: None,
+            user_questions: None,
             extra: Default::default(),
         },
         paths: DaemonPaths {
@@ -2165,6 +2211,7 @@ fn watch_row() -> RecentConversation {
 fn waiting_watch_row() -> RecentConversation {
     let mut row = watch_row();
     row.summary.status = ConversationStatus::AwaitingApproval;
+    row.summary.attention = Some(Attention::Terminal);
     row.summary.last_seq = Seq::new(44);
     row.summary.updated_at = at("2026-10-03T12:00:09Z");
     row
@@ -2667,6 +2714,25 @@ pub(crate) fn event_samples() -> Vec<Event> {
             keep: true,
             origin: Some(Origin::Shell),
         },
+        Event::UserQuestionRequested {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            question_id: question_id(),
+            question: "Which database should the new service use?".into(),
+            options: vec![
+                QuestionOption {
+                    label: "Postgres".into(),
+                    description: Some("Recommended: the other services use it.".into()),
+                },
+                QuestionOption { label: "SQLite".into(), description: None },
+            ],
+        },
+        Event::UserQuestionAnswered {
+            turn_id: turn_id(),
+            question_id: question_id(),
+            answer: UserAnswer::Replied { reply: QuestionReply::Option { index: 0 } },
+            origin: Some(Origin::Phone),
+        },
         Event::TurnSurfaceReport {
             turn_id: turn_id(),
             files: vec![
@@ -2765,6 +2831,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
         Event::JobWatchMatched {
             job_id: JobId::nth(3),
             line: "error: listen EADDRINUSE: address already in use :::3000".into(),
+            more: vec!["error: build failed".into(), "done in 4.2s".into()],
+            dropped: 31,
             wakes_left: 2,
         },
         Event::JobPortForwarded {
@@ -2783,6 +2851,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
             output_bytes: 48_213,
             ran_secs: 1_920,
             tail: "ready in 412 ms\nGET / 200\n".into(),
+            matched: vec!["error: worker 2 exited".into(), "error: worker 3 exited".into()],
+            matched_dropped: 4,
             surface_changes: vec![surface_change()],
             quarantined: true,
             survivors: vec!["node".into()],

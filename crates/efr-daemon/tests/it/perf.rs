@@ -408,6 +408,7 @@ pub(crate) async fn follow_turn(
         conversation_id: sent.conversation_id,
         after_seq: Some(sent.seq),
         answers_input: false,
+        answers_questions: false,
         drafts: true,
     };
     let mut stream = client.stream(Method::ConversationSubscribe(subscribe)).await.unwrap();

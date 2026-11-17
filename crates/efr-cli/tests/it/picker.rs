@@ -219,6 +219,7 @@ fn rows() -> Vec<RecentConversation> {
                 id: id(n).parse().unwrap(),
                 title: Some(title.to_owned()),
                 status: ConversationStatus::Idle,
+                attention: None,
                 created_at: at,
                 updated_at: at,
                 last_seq: Seq::new(n),

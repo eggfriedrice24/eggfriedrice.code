@@ -45,6 +45,10 @@ pub struct ConversationSummary {
     pub title: Option<String>,
     /// What the conversation is doing now.
     pub status: ConversationStatus,
+    /// Who can act on the conversation now, when it needs someone or its last turn
+    /// failed. Absent when none of these holds, and from an efrd before 0.0.12.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attention: Option<Attention>,
     /// When the conversation began.
     pub created_at: Timestamp,
     /// When its last event was recorded.
@@ -76,4 +80,45 @@ pub enum ConversationStatus {
     Running,
     /// A turn waits for the user to answer an approval request.
     AwaitingApproval,
+}
+
+/// Who can act on a conversation, next to its [`ConversationStatus`].
+///
+/// It is a member of its own, not a value of `status`: a released client reads
+/// `status` with a closed set of values, so a new value there would fail its whole
+/// list. A value that this build does not know reads as `unknown`, which a client
+/// reads as no attention.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum Attention {
+    /// A question of the model waits for an answer (status `running`).
+    Answer,
+    /// Only the user's own machine can answer what waits: an approval that only the
+    /// terminal may give, or a command that waits for input, and nothing waits that
+    /// a phone can answer (status `awaiting_approval` or `running`).
+    Terminal,
+    /// No turn runs, and the last turn that ended failed (status `idle`).
+    Failed,
+    /// A value that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl Attention {
+    /// Every value, in the order of the enum.
+    pub const ALL: [Attention; 4] =
+        [Attention::Answer, Attention::Terminal, Attention::Failed, Attention::Unknown];
+
+    /// The wire form, such as `answer`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Attention::Answer => "answer",
+            Attention::Terminal => "terminal",
+            Attention::Failed => "failed",
+            Attention::Unknown => "unknown",
+        }
+    }
 }

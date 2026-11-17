@@ -163,6 +163,7 @@ async fn follow(
         conversation_id,
         after_seq: Some(Seq::ZERO),
         answers_input,
+        answers_questions: false,
         drafts: false,
     };
     client.stream(Method::ConversationSubscribe(params)).await.unwrap()

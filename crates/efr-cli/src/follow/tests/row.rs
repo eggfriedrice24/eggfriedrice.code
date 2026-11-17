@@ -1439,7 +1439,7 @@ async fn view_stop_key_stops_job() {
     let setup = Setup::new();
     let ctx = setup.context(true);
     let keys = Arc::clone(&setup.keys);
-    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+    let (result, out, _) = Box::pin(run_row(&setup, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         keys.type_bytes(b"draft").await;
         shows(&seen, "draft").await;
@@ -1464,6 +1464,8 @@ async fn view_stop_key_stops_job() {
             output_bytes: 10,
             ran_secs: 60,
             tail: String::new(),
+            matched: Vec::new(),
+            matched_dropped: 0,
             surface_changes: Vec::new(),
             quarantined: false,
             survivors: Vec::new(),
@@ -1488,7 +1490,7 @@ async fn view_stop_key_stops_job() {
             matches!(frame, ClientFrame::Request { method: Method::TurnInterrupt(_), .. })
         });
         assert_eq!(interrupts.count(), 0, "the stop key never interrupts the turn");
-    })
+    }))
     .await;
     result.unwrap();
     assert!(out.contains("\u{2713} stopping job j3"), "{}", readable(&out));

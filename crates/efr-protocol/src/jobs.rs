@@ -282,10 +282,19 @@ pub struct Watch {
     /// The pattern, a regular expression of at most
     /// [`MAX_PATTERN_CHARS`](Self::MAX_PATTERN_CHARS) characters.
     pub pattern: String,
-    /// How many matches may wake the model, after efr's own limit
-    /// (`jobs.max_wakes_per_watch`).
+    /// How many notices may wake the model, after efr's own limit
+    /// (`jobs.max_wakes_per_watch`). It counts notices, not lines: the lines that match
+    /// within one batch window are one notice (`job_watch_matched`).
     pub max_wakes: u8,
 }
+
+/// The most lines at the start of a batch of matched lines that a notice keeps
+/// (`job_watch_matched`, `matched` of `job_ended`).
+pub const BATCH_HEAD: usize = 10;
+
+/// The most lines at the end of a batch of matched lines that a notice keeps. With
+/// lines dropped, the gap is between the [`BATCH_HEAD`] lines and these.
+pub const BATCH_TAIL: usize = 10;
 
 impl Watch {
     /// The longest pattern, in characters.

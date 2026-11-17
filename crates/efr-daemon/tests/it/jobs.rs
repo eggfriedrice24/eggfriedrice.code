@@ -714,7 +714,8 @@ async fn watch_match_wakes_model() {
         matches!(event, Event::JobWatchMatched { .. })
     })
     .await;
-    let Event::JobWatchMatched { job_id, line, wakes_left } = events.last().unwrap().event.clone()
+    let Event::JobWatchMatched { job_id, line, wakes_left, .. } =
+        events.last().unwrap().event.clone()
     else {
         unreachable!()
     };

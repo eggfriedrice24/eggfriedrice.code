@@ -1,0 +1,41 @@
+[
+  {
+    "kind": "replied",
+    "reply": {
+      "kind": "option",
+      "index": 1
+    }
+  },
+  {
+    "kind": "replied",
+    "reply": {
+      "kind": "text",
+      "text": "the shared one"
+    }
+  },
+  {
+    "kind": "replied",
+    "reply": {
+      "kind": "skipped"
+    }
+  },
+  {
+    "kind": "replied",
+    "reply": {
+      "kind": "unknown"
+    }
+  },
+  {
+    "kind": "unanswered"
+  },
+  {
+    "kind": "unanswered",
+    "away": true
+  },
+  {
+    "kind": "interrupted"
+  },
+  {
+    "kind": "unknown"
+  }
+]

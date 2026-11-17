@@ -57,6 +57,7 @@ fn row(n: u64, title: Option<&str>, minutes: i64, turns: u32) -> SearchRow {
                 id: id(n),
                 title: title.map(str::to_owned),
                 status: ConversationStatus::Idle,
+                attention: None,
                 created_at: ago(minutes + 60),
                 updated_at: ago(minutes),
                 last_seq: Seq::new(n),

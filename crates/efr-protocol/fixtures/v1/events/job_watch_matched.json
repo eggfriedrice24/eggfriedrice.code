@@ -2,5 +2,10 @@
   "kind": "job_watch_matched",
   "job_id": "j3",
   "line": "error: listen EADDRINUSE: address already in use :::3000",
+  "more": [
+    "error: build failed",
+    "done in 4.2s"
+  ],
+  "dropped": 31,
   "wakes_left": 2
 }

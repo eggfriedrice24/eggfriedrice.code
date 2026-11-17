@@ -145,6 +145,7 @@ async fn turn_events(daemon: &TestDaemon, n: u128, cwd: &Path) -> Vec<EventEnvel
         conversation_id: sent.conversation_id,
         after_seq: Some(sent.seq),
         answers_input: false,
+        answers_questions: false,
         drafts: false,
     };
     let mut follow = client.stream(Method::ConversationSubscribe(params)).await.unwrap();

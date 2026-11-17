@@ -22,6 +22,8 @@ fn job_ended(stopped_by: Option<JobStopBy>, survivors: &[&str]) -> Event {
         output_bytes: 1_200_000,
         ran_secs: 92 * 60,
         tail: "listening on :3000\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: survivors.iter().map(|name| (*name).to_owned()).collect(),
@@ -110,6 +112,8 @@ fn watch_line_shows_on_one_line() {
     let matched = Event::JobWatchMatched {
         job_id: JobId::nth(3),
         line: "error\u{1b}[31m in \u{202e}main.rs".to_owned(),
+        more: Vec::new(),
+        dropped: 0,
         wakes_left: 0,
     };
     let (_, err, _) = feed(&mut view, &[matched], true);

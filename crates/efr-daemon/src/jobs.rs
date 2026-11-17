@@ -926,6 +926,8 @@ impl JobTable {
             let event = Event::JobWatchMatched {
                 job_id: info.id.clone(),
                 line: line.clone(),
+                more: Vec::new(),
+                dropped: 0,
                 wakes_left: wakes,
             };
             let committed =
@@ -1250,6 +1252,8 @@ impl JobTable {
                 output_bytes: bytes.max(info.output_bytes),
                 ran_secs: ran_secs(info.started_at, now),
                 tail,
+                matched: Vec::new(),
+                matched_dropped: 0,
                 quarantined: summary.surface_changes.iter().any(|change| change.quarantined),
                 surface_changes: summary.surface_changes,
                 survivors,
@@ -1688,6 +1692,8 @@ impl JobTask {
             output_bytes: final_info.output_bytes,
             ran_secs: ran_secs(info.started_at, now),
             tail: tail.clone(),
+            matched: Vec::new(),
+            matched_dropped: 0,
             quarantined: surface_changes.iter().any(|change| change.quarantined),
             surface_changes,
             survivors,

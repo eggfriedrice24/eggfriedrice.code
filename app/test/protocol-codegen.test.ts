@@ -349,6 +349,26 @@ describe("the zod emitter", () => {
     expect(schemaOf(defs, "Job")).toContain(String.raw`= z.string().regex(/^j\/[1-9]$/) satisfies`);
   });
 
+  it("reads a new value of an enum with the value unknown as unknown", () => {
+    const defs = {
+      Held: { enum: ["wake_limit", "unknown"], type: "string" },
+      Cost: {
+        oneOf: [
+          { const: "none", type: "string" },
+          { const: "unknown", type: "string" },
+        ],
+      },
+      Status: { enum: ["idle", "running"], type: "string" },
+    };
+    expect(schemaOf(defs, "Held")).toContain(
+      '= z.enum(["wake_limit","unknown"]).catch("unknown") satisfies',
+    );
+    expect(schemaOf(defs, "Cost")).toContain(
+      '= z.enum(["none","unknown"]).catch("unknown") satisfies',
+    );
+    expect(schemaOf(defs, "Status")).toContain('= z.enum(["idle","running"]) satisfies');
+  });
+
   it("writes a union tagged by a constant member as a discriminated union", () => {
     const defs = {
       Base: { properties: { at: { type: "string" } }, required: ["at"], type: "object" },

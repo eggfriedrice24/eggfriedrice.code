@@ -116,6 +116,7 @@ async fn start(
         after_seq: Some(Seq::ZERO),
         // NOTE: a person who can answer follows, as in `efr`: the run looks for waits.
         answers_input: true,
+        answers_questions: false,
         drafts: false,
     };
     let mut stream = client.stream(Method::ConversationSubscribe(subscribe)).await.unwrap();

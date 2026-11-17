@@ -6,7 +6,8 @@
 // satisfies its type in generated.ts, so a drift between the two files is a type error.
 // An optional member uses exactOptional: JSON never carries undefined. A u64 is a safe
 // integer (z.int()), never a bigint. A wire object strips the members that it does not
-// list, so a member from a newer efrd passes.
+// list, so a member from a newer efrd passes. An enum with the value "unknown" reads a
+// value that it does not list as "unknown", so a new value from a newer efrd passes.
 //
 // Use the schemas through the decoder (src/lib/protocol/envelope.ts). It finds an event,
 // draft or item kind that this file does not list before a schema reads it, and gives an
@@ -41,6 +42,7 @@ import type {
   ApprovalRespondResult,
   ApprovedBy,
   AttachHow,
+  Attention,
   Base64Bytes,
   BlockReason,
   Blocked,
@@ -227,6 +229,10 @@ import type {
   PtyWrite,
   PtyWriteResult,
   QuestionId,
+  QuestionOption,
+  QuestionReply,
+  QuestionRespond,
+  QuestionRespondResult,
   RecentCommand,
   RecentConversation,
   RefChange,
@@ -300,6 +306,7 @@ import type {
   UndoReason,
   UndoableTurn,
   Usage,
+  UserAnswer,
   UserAuthorization,
   Verdict,
   Watch,
@@ -312,17 +319,19 @@ import type {
   WithdrawnSteer,
 } from "./generated";
 
-export const limitKindSchema = z.enum([
-  "usage",
-  "requests",
-  "tokens",
-  "input_tokens",
-  "output_tokens",
-  "too_many_requests",
-  "credit",
-  "spend_limit",
-  "unknown",
-]) satisfies z.ZodType<LimitKind>;
+export const limitKindSchema = z
+  .enum([
+    "usage",
+    "requests",
+    "tokens",
+    "input_tokens",
+    "output_tokens",
+    "too_many_requests",
+    "credit",
+    "spend_limit",
+    "unknown",
+  ])
+  .catch("unknown") satisfies z.ZodType<LimitKind>;
 
 export const limitReachedSchema = z.object({
   kind: limitKindSchema,
@@ -341,12 +350,9 @@ export const accountLimitsSchema = z.object({
   windows: z.array(limitWindowSchema).exactOptional(),
 }) satisfies z.ZodType<AccountLimits>;
 
-export const accountStateSchema = z.enum([
-  "ready",
-  "signed_out",
-  "full",
-  "unknown",
-]) satisfies z.ZodType<AccountState>;
+export const accountStateSchema = z
+  .enum(["ready", "signed_out", "full", "unknown"])
+  .catch("unknown") satisfies z.ZodType<AccountState>;
 
 export const otherAccountSchema = z.object({
   label: z.string().nullable().exactOptional(),
@@ -538,13 +544,9 @@ export const sandboxCheckSchema = z.object({
   outcome: checkOutcomeSchema,
 }) satisfies z.ZodType<SandboxCheck>;
 
-export const busProxyOffSchema = z.enum([
-  "config",
-  "no_program",
-  "self_test",
-  "old_version",
-  "unknown",
-]) satisfies z.ZodType<BusProxyOff>;
+export const busProxyOffSchema = z
+  .enum(["config", "no_program", "self_test", "old_version", "unknown"])
+  .catch("unknown") satisfies z.ZodType<BusProxyOff>;
 
 export const cacheModeSchema = z.enum([
   "overlay",
@@ -683,14 +685,9 @@ export const adminStatusResultSchema = z.object({
   version: z.string(),
 }) satisfies z.ZodType<AdminStatusResult>;
 
-export const notSavedReasonSchema = z.enum([
-  "changed",
-  "read_only",
-  "load_check",
-  "io",
-  "reload_timeout",
-  "unknown",
-]) satisfies z.ZodType<NotSavedReason>;
+export const notSavedReasonSchema = z
+  .enum(["changed", "read_only", "load_check", "io", "reload_timeout", "unknown"])
+  .catch("unknown") satisfies z.ZodType<NotSavedReason>;
 
 export const alwaysSavedSchema = z.discriminatedUnion("kind", [
   z.object({ index: z.uint32(), kind: z.literal("saved"), rule: z.string() }),
@@ -723,35 +720,35 @@ export const approvalRespondResultSchema = z.object({
   seq: seqSchema,
 }) satisfies z.ZodType<ApprovalRespondResult>;
 
-export const approvedBySchema = z.enum([
-  "you",
-  "your_rule",
-  "reviewer",
-  "full_mode",
-  "unknown",
-]) satisfies z.ZodType<ApprovedBy>;
+export const approvedBySchema = z
+  .enum(["you", "your_rule", "reviewer", "full_mode", "unknown"])
+  .catch("unknown") satisfies z.ZodType<ApprovedBy>;
 
-export const attachHowSchema = z.enum([
-  "picked_up",
-  "resumed",
-  "unknown",
-]) satisfies z.ZodType<AttachHow>;
+export const attachHowSchema = z
+  .enum(["picked_up", "resumed", "unknown"])
+  .catch("unknown") satisfies z.ZodType<AttachHow>;
+
+export const attentionSchema = z
+  .enum(["answer", "terminal", "failed", "unknown"])
+  .catch("unknown") satisfies z.ZodType<Attention>;
 
 export const base64BytesSchema = z.string() satisfies z.ZodType<Base64Bytes>;
 
-export const blockReasonSchema = z.enum([
-  "not_allowed",
-  "private_address",
-  "sni_mismatch",
-  "upload_limit",
-  "method",
-  "ip_literal",
-  "not_tls",
-  "bad_request",
-  "limit",
-  "denied",
-  "unknown",
-]) satisfies z.ZodType<BlockReason>;
+export const blockReasonSchema = z
+  .enum([
+    "not_allowed",
+    "private_address",
+    "sni_mismatch",
+    "upload_limit",
+    "method",
+    "ip_literal",
+    "not_tls",
+    "bad_request",
+    "limit",
+    "denied",
+    "unknown",
+  ])
+  .catch("unknown") satisfies z.ZodType<BlockReason>;
 
 export const blockedSchema = z.object({
   count: z.uint32().exactOptional(),
@@ -863,6 +860,7 @@ export const capabilitiesSchema = z.looseObject({
   screen_snapshots: z.boolean().nullable().exactOptional(),
   search: z.boolean().nullable().exactOptional(),
   snapshot_live: z.boolean().nullable().exactOptional(),
+  user_questions: z.boolean().nullable().exactOptional(),
 }) satisfies z.ZodType<Capabilities>;
 
 export const colorSchema = z.union([
@@ -974,6 +972,7 @@ export const conversationSearchSchema = z.object({
 export const conversationSubscribeSchema = z.object({
   after_seq: seqSchema.nullable().exactOptional(),
   answers_input: z.boolean().exactOptional(),
+  answers_questions: z.boolean().exactOptional(),
   conversation_id: conversationIdSchema,
   drafts: z.boolean().exactOptional(),
 }) satisfies z.ZodType<ConversationSubscribe>;
@@ -1156,12 +1155,26 @@ export const ptyWriteSchema = z.object({
   pty_id: ptyIdSchema,
 }) satisfies z.ZodType<PtyWrite>;
 
+export const questionIdSchema = z.guid() satisfies z.ZodType<QuestionId>;
+
+export const questionReplySchema = z.discriminatedUnion("kind", [
+  z.object({ index: z.int().min(0).max(255), kind: z.literal("option") }),
+  z.object({ kind: z.literal("text"), text: z.string() }),
+  z.object({ kind: z.literal("skipped") }),
+  z.object({ kind: z.literal("unknown") }),
+]) satisfies z.ZodType<QuestionReply>;
+
+export const questionRespondSchema = z.object({
+  answer: questionReplySchema,
+  command_id: commandIdSchema,
+  conversation_id: conversationIdSchema,
+  question_id: questionIdSchema,
+}) satisfies z.ZodType<QuestionRespond>;
+
 export const sandboxExplainSchema = z.object({
   cwd: z.string().nullable().exactOptional(),
   path: z.string(),
 }) satisfies z.ZodType<SandboxExplain>;
-
-export const questionIdSchema = z.guid() satisfies z.ZodType<QuestionId>;
 
 export const sandboxSurfaceRespondSchema = z.object({
   command_id: commandIdSchema,
@@ -1271,6 +1284,7 @@ export const methodSchema = z.discriminatedUnion("method", [
     method: z.literal("conversation.switch_preview"),
     params: conversationSwitchPreviewSchema,
   }),
+  z.object({ method: z.literal("question.respond"), params: questionRespondSchema }),
 ]) satisfies z.ZodType<Method>;
 
 export const clientRequestSchema = z.intersection(
@@ -1327,19 +1341,21 @@ export const compactionSummarySchema = z.object({
   newest: compactionBriefSchema.nullable().exactOptional(),
 }) satisfies z.ZodType<CompactionSummary>;
 
-export const contextPartKindSchema = z.enum([
-  "system",
-  "tools",
-  "summary",
-  "prompts",
-  "preambles",
-  "notices",
-  "answers",
-  "tool_calls",
-  "tool_outputs",
-  "pruned",
-  "unknown",
-]) satisfies z.ZodType<ContextPartKind>;
+export const contextPartKindSchema = z
+  .enum([
+    "system",
+    "tools",
+    "summary",
+    "prompts",
+    "preambles",
+    "notices",
+    "answers",
+    "tool_calls",
+    "tool_outputs",
+    "pruned",
+    "unknown",
+  ])
+  .catch("unknown") satisfies z.ZodType<ContextPartKind>;
 
 export const contextItemSchema = z.object({
   kind: contextPartKindSchema,
@@ -1539,23 +1555,13 @@ export const exitRecordSchema = z.object({
   version: z.uint32(),
 }) satisfies z.ZodType<ExitRecord>;
 
-export const forwardOutcomeSchema = z.enum([
-  "forwarded",
-  "in_use",
-  "refused",
-  "limit",
-  "stopped",
-  "unknown",
-]) satisfies z.ZodType<ForwardOutcome>;
+export const forwardOutcomeSchema = z
+  .enum(["forwarded", "in_use", "refused", "limit", "stopped", "unknown"])
+  .catch("unknown") satisfies z.ZodType<ForwardOutcome>;
 
-export const heldReasonSchema = z.enum([
-  "not_auto",
-  "wake_limit",
-  "wake_turn_job",
-  "daemon_restart",
-  "wakes_off",
-  "unknown",
-]) satisfies z.ZodType<HeldReason>;
+export const heldReasonSchema = z
+  .enum(["not_auto", "wake_limit", "wake_turn_job", "daemon_restart", "wakes_off", "unknown"])
+  .catch("unknown") satisfies z.ZodType<HeldReason>;
 
 export const jobCgroupSchema = z.object({
   cpu_usec: z.int().nonnegative().nullable().exactOptional(),
@@ -1563,25 +1569,22 @@ export const jobCgroupSchema = z.object({
   off: z.string().nullable().exactOptional(),
 }) satisfies z.ZodType<JobCgroup>;
 
-export const jobStateSchema = z.enum([
-  "running",
-  "exited",
-  "stopped",
-  "timed_out",
-  "failed",
-  "unknown",
-]) satisfies z.ZodType<JobState>;
+export const jobStateSchema = z
+  .enum(["running", "exited", "stopped", "timed_out", "failed", "unknown"])
+  .catch("unknown") satisfies z.ZodType<JobState>;
 
-export const jobStopBySchema = z.enum([
-  "model",
-  "user",
-  "time_limit",
-  "daemon_stop",
-  "daemon_restart",
-  "guard",
-  "full_off",
-  "unknown",
-]) satisfies z.ZodType<JobStopBy>;
+export const jobStopBySchema = z
+  .enum([
+    "model",
+    "user",
+    "time_limit",
+    "daemon_stop",
+    "daemon_restart",
+    "guard",
+    "full_off",
+    "unknown",
+  ])
+  .catch("unknown") satisfies z.ZodType<JobStopBy>;
 
 export const movedCallSchema = z.object({
   after_secs: z.int().nonnegative(),
@@ -1633,11 +1636,9 @@ export const judgeKindSchema = z.enum([
   "full",
 ]) satisfies z.ZodType<JudgeKind>;
 
-export const noticeKindSchema = z.enum([
-  "exited",
-  "watch",
-  "unknown",
-]) satisfies z.ZodType<NoticeKind>;
+export const noticeKindSchema = z
+  .enum(["exited", "watch", "unknown"])
+  .catch("unknown") satisfies z.ZodType<NoticeKind>;
 
 export const pauseReasonSchema = z.enum(["in_a_row", "per_turn"]) satisfies z.ZodType<PauseReason>;
 
@@ -1647,26 +1648,33 @@ export const presenceSourceSchema = z.enum([
   "timeout",
 ]) satisfies z.ZodType<PresenceSource>;
 
-export const undoReasonSchema = z.enum([
-  "changed_after_turn",
-  "no_record_after_turn",
-  "left_out",
-  "masked",
-  "over_limit",
-  "new_in_turn",
-  "later_turn_not_undone",
-  "no_mirror",
-  "objects_missing",
-  "outside_turn_calls",
-  "already_done",
-  "root_replaced",
-  "unknown",
-  "call_unfinished",
-  "snapshot_failed",
-  "store_changed",
-  "store_full",
-  "staged_only",
-]) satisfies z.ZodType<UndoReason>;
+export const questionOptionSchema = z.object({
+  description: z.string().nullable().exactOptional(),
+  label: z.string(),
+}) satisfies z.ZodType<QuestionOption>;
+
+export const undoReasonSchema = z
+  .enum([
+    "changed_after_turn",
+    "no_record_after_turn",
+    "left_out",
+    "masked",
+    "over_limit",
+    "new_in_turn",
+    "later_turn_not_undone",
+    "no_mirror",
+    "objects_missing",
+    "outside_turn_calls",
+    "already_done",
+    "root_replaced",
+    "unknown",
+    "call_unfinished",
+    "snapshot_failed",
+    "store_changed",
+    "store_full",
+    "staged_only",
+  ])
+  .catch("unknown") satisfies z.ZodType<UndoReason>;
 
 export const refChangeSchema = z.object({
   applied: z.boolean().nullable().exactOptional(),
@@ -1714,23 +1722,15 @@ export const sandboxSummarySchema = z.object({
   survivors: z.array(z.string()).exactOptional(),
 }) satisfies z.ZodType<SandboxSummary>;
 
-export const shellCommandEndSchema = z.enum([
-  "ended",
-  "stopped",
-  "limit",
-  "closed",
-  "shell_exited",
-  "moved",
-  "unknown",
-]) satisfies z.ZodType<ShellCommandEnd>;
+export const shellCommandEndSchema = z
+  .enum(["ended", "stopped", "limit", "closed", "shell_exited", "moved", "unknown"])
+  .catch("unknown") satisfies z.ZodType<ShellCommandEnd>;
 
 export const snapshotPhaseSchema = z.enum(["pre", "post"]) satisfies z.ZodType<SnapshotPhase>;
 
-export const storedCopyReasonSchema = z.enum([
-  "mode",
-  "setting",
-  "unknown",
-]) satisfies z.ZodType<StoredCopyReason>;
+export const storedCopyReasonSchema = z
+  .enum(["mode", "setting", "unknown"])
+  .catch("unknown") satisfies z.ZodType<StoredCopyReason>;
 
 export const switchedModelSchema = z.object({
   default_effort: z.string().nullable().exactOptional(),
@@ -1768,24 +1768,30 @@ export const turnUndoInfoSchema = z.object({
 
 export const undoIdSchema = z.guid() satisfies z.ZodType<UndoId>;
 
-export const webActionSchema = z.enum([
-  "search",
-  "open",
-  "find",
-  "unknown",
-]) satisfies z.ZodType<WebAction>;
+export const userAnswerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("replied"), reply: questionReplySchema }),
+  z.object({ away: z.boolean().exactOptional(), kind: z.literal("unanswered") }),
+  z.object({ kind: z.literal("interrupted") }),
+  z.object({ kind: z.literal("unknown") }),
+]) satisfies z.ZodType<UserAnswer>;
 
-export const webErrorSchema = z.enum([
-  "too_many_requests",
-  "limit_reached",
-  "unavailable",
-  "invalid",
-  "not_allowed",
-  "not_accessible",
-  "unsupported",
-  "not_finished",
-  "unknown",
-]) satisfies z.ZodType<WebError>;
+export const webActionSchema = z
+  .enum(["search", "open", "find", "unknown"])
+  .catch("unknown") satisfies z.ZodType<WebAction>;
+
+export const webErrorSchema = z
+  .enum([
+    "too_many_requests",
+    "limit_reached",
+    "unavailable",
+    "invalid",
+    "not_allowed",
+    "not_accessible",
+    "unsupported",
+    "not_finished",
+    "unknown",
+  ])
+  .catch("unknown") satisfies z.ZodType<WebError>;
 
 export const webResultSchema = z.object({
   title: z.string().nullable().exactOptional(),
@@ -2093,6 +2099,21 @@ export const eventSchema = z.discriminatedUnion("kind", [
     turn_id: turnIdSchema,
   }),
   z.object({
+    call_id: callIdSchema,
+    kind: z.literal("user_question_requested"),
+    options: z.array(questionOptionSchema),
+    question: z.string(),
+    question_id: questionIdSchema,
+    turn_id: turnIdSchema,
+  }),
+  z.object({
+    answer: userAnswerSchema,
+    kind: z.literal("user_question_answered"),
+    origin: originSchema.nullable().exactOptional(),
+    question_id: questionIdSchema,
+    turn_id: turnIdSchema,
+  }),
+  z.object({
     files: z.array(reportedFileSchema),
     kind: z.literal("turn_surface_report"),
     turn_id: turnIdSchema,
@@ -2143,9 +2164,11 @@ export const eventSchema = z.discriminatedUnion("kind", [
     turn_id: turnIdSchema,
   }),
   z.object({
+    dropped: z.uint32().exactOptional(),
     job_id: jobIdSchema,
     kind: z.literal("job_watch_matched"),
     line: z.string(),
+    more: z.array(z.string()).exactOptional(),
     wakes_left: z.int().min(0).max(255),
   }),
   z.object({
@@ -2166,6 +2189,8 @@ export const eventSchema = z.discriminatedUnion("kind", [
     job_id: jobIdSchema,
     kind: z.literal("job_ended"),
     launcher_lost: z.boolean().exactOptional(),
+    matched: z.array(z.string()).exactOptional(),
+    matched_dropped: z.uint32().exactOptional(),
     output_bytes: z.int().nonnegative(),
     output_truncated: z.boolean().exactOptional(),
     quarantined: z.boolean().exactOptional(),
@@ -2258,13 +2283,9 @@ export const conversationResumeResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("unknown") }),
 ]) satisfies z.ZodType<ConversationResumeResult>;
 
-export const searchKindSchema = z.enum([
-  "title",
-  "prompt",
-  "answer",
-  "command",
-  "unknown",
-]) satisfies z.ZodType<SearchKind>;
+export const searchKindSchema = z
+  .enum(["title", "prompt", "answer", "command", "unknown"])
+  .catch("unknown") satisfies z.ZodType<SearchKind>;
 
 export const textRangeSchema = z.object({
   end: z.uint32(),
@@ -2285,11 +2306,9 @@ export const searchHitSchema = z.object({
   turn_id: turnIdSchema.nullable().exactOptional(),
 }) satisfies z.ZodType<SearchHit>;
 
-export const searchPartialSchema = z.enum([
-  "row_cap",
-  "time_cap",
-  "unknown",
-]) satisfies z.ZodType<SearchPartial>;
+export const searchPartialSchema = z
+  .enum(["row_cap", "time_cap", "unknown"])
+  .catch("unknown") satisfies z.ZodType<SearchPartial>;
 
 export const conversationSearchResultSchema = z.object({
   hits: z.array(searchHitSchema),
@@ -2304,6 +2323,7 @@ export const conversationStatusSchema = z.enum([
 ]) satisfies z.ZodType<ConversationStatus>;
 
 export const conversationSummarySchema = z.object({
+  attention: attentionSchema.nullable().exactOptional(),
   created_at: z.iso.datetime({ offset: true }),
   cwd: z.string().nullable().exactOptional(),
   id: conversationIdSchema,
@@ -2379,12 +2399,9 @@ export const conversationSubscribeItemSchema = z.discriminatedUnion("kind", [
   draftSchema.extend({ kind: z.literal("draft") }),
 ]) satisfies z.ZodType<ConversationSubscribeItem>;
 
-export const switchCostSchema = z.enum([
-  "none",
-  "cold_cache",
-  "compacts",
-  "unknown",
-]) satisfies z.ZodType<SwitchCost>;
+export const switchCostSchema = z
+  .enum(["none", "cold_cache", "compacts", "unknown"])
+  .catch("unknown") satisfies z.ZodType<SwitchCost>;
 
 export const conversationSwitchPreviewResultSchema = z.object({
   cost: switchCostSchema,
@@ -2487,12 +2504,9 @@ export const devicePairConfirmResultSchema = z.object({
   device_id: deviceIdSchema.nullable().exactOptional(),
 }) satisfies z.ZodType<DevicePairConfirmResult>;
 
-export const pairEndSchema = z.enum([
-  "refused",
-  "expired",
-  "attempts",
-  "unknown",
-]) satisfies z.ZodType<PairEnd>;
+export const pairEndSchema = z
+  .enum(["refused", "expired", "attempts", "unknown"])
+  .catch("unknown") satisfies z.ZodType<PairEnd>;
 
 export const pairingQrSchema = z.object({
   daemon_id: daemonIdSchema,
@@ -2616,6 +2630,7 @@ export const methodNameSchema = z.enum([
   "conversations.watch",
   "provider.warm",
   "conversation.switch_preview",
+  "question.respond",
 ]) satisfies z.ZodType<MethodName>;
 
 export const methodParamsSchema = z.strictObject({
@@ -2662,6 +2677,7 @@ export const methodParamsSchema = z.strictObject({
   "pty.attach": ptyAttachSchema,
   "pty.resize": ptyResizeSchema,
   "pty.write": ptyWriteSchema,
+  "question.respond": questionRespondSchema,
   "sandbox.explain": sandboxExplainSchema,
   "sandbox.surface_respond": sandboxSurfaceRespondSchema,
   "shell.interrupt": shellInterruptSchema,
@@ -2789,6 +2805,10 @@ export const ptyResizeResultSchema = z.object({
 }) satisfies z.ZodType<PtyResizeResult>;
 
 export const ptyWriteResultSchema = z.object({}) satisfies z.ZodType<PtyWriteResult>;
+
+export const questionRespondResultSchema = z.object({
+  seq: seqSchema,
+}) satisfies z.ZodType<QuestionRespondResult>;
 
 export const sandboxPathRoleSchema = z.enum([
   "write_root",
@@ -2931,6 +2951,7 @@ export const methodResultsSchema = z.strictObject({
   "pty.attach": ptyAttachItemSchema,
   "pty.resize": ptyResizeResultSchema,
   "pty.write": ptyWriteResultSchema,
+  "question.respond": questionRespondResultSchema,
   "sandbox.explain": sandboxExplainResultSchema,
   "sandbox.surface_respond": sandboxSurfaceRespondResultSchema,
   "shell.interrupt": shellInterruptResultSchema,

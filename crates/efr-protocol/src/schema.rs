@@ -31,10 +31,11 @@ use crate::{
     LeaseReport, LeaseReportResult, Method, ModelsList, ModelsListResult, PROTOCOL_VERSION,
     PresenceSet, PresenceSetResult, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
     PromptWithdraw, PromptWithdrawResult, ProviderWarm, ProviderWarmResult, PtyAttach,
-    PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId, SandboxExplain,
-    SandboxExplainResult, SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName,
-    ShellInterrupt, ShellInterruptResult, ShellStatus, ShellStatusResult, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
+    PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionRespond,
+    QuestionRespondResult, RequestId, SandboxExplain, SandboxExplainResult, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, ScopeName, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    ShellStatusResult, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo,
+    TurnUndoResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -257,6 +258,11 @@ fn methods(generator: &mut SchemaGenerator) -> Vec<Entry> {
         unary::<ConversationSwitchPreview, ConversationSwitchPreviewResult>(
             generator,
             "conversation.switch_preview",
+            ScopeName::Operate,
+        ),
+        unary::<QuestionRespond, QuestionRespondResult>(
+            generator,
+            "question.respond",
             ScopeName::Operate,
         ),
     ]

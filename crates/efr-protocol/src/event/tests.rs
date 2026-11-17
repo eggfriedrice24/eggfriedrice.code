@@ -374,6 +374,8 @@ fn job_ended_has_no_turn_id() {
         output_bytes: 12,
         ran_secs: 3,
         tail: "done\n".to_owned(),
+        matched: Vec::new(),
+        matched_dropped: 0,
         surface_changes: Vec::new(),
         quarantined: false,
         survivors: Vec::new(),
@@ -392,9 +394,19 @@ fn job_ended_has_no_turn_id() {
             "output_bytes": 12, "ran_secs": 3, "tail": "done\n"
         })
     );
-    let matched =
-        Event::JobWatchMatched { job_id: JobId::nth(2), line: "error".to_owned(), wakes_left: 0 };
+    let matched = Event::JobWatchMatched {
+        job_id: JobId::nth(2),
+        line: "error".to_owned(),
+        more: Vec::new(),
+        dropped: 0,
+        wakes_left: 0,
+    };
     assert_eq!(matched.turn_id(), None);
+    assert_eq!(
+        serde_json::to_value(&matched).unwrap(),
+        json!({ "kind": "job_watch_matched", "job_id": "j2", "line": "error", "wakes_left": 0 }),
+        "a batch of one line writes no new member"
+    );
     let held = Event::JobNoticeHeld {
         job_id: JobId::nth(2),
         source_seq: Seq::new(9),

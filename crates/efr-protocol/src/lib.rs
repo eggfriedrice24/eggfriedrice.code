@@ -8,7 +8,8 @@
 //! context's use and its compactions, the search of conversations, the enrolled
 //! devices with their pairing and the message that a device signs to prove its key,
 //! the steps of the provider's web search and the pages that an answer cites, the
-//! limits of an account and why an account could not serve a turn,
+//! limits of an account and why an account could not serve a turn, the model's
+//! question to the user and its answer,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -39,6 +40,7 @@ mod jobs;
 mod method;
 mod methods;
 mod presence;
+mod question;
 mod route;
 mod sandbox;
 #[cfg(feature = "schema")]
@@ -74,8 +76,8 @@ pub use ids::{
     QuestionId, RequestId, Seq, TurnId, UndoId,
 };
 pub use jobs::{
-    ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState, JobStopBy, MovedCall,
-    NoticeKind, PortForward, WAKE_QUESTION, Watch,
+    BATCH_HEAD, BATCH_TAIL, ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState,
+    JobStopBy, MovedCall, NoticeKind, PortForward, WAKE_QUESTION, Watch,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
@@ -109,7 +111,7 @@ pub use methods::conversation_switch_preview::{
     ConversationSwitchPreview, ConversationSwitchPreviewResult, SwitchCost,
 };
 pub use methods::conversations_list::{
-    ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
+    Attention, ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
 };
 pub use methods::conversations_recent::{
     ConversationsRecent, ConversationsRecentResult, RecentConversation,
@@ -145,6 +147,7 @@ pub use methods::provider_warm::{ProviderWarm, ProviderWarmResult};
 pub use methods::pty_attach::{PtyAttach, PtyAttachItem};
 pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
+pub use methods::question_respond::{QuestionRespond, QuestionRespondResult};
 pub use methods::sandbox_explain::{SandboxExplain, SandboxExplainResult, SandboxPathRole};
 pub use methods::sandbox_surface_respond::{SandboxSurfaceRespond, SandboxSurfaceRespondResult};
 pub use methods::shell_interrupt::{ShellInterrupt, ShellInterruptResult};
@@ -156,6 +159,10 @@ pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
 pub use methods::turn_undo::{TurnUndo, TurnUndoResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use presence::{Presence, PresenceSource};
+pub use question::{
+    MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS, QuestionOption, QuestionReply,
+    UserAnswer,
+};
 pub use route::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{

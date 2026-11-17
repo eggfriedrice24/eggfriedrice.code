@@ -8,9 +8,10 @@ use crate::{
     ConversationSubscribe, ConversationSubscribeItem, ConversationsSearchResult, Draft, DraftPart,
     EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, InputWait, JobId, LateSteer,
     LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
-    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RecentCommand,
-    RootSource, SearchKind, SearchPartial, Seq, ShellContext, ShellStatusResult, TextRange,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, QuestionReply,
+    RecentCommand, RootSource, SearchKind, SearchPartial, Seq, ShellContext, ShellStatusResult,
+    TextRange, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
+    WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -74,6 +75,7 @@ fn answers_input_is_written_only_when_true() {
         conversation_id: CONVERSATION.parse().unwrap(),
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: false,
     };
     assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
@@ -94,6 +96,7 @@ fn drafts_are_off_when_absent_and_written_only_when_on() {
         conversation_id: CONVERSATION.parse().unwrap(),
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: false,
     };
     assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
@@ -131,6 +134,50 @@ fn a_reasoning_draft_without_a_title_leaves_it_out() {
     let value = serde_json::to_value(&part).unwrap();
     assert_eq!(value, json!({ "kind": "reasoning", "offset": 0, "delta": "Look" }));
     assert_eq!(serde_json::from_value::<DraftPart>(value).unwrap(), part);
+}
+
+#[test]
+fn a_subscribe_from_before_answers_questions_parses_as_one_that_cannot_answer() {
+    // The params of conversation.subscribe as the 0.0.11 clients send them.
+    let old = json!({ "conversation_id": CONVERSATION, "answers_input": true, "drafts": true });
+    let params: ConversationSubscribe = serde_json::from_value(old).unwrap();
+    assert!(params.answers_input && params.drafts);
+    assert!(!params.answers_questions);
+}
+
+#[test]
+fn answers_questions_is_written_only_when_true() {
+    let mut params = ConversationSubscribe {
+        conversation_id: CONVERSATION.parse().unwrap(),
+        after_seq: None,
+        answers_input: false,
+        answers_questions: false,
+        drafts: false,
+    };
+    assert_eq!(serde_json::to_value(&params).unwrap(), json!({ "conversation_id": CONVERSATION }));
+    params.answers_questions = true;
+    let value = serde_json::to_value(&params).unwrap();
+    assert_eq!(value, json!({ "conversation_id": CONVERSATION, "answers_questions": true }));
+    let back: ConversationSubscribe = serde_json::from_value(value).unwrap();
+    assert_eq!(back, params);
+}
+
+#[test]
+fn a_reply_to_the_question_has_the_wire_form_of_the_spec() {
+    let cases = [
+        (QuestionReply::Option { index: 1 }, json!({ "kind": "option", "index": 1 })),
+        (QuestionReply::Text { text: "ok".to_owned() }, json!({ "kind": "text", "text": "ok" })),
+        (QuestionReply::Skipped, json!({ "kind": "skipped" })),
+    ];
+    for (reply, wire) in cases {
+        assert_eq!(serde_json::to_value(&reply).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<QuestionReply>(wire).unwrap(), reply);
+    }
+    assert_eq!(QuestionReply::MAX_TEXT_BYTES, InputRespond::MAX_TEXT_BYTES);
+    // NOTE: an index past a u8 is no reply that efrd can take, so it does not decode.
+    assert!(
+        serde_json::from_value::<QuestionReply>(json!({ "kind": "option", "index": 300 })).is_err()
+    );
 }
 
 #[test]

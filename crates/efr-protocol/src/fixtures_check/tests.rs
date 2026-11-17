@@ -6,18 +6,19 @@ use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 use super::{
-    FIXTURES_DIR, all, always_saved_samples, approval_decision_samples, daemon_roots,
-    draft_part_samples, event_path, event_samples, floor_edit_exit_sample, grant_samples, hex,
-    input_wait_samples, launch_samples, local_only_approval_sample, method_samples, method_stem,
-    models_list_sample, prove_vector, qr_vector, remote_hello_result, route_scope_samples,
-    switch_samples, undo_refused_samples, withdraw_target_samples,
+    FIXTURES_DIR, all, always_saved_samples, approval_decision_samples, attention_samples,
+    daemon_roots, draft_part_samples, event_path, event_samples, floor_edit_exit_sample,
+    grant_samples, hex, input_wait_samples, launch_samples, local_only_approval_sample,
+    method_samples, method_stem, models_list_sample, prove_vector, qr_vector, remote_hello_result,
+    route_scope_samples, switch_samples, undo_refused_samples, user_answer_samples,
+    withdraw_target_samples,
 };
 use crate::{
-    AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, BlockReason, BusProxyOff, DraftPart,
-    Event, ExitKind, FullRefusal, Grant, HelloResult, InputWait, JudgeKind, Launch, Method, Mode,
-    ModelSource, NewReason, NotSavedReason, PairEnd, RootSource, RouteScope, SearchKind,
-    SearchPartial, ShellCommandEnd, Switch, UndoAction, UndoReason, UndoRefused, WebAction,
-    WebError, WithdrawTarget,
+    AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, Attention, BlockReason, BusProxyOff,
+    DraftPart, Event, ExitKind, FullRefusal, Grant, HelloResult, InputWait, JudgeKind, Launch,
+    Method, Mode, ModelSource, NewReason, NotSavedReason, PairEnd, QuestionReply, RootSource,
+    RouteScope, SearchKind, SearchPartial, ShellCommandEnd, Switch, UndoAction, UndoReason,
+    UndoRefused, UserAnswer, WebAction, WebError, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -97,10 +98,11 @@ fn method_index(method: &Method) -> usize {
         Method::ConversationsWatch(_) => 47,
         Method::ProviderWarm(_) => 48,
         Method::ConversationSwitchPreview(_) => 49,
+        Method::QuestionRespond(_) => 50,
     }
 }
 
-const METHOD_COUNT: usize = 50;
+const METHOD_COUNT: usize = 51;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -165,10 +167,50 @@ fn event_index(event: &Event) -> usize {
         Event::WebCallStarted { .. } => 57,
         Event::WebCallCompleted { .. } => 58,
         Event::TurnWebReport { .. } => 59,
+        Event::UserQuestionRequested { .. } => 60,
+        Event::UserQuestionAnswered { .. } => 61,
     }
 }
 
-const EVENT_COUNT: usize = 60;
+const EVENT_COUNT: usize = 62;
+
+/// The position of a reply to the model's question in the enum, for the same purpose
+/// as `method_index`.
+fn question_reply_index(reply: &QuestionReply) -> usize {
+    match reply {
+        QuestionReply::Option { .. } => 0,
+        QuestionReply::Text { .. } => 1,
+        QuestionReply::Skipped => 2,
+        QuestionReply::Unknown => 3,
+    }
+}
+
+const QUESTION_REPLY_COUNT: usize = 4;
+
+/// The position of the end of the model's question in the enum, for the same purpose
+/// as `method_index`.
+fn user_answer_index(answer: &UserAnswer) -> usize {
+    match answer {
+        UserAnswer::Replied { .. } => 0,
+        UserAnswer::Unanswered { .. } => 1,
+        UserAnswer::Interrupted => 2,
+        UserAnswer::Unknown => 3,
+    }
+}
+
+const USER_ANSWER_COUNT: usize = 4;
+
+/// The position of an attention in the enum, for the same purpose as `method_index`.
+fn attention_index(attention: Attention) -> usize {
+    match attention {
+        Attention::Answer => 0,
+        Attention::Terminal => 1,
+        Attention::Failed => 2,
+        Attention::Unknown => 3,
+    }
+}
+
+const ATTENTION_COUNT: usize = 4;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -882,6 +924,81 @@ fn the_reason_of_an_approval_is_its_own_fixture_and_absent_in_the_old_ones() {
         panic!("the fixture without its reason is an approval without one");
     };
     assert_eq!(summary, "shell: run \"git push origin main\"");
+}
+
+#[test]
+fn every_reply_and_end_of_a_question_has_a_sample_and_an_unknown_one_reads_as_unknown() {
+    let samples = user_answer_samples();
+    let ends: BTreeSet<usize> = samples.iter().map(user_answer_index).collect();
+    assert_eq!(ends, (0..USER_ANSWER_COUNT).collect());
+    let replies: BTreeSet<usize> = samples
+        .iter()
+        .filter_map(|answer| match answer {
+            UserAnswer::Replied { reply } => Some(question_reply_index(reply)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies, (0..QUESTION_REPLY_COUNT).collect());
+
+    let later: QuestionReply = serde_json::from_str(r#"{"kind":"voice","seconds":3}"#).unwrap();
+    assert_eq!(later, QuestionReply::Unknown);
+    let later: UserAnswer = serde_json::from_str(r#"{"kind":"withdrawn"}"#).unwrap();
+    assert_eq!(later, UserAnswer::Unknown);
+    let nested: UserAnswer =
+        serde_json::from_str(r#"{"kind":"replied","reply":{"kind":"voice"}}"#).unwrap();
+    assert_eq!(nested, UserAnswer::Replied { reply: QuestionReply::Unknown });
+    let unanswered: UserAnswer = serde_json::from_str(r#"{"kind":"unanswered"}"#).unwrap();
+    assert_eq!(unanswered, UserAnswer::Unanswered { away: false }, "away is false when absent");
+}
+
+#[test]
+fn every_attention_has_a_summary_and_an_unknown_one_reads_as_unknown() {
+    let values: Vec<usize> = Attention::ALL.into_iter().map(attention_index).collect();
+    assert_eq!(values, (0..ATTENTION_COUNT).collect::<Vec<_>>());
+    for attention in Attention::ALL {
+        assert_eq!(serde_json::to_value(attention).unwrap(), attention.as_str());
+    }
+    let summaries = attention_samples();
+    assert_eq!(summaries.len(), ATTENTION_COUNT + 1, "one for each value and one with none");
+    assert_eq!(summaries.last().map(|summary| summary.attention), Some(None));
+    let later: Attention = serde_json::from_str("\"blocked\"").unwrap();
+    assert_eq!(later, Attention::Unknown);
+
+    // NOTE: a summary from an efrd before 0.0.12 has no member, and reads as none.
+    let mut old: Value = serde_json::from_str(&read("conversation_attention.json")).unwrap();
+    let old = old.as_array_mut().unwrap().first_mut().unwrap();
+    assert_eq!(old["attention"], "answer");
+    old.as_object_mut().unwrap().remove("attention");
+    let summary: crate::ConversationSummary = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(summary.attention, None);
+}
+
+/// A batch of matched lines adds members to the events of a job; the events of an efrd
+/// before 0.0.12 read as a batch of one line and an end with no matches.
+#[test]
+fn the_job_events_of_an_older_efrd_read_with_no_batch() {
+    let mut matched: Value = serde_json::from_str(&read("events/job_watch_matched.json")).unwrap();
+    assert_eq!(matched["dropped"], 31);
+    let members = matched.as_object_mut().unwrap();
+    members.remove("more");
+    members.remove("dropped");
+    let Event::JobWatchMatched { more, dropped, wakes_left, .. } =
+        serde_json::from_value(matched).unwrap()
+    else {
+        panic!("the fixture is a watch match");
+    };
+    assert_eq!((more.len(), dropped, wakes_left), (0, 0, 2));
+
+    let mut ended: Value = serde_json::from_str(&read("events/job_ended.json")).unwrap();
+    assert_eq!(ended["matched_dropped"], 4);
+    let members = ended.as_object_mut().unwrap();
+    members.remove("matched");
+    members.remove("matched_dropped");
+    let Event::JobEnded { matched, matched_dropped, .. } = serde_json::from_value(ended).unwrap()
+    else {
+        panic!("the fixture is a job end");
+    };
+    assert_eq!((matched.len(), matched_dropped), (0, 0));
 }
 
 #[test]

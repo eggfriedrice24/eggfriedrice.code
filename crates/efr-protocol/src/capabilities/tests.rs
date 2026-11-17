@@ -43,6 +43,7 @@ fn extras_are_written_after_the_known_keys_in_name_order() {
         approval_local_only: None,
         device_prove: None,
         conversations_watch: None,
+        user_questions: None,
         extra: BTreeMap::from([("zoom".to_owned(), json!(2)), ("pair".to_owned(), json!(true))]),
     };
     assert_eq!(serde_json::to_string(&caps).unwrap(), r#"{"admin":true,"pair":true,"zoom":2}"#);
@@ -59,6 +60,7 @@ fn a_mix_of_known_and_unknown_keys_reads_back_as_itself() {
         approval_local_only: Some(false),
         device_prove: None,
         conversations_watch: None,
+        user_questions: None,
         extra: BTreeMap::from([("future".to_owned(), json!([1, 2]))]),
     };
     let back: Capabilities = serde_json::from_value(serde_json::to_value(&caps).unwrap()).unwrap();
@@ -113,4 +115,16 @@ fn the_watch_key_reads_into_its_field_and_its_absence_is_an_older_daemon() {
     assert!(!caps.is_empty());
     let old: Capabilities = serde_json::from_value(json!({ "search": true })).unwrap();
     assert_eq!(old.conversations_watch, None, "a daemon from before the watch sends no key");
+}
+
+#[test]
+fn the_question_key_reads_into_its_field_and_its_absence_is_an_older_daemon() {
+    let caps: Capabilities = serde_json::from_value(json!({ "user_questions": true })).unwrap();
+    assert_eq!(caps.user_questions, Some(true));
+    assert!(caps.extra.is_empty());
+    assert!(!caps.is_empty());
+    let old: Capabilities = serde_json::from_value(json!({ "search": true })).unwrap();
+    assert_eq!(old.user_questions, None, "a daemon from before the question sends no key");
+    let only = Capabilities { user_questions: Some(true), ..Capabilities::default() };
+    assert_eq!(serde_json::to_value(&only).unwrap(), json!({ "user_questions": true }));
 }

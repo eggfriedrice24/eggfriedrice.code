@@ -15,10 +15,10 @@ use crate::{
     ContextUse, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord,
     ExitSource, FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState,
     JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId,
-    QuestionId, RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq,
-    ShellContext, SnapshotPhase, StoredCopyReason, SurfaceChange, SwitchedModel, TurnId,
-    TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict, WebAction, WebError, WebResult,
-    WebSource,
+    QuestionId, QuestionOption, RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope,
+    Seq, ShellContext, SnapshotPhase, StoredCopyReason, SurfaceChange, SwitchedModel, TurnId,
+    TurnSettings, TurnUndoInfo, UndoId, UserAnswer, UserAuthorization, Verdict, WebAction,
+    WebError, WebResult, WebSource,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -805,6 +805,41 @@ pub enum Event {
         origin: Option<Origin>,
     },
 
+    /// The model asked the user a question (the tool `ask_user`), and the turn waits for
+    /// the answer. It asks for no permission and gives none. The call's
+    /// `tool_call_started` comes before it.
+    UserQuestionRequested {
+        /// The turn, which waits for the answer.
+        turn_id: TurnId,
+        /// The call of `ask_user`.
+        call_id: CallId,
+        /// The question, which `question.respond` answers.
+        question_id: QuestionId,
+        /// The question, at most [`MAX_QUESTION_CHARS`](crate::MAX_QUESTION_CHARS)
+        /// characters. The model wrote it, so a client shows it as text that a program
+        /// wrote.
+        question: String,
+        /// The choices, from [`MIN_QUESTION_OPTIONS`](crate::MIN_QUESTION_OPTIONS) to
+        /// [`MAX_QUESTION_OPTIONS`](crate::MAX_QUESTION_OPTIONS), the one that the model
+        /// recommends first.
+        options: Vec<QuestionOption>,
+    },
+
+    /// The model's question ended: a person answered, nobody answered in time, or the
+    /// turn was interrupted. The answer is information for the model: it is never a
+    /// permission, and never a message of the user for efr's rules.
+    UserQuestionAnswered {
+        /// The turn.
+        turn_id: TurnId,
+        /// The question.
+        question_id: QuestionId,
+        /// How it ended.
+        answer: UserAnswer,
+        /// The surface that answered; absent unless a person answered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        origin: Option<Origin>,
+    },
+
     /// At the end of an `auto` turn: the files it changed that run code later outside
     /// the sandbox.
     TurnSurfaceReport {
@@ -930,15 +965,28 @@ pub enum Event {
         launcher_start: u64,
     },
 
-    /// A line of a job's output matched the job's `watch` pattern. It belongs to the
-    /// conversation, not to a turn: the job outlives its turn. The line is the job's
-    /// output, so a client shows it as text that a program wrote.
+    /// Lines of a job's output matched the job's `watch` pattern: one batch, the lines
+    /// that matched within one batch window. It is one notice and uses one wake of the
+    /// watch. It belongs to the conversation, not to a turn: the job outlives its turn.
+    /// The lines are the job's output, so a client shows them as text that a program
+    /// wrote.
     JobWatchMatched {
         /// The job.
         job_id: JobId,
-        /// The line, at most 4 KiB.
+        /// The first line of the batch, at most 4 KiB.
         line: String,
-        /// How many more matches may wake the model.
+        /// The other lines of the batch after `line`, each at most 4 KiB: with `line`, at
+        /// most the first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last
+        /// [`BATCH_TAIL`](crate::BATCH_TAIL) lines. Absent when the batch has one line,
+        /// and from an efrd before 0.0.12.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        more: Vec<String>,
+        /// The lines that matched between the first `BATCH_HEAD` lines and the last
+        /// `BATCH_TAIL` lines and that the event leaves out; the output file has them.
+        /// 0 when absent.
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        dropped: u32,
+        /// How many more notices may wake the model.
         wakes_left: u8,
     },
 
@@ -981,6 +1029,17 @@ pub enum Event {
         /// The end of the output: at most 50 lines and 8 KiB. The job wrote it, so a
         /// client shows it as text that a program wrote.
         tail: String,
+        /// The lines that matched the job's `watch` right before the end and that no
+        /// `job_watch_matched` told: the batch that waited when the job ended, at most
+        /// the first [`BATCH_HEAD`](crate::BATCH_HEAD) and the last
+        /// [`BATCH_TAIL`](crate::BATCH_TAIL) lines, each at most 4 KiB. The job wrote
+        /// them. Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        matched: Vec<String>,
+        /// The lines of that batch that `matched` leaves out, between its first
+        /// `BATCH_HEAD` lines and its last `BATCH_TAIL` lines. 0 when absent.
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        matched_dropped: u32,
         /// The git settings and other files that run code, which the job changed.
         /// Absent when none.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1198,6 +1257,8 @@ impl Event {
             | Event::SandboxSurfaceChanged { turn_id, .. }
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
+            | Event::UserQuestionRequested { turn_id, .. }
+            | Event::UserQuestionAnswered { turn_id, .. }
             | Event::TurnSurfaceReport { turn_id, .. }
             | Event::TurnWebReport { turn_id, .. }
             | Event::SnapshotTaken { turn_id, .. }

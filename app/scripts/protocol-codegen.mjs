@@ -65,7 +65,8 @@ export const ZOD_BANNER = `// Generated from docs/protocol.schema.json by \`pnpm
 // satisfies its type in generated.ts, so a drift between the two files is a type error.
 // An optional member uses exactOptional: JSON never carries undefined. A u64 is a safe
 // integer (z.int()), never a bigint. A wire object strips the members that it does not
-// list, so a member from a newer efrd passes.
+// list, so a member from a newer efrd passes. An enum with the value "unknown" reads a
+// value that it does not list as "unknown", so a new value from a newer efrd passes.
 //
 // Use the schemas through the decoder (src/lib/protocol/envelope.ts). It finds an event,
 // draft or item kind that this file does not list before a schema reads it, and gives an
@@ -927,7 +928,14 @@ function isStringConstant(schema) {
   );
 }
 
+/** The value that efr-protocol reads for a value of an enum that it does not know. */
+const UNKNOWN_VALUE = "unknown";
+
 /**
+ * A set of strings. An enum that has the value `unknown` reads a value that this build
+ * does not know as `unknown`, as efr-protocol does (`#[serde(other)]`). So a new value
+ * from a newer efrd does not fail the object or the list that holds it.
+ *
  * @param {unknown[]} values
  * @param {string} path
  * @returns {string}
@@ -936,7 +944,8 @@ function enumExpression(values, path) {
   if (values.length === 0 || !values.every((value) => typeof value === "string")) {
     throw new Error(`${path} has an enum that is not a set of strings`);
   }
-  return `z.enum(${JSON.stringify(values)})`;
+  const base = `z.enum(${JSON.stringify(values)})`;
+  return values.includes(UNKNOWN_VALUE) ? `${base}.catch(${JSON.stringify(UNKNOWN_VALUE)})` : base;
 }
 
 /**

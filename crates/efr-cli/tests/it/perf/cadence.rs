@@ -352,6 +352,7 @@ async fn subscriber(
         conversation_id,
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: true,
     };
     let mut stream = client.stream::<Value>(Method::ConversationSubscribe(params)).await.unwrap();
@@ -380,6 +381,7 @@ async fn stalled_subscriber(
         conversation_id,
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: true,
     });
     for (id, method) in [(1, hello), (2, subscribe)] {

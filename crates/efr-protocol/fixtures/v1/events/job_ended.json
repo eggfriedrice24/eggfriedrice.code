@@ -7,6 +7,11 @@
   "output_bytes": 48213,
   "ran_secs": 1920,
   "tail": "ready in 412 ms\nGET / 200\n",
+  "matched": [
+    "error: worker 2 exited",
+    "error: worker 3 exited"
+  ],
+  "matched_dropped": 4,
   "surface_changes": [
     {
       "path": "/home/me/p/app/.git/commondir",

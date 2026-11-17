@@ -5,7 +5,8 @@
   "capabilities": {
     "admin": true,
     "screen_snapshots": true,
-    "search": true
+    "search": true,
+    "user_questions": true
   },
   "paths": {
     "scratch_root": "/home/me/.local/share/efr/scratch",

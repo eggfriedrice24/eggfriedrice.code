@@ -481,6 +481,7 @@ fn conversations_list_newest_first_with_status_and_age() {
         id: format!("019a9b1c-3d00-7a10-8b20-00000000000{n}").parse().unwrap(),
         title: title.map(str::to_owned),
         status,
+        attention: None,
         created_at: before(age + 600),
         updated_at: before(age),
         last_seq: Seq::new(n * 10),

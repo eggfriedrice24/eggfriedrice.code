@@ -1045,6 +1045,7 @@ impl Follower<'_> {
             // answered here; without one, the daemon stops a command that waits for a
             // password nobody can type.
             answers_input: self.ctx.keys.available(),
+            answers_questions: false,
             // The text, the reasoning and the tool input of the running turn before the
             // daemon records them; an older daemon sends none.
             drafts: true,

@@ -593,6 +593,7 @@ async fn subscribe(
         conversation_id,
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: true,
     };
     let mut stream = client.stream(Method::ConversationSubscribe(params)).await.unwrap();

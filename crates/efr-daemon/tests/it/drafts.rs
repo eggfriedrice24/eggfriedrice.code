@@ -131,8 +131,13 @@ async fn subscribe(
     conversation_id: ConversationId,
     drafts: bool,
 ) -> (ItemStream<ConversationSubscribeItem>, Seq) {
-    let params =
-        ConversationSubscribe { conversation_id, after_seq: None, answers_input: false, drafts };
+    let params = ConversationSubscribe {
+        conversation_id,
+        after_seq: None,
+        answers_input: false,
+        answers_questions: false,
+        drafts,
+    };
     let mut stream = client.stream(Method::ConversationSubscribe(params)).await.unwrap();
     let first = stream.next().await.unwrap().unwrap();
     let ConversationSubscribeItem::Snapshot(snapshot) = first else {
@@ -433,6 +438,7 @@ async fn a_slow_subscriber_gets_merged_drafts_with_every_byte_and_keeps_its_subs
         conversation_id,
         after_seq: None,
         answers_input: false,
+        answers_questions: false,
         drafts: true,
     });
     let (hello_id, subscribe_id) = (RequestId::new(1), RequestId::new(2));
@@ -522,7 +528,13 @@ async fn first_item(
     after_seq: Option<Seq>,
     drafts: bool,
 ) -> (ItemStream<ConversationSubscribeItem>, Option<ConversationSubscribeItem>) {
-    let params = ConversationSubscribe { conversation_id, after_seq, answers_input: false, drafts };
+    let params = ConversationSubscribe {
+        conversation_id,
+        after_seq,
+        answers_input: false,
+        answers_questions: false,
+        drafts,
+    };
     let mut stream = client.stream(Method::ConversationSubscribe(params)).await.unwrap();
     let first = stream.next().await.map(Result::unwrap);
     (stream, first)
@@ -606,6 +618,7 @@ async fn a_subscriber_hears_of_a_retry_of_the_real_provider() {
         conversation_id: sent.conversation_id,
         after_seq: Some(sent.seq),
         answers_input: true,
+        answers_questions: false,
         drafts: true,
     };
     let mut stream = client.stream(Method::ConversationSubscribe(subscribe)).await.unwrap();

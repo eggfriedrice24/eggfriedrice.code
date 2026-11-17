@@ -32,6 +32,7 @@ const LISTS: Readonly<Record<string, string>> = {
   block_reasons: "BlockReason",
   bus_proxy_off_reasons: "BusProxyOff",
   context_part_kinds: "ContextPartKind",
+  conversation_attention: "ConversationSummary",
   draft_parts: "DraftPart",
   error_codes: "ErrorCode",
   exit_kinds: "ExitKind",
@@ -59,6 +60,7 @@ const LISTS: Readonly<Record<string, string>> = {
   switch_costs: "SwitchCost",
   undo_actions: "UndoAction",
   undo_reasons: "UndoReason",
+  user_answers: "UserAnswer",
   web_actions: "WebAction",
   web_errors: "WebError",
   withdraw_targets: "WithdrawTarget",
@@ -215,6 +217,28 @@ describe("the generated zod schemas", () => {
     };
     expect(summary.safeParse(base).success).toBe(true);
     expect(summary.safeParse({ ...base, updated_at: "2026-10-26T12:00:00" }).success).toBe(false);
+  });
+
+  it("read a new value of an enum with the value unknown as unknown, and fail the others", () => {
+    const summary = schemaOf("ConversationSummary");
+    const base = {
+      id: "019a9b1c-3d00-7a10-8b20-000000000001",
+      status: "running",
+      created_at: "2026-10-26T12:00:00Z",
+      updated_at: "2026-10-26T12:00:00Z",
+      last_seq: 1,
+    };
+    expect(parsed(summary, { ...base, attention: "blocked" })).toEqual({
+      ...base,
+      attention: "unknown",
+    });
+    expect(parsed(summary, { ...base, attention: "answer" })).toEqual({
+      ...base,
+      attention: "answer",
+    });
+    // NOTE: `status` has no value `unknown`, so a new status still fails the summary.
+    expect(summary.safeParse({ ...base, status: "paused" }).success).toBe(false);
+    expect(parsed(schemaOf("HeldReason"), "rate_limit")).toBe("unknown");
   });
 
   it("make a drift between a schema and its type a type error", () => {

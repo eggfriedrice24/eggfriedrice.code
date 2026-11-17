@@ -48,6 +48,11 @@ pub struct Capabilities {
     /// daemon from before the watch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversations_watch: Option<bool>,
+    /// The daemon answers `question.respond`, so a client can answer the model's
+    /// question (`user_question_requested`). Only the daemon sends it. Absent: a
+    /// daemon from before the question, and a client shows no way to answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_questions: Option<bool>,
     /// Keys that this build does not know, sorted by name.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -64,6 +69,7 @@ impl Capabilities {
             && self.approval_local_only.is_none()
             && self.device_prove.is_none()
             && self.conversations_watch.is_none()
+            && self.user_questions.is_none()
             && self.extra.is_empty()
     }
 }

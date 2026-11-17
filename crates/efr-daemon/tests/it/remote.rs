@@ -206,6 +206,7 @@ impl Follow {
             conversation_id,
             after_seq: None,
             answers_input: false,
+            answers_questions: false,
             drafts: true,
         };
         let id = phone.send(Method::ConversationSubscribe(params)).await.unwrap();
