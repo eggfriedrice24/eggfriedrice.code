@@ -168,8 +168,8 @@ import is allowed. oxlint enforces it.
   `Stack.Toolbar.MenuAction`). A sheet that needs such items shows the native header:
   Close, Next and a secondary action such as "Use default" are header items. The one
   exception is the main decision of a sheet: Deny and Allow of the approval sheet and
-  Leave of the quarantine sheet stay large buttons in the sheet, next to what they
-  decide. A design brief asks for the native part, and a build that finds none asks the
+  Leave of the quarantine sheet stay in the sheet as its decision buttons (the 28 pt
+  `SmallFilledButton` and `SmallPlainButton`), next to what they decide. A design brief asks for the native part, and a build that finds none asks the
   user first. The mobile app of t3code shows how (its model sheet: search and filter in
   the bottom toolbar).
 

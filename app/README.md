@@ -577,11 +577,13 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000000]`, `line-through
     short command, and a long diff still grows to the full height. Close goes back to
     the conversation. After a question closes in the sheet while more wait, the native
     "Next" stands left of Close and shows the next question; with none waiting, only
-    Close shows. Deny and Allow stay the large buttons of the sheet. VoiceOver reads
+    Close shows. Deny and Allow stay the 28 pt decision buttons in the sheet. VoiceOver reads
     "Close" and "Next question".
 46. The header of the quarantine sheet and of a question that is not open now (from
-    the strip or the waiting card): the same header with Close only. Leave stays the
-    large button of the sheet, and after an answer the sheet dims with no button.
+    the strip or the waiting card): the same header with Close, and Next after the
+    question closed while another question (an approval or a quarantine question)
+    waits. Leave stays the 28 pt decision button in the sheet, and after an answer the
+    sheet dims with no button.
 47. "Use default" of the model sheet: while the quiet line says "chosen here", the
     native header shows "Use default" at its left, and a tap selects the default model
     of the machine ("desktop default" in the quiet line) and takes the item away. It
