@@ -68,6 +68,10 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
     machineName: machineNameOf(props.machines),
     now: props.now,
     offline: offlineMachines(ids, loaded.failed),
+    // The phone answers a question of the model on each machine: an efrd that sends
+    // `attention: answer` also answers `question.respond` (both came with `user_questions`
+    // in 0.0.12), and an older efrd sends no question.
+    answers: new Set(ids),
   };
   const banner = offlineBanner({
     machines: props.machines,

@@ -9,8 +9,25 @@ import type { SendMode } from "@/features/settings/model/preferences";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
 import type { PhoneMode } from "../../model/model-choices";
 
+/**
+ * The question of the model that Send answers (S-Ask 3, "Type an answer"). The text of
+ * the field is the answer; the draft stays a draft when the user leaves.
+ */
+export interface ComposerAnswer {
+  /** The question on one line, for the answer row. */
+  readonly question: string;
+  /** True while efrd has not taken the answer yet. */
+  readonly sending: boolean;
+  /** Sends `text`, a valid answer (`answerText`). */
+  readonly send: (text: string) => void;
+  /** Leaves the answer state: the strip and the status line come back. */
+  readonly leave: () => void;
+}
+
 /** What the slots of the composer read. */
 export interface ComposerModel {
+  /** The question that Send answers now; none for a message. */
+  readonly answering: ComposerAnswer | undefined;
   readonly state: ComposerState;
   readonly trailing: ComposerTrailing;
   /** True on the blank root: a prompt there starts a new conversation. */

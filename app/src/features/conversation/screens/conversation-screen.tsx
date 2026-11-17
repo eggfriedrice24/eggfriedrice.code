@@ -54,14 +54,18 @@ import { useHeaderSlot } from "@/features/navigation/use-header-slot";
 import { useMachineConnections, useMachines } from "@/features/navigation/use-machines";
 import { ApprovalStrip } from "../components/approval-strip";
 import { DockedComposer } from "../components/composer/composer";
+import type { ComposerAnswer } from "../components/composer/composer-context";
 import { Transcript } from "../components/transcript";
 import type { TranscriptListHandle } from "../components/transcript-list";
 import type { TranscriptActions, TranscriptScope } from "../components/use-transcript-scope";
 import { modelsQueryOptions, withdrawPromptMutationOptions } from "../conversation-queries";
 import { composerDraftKey, type ComposerTarget } from "../model/composer-state";
 import { createRowUiStore } from "../model/row-ui-state";
+import { questionLine } from "../model/question";
 import { outboxPrompts, sameOutboxPrompts } from "../model/screen-outbox";
+import { selectWaitingQuestion } from "../model/selectors";
 import { sendPrompt } from "../model/send-prompt";
+import { useAnswerQuestion } from "../use-answer-question";
 import type { ComposerDeps } from "../use-composer-actions";
 import { useOlderHistory } from "./use-older-history";
 import { useRouteConversation } from "./use-route-conversation";
@@ -153,6 +157,11 @@ function ConversationView(props: ConversationViewProps) {
   // The capsule under the bar floats 8 pt under it, so the content clears both.
   const top = useHeaderHeight() + (slot.kind === "none" ? 0 : SPACING.float + SPACING.strip);
   const [composerHeight, setComposerHeight] = useState(COMPOSER_HEIGHT);
+  // Short local UI state: the question of the model that the composer answers after
+  // "Type an answer" (S-Ask 3). The state ends by itself once the question ends.
+  const [typing, setTyping] = useState<string | undefined>(undefined);
+  const answers = useAnswerQuestion(runtime, ref, (question) => setTyping(question.questionId));
+  const answered = useSelector(held.store, selectWaitingQuestion(typing));
   const withdraw = useMutation(withdrawPromptMutationOptions(runtime, ref));
   const models = useQuery(modelsQueryOptions(runtime, machine)).data;
   const router = useRouter();
@@ -203,6 +212,7 @@ function ConversationView(props: ConversationViewProps) {
     machineName,
     actions,
     choice: { store: modelChoices.store, key: composerDraftKey(target) },
+    questions: answers,
   };
   if (models !== undefined) {
     scope.catalog = { models: models.models, catalogs: models.catalogs ?? [] };
@@ -216,14 +226,28 @@ function ConversationView(props: ConversationViewProps) {
         connected={connected}
         caller={runtime}
         onOpen={openApproval}
+        questions={answers}
       />
     );
-  const composer: { stream?: Readable<StreamState>; runningTurnId?: string } = {};
+  const composer: {
+    stream?: Readable<StreamState>;
+    runningTurnId?: string;
+    answering?: ComposerAnswer;
+  } = {};
   if (stream !== undefined) {
     composer.stream = stream.store;
   }
   if (runningTurnId !== undefined) {
     composer.runningTurnId = runningTurnId;
+  }
+  if (answered !== undefined) {
+    const questionId = answered.questionId;
+    composer.answering = {
+      question: questionLine(answered),
+      sending: answers.sending === questionId,
+      send: (text) => answers.answer(questionId, { kind: "text", text }),
+      leave: () => setTyping(undefined),
+    };
   }
   return (
     <View className="flex-1 bg-surface-1">

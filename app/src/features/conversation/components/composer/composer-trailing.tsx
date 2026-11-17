@@ -22,6 +22,7 @@ import type { SendMode } from "@/features/settings/model/preferences";
 import { SPACING } from "@/theme/metrics";
 
 import { capsuleLabel, SEND_MODE_CHOICES } from "../../model/composer-state";
+import { SEND_ANSWER_LABEL } from "../../model/question";
 import { ComposerContext } from "./composer-context";
 
 /** The hit slop that takes a 32 pt action to the 44 pt hit area. */
@@ -38,7 +39,13 @@ export function ComposerTrailing() {
   const trailing = model.trailing;
   switch (trailing.kind) {
     case "send":
-      return <SendButton enabled={trailing.enabled} label="Send" onPress={model.submit} />;
+      return (
+        <SendButton
+          enabled={trailing.enabled}
+          label={model.answering === undefined ? "Send" : SEND_ANSWER_LABEL}
+          onPress={model.submit}
+        />
+      );
     case "stop":
       return (
         <>

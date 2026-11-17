@@ -28,6 +28,7 @@ import { DEFAULT_FACTS } from "@/lib/lock/owner-check";
 import { initialLock, type LockState } from "@/features/navigation/model/app-lock";
 import type { ComposerDeps } from "../../use-composer-actions";
 import { DockedComposer, type DockedComposerProps } from "./composer";
+import type { ComposerAnswer } from "./composer-context";
 import { bottomEdge, KEYBOARD_GAP, SCRIM_CLASS } from "./composer-root";
 import { sendModeEntries } from "./composer-trailing";
 
@@ -130,6 +131,8 @@ interface Setup {
   readonly lockOn?: boolean;
   /** True to leave the input without focus, so the composer rests as a one-line pill. */
   readonly rest?: boolean;
+  /** The question of the model that Send answers (S-Ask 3). */
+  readonly answering?: ComposerAnswer;
 }
 
 /** A Face ID unlock that is open, or off. */
@@ -199,6 +202,9 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
   if (setup.tailnetDown !== undefined) {
     props.tailnetDown = setup.tailnetDown;
   }
+  if (setup.answering !== undefined) {
+    props.answering = setup.answering;
+  }
   if (models !== undefined) {
     props.onOpenModels = () => {
       opened.count += 1;
@@ -213,7 +219,10 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
   );
   // Most tests look at the full composer, which shows while the input has focus.
   if (setup.rest !== true) {
-    await fireEvent(screen.getByLabelText("Message"), "focus");
+    await fireEvent(
+      screen.getByLabelText(setup.answering === undefined ? "Message" : "Your answer"),
+      "focus",
+    );
   }
   return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened };
 }
@@ -786,5 +795,64 @@ describe("the mode and the Face ID unlock (S-ComposerR7 round 9, AU-Auto r9 4)",
     await fireEvent.press(screen.getByRole("button", { name: "Steer, more options" }));
     await settleQuery();
     expect(harness.caller.callsOf("turn.steer")).toHaveLength(1);
+  });
+});
+
+/** An answer state that writes down what the composer sends and each leave. */
+function answering(sent: string[], left: { count: number }, sending = false): ComposerAnswer {
+  return {
+    question: "Which database should the tests use?",
+    sending,
+    send: (text) => {
+      sent.push(text);
+    },
+    leave: () => {
+      left.count += 1;
+    },
+  };
+}
+
+describe("the answer state of the composer (S-Ask 3)", () => {
+  it("shows the answer row in place of the status line, and the hint under the field", async () => {
+    await renderComposer({ answering: answering([], { count: 0 }), runningTurnId: "t1" });
+    expect(screen.getByTestId("composer-answer-row")).toBeOnTheScreen();
+    expect(screen.getByText("Which database should the tests use?")).toBeOnTheScreen();
+    expect(screen.queryByTestId("composer-status-line")).toBeNull();
+    expect(screen.getByText("Do not type a password or a token here.")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Your answer").props.placeholder).toBe("Your answer");
+    // A turn runs, but Send answers: no Stop and no Steer/Queue capsule.
+    expect(screen.queryByRole("button", { name: "Stop the turn" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send the answer" })).toBeDisabled();
+  });
+
+  it("sends the answer on one line and clears the field", async () => {
+    const sent: string[] = [];
+    const harness = await renderComposer({
+      answering: answering(sent, { count: 0 }),
+      runningTurnId: "t1",
+      text: "Postgres 16,\non port 5433",
+    });
+    await fireEvent.press(screen.getByRole("button", { name: "Send the answer" }));
+    expect(sent).toEqual(["Postgres 16, on port 5433"]);
+    expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("");
+    expect(harness.outbox.store.get().entries).toEqual([]);
+  });
+
+  it("dims Send past 1024 bytes", async () => {
+    await renderComposer({ answering: answering([], { count: 0 }), text: "x".repeat(1025) });
+    expect(screen.getByRole("button", { name: "Send the answer" })).toBeDisabled();
+  });
+
+  it("shows the braille cell while the answer is sent", async () => {
+    await renderComposer({ answering: answering([], { count: 0 }, true), text: "SQLite" });
+    expect(screen.getByTestId("composer-sending")).toBeOnTheScreen();
+  });
+
+  it("leaves with the xmark, and the draft stays", async () => {
+    const left = { count: 0 };
+    const harness = await renderComposer({ answering: answering([], left), text: "maybe" });
+    await fireEvent.press(screen.getByRole("button", { name: "Leave the answer" }));
+    expect(left.count).toBe(1);
+    expect(harness.drafts.text(composerDraftKey(CONVERSATION))).toBe("maybe");
   });
 });

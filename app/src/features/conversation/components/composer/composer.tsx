@@ -16,7 +16,9 @@
 //     </Composer.Body>
 //   </Composer.Root>                           slot E: the bottom edge, or 6 pt over the keyboard
 //
-// `DockedComposer` is this tree with the slots of v1.
+// `DockedComposer` is this tree with the slots of v1. While the user types an answer to a
+// question of the model (S-Ask 3), the answer row takes the place of the strip and the
+// status line, and the fixed hint stands under the body (composer-answer-row.tsx).
 
 import { use, type ReactNode } from "react";
 import { View } from "react-native";
@@ -25,6 +27,7 @@ import type { Readable } from "@tanstack/store";
 
 import type { StreamState } from "@/lib/stream/reducer";
 
+import { ComposerAnswerHint, ComposerAnswerRow } from "./composer-answer-row";
 import { ComposerSizeContext } from "./composer-context";
 import { ComposerInput } from "./composer-input";
 import { ComposerAttachButton, ComposerVoiceButton } from "./composer-media-buttons";
@@ -50,20 +53,23 @@ import { ComposerTrailing } from "./composer-trailing";
 export function ComposerBody() {
   const { expanded } = use(ComposerSizeContext);
   return (
-    <View className={expanded ? "pb-4" : "flex-row items-end gap-8 px-8 py-4"}>
-      {expanded ? null : <ComposerAttachButton />}
-      <ComposerInput />
-      {expanded ? null : <ComposerVoiceButton />}
-      {expanded ? null : <ComposerTrailing />}
-      {expanded ? (
-        <View testID="composer-actions" className="flex-row items-center gap-8 px-8">
-          <ComposerAttachButton />
-          <View className="flex-1" />
-          <ComposerVoiceButton />
-          <ComposerTrailing />
-        </View>
-      ) : null}
-    </View>
+    <>
+      <View className={expanded ? "pb-4" : "flex-row items-end gap-8 px-8 py-4"}>
+        {expanded ? null : <ComposerAttachButton />}
+        <ComposerInput />
+        {expanded ? null : <ComposerVoiceButton />}
+        {expanded ? null : <ComposerTrailing />}
+        {expanded ? (
+          <View testID="composer-actions" className="flex-row items-center gap-8 px-8">
+            <ComposerAttachButton />
+            <View className="flex-1" />
+            <ComposerVoiceButton />
+            <ComposerTrailing />
+          </View>
+        ) : null}
+      </View>
+      <ComposerAnswerHint />
+    </>
   );
 }
 
@@ -95,32 +101,37 @@ export interface DockedComposerProps extends Omit<ComposerRootProps, "children">
  */
 export function DockedComposer(props: DockedComposerProps) {
   const { stream, strip, onOpenModels, ...root } = props;
+  // S-Ask 3: while the user types an answer, the answer row takes the place of the strip
+  // and the status line. The body keeps its place, so the field keeps its focus.
+  const answering = root.answering !== undefined;
   return (
     <ComposerRoot {...root}>
-      {strip}
-      <ComposerStatusLine>
-        {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
-        {/* The two settings of the next message stand together at the right end. */}
-        <View className="ml-auto shrink flex-row items-center gap-10">
-          <ComposerModeButton deps={root.deps} />
-          {onOpenModels === undefined ? null : stream === undefined ? (
-            <ComposerModelButton
-              deps={root.deps}
-              target={root.target}
-              machineName={root.machineName}
-              onPress={onOpenModels}
-            />
-          ) : (
-            <ComposerModelButton
-              deps={root.deps}
-              target={root.target}
-              machineName={root.machineName}
-              store={stream}
-              onPress={onOpenModels}
-            />
-          )}
-        </View>
-      </ComposerStatusLine>
+      {answering ? <ComposerAnswerRow /> : strip}
+      {answering ? null : (
+        <ComposerStatusLine>
+          {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}
+          {/* The two settings of the next message stand together at the right end. */}
+          <View className="ml-auto shrink flex-row items-center gap-10">
+            <ComposerModeButton deps={root.deps} />
+            {onOpenModels === undefined ? null : stream === undefined ? (
+              <ComposerModelButton
+                deps={root.deps}
+                target={root.target}
+                machineName={root.machineName}
+                onPress={onOpenModels}
+              />
+            ) : (
+              <ComposerModelButton
+                deps={root.deps}
+                target={root.target}
+                machineName={root.machineName}
+                store={stream}
+                onPress={onOpenModels}
+              />
+            )}
+          </View>
+        </ComposerStatusLine>
+      )}
       <ComposerBody />
     </ComposerRoot>
   );

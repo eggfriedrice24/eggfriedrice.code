@@ -1,5 +1,5 @@
-// The row of one tool call: an edit block for a call with a diff (a file tool's call),
-// else a tool block. It reads only its call, whether its turn ended, its approval and its
+// The row of one tool call: the question card of an `ask_user` call (S-Ask 4), an edit
+// block for a call with a diff (a file tool's call), else a tool block. It reads only its call, whether its turn ended, its approval and its
 // own open flags. A tap on a card whose approval waits opens the approval sheet.
 
 import { useSelector } from "@tanstack/react-store";
@@ -17,7 +17,9 @@ import {
   selectToolExpiry,
 } from "../model/selectors";
 import { useExpiryLabel } from "../use-answer-approval";
+import { questionRow } from "../model/question";
 import { EditBlockView } from "./edit-block";
+import { QuestionRowView } from "./question-row";
 import { ToolBlockView } from "./tool-block";
 import { useTranscriptScope } from "./use-transcript-scope";
 
@@ -74,6 +76,16 @@ export function ToolRow(props: ToolRowProps) {
     call.exit === undefined || approval !== undefined
       ? undefined
       : exitNote(call.exit, call.summary, stopped ? pause : undefined);
+  const question = call.question;
+  if (question !== undefined) {
+    const questions = scope.questions;
+    return (
+      <QuestionRowView
+        row={questionRow(question, scope.machineName, questions?.sending === question.questionId)}
+        onOpen={questions === undefined ? undefined : (anchor) => questions.open(question, anchor)}
+      />
+    );
+  }
   if (call.diff !== undefined && call.diff !== "") {
     return (
       <EditBlockView

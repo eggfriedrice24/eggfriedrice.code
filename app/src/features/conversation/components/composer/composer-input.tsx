@@ -34,7 +34,7 @@ export function ComposerInput() {
     <TextInput
       ref={inputRef ?? undefined}
       testID="composer-input"
-      accessibilityLabel="Message"
+      accessibilityLabel={model.answering === undefined ? "Message" : "Your answer"}
       multiline
       submitBehavior="newline"
       keyboardAppearance="dark"

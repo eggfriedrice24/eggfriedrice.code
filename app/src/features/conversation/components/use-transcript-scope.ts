@@ -5,8 +5,9 @@
 
 import type { Readable } from "@tanstack/store";
 import { createContext, use } from "react";
+import type { HostInstance } from "react-native";
 
-import type { StreamState } from "@/lib/stream/reducer";
+import type { StreamState, UserQuestionView } from "@/lib/stream/reducer";
 import type { DraftKey } from "../model/drafts";
 import type { ModelChoicesState } from "../model/model-choices";
 import type { RowUiStore } from "../model/row-ui-state";
@@ -56,6 +57,16 @@ export interface TranscriptScope {
   readonly catalog?: SwitchCatalog;
   /** The model choice of the composer: after a switch, the offer becomes "retry". */
   readonly choice?: ScopeChoice;
+  /** The answers to the questions of the model; none: the rows take no tap (S-Ask 4). */
+  readonly questions?: ScopeQuestions;
+}
+
+/** What the row of a question of the model needs from the screen. */
+export interface ScopeQuestions {
+  /** Opens the action sheet of `question`, out of `anchor` (the row). */
+  readonly open: (question: UserQuestionView, anchor: HostInstance | null) => void;
+  /** The question whose answer efrd has not taken yet. */
+  readonly sending: string | undefined;
 }
 
 /** The context of the rows. Transcript gives it. */

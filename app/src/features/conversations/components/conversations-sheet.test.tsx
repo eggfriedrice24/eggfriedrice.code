@@ -312,11 +312,11 @@ describe("the sections of the sheet", () => {
       },
     });
     await renderSheet({ caller });
-    // The phone does not answer a question yet: it reads as a wait for the terminal.
+    // The phone answers a question of the model (S-Ask).
     const question = screen.getByLabelText(
-      "Pick a test database. Answer in the terminal. desktop. 1 minute ago.",
+      "Pick a test database. Needs an answer. desktop. 1 minute ago.",
     );
-    expect(within(question).getByText("answer in the terminal").props.className).toBe(
+    expect(within(question).getByText("needs an answer").props.className).toBe(
       "text-accent-primary",
     );
     const failed = screen.getByLabelText("Expo SDK 58 upgrade. Failed. desktop. 1 hour ago.");

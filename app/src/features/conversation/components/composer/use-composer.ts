@@ -30,8 +30,9 @@ import { selectDraft } from "../../model/drafts";
 import { effectiveMode, selectMode, type PhoneMode } from "../../model/model-choices";
 import type { OutboxEntry } from "../../model/outbox";
 import { selectLockOn } from "@/features/navigation/model/app-lock";
+import { ANSWER_PLACEHOLDER, answerText } from "../../model/question";
 import { useComposerActions, type ComposerDeps } from "../../use-composer-actions";
-import type { ComposerModel } from "./composer-context";
+import type { ComposerAnswer, ComposerModel } from "./composer-context";
 
 /** What a composer reads from its screen. */
 export interface ComposerOptions {
@@ -50,6 +51,8 @@ export interface ComposerOptions {
    * root, the screen pushes the new conversation here.
    */
   readonly onSend?: (entry: OutboxEntry) => void;
+  /** The question of the model that Send answers now (S-Ask 3); none for a message. */
+  readonly answering?: ComposerAnswer;
 }
 
 /** The model of the composer of `options.target`. */
@@ -93,7 +96,8 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     onSend?.(entry);
   };
 
-  return {
+  const model: ComposerModel = {
+    answering: undefined,
     state,
     trailing: composerTrailing(state),
     isBlankRoot: target.isBlankRoot,
@@ -124,6 +128,34 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     mode,
     setMode: (next: PhoneMode): void => {
       deps.modelChoices.setMode(key, next);
+    },
+  };
+  const answering = options.answering;
+  if (answering === undefined) {
+    return model;
+  }
+  // S-Ask 3: the field holds the answer, and Send answers the question. Stop and the
+  // Steer/Queue capsule wait until the user leaves the answer state.
+  const answer = answerText(text);
+  const online = state.kind !== "disconnected";
+  return {
+    ...model,
+    answering,
+    trailing: answering.sending
+      ? { kind: "sending", stop: false }
+      : { kind: "send", enabled: answer !== undefined && online },
+    value: text,
+    placeholder: ANSWER_PLACEHOLDER,
+    setText: (next: string): void => {
+      if (online) {
+        deps.drafts.set(key, next);
+      }
+    },
+    submit: (): void => {
+      if (answer !== undefined && online && !answering.sending) {
+        answering.send(answer);
+        deps.drafts.set(key, "");
+      }
     },
   };
 }
