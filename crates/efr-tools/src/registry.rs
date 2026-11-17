@@ -6,6 +6,11 @@ use serde_json::Value;
 
 use crate::{Tool, ToolContext, ToolError, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec};
 
+/// The name of the model's question to the user. `efr-conversation` owns that tool,
+/// because only the conversation can wait for a person, so the registry never takes a
+/// tool of this name, also not from a later server of tools.
+pub const ASK_USER: &str = "ask_user";
+
 /// The tools the model may call.
 ///
 /// It gives out the specs for the provider request and dispatches
@@ -30,14 +35,15 @@ impl ToolRegistry {
         ToolRegistry::default()
     }
 
-    /// Adds `tool` under the name in its spec. Fails when the name is taken or is not
-    /// 1 to 64 ASCII letters, digits, `_`, `-` or `.`.
+    /// Adds `tool` under the name in its spec. Fails when the name is taken, also by
+    /// efr itself ([`ASK_USER`]), or is not 1 to 64 ASCII letters, digits, `_`, `-` or
+    /// `.`.
     pub fn register(&mut self, tool: Arc<dyn Tool>) -> Result<(), ToolError> {
         let spec = tool.spec();
         if !valid_name(&spec.name) {
             return Err(ToolError::InvalidName { name: spec.name });
         }
-        if self.entries.iter().any(|entry| entry.spec.name == spec.name) {
+        if spec.name == ASK_USER || self.entries.iter().any(|entry| entry.spec.name == spec.name) {
             return Err(ToolError::DuplicateTool { name: spec.name });
         }
         self.entries.push(Entry { spec, tool });

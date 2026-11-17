@@ -75,6 +75,14 @@ fn a_name_is_registered_once() {
 }
 
 #[test]
+fn the_name_of_the_models_question_is_taken_by_efr() {
+    let mut registry = ToolRegistry::new();
+    let error = registry.register(Echo::named(crate::ASK_USER)).unwrap_err();
+    assert!(matches!(&error, ToolError::DuplicateTool { name } if name == "ask_user"), "{error:?}");
+    assert!(!registry.contains("ask_user"));
+}
+
+#[test]
 fn names_must_be_short_and_plain() {
     let mut registry = ToolRegistry::new();
     for name in [String::new(), "has space".to_owned(), "\u{fc}nicode".to_owned(), "x".repeat(65)] {

@@ -8,7 +8,8 @@
 //!   network, interactive) and [`invoke`](Tool::invoke) ([`ToolResult`], with live
 //!   output to a [`ToolOutputSink`]).
 //! - [`ToolRegistry`]: the specs for the provider request and dispatch by name; it
-//!   never hands out a tool.
+//!   never hands out a tool, and it refuses the name [`ASK_USER`], which efr keeps for
+//!   the model's question in `efr-conversation`.
 //! - [`ShellTool`] over `efr_shell::CommandRunner`, with the members of a background
 //!   job ([`job_request`], [`JobRequest`], [`WatchInput`], [`job_started_text`]) and
 //!   the answer of a call that the user moved into a job ([`job_moved_text`]),
@@ -61,7 +62,7 @@ pub use error::ToolError;
 pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJournal};
 pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
-pub use registry::ToolRegistry;
+pub use registry::{ASK_USER, ToolRegistry};
 pub use shell_tool::{
     JobRequest, NotReady, ShellTool, WatchInput, blocked_note, bus_note, job_moved_text,
     job_request, job_started_text, not_ready_text,
