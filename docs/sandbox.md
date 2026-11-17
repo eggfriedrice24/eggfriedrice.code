@@ -1676,7 +1676,10 @@ that match its pattern come to the model in batches:
 - A batch keeps at most 20 lines: the first 10 (`BATCH_HEAD`) and the last 10
   (`BATCH_TAIL`). `dropped` counts the lines between them, and the gap is after line
   10. The output file keeps every line.
-- The notice that the model reads has one `matched: <line>` row per line. With a gap,
+- The notice that the model reads has one `matched: <line>` row per line. All rows of
+  one batch quote at most 8 KiB after the escape: each line gets an equal part, at
+  least 256 bytes and at most 4 KiB. So one line keeps 4 KiB, and 20 lines keep about
+  400 bytes each. With a gap,
   the row `[efr: N more matched lines between these are not shown; the output file has
   them.]` stands after row 10. Then `notices left: N`. At 0 it adds `[efr: the watch is
   over. The job runs until it ends or its time limit passes; job_stop ends it.]`.

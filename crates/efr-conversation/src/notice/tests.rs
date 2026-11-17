@@ -7,9 +7,10 @@ use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
 use super::{
-    JobNoticeInput, NOT_USER_INPUT, NOTICE_TAIL_LINES, NoticeBody, job_lifetime_fact, notice_text,
-    notice_text_refused,
+    JobNoticeInput, NOT_USER_INPUT, NOTICE_LINE_BYTES, NOTICE_TAIL_LINES, NoticeBody,
+    job_lifetime_fact, notice_text, notice_text_refused,
 };
+use crate::wake::NOTICE_BYTES_PER_TURN;
 
 const OUTPUT: &str = "$SCRATCH/jobs/j3.out";
 
@@ -292,6 +293,30 @@ fn job_lifetime_fact_names_the_minutes() {
     let input = JobNoticeInput::new(job("x"), NoticeKind::Exited, Seq::new(9), "t".into(), false);
     assert!(!input.wakes);
     assert_eq!(input.source_seq, Seq::new(9));
+}
+
+#[test]
+fn a_batch_of_long_lines_shares_one_byte_budget() {
+    // 20 lines of 4 KiB, each of quotes that the escape makes 6 times longer.
+    let long = "\"".repeat(NOTICE_LINE_BYTES);
+    let more = vec![long.clone(); 19];
+    let text = notice_text(&job("tail -f log"), OUTPUT, watch(&long, &more, 0, 2));
+    assert!(text.len() < NOTICE_BYTES_PER_TURN, "{} bytes", text.len());
+    assert!(text.len() < 10 * 1024, "{} bytes", text.len());
+    for row in text.lines().filter(|row| row.starts_with("matched: ")) {
+        assert!(row.ends_with("&quot;"), "an entity is never cut: {row}");
+    }
+    let mut ending = ended("done\n");
+    if let NoticeBody::Ended { matched, .. } = &mut ending {
+        *matched = &more;
+    }
+    let text = notice_text(&job("tail -f log"), OUTPUT, ending);
+    assert!(text.len() < NOTICE_BYTES_PER_TURN, "{} bytes", text.len());
+    // One line alone keeps its 4 KiB.
+    let plain = "x".repeat(NOTICE_LINE_BYTES * 2);
+    let text = notice_text(&job("tail -f log"), OUTPUT, watch(&plain, &[], 0, 2));
+    let row = text.lines().find(|row| row.starts_with("matched: ")).unwrap();
+    assert_eq!(row.len(), "matched: ".len() + NOTICE_LINE_BYTES);
 }
 
 #[test]

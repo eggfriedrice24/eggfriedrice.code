@@ -36,6 +36,14 @@ pub const NOTICE_TAIL_BYTES: usize = 8 * 1024;
 /// The most bytes of a matched line that a watch notice quotes.
 pub const NOTICE_LINE_BYTES: usize = 4 * 1024;
 
+/// The most bytes of all the matched lines of one batch that a notice quotes, after the
+/// escape: a batch of many lines quotes less of each line. The output file has them all.
+const BATCH_BYTES: usize = 8 * 1024;
+
+/// The fewest bytes of a matched line that a batch quotes, also in a batch of many
+/// lines.
+const BATCH_LINE_MIN_BYTES: usize = 256;
+
 /// The most characters of the job's command line that a notice names.
 const COMMAND_CHARS: usize = 500;
 
@@ -170,7 +178,8 @@ pub fn notice_text_refused(
         NoticeBody::Ended { tail, matched, matched_dropped, .. } => {
             if !matched.is_empty() {
                 text.push_str("matched before the end:\n");
-                batch_rows(&mut text, matched.iter().map(String::as_str), matched_dropped);
+                let lines = matched.iter().map(String::as_str);
+                batch_rows(&mut text, lines, matched.len(), matched_dropped);
             }
             let tail = last_lines(tail);
             if tail.is_empty() {
@@ -182,7 +191,7 @@ pub fn notice_text_refused(
         }
         NoticeBody::Watch { line, more, dropped, wakes_left } => {
             let lines = std::iter::once(line).chain(more.iter().map(String::as_str));
-            batch_rows(&mut text, lines, dropped);
+            batch_rows(&mut text, lines, more.len() + 1, dropped);
             let _ = writeln!(text, "notices left: {wakes_left}");
             if wakes_left == 0 {
                 text.push_str(WATCH_OVER);
@@ -222,10 +231,18 @@ pub fn job_lifetime_fact(minutes: u32) -> String {
     format!("runs as a job for up to {minutes} minutes; these grants stay open until it ends")
 }
 
-/// Writes one `matched: <line>` row for each of `lines`, a batch of matched lines.
-/// With `dropped` lines, the row that counts them stands after the first
+/// Writes one `matched: <line>` row for each of `lines`, a batch of `count` matched
+/// lines. Each line gets an equal part of [`BATCH_BYTES`], from
+/// [`BATCH_LINE_MIN_BYTES`] to [`NOTICE_LINE_BYTES`], so one batch quotes at most about
+/// 8 KiB. With `dropped` lines, the row that counts them stands after the first
 /// [`BATCH_HEAD`] rows, where the batch left them out.
-fn batch_rows<'a>(text: &mut String, lines: impl Iterator<Item = &'a str>, dropped: u32) {
+fn batch_rows<'a>(
+    text: &mut String,
+    lines: impl Iterator<Item = &'a str>,
+    count: usize,
+    dropped: u32,
+) {
+    let room = (BATCH_BYTES / count.max(1)).clamp(BATCH_LINE_MIN_BYTES, NOTICE_LINE_BYTES);
     for (index, line) in lines.enumerate() {
         if index == BATCH_HEAD && dropped > 0 {
             let noun = if dropped == 1 { "line" } else { "lines" };
@@ -235,8 +252,8 @@ fn batch_rows<'a>(text: &mut String, lines: impl Iterator<Item = &'a str>, dropp
                  file has them.]"
             );
         }
-        let line = cut_bytes(line, NOTICE_LINE_BYTES);
-        let _ = writeln!(text, "matched: {}", escape(&one_line(line, usize::MAX)));
+        let line = one_line(cut_bytes(line, room), usize::MAX);
+        let _ = writeln!(text, "matched: {}", escape_within(&line, room));
     }
 }
 
@@ -294,14 +311,27 @@ fn one_line(text: &str, max: usize) -> String {
 /// `text` with `&`, `<`, `>` and `"` as entities, so it cannot end an attribute or
 /// the element.
 fn escape(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
+    escape_within(text, usize::MAX)
+}
+
+/// [`escape`] of `text`, cut to at most `max` bytes: never inside a character or an
+/// entity.
+fn escape_within(text: &str, max: usize) -> String {
+    let mut escaped = String::with_capacity(text.len().min(max));
     for c in text.chars() {
-        match c {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            c => escaped.push(c),
+        let entity = match c {
+            '&' => Some("&amp;"),
+            '<' => Some("&lt;"),
+            '>' => Some("&gt;"),
+            '"' => Some("&quot;"),
+            _ => None,
+        };
+        if escaped.len() + entity.map_or(c.len_utf8(), str::len) > max {
+            break;
+        }
+        match entity {
+            Some(entity) => escaped.push_str(entity),
+            None => escaped.push(c),
         }
     }
     escaped

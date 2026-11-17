@@ -91,8 +91,10 @@ pub(crate) fn take_notices(waiting: &mut Vec<JobNoticeInput>) -> Vec<JobNoticeIn
     let mut count = 0;
     for notice in waiting.iter() {
         let next = bytes + notice.text.len();
-        // NOTE: one notice is far smaller than the limit, and a turn always takes the
-        // first, so a notice can never wait for ever.
+        // NOTE: a notice quotes at most about 8 KiB of matched lines and 8 KiB of the
+        // tail of the output (more only after the escape of `<`, `>`, `&` and `"` in the
+        // tail), so it is smaller than the limit. A turn always takes the first notice,
+        // so a notice can never wait for ever.
         if count == NOTICES_PER_TURN || (count > 0 && next > NOTICE_BYTES_PER_TURN) {
             break;
         }

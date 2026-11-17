@@ -186,8 +186,8 @@ There is no tool of its own for it: a monitor is a background `shell` call with
 - Lines that match within 1 second make one notice. One notice is one wake of the
   agent.
 - A notice holds at most 20 lines: the first 10 and the last 10 of that second. The
-  agent reads how many lines between them it does not see. The output file still has
-  every line.
+  agent reads how many lines between them it does not see. A notice quotes at most
+  8 KiB of these lines, so efr cuts long lines. The output file still has every line.
 - A watch gives 3 notices when the agent names no number, and at most 10.
   `jobs.max_wakes_per_watch` (10) cuts a higher number. The hourly limits above stay:
   6 wake turns in a conversation and 12 in all.
