@@ -198,6 +198,45 @@ export function approvalResolved(
   return { kind: "approval_resolved", turn_id: turnId, call_id: callId, decision, origin };
 }
 
+/** A `user_question_requested` event: the model asks which database, with three options. */
+export function userQuestionRequested(
+  turnId: string,
+  callId: string,
+  questionId: string,
+): EventOf<"user_question_requested"> {
+  return {
+    kind: "user_question_requested",
+    turn_id: turnId,
+    call_id: callId,
+    question_id: questionId,
+    question: "Which database should the tests use?",
+    options: [
+      { label: "Postgres 16", description: "the same as production; I recommend it." },
+      { label: "SQLite", description: "fast and needs no server, but it has no JSONB." },
+      { label: "both" },
+    ],
+  };
+}
+
+/** A `user_question_answered` event. */
+export function userQuestionAnswered(
+  turnId: string,
+  questionId: string,
+  answer: EventOf<"user_question_answered">["answer"],
+  origin?: EventOf<"user_question_answered">["origin"],
+): EventOf<"user_question_answered"> {
+  const event: EventOf<"user_question_answered"> = {
+    kind: "user_question_answered",
+    turn_id: turnId,
+    question_id: questionId,
+    answer,
+  };
+  if (origin !== undefined) {
+    event.origin = origin;
+  }
+  return event;
+}
+
 /** An `assistant_message_completed` event. */
 export function messageCompleted(
   turnId: string,

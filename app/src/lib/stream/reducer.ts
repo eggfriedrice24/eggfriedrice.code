@@ -51,12 +51,14 @@ import type {
   Mode,
   Origin,
   PauseReason,
+  QuestionOption,
   Risk,
   StopReason,
   StoredCopyReason,
   SurfaceChange,
   SwitchedModel,
   Usage,
+  UserAnswer,
   Verdict,
   WebAction,
   WebError,
@@ -125,6 +127,35 @@ export interface ToolCallView {
    * off (`surface_question_requested`). The call ran; its turn waits for the answer.
    */
   readonly quarantine?: QuarantineQuestionView;
+  /** The question of the model that the `ask_user` call asks (`user_question_requested`). */
+  readonly question?: UserQuestionView;
+}
+
+/** What became of a question of the model. */
+export type UserQuestionAnswer =
+  | { readonly kind: "pending" }
+  /** The user picked option `index` (from 0), whose label is `label`. */
+  | { readonly kind: "option"; readonly index: number; readonly label: string }
+  /** The user typed an answer. */
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "skipped" }
+  /** Nobody answered in time; `away` when the user was away. */
+  | { readonly kind: "unanswered"; readonly away: boolean }
+  /** The turn stopped before an answer, or efrd sent an end that this build does not know. */
+  | { readonly kind: "interrupted" };
+
+/** A question of the model (the `ask_user` tool), with its 2 to 4 options. */
+export interface UserQuestionView {
+  readonly questionId: string;
+  readonly turnId: string;
+  readonly callId: string;
+  readonly question: string;
+  readonly options: readonly QuestionOption[];
+  readonly answer: UserQuestionAnswer;
+  /** The surface that answered; none while it waits and when nobody answered. */
+  readonly origin: Origin | undefined;
+  /** When efrd asked, in ms since the epoch. */
+  readonly askedAt: number | undefined;
 }
 
 /** What became of a quarantine question. */
@@ -192,6 +223,9 @@ export interface ReviewerPause {
 
 /** The tool of a step of web search. */
 export const WEB_TOOL = "web";
+
+/** The tool of the model's question to the user. */
+export const ASK_USER_TOOL = "ask_user";
 
 /** A step of the provider's web search: a search or an opened page. */
 export interface WebStepView {
@@ -832,6 +866,36 @@ function applyEventBody(
       return updateTurn(state, event.turn_id, (turn) =>
         answerQuarantine(turn, event.question_id, event.keep, event.origin ?? undefined),
       );
+    case "user_question_requested":
+      // The row of the call shows the question, also when its start is before the window
+      // of the snapshot.
+      return updateTurn(state, event.turn_id, (turn) =>
+        addPart(
+          updateTool(turn, event.call_id, (call) =>
+            call.question?.questionId === event.question_id
+              ? call
+              : {
+                  ...call,
+                  tool: call.tool === "" ? ASK_USER_TOOL : call.tool,
+                  question: {
+                    questionId: event.question_id,
+                    turnId: event.turn_id,
+                    callId: event.call_id,
+                    question: event.question,
+                    options: event.options,
+                    answer: { kind: "pending" },
+                    origin: undefined,
+                    askedAt: at,
+                  },
+                },
+          ),
+          { kind: "tool", callId: event.call_id },
+        ),
+      );
+    case "user_question_answered":
+      return updateTurn(state, event.turn_id, (turn) =>
+        answerQuestion(turn, event.question_id, event.answer, event.origin ?? undefined),
+      );
     case "classifier_paused":
       return updateTurn(state, event.turn_id, (turn) =>
         turn.pause !== undefined
@@ -1044,7 +1108,7 @@ function endTurn(turn: TurnView, end: TurnEnd): TurnView {
     }
   }
   const approvals = expired ?? turn.approvals;
-  const tools = closeQuarantine(turn.tools);
+  const tools = closeQuestions(turn.tools);
   return { ...turn, end, messages, approvals, tools, toolInputs: new Map() };
 }
 
@@ -1462,18 +1526,77 @@ function answerQuarantine(
   return turn;
 }
 
-/** A quarantine question that is still open when its turn ends can never be answered. */
-function closeQuarantine(
+/**
+ * A quarantine question or a question of the model that is still open when its turn ends
+ * can never be answered.
+ */
+function closeQuestions(
   tools: ReadonlyMap<string, ToolCallView>,
 ): ReadonlyMap<string, ToolCallView> {
   let closed: Map<string, ToolCallView> | undefined;
   for (const [callId, call] of tools) {
+    let next = call;
     if (call.quarantine?.answer === "pending") {
+      next = { ...next, quarantine: { ...call.quarantine, answer: "not_answered" } };
+    }
+    if (call.question?.answer.kind === "pending") {
+      next = { ...next, question: { ...call.question, answer: { kind: "interrupted" } } };
+    }
+    if (next !== call) {
       closed ??= new Map(tools);
-      closed.set(callId, { ...call, quarantine: { ...call.quarantine, answer: "not_answered" } });
+      closed.set(callId, next);
     }
   }
   return closed ?? tools;
+}
+
+/** How a question of the model ended, from the event; the label of a picked option. */
+function questionAnswer(
+  answer: UserAnswer,
+  options: readonly QuestionOption[],
+): UserQuestionAnswer {
+  switch (answer.kind) {
+    case "replied": {
+      const reply = answer.reply;
+      switch (reply.kind) {
+        case "option":
+          return { kind: "option", index: reply.index, label: options[reply.index]?.label ?? "" };
+        case "text":
+          return { kind: "text", text: reply.text };
+        case "skipped":
+          return { kind: "skipped" };
+        default:
+          return { kind: "interrupted" };
+      }
+    }
+    case "unanswered":
+      return { kind: "unanswered", away: answer.away === true };
+    default:
+      return { kind: "interrupted" };
+  }
+}
+
+/** `turn` with the end of question `questionId` of the model. The first end wins. */
+function answerQuestion(
+  turn: TurnView,
+  questionId: string,
+  answer: UserAnswer,
+  origin: Origin | undefined,
+): TurnView {
+  for (const call of turn.tools.values()) {
+    const question = call.question;
+    if (question?.questionId !== questionId) {
+      continue;
+    }
+    if (question.answer.kind !== "pending") {
+      return turn;
+    }
+    return updateTool(turn, call.callId, (held) => ({
+      ...held,
+      question: { ...question, answer: questionAnswer(answer, question.options), origin },
+    }));
+  }
+  return turn;
 }
 
 function updateTool(
@@ -1585,6 +1708,23 @@ export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] 
     for (const call of turn.tools.values()) {
       if (call.quarantine?.answer === "pending") {
         pending.push(call.quarantine);
+      }
+    }
+  }
+  return pending;
+}
+
+/** The questions of the model that wait for an answer, oldest first. */
+export function pendingQuestions(state: StreamState): UserQuestionView[] {
+  const pending: UserQuestionView[] = [];
+  for (const turnId of state.order) {
+    const turn = state.turns.get(turnId);
+    if (turn === undefined || turn.end !== undefined) {
+      continue;
+    }
+    for (const call of turn.tools.values()) {
+      if (call.question?.answer.kind === "pending") {
+        pending.push(call.question);
       }
     }
   }

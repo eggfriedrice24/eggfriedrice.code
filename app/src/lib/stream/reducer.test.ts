@@ -10,6 +10,7 @@ import {
   inputSummary,
   isQueued,
   pendingApprovals,
+  pendingQuestions,
   reduce,
   runningTurn,
   type StreamState,
@@ -35,6 +36,8 @@ import {
   toolCallStarted,
   turnCompleted,
   turnStarted,
+  userQuestionAnswered,
+  userQuestionRequested,
 } from "./testing";
 
 const CONVERSATION = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -872,5 +875,93 @@ describe("properties", () => {
         expect(run(updates, once)).toBe(once);
       }),
     );
+  });
+});
+
+describe("the question of the model", () => {
+  const QUESTION = "019a9b1c-3d00-7a10-8b20-0000000000a1";
+  const asked = [
+    event(1, turnStarted(TURN)),
+    event(2, toolCallStarted(TURN, CALL, "ask_user", { question: "Which database?" })),
+    event(3, userQuestionRequested(TURN, CALL, QUESTION), at(4)),
+  ];
+
+  it("waits on the row of its call", () => {
+    const state = run(asked);
+    const question = state.turns.get(TURN)?.tools.get(CALL)?.question;
+    expect(question).toMatchObject({
+      questionId: QUESTION,
+      callId: CALL,
+      turnId: TURN,
+      question: "Which database should the tests use?",
+      answer: { kind: "pending" },
+      origin: undefined,
+      askedAt: AT_MS + 4000,
+    });
+    expect(question?.options.map((option) => option.label)).toEqual([
+      "Postgres 16",
+      "SQLite",
+      "both",
+    ]);
+    expect(pendingQuestions(state)).toEqual([question]);
+  });
+
+  it("gives a row to a question whose call started before the window", () => {
+    const state = run([
+      event(1, turnStarted(TURN)),
+      event(3, userQuestionRequested(TURN, CALL, QUESTION)),
+    ]);
+    const turn = state.turns.get(TURN);
+    expect(turn?.tools.get(CALL)?.tool).toBe("ask_user");
+    expect(turn?.parts).toContainEqual({ kind: "tool", callId: CALL });
+  });
+
+  it("reads each end, with the label of a picked option", () => {
+    const end = (answer: Parameters<typeof userQuestionAnswered>[2], origin?: "phone") =>
+      run([...asked, event(4, userQuestionAnswered(TURN, QUESTION, answer, origin))])
+        .turns.get(TURN)
+        ?.tools.get(CALL)?.question;
+    const option = end({ kind: "replied", reply: { kind: "option", index: 1 } }, "phone");
+    expect([option?.answer, option?.origin]).toEqual([
+      { kind: "option", index: 1, label: "SQLite" },
+      "phone",
+    ]);
+    expect(end({ kind: "replied", reply: { kind: "text", text: "port 5433" } })?.answer).toEqual({
+      kind: "text",
+      text: "port 5433",
+    });
+    expect(end({ kind: "replied", reply: { kind: "skipped" } })?.answer).toEqual({
+      kind: "skipped",
+    });
+    expect(end({ kind: "unanswered", away: true })?.answer).toEqual({
+      kind: "unanswered",
+      away: true,
+    });
+    expect(end({ kind: "unanswered" })?.answer).toEqual({ kind: "unanswered", away: false });
+    expect(end({ kind: "interrupted" })?.answer).toEqual({ kind: "interrupted" });
+    expect(end({ kind: "unknown" })?.answer).toEqual({ kind: "interrupted" });
+    expect(
+      pendingQuestions(
+        run([...asked, event(4, userQuestionAnswered(TURN, QUESTION, { kind: "interrupted" }))]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the first end", () => {
+    const first = userQuestionAnswered(TURN, QUESTION, {
+      kind: "replied",
+      reply: { kind: "skipped" },
+    });
+    const later = userQuestionAnswered(TURN, QUESTION, { kind: "unanswered" });
+    const state = run([...asked, event(4, first), event(5, later)]);
+    expect(state.turns.get(TURN)?.tools.get(CALL)?.question?.answer).toEqual({ kind: "skipped" });
+  });
+
+  it("ends as interrupted when its turn ends first", () => {
+    const state = run([...asked, event(4, { kind: "turn_interrupted", turn_id: TURN })]);
+    expect(state.turns.get(TURN)?.tools.get(CALL)?.question?.answer).toEqual({
+      kind: "interrupted",
+    });
+    expect(pendingQuestions(state)).toEqual([]);
   });
 });
