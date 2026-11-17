@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_protocol::{
-    CallId, CommandId, ConversationId, DeviceId, Event, Origin, PtyId, Scope, ShellContext, TurnId,
-    TurnSettings,
+    CallId, CommandId, ConversationId, DeviceId, ErrorBody, ErrorCode, Event, Origin, PtyId,
+    QuestionId, Scope, ShellContext, TurnId, TurnSettings,
 };
 use efr_stdx::time::{Clock, Sleep};
 use jiff::{SignedDuration, Timestamp};
@@ -86,6 +86,36 @@ pub(crate) fn pty(n: u64) -> PtyId {
 
 pub(crate) fn device(n: u64) -> DeviceId {
     id(7, n)
+}
+
+pub(crate) fn question(n: u64) -> QuestionId {
+    id(8, n)
+}
+
+/// Each way that the turn `turn` ends: completed, failed, interrupted and cancelled.
+pub(crate) fn turn_ends(turn: u64) -> [Event; 4] {
+    let turn_id = self::turn(turn);
+    [
+        Event::TurnCompleted {
+            turn_id,
+            usage: None,
+            changes: None,
+            context: None,
+            stop: None,
+            undo: None,
+        },
+        Event::TurnFailed {
+            turn_id,
+            error: ErrorBody::new(ErrorCode::Internal, "provider down"),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+            account_out: None,
+        },
+        Event::TurnInterrupted { turn_id, usage: None, context: None, changes: None, undo: None },
+        Event::TurnCancelled { turn_id },
+    ]
 }
 
 /// The phone `n`: a device with its own key (the X9.63 form, every coordinate byte `n`),

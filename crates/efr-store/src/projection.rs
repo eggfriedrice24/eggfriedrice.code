@@ -10,7 +10,9 @@ use std::collections::HashSet;
 use efr_protocol::{Event, EventEnvelope, Seq};
 use rusqlite::Connection;
 
-use crate::{StoreError, approvals, compactions, conversations, deletes, events, jobs, shells};
+use crate::{
+    StoreError, approvals, compactions, conversations, deletes, events, jobs, shells, waits,
+};
 
 /// How many events a rebuild reads at a time.
 const REBUILD_PAGE: u32 = 512;
@@ -28,10 +30,14 @@ pub(crate) fn apply(conn: &Connection, envelope: &EventEnvelope) -> Result<(), S
     }
     conversations::apply(conn, conversation_id, envelope)?;
     approvals::apply(conn, conversation_id, envelope)?;
+    waits::apply(conn, conversation_id, envelope)?;
     shells::apply(conn, conversation_id, envelope)?;
     compactions::apply(conn, conversation_id, envelope)?;
     jobs::apply(conn, conversation_id, envelope)?;
-    conversations::refresh_status(conn, conversation_id)
+    if conversations::changes_status(&envelope.event) {
+        conversations::refresh_status(conn, conversation_id)?;
+    }
+    Ok(())
 }
 
 /// Empties every projection and replays the log into it. Runs inside a transaction.
@@ -40,6 +46,7 @@ pub(crate) fn apply(conn: &Connection, envelope: &EventEnvelope) -> Result<(), S
 pub(crate) fn rebuild(conn: &Connection) -> Result<(), StoreError> {
     let deleted: HashSet<String> = deletes::deleted_ids(conn)?.into_iter().collect();
     approvals::clear(conn)?;
+    waits::clear(conn)?;
     shells::clear(conn)?;
     compactions::clear(conn)?;
     jobs::clear(conn)?;

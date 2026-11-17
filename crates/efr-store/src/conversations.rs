@@ -7,13 +7,13 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    CommandId, ConversationId, ConversationStatus, ConversationSummary, Event, EventEnvelope,
-    RouteScope, Scope, Seq, TurnId,
+    Attention, CommandId, ConversationId, ConversationStatus, ConversationSummary, Event,
+    EventEnvelope, RouteScope, Scope, Seq, TurnId,
 };
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 
-use crate::{StoreError, approvals, sql};
+use crate::{StoreError, approvals, sql, waits};
 
 const CONVERSATIONS: &str = "conversations";
 const TURNS: &str = "turns";
@@ -427,9 +427,11 @@ pub fn newest_of_route(
     route: &RouteScope,
 ) -> Result<Option<ConversationSummary>, StoreError> {
     conn.query_row(
-        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
-         FROM conversations WHERE route = ?1 AND routed_seq IS NOT NULL \
-         ORDER BY updated_at DESC, last_seq DESC LIMIT 1",
+        &format!(
+            "SELECT {SUMMARY_COLUMNS} FROM conversations \
+             WHERE route = ?1 AND routed_seq IS NOT NULL \
+             ORDER BY updated_at DESC, last_seq DESC LIMIT 1"
+        ),
         [sql::to_json(route, "route")?],
         RawSummary::from_row,
     )
@@ -441,11 +443,10 @@ pub fn newest_of_route(
 /// Every conversation that the terminal `tty` holds, one per scope key, its current
 /// one first: the slot with the newest routed event.
 pub fn of_tty(conn: &Connection, tty: &str) -> Result<Vec<ConversationSummary>, StoreError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
-         FROM conversations WHERE tty = ?1 \
-         ORDER BY COALESCE(routed_seq, 0) DESC, last_seq DESC",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SUMMARY_COLUMNS} FROM conversations WHERE tty = ?1 \
+         ORDER BY COALESCE(routed_seq, 0) DESC, last_seq DESC"
+    ))?;
     let raw = stmt.query_map([tty], RawSummary::from_row)?.collect::<Result<Vec<_>, _>>()?;
     raw.into_iter().map(RawSummary::decode).collect()
 }
@@ -471,28 +472,27 @@ pub fn recent(
     first: Option<&RouteScope>,
     limit: u32,
 ) -> Result<Vec<RecentRow>, StoreError> {
-    const COLUMNS: &str = "SELECT id, title, status, created_at, updated_at, last_seq, cwd, \
-                           scope, tty, route FROM conversations";
     const ORDER: &str = "ORDER BY updated_at DESC, last_seq DESC LIMIT";
     let first = first.map(|route| sql::to_json(route, "route")).transpose()?;
     let mut raw = Vec::new();
     match &first {
         Some(route) => {
-            let mut stmt = conn.prepare(&format!("{COLUMNS} WHERE route = ?1 {ORDER} ?2"))?;
+            let mut stmt = conn.prepare(&format!("{RECENT_SELECT} WHERE route = ?1 {ORDER} ?2"))?;
             raw.extend(
                 stmt.query_map(params![route, limit], RawRecent::from_row)?
                     .collect::<Result<Vec<_>, _>>()?,
             );
             let rest = u32::try_from(raw.len()).map_or(0, |taken| limit.saturating_sub(taken));
-            let mut stmt =
-                conn.prepare(&format!("{COLUMNS} WHERE route IS NULL OR route <> ?1 {ORDER} ?2"))?;
+            let mut stmt = conn.prepare(&format!(
+                "{RECENT_SELECT} WHERE route IS NULL OR route <> ?1 {ORDER} ?2"
+            ))?;
             raw.extend(
                 stmt.query_map(params![route, rest], RawRecent::from_row)?
                     .collect::<Result<Vec<_>, _>>()?,
             );
         }
         None => {
-            let mut stmt = conn.prepare(&format!("{COLUMNS} {ORDER} ?1"))?;
+            let mut stmt = conn.prepare(&format!("{RECENT_SELECT} {ORDER} ?1"))?;
             raw.extend(
                 stmt.query_map(params![limit], RawRecent::from_row)?
                     .collect::<Result<Vec<_>, _>>()?,
@@ -519,10 +519,7 @@ pub fn recent(
 /// The rows of the list of `,resume` of the conversations `ids`, in their order, for
 /// the rows that a search found. An id with no conversation has no row.
 pub fn rows(conn: &Connection, ids: &[ConversationId]) -> Result<Vec<RecentRow>, StoreError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty, route \
-         FROM conversations WHERE id = ?1",
-    )?;
+    let mut stmt = conn.prepare(&format!("{RECENT_SELECT} WHERE id = ?1"))?;
     let mut count = conn.prepare(
         "SELECT COUNT(*) FROM turns WHERE conversation_id = ?1 AND wake = 0 AND status <> ?2",
     )?;
@@ -584,7 +581,7 @@ struct RawRecent {
 
 impl RawRecent {
     fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(RawRecent { summary: RawSummary::from_row(row)?, route: row.get(9)? })
+        Ok(RawRecent { summary: RawSummary::from_row(row)?, route: row.get(SUMMARY_COUNT)? })
     }
 }
 
@@ -601,26 +598,92 @@ fn finish(
     Ok(())
 }
 
-/// Recomputes what the conversation is doing from its turns and approvals, so the
-/// status never depends on the order in which events arrived.
+/// True for an event that can change the `status` or the `attention` of its
+/// conversation: the life of a prompt and a turn, an approval, an input wait, the end
+/// of a call and a question. [`crate::projection::apply`] calls [`refresh_status`]
+/// only after such an event, and not after each output update of a call.
+pub(crate) fn changes_status(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::PromptQueued { .. }
+            | Event::PromptHeld { .. }
+            | Event::PromptWithdrawn { .. }
+            | Event::JobNotice { woke: true, .. }
+            | Event::TurnStarted { .. }
+            | Event::TurnCompleted { .. }
+            | Event::TurnFailed { .. }
+            | Event::TurnInterrupted { .. }
+            | Event::TurnCancelled { .. }
+            | Event::ApprovalRequested { .. }
+            | Event::ApprovalResolved { .. }
+            | Event::ApprovalExpired { .. }
+            | Event::ToolCallInputChanged { .. }
+            | Event::ToolCallCompleted { .. }
+            | Event::SurfaceQuestionRequested { .. }
+            | Event::SurfaceQuestionAnswered { .. }
+            | Event::UserQuestionRequested { .. }
+            | Event::UserQuestionAnswered { .. }
+    )
+}
+
+/// Recomputes what the conversation is doing and who can act on it from its turns,
+/// approvals and waits, in one `UPDATE`, so neither depends on the order in which
+/// events arrived.
+///
+/// `status`: a pending approval or a quarantine question of the running turn gives
+/// `awaiting_approval`; else a running turn gives `running`; else `idle`.
+///
+/// `attention`, in this order: a question of the model in the running turn gives
+/// `answer`; a pending approval that only the terminal may answer, or a call that
+/// waits for a line, gives `terminal` when no other approval and no quarantine
+/// question waits; with no running turn, a last ended turn that failed gives `failed`;
+/// else none.
 pub(crate) fn refresh_status(
     conn: &Connection,
     conversation_id: ConversationId,
 ) -> Result<(), StoreError> {
+    // NOTE: the status `pending` is a literal, so the partial index `approvals_pending`
+    // serves the approvals; with a bound value, SQLite reads the whole table.
+    const _: () = assert!(matches!(approvals::PENDING.as_bytes(), b"pending"));
     conn.execute(
-        "UPDATE conversations SET status = CASE \
-           WHEN EXISTS (SELECT 1 FROM approvals a JOIN turns t ON t.id = a.turn_id \
-                        WHERE a.conversation_id = ?1 AND a.status = ?2 AND t.status = ?3) THEN ?4 \
-           WHEN EXISTS (SELECT 1 FROM turns WHERE conversation_id = ?1 AND status = ?3) THEN ?5 \
-           ELSE ?6 END \
+        "WITH run AS (SELECT id FROM turns WHERE conversation_id = ?1 AND status = ?2), \
+         facts AS (SELECT \
+           EXISTS (SELECT 1 FROM run) AS running, \
+           EXISTS (SELECT 1 FROM approvals WHERE conversation_id = ?1 AND status = 'pending' \
+                   AND local_only = 0 AND turn_id IN run) AS shared, \
+           EXISTS (SELECT 1 FROM approvals WHERE conversation_id = ?1 AND status = 'pending' \
+                   AND local_only = 1 AND turn_id IN run) AS local, \
+           EXISTS (SELECT 1 FROM waits WHERE conversation_id = ?1 AND kind = ?3 \
+                   AND turn_id IN run) AS input, \
+           EXISTS (SELECT 1 FROM waits WHERE conversation_id = ?1 AND kind = ?4 \
+                   AND turn_id IN run) AS question, \
+           EXISTS (SELECT 1 FROM waits WHERE conversation_id = ?1 AND kind = ?5 \
+                   AND turn_id IN run) AS surface, \
+           (SELECT status FROM turns WHERE conversation_id = ?1 AND status IN (?6, ?7, ?8, ?9) \
+            ORDER BY queued_seq DESC LIMIT 1) AS last_ended) \
+         UPDATE conversations SET (status, attention) = (SELECT \
+           CASE WHEN shared OR local OR surface THEN ?10 WHEN running THEN ?11 ELSE ?12 END, \
+           CASE WHEN question THEN ?13 \
+                WHEN (local OR input) AND NOT shared AND NOT surface THEN ?14 \
+                WHEN NOT running AND last_ended = ?7 THEN ?15 END \
+           FROM facts) \
          WHERE id = ?1",
         params![
             conversation_id.to_string(),
-            approvals::PENDING,
             TurnStatus::Running.as_str(),
+            waits::INPUT,
+            waits::QUESTION,
+            waits::SURFACE,
+            TurnStatus::Completed.as_str(),
+            TurnStatus::Failed.as_str(),
+            TurnStatus::Interrupted.as_str(),
+            TurnStatus::Cancelled.as_str(),
             sql::wire_name(&ConversationStatus::AwaitingApproval, "conversation status")?,
             sql::wire_name(&ConversationStatus::Running, "conversation status")?,
             sql::wire_name(&ConversationStatus::Idle, "conversation status")?,
+            Attention::Answer.as_str(),
+            Attention::Terminal.as_str(),
+            Attention::Failed.as_str(),
         ],
     )?;
     Ok(())
@@ -653,10 +716,10 @@ pub fn list(
     before: Option<Seq>,
     limit: u32,
 ) -> Result<Vec<ConversationSummary>, StoreError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
-         FROM conversations WHERE last_seq < ?1 ORDER BY last_seq DESC LIMIT ?2",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SUMMARY_COLUMNS} FROM conversations \
+         WHERE last_seq < ?1 ORDER BY last_seq DESC LIMIT ?2"
+    ))?;
     let raw = stmt
         .query_map(params![before.map_or(i64::MAX, sql::seq), limit], RawSummary::from_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -669,8 +732,7 @@ pub fn get(
     conversation_id: ConversationId,
 ) -> Result<Option<ConversationSummary>, StoreError> {
     conn.query_row(
-        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
-         FROM conversations WHERE id = ?1",
+        &format!("SELECT {SUMMARY_COLUMNS} FROM conversations WHERE id = ?1"),
         [conversation_id.to_string()],
         RawSummary::from_row,
     )
@@ -743,6 +805,33 @@ fn query_turns(
     raw.into_iter().map(RawTurn::decode).collect()
 }
 
+/// The columns of a [`ConversationSummary`], in the order that [`RawSummary::from_row`]
+/// reads them. A macro, so that [`RECENT_SELECT`] can join it at compile time.
+macro_rules! summary_columns {
+    () => {
+        "id, title, status, created_at, updated_at, last_seq, cwd, scope, tty, attention"
+    };
+}
+
+/// The columns of every read of a [`ConversationSummary`].
+const SUMMARY_COLUMNS: &str = summary_columns!();
+
+/// How many columns [`SUMMARY_COLUMNS`] names: a read that adds a column after them
+/// reads it at this index.
+const SUMMARY_COUNT: usize = {
+    let (bytes, mut index, mut commas) = (SUMMARY_COLUMNS.as_bytes(), 0, 0);
+    while index < bytes.len() {
+        if bytes[index] == b',' {
+            commas += 1;
+        }
+        index += 1;
+    }
+    commas + 1
+};
+
+/// The select of a [`RawRecent`]: the summary and the `route` column.
+const RECENT_SELECT: &str = concat!("SELECT ", summary_columns!(), ", route FROM conversations");
+
 struct RawSummary {
     id: String,
     title: Option<String>,
@@ -753,6 +842,7 @@ struct RawSummary {
     cwd: Option<String>,
     scope: Option<String>,
     tty: Option<String>,
+    attention: Option<String>,
 }
 
 impl RawSummary {
@@ -767,6 +857,7 @@ impl RawSummary {
             cwd: row.get(6)?,
             scope: row.get(7)?,
             tty: row.get(8)?,
+            attention: row.get(9)?,
         })
     }
 
@@ -775,7 +866,10 @@ impl RawSummary {
             id: sql::parse(&self.id, CONVERSATIONS, "id")?,
             title: self.title,
             status: sql::from_wire(&self.status, CONVERSATIONS, "status")?,
-            attention: None,
+            attention: self
+                .attention
+                .map(|text| sql::from_wire(&text, CONVERSATIONS, "attention"))
+                .transpose()?,
             created_at: sql::to_timestamp(self.created_at, CONVERSATIONS, "created_at")?,
             updated_at: sql::to_timestamp(self.updated_at, CONVERSATIONS, "updated_at")?,
             last_seq: sql::to_seq(self.last_seq, CONVERSATIONS, "last_seq")?,

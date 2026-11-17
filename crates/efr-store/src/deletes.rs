@@ -136,11 +136,12 @@ pub(crate) fn tombstone(
             sql::to_json(&parts, "parts")?
         ],
     )?;
-    // NOTE: children first, for the foreign keys of turns, approvals and shells.
+    // NOTE: children first, for the foreign keys of turns, approvals, waits and shells.
     conn.execute("DELETE FROM job_notices WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM jobs WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM compactions WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM approvals WHERE conversation_id = ?1", [&id])?;
+    conn.execute("DELETE FROM waits WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM shells WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM turns WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM conversations WHERE id = ?1", [&id])?;

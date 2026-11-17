@@ -51,16 +51,20 @@ pub(crate) fn apply(
     let seq = sql::seq(envelope.seq);
     let at = sql::micros(envelope.at);
     match &envelope.event {
-        Event::ApprovalRequested { turn_id, call_id, summary, diff_preview, .. } => {
+        Event::ApprovalRequested {
+            turn_id, call_id, summary, diff_preview, local_only, ..
+        } => {
             // A call asked again starts over as pending.
             conn.execute(
                 "INSERT INTO approvals (call_id, conversation_id, turn_id, summary, diff_preview, \
-                 status, requested_seq, requested_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+                 status, requested_seq, requested_at, local_only) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
                  ON CONFLICT (call_id) DO UPDATE SET conversation_id = excluded.conversation_id, \
                  turn_id = excluded.turn_id, summary = excluded.summary, \
                  diff_preview = excluded.diff_preview, status = excluded.status, decision = NULL, \
                  resolved_by = NULL, requested_seq = excluded.requested_seq, \
-                 requested_at = excluded.requested_at, resolved_seq = NULL, resolved_at = NULL",
+                 requested_at = excluded.requested_at, resolved_seq = NULL, resolved_at = NULL, \
+                 local_only = excluded.local_only",
                 params![
                     call_id.to_string(),
                     conversation_id.to_string(),
@@ -69,7 +73,8 @@ pub(crate) fn apply(
                     diff_preview,
                     PENDING,
                     seq,
-                    at
+                    at,
+                    local_only
                 ],
             )?;
         }
