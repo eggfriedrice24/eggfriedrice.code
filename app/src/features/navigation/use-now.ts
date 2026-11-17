@@ -1,27 +1,58 @@
 // The time now, to the minute, for the words that count time: "seen 13:58" and "2m", and
 // a flag for a time that comes. It is the one minute clock of the app: the header, the
-// menus and Settings read it. A component that shows a time reads it here, never
-// `Date.now()` in render, so a render stays pure and the words change once a minute.
+// menus, Settings and the conversations sheet read it. A component that shows a time
+// reads it here, never `Date.now()` in render, so a render stays pure and the words
+// change once a minute.
+//
+// All readers share one timer: the first reader starts it and the last one stops it, as
+// the second clock of the transcript does (`features/conversation/components/use-now.ts`).
+// So a screen needs no effect for its times.
 
 import { useSyncExternalStore } from "react";
 
 /** How often the minute is checked. */
-const TICK_MS = 15_000;
+export const TICK_MS = 15_000;
 
 const MINUTE_MS = 60_000;
 
-function minuteNow(): number {
-  return Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+const listeners = new Set<() => void>();
+let timer: ReturnType<typeof setInterval> | undefined;
+
+/** `ms` rounded down to the minute. */
+export function minuteOf(ms: number): number {
+  return Math.floor(ms / MINUTE_MS) * MINUTE_MS;
 }
 
-function subscribe(onChange: () => void): () => void {
-  const timer = setInterval(onChange, TICK_MS);
-  return () => clearInterval(timer);
+function tick(): void {
+  for (const listener of listeners) {
+    listener();
+  }
 }
 
-/** The time now in ms since the epoch, rounded down to the minute. */
-export function useNow(): number {
-  return useSyncExternalStore(subscribe, minuteNow);
+/**
+ * Adds a reader of the minute clock. Each reader hears every tick and reads its own
+ * clock again; React renders it only when its minute changed.
+ */
+export function subscribeMinute(listener: () => void): () => void {
+  listeners.add(listener);
+  if (timer === undefined) {
+    timer = setInterval(tick, TICK_MS);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && timer !== undefined) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  };
+}
+
+/**
+ * The time now in ms since the epoch, rounded down to the minute. `clock` gives the time;
+ * a test gives a fake one.
+ */
+export function useNow(clock: () => number = Date.now): number {
+  return useSyncExternalStore(subscribeMinute, () => minuteOf(clock()));
 }
 
 /**
@@ -34,8 +65,8 @@ export function useReached(at: number | undefined): boolean {
       if (at === undefined) {
         return () => undefined;
       }
-      const timer = setTimeout(onChange, Math.max(0, at - Date.now()));
-      return () => clearTimeout(timer);
+      const wait = setTimeout(onChange, Math.max(0, at - Date.now()));
+      return () => clearTimeout(wait);
     },
     () => at === undefined || Date.now() >= at,
   );

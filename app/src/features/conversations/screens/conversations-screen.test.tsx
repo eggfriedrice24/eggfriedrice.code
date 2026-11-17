@@ -176,6 +176,22 @@ describe("the conversations sheet route", () => {
     ]);
   });
 
+  it("moves the times of the rows once a minute while the sheet is open", async () => {
+    let now = NOW;
+    deps = { ...deps, now: () => now };
+    await renderRouter(ROUTES, { initialUrl: "/" });
+    await act(async () => {
+      router.push("/conversations");
+    });
+    await flush();
+    expect(screen.getByLabelText("Why is the fan loud. desktop. 1 minute ago.")).toBeOnTheScreen();
+    now = NOW + 2 * 60_000;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
+    });
+    expect(screen.getByLabelText("Why is the fan loud. desktop. 3 minutes ago.")).toBeOnTheScreen();
+  });
+
   it("asks the machine of the route param first", async () => {
     await renderRouter(ROUTES, { initialUrl: "/" });
     await act(async () => {

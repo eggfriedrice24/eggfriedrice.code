@@ -18,6 +18,7 @@ import { Stack, useRouter } from "expo-router";
 import { useState } from "react";
 
 import { SHEET_SEARCH_BAR } from "@/components/ui/native/sheet-search-bar";
+import { useNow } from "@/features/navigation/use-now";
 import type { ConversationAddress } from "@/lib/query/keys";
 
 import { ConversationsSheet } from "../components/conversations-sheet";
@@ -40,7 +41,8 @@ export interface ConversationsScreenProps {
 export function ConversationsScreen(props: ConversationsScreenProps) {
   const deps = useSheetDeps();
   const router = useRouter();
-  const [now] = useState(deps.now);
+  // The minute clock moves the times of the rows and the age of the offline banner.
+  const now = useNow(deps.now);
   const registered = useSelector(deps.registry, (state) => state.machines);
   const machines = sheetMachines(
     registered.map((machine) => ({ id: machine.id, name: machine.name })),
