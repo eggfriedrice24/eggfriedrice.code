@@ -2007,11 +2007,13 @@ impl Turn {
         let wait = Wait { call_id, answerer: Answerer::Questions, deadline: None, at_once: false };
         let ended = self.wait_for_person(wait, &mut answer).await;
         let interrupted = self.control.interrupt.is_raised();
-        let end = if interrupted {
-            UserAnswer::Interrupted
-        } else {
-            UserAnswer::Unanswered { away: ended.away }
-        };
+        // NOTE: the wait was short also when no client that can answer follows, but
+        // only presence says that the user is away.
+        let away = ended.away
+            && self.shared.deps.presence.presence(self.shared.conversation_id)
+                == efr_protocol::Presence::Away;
+        let end =
+            if interrupted { UserAnswer::Interrupted } else { UserAnswer::Unanswered { away } };
         let unanswered =
             Event::UserQuestionAnswered { turn_id, question_id, answer: end, origin: None };
         let questions = &self.shared.user_questions;
@@ -2020,8 +2022,8 @@ impl Turn {
             Some(reply) => ToolOutcome::ok(ask::replied(&reply, &options)),
             None if interrupted => ToolOutcome::error(NOT_RUN),
             None => {
-                self.unanswered = Some(ended.away);
-                ToolOutcome::error(ask::unanswered(ended.away))
+                self.unanswered = Some(away);
+                ToolOutcome::error(ask::unanswered(away))
             }
         };
         Ok((outcome, interrupted))

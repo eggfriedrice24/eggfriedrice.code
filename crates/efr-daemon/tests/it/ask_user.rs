@@ -216,10 +216,11 @@ async fn a_client_that_cannot_answer_leaves_the_question_to_the_away_wait() {
     pass_the_away_wait(&daemon).await;
     let events = until_end(&mut follow).await;
 
-    assert_eq!(end(&events), Some((UserAnswer::Unanswered { away: true }, None)));
+    // NOTE: the user is there; only no client that can answer follows.
+    assert_eq!(end(&events), Some((UserAnswer::Unanswered { away: false }, None)));
     let read = outputs(&events);
     assert_eq!(read.len(), 1);
-    assert!(read[0].0.starts_with("Nobody answered the question (the user is away)."), "{read:?}");
+    assert!(read[0].0.starts_with("Nobody answered the question. "), "{read:?}");
     assert!(read[0].1);
     drop((follow, client));
     daemon.stop().await.unwrap();

@@ -107,9 +107,9 @@ async fn one_unanswered_question_ends_the_waits_of_the_turn() {
     h.clock.advance(Duration::from_secs(300));
     h.wait_end(turn_id).await;
 
-    assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: true }, false));
+    assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: false }, false));
     assert_eq!(count(&h, "user_question_requested").await, 1, "the second asks nobody");
-    let unanswered = (ask::unanswered(true), true);
+    let unanswered = (ask::unanswered(false), true);
     assert_eq!(script.results(), vec![unanswered.clone(), unanswered]);
 }
 

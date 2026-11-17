@@ -381,7 +381,8 @@ async fn wake_turn_runs_in_cautious_and_asks() {
 
 /// The model's question in a wake turn: its text starts with the words of a notice
 /// turn, and with no client that can answer it, it waits the away wait and the model
-/// goes on with the text for an away user.
+/// goes on with the text of an unanswered question. The user is not away, so the text
+/// does not say so.
 #[tokio::test]
 async fn a_wake_turn_asks_and_with_nobody_there_waits_the_away_wait() {
     let ask = (
@@ -404,7 +405,7 @@ async fn a_wake_turn_asks_and_with_nobody_there_waits_the_away_wait() {
     h.wait_end(woke).await;
 
     let results = script.results();
-    assert_eq!(results.last(), Some(&(crate::ask::unanswered(true), true)));
+    assert_eq!(results.last(), Some(&(crate::ask::unanswered(false), true)));
 }
 
 #[tokio::test]

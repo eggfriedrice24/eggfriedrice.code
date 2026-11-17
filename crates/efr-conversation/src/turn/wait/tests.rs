@@ -105,8 +105,9 @@ async fn a_question_that_nobody_can_answer_waits_the_away_wait_then_ends() {
     h.clock.advance(Duration::from_secs(1));
     h.wait_end(turn_id).await;
 
-    assert_eq!(script.results(), vec![(ask::unanswered(true), true)]);
-    assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: true }, false));
+    // NOTE: the user is present; only no client that can answer follows.
+    assert_eq!(script.results(), vec![(ask::unanswered(false), true)]);
+    assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: false }, false));
     assert_eq!(h.presence.pushed(), vec![call_id], "one push per question");
 }
 
@@ -114,11 +115,12 @@ async fn a_question_that_nobody_can_answer_waits_the_away_wait_then_ends() {
 async fn an_away_user_gets_the_away_wait_even_with_a_client_that_follows() {
     let setup = Setup::new();
     setup.presence.set_away(true);
-    let (mut h, script, turn_id, _) = asked(setup, vec![ask_db()], true).await;
+    let (mut h, script, turn_id, question_id) = asked(setup, vec![ask_db()], true).await;
     h.clock.wait_for_sleeps(1).await;
     h.clock.advance(Duration::from_secs(300));
     h.wait_end(turn_id).await;
     assert_eq!(script.results(), vec![(ask::unanswered(true), true)]);
+    assert_eq!(ended(&h, question_id).await, (UserAnswer::Unanswered { away: true }, false));
 }
 
 #[tokio::test]
@@ -156,7 +158,7 @@ async fn a_client_that_leaves_starts_the_away_wait_from_then() {
     assert!(!h.has_ended(turn_id), "the away wait starts when efr sees nobody");
     h.clock.advance(Duration::from_secs(1));
     h.wait_end(turn_id).await;
-    assert_eq!(script.results(), vec![(ask::unanswered(true), true)]);
+    assert_eq!(script.results(), vec![(ask::unanswered(false), true)], "the user is not away");
 }
 
 #[tokio::test]
