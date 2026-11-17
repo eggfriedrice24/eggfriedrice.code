@@ -9,7 +9,7 @@ export const SPACING_UNIT = 1;
 
 /** Named distances of the design. */
 export const SPACING = {
-  /** Side padding of the transcript, the strip and the rows of the sheet. */
+  /** Side padding of the transcript, the strip and the section headers of the sheet. */
   gutter: 20,
   /** The gap between transcript items and tool blocks (design item 8.3). */
   item: 12,
@@ -96,9 +96,9 @@ export const CURSOR = {
 export const BRAILLE = {
   /** Inline: tool status, the running line and the thought row. */
   inline: { width: 7, height: 13 },
-  /** The composer Send button and the rows of the sheet. */
+  /** The composer Send button and the quiet lines of the conversations sheet. */
   row: { width: 8, height: 15 },
-  /** The Allow button while it sends. */
+  /** The Allow button while it sends, and the icon of a running row of the sheet. */
   button: { width: 9, height: 17 },
 } as const;
 

@@ -117,6 +117,17 @@
   font-weight: 600;
 }
 
+@utility text-row-detail {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+@utility text-section-header {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
 @utility text-title {
   font-size: 15px;
   line-height: 20px;

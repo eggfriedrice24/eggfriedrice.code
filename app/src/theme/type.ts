@@ -38,8 +38,15 @@ export const TYPE = {
   input: { fontSize: 15, lineHeight: 21 },
   /** Titles and values of Settings rows, titles of sheet rows and the search text. */
   row: { fontSize: 15, lineHeight: 20 },
-  /** The name of the selected row of the model sheet (S-ModelSheet). */
+  /**
+   * The name of the selected row of the model sheet (S-ModelSheet), the title of a sheet
+   * row that needs you and the words of a search in a title (S-Rows).
+   */
   rowStrong: { fontSize: 15, lineHeight: 20, ...semibold },
+  /** The second line and the time of a row of the conversations sheet (S-Rows). */
+  rowDetail: { fontSize: 13, lineHeight: 18 },
+  /** The section headers of the conversations sheet (S-Rows, SH-Large). */
+  sectionHeader: { fontSize: 13, lineHeight: 18, ...semibold },
   /** The header title of a conversation. */
   title: { fontSize: 15, lineHeight: 20, ...semibold },
   /** The approval reason and the text of the forget action sheet. */
@@ -77,13 +84,16 @@ export const TYPE = {
   // SF Mono.
   /** The minimum: tool and approval headers, output, the status line, hints and tags. */
   monoXs: { fontSize: 11, lineHeight: 16, ...mono },
-  /** The turn end line and the section headers of the sheet. */
+  /** The turn end line. */
   monoXsTight: { fontSize: 11, lineHeight: 15, ...mono },
   /** Diff lines. */
   monoDiff: { fontSize: 11, lineHeight: 17, ...mono },
   /** "✓ paired", the line above a pairing error and the scanner hint. */
   monoSm: { fontSize: 12, lineHeight: 17, ...mono },
-  /** Code block bodies, and inline mono inside the approval reason. */
+  /**
+   * Code block bodies, inline mono inside the approval reason, and the folder in the
+   * second line of a sheet row (S-Rows).
+   */
   monoCode: { fontSize: 12, lineHeight: 18, ...mono },
   /** Inline code in Markdown. It takes the line height of its paragraph. */
   monoInline: { fontSize: 12.5, ...mono },

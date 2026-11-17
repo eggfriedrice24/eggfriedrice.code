@@ -1,9 +1,10 @@
-// The body of the conversations sheet (design-spec 3.15, board R-AllSheet): two panes
-// under the native search bar of the screen. Every paired machine is in it; the waiting
-// conversations are in their own section on top, then today, this week and older, newest
-// first. The search bar and the compose button ("New conversation") are native parts of
-// the screen, in the bottom toolbar of iOS 26 (the hard rule of app/AGENTS.md, as the
-// thread list of t3code), so this view draws neither.
+// The body of the conversations sheet (boards SH-Large and SH-Search): two panes under
+// the native search bar of the screen. Every paired machine is in it. "Needs you" and
+// "Running" lead, then Today, Yesterday, This week and Older, newest first. While the
+// field has text, one "3 results" section takes their place. The search bar and the
+// compose button ("New conversation") are native parts of the screen, in the bottom
+// toolbar of iOS 26 (the hard rule of app/AGENTS.md, as the thread list of t3code), so
+// this view draws neither.
 //
 // - Sections pane: the empty search of each machine (`sheetQueriesOptions` with ""),
 //   which the persister keeps, so the sheet shows rows before the machines connect.
@@ -22,7 +23,7 @@ import type { ConversationAddress } from "@/lib/query/keys";
 import type { MachineCaller } from "@/lib/query/machine-caller";
 
 import { sheetQueriesOptions } from "../conversations-queries";
-import { mergeConversationLists, sheetSections } from "../model/sheet-sections";
+import { mergeConversationLists, sheetSections, type RowContext } from "../model/sheet-sections";
 import {
   SEARCH_DEBOUNCE_MS,
   failedText,
@@ -59,17 +60,11 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
   const loaded = useQueries(sheetQueriesOptions(props.caller, ids, ""));
   const found = useQueries(sheetQueriesOptions(props.caller, searching ? ids : [], searched));
 
-  const machineName = machineNameOf(props.machines);
+  const context: RowContext = { machineName: machineNameOf(props.machines), now: props.now };
   const sections: SheetListSection[] = sheetSections(
     mergeConversationLists(loaded.lists),
-    machineName,
-    props.now,
-  ).map((section) => ({
-    key: section.kind,
-    title: section.title,
-    waiting: section.kind === "waiting",
-    rows: section.rows,
-  }));
+    context,
+  ).map((section) => ({ key: section.kind, title: section.title, rows: section.rows }));
   const sectionRows = sections.reduce((count, section) => count + section.rows.length, 0);
 
   const pane = sheetPane(typed);
@@ -80,14 +75,13 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
           found: found.lists,
           text: typed,
           searched,
-          machineName,
-          now: props.now,
+          context,
         })
       : [];
   const resultSections: SheetListSection[] =
     results.length === 0
       ? []
-      : [{ key: "results", title: resultsTitle(results.length), waiting: false, rows: results }];
+      : [{ key: "results", title: resultsTitle(results.length), rows: results }];
 
   return (
     // The views keep their place (`collapsable={false}`), so a list is never a direct

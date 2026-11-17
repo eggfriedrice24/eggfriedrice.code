@@ -1,40 +1,25 @@
-// The sticky section header of the All conversations sheet (design 3.15): mono 11/15 in
-// text_subtle with a hairline under it, such as "today" or "this week". The waiting
-// section is yolk and shows its count: "waiting · 2". It has the sheet background, so
-// the rows do not show through it while it sticks.
+// The section header of the All conversations sheet (S-Rows "Sections", SH-Large): SF Pro
+// 13/18 semibold in text_subtle, sentence case, such as "Needs you" or "Today". It is
+// plain: no hairline and no fill of its own. It sticks while its rows scroll, and its
+// background is the surface_1 of the sheet, so it shows no band at rest and the rows do
+// not show through it while it sticks.
 
 import { Text, View } from "react-native";
 
-import { cn } from "./cn";
-import { Hairline } from "./hairline";
-
 export interface SectionHeaderProps {
   readonly title: string;
-  /** The number of rows, shown after the title as "· n". */
-  readonly count?: number;
-  /** True for the waiting section, in yolk. */
-  readonly waiting?: boolean;
 }
 
-/** The text of a section header: "waiting · 2", or the title alone. */
-export function sectionHeaderText(title: string, count: number | undefined): string {
-  return count === undefined ? title : `${title} · ${String(count)}`;
-}
-
-/** A sticky section header. */
+/** A sticky, plain section header. */
 export function SectionHeader(props: SectionHeaderProps) {
   return (
     <View className="bg-surface-1">
       <Text
         accessibilityRole="header"
-        className={cn(
-          "px-gutter pt-14 pb-6 text-mono-xs-tight",
-          props.waiting === true ? "text-accent-primary" : "text-text-subtle",
-        )}
+        className="px-gutter pt-16 pb-6 text-section-header text-text-subtle"
       >
-        {sectionHeaderText(props.title, props.count)}
+        {props.title}
       </Text>
-      <Hairline />
     </View>
   );
 }

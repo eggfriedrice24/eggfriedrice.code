@@ -1,7 +1,7 @@
-// The conversations sheet (plan 2.5, design-spec 3.15, board R-AllSheet), the one place
-// to switch conversations: the title of the bar opens it. The root stack presents it as
-// a formSheet with the detents [0.5, 1] and the grabber, and gives it an opaque bar
-// (CONVERSATIONS_OPTIONS); it opens at the medium detent.
+// The conversations sheet (plan 2.5, boards SH-Large, SH-Medium and S-Rows), the one
+// place to switch conversations: the title of the bar opens it. The root stack presents
+// it as a formSheet with the detents [0.5, 1] and the grabber, and gives it an opaque
+// bar (CONVERSATIONS_OPTIONS); it opens at the medium detent.
 //
 // - Header: the native title "All conversations" in the system size (design item 8.4),
 //   on surface_1 with no hairline, and the close button (UIBarButtonItem, xmark) on the

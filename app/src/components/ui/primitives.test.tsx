@@ -10,7 +10,7 @@ import { Dot } from "./dot";
 import { Hairline } from "./hairline";
 import { LIQUID_GLASS, Material } from "./material";
 import { MonoText } from "./mono-text";
-import { SectionHeader, sectionHeaderText } from "./section-header";
+import { SectionHeader } from "./section-header";
 import { SymbolIcon } from "./symbol";
 
 const HIDDEN = { includeHiddenElements: true } as const;
@@ -56,18 +56,18 @@ describe("the dot", () => {
 });
 
 describe("the hairline", () => {
-  it("is 0.5 pt of border_subtle, and can start 16 or 20 pt in", async () => {
+  it("is 0.5 pt of border_subtle, and can start 16 or 52 pt in", async () => {
     await render(
       <View>
         <Hairline />
         <Hairline inset="inset" />
-        <Hairline inset="gutter" grow />
+        <Hairline inset="row" grow />
       </View>,
     );
-    const [full, inset, gutter] = screen.getAllByTestId("hairline", HIDDEN);
+    const [full, inset, row] = screen.getAllByTestId("hairline", HIDDEN);
     expect(full?.props.className).toBe("h-hairline bg-border-subtle");
     expect(inset?.props.className).toBe("h-hairline bg-border-subtle ml-inset");
-    expect(gutter?.props.className).toBe("h-hairline bg-border-subtle ml-gutter flex-1");
+    expect(row?.props.className).toBe("h-hairline bg-border-subtle ml-52 flex-1");
   });
 });
 
@@ -84,24 +84,12 @@ describe("the symbol", () => {
 });
 
 describe("the section header", () => {
-  it("shows the count of the waiting section", () => {
-    expect(sectionHeaderText("waiting", 2)).toBe("waiting · 2");
-    expect(sectionHeaderText("today", undefined)).toBe("today");
-  });
-
-  it("is a header in yolk for the waiting section", async () => {
-    await render(<SectionHeader title="waiting" count={2} waiting />);
-    const header = screen.getByRole("header", { name: "waiting · 2" });
-    expect(header.props.className).toContain("text-accent-primary");
-    expect(header.props.className).toContain("text-mono-xs-tight");
-  });
-
-  it("is quiet for the other sections, with a hairline under it", async () => {
-    await render(<SectionHeader title="this week" />);
-    expect(screen.getByRole("header", { name: "this week" }).props.className).toContain(
-      "text-text-subtle",
-    );
-    expect(screen.getByTestId("hairline", HIDDEN)).toBeOnTheScreen();
+  it("is a plain header in SF Pro 13 semibold, text_subtle, with no line", async () => {
+    await render(<SectionHeader title="Needs you" />);
+    const header = screen.getByRole("header", { name: "Needs you" });
+    expect(header.props.className).toContain("text-section-header");
+    expect(header.props.className).toContain("text-text-subtle");
+    expect(screen.queryByTestId("hairline", HIDDEN)).toBeNull();
   });
 });
 

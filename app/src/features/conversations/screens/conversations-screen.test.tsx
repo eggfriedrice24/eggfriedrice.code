@@ -168,8 +168,8 @@ describe("the conversations sheet route", () => {
     });
     await flush();
     expect(screen).toHavePathname("/conversations");
-    expect(screen.getByLabelText("Why is the fan loud, desktop · 1m")).toBeOnTheScreen();
-    expect(screen.getByLabelText("Set up restic backups, laptop · 1m")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Why is the fan loud. desktop. 1 minute ago.")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Set up restic backups. laptop. 1 minute ago.")).toBeOnTheScreen();
     expect(caller.callsOf("conversations.search").map((call) => call.machine)).toEqual([
       DESKTOP,
       LAPTOP,
@@ -194,7 +194,7 @@ describe("the conversations sheet route", () => {
       router.push("/conversations");
     });
     await flush();
-    await fireEvent.press(screen.getByLabelText("Set up restic backups, laptop · 1m"));
+    await fireEvent.press(screen.getByLabelText("Set up restic backups. laptop. 1 minute ago."));
     await flush();
     expect(opened).toEqual([{ machine: LAPTOP, id: "restic" }]);
   });
@@ -249,7 +249,7 @@ describe("the conversations sheet on the services of the app", () => {
       router.push("/conversations");
     });
     await flush();
-    await fireEvent.press(screen.getByLabelText(/^Why is the fan loud, desktop/));
+    await fireEvent.press(screen.getByLabelText(/^Why is the fan loud\. desktop\./));
     await flush();
     expect(screen).toHavePathname(`/c/${MACHINE}/${PICKED}`);
     await act(async () => {

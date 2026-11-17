@@ -34,7 +34,7 @@ export interface WaitingConversation {
 /**
  * What the strip shows. `one`: "Approval waiting · machine · title", and a tap opens
  * that conversation at its approval. `many`: "N approvals waiting", and a tap opens the
- * sheet with the waiting section on top. `count` counts conversations.
+ * sheet with its Needs you section on top. `count` counts conversations.
  */
 export type ApprovalsElsewhere =
   | { readonly kind: "none" }

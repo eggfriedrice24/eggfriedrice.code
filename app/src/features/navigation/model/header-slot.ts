@@ -3,8 +3,8 @@
 //
 // - One approval in another conversation: "Approval waiting · machine · title", and a tap
 //   opens that conversation at its approval.
-// - Two or more: "2 approvals waiting", and a tap opens the sheet with the waiting section
-//   on top (iOS cannot open a menu from code).
+// - Two or more: "2 approvals waiting", and a tap opens the sheet with its Needs you
+//   section on top (iOS cannot open a menu from code).
 // - Else, when the machine of the screen has no connection: the offline line, such as
 //   "laptop offline · seen 13:58 · retrying". It is quiet and takes no tap.
 // - An approval strip wins the slot over the offline line.

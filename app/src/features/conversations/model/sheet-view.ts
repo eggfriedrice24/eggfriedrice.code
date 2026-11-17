@@ -1,7 +1,7 @@
-// What the All conversations sheet shows besides its sections (design-spec section 3.15,
-// board R-AllSheet): the rows of the results pane while the search field has text, the
-// quiet lines of its empty, loading and failed states, and the order of the machines.
-// Pure, for the tests.
+// What the All conversations sheet shows besides its sections (boards SH-Search and
+// S-Rows): the rows of the results pane while the search field has text, the quiet lines
+// of its empty, loading and failed states, and the order of the machines. Pure, for the
+// tests.
 //
 // The search has two sources, so that a row shows at once and a deep hit follows:
 //
@@ -12,6 +12,7 @@
 //   conversations. Its rows come first, best first, once the debounced text is the
 //   typed text. The local rows that efrd did not give follow, newest first.
 
+import { searchWords } from "@/lib/text/search-words";
 import type { ConversationItem } from "./conversation-item";
 import {
   filterConversations,
@@ -19,6 +20,7 @@ import {
   searchResultRows,
   sheetRow,
   type MachineName,
+  type RowContext,
   type SheetRow,
 } from "./sheet-sections";
 
@@ -43,37 +45,38 @@ export interface SearchPaneInput {
   readonly text: string;
   /** The debounced text that `found` is for. */
   readonly searched: string;
-  readonly machineName: MachineName;
-  readonly now: number;
+  /** The context of the rows; the words of the search come from `text`. */
+  readonly context: RowContext;
 }
 
 /**
  * The rows of the results pane: the rows of efrd first (only when they are for the
  * text that is typed now), then the loaded rows that match the text and that efrd did
- * not give. Each conversation shows once.
+ * not give. Each conversation shows once. Each title shows the words of the text.
  */
 export function searchPaneRows(input: SearchPaneInput): SheetRow[] {
+  const context: RowContext = { ...input.context, words: searchWords(input.text) };
   const current = input.searched.trim() === input.text.trim();
-  const rows = current ? searchResultRows(input.found, input.machineName, input.now) : [];
+  const rows = current ? searchResultRows(input.found, context) : [];
   const shown = new Set(rows.map((row) => `${row.machine}:${row.id}`));
   const local = filterConversations(
     mergeConversationLists(input.loaded),
     input.text,
-    input.machineName,
+    context.machineName,
   );
   for (const item of local) {
     const key = `${item.machine}:${item.id}`;
     if (!shown.has(key)) {
       shown.add(key);
-      rows.push(sheetRow(item, input.machineName, input.now));
+      rows.push(sheetRow(item, context));
     }
   }
   return rows;
 }
 
-/** The header of the results pane: `results · 3`. */
+/** The header of the results pane (SH-Search): `3 results`, or `1 result`. */
 export function resultsTitle(count: number): string {
-  return `results · ${String(count)}`;
+  return count === 1 ? "1 result" : `${String(count)} results`;
 }
 
 /**

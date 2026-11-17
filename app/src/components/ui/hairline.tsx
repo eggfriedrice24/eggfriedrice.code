@@ -6,13 +6,16 @@ import { View } from "react-native";
 
 import { cn } from "./cn";
 
-/** Where the line starts: at the edge, 16 pt in (Settings rows) or 20 pt in (sheet rows). */
-export type HairlineInset = "none" | "inset" | "gutter";
+/**
+ * Where the line starts: at the edge, 16 pt in (Settings rows), or 52 pt in, under the
+ * text of a row of the conversations sheet and past its icon column (S-Rows).
+ */
+export type HairlineInset = "none" | "inset" | "row";
 
 const INSET_CLASS = {
   none: "",
   inset: "ml-inset",
-  gutter: "ml-gutter",
+  row: "ml-52",
 } as const satisfies Record<HairlineInset, string>;
 
 export interface HairlineProps {

@@ -175,13 +175,15 @@ Settings and New (`+`) at the right. New goes back to the blank root.
 
 ### Find a conversation
 
-- Tap the title of the bar. A sheet opens with the conversations of every machine: the
-  ones that wait for an answer, today, this week and older. Pull it up to see more. The
-  search bar at the bottom finds a conversation by its title, its machine or its
-  directory, and then asks efrd. The button next to it (a pencil) starts a new
-  conversation.
+- Tap the title of the bar. A sheet opens with the conversations of every machine:
+  "Needs you" (they wait for an approval) and "Running" come first, then Today,
+  Yesterday, This week and Older. Each row shows the title, the status, the machine, the
+  last folder of the directory and the time of the last activity. Pull the sheet up to
+  see more. The search bar at the bottom finds a conversation by its title, its machine
+  or its directory, and then asks efrd. The words that you search for are bold in the
+  titles. The button next to it (a pencil) starts a new conversation.
 - Tap a row to open the conversation. The sheet closes.
-- Touch and hold a row of the sheet to copy its title or its id.
+- Touch and hold a row of the sheet for Open and Copy ID.
 
 The app keeps at most 8 conversations on its stack. A conversation that is on the stack
 opens where it is. Touch and hold the back button to see the stack.

@@ -17,7 +17,10 @@ import { cn } from "./cn";
 import { BRAILLE_STILL, brailleDots, brailleTable } from "./loops";
 import { useLoopClock } from "./use-loop-clock";
 
-/** The size: inline (7 x 13), row (8 x 15, Send and sheet rows), button (9 x 17, Allow). */
+/**
+ * The size: inline (7 x 13), row (8 x 15, Send), button (9 x 17, Allow and a running row
+ * of the conversations sheet).
+ */
 export type BrailleSize = keyof typeof BRAILLE;
 
 /** Who works: efr (yolk), the network (text_muted), or a yolk button (text_on_accent). */

@@ -1,6 +1,6 @@
-// The yolk dot of an approval (design sections 2, 3.11 and 3.15): 7 pt on the header
-// title and in the strip, 8 pt in an approval block and in a sheet row. It always sits
-// next to words that say the same, so colour is never the only signal.
+// The yolk dot of an approval (design sections 2 and 3.11): 7 pt on the header title and
+// in the strip, 8 pt in an approval block. It always sits next to words that say the
+// same, so colour is never the only signal.
 
 import { View } from "react-native";
 

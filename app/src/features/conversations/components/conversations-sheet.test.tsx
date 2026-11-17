@@ -19,7 +19,7 @@ import { SEARCH_LIMIT } from "../conversations-queries";
 import { october } from "../model/testing";
 import { SEARCH_DEBOUNCE_MS } from "../model/sheet-view";
 import { ConversationsSheet, type ConversationsSheetProps } from "./conversations-sheet";
-import { ROW_GLYPHS } from "./sheet-row";
+import { ROW_SYMBOLS } from "./sheet-row";
 
 jest.mock("@/lib/native/clipboard", () => ({
   copyText: jest.fn(() => Promise.resolve(true)),
@@ -62,7 +62,7 @@ function result(conversations: readonly Conversation[]): ConversationsSearchResu
   };
 }
 
-// The sample of board R-AllSheet, in part.
+// The sample of board SH-Large, in part.
 const RECENT: Readonly<Record<string, readonly Conversation[]>> = {
   d: [
     {
@@ -162,7 +162,7 @@ async function type(text: string): Promise<void> {
 function rowTitles(pane: string): string[] {
   return within(screen.getByTestId(pane))
     .getAllByTestId("sheet-row")
-    .map((row) => String(row.props.accessibilityLabel).split(", ")[0] ?? "");
+    .map((row) => String(row.props.accessibilityLabel).split(". ")[0] ?? "");
 }
 
 beforeEach(() => {
@@ -178,53 +178,63 @@ afterEach(() => {
 });
 
 describe("the sections of the sheet", () => {
-  it("puts the waiting ones of every machine on top, then today and older", async () => {
+  it("leads with Needs you and Running of every machine, then the days", async () => {
     const caller = await renderSheet();
     expect(caller.callsOf("conversations.search").map((call) => call.machine)).toEqual(["d", "l"]);
-    expect(screen.getByText("waiting · 2")).toBeOnTheScreen();
-    expect(screen.getByText("today")).toBeOnTheScreen();
-    expect(screen.getByText("this week")).toBeOnTheScreen();
-    expect(screen.getByText("older")).toBeOnTheScreen();
+    expect(screen.getAllByRole("header").map((header) => String(header.props.children))).toEqual([
+      "Needs you",
+      "Running",
+      "Today",
+      "Yesterday",
+      "Older",
+    ]);
     expect(rowTitles("sheet-sections")).toEqual([
       "Fix steer race in turn loop",
       "Prune old btrfs snapshots",
-      "Why is the fan loud",
       "Migrate session store to SQLite",
+      "Why is the fan loud",
       "Set up restic backups",
       "Clean up old docker images",
     ]);
   });
 
-  it("draws a row with its status word, machine, cwd and time", async () => {
+  it("draws a row with its status word, machine, folder and time", async () => {
     await renderSheet();
     const waiting = screen.getByLabelText(
-      "Fix steer race in turn loop, needs approval · desktop · ~/code/efr",
+      "Fix steer race in turn loop. Needs approval. desktop, efr. 20 minutes ago.",
     );
-    expect(waiting).toBeOnTheScreen();
-    expect(within(waiting).getByText("needs approval")).toBeOnTheScreen();
-    expect(screen.getByLabelText("Why is the fan loud, desktop · ~ · 2m")).toBeOnTheScreen();
+    expect(within(waiting).getByText("needs approval").props.className).toBe("text-accent-primary");
+    expect(within(waiting).getByText("efr").props.className).toBe("text-mono-code");
+    expect(within(waiting).getByText("20m")).toBeOnTheScreen();
+    expect(within(waiting).getByText("Fix steer race in turn loop").props.className).toBe(
+      "text-row-strong text-text-bright",
+    );
+    const fan = screen.getByLabelText("Why is the fan loud. desktop, ~. 2 minutes ago.");
+    expect(within(fan).getByText("Why is the fan loud").props.className).toBe(
+      "text-row text-text-primary",
+    );
+    expect(within(fan).getByText("2m")).toBeOnTheScreen();
     expect(
-      screen.getByLabelText("Set up restic backups, laptop · ~ · yesterday"),
+      screen.getByLabelText("Set up restic backups. laptop, ~. Yesterday at 20:00."),
     ).toBeOnTheScreen();
+    expect(screen.getByText("20:00")).toBeOnTheScreen();
+    expect(screen.getByText("Oct 19")).toBeOnTheScreen();
   });
 
-  it("gives each row an SF Symbol of its status, yolk for waiting and running", async () => {
+  it("gives each row the icon of its status, yolk for waiting and running", async () => {
     await renderSheet();
     const hidden = { includeHiddenElements: true } as const;
-    expect(screen.getAllByTestId("row-glyph-approval", hidden)).toHaveLength(2);
-    expect(screen.getAllByTestId("row-glyph-running", hidden)).toHaveLength(1);
-    expect(screen.getAllByTestId("row-glyph-none", hidden).length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("row-icon-approval", hidden)).toHaveLength(2);
+    expect(screen.getAllByTestId("row-icon-running", hidden)).toHaveLength(1);
+    expect(screen.getAllByTestId("row-icon-none", hidden)).toHaveLength(3);
     const migrate = screen.getByLabelText(
-      "Migrate session store to SQLite, running · desktop · ~/code/efr",
+      "Migrate session store to SQLite. Running. desktop, efr. 3 minutes ago.",
     );
-    expect(within(migrate).getByLabelText("Running")).toBeOnTheScreen();
-    expect(ROW_GLYPHS.approval).toEqual({
-      name: "exclamationmark.circle.fill",
-      tone: "accent_primary",
-      label: "Needs approval",
+    expect(within(migrate).getByText("3m")).toBeOnTheScreen();
+    expect(ROW_SYMBOLS).toEqual({
+      approval: { name: "exclamationmark.circle.fill", size: 19, tone: "accent_primary" },
+      none: { name: "bubble.left", size: 17, tone: "border_subtle" },
     });
-    expect(ROW_GLYPHS.running.tone).toBe("accent_primary");
-    expect(ROW_GLYPHS.none.tone).toBe("text_subtle");
   });
 
   it("shows the loading line while no machine has answered", async () => {
@@ -263,7 +273,7 @@ describe("the search of the sheet", () => {
   it("filters the loaded rows at once by machine, before efrd answers", async () => {
     const caller = await renderSheet();
     await type("laptop");
-    expect(screen.getByText("results · 2")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "2 results" })).toBeOnTheScreen();
     expect(rowTitles("sheet-results")).toEqual([
       "Prune old btrfs snapshots",
       "Set up restic backups",
@@ -292,6 +302,10 @@ describe("the search of the sheet", () => {
     ]);
     expect(rowTitles("sheet-results")).toEqual(["Tune the curve", "Why is the fan loud"]);
     expect(screen.queryByLabelText("searching")).toBeNull();
+    // The word of the search is text_bright semibold in the title; a deep hit has none.
+    const fan = screen.getByLabelText("Why is the fan loud. desktop, ~. 2 minutes ago.");
+    expect(within(fan).getByText("fan").props.className).toBe("text-row-strong text-text-bright");
+    expect(within(screen.getByTestId("sheet-results")).queryAllByText("curve")).toEqual([]);
   });
 
   it("asks efrd once for a word typed in quick keys", async () => {
@@ -313,7 +327,7 @@ describe("the search of the sheet", () => {
     await type("kernel");
     await flush(SEARCH_DEBOUNCE_MS);
     expect(screen.getByText("no conversations match")).toBeOnTheScreen();
-    expect(screen.queryByText(/^results/)).toBeNull();
+    expect(screen.queryByText(/results?$/)).toBeNull();
   });
 
   it("shows the sections again when the field is cleared", async () => {
@@ -321,7 +335,7 @@ describe("the search of the sheet", () => {
     await type("laptop");
     expect(screen.queryByTestId("sheet-sections")).toBeNull();
     await type("");
-    expect(screen.getByText("waiting · 2")).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Needs you" })).toBeOnTheScreen();
     expect(screen.queryByTestId("sheet-results")).toBeNull();
   });
 });
@@ -330,12 +344,15 @@ describe("a row of the sheet", () => {
   it("opens its conversation, with its machine", async () => {
     const onOpen = jest.fn<(ref: ConversationAddress) => void>();
     await renderSheet({ onOpen });
-    await fireEvent.press(screen.getByLabelText("Set up restic backups, laptop · ~ · yesterday"));
+    await fireEvent.press(
+      screen.getByLabelText("Set up restic backups. laptop, ~. Yesterday at 20:00."),
+    );
     expect(onOpen).toHaveBeenCalledWith({ machine: "l", id: "restic" });
   });
 
-  it("opens its menu on a long press, and copies the title or the id", async () => {
-    await renderSheet();
+  it("opens its menu on a long press: Open, and Copy ID", async () => {
+    const onOpen = jest.fn<(ref: ConversationAddress) => void>();
+    await renderSheet({ onOpen });
     const native = screen
       .getAllByTestId("menu-view")
       .find((element) => element.props.title === "Why is the fan loud");
@@ -344,21 +361,23 @@ describe("a row of the sheet", () => {
     }
     expect(native.props.shouldOpenOnLongPress).toBe(true);
     expect(native.props.actions.map((action: { title: string }) => action.title)).toEqual([
-      "Copy title",
-      "Copy conversation ID",
+      "Open",
+      "Copy ID",
     ]);
-    await fireEvent(native, "pressAction", { nativeEvent: { event: "copy-title" } });
     await fireEvent(native, "pressAction", { nativeEvent: { event: "copy-id" } });
-    expect(jest.mocked(copyText).mock.calls).toEqual([["Why is the fan loud"], ["fan"]]);
+    expect(jest.mocked(copyText).mock.calls).toEqual([["fan"]]);
     expect(haptic).toHaveBeenCalledWith("light");
+    await fireEvent(native, "pressAction", { nativeEvent: { event: "open" } });
+    expect(onOpen).toHaveBeenCalledWith({ machine: "d", id: "fan" });
   });
 
-  it("gives VoiceOver the two copy actions", async () => {
+  it("gives VoiceOver the actions of the menu, and says that it has them", async () => {
     await renderSheet();
-    const row = screen.getByLabelText("Why is the fan loud, desktop · ~ · 2m");
+    const row = screen.getByLabelText("Why is the fan loud. desktop, ~. 2 minutes ago.");
+    expect(row.props.accessibilityHint).toBe("Swipe up or down for actions.");
     expect(row.props.accessibilityActions).toEqual([
-      { name: "copy-title", label: "Copy title" },
-      { name: "copy-id", label: "Copy conversation ID" },
+      { name: "open", label: "Open" },
+      { name: "copy-id", label: "Copy ID" },
     ]);
     await fireEvent(row, "accessibilityAction", { nativeEvent: { actionName: "copy-id" } });
     expect(copyText).toHaveBeenCalledWith("fan");

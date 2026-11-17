@@ -1,7 +1,8 @@
-// The list of the All conversations sheet (design-spec 3.15, a plain list): no cell
-// backgrounds, sticky mono section headers, and 0.5 pt separators 20 pt in. The sheet
-// holds at most a few hundred rows (the recent lists of the paired machines), so the
-// SectionList of React Native is enough; its sticky headers are native on iOS.
+// The list of the All conversations sheet (boards S-Rows and SH-Large, a plain list): no
+// cell backgrounds, plain section headers that stick, and 0.5 pt separators 52 pt in,
+// between the rows of a section only. The sheet holds at most a few hundred rows (the
+// recent lists of the paired machines), so the SectionList of React Native is enough; its
+// sticky headers are native on iOS.
 //
 // The quiet line of the pane (loading, searching, empty) and the line of the machines
 // that did not answer come after the rows.
@@ -22,10 +23,8 @@ import { SheetRow } from "./sheet-row";
 export interface SheetListSection {
   /** A key that stays the same while the section is on screen, such as `today`. */
   readonly key: string;
-  /** The header text, such as `waiting · 2` or `results · 3`. */
+  /** The header text, such as `Needs you` or `3 results`. */
   readonly title: string;
-  /** True for the waiting section: the header is yolk. */
-  readonly waiting: boolean;
   readonly rows: readonly SheetRowModel[];
 }
 
@@ -41,7 +40,6 @@ export interface SheetListProps {
 interface ListSection {
   readonly key: string;
   readonly title: string;
-  readonly waiting: boolean;
   readonly data: readonly SheetRowModel[];
 }
 
@@ -54,7 +52,6 @@ export function SheetList(props: SheetListProps) {
   const sections: ListSection[] = props.sections.map((section) => ({
     key: section.key,
     title: section.title,
-    waiting: section.waiting,
     data: section.rows,
   }));
   const onOpen = props.onOpen;
@@ -67,7 +64,7 @@ export function SheetList(props: SheetListProps) {
         section,
       }: {
         section: SectionListData<SheetRowModel, ListSection>;
-      }) => <SectionHeader title={section.title} waiting={section.waiting} />}
+      }) => <SectionHeader title={section.title} />}
       ItemSeparatorComponent={RowSeparator}
       ListFooterComponent={<SheetFooter notice={props.notice} failed={props.failed} />}
       stickySectionHeadersEnabled
@@ -82,7 +79,7 @@ export function SheetList(props: SheetListProps) {
 }
 
 function RowSeparator() {
-  return <Hairline inset="gutter" />;
+  return <Hairline inset="row" />;
 }
 
 interface SheetFooterProps {

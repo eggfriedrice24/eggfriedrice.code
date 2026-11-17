@@ -114,6 +114,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- The rows of the conversations sheet of the phone app follow the design: the title,
+  then the status, the machine and the last folder of the directory on a quieter
+  line, and the time on the right of every row (`now`, `12m`, `3h`, `18:40` for
+  yesterday, `Tue`, `Oct 12`, `Oct 12, 2025`). A running conversation shows the braille
+  loader. The sections are "Needs you", "Running", "Today", "Yesterday", "This week"
+  and "Older", and the search shows "3 results" with the words in bold in the titles.
+  A long press on a row gives Open and Copy ID; "Copy title" is gone.
 - The approval sheet and the quarantine sheet of the phone app show the native header
   with Close, and Next after a question closed while more wait. Deny, Allow and Leave
   stay the large buttons of the sheet. "Use default" of the model sheet moved to the

@@ -12,6 +12,8 @@ export const TYPE_CLASS = {
   input: "text-input",
   row: "text-row",
   rowStrong: "text-row-strong",
+  rowDetail: "text-row-detail",
+  sectionHeader: "text-section-header",
   title: "text-title",
   reason: "text-reason",
   thought: "text-thought",

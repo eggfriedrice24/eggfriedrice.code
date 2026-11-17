@@ -386,9 +386,16 @@ not a test that pretends.
     screen that goes, set just before the reset), and with none when Reduce Motion is
     on.
 23. The conversations sheet: its two sizes, the native search bar and the compose
-    button (New conversation) in the bottom toolbar of iOS 26, the status glyphs, that
-    the list ends above the toolbar, and that a tap on a row closes the sheet and opens
-    the conversation.
+    button (New conversation) in the bottom toolbar of iOS 26, that the list ends above
+    the toolbar, and that a tap on a row closes the sheet and opens the conversation.
+    The rows follow S-Rows: at least 58 pt high, the icon column 24 pt wide (the yolk
+    "!" circle, the yolk braille loader that runs and is still with Reduce Motion, the
+    quiet bubble), the separators 52 pt in, under the text, and the time at the top
+    right of every row. The section headers are plain and stick at the top while their
+    rows scroll, with no band of their own at rest and no rows that show through them.
+    The words of a search are bold in the titles, and a long press shows Open and Copy
+    ID. VoiceOver reads a row as one element, with the hint "Swipe up or down for
+    actions."
 
 ### The composer
 

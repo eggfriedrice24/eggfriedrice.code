@@ -12,6 +12,7 @@ import {
   sheetMachines,
   sheetPane,
 } from "./sheet-view";
+import type { RowContext } from "./sheet-sections";
 import { item, october } from "./testing";
 
 const NOW = october(26, 14);
@@ -21,6 +22,7 @@ const MACHINES = [
   { id: "l", name: "laptop" },
 ];
 const machineName = machineNameOf(MACHINES);
+const CONTEXT: RowContext = { machineName, now: NOW };
 
 const LOADED = [
   [
@@ -49,11 +51,26 @@ describe("searchPaneRows", () => {
       found: [],
       text: "laptop",
       searched: "",
-      machineName,
-      now: NOW,
+      context: CONTEXT,
     });
     expect(keys(rows)).toEqual(["l:btrfs"]);
-    expect(rows[0]?.detail).toBe("laptop · ~ · 5m");
+    expect([rows[0]?.machineName, rows[0]?.folder, rows[0]?.time]).toEqual(["laptop", "~", "5m"]);
+  });
+
+  it("shows the words of the typed text in the titles", () => {
+    const rows = searchPaneRows({
+      loaded: LOADED,
+      found: [],
+      text: "FAN loud",
+      searched: "",
+      context: CONTEXT,
+    });
+    expect(rows[0]?.titleRuns.map((run) => [run.text, run.match])).toEqual([
+      ["Why is the ", false],
+      ["fan", true],
+      [" ", false],
+      ["loud", true],
+    ]);
   });
 
   it("puts the hits of efrd first, then the local matches that efrd did not give", () => {
@@ -65,8 +82,7 @@ describe("searchPaneRows", () => {
       ],
       text: "me",
       searched: "me",
-      machineName,
-      now: NOW,
+      context: CONTEXT,
     });
     // efrd: d:deep and l:btrfs in turn; then the local "me" matches (cwd /home/me).
     expect(keys(rows)).toEqual(["d:deep", "l:btrfs", "d:fan", "d:zsh"]);
@@ -78,8 +94,7 @@ describe("searchPaneRows", () => {
       found: [[item("d", "deep", NOW, { title: "Tune the fan curve" })]],
       text: "zsh",
       searched: "fan",
-      machineName,
-      now: NOW,
+      context: CONTEXT,
     });
     expect(keys(rows)).toEqual(["d:zsh"]);
   });
@@ -90,8 +105,7 @@ describe("searchPaneRows", () => {
       found: [[item("d", "deep", NOW, { title: "Tune the fan curve" })]],
       text: "fan ",
       searched: " fan",
-      machineName,
-      now: NOW,
+      context: CONTEXT,
     });
     expect(keys(rows)).toEqual(["d:deep"]);
   });
@@ -112,8 +126,7 @@ describe("searchPaneRows", () => {
           found,
           text: "t",
           searched: "t",
-          machineName,
-          now: NOW,
+          context: CONTEXT,
         });
         const all = keys(rows);
         expect(new Set(all).size).toBe(all.length);
@@ -161,7 +174,8 @@ describe("the notices", () => {
   });
 
   it("titles the results with their count", () => {
-    expect(resultsTitle(3)).toBe("results · 3");
+    expect(resultsTitle(3)).toBe("3 results");
+    expect(resultsTitle(1)).toBe("1 result");
   });
 });
 
