@@ -117,13 +117,35 @@ fn the_answer_line_opens_in_the_card_and_closes_again() {
     framed(view.event(&requested("Which database?"), WIDE, true), &mut view);
     let open = framed(view.user_typing(question_id(), Some("port 5433"), WIDE), &mut view);
     let shown = bare(&open.out);
-    assert!(shown.contains("    \u{203a} port 5433\n"), "{shown}");
-    assert!(shown.contains("    Do not type a password or a token here.\n"), "{shown}");
-    assert!(shown.contains("    enter send   esc back to the options\n"), "{shown}");
+    // TM-Questions 0.0.12, frame 3: the typed text, the keys, then the hint.
+    assert!(
+        shown.contains(
+            "    \u{203a} port 5433\n    enter send   esc back to the options\n    Do not type \
+             a password or a token here.\n"
+        ),
+        "{shown}"
+    );
     let back = framed(view.user_typing(question_id(), None, WIDE), &mut view);
     let shown = bare(&back.out);
     assert!(!shown.contains("port 5433"), "{shown}");
     assert!(shown.contains("    t type an answer   esc skip\n"), "{shown}");
+}
+
+#[test]
+fn the_answer_line_shows_under_a_card_in_the_scrollback() {
+    // A screen too short for the card: the card goes to the scrollback, and only its
+    // footer stays in the live zone.
+    const SHORT: Size = Size { cols: 100, rows: 4 };
+    let mut view = terminal();
+    let _ = view.event(&requested("Which database?"), SHORT, true);
+    let _ = view.frame(SHORT, now());
+    let _ = view.user_typing(question_id(), Some("port 5433"), SHORT);
+    let frame = view.frame(SHORT, now());
+    let shown = bare(&frame);
+    assert!(!shown.contains("Postgres 16"), "the card is in the scrollback: {shown}");
+    assert!(shown.contains("\u{203a} port 5433\n"), "{shown}");
+    assert!(shown.contains("enter send   esc back to the options\n"), "{shown}");
+    assert!(shown.contains("Do not type a password or a token here.\n"), "{shown}");
 }
 
 #[test]

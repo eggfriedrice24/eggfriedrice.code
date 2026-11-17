@@ -13,6 +13,10 @@ use jiff::Timestamp;
 
 use super::status::State;
 use super::{About, Ask, BLOCKING, Preview, Request, Shown, Step, TurnView, piece_rows};
+use crate::format::card::{self, Card, Footer};
+use crate::format::{self, Block, Tone, jobs, sandbox};
+use crate::live::{effective_width, fits, rows_of};
+use crate::terminal::Size;
 
 /// The model's question that the view shows (`ask_user`): what its card needs again
 /// while the answer line changes, and the labels for the line of its end.
@@ -27,10 +31,6 @@ pub(super) struct UserQuestion {
     /// The text of the answer line while it is open.
     typing: Option<String>,
 }
-use crate::format::card::{self, Card, Footer};
-use crate::format::{self, Block, Tone, jobs, sandbox};
-use crate::live::{effective_width, fits, rows_of};
-use crate::terminal::Size;
 
 impl TurnView {
     pub(super) fn approval(
@@ -605,7 +605,7 @@ impl TurnView {
             self.state(State::Answer);
             card::Asks::Elsewhere
         };
-        let card = card::user_question(question, options, asks, self.options.glyphs());
+        let card = card::user_question(question, options, asks);
         self.user_question = Some(Box::new(UserQuestion {
             id: question_id,
             question: question.to_owned(),
@@ -626,20 +626,20 @@ impl TurnView {
         size: Size,
     ) -> Step {
         let terminal = self.terminal();
-        let glyphs = *self.options.glyphs();
         let Some(asked) = self.user_question.as_mut().filter(|asked| asked.id == question_id)
         else {
             return Step::default();
         };
         let before = std::mem::replace(&mut asked.typing, text.map(str::to_owned));
         let asks = text.map_or(card::Asks::Options, card::Asks::Typing);
-        let footer = card::user_question_footer(asks);
         if terminal {
-            let card = card::user_question(&asked.question, &asked.options, asks, &glyphs);
+            // NOTE: the answer line is in the footer, so it shows also under a card
+            // that went to the scrollback.
+            let card = card::user_question(&asked.question, &asked.options, asks);
             if let Some(shown) =
                 self.question.as_mut().filter(|shown| shown.about == About::User(question_id))
             {
-                shown.set(card, footer);
+                shown.set(card, card::user_question_footer(asks));
                 self.dirty = true;
             }
             return Step::default();
@@ -650,7 +650,7 @@ impl TurnView {
         let err = match (before, text) {
             (None, Some(text)) => {
                 let mut rows = card::hint_row(&options);
-                rows.push_str(&card::footer_row(&footer, &options));
+                rows.push_str(&card::footer_row(&Footer::Keys(card::TYPING_KEYS), &options));
                 let mut err = self.raw_err(rows);
                 err.push_str(&super::waits::echo_prefix(options.glyphs()));
                 err.push_str(&super::echo_edit("", text));
@@ -659,7 +659,7 @@ impl TurnView {
             }
             (Some(before), Some(text)) => super::echo_edit(&before, text),
             (_, None) => {
-                let rows = card::footer_row(&footer, &options);
+                let rows = card::footer_row(&Footer::Keys(card::QUESTION_KEYS), &options);
                 self.raw_err(rows)
             }
         };

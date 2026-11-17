@@ -372,7 +372,7 @@ fn backups() -> Vec<QuestionOption> {
 
 /// The card of the model's question as `asks` says, rendered with `options`.
 fn question(text: &str, options: &[QuestionOption], asks: Asks<'_>, at: &RenderOptions) -> String {
-    let card = user_question(text, options, asks, at.glyphs());
+    let card = user_question(text, options, asks);
     card.render(Some(&user_question_footer(asks)), at)
 }
 
@@ -403,14 +403,14 @@ fn the_card_of_the_models_question_in_each_state_is_questions_0012() {
 #[test]
 fn a_digit_is_a_key_only_while_it_answers() {
     let digit = |asks: Asks<'_>| {
-        let card = user_question("q", &databases(), asks, &Glyphs::UNICODE);
+        let card = user_question("q", &databases(), asks);
         let Row::Text(pieces) = &card.rows[0] else { panic!("an option is a text row") };
         pieces[0].clone()
     };
     assert_eq!(digit(Asks::Options), ("1".to_owned(), Tone::AttentionBold));
     assert_eq!(digit(Asks::Typing("")), ("1".to_owned(), Tone::Dim));
     assert_eq!(digit(Asks::Elsewhere), ("1".to_owned(), Tone::Dim));
-    let card = user_question("q", &databases(), Asks::Options, &Glyphs::UNICODE);
+    let card = user_question("q", &databases(), Asks::Options);
     let Row::Text(pieces) = &card.rows[1] else { panic!("an option is a text row") };
     assert_eq!(pieces[2], ("SQLite".to_owned(), Tone::Text));
     assert_eq!(pieces[4].1, Tone::Dim, "the description is muted");
@@ -425,7 +425,7 @@ fn without_colour_the_keys_of_the_question_stay_bold_is_questions_0012_frame_7()
 #[test]
 fn the_text_of_the_model_goes_through_one_line() {
     let options = [option("a\nb\u{1b}[2J", Some("c\u{202e}d")), option("e", None)];
-    let card = user_question("why\u{1b}]52;c;x\u{7}?", &options, Asks::Options, &Glyphs::UNICODE);
+    let card = user_question("why\u{1b}]52;c;x\u{7}?", &options, Asks::Options);
     let piped = RenderOptions::new(100).with_terminal(false);
     let shown = card.render(Some(&user_question_footer(Asks::Options)), &piped);
     assert!(!shown.contains('\u{1b}') && !shown.contains('\u{202e}'), "{shown:?}");

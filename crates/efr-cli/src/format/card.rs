@@ -153,6 +153,10 @@ pub(crate) enum Footer {
     /// The confirm of an `a` answer: `always saves the rule  write under ~/notes`, then
     /// `y save the rule and allow   n back`. The rule is safe to print.
     Confirm(String),
+    /// The open answer line of the model's question with the typed text, then its keys
+    /// and [`ANSWER_HINT`] (TM-Questions 0.0.12, frame 3). It is part of the footer, so
+    /// it stays in the live zone also when the card went to the scrollback.
+    Typing(String),
     /// Another client must answer it.
     Waiting,
 }
@@ -253,8 +257,20 @@ pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
             push_row(&mut out, &Row::labelled(ALWAYS_SAVES, rule.clone()), options);
             key_pieces(CONFIRM_KEYS)
         }
+        Footer::Typing(text) => {
+            let typed = Row::Text(vec![
+                (glyphs.prompt.to_owned(), Tone::Attention),
+                (" ".to_owned(), Tone::Plain),
+                (super::one_line(text), Tone::Text),
+            ]);
+            push_row(&mut out, &typed, options);
+            key_pieces(TYPING_KEYS)
+        }
     };
     push_text(&mut out, &pieces, options);
+    if matches!(footer, Footer::Typing(_)) {
+        out.push_str(&hint_row(options));
+    }
     out
 }
 
@@ -641,15 +657,10 @@ pub(crate) enum Asks<'a> {
 /// The card of the model's question (TM-Questions 0.0.12, frames 1 to 4 and 6): the
 /// question as the title, with the mark of a job notice turn after it; then one row per
 /// option: its digit as the key (`warning` bold while a digit answers, else muted), the
-/// label (`text`) and the description (muted), which goes on under the label. While the
-/// answer line is open, the line with the typed text and the hint follow. The model
-/// wrote every text, so each one goes through [`one_line`](super::one_line).
-pub(crate) fn user_question(
-    question: &str,
-    options: &[QuestionOption],
-    asks: Asks<'_>,
-    glyphs: &Glyphs,
-) -> Card {
+/// label (`text`) and the description (muted), which goes on under the label. The
+/// answer line is in the footer ([`Footer::Typing`]). The model wrote every text, so
+/// each one goes through [`one_line`](super::one_line).
+pub(crate) fn user_question(question: &str, options: &[QuestionOption], asks: Asks<'_>) -> Card {
     let wake = strip_wake(question);
     let mut card = Card { title: super::one_line(wake.unwrap_or(question)), rows: Vec::new() };
     if wake.is_some() {
@@ -668,14 +679,6 @@ pub(crate) fn user_question(
         }
         card.rows.push(Row::Text(pieces));
     }
-    if let Asks::Typing(text) = asks {
-        card.rows.push(Row::Text(vec![
-            (glyphs.prompt.to_owned(), Tone::Attention),
-            (" ".to_owned(), Tone::Plain),
-            (super::one_line(text), Tone::Text),
-        ]));
-        card.rows.push(Row::text(ANSWER_HINT, Tone::Dim));
-    }
     card
 }
 
@@ -691,7 +694,7 @@ pub(crate) fn hint_row(options: &RenderOptions) -> String {
 pub(crate) fn user_question_footer(asks: Asks<'_>) -> Footer {
     match asks {
         Asks::Options => Footer::Keys(QUESTION_KEYS),
-        Asks::Typing(_) => Footer::Keys(TYPING_KEYS),
+        Asks::Typing(text) => Footer::Typing(text.to_owned()),
         Asks::Elsewhere => Footer::Waiting,
     }
 }

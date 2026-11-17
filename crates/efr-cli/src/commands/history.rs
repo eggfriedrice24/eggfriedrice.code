@@ -729,12 +729,7 @@ impl<'a> Transcript<'a> {
             Event::ToolCallCompleted { call_id, .. }
                 if self.tools.get(call_id).is_some_and(|tool| tool == card::ASK_USER) => {}
             Event::UserQuestionRequested { question_id, question, options, .. } => {
-                let card = card::user_question(
-                    question,
-                    options,
-                    card::Asks::Elsewhere,
-                    self.options.glyphs(),
-                );
+                let card = card::user_question(question, options, card::Asks::Elsewhere);
                 self.pieces(&vec![
                     (self.options.glyphs().question.to_owned(), Tone::Attention),
                     (" ".to_owned(), Tone::Plain),

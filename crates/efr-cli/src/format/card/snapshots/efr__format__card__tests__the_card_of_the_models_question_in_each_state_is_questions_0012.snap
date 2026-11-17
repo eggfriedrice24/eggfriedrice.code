@@ -1,5 +1,6 @@
 ---
 source: crates/efr-cli/src/format/card/tests.rs
+assertion_line: 400
 expression: "frames.map(|frame| bare(&frame)).join(\"\\n---\\n\")"
 ---
  ?  Which database should the tests use?
@@ -33,8 +34,8 @@ expression: "frames.map(|frame| bare(&frame)).join(\"\\n---\\n\")"
     2 SQLite  fast and needs no server, but it has no JSONB
     3 both  each test runs twice, so CI takes about 2 times longer
     › Postgres 16, but on port 5433
-    Do not type a password or a token here.
     enter send   esc back to the options
+    Do not type a password or a token here.
 
 ---
  ?  Which database should the tests use?
