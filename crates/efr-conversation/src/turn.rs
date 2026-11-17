@@ -29,7 +29,9 @@
 //! ([`exit::grant`]). An exit that would run outside the sandbox must be one command, or
 //! the call is refused with no question. A floor refuses an exit before any question,
 //! and three refusals in a row without a person stop the turn; classifier denials pause
-//! the classifier for the turn. A question waits less while the user is away. A call
+//! the classifier for the turn. A question waits less while the user is away
+//! (`wait.rs`, one loop for every question). The model's own question (`ask_user`)
+//! passes the gate of full mode, never the engine, and waits there too. A call
 //! that changed git settings that run programs asks the user whether to keep them
 //! before the next call, and its deletes in a private cache layer may reach the real
 //! caches (`cache.rs`).
