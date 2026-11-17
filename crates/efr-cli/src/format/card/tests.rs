@@ -1,7 +1,11 @@
-use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
+use efr_protocol::{Origin, QuestionOption, QuestionReply, UserAnswer};
+use efr_render::{ColourMode, Glyphs, RenderOptions, WidthMethod, display_width};
 use pretty_assertions::assert_eq;
 
-use super::{ALLOW_KEYS, Card, Footer, Row, approval, footer_row};
+use super::{
+    ALLOW_KEYS, Asks, Card, Footer, QuestionEnd, Row, approval, footer_row, question_end,
+    user_question, user_question_footer,
+};
 use crate::format::{CommandRow, RowEnd, Tone, WORD_MARK, WRAP_MARK, wrap_command, wrap_spans};
 use crate::testing::readable;
 
@@ -63,7 +67,7 @@ fn a_space_early_in_the_row_does_not_leave_a_short_word_alone() {
     assert!(rows.iter().all(|row| !row.indented), "{rows:?}");
     assert_eq!(rows.last().unwrap().end, RowEnd::Last);
     for row in &rows {
-        let mark = usize::from(row.mark_in(&efr_render::Glyphs::UNICODE).is_some());
+        let mark = usize::from(row.mark_in(&Glyphs::UNICODE).is_some());
         assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 20, "{rows:?}");
     }
     let joined: String = rows.iter().map(|row| row.text.as_str()).collect();
@@ -90,7 +94,7 @@ fn a_word_wider_than_a_row_is_cut_inside_it_and_nothing_is_lost() {
     assert_eq!(joined, word);
     // No row is indented after a cut inside a word: each has the whole room.
     for row in &rows {
-        let mark = usize::from(row.mark_in(&efr_render::Glyphs::UNICODE).is_some());
+        let mark = usize::from(row.mark_in(&Glyphs::UNICODE).is_some());
         assert!(display_width(&row.text, WidthMethod::CodePoint) + mark <= 10, "{rows:?}");
         assert!(!row.indented, "{rows:?}");
     }
@@ -334,6 +338,164 @@ fn the_always_key_and_its_confirm_follow_the_keys_and_wrap_at_the_indent() {
     let whole = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &RenderOptions::new(40));
     assert!(whole.ends_with(&painted), "{whole:?}");
     assert_eq!(bare(&painted), "    y allow   n deny\n");
+}
+
+/// An option of the model's question.
+fn option(label: &str, description: Option<&str>) -> QuestionOption {
+    QuestionOption { label: label.to_owned(), description: description.map(str::to_owned) }
+}
+
+/// The options of TM-Questions 0.0.12, frame 1.
+fn databases() -> Vec<QuestionOption> {
+    vec![
+        option("Postgres 16", Some("the same as production; I recommend it")),
+        option("SQLite", Some("fast and needs no server, but it has no JSONB")),
+        option("both", Some("each test runs twice, so CI takes about 2 times longer")),
+    ]
+}
+
+/// The options of TM-Questions 0.0.12, frame 2: one description goes on.
+fn backups() -> Vec<QuestionOption> {
+    vec![
+        option("the NAS", Some("/mnt/nas/backups on the LAN; I recommend it")),
+        option(
+            "Backblaze B2",
+            Some(
+                "off site, about 2 USD a month for 400 GB; restic needs the key in \
+                 ~/.config/restic/b2.env, and that file does not exist yet",
+            ),
+        ),
+        option("both", Some("the NAS each night and B2 each Sunday")),
+        option("an external disk", Some("only when it is plugged in")),
+    ]
+}
+
+/// The card of the model's question as `asks` says, rendered with `options`.
+fn question(text: &str, options: &[QuestionOption], asks: Asks<'_>, at: &RenderOptions) -> String {
+    let card = user_question(text, options, asks, at.glyphs());
+    card.render(Some(&user_question_footer(asks)), at)
+}
+
+#[test]
+fn the_card_of_the_models_question_in_each_state_is_questions_0012() {
+    const DATABASE: &str = "Which database should the tests use?";
+    let frames = [
+        question(DATABASE, &databases(), Asks::Options, &plain(100)),
+        question("Where should the nightly backup go?", &backups(), Asks::Options, &plain(100)),
+        question("Where should the nightly backup go?", &backups(), Asks::Options, &plain(60)),
+        question(
+            DATABASE,
+            &databases(),
+            Asks::Typing("Postgres 16, but on port 5433"),
+            &plain(100),
+        ),
+        question(DATABASE, &databases(), Asks::Elsewhere, &plain(100)),
+        question(
+            &format!("{}Which target should I fix first?", efr_protocol::WAKE_QUESTION),
+            &databases()[..2],
+            Asks::Options,
+            &plain(100),
+        ),
+    ];
+    insta::assert_snapshot!(frames.map(|frame| bare(&frame)).join("\n---\n"));
+}
+
+#[test]
+fn a_digit_is_a_key_only_while_it_answers() {
+    let digit = |asks: Asks<'_>| {
+        let card = user_question("q", &databases(), asks, &Glyphs::UNICODE);
+        let Row::Text(pieces) = &card.rows[0] else { panic!("an option is a text row") };
+        pieces[0].clone()
+    };
+    assert_eq!(digit(Asks::Options), ("1".to_owned(), Tone::AttentionBold));
+    assert_eq!(digit(Asks::Typing("")), ("1".to_owned(), Tone::Dim));
+    assert_eq!(digit(Asks::Elsewhere), ("1".to_owned(), Tone::Dim));
+    let card = user_question("q", &databases(), Asks::Options, &Glyphs::UNICODE);
+    let Row::Text(pieces) = &card.rows[1] else { panic!("an option is a text row") };
+    assert_eq!(pieces[2], ("SQLite".to_owned(), Tone::Text));
+    assert_eq!(pieces[4].1, Tone::Dim, "the description is muted");
+}
+
+#[test]
+fn without_colour_the_keys_of_the_question_stay_bold_is_questions_0012_frame_7() {
+    let shown = question("q", &databases()[..2], Asks::Options, &plain(100));
+    insta::assert_snapshot!(readable(&shown));
+}
+
+#[test]
+fn the_text_of_the_model_goes_through_one_line() {
+    let options = [option("a\nb\u{1b}[2J", Some("c\u{202e}d")), option("e", None)];
+    let card = user_question("why\u{1b}]52;c;x\u{7}?", &options, Asks::Options, &Glyphs::UNICODE);
+    let piped = RenderOptions::new(100).with_terminal(false);
+    let shown = card.render(Some(&user_question_footer(Asks::Options)), &piped);
+    assert!(!shown.contains('\u{1b}') && !shown.contains('\u{202e}'), "{shown:?}");
+    // An option with no description has no gap after its label.
+    assert!(shown.contains("    2 e\n"), "{shown:?}");
+}
+
+#[test]
+fn the_end_of_the_question_says_how_it_ended_is_questions_0012_frame_5() {
+    let labels: Vec<String> = databases().into_iter().map(|option| option.label).collect();
+    let replied = |reply| UserAnswer::Replied { reply };
+    let cases = [
+        (
+            replied(QuestionReply::Option { index: 0 }),
+            None,
+            QuestionEnd::Answered,
+            "answered · Postgres 16",
+        ),
+        (
+            replied(QuestionReply::Text { text: "port\n5433".to_owned() }),
+            Some(Origin::Shell),
+            QuestionEnd::Answered,
+            "answered · \"port 5433\"",
+        ),
+        (
+            replied(QuestionReply::Option { index: 1 }),
+            Some(Origin::Phone),
+            QuestionEnd::Answered,
+            "answered on the phone · SQLite",
+        ),
+        (
+            replied(QuestionReply::Skipped),
+            Some(Origin::Shell),
+            QuestionEnd::Skipped,
+            "skipped · the model goes on with a choice that is safe and easy to undo",
+        ),
+        (
+            UserAnswer::Unanswered { away: false },
+            None,
+            QuestionEnd::Unanswered,
+            "nobody answered · the model goes on with a choice that is safe and easy to undo",
+        ),
+        (
+            UserAnswer::Unanswered { away: true },
+            None,
+            QuestionEnd::Unanswered,
+            "nobody answered while you were away · the model goes on with a safe choice",
+        ),
+        (
+            UserAnswer::Interrupted,
+            None,
+            QuestionEnd::Interrupted,
+            "not answered · you interrupted the turn",
+        ),
+        // An index that the labels do not have names its number.
+        (
+            replied(QuestionReply::Option { index: 7 }),
+            None,
+            QuestionEnd::Answered,
+            "answered · option 8",
+        ),
+    ];
+    for (answer, origin, end, words) in cases {
+        assert_eq!(question_end(&answer, origin, &labels, "\u{b7}"), (end, words.to_owned()));
+    }
+    let glyphs = Glyphs::UNICODE;
+    assert_eq!(QuestionEnd::Answered.mark(&glyphs), ("\u{2713}", Tone::Success));
+    assert_eq!(QuestionEnd::Skipped.mark(&glyphs), ("\u{b7}", Tone::Dim));
+    assert_eq!(QuestionEnd::Unanswered.mark(&glyphs), ("\u{2717}", Tone::Failure));
+    assert_eq!(QuestionEnd::Interrupted.mark(&glyphs), ("\u{25a0}", Tone::Attention));
 }
 
 mod design;

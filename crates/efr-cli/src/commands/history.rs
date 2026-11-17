@@ -47,8 +47,8 @@ use efr_config::DiffGroups;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
-    Event, EventEnvelope, FileChanges, Launch, Method, Origin, PageCursor, Seq, StoredCopyReason,
-    SwitchedModel, TurnId, TurnUndoInfo, Usage, WebAction, WebResult, WebSource,
+    Event, EventEnvelope, FileChanges, Launch, Method, Origin, PageCursor, QuestionId, Seq,
+    StoredCopyReason, SwitchedModel, TurnId, TurnUndoInfo, Usage, WebAction, WebResult, WebSource,
 };
 use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -60,10 +60,11 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::follow::{Call, Outcome, plain_marks};
 use crate::format::changes::HomeChange;
+use crate::format::ending::UNDER;
 use crate::format::route::Pieces;
 use crate::format::web::{self, End, Ended, Fit};
 use crate::format::{
-    self, Block, Spacing, Tone, accounts, changes, context, ending, jobs, resume, sandbox,
+    self, Block, Spacing, Tone, accounts, card, changes, context, ending, jobs, resume, sandbox,
 };
 use crate::live::effective_width;
 use crate::output::Output;
@@ -479,6 +480,9 @@ struct Transcript<'a> {
     /// the line of its answer, which takes the place of the question; and the lines of
     /// the question, which show when the page holds no answer.
     asked: HashMap<CallId, Asked>,
+    /// The labels of the options of each question of the model that has no end yet,
+    /// for the line of its answer.
+    questions: HashMap<QuestionId, Vec<String>>,
     /// The steps of web search of the current group and its report.
     web: Box<WebSteps>,
 }
@@ -540,6 +544,7 @@ impl<'a> Transcript<'a> {
             patches: HashMap::new(),
             jobs: HashMap::new(),
             asked: HashMap::new(),
+            questions: HashMap::new(),
             web: Box::default(),
         }
     }
@@ -715,6 +720,48 @@ impl<'a> Transcript<'a> {
             // counts it carries (TM-Commands 4), as the view's line does.
             Event::ModelSwitched { from, to, turn_id } => {
                 self.switch = Some(Box::new((*turn_id, from.clone(), to.clone(), self.at)));
+            }
+            // NOTE: the question of the model is its call, so the call has no row, as in
+            // the view (TM-Questions 0.0.12, frame 8).
+            Event::ToolCallStarted { call_id, tool, .. } if tool == card::ASK_USER => {
+                self.tools.insert(*call_id, tool.clone());
+            }
+            Event::ToolCallCompleted { call_id, .. }
+                if self.tools.get(call_id).is_some_and(|tool| tool == card::ASK_USER) => {}
+            Event::UserQuestionRequested { question_id, question, options, .. } => {
+                let card = card::user_question(
+                    question,
+                    options,
+                    card::Asks::Elsewhere,
+                    self.options.glyphs(),
+                );
+                self.pieces(&vec![
+                    (self.options.glyphs().question.to_owned(), Tone::Attention),
+                    (" ".to_owned(), Tone::Plain),
+                    (card.title, Tone::Text),
+                ]);
+                for row in &card.rows {
+                    if let card::Row::Text(pieces) = row {
+                        self.out.push_str(&indented_rows(&ending::rows(
+                            pieces,
+                            UNDER,
+                            &self.inner,
+                        )));
+                    }
+                }
+                let labels = options.iter().map(|option| option.label.clone()).collect();
+                self.questions.insert(*question_id, labels);
+            }
+            Event::UserQuestionAnswered { question_id, answer, origin, .. } => {
+                let labels = self.questions.remove(question_id).unwrap_or_default();
+                let glyphs = self.options.glyphs();
+                let (end, words) = card::question_end(answer, *origin, &labels, glyphs.separator);
+                let (mark, tone) = end.mark(glyphs);
+                self.pieces(&vec![
+                    (mark.to_owned(), tone),
+                    (" ".to_owned(), Tone::Plain),
+                    (words, Tone::Dim),
+                ]);
             }
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
@@ -924,7 +971,7 @@ impl<'a> Transcript<'a> {
             Event::ApprovalRequested { call_id, summary, .. } => {
                 let tool = self.tools.get(call_id).map(String::as_str);
                 let command = self.commands.get(call_id).map(String::as_str);
-                let subject = format::card::approval(summary, tool, command).subject();
+                let subject = card::approval(summary, tool, command).subject();
                 let (heading, asking) = format::approval_heading(summary, tool.zip(command));
                 let rest = asking.unwrap_or_default();
                 self.asked.insert(*call_id, Asked { subject, heading, rest });

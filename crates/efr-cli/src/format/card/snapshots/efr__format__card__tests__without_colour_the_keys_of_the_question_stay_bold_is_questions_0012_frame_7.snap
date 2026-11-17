@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/format/card/tests.rs
+expression: readable(&shown)
+---
+\e[1m ? \e[0m \e[1mq\e[0m
+    \e[1m1\e[0m Postgres 16  \e[2mthe same as production; I recommend it\e[0m
+    \e[1m2\e[0m SQLite  \e[2mfast and needs no server, but it has no JSONB\e[0m
+    \e[1mt\e[0m \e[2mtype an answer\e[0m   \e[1mesc\e[0m \e[2mskip\e[0m

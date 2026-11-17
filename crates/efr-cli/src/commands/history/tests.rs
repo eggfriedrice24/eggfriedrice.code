@@ -2582,4 +2582,69 @@ fn a_transcript_of_two_turns_is_the_design() {
     }
 }
 
+/// TM-Questions 0.0.12, frame 8: the question of the model, its options at the indent
+/// of a call's rows and the line of its answer, with no row of its call.
+#[test]
+fn the_question_of_the_model_shows_its_options_and_its_answer() {
+    let question_id: QuestionId = "019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap();
+    let option = |label: &str, description: &str| efr_protocol::QuestionOption {
+        label: label.to_owned(),
+        description: Some(description.to_owned()),
+    };
+    let events = vec![
+        Event::ToolCallStarted {
+            turn_id: turn(),
+            call_id: call(),
+            tool: "ask_user".to_owned(),
+            input: json!({ "question": "Which database should the tests use?" }),
+            manual_input: false,
+            launch: None,
+            freeform: false,
+        },
+        Event::UserQuestionRequested {
+            turn_id: turn(),
+            call_id: call(),
+            question_id,
+            question: "Which database should the tests use?".to_owned(),
+            options: vec![
+                option("Postgres 16", "the same as production; I recommend it"),
+                option("SQLite", "fast and needs no server, but it has no JSONB"),
+            ],
+        },
+        Event::UserQuestionAnswered {
+            turn_id: turn(),
+            question_id,
+            answer: efr_protocol::UserAnswer::Replied {
+                reply: efr_protocol::QuestionReply::Option { index: 0 },
+            },
+            origin: Some(Origin::Shell),
+        },
+        Event::ToolCallCompleted {
+            turn_id: turn(),
+            call_id: call(),
+            output: "The user chose option 1: \"Postgres 16\".".to_owned(),
+            truncated: false,
+            is_error: false,
+            exit_code: None,
+            sandbox: None,
+            refusal: None,
+            changes: None,
+            diff: None,
+            left_running: false,
+        },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let shown = show(&page, &RenderOptions::new(100).with_terminal(false));
+    let (_, body) = shown.split_once("\n\n").unwrap();
+    assert_eq!(
+        body,
+        "  ? Which database should the tests use?
+    1 Postgres 16  the same as production; I recommend it
+    2 SQLite  fast and needs no server, but it has no JSONB
+  \u{2713} answered \u{b7} Postgres 16
+"
+    );
+}
+
 mod web;

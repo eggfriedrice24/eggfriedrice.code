@@ -1,0 +1,50 @@
+---
+source: crates/efr-cli/src/format/card/tests.rs
+expression: "frames.map(|frame| bare(&frame)).join(\"\\n---\\n\")"
+---
+ ?  Which database should the tests use?
+    1 Postgres 16  the same as production; I recommend it
+    2 SQLite  fast and needs no server, but it has no JSONB
+    3 both  each test runs twice, so CI takes about 2 times longer
+    t type an answer   esc skip
+
+---
+ ?  Where should the nightly backup go?
+    1 the NAS  /mnt/nas/backups on the LAN; I recommend it
+    2 Backblaze B2  off site, about 2 USD a month for 400 GB; restic needs the key in
+      ~/.config/restic/b2.env, and that file does not exist yet
+    3 both  the NAS each night and B2 each Sunday
+    4 an external disk  only when it is plugged in
+    t type an answer   esc skip
+
+---
+ ?  Where should the nightly backup go?
+    1 the NAS  /mnt/nas/backups on the LAN; I recommend it
+    2 Backblaze B2  off site, about 2 USD a month for 400
+      GB; restic needs the key in ~/.config/restic/b2.env,
+      and that file does not exist yet
+    3 both  the NAS each night and B2 each Sunday
+    4 an external disk  only when it is plugged in
+    t type an answer   esc skip
+
+---
+ ?  Which database should the tests use?
+    1 Postgres 16  the same as production; I recommend it
+    2 SQLite  fast and needs no server, but it has no JSONB
+    3 both  each test runs twice, so CI takes about 2 times longer
+    › Postgres 16, but on port 5433
+    Do not type a password or a token here.
+    enter send   esc back to the options
+
+---
+ ?  Which database should the tests use?
+    1 Postgres 16  the same as production; I recommend it
+    2 SQLite  fast and needs no server, but it has no JSONB
+    3 both  each test runs twice, so CI takes about 2 times longer
+    waiting for another client to answer
+
+---
+ ?  Which target should I fix first? (job notice turn)
+    1 Postgres 16  the same as production; I recommend it
+    2 SQLite  fast and needs no server, but it has no JSONB
+    t type an answer   esc skip

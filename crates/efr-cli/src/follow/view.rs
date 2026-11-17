@@ -124,6 +124,12 @@
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 //!
+//! The model's question (`ask_user`, [`Ask::Question`]) is its own card with one row
+//! per option, and the view hides the row of its call: the card is the call. A digit
+//! answers it, `t` opens an answer line in the card ([`TurnView::user_typing`]), and
+//! Esc skips it. One line takes the place of the card at its end, such as `✓ answered ·
+//! Postgres 16`, cut to one row.
+//!
 //! A command that a shell call left running in the hidden shell (`left`) belongs to the
 //! conversation too: the call's block says that it still runs, its waits ask for an
 //! answer line that takes the place of the input row at once and whose Ctrl+C stops the
@@ -188,6 +194,7 @@ use crate::notify::{self, Notices};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
+use asking::UserQuestion;
 use ending::Ending;
 use fold::Fold;
 use input::{Input, Queued, user_message};
@@ -356,6 +363,9 @@ pub(crate) enum Ask {
     /// sandbox, answered with one key: `y` moves it with the preview's `token`
     /// ([`TurnView::move_answered`]), `n` leaves it in the turn.
     Move { call_id: CallId, token: u64 },
+    /// The model's question, with this many options: a digit answers it, `t` opens its
+    /// answer line ([`TurnView::user_typing`]), Esc skips it.
+    Question { question_id: QuestionId, options: u8 },
 }
 
 /// What a question on the screen asks about.
@@ -365,6 +375,8 @@ enum About {
     Surface(QuestionId),
     StopJob,
     Move,
+    /// The model's question.
+    User(QuestionId),
 }
 
 /// The question on a terminal, as a card in the live zone until it is answered.
@@ -387,6 +399,14 @@ struct Shown {
 impl Shown {
     fn new(card: Card, about: About, footer: Footer) -> Shown {
         Shown { card, about, footer, rung: false, committed: false, rendered: RefCell::new(None) }
+    }
+
+    /// The same question with `card` and `footer`, such as the card of the model's
+    /// question while its answer line changes: the next frame renders it again.
+    fn set(&mut self, card: Card, footer: Footer) {
+        self.card = card;
+        self.footer = footer;
+        *self.rendered.get_mut() = None;
     }
 
     /// Adds the card with its footer at `options` to `out`. It is rendered again only
@@ -699,6 +719,11 @@ pub(crate) struct TurnView {
     surface_answered: Option<QuestionId>,
     /// Every quarantine question shown, of this turn or of the turn it waits behind.
     surfaces: HashSet<QuestionId>,
+    /// The model's question on the screen, of this turn or of the turn it waits
+    /// behind.
+    user_question: Option<Box<UserQuestion>>,
+    /// The model's question that this client answered, whose end needs no second line.
+    user_answered: Option<QuestionId>,
     /// What the view keeps of background jobs.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
     jobs: Box<Jobs>,
@@ -795,6 +820,8 @@ impl TurnView {
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
+            user_question: None,
+            user_answered: None,
             jobs: Box::default(),
             look: Look::default(),
             notices: None,
@@ -1103,11 +1130,12 @@ impl TurnView {
         self
     }
 
-    /// True while an approval, the quarantine question or the question of the stop key
-    /// or of the background key waits for a key.
+    /// True while an approval, the quarantine question, the model's question or the
+    /// question of the stop key or of the background key waits for a key.
     fn question_pending(&self) -> bool {
         self.asking.is_some()
             || self.surface.is_some()
+            || self.user_question.as_ref().is_some_and(|asked| asked.keys)
             || self.jobs.stopping.is_some()
             || self.jobs.moving.is_some()
     }
@@ -1675,6 +1703,18 @@ impl TurnView {
                 }
                 self.message_text(*index, text, true, size)
             }
+            // NOTE: the card of the model's question is its call, so the call has no row
+            // (TM-Questions 0.0.12); the model reads a bad input as the call's error.
+            Event::ToolCallStarted { call_id, tool, .. } if tool == card::ASK_USER => {
+                self.tools.insert(*call_id, tool.clone());
+                Step::default()
+            }
+            Event::ToolCallCompleted { call_id, .. }
+                if self.tools.get(call_id).is_some_and(|tool| tool == card::ASK_USER) =>
+            {
+                self.state(State::Model);
+                Step::default()
+            }
             Event::ToolCallStarted { .. } => self.tool_call_started(event),
             Event::ToolCallOutputUpdated { call_id, tail, .. } => self.output(*call_id, tail),
             Event::ToolCallInputChanged { call_id, input, looks_secret, .. } => {
@@ -1803,6 +1843,12 @@ impl TurnView {
             }
             Event::SurfaceQuestionAnswered { question_id, keep, origin, .. } => {
                 self.surface_resolved(*question_id, *keep, *origin, size)
+            }
+            Event::UserQuestionRequested { question_id, question, options, .. } => {
+                self.user_question(*question_id, question, options, size, can_ask)
+            }
+            Event::UserQuestionAnswered { question_id, answer, origin, .. } => {
+                self.user_question_ended(*question_id, answer, *origin, size)
             }
             Event::TurnSurfaceReport { files, .. } => {
                 self.dim_block(&sandbox::surface_report(files), size)
@@ -1953,6 +1999,14 @@ impl TurnView {
                 if self.surfaces.contains(question_id) =>
             {
                 self.surface_resolved(*question_id, *keep, *origin, size)
+            }
+            Event::UserQuestionRequested { question_id, question, options, .. } => {
+                self.user_question(*question_id, question, options, size, can_ask)
+            }
+            Event::UserQuestionAnswered { question_id, answer, origin, .. }
+                if self.user_question.as_ref().is_some_and(|asked| asked.id == *question_id) =>
+            {
+                self.user_question_ended(*question_id, answer, *origin, size)
             }
             Event::ApprovalResolved { call_id, decision, origin, .. }
                 if self.blocking.contains(call_id) =>
@@ -2446,6 +2500,7 @@ impl TurnView {
         self.asking = None;
         self.saving = None;
         self.surface = None;
+        self.user_question = None;
         self.running = None;
         self.call = None;
         self.retained = None;

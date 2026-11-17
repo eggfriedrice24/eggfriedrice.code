@@ -362,6 +362,7 @@ impl TurnView {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
+            || self.user_question.take().is_some_and(|asked| asked.keys)
             || input
             || self.retained.is_some()
             || self.left_reads_keys();

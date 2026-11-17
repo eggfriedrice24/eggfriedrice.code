@@ -113,10 +113,10 @@ use efr_protocol::{
     ConversationSubscribeItem, ErrorCode, Event, EventEnvelope, InputRespond, InputRespondResult,
     JobId, JobState, JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method,
     ModelsList, ModelsListResult, Origin, PageCursor, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, QuestionId, RecentCommand, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, ShellInterrupt,
-    ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    PromptWithdrawResult, QuestionId, QuestionReply, QuestionRespond, QuestionRespondResult,
+    RecentCommand, SandboxSurfaceRespond, SandboxSurfaceRespondResult, SecretText, Seq,
+    ShellContext, ShellInterrupt, ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use efr_transport::client::{Client, ClientError, ItemStream};
@@ -125,7 +125,7 @@ use jiff::Timestamp;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::answer::{AnswerLine, Edit};
+use crate::answer::{AnswerLine, Edit, Sequences};
 use crate::cli::LastCommand;
 use crate::context::{Context, Stop};
 use crate::error::CliError;
@@ -530,8 +530,23 @@ enum Asking {
     /// The question of the background key about call `call_id`, with one key: `y` moves
     /// it with `token`.
     Move { call_id: CallId, token: u64 },
+    /// The model's question.
+    Question(QuestionKeys),
     /// The input row: nothing else takes the keys.
     Row,
+}
+
+/// The keys of the model's question: a digit answers it, `t` opens the answer line,
+/// Esc skips it or closes the line.
+#[derive(Debug)]
+struct QuestionKeys {
+    question_id: QuestionId,
+    /// How many options it has.
+    options: u8,
+    /// The answer line, while it is open.
+    line: Option<AnswerLine>,
+    /// Keeps a byte of an escape sequence, such as the `1` of F5, from being a digit.
+    sequences: Sequences,
 }
 
 impl Asking {
@@ -573,6 +588,7 @@ async fn stop(keys: KeyReader, asking: &Asking) {
         | Asking::Surface(_)
         | Asking::StopJob
         | Asking::Move { .. }
+        | Asking::Question(_)
         | Asking::Row => {
             keys.stop().await;
         }
@@ -636,13 +652,19 @@ impl Follower<'_> {
                 Event::ApprovalRequested { turn_id, .. }
                 | Event::ExitRequested { turn_id, .. }
                 | Event::SurfaceQuestionRequested { turn_id, .. }
+                | Event::UserQuestionRequested { turn_id, .. }
                     if *turn_id != self.target.turn =>
                 {
                     pending.push(envelope.event);
                 }
-                Event::SurfaceQuestionAnswered { question_id, .. } => {
-                    pending.retain(|event| {
-                        !matches!(event, Event::SurfaceQuestionRequested { question_id: asked, .. } if asked == question_id)
+                Event::SurfaceQuestionAnswered { question_id, .. }
+                | Event::UserQuestionAnswered { question_id, .. } => {
+                    pending.retain(|event| match event {
+                        Event::SurfaceQuestionRequested { question_id: asked, .. }
+                        | Event::UserQuestionRequested { question_id: asked, .. } => {
+                            asked != question_id
+                        }
+                        _ => true,
                     });
                 }
                 Event::ToolCallOutputUpdated { turn_id, call_id, .. }
@@ -1060,7 +1082,9 @@ impl Follower<'_> {
             // answered here; without one, the daemon stops a command that waits for a
             // password nobody can type.
             answers_input: self.ctx.keys.available(),
-            answers_questions: false,
+            // The same holds for the model's question: without a person at the keys,
+            // the question takes the away wait and the model goes on.
+            answers_questions: self.ctx.keys.available(),
             // The text, the reasoning and the tool input of the running turn before the
             // daemon records them; an older daemon sends none.
             drafts: true,
@@ -1378,7 +1402,9 @@ impl Follower<'_> {
             stop(reader, &asking).await;
             return self.show(out, view, &step);
         }
-        // A line or a question reads bytes; Esc alone is the escape byte there.
+        // A line or a question reads bytes; Esc alone is the escape byte there, except at
+        // the model's question.
+        let esc = key == Key::Esc;
         let key = key.byte();
         match asking {
             Asking::Row => Ok(()),
@@ -1495,6 +1521,7 @@ impl Follower<'_> {
                 self.show(out, view, &step)?;
                 self.surface_respond(question_id, keep, out, view).await
             }
+            Asking::Question(asked) => self.question_key(reader, asked, esc, key, out, view).await,
             // NOTE: a call that waits for input cannot move, so Ctrl+B at its answer line
             // says so and sends nothing; the key never goes into the answer.
             Asking::Input { call_id, kind, line } if key == CTRL_B => {
@@ -2162,14 +2189,113 @@ impl Follower<'_> {
             question_id,
             keep,
         });
-        match self.client().call::<SandboxSurfaceRespondResult>(method).await {
+        // NOTE: the change stays in quarantine unless an event says otherwise.
+        let answer = self.client().call::<SandboxSurfaceRespondResult>(method).await;
+        self.answer_taken(answer, out, view)
+    }
+
+    /// One key at the model's question: with its options shown a digit answers, `t`
+    /// opens the answer line and Esc skips; at the answer line Enter sends what it holds
+    /// and Esc goes back to the options. Ctrl+C interrupts the turn, as at every card.
+    async fn question_key(
+        &mut self,
+        reader: KeyReader,
+        mut asked: QuestionKeys,
+        esc: bool,
+        key: u8,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        /// What one key does.
+        enum Typed {
+            Nothing,
+            Opened,
+            Changed,
+            Closed,
+            Reply(QuestionReply),
+        }
+        let typed = match asked.line.as_mut() {
+            Some(_) if esc => Typed::Closed,
+            Some(line) => match line.key(key) {
+                Edit::Submit if !line.text().trim().is_empty() => {
+                    Typed::Reply(QuestionReply::Text { text: line.take_text() })
+                }
+                Edit::Changed => Typed::Changed,
+                Edit::Submit | Edit::Unchanged => Typed::Nothing,
+            },
+            None if esc => Typed::Reply(QuestionReply::Skipped),
+            None => match asked.sequences.plain(key) {
+                Some(b't' | b'T') => Typed::Opened,
+                Some(digit @ b'1'..=b'9') if digit - b'0' <= asked.options => {
+                    Typed::Reply(QuestionReply::Option { index: digit - b'1' })
+                }
+                _ => Typed::Nothing,
+            },
+        };
+        let question_id = asked.question_id;
+        let size = self.ctx.screen.size();
+        let text = match typed {
+            Typed::Reply(reply) => {
+                self.release(reader, &Asking::Question(asked), view).await;
+                let step = view.user_replied(question_id, &reply, size);
+                self.show(out, view, &step)?;
+                return self.question_respond(question_id, reply, out, view).await;
+            }
+            Typed::Nothing => {
+                self.keys = Some((reader, Asking::Question(asked)));
+                return Ok(());
+            }
+            Typed::Opened => {
+                asked.line = Some(AnswerLine::new());
+                Some(String::new())
+            }
+            Typed::Changed => asked.line.as_ref().map(|line| line.text().to_owned()),
+            Typed::Closed => {
+                asked.line = None;
+                None
+            }
+        };
+        self.keys = Some((reader, Asking::Question(asked)));
+        let step = view.user_typing(question_id, text.as_deref(), size);
+        self.show(out, view, &step)
+    }
+
+    /// Sends `answer` to the model's question `question_id`.
+    async fn question_respond(
+        &mut self,
+        question_id: QuestionId,
+        answer: QuestionReply,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::QuestionRespond(QuestionRespond {
+            command_id: self.ctx.command_id(),
+            conversation_id: self.target.conversation,
+            question_id,
+            answer,
+        });
+        let answer = self.client().call::<QuestionRespondResult>(method).await;
+        self.answer_taken(answer, out, view)
+    }
+
+    /// What came of the answer to a question that approves no call: a refusal of efrd
+    /// is a note. It was answered elsewhere first, it ended, or efrd refused it for this
+    /// client; the events say what came of the question.
+    fn answer_taken<R>(
+        &mut self,
+        answer: Result<R, ClientError>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        match answer {
             Ok(_) => Ok(()),
-            // Answered elsewhere first, expired, or refused for this client: the events
-            // say which, and the change stays in quarantine unless one says otherwise.
             Err(ClientError::Server { body })
                 if matches!(
                     body.code,
-                    ErrorCode::NotFound | ErrorCode::Conflict | ErrorCode::Forbidden
+                    ErrorCode::NotFound
+                        | ErrorCode::Conflict
+                        | ErrorCode::Forbidden
+                        | ErrorCode::Invalid
                 ) =>
             {
                 let line =
@@ -2253,6 +2379,12 @@ fn take_over(
                 Ask::Surface(question_id) => Asking::Surface(question_id),
                 Ask::StopJob => Asking::StopJob,
                 Ask::Move { call_id, token } => Asking::Move { call_id, token },
+                Ask::Question { question_id, options } => Asking::Question(QuestionKeys {
+                    question_id,
+                    options,
+                    line: None,
+                    sequences: Sequences::default(),
+                }),
             };
             (reader, asking, None, row)
         }

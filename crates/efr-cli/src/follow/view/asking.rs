@@ -1,16 +1,32 @@
 //! The questions of a turn in the view: an approval and its card, the answer line that
-//! takes its place, the reviewer's verdicts, the always rules, and the quarantine, stop
-//! and move questions. The live slice of the terminal look owns this file: an `impl
-//! TurnView` block next to `view.rs`.
+//! takes its place, the reviewer's verdicts, the always rules, the quarantine, stop and
+//! move questions, and the model's question (`ask_user`) with its answer line. The live
+//! slice of the terminal look owns this file: an `impl TurnView` block next to
+//! `view.rs`.
 
 use efr_protocol::{
     ApprovalDecision, CallId, ExitKind, JobId, JobInfo, JudgeKind, Launch, Origin, QuestionId,
-    Risk, SurfaceChange, Verdict,
+    QuestionOption, QuestionReply, Risk, SurfaceChange, UserAnswer, Verdict,
 };
+use efr_render::text_width;
 use jiff::Timestamp;
 
 use super::status::State;
 use super::{About, Ask, BLOCKING, Preview, Request, Shown, Step, TurnView, piece_rows};
+
+/// The model's question that the view shows (`ask_user`): what its card needs again
+/// while the answer line changes, and the labels for the line of its end.
+#[derive(Debug)]
+pub(super) struct UserQuestion {
+    pub(super) id: QuestionId,
+    /// The question, as the event has it.
+    question: String,
+    options: Vec<QuestionOption>,
+    /// Keys answer it here.
+    pub(super) keys: bool,
+    /// The text of the answer line while it is open.
+    typing: Option<String>,
+}
 use crate::format::card::{self, Card, Footer};
 use crate::format::{self, Block, Tone, jobs, sandbox};
 use crate::live::{effective_width, fits, rows_of};
@@ -135,13 +151,7 @@ impl TurnView {
         let footer = if can_ask {
             self.asking = Some(call_id);
             step.ask = Some(Ask::Approval(call_id));
-            // One question at a time: the approval's key reader replaces the input's.
-            if let Some(running) = &mut self.running {
-                running.asking = None;
-                running.guarding = false;
-                running.typed.clear();
-                running.hinted = false;
-            }
+            self.question_takes_keys();
             // NOTE: only a daemon that knows the `a` answer fills `always` (phase E), so
             // an older one never gets it.
             self.offered = request
@@ -267,11 +277,17 @@ impl TurnView {
     /// muted (TM-Questions 7). A call of this turn follows the line at once; anything
     /// else comes after a blank line.
     pub(super) fn answer_line(&mut self, about: About, good: bool, line: &str, size: Size) -> Step {
+        let text = answer_text(good, line, &self.options_at(size));
+        self.settled_line(about, text, size)
+    }
+
+    /// The question about `about` gives its place to `text`, the rows of its line with
+    /// their newline, as [`answer_line`](Self::answer_line) says.
+    fn settled_line(&mut self, about: About, text: String, size: Size) -> Step {
         if self.question.as_ref().is_some_and(|shown| shown.about == about) {
             self.question = None;
             self.dirty = true;
         }
-        let text = answer_text(good, line, &self.options_at(size));
         let ours = matches!(about, About::Approval(call) if !self.blocking.contains(&call));
         let block = if ours { Block::Settled } else { Block::Answer };
         if !self.terminal() {
@@ -510,14 +526,8 @@ impl TurnView {
         let footer = if can_ask {
             self.surface = Some(question_id);
             step.ask = Some(Ask::Surface(question_id));
-            // One question at a time: the question's key reader replaces any other.
             self.retained = None;
-            if let Some(running) = &mut self.running {
-                running.asking = None;
-                running.guarding = false;
-                running.typed.clear();
-                running.hinted = false;
-            }
+            self.question_takes_keys();
             Footer::Keys(card::KEEP_KEYS)
         } else {
             Footer::Waiting
@@ -560,6 +570,165 @@ impl TurnView {
         Step { settled, ..self.answer_line(About::Surface(question_id), keep, &line, size) }
     }
 
+    /// One question at a time: the key reader of a question replaces the one of an
+    /// answer line of the running call.
+    fn question_takes_keys(&mut self) {
+        if let Some(running) = &mut self.running {
+            running.asking = None;
+            running.guarding = false;
+            running.typed.clear();
+            running.hinted = false;
+        }
+    }
+
+    /// The model's question `question_id` with its `options` (`ask_user`, TM-Questions
+    /// 0.0.12): a card that waits below the live zone, as an approval does. A digit
+    /// answers it, `t` opens the answer line and Esc skips it; `can_ask` says whether
+    /// keys can answer it here.
+    pub(super) fn user_question(
+        &mut self,
+        question_id: QuestionId,
+        question: &str,
+        options: &[QuestionOption],
+        size: Size,
+        can_ask: bool,
+    ) -> Step {
+        let before = self.finish_message();
+        let mut step = Step { out: before, ..Step::default() };
+        let asks = if can_ask {
+            let count = u8::try_from(options.len()).unwrap_or(u8::MAX);
+            step.ask = Some(Ask::Question { question_id, options: count });
+            self.retained = None;
+            self.question_takes_keys();
+            card::Asks::Options
+        } else {
+            self.state(State::Answer);
+            card::Asks::Elsewhere
+        };
+        let card = card::user_question(question, options, asks, self.options.glyphs());
+        self.user_question = Some(Box::new(UserQuestion {
+            id: question_id,
+            question: question.to_owned(),
+            options: options.to_vec(),
+            keys: can_ask,
+            typing: None,
+        }));
+        let footer = card::user_question_footer(asks);
+        self.show_question(step, card, About::User(question_id), footer, size)
+    }
+
+    /// The answer line of the model's question `question_id` opens with `text`, shows
+    /// `text` after a key, or closes (`None`), and the options answer again.
+    pub(crate) fn user_typing(
+        &mut self,
+        question_id: QuestionId,
+        text: Option<&str>,
+        size: Size,
+    ) -> Step {
+        let terminal = self.terminal();
+        let glyphs = *self.options.glyphs();
+        let Some(asked) = self.user_question.as_mut().filter(|asked| asked.id == question_id)
+        else {
+            return Step::default();
+        };
+        let before = std::mem::replace(&mut asked.typing, text.map(str::to_owned));
+        let asks = text.map_or(card::Asks::Options, card::Asks::Typing);
+        let footer = card::user_question_footer(asks);
+        if terminal {
+            let card = card::user_question(&asked.question, &asked.options, asks, &glyphs);
+            if let Some(shown) =
+                self.question.as_mut().filter(|shown| shown.about == About::User(question_id))
+            {
+                shown.set(card, footer);
+                self.dirty = true;
+            }
+            return Step::default();
+        }
+        // NOTE: elsewhere the rows go once, and the typed text as an echo line, as the
+        // answer line of a command that waits for input.
+        let options = self.options_at(size);
+        let err = match (before, text) {
+            (None, Some(text)) => {
+                let mut rows = card::hint_row(&options);
+                rows.push_str(&card::footer_row(&footer, &options));
+                let mut err = self.raw_err(rows);
+                err.push_str(&super::waits::echo_prefix(options.glyphs()));
+                err.push_str(&super::echo_edit("", text));
+                self.echo_line = true;
+                err
+            }
+            (Some(before), Some(text)) => super::echo_edit(&before, text),
+            (_, None) => {
+                let rows = card::footer_row(&footer, &options);
+                self.raw_err(rows)
+            }
+        };
+        Step { err, ..Step::default() }
+    }
+
+    /// The user answered the model's question `question_id` here with `reply`: its line
+    /// takes the place of the card at once.
+    pub(crate) fn user_replied(
+        &mut self,
+        question_id: QuestionId,
+        reply: &QuestionReply,
+        size: Size,
+    ) -> Step {
+        self.user_answered = Some(question_id);
+        let answer = UserAnswer::Replied { reply: reply.clone() };
+        self.user_question_line(question_id, &answer, None, size)
+    }
+
+    /// The model's question `question_id` ended as `answer`, which a person gave from
+    /// `origin`: answered elsewhere, skipped, unanswered or interrupted. The keys that
+    /// waited for it here settle.
+    pub(super) fn user_question_ended(
+        &mut self,
+        question_id: QuestionId,
+        answer: &UserAnswer,
+        origin: Option<Origin>,
+        size: Size,
+    ) -> Step {
+        if self.user_answered == Some(question_id) {
+            return Step::default();
+        }
+        let settled =
+            self.user_question.as_ref().is_some_and(|asked| asked.id == question_id && asked.keys);
+        Step { settled, ..self.user_question_line(question_id, answer, origin, size) }
+    }
+
+    /// The line of the end of the model's question `question_id`, cut to one row, in the
+    /// place of its card (TM-Questions 0.0.12, frame 5).
+    fn user_question_line(
+        &mut self,
+        question_id: QuestionId,
+        answer: &UserAnswer,
+        origin: Option<Origin>,
+        size: Size,
+    ) -> Step {
+        let asked = self.user_question.take_if(|asked| asked.id == question_id);
+        let labels: Vec<String> = asked
+            .map(|asked| asked.options.into_iter().map(|option| option.label).collect())
+            .unwrap_or_default();
+        if self.status.as_ref().is_some_and(|status| *status.state() == State::Answer) {
+            self.state(State::Model);
+        }
+        let options = self.options_at(size);
+        let glyphs = options.glyphs();
+        let (end, mut words) = card::question_end(answer, origin, &labels, glyphs.separator);
+        let (mark, tone) = end.mark(glyphs);
+        // NOTE: a typed answer can be long; on a terminal its line is one row.
+        if self.terminal() {
+            let method = options.width_method();
+            let room = usize::from(effective_width(size))
+                .saturating_sub(text_width(mark, method) + 1)
+                .max(1);
+            words = format::cut(&words, room, method);
+        }
+        let text = marked_text(mark, tone, &words, &options);
+        self.settled_line(About::User(question_id), text, size)
+    }
+
     /// The question of the stop key about `job`, the newest running job of the
     /// conversation: `stop job j3 (npm run dev)`, answered with one key. The view holds
     /// the job until [`stop_answered`](Self::stop_answered).
@@ -568,14 +737,8 @@ impl TurnView {
         let card = Card { title: jobs::stop_title(job), rows: Vec::new() };
         let step = Step { out: before, ask: Some(Ask::StopJob), ..Step::default() };
         self.jobs.stopping = Some(job.id.clone());
-        // One question at a time: the question's key reader replaces any other.
         self.retained = None;
-        if let Some(running) = &mut self.running {
-            running.asking = None;
-            running.guarding = false;
-            running.typed.clear();
-            running.hinted = false;
-        }
+        self.question_takes_keys();
         self.show_question(step, card, About::StopJob, Footer::Keys(jobs::STOP_KEYS), size)
     }
 
@@ -768,6 +931,12 @@ pub(super) fn answer_text(good: bool, line: &str, options: &efr_render::RenderOp
     let glyphs = options.glyphs();
     let (mark, tone) =
         if good { (glyphs.ok, Tone::Success) } else { (glyphs.failed, Tone::Failure) };
+    marked_text(mark, tone, line, options)
+}
+
+/// A line that takes the place of a question: `mark` in `tone`, a space, and `line`
+/// muted, with its newline; a row wider than the screen goes on in the next one.
+fn marked_text(mark: &str, tone: Tone, line: &str, options: &efr_render::RenderOptions) -> String {
     let pieces = [
         (mark.to_owned(), tone),
         (" ".to_owned(), Tone::Plain),

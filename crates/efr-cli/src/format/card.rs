@@ -23,6 +23,11 @@
 //! and allow   n back`, until the next key. A question that another client must answer
 //! ends with a muted row that says so, with no keys.
 //!
+//! The model's question (`ask_user`, [`user_question`]) has one row per option: its digit
+//! as the key, the label and what it means. The last row is `t type an answer   esc
+//! skip`. After `t` the digits are muted, and the line with the typed text, the fixed
+//! hint and the keys `enter send   esc back to the options` follow.
+//!
 //! Every line of a command shows, each on its own, and nothing of what runs is cut: a
 //! line wider than the screen goes on in the next row. A cut after a space ends in a
 //! muted `\` and the rows from there are four columns further in; a space cuts only a row
@@ -37,6 +42,8 @@
 use efr_render::{
     Attrs, ColourMode, DiffLineKind, Glyphs, RenderOptions, Role, diff_lines, text_width,
 };
+
+use efr_protocol::{Origin, QuestionOption, QuestionReply, UserAnswer};
 
 use super::{CommandRow, RowEnd, Tone, columns, lines, paint, wrap_command, wrap_spans};
 
@@ -603,6 +610,160 @@ pub(crate) fn strip_wake(summary: &str) -> Option<&str> {
 /// `allow this command (job notice turn)`.
 pub(crate) fn mark_wake(card: &mut Card) {
     card.title = format!("{} {}", card.title, efr_protocol::WAKE_QUESTION.trim_end());
+}
+
+/// The name of the tool of the model's question. Its card is the call, so the call has
+/// no row of its own.
+pub(crate) const ASK_USER: &str = "ask_user";
+
+/// The keys under the options of the model's question.
+pub(crate) const QUESTION_KEYS: &[(&str, &str)] = &[("t", "type an answer"), ("esc", "skip")];
+
+/// The keys under the answer line of the model's question.
+pub(crate) const TYPING_KEYS: &[(&str, &str)] =
+    &[("enter", "send"), ("esc", "back to the options")];
+
+/// The fixed hint under the answer line of the model's question: the answer goes to
+/// the log and to the provider, as a prompt does.
+pub(crate) const ANSWER_HINT: &str = "Do not type a password or a token here.";
+
+/// How a card of the model's question asks (TM-Questions 0.0.12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Asks<'a> {
+    /// A digit answers here.
+    Options,
+    /// The answer line is open with this text.
+    Typing(&'a str),
+    /// Another client must answer.
+    Elsewhere,
+}
+
+/// The card of the model's question (TM-Questions 0.0.12, frames 1 to 4 and 6): the
+/// question as the title, with the mark of a job notice turn after it; then one row per
+/// option: its digit as the key (`warning` bold while a digit answers, else muted), the
+/// label (`text`) and the description (muted), which goes on under the label. While the
+/// answer line is open, the line with the typed text and the hint follow. The model
+/// wrote every text, so each one goes through [`one_line`](super::one_line).
+pub(crate) fn user_question(
+    question: &str,
+    options: &[QuestionOption],
+    asks: Asks<'_>,
+    glyphs: &Glyphs,
+) -> Card {
+    let wake = strip_wake(question);
+    let mut card = Card { title: super::one_line(wake.unwrap_or(question)), rows: Vec::new() };
+    if wake.is_some() {
+        mark_wake(&mut card);
+    }
+    let digit = if asks == Asks::Options { Tone::AttentionBold } else { Tone::Dim };
+    for (key, option) in (1..).zip(options) {
+        let mut pieces = vec![
+            (key.to_string(), digit),
+            (" ".to_owned(), Tone::Plain),
+            (super::one_line(&option.label), Tone::Text),
+        ];
+        if let Some(description) = option.description.as_deref().filter(|text| !text.is_empty()) {
+            pieces.push((LABEL_GAP.to_owned(), Tone::Plain));
+            pieces.push((super::one_line(description), Tone::Dim));
+        }
+        card.rows.push(Row::Text(pieces));
+    }
+    if let Asks::Typing(text) = asks {
+        card.rows.push(Row::Text(vec![
+            (glyphs.prompt.to_owned(), Tone::Attention),
+            (" ".to_owned(), Tone::Plain),
+            (super::one_line(text), Tone::Text),
+        ]));
+        card.rows.push(Row::text(ANSWER_HINT, Tone::Dim));
+    }
+    card
+}
+
+/// The row of [`ANSWER_HINT`] at the card's indent, with its newline, for an output
+/// that writes the rows of the answer line once.
+pub(crate) fn hint_row(options: &RenderOptions) -> String {
+    let mut out = String::new();
+    push_row(&mut out, &Row::text(ANSWER_HINT, Tone::Dim), options);
+    out
+}
+
+/// The last row of the card of the model's question as `asks` says.
+pub(crate) fn user_question_footer(asks: Asks<'_>) -> Footer {
+    match asks {
+        Asks::Options => Footer::Keys(QUESTION_KEYS),
+        Asks::Typing(_) => Footer::Keys(TYPING_KEYS),
+        Asks::Elsewhere => Footer::Waiting,
+    }
+}
+
+/// How the model's question ended, for the mark of the line that takes the place of its
+/// card (TM-Questions 0.0.12, frame 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QuestionEnd {
+    /// A person answered: `✓` in `success`.
+    Answered,
+    /// A person skipped it: a muted `·`, as a denial.
+    Skipped,
+    /// Nobody answered in time: `✗` in `error`.
+    Unanswered,
+    /// The turn was interrupted: `■` in `warning`, as an interrupted turn.
+    Interrupted,
+}
+
+impl QuestionEnd {
+    /// The mark of the end and its tone.
+    pub(crate) fn mark(self, glyphs: &Glyphs) -> (&'static str, Tone) {
+        match self {
+            QuestionEnd::Answered => (glyphs.ok, Tone::Success),
+            QuestionEnd::Skipped => (glyphs.denied, Tone::Dim),
+            QuestionEnd::Unanswered => (glyphs.failed, Tone::Failure),
+            QuestionEnd::Interrupted => (glyphs.interrupted, Tone::Attention),
+        }
+    }
+}
+
+/// What the model goes on with after a skip or a question that nobody answered.
+const SAFE_CHOICE: &str = "the model goes on with a choice that is safe and easy to undo";
+
+/// How the model's question with the option `labels` ended as `answer`, which a person
+/// gave from `origin`: the end and the words of its line, such as `answered · Postgres
+/// 16`, `answered on the phone · SQLite` or `answered · "port 5433"`. `separator` stands
+/// between the parts.
+pub(crate) fn question_end(
+    answer: &UserAnswer,
+    origin: Option<Origin>,
+    labels: &[String],
+    separator: &str,
+) -> (QuestionEnd, String) {
+    let answered = if origin == Some(Origin::Phone) { "answered on the phone" } else { "answered" };
+    let dot = format!(" {separator} ");
+    match answer {
+        UserAnswer::Replied { reply: QuestionReply::Option { index } } => {
+            let label = labels.get(usize::from(*index)).map_or_else(
+                || format!("option {}", u16::from(*index) + 1),
+                |label| super::one_line(label),
+            );
+            (QuestionEnd::Answered, format!("{answered}{dot}{label}"))
+        }
+        UserAnswer::Replied { reply: QuestionReply::Text { text } } => {
+            (QuestionEnd::Answered, format!("{answered}{dot}\"{}\"", super::one_line(text)))
+        }
+        UserAnswer::Replied { reply: QuestionReply::Skipped } => {
+            (QuestionEnd::Skipped, format!("skipped{dot}{SAFE_CHOICE}"))
+        }
+        UserAnswer::Replied { .. } => (QuestionEnd::Answered, answered.to_owned()),
+        UserAnswer::Unanswered { away: false } => {
+            (QuestionEnd::Unanswered, format!("nobody answered{dot}{SAFE_CHOICE}"))
+        }
+        UserAnswer::Unanswered { away: true } => (
+            QuestionEnd::Unanswered,
+            format!("nobody answered while you were away{dot}the model goes on with a safe choice"),
+        ),
+        UserAnswer::Interrupted => {
+            (QuestionEnd::Interrupted, format!("not answered{dot}you interrupted the turn"))
+        }
+        _ => (QuestionEnd::Unanswered, "not answered".to_owned()),
+    }
 }
 
 /// What the line after a summary that names the parts that ask starts with.
