@@ -13,6 +13,8 @@
 //   of efrd on the text debounced 200 ms with Pacer.
 // - The two panes are in `Activity`: the hidden one keeps its scroll position and its
 //   rows, so a cleared field shows the sections where they were.
+// - A machine whose empty search failed did not answer: both panes show its rows as
+//   offline (SH-Offline). Its next `ready` asks again, and then they are live.
 
 import { useQueries } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -28,6 +30,7 @@ import {
   SEARCH_DEBOUNCE_MS,
   failedText,
   machineNameOf,
+  offlineMachines,
   resultsNotice,
   resultsTitle,
   searchPaneRows,
@@ -60,7 +63,11 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
   const loaded = useQueries(sheetQueriesOptions(props.caller, ids, ""));
   const found = useQueries(sheetQueriesOptions(props.caller, searching ? ids : [], searched));
 
-  const context: RowContext = { machineName: machineNameOf(props.machines), now: props.now };
+  const context: RowContext = {
+    machineName: machineNameOf(props.machines),
+    now: props.now,
+    offline: offlineMachines(ids, loaded.failed),
+  };
   const sections: SheetListSection[] = sheetSections(
     mergeConversationLists(loaded.lists),
     context,

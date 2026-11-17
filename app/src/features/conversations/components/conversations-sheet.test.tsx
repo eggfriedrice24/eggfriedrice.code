@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react-n
 import { useState, type ReactNode } from "react";
 import { TextInput } from "react-native";
 
+import { ConnectionError } from "@/lib/net/errors";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import type {
@@ -15,7 +16,7 @@ import type { ConversationAddress } from "@/lib/query/keys";
 import { createQueryClient } from "@/lib/query/query-client";
 import { FakeCaller } from "@/lib/query/testing";
 
-import { SEARCH_LIMIT } from "../conversations-queries";
+import { SEARCH_LIMIT, conversationsKeys } from "../conversations-queries";
 import { october } from "../model/testing";
 import { SEARCH_DEBOUNCE_MS } from "../model/sheet-view";
 import { ConversationsSheet, type ConversationsSheetProps } from "./conversations-sheet";
@@ -266,6 +267,37 @@ describe("the sections of the sheet", () => {
     await renderSheet({ caller });
     expect(rowTitles("sheet-sections")).toHaveLength(4);
     expect(screen.getByText("1 machine did not answer")).toBeOnTheScreen();
+  });
+
+  it("shows the kept rows of a machine that did not answer as offline", async () => {
+    // The list of the last visit, kept on the disk, and old enough to ask again.
+    client.setQueryData(conversationsKeys.search("l", ""), result(RECENT["l"] ?? []), {
+      updatedAt: 0,
+    });
+    const caller = new FakeCaller({
+      "conversations.search": (params: ConversationsSearch, machine: string) => {
+        if (machine === "l") {
+          throw new ConnectionError("offline", "not connected");
+        }
+        return result(params.query === "" ? (RECENT[machine] ?? []) : []);
+      },
+    });
+    await renderSheet({ caller });
+    expect(screen.getByText("1 machine did not answer")).toBeOnTheScreen();
+    // The approval in the kept list can be old: the row shows no status, by its day.
+    const btrfs = screen.getByLabelText(
+      "Prune old btrfs snapshots. laptop, offline, ~. 30 minutes ago.",
+    );
+    expect(within(btrfs).getByText("Prune old btrfs snapshots").props.className).toBe(
+      "text-row text-text-muted",
+    );
+    expect(within(btrfs).queryByText("needs approval")).toBeNull();
+    expect(
+      screen.getAllByTestId("row-icon-approval", { includeHiddenElements: true }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByLabelText("Set up restic backups. laptop, offline, ~. Yesterday at 20:00."),
+    ).toBeOnTheScreen();
   });
 });
 

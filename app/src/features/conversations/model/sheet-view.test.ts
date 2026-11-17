@@ -5,6 +5,7 @@ import { sheetParams } from "./sheet-schemas";
 import {
   failedText,
   machineNameOf,
+  offlineMachines,
   resultsNotice,
   resultsTitle,
   searchPaneRows,
@@ -168,9 +169,15 @@ describe("the notices", () => {
   });
 
   it("counts the machines that did not answer", () => {
-    expect(failedText(0)).toBeUndefined();
-    expect(failedText(1)).toBe("1 machine did not answer");
-    expect(failedText(3)).toBe("3 machines did not answer");
+    expect(failedText([])).toBeUndefined();
+    expect(failedText([false, false])).toBeUndefined();
+    expect(failedText([false, true])).toBe("1 machine did not answer");
+    expect(failedText([true, true, true])).toBe("3 machines did not answer");
+  });
+
+  it("names the machines that did not answer as offline", () => {
+    expect([...offlineMachines(["d", "l", "h"], [false, true, true])]).toEqual(["l", "h"]);
+    expect(offlineMachines(["d"], []).size).toBe(0);
   });
 
   it("titles the results with their count", () => {

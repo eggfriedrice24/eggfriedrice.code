@@ -331,7 +331,12 @@ describe("combineConversationLists", () => {
       result([a], { isFetching: true }),
       result(undefined, { isError: true }),
     ]);
-    expect(combined).toEqual({ lists: [[a], []], isPending: false, isFetching: true, failed: 1 });
+    expect(combined).toEqual({
+      lists: [[a], []],
+      isPending: false,
+      isFetching: true,
+      failed: [false, true],
+    });
   });
 
   it("is pending only while no machine has data", () => {
@@ -372,7 +377,7 @@ describe("sheetQueriesOptions", () => {
     expect(
       combined.lists.map((list) => list.map((row) => `${row.machine} ${row.title ?? ""}`)),
     ).toEqual([["desktop on desktop"], ["laptop on laptop"], []]);
-    expect(combined.failed).toBe(1);
+    expect(combined.failed).toEqual([false, false, true]);
     for (const stop of stops) {
       stop();
     }

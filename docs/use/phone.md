@@ -184,6 +184,9 @@ Settings and New (`+`) at the right. New goes back to the blank root.
   titles. The button next to it (a pencil) starts a new conversation.
 - Tap a row to open the conversation. The sheet closes.
 - Touch and hold a row of the sheet for Open and Copy ID.
+- When a machine does not answer, its rows stay from the last list that the phone
+  keeps. They are quieter and say "offline" after the machine, and they show no status,
+  because it can be old.
 
 The app keeps at most 8 conversations on its stack. A conversation that is on the stack
 opens where it is. Touch and hold the back button to see the stack.

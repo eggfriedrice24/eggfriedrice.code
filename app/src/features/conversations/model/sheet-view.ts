@@ -135,12 +135,28 @@ export function resultsNotice(input: ResultsNoticeInput): SheetNotice {
   return { kind: "none" };
 }
 
-/** The line under a pane when machines did not answer: `1 machine did not answer`. */
-export function failedText(failed: number): string | undefined {
-  if (failed <= 0) {
+/**
+ * The line under a pane when machines did not answer: `1 machine did not answer`.
+ * `failed` holds one flag per machine.
+ */
+export function failedText(failed: readonly boolean[]): string | undefined {
+  const count = failed.filter(Boolean).length;
+  if (count === 0) {
     return undefined;
   }
-  return failed === 1 ? "1 machine did not answer" : `${String(failed)} machines did not answer`;
+  return count === 1 ? "1 machine did not answer" : `${String(count)} machines did not answer`;
+}
+
+/**
+ * The machines whose list did not answer (SH-Offline): `failed` holds one flag per id
+ * of `ids`, in the same order. Their rows are from the last list that the phone keeps,
+ * so the sheet shows them as offline.
+ */
+export function offlineMachines(
+  ids: readonly string[],
+  failed: readonly boolean[],
+): ReadonlySet<string> {
+  return new Set(ids.filter((_, index) => failed[index] === true));
 }
 
 /** A paired machine as the sheet needs it. */

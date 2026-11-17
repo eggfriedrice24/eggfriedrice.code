@@ -8,6 +8,10 @@
 //   (`filterConversations`). The search of efrd (debounced) gives the results pane
 //   (`searchResultRows`), best first per machine. A result shows the words of the search
 //   in its title.
+// - A row of a machine that did not answer is offline (SH-Offline): it comes from the
+//   last list that the phone keeps, so its title is quieter, the word "offline" follows
+//   the machine, and it shows no status. A status from that list can be old, so the row
+//   goes to its day section.
 
 import type { ConversationStatus } from "@/lib/protocol/generated";
 import { holdsEveryWord, matchRuns, searchWords, type MatchRun } from "@/lib/text/search-words";
@@ -32,6 +36,8 @@ export interface SheetRow {
   readonly mark: SheetRowMark;
   /** The name of the machine, such as `desktop`. */
   readonly machineName: string;
+  /** True when the machine did not answer: the title is text_muted, "offline" follows. */
+  readonly offline: boolean;
   /** The last part of the cwd in mono, `~` for home; none without a cwd. */
   readonly folder: string | undefined;
   /** When, in the short form: `now`, `12m`, `3h`, `18:40`, `Tue`, `Oct 12`. */
@@ -60,6 +66,13 @@ export interface RowContext {
   readonly now: number;
   /** The words of the search (`searchWords`), shown in the titles. None for the sections. */
   readonly words?: readonly string[];
+  /** The machines that did not answer (`offlineMachines`). None: every machine answered. */
+  readonly offline?: ReadonlySet<string>;
+}
+
+/** The status that the sheet trusts: none for a row of a machine that did not answer. */
+function liveStatus(item: ConversationItem, context: RowContext): ConversationStatus {
+  return context.offline?.has(item.machine) === true ? "idle" : item.status;
 }
 
 const MARKS: Readonly<Record<ConversationStatus, SheetRowMark>> = {
@@ -98,10 +111,14 @@ function capitalized(text: string | undefined): string | undefined {
 /** The sheet row of `item`. */
 export function sheetRow(item: ConversationItem, context: RowContext, bright = false): SheetRow {
   const title = rowTitle(item.title);
-  const status = statusWord(item.status);
+  const live = liveStatus(item, context);
+  const status = statusWord(live);
+  const offline = context.offline?.has(item.machine) === true;
   const machineName = context.machineName(item.machine);
   const folder = item.cwd === undefined ? undefined : folderName(item.cwd);
-  const place = folder === undefined ? machineName : `${machineName}, ${folder}`;
+  const place = [machineName, offline ? "offline" : undefined, folder]
+    .filter((part) => part !== undefined)
+    .join(", ");
   const sentences = [title, capitalized(status), place, spokenTime(item.updatedAt, context.now)];
   return {
     machine: item.machine,
@@ -109,8 +126,9 @@ export function sheetRow(item: ConversationItem, context: RowContext, bright = f
     title,
     titleRuns: matchRuns(title, context.words ?? []),
     status,
-    mark: MARKS[item.status],
+    mark: MARKS[live],
     machineName,
+    offline,
     folder,
     time: listTime(item.updatedAt, context.now),
     label: sentences
@@ -161,15 +179,15 @@ export function filterConversations(
   );
 }
 
-/** The section of `item` at `now`: its status first, else the day of its last event. */
-function sectionOf(item: ConversationItem, now: number): SheetSectionKind {
-  switch (item.status) {
+/** The section of `item`: its live status first, else the day of its last event. */
+function sectionOf(item: ConversationItem, context: RowContext): SheetSectionKind {
+  switch (liveStatus(item, context)) {
     case "awaiting_approval":
       return "needs";
     case "running":
       return "running";
     default:
-      return listDay(item.updatedAt, now);
+      return listDay(item.updatedAt, context.now);
   }
 }
 
@@ -180,7 +198,7 @@ export function sheetSections(
 ): SheetSection[] {
   const groups = new Map<SheetSectionKind, ConversationItem[]>();
   for (const item of mergeConversationLists([items])) {
-    const kind = sectionOf(item, context.now);
+    const kind = sectionOf(item, context);
     const group = groups.get(kind);
     if (group === undefined) {
       groups.set(kind, [item]);

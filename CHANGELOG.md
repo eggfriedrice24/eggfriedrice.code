@@ -120,7 +120,9 @@ into the GitHub release notes, and it stops when the section is missing.
   yesterday, `Tue`, `Oct 12`, `Oct 12, 2025`). A running conversation shows the braille
   loader. The sections are "Needs you", "Running", "Today", "Yesterday", "This week"
   and "Older", and the search shows "3 results" with the words in bold in the titles.
-  A long press on a row gives Open and Copy ID; "Copy title" is gone.
+  A long press on a row gives Open and Copy ID; "Copy title" is gone. The rows of a
+  machine that did not answer stay from the last list, quieter, with "offline" after
+  the machine and no status.
 - The approval sheet and the quarantine sheet of the phone app show the native header
   with Close, and Next after a question closed while more wait. Deny, Allow and Leave
   stay the large buttons of the sheet. "Use default" of the model sheet moved to the

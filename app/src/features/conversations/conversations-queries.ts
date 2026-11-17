@@ -272,8 +272,8 @@ export interface CombinedConversationLists {
   readonly isPending: boolean;
   /** True while any machine fetches. */
   readonly isFetching: boolean;
-  /** The number of machines whose last fetch failed. */
-  readonly failed: number;
+  /** For each machine, in the order of the queries: true when its last fetch failed. */
+  readonly failed: readonly boolean[];
 }
 
 /** The members of a query result that `combineConversationLists` reads. */
@@ -293,7 +293,7 @@ export function combineConversationLists(
       results.every((result) => result.data === undefined) &&
       results.some((result) => result.isPending),
     isFetching: results.some((result) => result.isFetching),
-    failed: results.filter((result) => result.isError).length,
+    failed: results.map((result) => result.isError),
   };
 }
 

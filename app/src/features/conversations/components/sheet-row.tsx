@@ -7,7 +7,8 @@
 // - Title: SF Pro 15/20 in text_primary, one line with an ellipsis at the end; text_bright
 //   semibold in the Needs you section. The words of a search are text_bright semibold.
 // - Second line: SF Pro 13/18 in text_subtle, "[status word in yolk] · machine · folder",
-//   with the folder in SF Mono 12.
+//   with the folder in SF Mono 12. A row of a machine that did not answer (SH-Offline)
+//   has its title in text_muted and "machine · offline · folder".
 // - Time: on the right, 13/18 in text_subtle, at the top, for every row.
 // - VoiceOver reads the row as one element. A tap opens the conversation. A long press
 //   opens the native menu with Open and Copy ID; VoiceOver gets the same two as actions
@@ -51,7 +52,10 @@ function isRowAction(id: string): id is RowAction {
 
 /** The colour of the title of `row`. */
 function titleTone(row: SheetRowModel): TextTone {
-  return row.bright ? "text_bright" : "text_primary";
+  if (row.bright) {
+    return "text_bright";
+  }
+  return row.offline ? "text_muted" : "text_primary";
 }
 
 export interface SheetRowProps {
@@ -112,6 +116,7 @@ export function SheetRow(props: SheetRowProps) {
               </>
             )}
             {row.machineName}
+            {row.offline ? " · offline" : null}
             {row.folder === undefined ? null : (
               <>
                 {" · "}

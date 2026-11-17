@@ -168,6 +168,32 @@ describe("sheetSections (S-Rows, Sections)", () => {
       ["older", ["before"]],
     ]);
   });
+
+  it("shows the rows of a machine that did not answer as offline, by their day", () => {
+    const sections = sheetSections([...DESKTOP, ...LAPTOP], {
+      ...CONTEXT,
+      offline: new Set(["l"]),
+    });
+    expect(sections.map((section) => section.kind)).toEqual([
+      "needs",
+      "running",
+      "today",
+      "yesterday",
+      "week",
+      "older",
+    ]);
+    const needs = sections[0]?.rows.map((row) => row.id);
+    expect(needs).toEqual(["steer"]);
+    const btrfs = sections.flatMap((section) => section.rows).find((row) => row.id === "btrfs");
+    expect(sections[2]?.rows.map((row) => row.id)).toEqual(["btrfs", "fan", "expo", "offline"]);
+    expect(btrfs).toMatchObject({
+      status: undefined,
+      mark: "none",
+      offline: true,
+      bright: false,
+      label: "Prune old btrfs snapshots. laptop, offline, ~. 3 minutes ago.",
+    });
+  });
 });
 
 describe("mergeConversationLists", () => {
@@ -229,6 +255,7 @@ describe("sheetRow", () => {
       status: undefined,
       mark: "none",
       machineName: "x",
+      offline: false,
       folder: undefined,
       time: "1m",
       label: "T. x. 1 minute ago.",
