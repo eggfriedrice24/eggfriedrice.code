@@ -96,7 +96,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - The conversations sheet of the phone app uses the native search bar of iOS, with a
   native "New conversation" button next to it in the bottom toolbar.
 - The composer of the phone app rests as a one-line pill and grows to the full composer,
-  with its status line, when you tap it to write.
+  with its status line, when you tap it to write. The focused field is at least 3 lines
+  high. A plus button (attach) and a microphone (voice message) are in place, off for
+  now.
 - The phone app answers a question in a strip above the composer, with Deny and Allow.
   A tap on the strip or on the waiting tool card opens a sheet with the full command or
   diff. The sheet never opens by itself.

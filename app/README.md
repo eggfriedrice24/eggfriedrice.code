@@ -404,7 +404,14 @@ not a test that pretends.
 25. At rest the composer is a one-line pill (field and action, 48 pt). A tap focuses
     the input: the status line shows and the input grows to 6 lines, with no jump of
     the transcript. A tap on the transcript or a closed keyboard makes it a pill again,
-    with the draft kept. The model button opens the sheet from the full composer.
+    with the draft kept. The model button opens the sheet from the full composer. The
+    focused field is at least 72 pt and takes the full width under the status line: a
+    pasted paragraph and the placeholder start at the top left, in line with the status
+    line, and the focus stays when the composer changes size. The placeholder is smaller
+    than the text, and the field does not jump at the first letter. At rest one row:
+    plus, the field, microphone, Send or Stop. Focused, under the field: plus at the
+    left, microphone and Send or Stop at the right. Plus and microphone are grey, take no
+    tap, and VoiceOver says "Not available yet.".
 26. The Steer and Queue menu opens with a long press on the capsule, and a tap on the
     capsule sends. This needs the patch of react-native-menu in a new build: without it,
     the button of a long press menu takes the taps of the views inside it. Check also

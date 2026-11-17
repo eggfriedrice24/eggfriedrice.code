@@ -233,6 +233,9 @@ the send button. Tap it to write: it grows to the full composer, with the status
 on top and room for 6 lines. When you tap the transcript or close the keyboard, it
 becomes a pill again and keeps your text.
 
+The plus button at the left (attach a file or an image) and the microphone before the
+send button (record a voice message) are off for now. A later release turns them on.
+
 The status line shows the directory and how full the context of the model is, such as `ctx 42%`. It shows
 "waiting for you" while a question of this conversation waits, and "reconnecting" while
 the app connects again. At its right end are the mode of the next message and the model
