@@ -77,6 +77,11 @@ function rendered(): RenderRouterResult {
   return view;
 }
 
+/** Focuses the input, so the composer shows its status line with the mode control. */
+async function focusComposer(): Promise<void> {
+  await fireEvent(screen.getByTestId("composer-input"), "focus");
+}
+
 /** Types `text` in the composer on top and taps Send. */
 async function sendFromRoot(text: string): Promise<void> {
   const inputs = screen.getAllByTestId("composer-input");
@@ -111,6 +116,7 @@ describe("the blank root", () => {
     await act(async () => {
       await current.answerCheck({ kind: "passed" });
     });
+    await focusComposer();
     await fireEvent(screen.getByTestId("composer-mode-menu"), "pressAction", {
       nativeEvent: { event: "auto" },
     });
@@ -121,6 +127,7 @@ describe("the blank root", () => {
 
   it("opens Settings at the unlock row from Turn on Face ID unlock (S-ComposerR7 r9 12b)", async () => {
     await open();
+    await focusComposer();
     await fireEvent(screen.getByTestId("composer-mode-menu"), "pressAction", {
       nativeEvent: { event: "turn_on_unlock" },
     });
