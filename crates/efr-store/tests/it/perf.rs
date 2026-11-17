@@ -1,13 +1,17 @@
 //! The `bench_perf_*` benches of the store on the perf corpus: the read of a
 //! conversation's user messages (the plan's W1-B), the latency of one append as the
-//! log grows, and the read of the previous turn's start (W2-D). Ignored; `just
+//! log grows, the read of the previous turn's start (W2-D), the projections after an
+//! output update, and the rebuild of the projections from the log. Ignored; `just
 //! bench-perf` runs them in release. Each bench writes its log in parts and measures
 //! after each part, so one build serves the whole ladder.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use efr_protocol::{CallId, CommandId, ConversationId, Event, Origin, Scope, TurnId, TurnSettings};
+use efr_protocol::{
+    ApprovalDecision, CallId, CommandId, ConversationId, Event, InputWait, Origin, Scope, TurnId,
+    TurnSettings,
+};
 use efr_store::{Batch, Store, WAL_AUTOCHECKPOINT, user_messages};
 use efr_test_support::bench::{self, Report};
 use efr_test_support::{PerfCorpus, PerfShape, TestClock, open_store_file};
@@ -387,4 +391,116 @@ async fn bench_perf_store_append() {
     report.time("wal near the checkpoint:   with a checkpoint", &checkpointed);
     log.store.close().await;
     report.finish();
+}
+
+/// The finished turns of the conversation of the projection bench, each with one
+/// approval that the user answered.
+const PROJECTION_TURNS: usize = 2_000;
+
+/// The appends of each kind that the projection bench times.
+const PROJECTION_APPENDS: u64 = 300;
+
+/// The budget of one append of an output update in the projection bench: about
+/// 0.03 ms, and 0.12 ms for an input change, which refreshes the status (2026-11-17).
+const OUTPUT_BUDGET: Duration = Duration::from_millis(1);
+
+/// The approval of the turn `n` of the projection bench, asked and answered.
+fn answered_approval(batch: Batch, id: ConversationId, n: usize) -> Batch {
+    let turn_id = bench_turn(n);
+    let call_id: CallId = format!("019a0000-0000-7000-8000-{:012x}", 0x3_0000 + n).parse().unwrap();
+    batch
+        .event(
+            id,
+            Event::ApprovalRequested {
+                turn_id,
+                call_id,
+                summary: "make install".to_owned(),
+                diff_preview: None,
+                interactive: false,
+                exit: None,
+                expires_in_secs: None,
+                local_only: n.is_multiple_of(2),
+                reason: None,
+            },
+        )
+        .event(
+            id,
+            Event::ApprovalResolved {
+                turn_id,
+                call_id,
+                decision: ApprovalDecision::Allow,
+                origin: Origin::Shell,
+            },
+        )
+}
+
+/// The projections after each event of a running call (plan 6.2): an output update,
+/// which changes neither the status nor the attention, and an input change, which
+/// does. The conversation has [`PROJECTION_TURNS`] finished turns and as many answered
+/// approvals, so a refresh of the status has rows to read. Only the input change
+/// refreshes the status. Budget: one output update takes less than [`OUTPUT_BUDGET`].
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_projection_output() {
+    let mut report = Report::new("bench_perf_projection_output");
+    let dir = temp_dir();
+    let clock = TestClock::new();
+    let store = open_store_file(&dir.path().join("efr.sqlite"), &clock).await.unwrap();
+    let (id, turn_id, call_id) = probe(&store, &clock).await;
+    let mut written = 0;
+    while written < PROJECTION_TURNS {
+        let mut batch = Batch::new();
+        let end = (written + 100).min(PROJECTION_TURNS);
+        for n in written..end {
+            batch = answered_approval(whole_turn(batch, id, n), id, n);
+        }
+        written = end;
+        clock.advance(Duration::from_secs(60));
+        store.writer().append(batch).await.unwrap();
+    }
+
+    let outputs = time_updates(&store, &clock, (id, turn_id, call_id), 0, PROJECTION_APPENDS).await;
+    let mut inputs = Vec::new();
+    for n in 0..PROJECTION_APPENDS {
+        clock.advance(Duration::from_millis(200));
+        let input = if n % 2 == 0 { InputWait::Visible } else { InputWait::None };
+        let event = Event::ToolCallInputChanged { turn_id, call_id, input, looks_secret: false };
+        let started = Instant::now();
+        store.writer().append(Batch::new().event(id, event)).await.unwrap();
+        inputs.push(started.elapsed());
+    }
+    let output = report.time("append of one output update (no refresh)", &outputs);
+    report.time("append of one input change (refresh)", &inputs);
+    store.close().await;
+    report.finish();
+    assert!(output.p50 < OUTPUT_BUDGET, "one output update took {:?}", output.p50);
+}
+
+/// The events of the log of the rebuild bench.
+const REBUILD_EVENTS: u64 = 500_000;
+
+/// The budget of the rebuild of the projections from [`REBUILD_EVENTS`] events: about
+/// 7.4 s on a busy machine (2026-11-17). The first start after migration 14 runs it
+/// once; above this budget the plan takes two `UPDATE` statements in the migration in
+/// its place.
+const REBUILD_BUDGET: Duration = Duration::from_secs(10);
+
+/// The one rebuild of the projections from the log at the first start after migration
+/// 14 (plan 6.2), on a log of [`REBUILD_EVENTS`] events of the perf corpus. Budget:
+/// less than [`REBUILD_BUDGET`].
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_rebuild() {
+    let mut report = Report::new("bench_perf_rebuild");
+    let mut log = Log::new().await;
+    let build = log.grow_to(REBUILD_EVENTS).await;
+    report.time("build of the log", &[build]);
+    report.count("events in the log", log.events);
+    let started = Instant::now();
+    log.store.writer().rebuild_projections().await.unwrap();
+    let rebuild = started.elapsed();
+    report.time("rebuild of the projections", &[rebuild]);
+    log.store.close().await;
+    report.finish();
+    assert!(rebuild < REBUILD_BUDGET, "the rebuild of {} events took {rebuild:?}", log.events);
 }
