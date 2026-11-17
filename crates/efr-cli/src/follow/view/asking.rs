@@ -32,6 +32,16 @@ pub(super) struct UserQuestion {
     typing: Option<String>,
 }
 
+/// The answer that this client sent to the model's question: its line showed at once,
+/// so the end of the question needs no second line when efrd took this answer.
+#[derive(Debug)]
+pub(super) struct SentAnswer {
+    id: QuestionId,
+    reply: QuestionReply,
+    /// The labels of the options, for the line of an answer of another client.
+    labels: Vec<String>,
+}
+
 impl TurnView {
     pub(super) fn approval(
         &mut self,
@@ -674,7 +684,14 @@ impl TurnView {
         reply: &QuestionReply,
         size: Size,
     ) -> Step {
-        self.user_answered = Some(question_id);
+        let labels = self
+            .user_question
+            .as_ref()
+            .filter(|asked| asked.id == question_id)
+            .map(|asked| asked.options.iter().map(|option| option.label.clone()).collect())
+            .unwrap_or_default();
+        self.user_answered =
+            Some(Box::new(SentAnswer { id: question_id, reply: reply.clone(), labels }));
         let answer = UserAnswer::Replied { reply: reply.clone() };
         self.user_question_line(question_id, &answer, None, size)
     }
@@ -689,8 +706,14 @@ impl TurnView {
         origin: Option<Origin>,
         size: Size,
     ) -> Step {
-        if self.user_answered == Some(question_id) {
-            return Step::default();
+        if let Some(sent) = self.user_answered.as_ref().filter(|sent| sent.id == question_id) {
+            if matches!(answer, UserAnswer::Replied { reply } if *reply == sent.reply) {
+                return Step::default();
+            }
+            // NOTE: efrd took the answer of another client before the one of this
+            // client, so the line of this client is wrong: the line of the event tells
+            // what the model got.
+            return self.user_question_line(question_id, answer, origin, size);
         }
         let settled =
             self.user_question.as_ref().is_some_and(|asked| asked.id == question_id && asked.keys);
@@ -706,10 +729,16 @@ impl TurnView {
         origin: Option<Origin>,
         size: Size,
     ) -> Step {
-        let asked = self.user_question.take_if(|asked| asked.id == question_id);
-        let labels: Vec<String> = asked
-            .map(|asked| asked.options.into_iter().map(|option| option.label).collect())
-            .unwrap_or_default();
+        let labels: Vec<String> = match self.user_question.take_if(|asked| asked.id == question_id)
+        {
+            Some(asked) => asked.options.into_iter().map(|option| option.label).collect(),
+            None => self
+                .user_answered
+                .as_ref()
+                .filter(|sent| sent.id == question_id)
+                .map(|sent| sent.labels.clone())
+                .unwrap_or_default(),
+        };
         if self.status.as_ref().is_some_and(|status| *status.state() == State::Answer) {
             self.state(State::Model);
         }

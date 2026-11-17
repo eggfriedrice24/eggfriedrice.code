@@ -112,6 +112,19 @@ fn the_card_is_the_call_and_a_digit_answers_it_in_place() {
 }
 
 #[test]
+fn the_answer_of_another_client_that_came_first_gets_its_line() {
+    let mut view = terminal();
+    framed(view.event(&requested("Which database?"), WIDE, true), &mut view);
+    let mine = QuestionReply::Option { index: 0 };
+    framed(view.user_replied(question_id(), &mine, WIDE), &mut view);
+    // efrd took the phone's answer first and refused this one.
+    let phone = UserAnswer::Replied { reply: QuestionReply::Option { index: 1 } };
+    let step = framed(view.event(&answered(phone, Some(Origin::Phone)), WIDE, true), &mut view);
+    let shown = bare(&step.out);
+    assert!(shown.contains("\u{2713} answered on the phone \u{b7} SQLite\n"), "{shown}");
+}
+
+#[test]
 fn the_answer_line_opens_in_the_card_and_closes_again() {
     let mut view = terminal();
     framed(view.event(&requested("Which database?"), WIDE, true), &mut view);

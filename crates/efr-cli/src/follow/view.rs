@@ -194,7 +194,7 @@ use crate::notify::{self, Notices};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
-use asking::UserQuestion;
+use asking::{SentAnswer, UserQuestion};
 use ending::Ending;
 use fold::Fold;
 use input::{Input, Queued, user_message};
@@ -722,8 +722,9 @@ pub(crate) struct TurnView {
     /// The model's question on the screen, of this turn or of the turn it waits
     /// behind.
     user_question: Option<Box<UserQuestion>>,
-    /// The model's question that this client answered, whose end needs no second line.
-    user_answered: Option<QuestionId>,
+    /// The answer of this client to the model's question, whose end needs no second
+    /// line when efrd took it.
+    user_answered: Option<Box<SentAnswer>>,
     /// What the view keeps of background jobs.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
     jobs: Box<Jobs>,
