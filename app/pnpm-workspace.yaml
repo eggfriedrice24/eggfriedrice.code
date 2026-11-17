@@ -44,8 +44,16 @@ peerDependencyRules:
 # eas-cli pins old versions of these build tools exactly, with security fixes in newer
 # versions of the same major. None of them is in the app bundle. Drop a line when
 # eas-cli names the fixed version itself.
+#
+# The last three lines are different: their fixes exist only in a newer major (no
+# backport), so they lift the build tools of Expo and eas-cli across a major. The app
+# check, the Expo export and an iOS prebuild pass with them. Drop a line when the
+# tools take the fixed major themselves.
 overrides:
   "node-forge@<1.4.3": "1.4.3"
   "joi@>=16 <17.13.8": "17.13.8"
   "nanoid@>=3 <3.3.12": "^3.3.12"
   "minimatch@>=5 <5.1.8": "^5.1.8"
+  "minimatch@>=7 <11.0.1": "^11.0.1"
+  "glob@>=9 <14.0.2": "^14.0.2"
+  "uuid@<11.1.1": "^11.1.1"
