@@ -79,8 +79,9 @@ pub struct WatchInput {
     /// A regular expression of at most 200 characters, such as `error|panic`.
     #[schemars(length(min = 1, max = 200))]
     pub pattern: String,
-    /// How many matches may wake you, from 1 to 10; default 1. efr cuts a higher
-    /// number to its own maximum.
+    /// How many notices of matches may wake you, from 1 to 10; default 3. Lines that
+    /// match within 1 second are one notice. efr cuts a higher number to its own
+    /// maximum.
     #[serde(default)]
     #[schemars(range(min = 1, max = 10))]
     pub max_wakes: Option<u8>,
@@ -587,8 +588,18 @@ impl Tool for ShellTool {
              refused. background: true starts the line as a job and answers at once with a \
              job id and an output file; the job runs until it ends, max_minutes passes \
              (default 60, at most 480, unless the user changed them), or job_stop stops it. \
-             You get a notice when it ends; do not poll and do not sleep. watch wakes you on \
-             an output line that matches a pattern. Processes that a normal call starts with \
+             You get a notice when it ends; do not poll and do not sleep. watch wakes you \
+             when lines of the job's output match a pattern. To monitor a log, a build, a \
+             test run or a deploy, start it as a job with watch and end your turn. Make the \
+             command print one line for each event. Give a pattern that matches every end \
+             state, the failure and the success. Name a max_minutes as short as the wait \
+             needs. Lines that match within 1 second reach you as one notice of at most 20 \
+             lines, the first 10 and the last 10. A watch gives you 3 notices unless you \
+             name max_wakes, and at most 10; a conversation gets at most 6 notices in one \
+             hour. After the last notice the job runs on until it ends or its time limit \
+             passes; job_stop ends it. The notice of the job's end always comes. In auto, a \
+             command that needs a login cannot run as a job; run it in the foreground with \
+             timeout_seconds. Processes that a normal call starts with \
              &, nohup or setsid stop when the call ends. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout holds the shell; efr tells the user, and \
