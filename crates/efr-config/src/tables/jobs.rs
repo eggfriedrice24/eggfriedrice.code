@@ -31,8 +31,9 @@ pub struct JobsSettings {
     /// The most turns per hour that job notices start in all conversations, from 0 to
     /// 120. 0: a notice never starts a turn.
     pub max_wakes_per_hour_daemon: u32,
-    /// The most times that one `watch` pattern of a job can wake the model, from 0 to
-    /// 10. A higher `max_wakes` of the model is cut to it.
+    /// The most notices that one `watch` pattern of a job can give the model, from 0 to
+    /// 10. The lines that match within 1 second are one notice. A higher `max_wakes` of
+    /// the model is cut to it; when the model names none, a watch gives 3.
     pub max_wakes_per_watch: u32,
     /// The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A
     /// job never runs at a higher priority than efrd. The disk priority of a job is
@@ -55,7 +56,7 @@ impl Default for JobsSettings {
             max_running_daemon: 16,
             max_wakes_per_hour: 6,
             max_wakes_per_hour_daemon: 12,
-            max_wakes_per_watch: 3,
+            max_wakes_per_watch: 10,
             nice: 19,
             forward_ports: true,
         }

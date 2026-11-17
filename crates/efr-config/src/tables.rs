@@ -21,6 +21,7 @@ pub(crate) mod dbus;
 pub(crate) mod diff;
 pub(crate) mod jobs;
 pub(crate) mod network;
+pub(crate) mod notify;
 pub(crate) mod presence;
 pub(crate) mod recording;
 pub(crate) mod remote;
@@ -130,6 +131,37 @@ pub enum WebSocketChoice {
     On,
     /// Every model uses HTTP.
     Off,
+}
+
+/// Whether `efr` writes a sequence of the terminal: the progress bar of the tab
+/// (`render.progress`) or a desktop notice (`notify.terminal`). The text of each key
+/// names the terminals of `auto`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum AutoOnOff {
+    /// Only in a terminal that is known to show it. Never inside tmux, GNU screen or
+    /// zellij.
+    #[default]
+    Auto,
+    /// Always, when stdout is a terminal.
+    On,
+    /// Never.
+    Off,
+}
+
+impl AutoOnOff {
+    /// Every choice, in the order the docs list them.
+    pub const ALL: [AutoOnOff; 3] = [AutoOnOff::Auto, AutoOnOff::On, AutoOnOff::Off];
+
+    /// The name in the file, such as `auto`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AutoOnOff::Auto => "auto",
+            AutoOnOff::On => "on",
+            AutoOnOff::Off => "off",
+        }
+    }
 }
 
 /// What a hidden shell does with sudo's cached credentials after a call that ran sudo
@@ -471,6 +503,11 @@ pub struct ConversationSettings {
     /// once a day for each repository, that writes there ask you and how to register
     /// it.
     pub repo_hint: bool,
+    /// The model can ask you a question with 2 to 4 options (the tool `ask_user`), and
+    /// the turn waits for your answer. An answer is information for the model: it
+    /// approves no action. `false`: the model does not get the tool, from its next
+    /// turn.
+    pub ask_user: bool,
 }
 
 impl Default for ConversationSettings {
@@ -483,6 +520,7 @@ impl Default for ConversationSettings {
             tty_idle_hours: 12,
             follow_project: true,
             repo_hint: true,
+            ask_user: true,
         }
     }
 }

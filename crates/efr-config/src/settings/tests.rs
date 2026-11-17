@@ -6,7 +6,7 @@ use efr_stdx::env::Var;
 use pretty_assertions::assert_eq;
 
 use crate::{
-    CacheTtlChoice, CompactionSettings, ConfigError, Location, ModelEntry, ModelLimits, Progress,
+    AutoOnOff, CacheTtlChoice, CompactionSettings, ConfigError, Location, ModelEntry, ModelLimits,
     ResumePicker, ScreenChoice, Settings, Source, SudoCache, WebSocketChoice,
 };
 
@@ -292,15 +292,23 @@ fn motion_the_turn_summary_and_the_progress_bar_are_on_or_auto_until_the_file_sa
     let settings = parse("").unwrap();
     assert!(settings.render.motion);
     assert!(settings.render.turn_summary);
-    assert_eq!(settings.render.progress, Progress::Auto);
+    assert_eq!(settings.render.progress, AutoOnOff::Auto);
     let text = "[render]\nmotion = false\nturn_summary = false\nprogress = \"off\"\n";
     let settings = parse(text).unwrap();
     assert!(!settings.render.motion);
     assert!(!settings.render.turn_summary);
-    assert_eq!(settings.render.progress, Progress::Off);
+    assert_eq!(settings.render.progress, AutoOnOff::Off);
     assert_eq!(settings.source("render.progress"), Source::File);
     let error = parse("[render]\nprogress = \"sometimes\"\n").unwrap_err();
     assert_eq!(error.key().as_deref(), Some("render.progress"));
+    // NOTE: the shared choice keeps the wire names of the old `Progress`.
+    for (name, choice) in
+        [("auto", AutoOnOff::Auto), ("on", AutoOnOff::On), ("off", AutoOnOff::Off)]
+    {
+        let text = format!("[render]\nprogress = \"{name}\"\n");
+        assert_eq!(parse(&text).unwrap().render.progress, choice);
+        assert_eq!(choice.as_str(), name);
+    }
 }
 
 #[test]

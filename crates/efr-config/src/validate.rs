@@ -87,6 +87,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         snapshot,
         recording,
         presence,
+        notify,
         jobs,
         web,
         remote,
@@ -231,6 +232,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_snapshot(snapshot)?;
     check_recording(recording)?;
     check_presence(presence)?;
+    within(
+        "notify.after_secs",
+        u64::from(notify.after_secs),
+        0..=86_400,
+        "between 0 and 86400 (a day)",
+    )?;
     check_jobs(jobs)?;
     within("web.max_searches", u64::from(web.max_searches), 1..=100, "between 1 and 100")?;
     check_remote(remote)?;

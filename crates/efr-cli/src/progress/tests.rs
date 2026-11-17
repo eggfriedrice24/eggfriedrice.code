@@ -1,4 +1,4 @@
-use efr_config::Progress;
+use efr_config::AutoOnOff;
 use pretty_assertions::assert_eq;
 
 use super::{version, wanted};
@@ -40,9 +40,9 @@ fn auto_sends_the_bar_only_to_terminals_known_to_draw_it_and_never_through_a_mul
     ];
     for (program, version, multiplexer, wt, expected) in cases {
         let facts = facts(program, version, multiplexer, wt);
-        assert_eq!(wanted(Progress::Auto, &facts), expected, "{facts:?}");
-        assert!(wanted(Progress::On, &facts), "on sends it everywhere: {facts:?}");
-        assert!(!wanted(Progress::Off, &facts), "off never sends it: {facts:?}");
+        assert_eq!(wanted(AutoOnOff::Auto, &facts), expected, "{facts:?}");
+        assert!(wanted(AutoOnOff::On, &facts), "on sends it everywhere: {facts:?}");
+        assert!(!wanted(AutoOnOff::Off, &facts), "off never sends it: {facts:?}");
     }
 }
 
@@ -52,8 +52,8 @@ fn nothing_goes_out_when_stdout_is_not_a_terminal() {
     let piped = TermFacts { stdout_tty: false, ..ghostty.clone() };
     let dumb = TermFacts { term: Some("dumb".to_owned()), ..ghostty };
     for facts in [piped, dumb] {
-        assert!(!wanted(Progress::Auto, &facts));
-        assert!(!wanted(Progress::On, &facts));
+        assert!(!wanted(AutoOnOff::Auto, &facts));
+        assert!(!wanted(AutoOnOff::On, &facts));
     }
 }
 

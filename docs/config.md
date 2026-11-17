@@ -113,6 +113,7 @@ Queues, approvals, streaming and terminals.
 | `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line in a scope starts a new conversation instead of continuing the terminal's conversation of that scope; 0 continues it forever. Each scope of a terminal has its own clock. A new terminal picks up a project's newest conversation only when it was active within these hours. |
 | `follow_project` | `true` | live | A terminal keeps one conversation for each registered project that you worked in, and one at home (every place in no registered project); a prompt goes to the conversation of the scope where you send it, and a new terminal picks up the project's newest conversation that no open terminal holds. false keeps one conversation per terminal, whatever the scope. |
 | `repo_hint` | `true` | live | A prompt in a git repository that is not a registered project shows, at most once a day for each repository, that writes there ask you and how to register it. |
+| `ask_user` | `true` | live | The model can ask you a question with 2 to 4 options (the tool `ask_user`), and the turn waits for your answer. An answer is information for the model: it approves no action. `false`: the model does not get the tool, from its next turn. |
 
 ## [context]
 
@@ -237,6 +238,15 @@ When efr counts you away from a conversation, and how long a question waits then
 | `away_wait_secs` | `300` | live | How long a question waits while you are away, in seconds, from 1 to 86400. Then the call does not run, and the model goes on without it. |
 | `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. No phone client exists yet, so it does nothing today. |
 
+## [notify]
+
+When efr sends a desktop notice through your terminal.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `terminal` | `"auto"` | live | The desktop notice of the terminal (OSC 777): when a question waited 10 seconds and you typed no key, when efrd shows a notice above a waiting prompt that needs you, and at the end of a long turn (`after_secs`). `auto`: only in Ghostty, never inside tmux, GNU screen or zellij. `on`: in every terminal. `off`: never. efrd gives it to the shell at the next prompt; `efr` reads it at its next run. |
+| `after_secs` | `30` | client | The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400; 0: the end of each turn. An interrupted turn sends no notice. A question does not wait for this time. If Ghostty also tells you the end of a command (`notify-on-command-finish`), set that option to `never`, or you get two notices. |
+
 ## [jobs]
 
 Background jobs: whether the model can start them, their limits, and how often their notices may start a turn.
@@ -250,7 +260,7 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `max_running_daemon` | `16` | live | The most jobs that run at one time in all conversations, from 1 to 256. |
 | `max_wakes_per_hour` | `6` | live | The most turns per hour that job notices start in one conversation, from 0 to 60. 0: a notice never starts a turn; it waits for your next prompt. |
 | `max_wakes_per_hour_daemon` | `12` | live | The most turns per hour that job notices start in all conversations, from 0 to 120. 0: a notice never starts a turn. |
-| `max_wakes_per_watch` | `3` | live | The most times that one `watch` pattern of a job can wake the model, from 0 to 10. A higher `max_wakes` of the model is cut to it. |
+| `max_wakes_per_watch` | `10` | live | The most notices that one `watch` pattern of a job can give the model, from 0 to 10. The lines that match within 1 second are one notice. A higher `max_wakes` of the model is cut to it; when the model names none, a watch gives 3. |
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
 | `forward_ports` | `true` | live | Forward each loopback port that a contained background job listens on to the same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also stops the forwards of the jobs that run; a later `true` does not start them again. |
 

@@ -11,7 +11,7 @@
 //! The view sends the sequences; this module only names them and decides whether they
 //! go out at all.
 
-use efr_config::Progress;
+use efr_config::AutoOnOff;
 
 use crate::terminal::TermFacts;
 
@@ -37,13 +37,13 @@ const KITTY: [u64; 3] = [0, 47, 0];
 /// True when the bar goes out: `on` and `auto` only when replies are formatted (stdout
 /// is a terminal), `auto` only in a terminal that is known to draw it and not through a
 /// multiplexer.
-pub(crate) fn wanted(setting: Progress, facts: &TermFacts) -> bool {
+pub(crate) fn wanted(setting: AutoOnOff, facts: &TermFacts) -> bool {
     if !facts.formats_stdout() {
         return false;
     }
     match setting {
-        Progress::On => true,
-        Progress::Auto => !facts.multiplexer && draws_it(facts),
+        AutoOnOff::On => true,
+        AutoOnOff::Auto => !facts.multiplexer && draws_it(facts),
         _ => false,
     }
 }

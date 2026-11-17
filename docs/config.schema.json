@@ -180,6 +180,26 @@
         }
       ]
     },
+    "AutoOnOff": {
+      "description": "Whether `efr` writes a sequence of the terminal: the progress bar of the tab\n(`render.progress`) or a desktop notice (`notify.terminal`). The text of each key\nnames the terminals of `auto`.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "Only in a terminal that is known to show it. Never inside tmux, GNU screen or\nzellij.",
+          "type": "string"
+        },
+        {
+          "const": "on",
+          "description": "Always, when stdout is a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "off",
+          "description": "Never.",
+          "type": "string"
+        }
+      ]
+    },
     "BusKind": {
       "description": "A D-Bus message bus.",
       "oneOf": [
@@ -462,6 +482,11 @@
             "null"
           ]
         },
+        "ask_user": {
+          "default": true,
+          "description": "The model can ask you a question with 2 to 4 options (the tool `ask_user`), and\nthe turn waits for your answer. An answer is information for the model: it\napproves no action. `false`: the model does not get the tool, from its next\nturn.",
+          "type": "boolean"
+        },
         "draft_interval_ms": {
           "default": 16,
           "description": "The shortest time between two drafts of a running turn to a remote client such\nas the phone, in milliseconds: the text, the reasoning and the tool input as they\narrive. A terminal on this machine gets each draft at once and draws at most 60\nframes a second itself. Drafts go only to live clients and never into the log;\n0 sends every change.",
@@ -689,8 +714,8 @@
           "type": "integer"
         },
         "max_wakes_per_watch": {
-          "default": 3,
-          "description": "The most times that one `watch` pattern of a job can wake the model, from 0 to\n10. A higher `max_wakes` of the model is cut to it.",
+          "default": 10,
+          "description": "The most notices that one `watch` pattern of a job can give the model, from 0 to\n10. The lines that match within 1 second are one notice. A higher `max_wakes` of\nthe model is cut to it; when the model names none, a watch gives 3.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
@@ -895,6 +920,25 @@
       },
       "type": "object"
     },
+    "NotifySettings": {
+      "additionalProperties": false,
+      "description": "`[notify]`: when efr sends a desktop notice through your terminal. A notice has the\ntitle `efr` and a body such as `app: a question waits`. The body never holds a\nprompt, a command line, a title or text of the model.",
+      "properties": {
+        "after_secs": {
+          "default": 30,
+          "description": "The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400;\n0: the end of each turn. An interrupted turn sends no notice. A question does\nnot wait for this time. If Ghostty also tells you the end of a command\n(`notify-on-command-finish`), set that option to `never`, or you get two notices.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terminal": {
+          "$ref": "#/$defs/AutoOnOff",
+          "default": "auto",
+          "description": "The desktop notice of the terminal (OSC 777): when a question waited 10 seconds\nand you typed no key, when efrd shows a notice above a waiting prompt that needs\nyou, and at the end of a long turn (`after_secs`). `auto`: only in Ghostty, never\ninside tmux, GNU screen or zellij. `on`: in every terminal. `off`: never. efrd\ngives it to the shell at the next prompt; `efr` reads it at its next run."
+        }
+      },
+      "type": "object"
+    },
     "OpenAiSettings": {
       "additionalProperties": false,
       "description": "`[openai]`: the OpenAI providers.",
@@ -1049,26 +1093,6 @@
         }
       },
       "type": "object"
-    },
-    "Progress": {
-      "description": "When `efr` shows the progress of a turn in the terminal's tab (OSC 9;4).",
-      "oneOf": [
-        {
-          "const": "auto",
-          "description": "Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47\nor later, Windows Terminal. Never inside tmux, GNU screen or zellij.",
-          "type": "string"
-        },
-        {
-          "const": "on",
-          "description": "Always, when stdout is a terminal.",
-          "type": "string"
-        },
-        {
-          "const": "off",
-          "description": "Never.",
-          "type": "string"
-        }
-      ]
     },
     "RecordingSettings": {
       "additionalProperties": false,
@@ -1289,7 +1313,7 @@
           ]
         },
         "progress": {
-          "$ref": "#/$defs/Progress",
+          "$ref": "#/$defs/AutoOnOff",
           "default": "auto",
           "description": "The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`\n(only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never\ninside tmux, GNU screen or zellij), `on` or `off`."
         },
@@ -1941,6 +1965,7 @@
     "conversation": {
       "$ref": "#/$defs/ConversationSettings",
       "default": {
+        "ask_user": true,
         "draft_interval_ms": 16,
         "follow_project": true,
         "max_queued": 16,
@@ -1976,7 +2001,7 @@
         "max_running_daemon": 16,
         "max_wakes_per_hour": 6,
         "max_wakes_per_hour_daemon": 12,
-        "max_wakes_per_watch": 3,
+        "max_wakes_per_watch": 10,
         "nice": 19
       },
       "description": "Background jobs: whether the model can start them, their limits, and how often\ntheir notices may start a turn."
@@ -2012,6 +2037,14 @@
         "netview": true
       },
       "description": "What network a contained call of the `auto` mode sees."
+    },
+    "notify": {
+      "$ref": "#/$defs/NotifySettings",
+      "default": {
+        "after_secs": 30,
+        "terminal": "auto"
+      },
+      "description": "When efr sends a desktop notice through your terminal."
     },
     "openai": {
       "$ref": "#/$defs/OpenAiSettings",

@@ -10,11 +10,13 @@
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RecordingSettings`],
-//!   [`PresenceSettings`], [`JobsSettings`], [`WebSettings`] with [`WebSearch`],
+//!   [`PresenceSettings`], [`NotifySettings`], [`JobsSettings`], [`WebSettings`] with
+//!   [`WebSearch`],
 //!   [`RemoteSettings`],
 //!   [`ResumeSettings`] with [`ResumePicker`],
-//!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
-//!   [`DiffColors`]): every key with its default, read with
+//!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`RenderColors`] and
+//!   [`DiffColors`], and [`AutoOnOff`], the choice of `render.progress` and
+//!   `notify.terminal`): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
 //!   an environment variable or a flag over a key.
@@ -87,12 +89,12 @@ pub use tables::dbus::DbusSettings;
 pub use tables::diff::{DiffGroups, DiffSettings};
 pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};
+pub use tables::notify::NotifySettings;
 pub use tables::presence::PresenceSettings;
 pub use tables::recording::RecordingSettings;
 pub use tables::remote::{DEFAULT_REMOTE_PORT, DEFAULT_TAILSCALED_SOCKET, RemoteSettings};
 pub use tables::render::{
-    AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
-    RoleColor,
+    AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, RenderColors, RenderSettings, RoleColor,
 };
 pub use tables::resume::{ResumePicker, ResumeSettings};
 pub use tables::sandbox::{
@@ -103,9 +105,9 @@ pub use tables::snapshot::{IgnoredFiles, SnapshotSettings};
 pub use tables::undo::UndoSettings;
 pub use tables::web::{WebSearch, WebSettings};
 pub use tables::{
-    ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
-    ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings,
-    ScreenChoice, ShellSettings, SudoCache, WebSocketChoice, is_provider,
+    AutoOnOff, ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER,
+    DEFAULT_SYSTEM_PROMPT, ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS,
+    PermissionSettings, ScreenChoice, ShellSettings, SudoCache, WebSocketChoice, is_provider,
 };
 pub use theme_file::ThemeFile;
 pub use writer::{ConfigFile, Edit};

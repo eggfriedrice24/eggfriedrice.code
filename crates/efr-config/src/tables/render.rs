@@ -20,6 +20,8 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize};
 
+use crate::AutoOnOff;
+
 /// The names of the colour roles, in the order of their keys. `diff.add` is the key
 /// `add` of the table `diff`; the role `code.bg` is the key `code_bg`, and
 /// `diff.add.bg` the key `add_bg` of the table `diff`.
@@ -106,32 +108,6 @@ const DEFAULT_THEME_LIGHT: &str = "catppuccin-latte";
 /// The names of the 16 colours, in the order of their ANSI slots from 0.
 const NAMES: [&str; 8] = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
 
-/// When `efr` shows the progress of a turn in the terminal's tab (OSC 9;4).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum Progress {
-    /// Only in a terminal that is known to draw it: Ghostty 1.2 or later, kitty 0.47
-    /// or later, Windows Terminal. Never inside tmux, GNU screen or zellij.
-    #[default]
-    Auto,
-    /// Always, when stdout is a terminal.
-    On,
-    /// Never.
-    Off,
-}
-
-impl Progress {
-    /// The name in the file, such as `auto`.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Progress::Auto => "auto",
-            Progress::On => "on",
-            Progress::Off => "off",
-        }
-    }
-}
-
 /// `[render]`: how `efr` shows replies. Only the client reads it; the daemon accepts it
 /// so one file serves both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -175,7 +151,7 @@ pub struct RenderSettings {
     /// The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto`
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
     /// inside tmux, GNU screen or zellij), `on` or `off`.
-    pub progress: Progress,
+    pub progress: AutoOnOff,
     /// An input row below the status row while a turn runs, when the terminal is
     /// interactive. Enter steers the turn, Tab queues a prompt behind it and Esc
     /// interrupts it. `false` shows no input row: keys typed during a turn go to the
@@ -200,7 +176,7 @@ impl Default for RenderSettings {
             turn_summary: true,
             diff_lines: 20,
             diff_lines_long: 8,
-            progress: Progress::Auto,
+            progress: AutoOnOff::Auto,
             turn_input: true,
             bell: false,
             colors: RenderColors::default(),

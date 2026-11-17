@@ -15,9 +15,10 @@ use crate::validate::{self, BadEntry, Invalid};
 use crate::{
     AccountsSettings, AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError,
     ContextSettings, ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings,
-    Location, ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RecordingSettings, RemoteSettings, RenderSettings, ResumeSettings, SandboxSettings,
-    ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings, WebSettings,
+    Location, ModelSettings, NetworkSettings, NotifySettings, OpenAiSettings, PermissionSettings,
+    PresenceSettings, RecordingSettings, RemoteSettings, RenderSettings, ResumeSettings,
+    SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
+    WebSettings,
 };
 
 /// The file name under the config root.
@@ -78,6 +79,8 @@ pub struct Settings {
     /// When efr counts you away from a conversation, and how long a question waits
     /// then.
     pub presence: PresenceSettings,
+    /// When efr sends a desktop notice through your terminal.
+    pub notify: NotifySettings,
     /// Background jobs: whether the model can start them, their limits, and how often
     /// their notices may start a turn.
     pub jobs: JobsSettings,
@@ -119,6 +122,7 @@ impl Default for Settings {
             snapshot: SnapshotSettings::default(),
             recording: RecordingSettings::default(),
             presence: PresenceSettings::default(),
+            notify: NotifySettings::default(),
             jobs: JobsSettings::default(),
             web: WebSettings::default(),
             remote: RemoteSettings::default(),

@@ -354,7 +354,7 @@ fn jobs_keys_have_defaults_and_checks() {
     assert_eq!(defaults.max_running_daemon, 16);
     assert_eq!(defaults.max_wakes_per_hour, 6);
     assert_eq!(defaults.max_wakes_per_hour_daemon, 12);
-    assert_eq!(defaults.max_wakes_per_watch, 3);
+    assert_eq!(defaults.max_wakes_per_watch, 10);
     assert_eq!(defaults.nice, 19);
     assert_eq!(crate::kind("jobs.enabled"), Some(crate::Kind::Boolean));
 
@@ -397,6 +397,61 @@ fn jobs_keys_have_defaults_and_checks() {
         Settings::parse(path, Some("[jobs]\nmax_jobs = 3\n")).is_err(),
         "an unknown key of [jobs] is an error"
     );
+}
+
+#[test]
+fn notify_keys_have_defaults_and_checks() {
+    use std::path::Path;
+
+    use crate::{Applies, AutoOnOff, Kind, RESTART_KEYS};
+
+    let defaults = Settings::default().notify;
+    assert_eq!(defaults.terminal, AutoOnOff::Auto);
+    assert_eq!(defaults.after_secs, 30);
+    assert_eq!(
+        crate::kind("notify.terminal"),
+        Some(Kind::Choice(AutoOnOff::ALL.map(|c| c.as_str().to_owned()).to_vec()))
+    );
+    assert_eq!(crate::kind("notify.after_secs"), Some(Kind::Integer));
+    assert_eq!(Applies::of("notify.terminal"), Applies::Live, "efrd hands it to the shell");
+    assert_eq!(Applies::of("notify.after_secs"), Applies::Client);
+    assert!(!RESTART_KEYS.iter().any(|key| key.starts_with("notify.")));
+
+    let mut settings = Settings::default();
+    settings.notify.after_secs = 86_401;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("notify.after_secs"));
+    for secs in [0, 86_400] {
+        settings.notify.after_secs = secs;
+        assert_eq!(check(&settings), Ok(()), "{secs}");
+    }
+
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let text = "[notify]\nterminal = \"off\"\nafter_secs = 0\n";
+    let read = Settings::parse(path, Some(text)).unwrap();
+    assert_eq!(read.notify.terminal, AutoOnOff::Off);
+    assert_eq!(read.notify.after_secs, 0);
+    let error = Settings::parse(path, Some("[notify]\nterminal = \"ghostty\"\n")).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("notify.terminal"));
+    let error = Settings::parse(path, Some("[notify]\nafter_secs = -1\n")).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("notify.after_secs"));
+    assert!(
+        Settings::parse(path, Some("[notify]\nbell = true\n")).is_err(),
+        "an unknown key of [notify] is an error"
+    );
+}
+
+#[test]
+fn the_question_tool_is_on_until_the_file_turns_it_off() {
+    use std::path::Path;
+
+    use crate::{Applies, Kind};
+
+    assert!(Settings::default().conversation.ask_user);
+    assert_eq!(crate::kind("conversation.ask_user"), Some(Kind::Boolean));
+    assert_eq!(Applies::of("conversation.ask_user"), Applies::Live);
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let off = Settings::parse(path, Some("[conversation]\nask_user = false\n")).unwrap();
+    assert!(!off.conversation.ask_user);
 }
 
 #[test]

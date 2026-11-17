@@ -200,6 +200,11 @@
 # day for each repository, that writes there ask you and how to register it.
 # repo_hint = true
 
+# The model can ask you a question with 2 to 4 options (the tool ask_user), and the
+# turn waits for your answer. An answer is information for the model: it approves no
+# action. false: the model does not get the tool, from its next turn.
+# ask_user = true
+
 [context]
 # How many of the terminal's recent commands a prompt shows the model, from 0 to 10;
 # 0 shows none. Each one comes with its exit status, its directory when that is not
@@ -448,6 +453,20 @@
 # client exists yet, so it does nothing today.
 # push = true
 
+[notify]
+# The desktop notice of the terminal (OSC 777), with the title efr and a body such as
+# app: a question waits. efr sends it when a question waited 10 seconds and you typed
+# no key, when efrd shows a notice above a waiting prompt that needs you, and at the
+# end of a long turn (after_secs). auto: only in Ghostty, never inside tmux, GNU
+# screen or zellij. on: in every terminal. off: never.
+# terminal = "auto"
+
+# The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400; 0:
+# the end of each turn. An interrupted turn sends no notice. If Ghostty also tells you
+# the end of a command (notify-on-command-finish), set that option to never, or you
+# get two notices.
+# after_secs = 30
+
 [jobs]
 # false: a shell call with background: true fails with a reason, and the model runs
 # the command in the foreground. Jobs that run go on.
@@ -475,8 +494,10 @@
 # 0: a notice never starts a turn.
 # max_wakes_per_hour_daemon = 12
 
-# The most times that one watch pattern of a job can wake the model, from 0 to 10.
-# max_wakes_per_watch = 3
+# The most notices that one watch pattern of a job can give the model, from 0 to 10.
+# The lines that match within 1 second are one notice. When the model names no
+# max_wakes, a watch gives 3.
+# max_wakes_per_watch = 10
 
 # The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. The disk
 # priority of a job is always the lowest.
