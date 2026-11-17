@@ -34,6 +34,7 @@ use crate::follow::{self, Compose, Look, Row, Target, TurnView};
 use crate::format::route::{self, Pieces};
 use crate::keys::KeyReader;
 use crate::live::effective_width;
+use crate::notify::{self, Notices};
 use crate::output::Output;
 use crate::progress;
 use crate::row::RowLine;
@@ -254,9 +255,13 @@ async fn send_and_follow(
         .route
         .as_ref()
         .map(|route| route::scope_mark(&route.scope, ctx.home.as_deref(), glyphs));
+    let label = result.route.as_ref().map(|route| &route.scope);
+    let place = notify::place(label, Some(compose.context.pwd.as_path()));
+    let notices = Notices::of(&ctx.settings.notify, &ctx.term, place);
     let mut view = TurnView::new(result.turn_id, options)
         .with_home(ctx.home.clone())
         .with_look(look)
+        .with_notices(notices)
         .with_groups(ctx.settings.diff.groups.clone())
         .with_scope(scope)
         // The plugin says when the prompt line has the corner. A value that is no flag

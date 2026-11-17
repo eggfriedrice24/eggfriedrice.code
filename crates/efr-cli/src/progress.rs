@@ -53,14 +53,14 @@ fn draws_it(facts: &TermFacts) -> bool {
     if facts.wt_session {
         return true;
     }
-    let version = facts.term_program_version.as_deref().map(version);
-    match (facts.term_program.as_deref(), version) {
-        (Some(program), Some(version)) if program.eq_ignore_ascii_case("ghostty") => {
-            version >= GHOSTTY
-        }
-        (Some(program), Some(version)) if program.eq_ignore_ascii_case("kitty") => version >= KITTY,
-        _ => false,
+    let Some(version) = facts.term_program_version.as_deref().map(version) else {
+        return false;
+    };
+    if facts.ghostty() {
+        return version >= GHOSTTY;
     }
+    facts.term_program.as_deref().is_some_and(|program| program.eq_ignore_ascii_case("kitty"))
+        && version >= KITTY
 }
 
 /// The first three numbers of a version such as `1.3.1` or `1.2.0-dev+abc`; a missing

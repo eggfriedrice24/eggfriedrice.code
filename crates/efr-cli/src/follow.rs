@@ -43,6 +43,10 @@
 //! live zone again at the new width.
 //! After a stop (Ctrl+Z, then `fg`, SIGCONT) the live zone starts again below the
 //! shell's lines, and the cursor hides again.
+//! While a card or an answer line waits for the user here, and `notify.terminal` lets
+//! it, the loop sends one desktop notice when the wait is
+//! [`crate::notify::WAIT_AFTER`] old and no key came in that time. A key, or the end of
+//! the wait, stops that time.
 //! Every way out writes a last frame, which shows the cursor again and clears the
 //! progress bar. SIGTERM and SIGHUP are ways out too: the command ends with that last
 //! frame, and `main` then lets the signal take its default action. A panic and the
@@ -126,6 +130,7 @@ use crate::cli::LastCommand;
 use crate::context::{Context, Stop};
 use crate::error::CliError;
 use crate::keys::{self, Key, KeyReader};
+use crate::notify::WaitNotice;
 use crate::output::Output;
 use crate::row::Action;
 use view::{AnswerKind, Preview};
@@ -326,6 +331,7 @@ pub(crate) async fn follow(
         frame_due: None,
         tick: None,
         tick_waits: false,
+        notice: WaitNotice::default(),
         paste_until: None,
         stopping: None,
         lingering: None,
@@ -482,6 +488,8 @@ struct Follower<'a> {
     tick: Option<Sleep>,
     /// A tick came while a change waited for its frame: it goes with that frame.
     tick_waits: bool,
+    /// The time of the desktop notice of a wait of the user.
+    notice: WaitNotice,
     /// A question took the keys while a paste into the row went on: until this time,
     /// the rest of the paste still goes into the row.
     paste_until: Option<Timestamp>,
@@ -791,6 +799,8 @@ impl Follower<'_> {
                     }
                     self.watch_silence(view);
                     self.watch_tick(view);
+                    self.notice
+                        .watch(view.notifies() && view.waits_for_user(), self.ctx.clock.as_ref());
                     tokio::select! {
                         () = &mut interrupt => {
                             // Ctrl+C at the line of a command left running in the hidden
@@ -812,7 +822,12 @@ impl Follower<'_> {
                             return Err(CliError::Ended { signal });
                         }
                         key = next_key(&mut self.keys) => {
+                            self.notice.key();
                             self.key(key, out, view).await?;
+                        }
+                        () = self.notice.due() => {
+                            view.wait_noticed();
+                            self.paint(out, view, false)?;
                         }
                         call_id = silent(&mut self.silence) => {
                             self.silence = None;

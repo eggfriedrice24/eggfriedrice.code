@@ -24,6 +24,14 @@ fn without_a_render_table_the_defaults_apply() {
 }
 
 #[test]
+fn the_notify_table_reaches_the_client() {
+    let settings = parse("[notify]\nterminal = \"off\"\nafter_secs = 90\n");
+    assert_eq!(settings.notify.terminal, efr_config::AutoOnOff::Off);
+    assert_eq!(settings.notify.after_secs, 90);
+    assert_eq!(parse("").notify, efr_config::NotifySettings::default());
+}
+
+#[test]
 fn a_key_the_daemon_would_refuse_warns_and_keeps_the_defaults() {
     let settings = parse("[render]\ntheme = \"nord\"\n[providers.openai]\nmodel = \"gpt-5\"\n");
     assert_eq!(settings.theme, Theme::ANSI, "the theme of a refused file is not used");

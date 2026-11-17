@@ -16,6 +16,7 @@ use super::{AnswerKind, Ask, Look, Step, TurnEnd, TurnView, last_line};
 
 /// What the echo of a visible answer starts with.
 const ECHO_PREFIX: &str = "\u{203a} ";
+use crate::notify::Notices;
 use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
@@ -2682,6 +2683,116 @@ fn without_the_bar_no_osc_9_goes_out() {
     view.close();
     out.push_str(&view.frame(SIZE, at(200)));
     assert!(!out.contains("\x1b]9;"), "{}", readable(&out));
+}
+
+/// The desktop notices of `[notify]` with `after_secs`, from the place `app`.
+fn notices(after_secs: u32) -> Option<Notices> {
+    let mut settings = efr_config::NotifySettings::default();
+    settings.terminal = efr_config::AutoOnOff::On;
+    settings.after_secs = after_secs;
+    Notices::of(&settings, &crate::testing::terminal_facts(), "app".to_owned())
+}
+
+/// The last frame of a turn that sends desktop notices from `after_secs` on and ends
+/// with `end` after `millis`.
+fn ended_noticed(after_secs: u32, end: Event, millis: i64) -> String {
+    let mut view = started_view(ALL).with_notices(notices(after_secs));
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.frame(SIZE, at(0));
+    let step = view.envelope(&sent(12, millis, end), SIZE, false);
+    assert!(step.end.is_some());
+    view.frame(SIZE, at(millis))
+}
+
+fn completed_turn() -> Event {
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
+}
+
+#[test]
+fn a_long_turn_ends_with_a_desktop_notice_of_its_time() {
+    let frame = ended_noticed(30, completed_turn(), 252_000);
+    assert!(
+        frame.contains("\x1b]777;notify;efr;app: done in 4m 12s\x1b\\"),
+        "{}",
+        readable(&frame)
+    );
+    let failed = Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(ErrorCode::Internal, "boom"),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+        account_out: None,
+    };
+    let frame = ended_noticed(30, failed, 63_000);
+    assert!(
+        frame.contains("\x1b]777;notify;efr;app: failed after 1m 3s\x1b\\"),
+        "{}",
+        readable(&frame)
+    );
+}
+
+#[test]
+fn a_short_turn_an_interrupt_and_the_setting_off_send_no_desktop_notice() {
+    assert!(!ended_noticed(30, completed_turn(), 29_000).contains("\x1b]777;"));
+    let interrupted = Event::TurnInterrupted {
+        turn_id: turn(),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+    };
+    assert!(!ended_noticed(0, interrupted, 90_000).contains("\x1b]777;"));
+    let mut view = started_view(ALL);
+    view.envelope(&sent(11, 0, turn_started()), SIZE, false);
+    view.envelope(&sent(12, 90_000, completed_turn()), SIZE, false);
+    assert!(!view.frame(SIZE, at(90_000)).contains("\x1b]777;"));
+}
+
+#[test]
+fn an_old_wait_sends_one_desktop_notice_of_a_card_or_an_answer_line() {
+    let mut view = started_view(ALL).with_notices(notices(30));
+    view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+    view.frame(SIZE, at(0));
+    // Nothing waits: nothing goes.
+    view.wait_noticed();
+    assert!(!view.frame(SIZE, at(10)).contains("\x1b]777;"));
+    view.envelope(&sent(12, 100, approval(None)), SIZE, true);
+    assert!(view.waits_for_user());
+    view.frame(SIZE, at(100));
+    view.wait_noticed();
+    let frame = view.frame(SIZE, at(10_100));
+    assert!(
+        frame.contains("\x1b]777;notify;efr;app: a question waits\x1b\\"),
+        "{}",
+        readable(&frame)
+    );
+    assert!(!view.frame(SIZE, at(10_200)).contains("\x1b]777;"), "once");
+}
+
+#[test]
+fn an_old_answer_line_sends_the_notice_of_a_command_that_waits_for_input() {
+    let mut view = started_view(ALL).with_notices(notices(30));
+    view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+    view.envelope(&sent(12, 10, tool_started("pacman -Syu")), SIZE, true);
+    let step = view.envelope(&sent(13, 20, input(InputWait::Visible)), SIZE, true);
+    assert!(step.ask.is_some());
+    view.frame(SIZE, at(20));
+    view.wait_noticed();
+    let frame = view.frame(SIZE, at(10_020));
+    assert!(
+        frame.contains("\x1b]777;notify;efr;app: a command waits for input\x1b\\"),
+        "{}",
+        readable(&frame)
+    );
 }
 
 #[test]

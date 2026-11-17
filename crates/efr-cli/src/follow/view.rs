@@ -79,7 +79,10 @@
 //! a terminal the cursor hides while the status row shows, and comes back for a
 //! question and at the end. A completed turn ends with one muted line of its time and
 //! tokens, and a progress bar in the terminal's tab (OSC 9;4) runs while the turn does,
-//! when the terminal draws one.
+//! when the terminal draws one. A desktop notice (OSC 777, `crate::notify`) goes with
+//! the frame when the follow loop says that a wait of the user is old
+//! ([`TurnView::wait_noticed`]), and at the end of the last turn of the view when that
+//! turn took at least `notify.after_secs`; an interrupted turn sends none.
 //!
 //! The model's context shows as a gauge, `ctx 43%` in the colour of its level
 //! (`format::context`): in the status row and in the running call's line, from the
@@ -181,6 +184,7 @@ use crate::format::changes::HomeChange;
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
 use crate::live::{LiveZone, effective_width};
+use crate::notify::{self, Notices};
 use crate::progress;
 use crate::row::Action;
 use crate::terminal::{Size, at_width};
@@ -700,6 +704,12 @@ pub(crate) struct TurnView {
     jobs: Box<Jobs>,
     /// What `config.toml` switches.
     look: Look,
+    /// The desktop notices; `None` when none goes out (`notify.terminal`).
+    // NOTE: boxed, as `jobs`, so a view that follows a turn keeps the future of
+    // `efr send` small.
+    notices: Option<Box<Notices>>,
+    /// The body of a desktop notice that goes with the next frame.
+    notice: Option<Box<str>>,
     /// The groups of `[diff.groups]`, for the line of the files at the end of a turn.
     groups: DiffGroups,
     /// On a terminal: the committed output since the last frame.
@@ -787,6 +797,8 @@ impl TurnView {
             surfaces: HashSet::new(),
             jobs: Box::default(),
             look: Look::default(),
+            notices: None,
+            notice: None,
             groups: DiffGroups::default(),
             pending: String::new(),
             dirty: false,
@@ -815,6 +827,12 @@ impl TurnView {
     /// The same view with `look`.
     pub(crate) fn with_look(mut self, look: Look) -> TurnView {
         self.look = look;
+        self
+    }
+
+    /// The same view with the desktop notices of `notices` (`None`: none goes out).
+    pub(crate) fn with_notices(mut self, notices: Option<Notices>) -> TurnView {
+        self.notices = notices.map(Box::new);
         self
     }
 
@@ -1403,6 +1421,9 @@ impl TurnView {
                 out.push(BELL);
             }
         }
+        if let Some(body) = self.notice.take() {
+            out.push_str(&notify::sequence(&body));
+        }
         if !hide && self.cursor_hidden {
             out.push_str(SHOW_CURSOR);
             self.cursor_hidden = false;
@@ -1429,10 +1450,26 @@ impl TurnView {
 
     /// True while the user is asked something here: an approval, the quarantine
     /// question or an answer line.
-    fn waits_for_user(&self) -> bool {
+    pub(crate) fn waits_for_user(&self) -> bool {
         self.question_pending()
             || self.running.as_ref().is_some_and(|running| running.asking.is_some())
             || self.left.as_ref().is_some_and(|left| left.asking.is_some())
+    }
+
+    /// True when the view sends desktop notices (`notify.terminal`).
+    pub(crate) fn notifies(&self) -> bool {
+        self.notices.is_some()
+    }
+
+    /// The wait of the user is old and no key came: the next frame sends the desktop
+    /// notice of a card, or of an answer line when no card waits.
+    pub(crate) fn wait_noticed(&mut self) {
+        if let Some(notices) = &self.notices
+            && self.waits_for_user()
+        {
+            self.notice = Some(notices.wait(self.question_pending()).into());
+            self.dirty = true;
+        }
     }
 
     /// True when a turn ends with a line of its time and tokens: on a terminal, where

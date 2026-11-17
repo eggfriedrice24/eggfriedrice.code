@@ -69,6 +69,9 @@ pub(crate) struct Settings {
     /// The whole `[resume]` table: whether `efr resume` may open the fzf picker. The
     /// defaults when the file cannot be used.
     pub(crate) resume: efr_config::ResumeSettings,
+    /// The whole `[notify]` table: the desktop notice of the terminal. The defaults
+    /// when the file cannot be used.
+    pub(crate) notify: efr_config::NotifySettings,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
 }
@@ -321,6 +324,7 @@ impl Settings {
         settings.presence = file.presence.clone();
         settings.diff = file.diff.clone();
         settings.resume = file.resume.clone();
+        settings.notify = file.notify.clone();
         let render = &file.render;
         let name = match render.theme.as_deref() {
             Some(AUTO_THEME) if settings.background == Some(Background::Light) => {

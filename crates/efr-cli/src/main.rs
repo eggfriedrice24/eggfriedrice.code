@@ -5,7 +5,8 @@
 //! - `run`: dispatch, exit codes and error messages; `commands/*`: one file per command.
 //! - `follow`: following a turn's events and drafts in frames, with `follow/view`
 //!   deciding what they look like (and its status row) and `live` redrawing the live
-//!   zone of a streaming reply; `progress`: the progress bar of the terminal's tab.
+//!   zone of a streaming reply; `progress`: the progress bar of the terminal's tab;
+//!   `notify`: the desktop notice of the terminal.
 //! - `keys`: the key thread, for one-key answers to approvals, for answer lines and for
 //!   the input row of a turn; `answer`: the line typed for a command that waits for
 //!   input; `row`: the line of the input row; `draft`: its text back to the shell;
@@ -36,6 +37,7 @@ mod follow;
 mod format;
 mod keys;
 mod live;
+mod notify;
 mod output;
 mod picker;
 mod progress;

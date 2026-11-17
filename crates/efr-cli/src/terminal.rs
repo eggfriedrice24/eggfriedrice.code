@@ -90,15 +90,25 @@ impl TermFacts {
         self.stdout_tty && self.term.as_deref() != Some("dumb")
     }
 
+    /// True when `TERM_PROGRAM` names Ghostty. Behind a multiplexer it names the outer
+    /// terminal, so a caller that writes to the terminal itself also checks
+    /// [`multiplexer`](Self::multiplexer). The width of text, the progress bar and the
+    /// desktop notice ask this one test.
+    pub(crate) fn ghostty(&self) -> bool {
+        self.term_program.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("ghostty"))
+    }
+
     /// How the terminal counts the width of text: by grapheme cluster in Ghostty
     /// (mode 2027 is on by default there), by code point everywhere else, also in
     /// Ghostty behind a multiplexer, which counts widths itself and keeps the outer
     /// `TERM_PROGRAM`. No query decides it: a query
     /// needs a reply on stdin, which would take the keys typed ahead for the shell.
     pub(crate) fn width_method(&self) -> WidthMethod {
-        let ghostty =
-            self.term_program.as_deref().is_some_and(|name| name.eq_ignore_ascii_case("ghostty"));
-        if ghostty && !self.multiplexer { WidthMethod::Grapheme } else { WidthMethod::CodePoint }
+        if self.ghostty() && !self.multiplexer {
+            WidthMethod::Grapheme
+        } else {
+            WidthMethod::CodePoint
+        }
     }
 
     /// The options for rendering on a terminal `width` columns wide with the colours,

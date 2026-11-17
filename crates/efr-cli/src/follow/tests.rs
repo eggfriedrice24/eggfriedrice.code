@@ -18,6 +18,7 @@ use crate::answer::AnswerLine;
 use crate::context::Context;
 use crate::error::CliError;
 use crate::keys::{Key, KeyReader, Read};
+use crate::notify::Notices;
 use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
@@ -367,6 +368,45 @@ async fn a_key_answers_the_approval() {
         err,
         " ?  allow this call\n    run rm -rf build\n    y allow   n deny\n\u{2717} denied\n"
     );
+}
+
+#[tokio::test]
+async fn a_card_that_waits_with_no_key_sends_one_desktop_notice() {
+    let env = TestEnv::new();
+    let keys = Arc::new(ScriptedKeys::default());
+    let clock = Arc::new(GateClock::default());
+    let ctx = Context { keys: keys.clone(), clock: clock.clone(), ..env.context() };
+    let mut settings = efr_config::NotifySettings::default();
+    settings.terminal = efr_config::AutoOnOff::On;
+    let notices = Notices::of(&settings, &crate::testing::terminal_facts(), "app".to_owned());
+    let view = terminal_view().with_notices(notices);
+    let (presser, timing) = (Arc::clone(&keys), Arc::clone(&clock));
+    let (result, out, _) = run_view(&env, &ctx, view, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "run rm -rf build".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: None,
+            expires_in_secs: None,
+            local_only: false,
+            reason: None,
+        };
+        conn.item(sub, &item(11, request)).await;
+        timing.until_slept(crate::notify::WAIT_AFTER).await;
+        timing.open();
+        shows(&seen, "\x1b]777;notify;efr;app: a question waits\x1b\\").await;
+        presser.press(b'n').await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &ApprovalRespondResult { seq: Seq::new(12) }).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(out.matches("\x1b]777;").count(), 1, "{}", readable(&out));
 }
 
 #[tokio::test]

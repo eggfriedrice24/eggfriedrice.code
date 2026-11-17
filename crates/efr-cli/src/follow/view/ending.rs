@@ -372,6 +372,18 @@ impl TurnView {
         } else {
             let failed = matches!(end, TurnEnd::Failed(_));
             self.end_progress = Some(if failed { progress::FAILED } else { progress::CLEAR });
+            // NOTE: the end of the last turn of the view sends a desktop notice when the
+            // turn took long; an interrupted turn sends none, because the user stopped
+            // it at these keys (spec 4.3).
+            if failed || end == TurnEnd::Completed {
+                let took = self.took();
+                self.notice = self
+                    .notices
+                    .as_ref()
+                    .zip(took)
+                    .and_then(|(notices, took)| notices.ended(took, failed))
+                    .map(String::into_boxed_str);
+            }
             self.close()
         };
         // The steers that this view's interrupt sent again run next: the row under the
