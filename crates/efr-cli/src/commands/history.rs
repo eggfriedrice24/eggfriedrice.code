@@ -89,7 +89,8 @@ pub(crate) async fn run(
         let method =
             Method::ConversationsList(ConversationsList { cursor, limit: args.limit, tty: None });
         let list: ConversationsListResult = client.call(method).await?;
-        return out.out(&format::conversations(&list, ctx.clock.now()));
+        let options = ctx.render_options(effective_width(ctx.screen.size()));
+        return out.out(&format::conversations(&list, ctx.clock.now(), &options));
     }
     // NOTE: the bare command shows the conversation that the user most likely means
     // (TM-Commands 4); `--list` lists them.

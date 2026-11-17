@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    AccountLimits, AdminStatusResult, CatalogOrigin, CatalogStatus, ConfigStatus,
+    AccountLimits, AdminStatusResult, Attention, CatalogOrigin, CatalogStatus, ConfigStatus,
     ConversationStatus, ConversationSummary, ConversationsListResult, FullModeStatus, LimitKind,
     LimitReached, LimitWindow, LoginKind, Mode, NetworkMode, PageCursor, ProviderStatus,
     SandboxStatus, Seq,
@@ -12,7 +12,10 @@ use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
-use super::{StatusView, conversations, limit_age, origin, short_span, status};
+use super::{
+    RowState, StatusView, conversations, limit_age, origin, row_state, short_span, status,
+};
+use crate::format::{Tone, paint};
 use crate::testing::{bare, conversation, design_options, now};
 
 fn before(seconds: i64) -> Timestamp {
@@ -475,34 +478,96 @@ fn status_text_from_the_daemon_cannot_drive_the_terminal() {
     assert!(!out.contains('\u{1b}'), "{out}");
 }
 
-#[test]
-fn conversations_list_newest_first_with_status_and_age() {
-    let summary = |n: u64, status, title: Option<&str>, age| ConversationSummary {
+/// A summary of conversation `n` with `status` and `attention`, updated `age` seconds
+/// ago.
+fn summary(
+    n: u64,
+    status: ConversationStatus,
+    attention: Option<Attention>,
+    title: Option<&str>,
+    age: i64,
+) -> ConversationSummary {
+    ConversationSummary {
         id: format!("019a9b1c-3d00-7a10-8b20-00000000000{n}").parse().unwrap(),
         title: title.map(str::to_owned),
         status,
-        attention: None,
+        attention,
         created_at: before(age + 600),
         updated_at: before(age),
         last_seq: Seq::new(n * 10),
         cwd: None,
         scope: None,
         tty: None,
-    };
-    let list = ConversationsListResult {
+    }
+}
+
+/// One conversation of each row state (TM-Commands 0.0.12).
+fn each_state() -> ConversationsListResult {
+    use ConversationStatus::{AwaitingApproval, Idle, Running};
+    ConversationsListResult {
         conversations: vec![
-            summary(1, ConversationStatus::Running, Some("fix the nginx config"), 30),
-            summary(2, ConversationStatus::AwaitingApproval, Some("tidy\n~/.zshrc"), 3_700),
-            summary(3, ConversationStatus::Idle, Some("rotate the logs"), 758),
-            summary(4, ConversationStatus::Idle, None, 200_000),
+            summary(1, AwaitingApproval, None, Some("push the steer fix"), 30),
+            summary(2, Running, Some(Attention::Answer), Some("pick a test database"), 130),
+            summary(3, Running, Some(Attention::Terminal), Some("prune old\nsnapshots"), 243),
+            summary(4, Running, None, Some("migrate the session store"), 12),
+            summary(5, Idle, Some(Attention::Failed), Some("upgrade to Expo SDK 58"), 3_720),
+            summary(6, Idle, None, None, 200_000),
         ],
         next_cursor: Some(PageCursor::new("c2")),
-    };
-    insta::assert_snapshot!(conversations(&list, now()));
+    }
+}
+
+#[test]
+fn conversations_list_newest_first_with_the_words_of_each_row_state() {
+    let list = each_state();
+    let plain = RenderOptions::new(100).with_terminal(false);
+    insta::assert_snapshot!(conversations(&list, now(), &plain));
     assert_eq!(list.conversations[0].id, conversation());
 }
 
 #[test]
+fn the_waiting_words_are_warning_running_is_muted_and_failed_is_an_error() {
+    let options = design_options(Depth::Ansi16, 100);
+    let shown = conversations(&each_state(), now(), &options);
+    let warning = |words: &str| paint(words, Tone::Attention, &options);
+    for words in ["needs approval", "needs an answer", "answer in the terminal"] {
+        assert!(shown.contains(&warning(words)), "{words}: {shown:?}");
+    }
+    assert!(shown.contains(&paint("running", Tone::Dim, &options)), "{shown:?}");
+    assert!(shown.contains(&paint("failed", Tone::Failure, &options)), "{shown:?}");
+    // The columns stay where the plain rows have them.
+    let plain = conversations(&each_state(), now(), &RenderOptions::new(100).with_terminal(false));
+    assert_eq!(bare(&shown), plain);
+}
+
+#[test]
+fn the_row_state_follows_the_order_of_the_rule() {
+    use Attention::{Answer, Failed, Terminal, Unknown};
+    use ConversationStatus::{AwaitingApproval, Idle, Running};
+    let cases = [
+        (AwaitingApproval, None, RowState::Approval),
+        // A question also waits, but the approval comes first.
+        (AwaitingApproval, Some(Answer), RowState::Approval),
+        (AwaitingApproval, Some(Terminal), RowState::Terminal),
+        (Running, Some(Answer), RowState::Answer),
+        (Running, Some(Terminal), RowState::Terminal),
+        (Running, None, RowState::Running),
+        (Running, Some(Unknown), RowState::Running),
+        (Idle, Some(Failed), RowState::Failed),
+        (Idle, None, RowState::Idle),
+        (Idle, Some(Unknown), RowState::Idle),
+    ];
+    for (status, attention, state) in cases {
+        assert_eq!(row_state(status, attention), state, "{status:?} {attention:?}");
+    }
+    assert_eq!(RowState::Idle.words().0, "", "idle has no word");
+}
+
+#[test]
 fn an_empty_list_says_so() {
-    assert_eq!(conversations(&ConversationsListResult::default(), now()), "no conversations yet\n");
+    let options = RenderOptions::new(100).with_terminal(false);
+    assert_eq!(
+        conversations(&ConversationsListResult::default(), now(), &options),
+        "no conversations yet\n"
+    );
 }

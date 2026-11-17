@@ -7,9 +7,9 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AccountLimits, AdminConfigReloadResult, AdminStatusResult, CatalogOrigin, CatalogStatus,
-    ConfigFileError, ConfigStatus, ConversationStatus, ConversationsListResult, FullModeStatus,
-    HeldConfig, LoginKind, Mode, ProviderStatus, SandboxStatus,
+    AccountLimits, AdminConfigReloadResult, AdminStatusResult, Attention, CatalogOrigin,
+    CatalogStatus, ConfigFileError, ConfigStatus, ConversationStatus, ConversationsListResult,
+    FullModeStatus, HeldConfig, LoginKind, Mode, ProviderStatus, SandboxStatus,
 };
 use efr_render::RenderOptions;
 use jiff::Timestamp;
@@ -20,15 +20,60 @@ use super::sandbox::{self, tilde};
 use super::{Tone, accounts, ago, one_line, paint, span};
 use crate::error::login_command;
 
-/// A conversation's status in the words of the listing.
-fn status_word(status: ConversationStatus) -> &'static str {
-    match status {
-        ConversationStatus::Idle => "idle",
-        ConversationStatus::Running => "running",
-        ConversationStatus::AwaitingApproval => "awaiting approval",
-        _ => "unknown",
+/// Who can act on a conversation, from its `status` and its `attention`: the one rule of
+/// the lists, which the phone's rows follow too (spec 6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowState {
+    /// An approval waits that the phone may give too.
+    Approval,
+    /// A question of the model waits for an answer.
+    Answer,
+    /// Only the user's own machine can answer what waits.
+    Terminal,
+    /// A turn runs.
+    Running,
+    /// No turn runs, and the last turn that ended failed.
+    Failed,
+    /// Nothing of the above.
+    Idle,
+}
+
+impl RowState {
+    /// The words of the state and their tone (TM-Commands 0.0.12): the three waiting
+    /// states in `warning`, `running` muted, `failed` in `error`, and none for idle.
+    pub(crate) fn words(self) -> (&'static str, Tone) {
+        match self {
+            RowState::Approval => ("needs approval", Tone::Attention),
+            RowState::Answer => ("needs an answer", Tone::Attention),
+            RowState::Terminal => ("answer in the terminal", Tone::Attention),
+            RowState::Running => ("running", Tone::Dim),
+            RowState::Failed => ("failed", Tone::Failure),
+            RowState::Idle => ("", Tone::Plain),
+        }
     }
 }
+
+/// The state of a row, in this order: an approval that the phone may give, a question
+/// of the model, a wait that only the terminal can answer, a running turn, a failed
+/// last turn, else idle. An `attention` that this build does not know counts as none,
+/// and so does a `status` that it does not know.
+pub(crate) fn row_state(status: ConversationStatus, attention: Option<Attention>) -> RowState {
+    match (status, attention) {
+        (ConversationStatus::AwaitingApproval, attention)
+            if attention != Some(Attention::Terminal) =>
+        {
+            RowState::Approval
+        }
+        (_, Some(Attention::Answer)) => RowState::Answer,
+        (_, Some(Attention::Terminal)) => RowState::Terminal,
+        (ConversationStatus::Running, _) => RowState::Running,
+        (_, Some(Attention::Failed)) => RowState::Failed,
+        _ => RowState::Idle,
+    }
+}
+
+/// The width of the column of the state words: `answer in the terminal`, the longest.
+const STATE_COLUMN: usize = 22;
 
 /// What `efr status` shows: the daemon's answer and the facts around it.
 #[derive(Debug, Clone, Copy)]
@@ -554,21 +599,28 @@ pub(crate) fn reloaded(
     out
 }
 
-/// `efr history` without a conversation: one line per conversation, newest first.
-pub(crate) fn conversations(list: &ConversationsListResult, now: Timestamp) -> String {
+/// `efr history --list`: one line per conversation, newest first, with the words of its
+/// [`RowState`] in their colour (TM-Commands 0.0.12).
+pub(crate) fn conversations(
+    list: &ConversationsListResult,
+    now: Timestamp,
+    options: &RenderOptions,
+) -> String {
     if list.conversations.is_empty() {
         return "no conversations yet\n".to_owned();
     }
     let mut out = String::new();
     for summary in &list.conversations {
         let title = summary.title.as_deref().map_or_else(|| "(untitled)".to_owned(), one_line);
+        let (words, tone) = row_state(summary.status, summary.attention).words();
+        let pad = " ".repeat(STATE_COLUMN.saturating_sub(words.len()));
         // The age is at most 11 characters wide (`59m 59s ago`, `23h 59m ago`), so the
         // titles start in one column.
         let _ = writeln!(
             out,
-            "{}  {:<17}  {:>11}  {title}",
+            "{}  {}{pad}  {:>11}  {title}",
             summary.id,
-            status_word(summary.status),
+            paint(words, tone, options),
             ago(summary.updated_at, now)
         );
     }

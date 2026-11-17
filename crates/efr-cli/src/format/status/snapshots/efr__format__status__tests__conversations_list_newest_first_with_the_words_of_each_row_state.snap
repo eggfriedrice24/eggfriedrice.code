@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/format/status/tests.rs
+expression: "conversations(&list, now(), &plain)"
+---
+019a9b1c-3d00-7a10-8b20-000000000001  needs approval              30s ago  push the steer fix
+019a9b1c-3d00-7a10-8b20-000000000002  needs an answer          2m 10s ago  pick a test database
+019a9b1c-3d00-7a10-8b20-000000000003  answer in the terminal    4m 3s ago  prune old snapshots
+019a9b1c-3d00-7a10-8b20-000000000004  running                     12s ago  migrate the session store
+019a9b1c-3d00-7a10-8b20-000000000005  failed                    1h 2m ago  upgrade to Expo SDK 58
+019a9b1c-3d00-7a10-8b20-000000000006                            2d 7h ago  (untitled)
+more: efr history --cursor c2

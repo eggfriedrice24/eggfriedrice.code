@@ -274,7 +274,8 @@ async fn history_without_a_conversation_lists_them() {
     let line = command(&["history", "--list", "--limit", "5"]);
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
-    let expected = format!("{CONVERSATION}  {:<17}  {:>11}  check nginx\n", "idle", "just now");
+    // An idle conversation has no word in the column of the row states.
+    let expected = format!("{CONVERSATION}  {:<22}  {:>11}  check nginx\n", "", "just now");
     assert_eq!(captured.stdout(), expected);
 }
 
