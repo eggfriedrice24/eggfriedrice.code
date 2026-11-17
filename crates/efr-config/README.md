@@ -13,8 +13,10 @@ Modules:
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
   `SandboxSettings`, `DbusSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
-  `JobsSettings`, `RemoteSettings`, `ResumeSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
-  `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `ResumePicker`, `WriteProjects`, `ModelEntry` and the default constants
+  `JobsSettings`, `RemoteSettings`, `ResumeSettings`, `RenderSettings`, `NotifySettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `AutoOnOff` (`auto`, `on`, `off`: the one type of `render.progress` and
+  `notify.terminal`, so the rule of `auto` stands once; it took the place of
+  `Progress`, with the same wire names), `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `ResumePicker`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
   `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
   max_output_tokens }` (`ModelLimits`); the key is still a list of strings for
@@ -28,7 +30,7 @@ Modules:
   (the path of a theme file), `motion` (the spinner and the band over the state of the status row),
   `turn_summary` (the line at the end of each turn), `diff_lines` (the lines of a file
   tool's diff that a call shows; 0 shows none), `diff_lines_long` (the same from the
-  6th call of a turn on, default 8), `progress` (`Progress`: `auto`,
+  6th call of a turn on, default 8), `progress` (`AutoOnOff`: `auto`,
   `on` or `off`, for the progress bar of the terminal's tab), `turn_input` (the input
   row of a running turn: Enter steers, Tab queues, Esc interrupts), `bell` (one BEL
   when a question appears, default `false`) and `[render.colors]` (`RenderColors`, with `DiffColors` for the
@@ -116,6 +118,14 @@ Modules:
   1440; no input for so long counts a person away from a conversation),
   `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
   client exists yet).
+- `tables/notify`: `[notify]` (`NotifySettings`, v0.0.12): `terminal` (`AutoOnOff`,
+  default `auto`: the desktop notice of the terminal, OSC 777; `auto` sends it only in
+  Ghostty and never through tmux, GNU screen or zellij) and `after_secs` (0 to 86400,
+  default 30: the shortest turn whose end sends a notice; 0 is each turn). `terminal` is
+  live: efrd writes it into `prompt.tsv` for the zsh plugin, and `efr` reads both keys
+  at each run. The plugin and `efr` are the gates; efrd itself sends no notice.
+- `[conversation]` also has `ask_user` (default `true`, v0.0.12): `false` takes the
+  tool `ask_user` away from the model, from its next turn.
 - `tables/web`: `[web]` (`WebSettings`): `search` (`WebSearch`: `mode`, the default,
   follows the permission mode of the turn; `off`, `cached` or `live`) and
   `max_searches` (1 to 100, default 20), the web search that the provider runs inside
@@ -127,7 +137,8 @@ Modules:
   1440, default 480), `max_running` (1 to 64, default 4, per conversation),
   `max_running_daemon` (1 to 256, default 16), `max_wakes_per_hour` (0 to 60, default
   6, per conversation; 0: a notice never starts a turn), `max_wakes_per_hour_daemon` (0
-  to 120, default 12), `max_wakes_per_watch` (0 to 10, default 3), `nice` (0 to 19,
+  to 120, default 12), `max_wakes_per_watch` (0 to 10, default 10 from v0.0.12: the
+  notices, or batches, of one watch; a watch that names no `max_wakes` gives 3), `nice` (0 to 19,
   default 19) and `forward_ports` (default `true`: each loopback port that a contained
   job listens on is forwarded to the same port of 127.0.0.1; `false` at a reload also
   stops the forwards of the jobs that run). Each key applies from the next job or

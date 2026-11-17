@@ -47,7 +47,11 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   maps test names (`registry.test`) to the servers behind them, each on a loopback
   address of its own: the name resolves to that address, and port 443 or 80 of it
   reaches the server. Without it the proxy refuses every name and every address, so a
-  test daemon never reaches the internet.
+  test daemon never reaches the internet. For the model's question (v0.0.12),
+  `TestDaemon::follow_answering` subscribes as a client that can answer it
+  (`answers_questions`), as the terminal and the phone app do; it counts only while the
+  stream is open and the connection holds `operate`. `answer_question` builds the
+  `question.respond` that the terminal or the phone sends.
 - `TestDaemonBuilder::remote()` turns the remote listener on (`[remote] enabled`) with
   an `efr_test_support::FakeTailscaled` of its own (`TestDaemon::tailscaled`). The
   listener binds a free port of `127.0.0.1` in place of the tailnet address
@@ -201,7 +205,9 @@ first step to cross-provider tests. The `web_search_*` fixtures give the replay 
 turn with searches at once, a failed one and marks; two OpenAI turns in the stored
 copy with an open and a find; a manual turn with no web tool; a paused turn that goes
 on; and a search with a shell call, whose steer waits one call. The tests in `crates/efr-daemon/tests/` replay them
-and add the assertions of each case.
+and add the assertions of each case. From v0.0.12 each request of a scenario carries
+the definition of `ask_user`, so the fixtures were blessed again (about 356 more tokens
+per request in the estimate).
 
 ## Tier
 

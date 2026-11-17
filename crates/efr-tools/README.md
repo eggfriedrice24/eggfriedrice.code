@@ -30,7 +30,10 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   length, not its text.
 - `ToolRegistry`: `register`, `specs` (for the provider request, in registration
   order), and `requirements`, `preview`, `takes_manual_input` and `invoke` by name. It
-  never hands out a tool.
+  never hands out a tool. `register` refuses the name `ASK_USER` (`ask_user`) with
+  `ToolError::DuplicateTool` (v0.0.12): efr keeps it for the model's question, which
+  `efr-conversation` owns, so no later tool or server can take it. efrd tests that the
+  name of `efr-conversation` agrees with this constant.
 - `Tool::takes_manual_input(input)`: whether a call takes an input that the user
   chooses to type while it reports no wait (false by default). The shell tool takes one
   unless its line goes to a nested shell or starts a shell or a REPL
@@ -110,7 +113,15 @@ The tools:
   with a job id and an output file, that the job runs until it ends, `max_minutes`
   passes or `job_stop` stops it, that a notice comes at its end so the model does not
   poll, and that the `&`, `nohup` and `setsid` processes of a normal call stop when the
-  call ends. `job_moved_text` (from v0.0.4) is the answer of a call whose running
+  call ends. From v0.0.12 they also hold the monitor recipe: to monitor a log, a
+  build, a test run or a deploy, start it as a job with `watch` and end the turn; print
+  one line for each event; match every end state; name a short `max_minutes`; lines
+  that match within 1 second are one notice of at most 20 lines (the first 10 and the
+  last 10); a watch gives 3 notices unless the model names `max_wakes`
+  (`WatchInput::DEFAULT_WAKES`), and at most 10 (`WatchInput::MAX_WAKES`); after the
+  last notice the job runs on; the end notice always comes; in `auto` a command that
+  needs a login cannot run as a job. The schema text of `max_wakes` says the same. The
+  recipe costs about 203 more tokens per request. `job_moved_text` (from v0.0.4) is the answer of a call whose running
   command the user moved into a job with Ctrl+B: the job id, the output file, the time
   limit from the move, no poll, the new hidden shell without the old variables,
   functions and aliases, and for a contained command that it gets no port forwards and

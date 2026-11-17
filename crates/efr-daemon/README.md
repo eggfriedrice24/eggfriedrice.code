@@ -733,7 +733,9 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   `projects.toml`. Next to it efrd writes `<runtime root>/prompt.tsv` for the plugin's
   prompt corner (`prompt_file.rs`): the default mode of a prompt that names none (`auto`
   in place of a `full` that efrd refuses) and the colours of the roles that the corner
-  paints, from `[render.colors]` over the theme file, in the same form; at start, after
+  paints, from `[render.colors]` over the theme file, in the same form, and from
+  v0.0.12 the key `notify` (`on` or `off` from `notify.terminal`, no line for `auto`),
+  the gate of the plugin's desktop notices; at start, after
   each reload that installs settings, and at a prompt when it differs. Both reload after the write, so the engine trusts the new set of
   projects from the next tool call on, and answer with that reload's outcome; when
   `config.toml` has an error, the project counts for the engine from the next reload
@@ -751,6 +753,21 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   `sandbox.surface_respond` (scope `approve`, refused for a model-side peer, and by the
   conversation for a Keep from a phone) answers the quarantine question, with receipts as for
   `approval.respond`.
+- `question.respond` (v0.0.12, `methods/question_respond.rs`, scope `operate`, so a
+  phone may answer and a model-side peer never can) answers the model's question
+  (`ask_user`): an option, a text or a skip. A retried command answers from its
+  receipt. The conversation checks the answer before it takes the question, so an
+  index outside the options, a text that is empty, blank, longer than 1024 bytes or
+  with a control character, and a reply of an unknown kind are `invalid`
+  (`ConversationError::InvalidAnswer`), and the question stays open. No such question,
+  or one that ended, is `not_found`. `hello` announces the capability
+  `user_questions`. `conversation.subscribe` with `answers_questions` from a connection
+  that holds `operate` (a local user-side peer, or a phone whose proved device scopes
+  hold it) counts, while its stream lasts, as a client that can answer the model's
+  question (`connections.rs`, next to `answerers`); `presence.rs` answers
+  `PresenceReader::question_followed` from that count. With no such client, the
+  question takes the away wait. A test checks that `efr_conversation::ASK_USER` equals
+  `efr_tools::ASK_USER`.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell. A phone gets `forbidden` first, whatever
   scopes it holds: the line can be a password, and the buffers of a WebSocket cannot be
@@ -1149,6 +1166,24 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   a rename. It keeps the last 8 KiB for the end, and matches lines of at most 4 KiB with
   the watch pattern. A write that fails drops the file, never the pipe, and the end says
   `output_truncated`.
+- Watch batches (v0.0.12). The reader thread puts each matched line into the job's
+  `MatchWindow` (`jobs/output.rs`, with `Matched`): a `std::sync::Mutex` around the
+  first 10 lines (`BATCH_HEAD`), the last 10 (`BATCH_TAIL`), the count of the lines
+  between them that it dropped and a `closed` flag, plus one `Notify`. The lock is held
+  for one push or one take. The batch follower, `JobTable::follow_matches` in
+  `jobs.rs`, waits for the first line, then for `BATCH_WINDOW` (1 s on efrd's clock),
+  the end of the reader, the cancel of the daemon or the cancel of the job's watch. It
+  takes the window. When the reader ended or the job's cancel came, it returns that
+  batch for `job_ended` (`matched`, `matched_dropped`) and the end notice. Else it uses
+  one wake, records one `job_watch_matched` (`line`, `more`, `dropped`) and hands one
+  notice; at zero wakes it closes the window, and the reader skips the pattern from
+  then on. A watch with no `max_wakes` gets `efr_tools::WatchInput::DEFAULT_WAKES` (3),
+  cut to `jobs.max_wakes_per_watch` (10) (`tools/job_tools.rs`). When the output does
+  not end within `OUTPUT_GRACE` (2 s) after the launcher ended, `finish` cancels the
+  follower through the job's own cancel token (it aborted the task before) and awaits
+  it, so the batch of the last second still goes into `job_ended`. No path loses a
+  batch. Memory: at most 20 lines of 4 KiB per job with a watch (80 KiB), one follower
+  task, one store write per batch; a burst wakes the follower once.
 - Job cgroups (`jobs/cgroup.rs`, ADR 0021): with `Delegate=yes` in its unit, efrd
   finds out at start whether its own cgroup is delegated (`Cgroups::setup` and
   `cgroup::delegation`, only when `Deps::from_process` built the deps under the unit):
@@ -1436,7 +1471,9 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   seconds) or the next input comes, and only then is `presence_changed` recorded. The push to a phone does nothing yet.
   `PresenceReader::followed` is true while a client that can type answers subscribes to
   the conversation (`Connections::answerers`); a turn that a job notice started counts
-  the user away unless one does.
+  the user away unless one does. `PresenceReader::question_followed` (v0.0.12) is true
+  while a connection with `operate` subscribes with `answers_questions`; the model's
+  question counts nobody there without one.
 - The home store (`home.rs`, spec 10.8, phase B): before efrd runs a call, the top of
   `DaemonToolbox::invoke` (`tools.rs`) copies what each approved exit names in
   `ExitNeed::copies` into the home store of `efr-snapshot`,
@@ -1680,9 +1717,36 @@ last event never hears about that turn.
 The end of a turn that job notices started has no prompt to name. Its line names the
 jobs and adds the first line of the turn's last answer, cut to the line's limit, then
 `; efr history shows all`: `efr: job notice turn finished (job j3): <title>: The tests
-pass.; efr history shows all`, or `efr: job notice turn failed (job j3): <title>:
-<error>` (`notices::Wake`, read from the turn's row and its events through the end).
-Control and format characters go, as in every notice.
+pass.; efr history shows all`. A failed one has its head in the error role and the rest
+muted: `error\tefr: job notice turn failed (job j3)\tmuted\t: <title>: <error>`
+(`notices::Wake`, read from the turn's row and its events through the end). Control and
+format characters go, as in every notice. From v0.0.12 a question of the model
+(`user_question_requested`) gets the same warning row as an approval.
+
+**The wake of a waiting prompt (v0.0.12).** After each line that it appends to
+`notices/<tty>`, efrd writes one line to the FIFO `notices/<tty>.wake` next to it
+(`notices/wake_fifo.rs`, `docs/storage.md`): the body of a desktop notice, or an empty
+line for a row that needs none. Every writer of notices does so: turn and job ends,
+restart notices, config notices. The write opens the FIFO with `O_WRONLY |
+O_NONBLOCK | O_NOFOLLOW` and never blocks: no FIFO, no reader, a full pipe, a symbolic
+link or a path that is not a FIFO skip the line, and the row shows at the next prompt
+as before. The test helper `files_holding` (`tests/it/support.rs`) reads only regular
+files, so a FIFO in the notices directory never blocks a test. `prompt.send` makes the FIFO (`notices::ensure_wake`, mode 0600, on the
+blocking pool, not awaited) when its shell context names the tty; a file at the path
+stays, and efrd never removes it. The zsh plugin reads the FIFO while its prompt waits,
+prints the rows at once and sends the desktop notice. `desktop_what` decides the
+`<what>` of a body: `a question waits` (an approval or the model's question), `a
+command waits for input` (a command left in
+the hidden shell that waits for input that efr keeps for the user), `job notice turn
+finished`, `job notice turn failed`, and `job notices wait for your next prompt`
+(`job_notice_held` with the reason `wake_limit` only). Job ends, port forwards, the end
+or failure of a turn that a prompt started, restarts and config notices get no body.
+`place` gives the `<place>`: the name of the project of the conversation's last scope
+(its registered name, else the last part of its root), else the last part of the
+conversation's directory, else `~`. Each body goes through
+`efr_stdx::text::notice_body`. A held notice (a client in the terminal was about to
+show the event) gets no body when it is written later. efrd does not read
+`notify.terminal` for this: the plugin is the one gate.
 
 ### The search index
 

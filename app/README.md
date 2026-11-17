@@ -589,6 +589,39 @@ Uniwind draws some classes only on the iPhone: `shrink-[1000000]`, `line-through
     of the machine ("desktop default" in the quiet line) and takes the item away. It
     never shows next to "desktop default".
 
+### The model's question, the row states and the offline banner (0.0.12)
+
+`src/lib/protocol/status.ts` (`rowState`, `waitsForUser`) is the one rule of the row
+state, in the order of `row_state` in efr-cli. `src/features/navigation/use-now.ts` is
+one shared minute timer for every reader. These checks need the iPhone:
+
+48. SH-Offline: with one machine offline, the banner is the header of the sheet's
+    native list, with `wifi.slash` in text_subtle and one line in text_muted, such as
+    `homelab offline · rows from 2h ago`. With two machines, it names both; with
+    three, it counts them. The footer "1 machine did not answer" is gone, also from
+    the search results. VoiceOver reads the line in full words ("2 hours ago").
+49. S-Rows: the rows "needs an answer" and "answer in the terminal" have the yolk "!"
+    mark and stand in Needs you; "✗ failed" is in state_error with no mark and stays
+    in its day. Leave the sheet open over a minute: the times move from "now" to "1m"
+    with no tap.
+50. S-Ask 1 and 2: a question of the model shows in the strip with the yolk dot, the
+    question and "Answer". A tap opens the native action sheet, anchored to the strip
+    on iOS 26, with the question as the title, the `label: description` lines as the
+    message, one button per option, "Type an answer", "Skip" and Cancel. Check a
+    question of 300 characters and labels of 60 at the largest Dynamic Type size (AX5).
+    With an approval and a question, the older goes first and "1 of 2" counts both.
+51. S-Ask 3: "Type an answer" opens the keyboard at once. The answer row (`Answer ·
+    <question> · xmark`) and the hint `Do not type a password or a token here.` stand
+    above the keyboard, the field says "Your answer", and VoiceOver reads "Send the
+    answer". Past 1024 bytes, Send dims. The xmark leaves and keeps the text as a draft.
+    An answer from the terminal ends the answer state by itself.
+52. S-Ask 4: the row of the call says "waiting for you" with the yolk dot, and a tap
+    opens the sheet; after the answer it says "answered · <label>", or "answered on
+    <machine> · ..." for an answer from the terminal.
+53. The 0.0.11 app from TestFlight against an efrd of 0.0.12: the lists load, and a
+    conversation with a waiting question of the model opens with no error, and its
+    row says "running".
+
 ## Rules of the app
 
 - No image, no video and no raw HTML in Markdown, and no WebView with JavaScript. The app

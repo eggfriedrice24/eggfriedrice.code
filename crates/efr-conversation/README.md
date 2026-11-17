@@ -277,7 +277,48 @@ turns.
   full mode guards, nor the
   question of a line that runs a program as another user, such as `sudo`, in any mode
   (`efr_permissions::runs_as_another_user`; `RemotePrivilegeAnswer`), because the
-  password needs the terminal.
+  password needs the terminal. From v0.0.12 one loop does this wait for an approval,
+  the quarantine question and the model's question (`turn/wait.rs`); `presence.push`
+  gets the call id of the call that asks.
+- The model's question (v0.0.12, `ask.rs`, ADR 0025). This crate owns the tool
+  `ask_user` (`ASK_USER`; efrd checks that it equals `efr_tools::ASK_USER`, which the
+  registry refuses), because the toolbox cannot reach the questions or the presence.
+  `ask::definitions` gives the tools of a request: `Toolbox::definitions` plus the
+  `ask_user` definition while `conversation.ask_user` is on. The turn, the context
+  report and the compaction use it, so the estimate and the request agree. With the
+  key off, old `ask_user` calls go out as text (`unoffered.rs`), and a call of it goes
+  to the toolbox, which answers `no tool is named "ask_user"`. The input check: a
+  question that is not blank and has at most 300 characters; 2 to 4 options; each
+  label trimmed, one line, not blank, at most 60 characters and not used twice; a
+  description of at most 200 characters (a blank one counts as none). A bad input gets
+  an error result that starts with `The question was not asked: `, and nobody is
+  asked. In `tool_call` the order is: the skip and the cap of calls (the call counts as
+  a call), the gate of full mode (a full turn whose gate went off stops and asks
+  nothing), then the question; the engine and `Toolbox::invoke` never see the call.
+  The events, in order: `tool_call_started` (no launch), `user_question_requested`,
+  `user_question_answered`, `tool_call_completed`. In a wake turn the question starts
+  with `WAKE_QUESTION`. The wait (`turn/wait.rs`): nobody is there when the user is
+  away or when no client that answers questions follows
+  (`PresenceReader::question_followed`); then the question waits `away_wait` from that
+  moment and pushes once, else `approval_timeout`. `UserAnswer::Unanswered { away:
+  true }` means that nobody was there. The results that the model reads: `The user
+  chose option N: "<label>".` (N from 1), `The user answered in their own words:
+  "<text>"`, the skip text, `Nobody answered the question.` (or `... (the user is
+  away).`) with `Do not ask again in this turn. Do only what is safe and easy to undo,
+  and name your choice in your final answer.`, and for an interrupt `The user
+  interrupted the turn before this call ran.` After one unanswered question, each
+  later `ask_user` of the turn gets the unanswered text at once and records no question
+  event. `respond_question` (`question.respond`) checks the answer against the
+  question first (`ConversationError::InvalidAnswer`: an index outside the options, a
+  text that is empty, blank, longer than 1024 bytes or with a control character, an
+  unknown reply), so a bad answer leaves the question open; then it takes the question,
+  records the answer with the receipt and hands it to the turn. `Questions` is generic
+  over the answer (`bool` for the quarantine question, `QuestionReply` here) and keeps
+  the take-before-record rule in one place. `ConversationState::pending_user_questions`
+  lists the questions that wait. An answer is never a user message: `UserMessages`,
+  the naming window and the exit record do not read the answer events, in this turn or
+  a later one, and an answer does not call `TurnExits::answered`, so it does not start
+  the counts in a row again.
 - Full mode at the check point (`turn/full.rs`). A full call runs as the user with no
   sandbox: its launch is `Launch::Direct`, and `CallContext::mode` is `full`, so the
   toolbox collects the facts and copies a home file first (`predicts()`) but no
@@ -366,7 +407,14 @@ turns.
   (`PresenceReader::followed`). The classifier's denial counts and its pause go on
   from one wake turn to the next until a prompt starts a turn. A user's prompt queues
   behind a wake turn, and a steer reaches it as usual. The rebuilt history of a turn
-  puts its notices where the turn sent them.
+  puts its notices where the turn sent them. From v0.0.12 a notice of a `watch` is a
+  batch (`notice.rs`, `batch_rows`): `NoticeBody::Watch` carries the lines, `dropped`
+  and the notices left, and its text has one `matched: <line>` row per line, the row
+  `[efr: N more matched lines between these are not shown; the output file has them.]`
+  after row 10 when lines were dropped, then `notices left: N`, and at 0 the row
+  `[efr: the watch is over. ...]`. `NoticeBody::Ended` carries `matched` and
+  `matched_dropped`, which the end notice shows under `matched before the end:`,
+  before the tail.
 - efr's own notes (v0.0.4 L2, `Toolbox::take_notes`), such as the outcome of a port
   forward of a background job. Unlike a job notice, a note does not wait for a turn:
   before each model call, also in the middle of a turn, the turn takes the notes that
@@ -398,7 +446,10 @@ turns.
   `QuestionId`. `respond_surface` (`sandbox.surface_respond`) records
   `surface_question_answered` and hands the answer to the turn; only a "keep" from the
   user's own machine moves the changes back, through `Toolbox::restore_quarantine`. A
-  phone may answer Leave; its Keep gets `RemoteSurfaceAnswer`. The approval timeout and an interrupt record the
+  phone may answer Leave; its Keep gets `RemoteSurfaceAnswer`. The approval timeout, the
+  away wait (from v0.0.12: the question waits as an approval, through the one wait loop
+  of `turn/wait.rs`, so while the user is away it ends after `away_wait` and pushes once
+  with the call id) and an interrupt record the
   answer `keep: false` with no origin and leave the changes in quarantine; the model
   reads what happened after the call's output.
 - `auto` needs the sandbox. `settings::resolve` reads the probe's latest

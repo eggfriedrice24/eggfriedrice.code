@@ -37,7 +37,7 @@ across a restart:
   result) of the turns that the caller names. SQLite never copies such an event out,
   the event still counts towards the limit, and every event of the page is the event
   of the log.
-- `conversations`, `approvals`, `shells`, `compactions`, `jobs`: projections of the log for
+- `conversations`, `approvals`, `shells`, `compactions`, `jobs`, `waits`: projections of the log for
   listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
   `compactions::latest` reads the newest `conversation_compacted` with a summary and
   the newest of any kind with a query of their own, so the page of newest events never
@@ -90,6 +90,18 @@ across a restart:
   build cannot read counts as `outside`. `recent` lists the conversations of
   `,resume`: those of one key first, then the others, each part newest first, with
   their prompt turns (a job notice turn and a withdrawn prompt do not count).
+- Who can act on a conversation (migration 14, v0.0.12): `conversations.attention`
+  holds the wire name of `efr_protocol::Attention` (`answer`, `terminal`, `failed`) or
+  NULL, and `approvals.local_only` is 1 for an approval that only the terminal may
+  answer. The crate-private module `waits` keeps the projection `waits`: the input
+  waits, the model's questions and the quarantine questions of a running turn, which
+  the end of the turn and the delete of the conversation remove. `refresh_status` in
+  `conversations.rs` writes `status` and `attention` in one `UPDATE`, by the rules of
+  `docs/storage.md`, and `projection::apply` calls it only after an event for which
+  `changes_status` is true, never after an output update. Every read of a
+  `ConversationSummary` uses the one column list `SUMMARY_COLUMNS` and one row decoder,
+  so each summary carries `attention`. Migration 14 rebuilds the projections and has no
+  backfill SQL; `fixtures/db/efr.sqlite.14` is a database of this version.
 - `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
   the events that take one back, and each `terminal_attached`, from the whole log. The
   record of an exit in `auto` keeps the messages for the reviewer, and the name check
@@ -356,3 +368,9 @@ measures after each part of the log. The first two write the perf corpus of
   from `conversations::previous_turn_start` and from the old read of every turn.
   This bench has a budget: at 2,000 turns the scalar query takes less than a third
   of the old read and less than 2 ms.
+- `bench_perf_projection_output` (`tests/it/perf.rs`): `projection::apply` over output
+  updates, which no longer compute the status of the conversation again, and over an
+  input change, which does. Budget: a p50 of 1 ms for one output update.
+- `bench_perf_rebuild` (`tests/it/perf.rs`): the rebuild of the projections over a log
+  of 500,000 events, as the first start after migration 14 runs it. Budget: 10 s. It
+  took 7.4 s on a busy machine.

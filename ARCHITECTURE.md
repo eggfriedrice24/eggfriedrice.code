@@ -34,7 +34,7 @@ shipped binary.
 
 | Crate | Kind | Tier | Owns | Allowed workspace dependencies |
 |---|---|---|---|---|
-| `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
+| `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7, the text helpers (`one_line`, format characters) and the one body rule of a desktop notice (`text::notice_body`) | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages, the search index (FTS5) with its reads, its search lanes and the indexer's read connection, the tombstones and steps of conversation deletes, the enrolled devices with the feed of their revokes | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
@@ -57,7 +57,7 @@ shipped binary.
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre`, `last` and `post` refs and the paths that its calls touched, the mirror of a project's refs and objects from the git dirs that efrd trusts, the check that a snapshot covers each file below a target, the changes of a call or a turn, the diff of a turn, the plan of an undo or a redo (pure: it writes no file of a root), the home store of the files outside the roots, the collector | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
 | `efr-proxy` | lib | 2 | the network proxy of the `auto` sandbox, as tokio tasks in efrd: one listener per contained call, the request head and ClientHello parsers, the allow and deny lists before any lookup, the call's host grants, the address guard, the SNI check, plain `GET` and `HEAD` for http hosts, the upload budget and the refusal records; the resolver, the connector and the host's addresses are seams | `efr-protocol`, `efr-stdx`, `efr-permissions` |
-| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records (in full mode too, with the judge `full`, the timed question of a guarded delete and the gate before each call), the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; the gate of web search (`web.rs`: which hosted tools a turn's requests carry, by the mode and `[web]`, because a hosted search never reaches the check point); the index redaction of search (`redact_for_index`, `REDACTION_VERSION`); drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
+| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; the model's question (the tool `ask_user`, which it owns, and the one wait loop of every question, `turn/wait.rs`); in `auto` the launch of each shell call, exit questions and their records (in full mode too, with the judge `full`, the timed question of a guarded delete and the gate before each call), the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; the gate of web search (`web.rs`: which hosted tools a turn's requests carry, by the mode and `[web]`, because a hosted search never reaches the check point); the index redaction of search (`redact_for_index`, `REDACTION_VERSION`); drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, the WebSocket entry of the phone (handshake, frames, pings; efrd owns its TCP listener and peer check), connection table, subscriptions, the `Dispatcher` trait; `client`: the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, the gate of full mode (`full.rs`: whether efrd allows or refuses it, the count of running full work) and the config hold (`loosens.rs`, `reload.rs`), and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the bus filter: an `xdg-dbus-proxy` for each filtered bus of a call or a job, with its self-test and the refusals of its log; the writer of always-allow rules, which checks a rule and appends it to `config.toml`; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops, the sweep of a job's session and the port forwards of a contained job on `127.0.0.1`), the home copies of the files that an approved exit, or an exit that full mode let through, writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches; the search indexer (a background task with its text rules and its duty cycle) and the search methods with their time caps; the open pairings of new devices, in memory (`pairing.rs`), and the device methods; the heap trim (`heap_trim.rs`: one `malloc_trim` after the actors' idle trims), and its one `unsafe` module `malloc.rs` (ADR 0020); the recorder of model streams (`stream_record.rs`, `EFR_RECORD_STREAMS`) | every library crate above except the test crates |
 | `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `resume`, `conversation delete`, `diff`, `compact`, `context`, `jobs` (list, stop), `shell`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`, `search`, `device` (add with its QR code, list, revoke); the fzf picker of `resume`, inline below the command line; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
@@ -254,8 +254,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   eval of the corpus lines and of the auto prompt is in
   `crates/efr-daemon/tests/it/classifier_eval.rs`.
 - Presence and the away wait: the seam `PresenceReader` in
-  `crates/efr-conversation/src/presence.rs`; the wait of a question while the user is
-  away in `crates/efr-conversation/src/turn.rs`; the state of each conversation in
+  `crates/efr-conversation/src/presence.rs`; the one wait loop of every question (an
+  approval, the quarantine question, the model's question) in
+  `crates/efr-conversation/src/turn/wait.rs`; the state of each conversation in
   `crates/efr-daemon/src/presence.rs`; `presence.set` in
   `crates/efr-daemon/src/methods/presence_set.rs`; `efr away` in
   `crates/efr-cli/src/commands/away.rs`; `[presence]` in
@@ -321,7 +322,36 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-conversation/src/actor/notices.rs`. `efr jobs` in
   `crates/efr-cli/src/commands/jobs.rs`, and the lines of the view and of `efr history`
   in `crates/efr-cli/src/format/jobs.rs`. The fake launcher of the tests is
-  `crates/efr-test-daemon/src/fake_launcher.rs`.
+  `crates/efr-test-daemon/src/fake_launcher.rs`. The watch batches (v0.0.12): the
+  batch follower `JobTable::follow_matches` in `crates/efr-daemon/src/jobs.rs`;
+  `MatchWindow` and `Matched` in `crates/efr-daemon/src/jobs/output.rs`; the text and
+  the rows of a notice in `crates/efr-conversation/src/notice.rs` (`batch_rows`);
+  `BATCH_HEAD` and `BATCH_TAIL` in `crates/efr-protocol/src/jobs.rs`.
+- The model's question (ADR 0025): the wire types in
+  `crates/efr-protocol/src/question.rs` and `methods/question_respond.rs`; the tool,
+  its input check and its results in `crates/efr-conversation/src/ask.rs`; the call in
+  `crates/efr-conversation/src/turn.rs` and its wait in `turn/wait.rs`; the answer in
+  `crates/efr-conversation/src/actor.rs` (`respond_question`); the reserved name in
+  `crates/efr-tools/src/registry.rs`; `question.respond` in
+  `crates/efr-daemon/src/methods/question_respond.rs`; who can answer
+  (`answers_questions`) in `crates/efr-daemon/src/methods/conversation_subscribe.rs`,
+  `connections.rs` and `presence.rs`; the card and its end line in
+  `crates/efr-cli/src/format/card.rs` (`user_question`, `question_end`) and the keys
+  in `crates/efr-cli/src/follow/view/asking.rs`; the phone in
+  `app/src/features/conversation/`.
+- Who can act on a conversation (the row states): `status` and `attention` in
+  `crates/efr-store/src/conversations.rs` (`refresh_status`, `changes_status`) and the
+  `waits` projection in `crates/efr-store/src/waits.rs`; the words in
+  `crates/efr-cli/src/format/status.rs` (`row_state`) and
+  `app/src/lib/protocol/status.ts` (`rowState`).
+- Desktop notices and the wake of a waiting prompt: the body rule in
+  `crates/efr-stdx/src/text.rs` (`notice_body`); efrd's bodies in
+  `crates/efr-daemon/src/notices.rs` (`desktop_what`, `place`) and the FIFO in
+  `crates/efr-daemon/src/notices/wake_fifo.rs`; the plugin's reader in
+  `shell/zsh/efr.plugin.zsh`, section "the wake of a waiting prompt"
+  (`_efr_open_wake`, `_efr_notice_wake`, `_efr_notify_wanted`); `efr`'s notices of a
+  wait and of the end of a turn in `crates/efr-cli/src/notify.rs`; `[notify]` in
+  `crates/efr-config/src/tables/notify.rs`.
 - Job port forwards (ADR 0016). Trust: efrd decodes bytes that come from the sandbox,
   so the frames have a fixed size and a hand decoder with property tests, and every
   other byte is copied opaque. The pure rules (the parse of the TCP tables, the

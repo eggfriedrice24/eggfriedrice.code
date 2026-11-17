@@ -600,6 +600,61 @@ Replies:
   live zone; the line of the answer then follows it. When stdout is not a terminal,
   the card goes to stderr whole, then the line of the answer, then the rows of the
   call.
+- The model's question (`ask_user`, v0.0.12, TM-Questions 0.0.12,
+  `format::card::user_question`): the badge and the question as the title (with
+  `(job notice turn)` after it in a wake turn), one row per option, `1 <label>
+  <description>` (the digit in the `warning` role and bold while a digit answers, the
+  label in `text`, the description muted), and the keys `t type an answer   esc skip`.
+  Every text of the model goes through `format::one_line`. A digit 1 to N answers at
+  once; Esc skips; Ctrl+C interrupts the turn, as at every card. `t` opens a visible
+  answer line in the card (`AnswerLine`, at most 1024 bytes) with the muted row `Do not
+  type a password or a token here.` and the keys `enter send   esc back to the
+  options`; Enter on an empty line sends nothing, and Esc goes back to the options. A
+  key typed before the card showed never answers it, and a byte of an escape sequence
+  (an arrow, F5) never counts as a key: `answer::Sequences` drops the sequences in one
+  place for every card. The view hides the row of the `ask_user` call, in the view and
+  in `efr history`. When the question ends, one line takes the card's place, cut to one
+  row on a terminal (`format::card::question_end`): `✓ answered · <label>`, `✓ answered
+  · "<text>"`, `✓ answered on the phone · <label>`, `· skipped · the model goes on with
+  a choice that is safe and easy to undo`, `✗ nobody answered · the model goes on with a
+  choice that is safe and easy to undo`, `✗ nobody answered while you were away · the
+  model goes on with a safe choice` and `■ not answered · you interrupted the turn`.
+  When another client must answer, the card has the row `waiting for another client to
+  answer` and muted digits. A refused answer (`not_found`, `conflict`, `forbidden`,
+  `invalid`) is the note `the answer was not taken: <message>`; the quarantine question
+  gives that note for `invalid` too. `efr` sets `answers_questions` in
+  `conversation.subscribe` exactly when it can read keys (stdin is a terminal), so a
+  piped `efr send` is no answerer, and its question takes the away wait. A queued
+  prompt shows and can answer a question that the running turn waits for. A client
+  that joins a waiting turn builds the card from the log. `efr history` shows
+  `? <question>`, the options 4 columns in (the digits muted) and the line of the end.
+- The desktop notice (`notify.rs`, v0.0.12): `efr` writes OSC 777, `ESC ] 777 ;
+  notify ; efr ; <body> ESC \`, in the frame of the followed view. `notify::wanted` is
+  the one gate: `notify.terminal = "auto"` only when `TERM_PROGRAM` is Ghostty
+  (`TermFacts::ghostty`, which `width_method` and `progress::draws_it` use too), with no
+  multiplexer (`TMUX`, `STY`, `ZELLIJ` set, or `TERM` that starts with `screen` or
+  `tmux`) and stdout a terminal that is not dumb; `on` in any terminal with formatted
+  stdout; `off` never. The body is `<place>: <what>` (`efr_stdx::text::notice_body`):
+  `notify::place` gives the project name of the route scope, else the last part of the
+  scope directory, else the last part of the shell's `$PWD`, else `~`. Two notices go
+  out. First, when a card (an approval, the quarantine question, the model's question,
+  the question of Ctrl+X or Ctrl+B) or an answer line waits here `WAIT_AFTER` (10 s)
+  and no key came: `app: a question waits` or `app: a command waits for input`, once per
+  wait (`WaitNotice`). A key or the end of the wait stops it, and a card that another
+  client must answer sends none. Second, at the end of the last turn of the view when
+  it took at least `notify.after_secs` (default 30; 0 sends one for every turn):
+  `app: done in 4m 12s` or `app: failed after 1m 3s`, from the daemon's clock between
+  the start and the end of the turn, waits included. An interrupted, cancelled or
+  withdrawn turn sends none. `Look` carries the setting and the place
+  (`settings.rs`, `commands/send.rs`).
+- `efr history --list` has a state column of 22 columns with the words of one rule,
+  `RowState` in `format/status.rs` (`row_state(status, attention)`): `needs approval`
+  (`awaiting_approval` and not `terminal`), `needs an answer` and `answer in the
+  terminal` in the `warning` role, `running` muted, `failed` in the `error` role, and no
+  word for an idle conversation (it said `idle` and `awaiting approval` before). A pipe
+  gets the same rows without colour. `efr status` lists no conversations, so the words
+  are only there. The phone app's `rowState` (`app/src/lib/protocol/status.ts`) has the
+  same order.
 - The `auto` sandbox (`docs/sandbox.md`). A turn in which a call ran in the sandbox
   (`tool_call_started` with a contained `launch`, not refused) ends with one muted
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
@@ -658,8 +713,10 @@ Replies:
   all of its output to the file` and the refusals of efr's proxy (`; network: blocked
   a.test:443 (not on the allow list), b.test:443 (not TLS) and 2 more`, from
   `JobEnded.blocked` and `blocked_more`) when they apply, also in `efr history` and
-  `efr jobs stop`; `job j3 matched: <line>` through
-  `format::one_line`; `job j3: no wake turn (wake limit reached); the notice waits for
+  `efr jobs stop`; a watch batch as one row (`format::jobs::matched`, TM-Endings
+  0.0.12 frame 1): `job j3 matched: <line>` for one line, else `job j3 matched 20 lines
+  (19 not shown): <first line>`, where the count is the first line, the other lines of
+  the event and the dropped ones, through `format::one_line`; `job j3: no wake turn (wake limit reached); the notice waits for
   your next prompt` (also `job of a wake turn`, `efrd restarted`, and `the
   conversation is not in auto` for the records of older builds); and each
   `job_port_forwarded` (`format::jobs::forward`, the texts of efrd's notices):

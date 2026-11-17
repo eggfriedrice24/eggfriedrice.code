@@ -34,7 +34,14 @@ Modules, in the order of the milestone 1 file map:
   environment.
 - `text`: `is_format`, true for a Unicode format character (category `Cf`), which
   draws nothing or turns the text around it; efr shows a stand-in for it in each
-  command, path and model text on the user's screen.
+  command, path and model text on the user's screen. `one_line(text, max)` gives one
+  line of at most `max` characters: a control character becomes a space, a format
+  character U+FFFD, and a longer text ends with `...`. `notice_body(place, what)` is the one rule of the body of a desktop notice
+  (v0.0.12): `<place>: <what>`, with each control and format character replaced, cut to
+  `NOTICE_BODY_MAX` (200) characters. efrd (the wake of a waiting prompt) and `efr`
+  (the notice of a wait and of the end of a turn) both use it, with the two phrases
+  that they share: `QUESTION_WAITS` (`a question waits`) and `INPUT_WAITS` (`a command
+  waits for input`).
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
 - `panic`: `quiet(f)` runs `f` with the panic message hidden on its thread, and
   `install_quiet_hook()` puts a hook before the current one that, inside `quiet`,
