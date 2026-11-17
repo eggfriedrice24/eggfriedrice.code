@@ -51,6 +51,20 @@ describe("conversationItem", () => {
     );
     expect(conversationItem("m1", summary).status).toBe("idle");
   });
+
+  it("carries the attention, and leaves out none, null and unknown", () => {
+    expect(conversationItem("m1", { ...SUMMARY, attention: "answer" }).attention).toBe("answer");
+    expect(conversationItem("m1", { ...SUMMARY, attention: "terminal" }).attention).toBe(
+      "terminal",
+    );
+    expect(conversationItem("m1", { ...SUMMARY, attention: "failed" }).attention).toBe("failed");
+    for (const attention of [null, "unknown"] as const) {
+      expect(Object.keys(conversationItem("m1", { ...SUMMARY, attention }))).not.toContain(
+        "attention",
+      );
+    }
+    expect(Object.keys(conversationItem("m1", SUMMARY))).not.toContain("attention");
+  });
 });
 
 describe("sameConversation", () => {

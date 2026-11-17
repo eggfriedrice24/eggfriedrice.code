@@ -4,6 +4,7 @@
 // summary of the conversation says: its status, its turns and its last time. Pure.
 
 import type {
+  Attention,
   ConversationStatus,
   ConversationSummary,
   DraftPart,
@@ -52,6 +53,16 @@ export class DemoLog {
   private seq = 0;
   private running: string | undefined;
   private readonly asking = new Set<string>();
+  /** The approvals of `asking` that only the machine can answer. */
+  private readonly localOnly = new Set<string>();
+  /** The quarantine questions that wait, by question id. */
+  private readonly surfaces = new Set<string>();
+  /** The questions of the model that wait, by question id. */
+  private readonly questions = new Set<string>();
+  /** The calls that wait for input, by call id. */
+  private readonly inputs = new Set<string>();
+  /** True when the last turn that ended, failed. */
+  private lastFailed = false;
   private turnCount = 0;
   private updated: number;
 
@@ -140,15 +151,34 @@ export class DemoLog {
 
   /** The status of the conversation, as a summary gives it. */
   status(): ConversationStatus {
-    if (this.asking.size > 0) {
+    if (this.asking.size > 0 || this.surfaces.size > 0) {
       return "awaiting_approval";
     }
     return this.running === undefined ? "idle" : "running";
   }
 
+  /**
+   * Who can act on the conversation, by the rule of efrd's store (spec 0.0.12, section
+   * 6.2): a question of the model; else a local-only approval or an input wait, with no
+   * other approval and no quarantine question; else a failed last turn while none runs.
+   */
+  attention(): Attention | undefined {
+    if (this.running !== undefined) {
+      if (this.questions.size > 0) {
+        return "answer";
+      }
+      const onlyLocal = this.asking.size === this.localOnly.size && this.surfaces.size === 0;
+      if (onlyLocal && (this.localOnly.size > 0 || this.inputs.size > 0)) {
+        return "terminal";
+      }
+      return undefined;
+    }
+    return this.lastFailed ? "failed" : undefined;
+  }
+
   /** The summary of the conversation now. */
   summary(): ConversationSummary {
-    return {
+    const summary: ConversationSummary = {
       id: this.facts.id,
       title: this.facts.title,
       status: this.status(),
@@ -157,6 +187,11 @@ export class DemoLog {
       updated_at: new Date(this.updated).toISOString(),
       last_seq: this.seq,
     };
+    const attention = this.attention();
+    if (attention !== undefined) {
+      summary.attention = attention;
+    }
+    return summary;
   }
 
   private follow(event: Event): void {
@@ -173,14 +208,44 @@ export class DemoLog {
         if (this.running === event.turn_id) {
           this.running = undefined;
           this.drafts = [];
+          this.surfaces.clear();
+          this.questions.clear();
+          this.inputs.clear();
         }
+        this.lastFailed = event.kind === "turn_failed";
         break;
       case "approval_requested":
         this.asking.add(event.call_id);
+        if (event.local_only === true) {
+          this.localOnly.add(event.call_id);
+        }
         break;
       case "approval_resolved":
       case "approval_expired":
         this.asking.delete(event.call_id);
+        this.localOnly.delete(event.call_id);
+        break;
+      case "surface_question_requested":
+        this.surfaces.add(event.question_id);
+        break;
+      case "surface_question_answered":
+        this.surfaces.delete(event.question_id);
+        break;
+      case "user_question_requested":
+        this.questions.add(event.question_id);
+        break;
+      case "user_question_answered":
+        this.questions.delete(event.question_id);
+        break;
+      case "tool_call_input_changed":
+        if (event.input === "none") {
+          this.inputs.delete(event.call_id);
+        } else {
+          this.inputs.add(event.call_id);
+        }
+        break;
+      case "tool_call_completed":
+        this.inputs.delete(event.call_id);
         break;
       default:
         break;

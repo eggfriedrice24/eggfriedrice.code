@@ -14,6 +14,7 @@
 
 import { searchWords } from "@/lib/text/search-words";
 import type { ConversationItem } from "./conversation-item";
+import { listAge, spokenAge } from "./list-format";
 import {
   filterConversations,
   mergeConversationLists,
@@ -135,16 +136,59 @@ export function resultsNotice(input: ResultsNoticeInput): SheetNotice {
   return { kind: "none" };
 }
 
+/** The banner at the head of the sheet while machines are offline (SH-Offline). */
+export interface OfflineBanner {
+  /** One line, such as `homelab offline · rows from 2h ago`. */
+  readonly text: string;
+  /** The same in full words, for VoiceOver: `homelab offline, rows from 2 hours ago`. */
+  readonly label: string;
+}
+
+/** What the banner reads, one entry per machine in the order of the queries. */
+export interface OfflineBannerInput {
+  readonly machines: readonly SheetMachine[];
+  /** True when the list of the machine did not answer. */
+  readonly failed: readonly boolean[];
+  /** When the list of the machine was written, ms since the epoch; 0 for none. */
+  readonly updatedAt: readonly number[];
+  /** The time of the list times. */
+  readonly now: number;
+}
+
 /**
- * The line under a pane when machines did not answer: `1 machine did not answer`.
- * `failed` holds one flag per machine.
+ * The banner of the offline machines, or undefined when every machine answered. It
+ * names up to two machines (`homelab and laptop offline`), else counts them
+ * (`3 machines offline`), and tells the age of the oldest rows that the phone keeps of
+ * them once, so the rows do not repeat it. It says nothing of a transcript: the phone
+ * keeps none, so an offline row can open an empty screen.
  */
-export function failedText(failed: readonly boolean[]): string | undefined {
-  const count = failed.filter(Boolean).length;
-  if (count === 0) {
+export function offlineBanner(input: OfflineBannerInput): OfflineBanner | undefined {
+  const names: string[] = [];
+  let oldest: number | undefined;
+  input.machines.forEach((machine, index) => {
+    if (input.failed[index] !== true) {
+      return;
+    }
+    names.push(machine.name);
+    const at = input.updatedAt[index] ?? 0;
+    if (at > 0 && (oldest === undefined || at < oldest)) {
+      oldest = at;
+    }
+  });
+  if (names.length === 0) {
     return undefined;
   }
-  return count === 1 ? "1 machine did not answer" : `${String(count)} machines did not answer`;
+  const who =
+    names.length <= 2
+      ? `${names.join(" and ")} offline`
+      : `${String(names.length)} machines offline`;
+  if (oldest === undefined) {
+    return { text: who, label: who };
+  }
+  return {
+    text: `${who} · rows from ${listAge(oldest, input.now)}`,
+    label: `${who}, rows from ${spokenAge(oldest, input.now)}`,
+  };
 }
 
 /**

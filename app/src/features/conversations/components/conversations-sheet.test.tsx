@@ -266,7 +266,65 @@ describe("the sections of the sheet", () => {
     });
     await renderSheet({ caller });
     expect(rowTitles("sheet-sections")).toHaveLength(4);
-    expect(screen.getByText("1 machine did not answer")).toBeOnTheScreen();
+    // The phone keeps no rows of the laptop, so the banner tells no age.
+    expect(within(screen.getByTestId("sheet-sections")).getByText("laptop offline")).toBeTruthy();
+    expect(screen.queryByText(/did not answer/)).toBeNull();
+  });
+
+  it("heads the list with the banner of an offline machine and the age of its rows", async () => {
+    jest.setSystemTime(NOW);
+    // The list of the last visit, kept on the disk two hours ago, so stale.
+    client.setQueryData(conversationsKeys.search("l", ""), result(RECENT["l"] ?? []), {
+      updatedAt: NOW - 120 * MINUTE,
+    });
+    const caller = new FakeCaller({
+      "conversations.search": (params: ConversationsSearch, machine: string) => {
+        if (machine === "l") {
+          throw new ConnectionError("offline", "not connected");
+        }
+        return result(params.query === "" ? (RECENT[machine] ?? []) : []);
+      },
+    });
+    await renderSheet({ caller });
+    const banner = within(screen.getByTestId("sheet-sections")).getByTestId("sheet-offline");
+    expect(banner.props.accessibilityLabel).toBe("laptop offline, rows from 2 hours ago");
+    expect(within(banner).getByText("laptop offline · rows from 2h ago")).toBeOnTheScreen();
+  });
+
+  it("shows no banner while every machine answers", async () => {
+    await renderSheet();
+    expect(screen.queryByTestId("sheet-offline")).toBeNull();
+  });
+
+  it("draws the words of the row states of 0.0.12", async () => {
+    const states: readonly Conversation[] = [
+      { id: "q", title: "Pick a test database", at: NOW - MINUTE, status: "running" },
+      { id: "x", title: "Expo SDK 58 upgrade", at: NOW - 60 * MINUTE },
+    ];
+    const caller = new FakeCaller({
+      "conversations.search": (params: ConversationsSearch, machine: string) => {
+        const found = result(machine === "d" && params.query === "" ? states : []);
+        for (const row of found.rows) {
+          row.conversation.summary.attention =
+            row.conversation.summary.id === "q" ? "answer" : "failed";
+        }
+        return found;
+      },
+    });
+    await renderSheet({ caller });
+    // The phone does not answer a question yet: it reads as a wait for the terminal.
+    const question = screen.getByLabelText(
+      "Pick a test database. Answer in the terminal. desktop. 1 minute ago.",
+    );
+    expect(within(question).getByText("answer in the terminal").props.className).toBe(
+      "text-accent-primary",
+    );
+    const failed = screen.getByLabelText("Expo SDK 58 upgrade. Failed. desktop. 1 hour ago.");
+    expect(within(failed).getByText("✗ failed").props.className).toBe("text-state-error");
+    expect(screen.getAllByRole("header").map((header) => String(header.props.children))).toEqual([
+      "Needs you",
+      "Today",
+    ]);
   });
 
   it("shows the kept rows of a machine that did not answer as offline", async () => {
@@ -283,7 +341,7 @@ describe("the sections of the sheet", () => {
       },
     });
     await renderSheet({ caller });
-    expect(screen.getByText("1 machine did not answer")).toBeOnTheScreen();
+    expect(screen.getByTestId("sheet-offline")).toBeOnTheScreen();
     // The approval in the kept list can be old: the row shows no status, by its day.
     const btrfs = screen.getByLabelText(
       "Prune old btrfs snapshots. laptop, offline, ~. 30 minutes ago.",

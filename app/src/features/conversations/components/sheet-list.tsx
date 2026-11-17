@@ -4,19 +4,23 @@
 // recent lists of the paired machines), so the SectionList of React Native is enough; its
 // sticky headers are native on iOS.
 //
-// The quiet line of the pane (loading, searching, empty) and the line of the machines
-// that did not answer come after the rows.
+// The banner of the offline machines (SH-Offline) is the header of the list, above the
+// first section: the SF Symbol wifi.slash in text_subtle and one line in text_muted, SF
+// Pro 13, with no box. The quiet line of the pane (loading, searching, empty) comes
+// after the rows.
 
 import { SectionList, View, type SectionListData } from "react-native";
 
+import { BodyText } from "@/components/ui/body-text";
 import { BrailleCell } from "@/components/ui/braille-cell";
 import { Hairline } from "@/components/ui/hairline";
 import { MonoText } from "@/components/ui/mono-text";
 import { SectionHeader } from "@/components/ui/section-header";
+import { SymbolIcon } from "@/components/ui/symbol";
 import type { ConversationAddress } from "@/lib/query/keys";
 
 import type { SheetRow as SheetRowModel } from "../model/sheet-sections";
-import type { SheetNotice } from "../model/sheet-view";
+import type { OfflineBanner, SheetNotice } from "../model/sheet-view";
 import { SheetRow } from "./sheet-row";
 
 /** One section of a pane: the sections of the sheet, or the results of the search. */
@@ -31,8 +35,8 @@ export interface SheetListSection {
 export interface SheetListProps {
   readonly sections: readonly SheetListSection[];
   readonly notice: SheetNotice;
-  /** The line of the machines that did not answer, such as `1 machine did not answer`. */
-  readonly failed: string | undefined;
+  /** The banner of the offline machines; none while every machine answers. */
+  readonly banner: OfflineBanner | undefined;
   readonly onOpen: (ref: ConversationAddress) => void;
   readonly testID?: string;
 }
@@ -66,7 +70,10 @@ export function SheetList(props: SheetListProps) {
         section: SectionListData<SheetRowModel, ListSection>;
       }) => <SectionHeader title={section.title} />}
       ItemSeparatorComponent={RowSeparator}
-      ListFooterComponent={<SheetFooter notice={props.notice} failed={props.failed} />}
+      ListHeaderComponent={
+        props.banner === undefined ? undefined : <OfflineHeader banner={props.banner} />
+      }
+      ListFooterComponent={<SheetFooter notice={props.notice} />}
       stickySectionHeadersEnabled
       keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
@@ -82,37 +89,45 @@ function RowSeparator() {
   return <Hairline inset="row" />;
 }
 
-interface SheetFooterProps {
-  readonly notice: SheetNotice;
-  readonly failed: string | undefined;
+/** The banner of the offline machines, one VoiceOver element. */
+function OfflineHeader(props: { readonly banner: OfflineBanner }) {
+  return (
+    <View
+      className="min-h-30 flex-row items-center gap-8 px-gutter pt-6 pb-2"
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={props.banner.label}
+      testID="sheet-offline"
+    >
+      <SymbolIcon name="wifi.slash" size={15} tone="text_subtle" />
+      <BodyText size="rowDetail" tone="text_muted" numberOfLines={1} ellipsizeMode="tail">
+        {props.banner.text}
+      </BodyText>
+    </View>
+  );
 }
 
-/** The quiet lines under the rows, in mono 11. */
-function SheetFooter(props: SheetFooterProps) {
+/** The quiet line under the rows, in mono 11. */
+function SheetFooter(props: { readonly notice: SheetNotice }) {
   const notice = props.notice;
-  if (notice.kind === "none" && props.failed === undefined) {
+  if (notice.kind === "none") {
     return null;
   }
   return (
-    <View className="gap-6 px-gutter pt-14 pb-gutter">
-      {notice.kind === "none" ? null : (
-        <View
-          className="flex-row items-center gap-8"
-          accessible
-          accessibilityRole={notice.kind === "empty" ? "text" : "progressbar"}
-          accessibilityLabel={notice.text}
-          accessibilityLiveRegion="polite"
-          testID="sheet-notice"
-        >
-          {notice.kind === "empty" ? null : <BrailleCell size="row" tint="wait" />}
-          <MonoText tone={notice.kind === "empty" ? "text_subtle" : "text_muted"}>
-            {notice.text}
-          </MonoText>
-        </View>
-      )}
-      {props.failed === undefined ? null : (
-        <MonoText testID="sheet-failed">{props.failed}</MonoText>
-      )}
+    <View className="px-gutter pt-14 pb-gutter">
+      <View
+        className="flex-row items-center gap-8"
+        accessible
+        accessibilityRole={notice.kind === "empty" ? "text" : "progressbar"}
+        accessibilityLabel={notice.text}
+        accessibilityLiveRegion="polite"
+        testID="sheet-notice"
+      >
+        {notice.kind === "empty" ? null : <BrailleCell size="row" tint="wait" />}
+        <MonoText tone={notice.kind === "empty" ? "text_subtle" : "text_muted"}>
+          {notice.text}
+        </MonoText>
+      </View>
     </View>
   );
 }

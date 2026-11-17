@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { sheetParams } from "./sheet-schemas";
 import {
-  failedText,
   machineNameOf,
+  offlineBanner,
   offlineMachines,
   resultsNotice,
   resultsTitle,
@@ -168,11 +168,46 @@ describe("the notices", () => {
     expect(resultsNotice({ rows: 4, fetching: false, waiting: false })).toEqual({ kind: "none" });
   });
 
-  it("counts the machines that did not answer", () => {
-    expect(failedText([])).toBeUndefined();
-    expect(failedText([false, false])).toBeUndefined();
-    expect(failedText([false, true])).toBe("1 machine did not answer");
-    expect(failedText([true, true, true])).toBe("3 machines did not answer");
+  it("shows no banner while every machine answers", () => {
+    const input = { machines: MACHINES, updatedAt: [NOW, NOW], now: NOW };
+    expect(offlineBanner({ ...input, failed: [] })).toBeUndefined();
+    expect(offlineBanner({ ...input, failed: [false, false] })).toBeUndefined();
+  });
+
+  it("names one or two offline machines with the age of the oldest kept rows", () => {
+    const three = [...MACHINES, { id: "h", name: "homelab" }];
+    const updatedAt = [NOW, NOW - 3 * 60 * MINUTE, NOW - 2 * 60 * MINUTE];
+    expect(
+      offlineBanner({ machines: three, failed: [false, false, true], updatedAt, now: NOW }),
+    ).toEqual({
+      text: "homelab offline · rows from 2h ago",
+      label: "homelab offline, rows from 2 hours ago",
+    });
+    expect(
+      offlineBanner({ machines: three, failed: [false, true, true], updatedAt, now: NOW })?.text,
+    ).toBe("laptop and homelab offline · rows from 3h ago");
+    expect(
+      offlineBanner({ machines: three, failed: [true, true, true], updatedAt, now: NOW })?.text,
+    ).toBe("3 machines offline · rows from 3h ago");
+  });
+
+  it("tells the age in minutes, hours, yesterday or a date", () => {
+    const one = [{ id: "h", name: "homelab" }];
+    const age = (at: number): string | undefined =>
+      offlineBanner({ machines: one, failed: [true], updatedAt: [at], now: NOW })?.text;
+    expect(age(NOW - 12 * MINUTE)).toBe("homelab offline · rows from 12m ago");
+    expect(age(NOW - 10_000)).toBe("homelab offline · rows from 1m ago");
+    expect(age(NOW - 3 * 60 * MINUTE)).toBe("homelab offline · rows from 3h ago");
+    expect(age(october(25, 20))).toBe("homelab offline · rows from yesterday");
+    expect(age(october(12, 9))).toBe("homelab offline · rows from Oct 12");
+  });
+
+  it("names the machine without an age when the phone keeps no rows of it", () => {
+    const one = [{ id: "h", name: "homelab" }];
+    expect(offlineBanner({ machines: one, failed: [true], updatedAt: [0], now: NOW })).toEqual({
+      text: "homelab offline",
+      label: "homelab offline",
+    });
   });
 
   it("names the machines that did not answer as offline", () => {

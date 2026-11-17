@@ -140,6 +140,66 @@ describe("sheetSections (S-Rows, Sections)", () => {
     ]);
   });
 
+  it("gives each of the six row states of 0.0.12 its mark, word, tone and section", () => {
+    const rows = [
+      item("d", "approval", NOW - MINUTE, { status: "awaiting_approval" }),
+      item("d", "answer", NOW - 2 * MINUTE, { status: "running", attention: "answer" }),
+      item("d", "terminal", NOW - 3 * MINUTE, { status: "running", attention: "terminal" }),
+      item("d", "local", NOW - 4 * MINUTE, {
+        status: "awaiting_approval",
+        attention: "terminal",
+      }),
+      item("d", "running", NOW - 5 * MINUTE, { status: "running" }),
+      item("d", "failed", NOW - 6 * MINUTE, { attention: "failed" }),
+      item("d", "idle", NOW - 7 * MINUTE),
+    ];
+    const answering: RowContext = { ...CONTEXT, answers: new Set(["d"]) };
+    const sections = sheetSections(rows, answering);
+    expect(
+      sections.map((section) => [
+        section.kind,
+        section.rows.map((row) => [row.id, row.status, row.statusTone, row.mark]),
+      ]),
+    ).toEqual([
+      [
+        "needs",
+        [
+          ["approval", "needs approval", "accent_primary", "approval"],
+          ["answer", "needs an answer", "accent_primary", "approval"],
+          ["terminal", "answer in the terminal", "accent_primary", "approval"],
+          ["local", "answer in the terminal", "accent_primary", "approval"],
+        ],
+      ],
+      ["running", [["running", "running", "accent_primary", "running"]]],
+      [
+        "today",
+        [
+          ["failed", "✗ failed", "state_error", "none"],
+          ["idle", undefined, "accent_primary", "none"],
+        ],
+      ],
+    ]);
+    const failed = sections[2]?.rows[0];
+    expect(failed?.label).toBe("Untitled. Failed. desktop. 6 minutes ago.");
+  });
+
+  it("reads a question as answer in the terminal on a machine that the phone cannot answer", () => {
+    const question = item("d", "q", NOW, { status: "running", attention: "answer" });
+    expect(sheetRow(question, CONTEXT).status).toBe("answer in the terminal");
+    expect(sheetRow(question, { ...CONTEXT, answers: new Set(["l"]) }).status).toBe(
+      "answer in the terminal",
+    );
+    expect(sheetRow(question, { ...CONTEXT, answers: new Set(["d"]) }).status).toBe(
+      "needs an answer",
+    );
+  });
+
+  it("shows no failed word for a row of an offline machine", () => {
+    const failed = item("l", "f", NOW, { attention: "failed" });
+    const row = sheetRow(failed, { ...CONTEXT, offline: new Set(["l"]) });
+    expect([row.status, row.mark]).toEqual([undefined, "none"]);
+  });
+
   it("leaves out the empty sections", () => {
     const sections = sheetSections([item("d", "a", NOW, { title: "Only today" })], CONTEXT);
     expect(sections.map((section) => section.kind)).toEqual(["today"]);
@@ -253,6 +313,7 @@ describe("sheetRow", () => {
       title: "T",
       titleRuns: [{ text: "T", start: 0, match: false }],
       status: undefined,
+      statusTone: "accent_primary",
       mark: "none",
       machineName: "x",
       offline: false,

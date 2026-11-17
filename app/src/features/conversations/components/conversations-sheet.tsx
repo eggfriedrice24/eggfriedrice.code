@@ -14,7 +14,8 @@
 // - The two panes are in `Activity`: the hidden one keeps its scroll position and its
 //   rows, so a cleared field shows the sections where they were.
 // - A machine whose empty search failed did not answer: both panes show its rows as
-//   offline (SH-Offline). Its next `ready` asks again, and then they are live.
+//   offline, under one banner that tells the age of the kept rows (SH-Offline). Its next
+//   `ready` asks again, and then they are live.
 
 import { useQueries } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -28,8 +29,8 @@ import { sheetQueriesOptions } from "../conversations-queries";
 import { mergeConversationLists, sheetSections, type RowContext } from "../model/sheet-sections";
 import {
   SEARCH_DEBOUNCE_MS,
-  failedText,
   machineNameOf,
+  offlineBanner,
   offlineMachines,
   resultsNotice,
   resultsTitle,
@@ -68,6 +69,12 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
     now: props.now,
     offline: offlineMachines(ids, loaded.failed),
   };
+  const banner = offlineBanner({
+    machines: props.machines,
+    failed: loaded.failed,
+    updatedAt: loaded.updatedAt,
+    now: props.now,
+  });
   const sections: SheetListSection[] = sheetSections(
     mergeConversationLists(loaded.lists),
     context,
@@ -104,7 +111,7 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
               pending: loaded.isPending,
               rows: sectionRows,
             })}
-            failed={failedText(loaded.failed)}
+            banner={banner}
             onOpen={props.onOpen}
             testID="sheet-sections"
           />
@@ -117,7 +124,7 @@ export function ConversationsSheet(props: ConversationsSheetProps) {
               fetching: found.isFetching,
               waiting: searched.trim() !== typed.trim(),
             })}
-            failed={failedText(found.failed)}
+            banner={banner}
             onOpen={props.onOpen}
             testID="sheet-results"
           />

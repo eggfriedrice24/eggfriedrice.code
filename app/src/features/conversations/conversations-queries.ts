@@ -274,12 +274,18 @@ export interface CombinedConversationLists {
   readonly isFetching: boolean;
   /** For each machine, in the order of the queries: true when its last fetch failed. */
   readonly failed: readonly boolean[];
+  /**
+   * For each machine, in the order of the queries: when its list was last written, in ms
+   * since the epoch, or 0 when it has none. A list from the disk keeps the time of its
+   * fetch, so it tells the age of the rows of an offline machine (SH-Offline).
+   */
+  readonly updatedAt: readonly number[];
 }
 
 /** The members of a query result that `combineConversationLists` reads. */
 export type ListResult = Pick<
   QueryObserverResult<ConversationItem[]>,
-  "data" | "isPending" | "isFetching" | "isError"
+  "data" | "dataUpdatedAt" | "isPending" | "isFetching" | "isError"
 >;
 
 /** The `combine` of the sheet's `useQueries` over the machines. */
@@ -294,6 +300,7 @@ export function combineConversationLists(
       results.some((result) => result.isPending),
     isFetching: results.some((result) => result.isFetching),
     failed: results.map((result) => result.isError),
+    updatedAt: results.map((result) => result.dataUpdatedAt),
   };
 }
 

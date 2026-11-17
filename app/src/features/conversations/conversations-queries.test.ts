@@ -96,6 +96,7 @@ describe("the list results of efrd", () => {
       id: "019a9b1c-3d00-7a10-8b20-000000000001",
       title: "why is the disk full",
       status: "running",
+      attention: "answer",
       updatedAt: Date.parse("2026-10-03T12:00:05.5Z"),
       cwd: "/var/log",
     };
@@ -242,10 +243,12 @@ function result(
     readonly isPending?: boolean;
     readonly isFetching?: boolean;
     readonly isError?: boolean;
+    readonly dataUpdatedAt?: number;
   },
 ): ListResult {
   return {
     data,
+    dataUpdatedAt: flags.dataUpdatedAt ?? 0,
     isPending: flags.isPending ?? false,
     isFetching: flags.isFetching ?? false,
     isError: flags.isError ?? false,
@@ -328,7 +331,7 @@ describe("combineConversationLists", () => {
   it("joins the lists in order and sums up their state", () => {
     const a: ConversationItem = { machine: "a", id: "1", status: "idle", updatedAt: 1 };
     const combined = combineConversationLists([
-      result([a], { isFetching: true }),
+      result([a], { isFetching: true, dataUpdatedAt: 7 }),
       result(undefined, { isError: true }),
     ]);
     expect(combined).toEqual({
@@ -336,6 +339,7 @@ describe("combineConversationLists", () => {
       isPending: false,
       isFetching: true,
       failed: [false, true],
+      updatedAt: [7, 0],
     });
   });
 
@@ -378,6 +382,8 @@ describe("sheetQueriesOptions", () => {
       combined.lists.map((list) => list.map((row) => `${row.machine} ${row.title ?? ""}`)),
     ).toEqual([["desktop on desktop"], ["laptop on laptop"], []]);
     expect(combined.failed).toEqual([false, false, true]);
+    // The time of the fake clock: the lists that answered were written now.
+    expect(combined.updatedAt).toEqual([Date.now(), Date.now(), 0]);
     for (const stop of stops) {
       stop();
     }

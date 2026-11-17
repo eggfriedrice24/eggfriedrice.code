@@ -3,7 +3,7 @@
 // calendar of the phone; the names of months and days are English, as is all text of
 // the app.
 
-import type { ConversationStatus } from "@/lib/protocol/generated";
+import type { RowState } from "@/lib/protocol/status";
 
 const WEEKDAYS = [
   "Sunday",
@@ -100,11 +100,21 @@ export function listTime(then: number, now: number): string {
       return clockTime(date);
     case "week":
       return short(WEEKDAYS[date.getDay()] ?? "");
-    default: {
-      const day = `${short(MONTHS[date.getMonth()] ?? "")} ${date.getDate()}`;
-      return sameYear(date, now) ? day : `${day}, ${date.getFullYear()}`;
-    }
+    default:
+      return shortDate(date, now);
   }
+}
+
+/** `Oct 12` in the year of `now`, else `Oct 12, 2025`. */
+function shortDate(date: Date, now: number): string {
+  const day = `${short(MONTHS[date.getMonth()] ?? "")} ${date.getDate()}`;
+  return sameYear(date, now) ? day : `${day}, ${date.getFullYear()}`;
+}
+
+/** `October 12` in the year of `now`, else `October 12, 2025`. */
+function longDate(date: Date, now: number): string {
+  const day = `${MONTHS[date.getMonth()] ?? ""} ${date.getDate()}`;
+  return sameYear(date, now) ? day : `${day}, ${date.getFullYear()}`;
 }
 
 /**
@@ -125,10 +135,8 @@ export function spokenTime(then: number, now: number): string {
       return `Yesterday at ${clockTime(date)}`;
     case "week":
       return WEEKDAYS[date.getDay()] ?? "";
-    default: {
-      const day = `${MONTHS[date.getMonth()] ?? ""} ${date.getDate()}`;
-      return sameYear(date, now) ? day : `${day}, ${date.getFullYear()}`;
-    }
+    default:
+      return longDate(date, now);
   }
 }
 
@@ -140,15 +148,54 @@ function sameYear(date: Date, now: number): boolean {
   return date.getFullYear() === new Date(now).getFullYear();
 }
 
-const STATUS_WORDS: Readonly<Record<ConversationStatus, string | undefined>> = {
-  awaiting_approval: "needs approval",
+/**
+ * The age of the rows that the phone keeps of an offline machine (SH-Offline), seen at
+ * `now`: `12m ago` (at least `1m ago`), `3h ago` on the same day, `yesterday`, then the
+ * date as the lists give it, `Nov 12` or `Nov 12, 2025`. The spoken form of each is in
+ * `spokenAge`.
+ */
+export function listAge(then: number, now: number): string {
+  switch (listDay(then, now)) {
+    case "today": {
+      const minutes = Math.max(1, minutesBetween(then, now));
+      return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
+    }
+    case "yesterday":
+      return "yesterday";
+    default:
+      return shortDate(new Date(then), now);
+  }
+}
+
+/** The age of `listAge` in full words, for VoiceOver: `2 hours ago`, `November 12`. */
+export function spokenAge(then: number, now: number): string {
+  switch (listDay(then, now)) {
+    case "today": {
+      const minutes = Math.max(1, minutesBetween(then, now));
+      return minutes < 60 ? ago(minutes, "minute") : ago(Math.floor(minutes / 60), "hour");
+    }
+    case "yesterday":
+      return "yesterday";
+    default:
+      return longDate(new Date(then), now);
+  }
+}
+
+const STATUS_WORDS: Readonly<Record<RowState, string | undefined>> = {
+  approval: "needs approval",
+  answer: "needs an answer",
+  terminal: "answer in the terminal",
   running: "running",
+  failed: "failed",
   idle: undefined,
 };
 
-/** The status word of a list row: `needs approval`, `running`, or none for idle. */
-export function statusWord(status: ConversationStatus): string | undefined {
-  return STATUS_WORDS[status];
+/**
+ * The status word of a list row (spec 0.0.12, section 6.1): `needs approval`,
+ * `needs an answer`, `answer in the terminal`, `running`, `failed`, or none for idle.
+ */
+export function statusWord(state: RowState): string | undefined {
+  return STATUS_WORDS[state];
 }
 
 /** The title of a row; a conversation without a title yet reads as `Untitled`. */

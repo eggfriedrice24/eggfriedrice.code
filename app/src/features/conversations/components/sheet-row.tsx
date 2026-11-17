@@ -2,13 +2,14 @@
 // at least 58 pt high, padding 8 18 8 16, gap 12.
 //
 // - Icon: a column 24 pt wide. The yolk exclamationmark.circle.fill (19 pt) when the
-//   conversation needs approval, the yolk braille loader when it runs, else a quiet
-//   bubble.left (17 pt) in border_subtle.
+//   conversation waits for the user (an approval, an answer or the terminal), the yolk
+//   braille loader when it runs, else a quiet bubble.left (17 pt) in border_subtle.
 // - Title: SF Pro 15/20 in text_primary, one line with an ellipsis at the end; text_bright
 //   semibold in the Needs you section. The words of a search are text_bright semibold.
-// - Second line: SF Pro 13/18 in text_subtle, "[status word in yolk] · machine · folder",
-//   with the folder in SF Mono 12. A row of a machine that did not answer (SH-Offline)
-//   has its title in text_muted and "machine · offline · folder".
+// - Second line: SF Pro 13/18 in text_subtle, "[status word] · machine · folder", with
+//   the word in yolk ("✗ failed" in state_error) and the folder in SF Mono 12. A row of a
+//   machine that did not answer (SH-Offline) has its title in text_muted and
+//   "machine · offline · folder".
 // - Time: on the right, 13/18 in text_subtle, at the top, for every row.
 // - VoiceOver reads the row as one element. A tap opens the conversation. A long press
 //   opens the native menu with Open and Copy ID; VoiceOver gets the same two as actions
@@ -21,7 +22,7 @@ import { BrailleCell } from "@/components/ui/braille-cell";
 import type { MenuItem } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
 import { SymbolIcon, type SymbolName } from "@/components/ui/symbol";
-import type { TextTone } from "@/components/ui/text-classes";
+import { TEXT_TONE_CLASS, type TextTone } from "@/components/ui/text-classes";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import type { ConversationAddress } from "@/lib/query/keys";
@@ -111,7 +112,7 @@ export function SheetRow(props: SheetRowProps) {
           <BodyText size="rowDetail" tone="text_subtle" numberOfLines={1} ellipsizeMode="tail">
             {row.status === undefined ? null : (
               <>
-                <Text className="text-accent-primary">{row.status}</Text>
+                <Text className={TEXT_TONE_CLASS[row.statusTone]}>{row.status}</Text>
                 {" · "}
               </>
             )}

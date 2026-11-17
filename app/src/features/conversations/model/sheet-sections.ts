@@ -8,12 +8,17 @@
 //   (`filterConversations`). The search of efrd (debounced) gives the results pane
 //   (`searchResultRows`), best first per machine. A result shows the words of the search
 //   in its title.
+// - The row state (`rowState`, spec 0.0.12 section 6.1) gives the mark, the word and the
+//   section: the three waits (needs approval, needs an answer, answer in the terminal)
+//   have the yolk "!" and stand in Needs you; a running one has the loader and stands in
+//   Running; a failed one has no mark, the word "✗ failed" in state_error, and stays in
+//   its day.
 // - A row of a machine that did not answer is offline (SH-Offline): it comes from the
 //   last list that the phone keeps, so its title is quieter, the word "offline" follows
 //   the machine, and it shows no status. A status from that list can be old, so the row
 //   goes to its day section.
 
-import type { ConversationStatus } from "@/lib/protocol/generated";
+import { rowState, waitsForUser, type RowState } from "@/lib/protocol/status";
 import { holdsEveryWord, matchRuns, searchWords, type MatchRun } from "@/lib/text/search-words";
 import { newestFirst, type ConversationItem } from "./conversation-item";
 import { folderName, listDay, listTime, rowTitle, spokenTime, statusWord } from "./list-format";
@@ -24,6 +29,9 @@ export type SheetSectionKind = "needs" | "running" | "today" | "yesterday" | "we
 /** The icon of a row: the yolk "!" circle, the yolk braille loader, or the quiet bubble. */
 export type SheetRowMark = "approval" | "running" | "none";
 
+/** The colour role of the status word of a row. */
+export type SheetStatusTone = "accent_primary" | "state_error";
+
 /** One row of the sheet. */
 export interface SheetRow {
   readonly machine: string;
@@ -31,8 +39,10 @@ export interface SheetRow {
   readonly title: string;
   /** The title cut at the words of the search. One plain run without a search. */
   readonly titleRuns: readonly MatchRun[];
-  /** `needs approval` or `running`, in yolk before the machine; none when idle. */
+  /** The word before the machine, such as `needs approval` or `✗ failed`; none when idle. */
   readonly status: string | undefined;
+  /** The colour of the status word: the yolk, or state_error for a failed turn. */
+  readonly statusTone: SheetStatusTone;
   readonly mark: SheetRowMark;
   /** The name of the machine, such as `desktop`. */
   readonly machineName: string;
@@ -68,18 +78,35 @@ export interface RowContext {
   readonly words?: readonly string[];
   /** The machines that did not answer (`offlineMachines`). None: every machine answered. */
   readonly offline?: ReadonlySet<string>;
+  /**
+   * The machines on which the phone can answer a question of the model. None: no
+   * machine, so a question reads as "answer in the terminal".
+   */
+  readonly answers?: ReadonlySet<string>;
 }
 
-/** The status that the sheet trusts: none for a row of a machine that did not answer. */
-function liveStatus(item: ConversationItem, context: RowContext): ConversationStatus {
-  return context.offline?.has(item.machine) === true ? "idle" : item.status;
+/** The row state that the sheet trusts: idle for a row of a machine that did not answer. */
+function liveState(item: ConversationItem, context: RowContext): RowState {
+  if (context.offline?.has(item.machine) === true) {
+    return "idle";
+  }
+  return rowState(item.status, item.attention, context.answers?.has(item.machine) === true);
 }
 
-const MARKS: Readonly<Record<ConversationStatus, SheetRowMark>> = {
-  awaiting_approval: "approval",
+const MARKS: Readonly<Record<RowState, SheetRowMark>> = {
+  approval: "approval",
+  answer: "approval",
+  terminal: "approval",
   running: "running",
+  failed: "none",
   idle: "none",
 };
+
+/** The status word of `state` as the row shows it: a failed turn has the ✗ before it. */
+function shownStatus(state: RowState): string | undefined {
+  const word = statusWord(state);
+  return state === "failed" ? `✗ ${word ?? ""}` : word;
+}
 
 const SECTION_TITLES: Readonly<Record<SheetSectionKind, string>> = {
   needs: "Needs you",
@@ -111,22 +138,27 @@ function capitalized(text: string | undefined): string | undefined {
 /** The sheet row of `item`. */
 export function sheetRow(item: ConversationItem, context: RowContext, bright = false): SheetRow {
   const title = rowTitle(item.title);
-  const live = liveStatus(item, context);
-  const status = statusWord(live);
+  const state = liveState(item, context);
   const offline = context.offline?.has(item.machine) === true;
   const machineName = context.machineName(item.machine);
   const folder = item.cwd === undefined ? undefined : folderName(item.cwd);
   const place = [machineName, offline ? "offline" : undefined, folder]
     .filter((part) => part !== undefined)
     .join(", ");
-  const sentences = [title, capitalized(status), place, spokenTime(item.updatedAt, context.now)];
+  const sentences = [
+    title,
+    capitalized(statusWord(state)),
+    place,
+    spokenTime(item.updatedAt, context.now),
+  ];
   return {
     machine: item.machine,
     id: item.id,
     title,
     titleRuns: matchRuns(title, context.words ?? []),
-    status,
-    mark: MARKS[live],
+    status: shownStatus(state),
+    statusTone: state === "failed" ? "state_error" : "accent_primary",
+    mark: MARKS[state],
     machineName,
     offline,
     folder,
@@ -179,16 +211,13 @@ export function filterConversations(
   );
 }
 
-/** The section of `item`: its live status first, else the day of its last event. */
+/** The section of `item`: a wait or a running turn first, else the day of its last event. */
 function sectionOf(item: ConversationItem, context: RowContext): SheetSectionKind {
-  switch (liveStatus(item, context)) {
-    case "awaiting_approval":
-      return "needs";
-    case "running":
-      return "running";
-    default:
-      return listDay(item.updatedAt, context.now);
+  const state = liveState(item, context);
+  if (waitsForUser(state)) {
+    return "needs";
   }
+  return state === "running" ? "running" : listDay(item.updatedAt, context.now);
 }
 
 /** The sections of the sheet over `items` (of every machine). */

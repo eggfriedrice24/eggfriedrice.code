@@ -1,6 +1,6 @@
 // Small builders for the tests of the list models. Only test files import this module.
 
-import type { ConversationItem } from "./conversation-item";
+import type { ConversationItem, ItemAttention } from "./conversation-item";
 
 /** A conversation item of `machine` with the members of `extra`. */
 export function item(
@@ -11,6 +11,7 @@ export function item(
     readonly title?: string;
     readonly cwd?: string;
     readonly status?: ConversationItem["status"];
+    readonly attention?: ItemAttention;
   } = {},
 ): ConversationItem {
   const built: {
@@ -18,9 +19,13 @@ export function item(
     id: string;
     title?: string;
     status: ConversationItem["status"];
+    attention?: ItemAttention;
     updatedAt: number;
     cwd?: string;
   } = { machine, id, status: extra.status ?? "idle", updatedAt };
+  if (extra.attention !== undefined) {
+    built.attention = extra.attention;
+  }
   if (extra.title !== undefined) {
     built.title = extra.title;
   }

@@ -1,7 +1,10 @@
 // One row of a conversation list, from efr-protocol's `ConversationSummary`, with the
 // machine that holds it. Pure, for the tests.
 
-import type { ConversationStatus, ConversationSummary } from "@/lib/protocol/generated";
+import type { Attention, ConversationStatus, ConversationSummary } from "@/lib/protocol/generated";
+
+/** Who can act on a conversation, as this build knows it. */
+export type ItemAttention = Exclude<Attention, "unknown">;
 
 /** One conversation of a list (from efr-protocol's `ConversationSummary`). */
 export interface ConversationItem {
@@ -11,6 +14,12 @@ export interface ConversationItem {
   readonly title?: string;
   /** What it does now. A newer efrd can send another word; it reads as idle. */
   readonly status: ConversationStatus;
+  /**
+   * Who can act on it (`rowState` of `lib/protocol/status.ts` reads it with `status`).
+   * Absent when none, from an efrd before 0.0.12, and for a value that this build does
+   * not know.
+   */
+  readonly attention?: ItemAttention;
   /** When its last event was recorded, in ms since the epoch. */
   readonly updatedAt: number;
   /** The working directory at the last prompt. */
@@ -27,6 +36,17 @@ function statusOf(status: string): ConversationStatus {
   }
 }
 
+function attentionOf(attention: string | null | undefined): ItemAttention | undefined {
+  switch (attention) {
+    case "answer":
+    case "terminal":
+    case "failed":
+      return attention;
+    default:
+      return undefined;
+  }
+}
+
 /** One row of a conversation list of `machine`. */
 export function conversationItem(machine: string, summary: ConversationSummary): ConversationItem {
   const parsed = Date.parse(summary.updated_at);
@@ -35,6 +55,7 @@ export function conversationItem(machine: string, summary: ConversationSummary):
     id: string;
     title?: string;
     status: ConversationStatus;
+    attention?: ItemAttention;
     updatedAt: number;
     cwd?: string;
   } = {
@@ -43,6 +64,10 @@ export function conversationItem(machine: string, summary: ConversationSummary):
     status: statusOf(summary.status),
     updatedAt: Number.isNaN(parsed) ? 0 : parsed,
   };
+  const attention = attentionOf(summary.attention);
+  if (attention !== undefined) {
+    item.attention = attention;
+  }
   if (summary.title !== undefined && summary.title !== null && summary.title.length > 0) {
     item.title = summary.title;
   }
