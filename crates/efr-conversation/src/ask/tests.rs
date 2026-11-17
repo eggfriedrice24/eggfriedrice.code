@@ -103,6 +103,11 @@ fn a_reply_outside_the_question_is_refused() {
     let long = "x".repeat(QuestionReply::MAX_TEXT_BYTES + 1);
     let longest = "x".repeat(QuestionReply::MAX_TEXT_BYTES);
     assert_eq!(refusal(&QuestionReply::Text { text: longest }, 2), None);
+    assert_eq!(
+        refusal(&QuestionReply::Text { text: long.clone() }, 2),
+        Some(format!("the text is longer than {} bytes", QuestionReply::MAX_TEXT_BYTES).as_str()),
+        "the reason names the limit of the wire"
+    );
     for text in [String::new(), "  ".to_owned(), long, "a\nb".to_owned(), "\u{1b}[2J".to_owned()] {
         assert!(refusal(&QuestionReply::Text { text: text.clone() }, 2).is_some(), "{text:?}");
     }

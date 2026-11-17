@@ -458,6 +458,22 @@ async fn a_call_hands_its_input_limit_its_flag_and_its_approver_to_the_shell() {
 }
 
 #[test]
+fn the_description_names_the_numbers_of_a_watch_that_efr_uses() {
+    let description = tool().spec().description;
+    let watch = format!(
+        "one notice of at most {} lines, the first {} and the last {}. A watch gives you {} \
+         notices unless you name max_wakes, and at most {}; a conversation gets at most 6 \
+         notices in one hour, unless the user changed these limits.",
+        efr_protocol::BATCH_HEAD + efr_protocol::BATCH_TAIL,
+        efr_protocol::BATCH_HEAD,
+        efr_protocol::BATCH_TAIL,
+        super::WatchInput::DEFAULT_WAKES,
+        super::WatchInput::MAX_WAKES,
+    );
+    assert!(description.contains(&watch), "{description}");
+}
+
+#[test]
 fn the_description_promises_no_screen_the_user_cannot_see() {
     let description = tool().spec().description;
     assert!(!description.contains("shell's screen"), "{description}");
