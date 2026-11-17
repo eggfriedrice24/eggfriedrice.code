@@ -1,6 +1,6 @@
 //! Job notices (efr's auto spec, section 3.18, phase C): the text that tells the model
-//! that a background job ended or that a line of its output matched its `watch`
-//! pattern.
+//! that a background job ended or that lines of its output matched its `watch`
+//! pattern. The lines that match within one batch window are one notice.
 //!
 //! A notice is never the user's input. Its text says so on its own line, and it goes
 //! into a turn as its own `job_notice` event, never as a prompt or a steer, so the
@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use efr_protocol::{JobInfo, JobState, JobStopBy, NoticeKind, Seq};
+use efr_protocol::{BATCH_HEAD, JobInfo, JobState, JobStopBy, NoticeKind, Seq};
 use efr_stdx::text::is_format;
 
 /// The line of every notice that says that no person wrote it.
@@ -39,6 +39,10 @@ pub const NOTICE_LINE_BYTES: usize = 4 * 1024;
 /// The most characters of the job's command line that a notice names.
 const COMMAND_CHARS: usize = 500;
 
+/// The row of the last notice of a watch.
+const WATCH_OVER: &str = "[efr: the watch is over. The job runs until it ends or its time limit \
+                          passes; job_stop ends it.]";
+
 /// What a notice tells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeBody<'a> {
@@ -52,12 +56,23 @@ pub enum NoticeBody<'a> {
         stopped_by: Option<JobStopBy>,
         /// The end of its output, as the job wrote it.
         tail: &'a str,
+        /// The lines that matched the job's watch right before the end and that no
+        /// watch notice told, as the job wrote them; empty when none.
+        matched: &'a [String],
+        /// The lines of that batch that `matched` leaves out after its first
+        /// [`BATCH_HEAD`] lines.
+        matched_dropped: u32,
     },
-    /// A line of the job's output matched its watch pattern.
+    /// Lines of the job's output matched its watch pattern: one batch.
     Watch {
-        /// The line, as the job wrote it.
+        /// The first line of the batch, as the job wrote it.
         line: &'a str,
-        /// How many more matches may wake the model.
+        /// The other lines of the batch.
+        more: &'a [String],
+        /// The lines of the batch that the notice leaves out after its first
+        /// [`BATCH_HEAD`] lines.
+        dropped: u32,
+        /// How many more notices of the watch may wake the model.
         wakes_left: u8,
     },
 }
@@ -108,7 +123,9 @@ impl JobNoticeInput {
 /// </job>
 /// ```
 ///
-/// A watch notice has `state="running" watch="matched"` and quotes the matched line.
+/// A watch notice has `state="running" watch="matched"`, quotes the lines of its batch
+/// with one `matched:` row each, and counts the notices that the watch has left. An end
+/// notice quotes the lines of the batch that waited at the end before the tail.
 /// The command, the output and the line are escaped (`<`, `>`, `&`, `"`), and their
 /// control and format characters are dropped; a tab becomes a space.
 pub fn notice_text(job: &JobInfo, shown_output: &str, body: NoticeBody<'_>) -> String {
@@ -150,7 +167,11 @@ pub fn notice_text_refused(
     let _ = writeln!(text, " command=\"{}\">", escape(&one_line(&job.command, COMMAND_CHARS)));
     let _ = writeln!(text, "{NOT_USER_INPUT}");
     match body {
-        NoticeBody::Ended { tail, .. } => {
+        NoticeBody::Ended { tail, matched, matched_dropped, .. } => {
+            if !matched.is_empty() {
+                text.push_str("matched before the end:\n");
+                batch_rows(&mut text, matched.iter().map(String::as_str), matched_dropped);
+            }
             let tail = last_lines(tail);
             if tail.is_empty() {
                 text.push_str("(no output)\n");
@@ -159,10 +180,14 @@ pub fn notice_text_refused(
                 let _ = writeln!(text, "{}", escape(&clean(line)));
             }
         }
-        NoticeBody::Watch { line, wakes_left } => {
-            let line = cut_bytes(line, NOTICE_LINE_BYTES);
-            let _ = writeln!(text, "matched: {}", escape(&one_line(line, usize::MAX)));
-            let _ = writeln!(text, "wakes left: {wakes_left}");
+        NoticeBody::Watch { line, more, dropped, wakes_left } => {
+            let lines = std::iter::once(line).chain(more.iter().map(String::as_str));
+            batch_rows(&mut text, lines, dropped);
+            let _ = writeln!(text, "notices left: {wakes_left}");
+            if wakes_left == 0 {
+                text.push_str(WATCH_OVER);
+                text.push('\n');
+            }
         }
     }
     for line in refused.into_iter().flat_map(str::lines) {
@@ -195,6 +220,24 @@ pub(crate) fn notes_text(notes: &[String]) -> String {
 /// in `auto` and the question that a job asks in `cautious` and `manual`.
 pub fn job_lifetime_fact(minutes: u32) -> String {
     format!("runs as a job for up to {minutes} minutes; these grants stay open until it ends")
+}
+
+/// Writes one `matched: <line>` row for each of `lines`, a batch of matched lines.
+/// With `dropped` lines, the row that counts them stands after the first
+/// [`BATCH_HEAD`] rows, where the batch left them out.
+fn batch_rows<'a>(text: &mut String, lines: impl Iterator<Item = &'a str>, dropped: u32) {
+    for (index, line) in lines.enumerate() {
+        if index == BATCH_HEAD && dropped > 0 {
+            let noun = if dropped == 1 { "line" } else { "lines" };
+            let _ = writeln!(
+                text,
+                "[efr: {dropped} more matched {noun} between these are not shown; the output \
+                 file has them.]"
+            );
+        }
+        let line = cut_bytes(line, NOTICE_LINE_BYTES);
+        let _ = writeln!(text, "matched: {}", escape(&one_line(line, usize::MAX)));
+    }
 }
 
 /// The last [`NOTICE_TAIL_LINES`] lines of `tail`, within [`NOTICE_TAIL_BYTES`]

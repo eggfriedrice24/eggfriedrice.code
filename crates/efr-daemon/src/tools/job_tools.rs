@@ -29,7 +29,7 @@ use efr_provider::ToolDefinition;
 use efr_sandbox::JobPlan;
 use efr_scope::Home;
 use efr_shell::{NoProgress, RunRequest};
-use efr_tools::{JobRequest, job_request, job_started_text};
+use efr_tools::{JobRequest, WatchInput, job_request, job_started_text};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -326,7 +326,7 @@ impl DaemonToolbox {
             Some(watch) => match Matcher::new(&watch.pattern) {
                 Ok(matcher) => {
                     let most = u8::try_from(settings.jobs.max_wakes_per_watch).unwrap_or(u8::MAX);
-                    let max_wakes = watch.max_wakes.unwrap_or(1).min(most);
+                    let max_wakes = watch.max_wakes.unwrap_or(WatchInput::DEFAULT_WAKES).min(most);
                     (Some(matcher), Some(Watch { pattern: watch.pattern.clone(), max_wakes }))
                 }
                 Err(text) => return ToolOutcome::error(text),

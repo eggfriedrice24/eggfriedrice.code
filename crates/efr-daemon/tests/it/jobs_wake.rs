@@ -31,6 +31,7 @@ use efr_test_support::TestDirs;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
+use crate::jobs::{moving_until, output_read};
 use crate::sandbox::{REVIEWER_ALLOWS, ready};
 
 /// The reviewer's answer that hands an exit to the user.
@@ -270,8 +271,13 @@ async fn until_turn_end(
     conversation: ConversationId,
     n: usize,
 ) -> Vec<EventEnvelope> {
+    until(daemon, conversation, turn_end(n)).await
+}
+
+/// A stop at the end of the `n`th turn.
+fn turn_end(n: usize) -> impl FnMut(&Event) -> bool {
     let mut ends = 0;
-    until(daemon, conversation, |event| {
+    move |event| {
         if matches!(
             event,
             Event::TurnCompleted { .. } | Event::TurnFailed { .. } | Event::TurnInterrupted { .. }
@@ -279,8 +285,7 @@ async fn until_turn_end(
             ends += 1;
         }
         ends == n
-    })
-    .await
+    }
 }
 
 /// The events of `conversation` up to the `job_notice_held` of `job`.
@@ -448,12 +453,14 @@ async fn watch_match_wakes_model() {
     ]);
     let daemon = setup.start(Arc::clone(&model)).await;
     let sent = prompt(&daemon, 1, "start the server and wake me when it listens", Mode::Auto).await;
-    let events = until_turn_end(&daemon, sent.conversation_id, 2).await;
+    let conversation = sent.conversation_id;
+    output_read(&daemon, conversation, "j1", "listening on port 3000\n".len()).await;
+    let events = moving_until(&daemon, conversation, turn_end(2)).await;
     let [_, wake] = turn_starts(&events).try_into().unwrap();
     let [(turn, job_id, kind, woke, text)] = notices(&events).try_into().unwrap();
     assert_eq!((turn, job_id.as_str(), kind, woke), (wake, "j1", NoticeKind::Watch, true));
     assert!(text.contains("state=\"running\" watch=\"matched\""), "{text}");
-    assert!(text.contains("matched: listening on port 3000\nwakes left: 0\n"), "{text}");
+    assert!(text.contains("matched: listening on port 3000\nnotices left: 2\n"), "{text}");
     let firsts = model.firsts();
     assert_eq!(firsts[1][1..], [text], "the wake turn's first message holds the match");
     // NOTE: the job still runs; it ends at efrd's stop, which wakes nobody.
@@ -466,6 +473,92 @@ async fn watch_match_wakes_model() {
         .unwrap();
     assert_eq!(list.jobs[0].state, JobState::Running);
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+/// A background `shell` call that runs `command` with a watch of lines that start with
+/// `match`.
+fn watched(command: &str) -> Answer {
+    Some((
+        "shell",
+        json!({ "command": command, "background": true, "watch": { "pattern": "^match" } }),
+    ))
+}
+
+/// Each batch of a `job_watch_matched` of `events`: its first line, the other lines, the
+/// lines left out and the notices left.
+fn batches(events: &[EventEnvelope]) -> Vec<(String, Vec<String>, u32, u8)> {
+    events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::JobWatchMatched { line, more, dropped, wakes_left, .. } => {
+                Some((line.clone(), more.clone(), *dropped, *wakes_left))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The lines `match <from>` to `match <to>`.
+fn numbered(from: u32, to: u32) -> Vec<String> {
+    (from..=to).map(|n| format!("match {n}")).collect()
+}
+
+#[tokio::test]
+async fn a_burst_of_matches_is_one_notice() {
+    let setup = Setup::new();
+    let fifo = setup.fifo("go");
+    let burst = "i=1; while [ $i -le 5000 ]; do echo \"match $i\"; i=$((i+1)); done";
+    let model = Recorder::new(vec![watched(&format!("{burst}; {}", blocked(&fifo, "true"))), None]);
+    let daemon = setup.start(Arc::clone(&model)).await;
+    let sent = prompt(&daemon, 1, "run it and tell me what it prints", Mode::Auto).await;
+    let conversation = sent.conversation_id;
+    let bytes = numbered(1, 5_000).iter().map(|line| line.len() + 1).sum();
+    output_read(&daemon, conversation, "j1", bytes).await;
+    let events = moving_until(&daemon, conversation, turn_end(2)).await;
+
+    let mut more = numbered(2, 10);
+    more.extend(numbered(4_991, 5_000));
+    assert_eq!(batches(&events), [("match 1".to_owned(), more, 4_980, 2)]);
+    let [(_, _, kind, woke, text)] = notices(&events).try_into().unwrap();
+    assert_eq!((kind, woke), (NoticeKind::Watch, true));
+    assert_eq!(text.matches("\nmatched: ").count(), 20, "{text}");
+    assert!(text.contains("\n[efr: 4980 more matched lines between these"), "{text}");
+    assert_eq!(model.firsts()[1][1..], [text], "the wake turn's first message holds it");
+    release(&fifo).await;
+    let events =
+        until(&daemon, conversation, |event| matches!(event, Event::JobEnded { .. })).await;
+    let ended = events.last().map(|envelope| envelope.event.clone());
+    let Some(Event::JobEnded { state, matched, .. }) = ended else { unreachable!() };
+    assert_eq!((state, matched), (JobState::Exited, Vec::new()));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_burst_and_then_an_exit_start_one_wake_turn() {
+    let setup = Setup::new();
+    let fifo = setup.fifo("go");
+    let line = blocked(&fifo, "echo 'match 1'; echo other; echo 'match 2'; exit 2");
+    let model = Recorder::new(vec![watched(&line), None, None]);
+    let daemon = setup.start(Arc::clone(&model)).await;
+    let sent = prompt(&daemon, 1, "run it and tell me how it ends", Mode::Auto).await;
+    release(&fifo).await;
+    // NOTE: the clock does not move: the output ends while the batch window is open.
+    let events = until_turn_end(&daemon, sent.conversation_id, 2).await;
+
+    assert_eq!(turn_starts(&events).len(), 2, "one wake turn");
+    assert!(batches(&events).is_empty(), "no notice of the batch alone");
+    let ended = events.iter().find_map(|envelope| match &envelope.event {
+        Event::JobEnded { exit_code, matched, .. } => Some((*exit_code, matched.clone())),
+        _ => None,
+    });
+    assert_eq!(ended, Some((Some(2), numbered(1, 2))));
+    let [(_, _, kind, woke, text)] = notices(&events).try_into().unwrap();
+    assert_eq!((kind, woke), (NoticeKind::Exited, true));
+    assert!(
+        text.contains("\nmatched before the end:\nmatched: match 1\nmatched: match 2\n"),
+        "{text}"
+    );
     daemon.stop().await.unwrap();
 }
 

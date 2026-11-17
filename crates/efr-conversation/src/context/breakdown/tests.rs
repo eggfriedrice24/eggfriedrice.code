@@ -193,6 +193,8 @@ fn largest_lists_five_items_with_labels() {
             exit_code: Some(0),
             stopped_by: None,
             tail: &"compiling\n".repeat(40),
+            matched: &[],
+            matched_dropped: 0,
         },
     );
     window.placed.extend([
@@ -243,6 +245,8 @@ fn a_notice_item_names_its_job() {
             exit_code: Some(2),
             stopped_by: None,
             tail: "",
+            matched: &[],
+            matched_dropped: 0,
         },
     );
     let window = Window {

@@ -91,6 +91,8 @@ impl WatchInput {
     pub const MAX_PATTERN_CHARS: usize = 200;
     /// The most wakes that a call may ask for.
     pub const MAX_WAKES: u8 = 10;
+    /// The wakes of a watch that names no `max_wakes`.
+    pub const DEFAULT_WAKES: u8 = 3;
 }
 
 /// What a `shell` call with `background: true` asks for, besides its line.

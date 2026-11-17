@@ -59,6 +59,8 @@ fn ended(h: &Harness, number: u32, seq: u64, wakes: bool) -> JobNoticeInput {
         exit_code: Some(1),
         stopped_by: None,
         tail: "error: write ~/notes.txt failed\n",
+        matched: &[],
+        matched_dropped: 0,
     };
     let text = notice_text(&job, &format!("$SCRATCH/jobs/j{number}.out"), body);
     JobNoticeInput::new(job, NoticeKind::Exited, Seq::new(seq), text, wakes)
@@ -69,7 +71,8 @@ fn matched(h: &Harness, number: u32, seq: u64) -> JobNoticeInput {
     let turn: TurnId = "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap();
     let call = "0192f0c1-7a00-7000-8000-000000000002".parse().unwrap();
     let job = job_info(h.conversation_id, turn, call, number, "npm run dev");
-    let body = NoticeBody::Watch { line: "panic: out of memory", wakes_left: 2 };
+    let body =
+        NoticeBody::Watch { line: "panic: out of memory", more: &[], dropped: 0, wakes_left: 2 };
     let text = notice_text(&job, &format!("$SCRATCH/jobs/j{number}.out"), body);
     JobNoticeInput::new(job, NoticeKind::Watch, Seq::new(seq), text, true)
 }

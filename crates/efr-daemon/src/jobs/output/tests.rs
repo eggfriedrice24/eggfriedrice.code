@@ -1,14 +1,17 @@
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
+use std::sync::Arc;
 
+use efr_protocol::{BATCH_HEAD, BATCH_TAIL};
+use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
-use tokio::sync::mpsc;
 
 use super::{
-    Limits, Lines, MARKER_FILE, MAX_LINE_BYTES, Matcher, OutputFile, last_lines, line_text,
-    make_dir, read, spawn_reader,
+    Limits, Lines, MARKER_FILE, MAX_LINE_BYTES, MatchWindow, Matched, Matcher, OutputFile,
+    last_lines, line_text, make_dir, read, spawn_reader,
 };
 
 /// A `$SCRATCH` with the dir of the job outputs that efrd makes.
@@ -85,8 +88,7 @@ async fn output_write_error_keeps_draining() {
     // NOTE: a descriptor that refuses writes stands in for a full disk.
     file.file = File::open(scratch.path().join("jobs/j4.out")).unwrap();
     let (reader, mut writer) = std::io::pipe().unwrap();
-    let (send, _matches) = mpsc::unbounded_channel();
-    let output = spawn_reader("j4", reader, Some(file), None, send).unwrap();
+    let output = spawn_reader("j4", reader, Some(file), None).unwrap();
     for n in 0..1000 {
         writeln!(writer, "line {n}").unwrap();
     }
@@ -114,6 +116,86 @@ fn watch_line_cut_at_4_kib() {
     text.extend("é".as_bytes());
     let cut = line_text(&text);
     assert_eq!(cut.len(), MAX_LINE_BYTES - 1);
+    // NOTE: a line of valid UTF-8 costs no copy; one with a bad byte is cut after the
+    // replacement too.
+    assert!(matches!(line_text(b"plain"), Cow::Borrowed("plain")));
+    let mut bad = vec![0xff_u8; MAX_LINE_BYTES];
+    bad[0] = b'a';
+    let replaced = line_text(&bad);
+    assert!(matches!(replaced, Cow::Owned(_)));
+    assert!(replaced.len() <= MAX_LINE_BYTES && replaced.starts_with('a'));
+}
+
+/// The lines `line 1` to `line n`.
+fn lines(n: u32) -> Vec<String> {
+    (1..=n).map(|n| format!("line {n}")).collect()
+}
+
+#[test]
+fn match_window_keeps_head_and_tail_and_counts_the_rest() {
+    let window = MatchWindow::default();
+    assert_eq!(window.take(false), None, "an empty window has no batch");
+    for line in lines(3) {
+        assert!(window.push(&line));
+    }
+    assert_eq!(window.take(false), Some(Matched { lines: lines(3), dropped: 0 }));
+    assert_eq!(window.take(false), None, "a take empties the window");
+    for line in lines(5_000) {
+        assert!(window.push(&line));
+    }
+    let Some(Matched { lines: kept, dropped }) = window.take(false) else { unreachable!() };
+    assert_eq!(kept.len(), BATCH_HEAD + BATCH_TAIL);
+    assert_eq!(kept[..BATCH_HEAD], lines(10));
+    assert_eq!(kept[BATCH_HEAD..], lines(5_000)[4_990..]);
+    assert_eq!(dropped, 4_980);
+    // The next batch starts with no count.
+    assert!(window.push("again"));
+    assert_eq!(window.take(false), Some(Matched { lines: vec!["again".to_owned()], dropped: 0 }));
+}
+
+#[test]
+fn match_window_closes_only_with_its_last_batch() {
+    let window = MatchWindow::default();
+    assert_eq!(window.take(true), None);
+    assert!(!window.closed(), "a take with no batch leaves the window open");
+    assert!(window.push("last"));
+    assert_eq!(window.take(true).map(|matched| matched.lines), Some(vec!["last".to_owned()]));
+    assert!(window.closed());
+    assert!(!window.push("after the last batch"));
+    assert_eq!(window.take(false), None);
+}
+
+#[tokio::test]
+async fn reader_puts_matches_into_the_window_until_it_closes() {
+    let (reader, mut writer) = std::io::pipe().unwrap();
+    let window = Arc::new(MatchWindow::default());
+    let watch = Some((Matcher::new("^error").unwrap(), Arc::clone(&window)));
+    let output = spawn_reader("j5", reader, None, watch).unwrap();
+    writeln!(writer, "error one\nfine\nerror two").unwrap();
+    window.added().await;
+    // NOTE: the reader counts the bytes of a chunk after its lines are in the window.
+    let first = b"error one\nfine\nerror two\n".len() as u64;
+    Wait::new("the first chunk").until(|| output.bytes() >= first).await.unwrap();
+    let taken = window.take(true).unwrap();
+    assert_eq!(taken.lines, ["error one", "error two"]);
+    writeln!(writer, "error three").unwrap();
+    write!(writer, "error four, with no newline").unwrap();
+    drop(writer);
+    output.ended().await;
+    assert_eq!(window.take(false), None, "a closed window takes no line");
+    assert!(window.closed());
+}
+
+#[tokio::test]
+async fn reader_puts_a_last_line_without_newline_into_the_window() {
+    let (reader, mut writer) = std::io::pipe().unwrap();
+    let window = Arc::new(MatchWindow::default());
+    let watch = Some((Matcher::new("done").unwrap(), Arc::clone(&window)));
+    let output = spawn_reader("j6", reader, None, watch).unwrap();
+    write!(writer, "work\ndone").unwrap();
+    drop(writer);
+    output.ended().await;
+    assert_eq!(window.take(false).map(|matched| matched.lines), Some(vec!["done".to_owned()]));
 }
 
 #[test]

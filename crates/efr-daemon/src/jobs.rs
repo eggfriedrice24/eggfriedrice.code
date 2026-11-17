@@ -86,6 +86,10 @@ pub(crate) const STOP_GRACE: Duration = Duration::from_secs(6);
 /// How long the end of a job waits for the rest of its output after the launcher ended.
 const OUTPUT_GRACE: Duration = Duration::from_secs(2);
 
+/// How long a batch of watch matches gathers lines after its first line: the lines that
+/// match within it are one notice.
+const BATCH_WINDOW: Duration = Duration::from_secs(1);
+
 /// How often the table looks whether a swept session still has processes.
 const SCAN_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -221,7 +225,8 @@ pub(crate) struct AdoptedJob {
 pub(crate) struct Spawned {
     process: launch::Spawned,
     output: output::Output,
-    matches: mpsc::UnboundedReceiver<String>,
+    /// The window of the job's watch matches; `None` without a watch.
+    matches: Option<Arc<output::MatchWindow>>,
     /// The job's cgroup, which holds the launcher before its start byte; `Err` is why
     /// the job has none (ADR 0021).
     cgroup: Result<cgroup::JobGroup, String>,
@@ -507,10 +512,15 @@ impl JobTable {
                 None
             }
         };
-        let (send, matches) = mpsc::unbounded_channel();
+        // NOTE: a watch with no wake left reads no line for its pattern.
+        let watch = job
+            .matcher
+            .clone()
+            .filter(|_| job.wakes > 0)
+            .map(|matcher| (matcher, Arc::new(output::MatchWindow::default())));
+        let matches = watch.as_ref().map(|(_, window)| Arc::clone(window));
         let reader = process.output.try_clone()?;
-        let output =
-            output::spawn_reader(job.info.id.as_str(), reader, file, job.matcher.clone(), send)?;
+        let output = output::spawn_reader(job.info.id.as_str(), reader, file, watch)?;
         Ok(Spawned { process, output, matches, cgroup })
     }
 
@@ -676,8 +686,17 @@ impl JobTable {
         if job.full && self.inner.full.is_off() {
             self.request_stop(key, JobStopBy::FullOff);
         }
-        let watching = (job.matcher.is_some() && job.wakes > 0)
-            .then(|| tokio::spawn(self.clone().follow_matches(info.clone(), matches, job.wakes)));
+        let watching = matches.map(|window| {
+            let end = CancellationToken::new();
+            let follow = self.clone().follow_matches(
+                info.clone(),
+                window,
+                output.clone(),
+                end.clone(),
+                job.wakes,
+            );
+            Watching { task: tokio::spawn(follow), end }
+        });
         let task = JobTask {
             table: self.clone(),
             key,
@@ -770,8 +789,7 @@ impl JobTable {
             Some(rest) => Box::new(std::io::Read::chain(head, rest)),
             None => Box::new(head),
         };
-        let (send, _matches) = mpsc::unbounded_channel();
-        let output = match output::spawn_reader(info.id.as_str(), reader, file, None, send) {
+        let output = match output::spawn_reader(info.id.as_str(), reader, file, None) {
             Ok(output) => output,
             Err(source) => {
                 stop_adopted(&run).await;
@@ -896,38 +914,65 @@ impl JobTable {
         }
     }
 
-    /// Records each watch match of the job `started` while it has `wakes` left, and
-    /// hands its notice to the actor. It ends when the reader of the output ended, so
-    /// the job's end comes after every match.
+    /// The batch follower of the job `started`: after the first line in `window`, it
+    /// waits [`BATCH_WINDOW`], takes the lines of that time as one batch, records one
+    /// `job_watch_matched` and hands one notice to the actor, while the watch has `wakes`
+    /// left. Its last batch closes the window. When the job's output ended or `end` is
+    /// cancelled, it returns the lines that wait, for the job's end, so no batch is lost.
     async fn follow_matches(
         self,
         started: JobInfo,
-        mut matches: mpsc::UnboundedReceiver<String>,
+        window: Arc<output::MatchWindow>,
+        output: output::Output,
+        end: CancellationToken,
         mut wakes: u8,
-    ) {
+    ) -> Option<output::Matched> {
         let key = JobKey {
             conversation: started.conversation_id,
             number: started.id.number().unwrap_or(0),
         };
         let mut info = started;
-        let cancel = self.inner.cancel.clone();
+        let shown = info.output.display().to_string();
+        let clock = Arc::clone(&self.inner.clock);
+        let stop = self.inner.cancel.clone();
         while wakes > 0 {
-            let line = tokio::select! {
-                () = cancel.cancelled() => return,
-                line = matches.recv() => match line {
-                    Some(line) => line,
-                    None => return,
-                },
+            tokio::select! {
+                () = stop.cancelled() => return None,
+                () = output.ended() => return window.take(false),
+                () = end.cancelled() => return window.take(false),
+                () = window.added() => {}
+            }
+            let last = tokio::select! {
+                () = stop.cancelled() => return None,
+                () = output.ended() => true,
+                () = end.cancelled() => true,
+                () = clock.sleep(BATCH_WINDOW) => false,
             };
+            let Some(matched) = window.take(!last && wakes == 1) else { continue };
+            if last {
+                return Some(matched);
+            }
+            let mut more = matched.lines;
+            // NOTE: a take is never empty; the check keeps `remove` from a panic.
+            if more.is_empty() {
+                continue;
+            }
+            let line = more.remove(0);
             wakes -= 1;
             info.wakes = info.wakes.saturating_add(1);
             self.update(key, |live| live.wakes = live.wakes.saturating_add(1));
-            let info = info.clone();
+            let body = NoticeBody::Watch {
+                line: &line,
+                more: &more,
+                dropped: matched.dropped,
+                wakes_left: wakes,
+            };
+            let text = notice_text(&info, &shown, body);
             let event = Event::JobWatchMatched {
                 job_id: info.id.clone(),
-                line: line.clone(),
-                more: Vec::new(),
-                dropped: 0,
+                line,
+                more,
+                dropped: matched.dropped,
                 wakes_left: wakes,
             };
             let committed =
@@ -935,17 +980,16 @@ impl JobTable {
             let seq = match committed {
                 Ok(committed) => last_seq(&committed),
                 Err(error) => {
-                    tracing::warn!(%error, job = %info.id, "a watch match could not be recorded");
+                    tracing::warn!(%error, job = %info.id, "a batch of watch matches could not be recorded");
                     continue;
                 }
             };
-            let body = NoticeBody::Watch { line: &line, wakes_left: wakes };
-            let text = notice_text(&info, &info.output.display().to_string(), body);
             self.notify(
                 key.conversation,
-                JobNoticeInput::new(info, NoticeKind::Watch, seq, text, true),
+                JobNoticeInput::new(info.clone(), NoticeKind::Watch, seq, text, true),
             );
         }
+        None
     }
 
     /// Changes the running job `key` with `change` and returns it; `None` when it
@@ -1297,6 +1341,8 @@ impl JobTable {
                         exit_code,
                         stopped_by,
                         tail,
+                        matched,
+                        matched_dropped,
                         blocked,
                         blocked_more,
                         bus_refused,
@@ -1308,6 +1354,8 @@ impl JobTable {
                             exit_code: *exit_code,
                             stopped_by: *stopped_by,
                             tail,
+                            matched,
+                            matched_dropped: *matched_dropped,
                         };
                         // NOTE: the limit of a job of an earlier efrd is not known here;
                         // the note names the key without the number.
@@ -1318,8 +1366,13 @@ impl JobTable {
                         let text = notice_text_refused(&job, &shown, body, refused.as_deref());
                         (NoticeKind::Exited, text)
                     }
-                    Event::JobWatchMatched { line, wakes_left, .. } => {
-                        let body = NoticeBody::Watch { line, wakes_left: *wakes_left };
+                    Event::JobWatchMatched { line, more, dropped, wakes_left, .. } => {
+                        let body = NoticeBody::Watch {
+                            line,
+                            more,
+                            dropped: *dropped,
+                            wakes_left: *wakes_left,
+                        };
                         (NoticeKind::Watch, notice_text(&job, &shown, body))
                     }
                     _ => return None,
@@ -1379,13 +1432,22 @@ struct JobTask {
     /// dir only of a moved call (its shell dir with `state.json` stays).
     dirs: Vec<PathBuf>,
     output_path: PathBuf,
-    /// The task that records the job's watch matches.
-    watching: Option<tokio::task::JoinHandle<()>>,
+    /// The follower of the job's watch; `None` without a watch.
+    watching: Option<Watching>,
     /// The processes below a moved command's shell that a close before the end could
     /// not kill.
     left: Vec<String>,
     /// The job's cgroup; `None` when it has none (ADR 0021).
     cgroup: Option<cgroup::JobGroup>,
+}
+
+/// The batch follower of a job's watch ([`JobTable::follow_matches`]).
+struct Watching {
+    /// The follower; it returns the batch that waited at the job's end.
+    task: tokio::task::JoinHandle<Option<output::Matched>>,
+    /// Cancelled when the job's output did not end in time: the follower then returns
+    /// the batch that waits at once.
+    end: CancellationToken,
 }
 
 /// What runs a job, and the rules of its end (DS22).
@@ -1576,14 +1638,18 @@ impl JobTask {
         if !output_ended {
             tracing::info!(job = %info.id, "a process of the job still holds its output; the end takes the output so far");
         }
-        if let Some(watching) = self.watching.take() {
-            // NOTE: the matches of the output that the reader read come before the end.
-            if output_ended {
-                let _ = watching.await;
-            } else {
-                watching.abort();
+        // NOTE: every batch of the output that the reader read comes before the end; the
+        // batch that still waits goes into the end. Output that a process still writes
+        // has no end to wait for, so the cancel takes the batch at once.
+        let matched = match self.watching.take() {
+            Some(watching) => {
+                if !output_ended {
+                    watching.end.cancel();
+                }
+                watching.task.await.ok().flatten().unwrap_or_default()
             }
-        }
+            None => output::Matched::default(),
+        };
         let info = table.lock().running.get(&self.key).map_or(info, |entry| entry.info.clone());
         // NOTE: the launcher ended, and the bridge with it; the socket closes before the
         // job's dirs go (DP14), and its refusals reach the record and the notice (DP12).
@@ -1692,8 +1758,8 @@ impl JobTask {
             output_bytes: final_info.output_bytes,
             ran_secs: ran_secs(info.started_at, now),
             tail: tail.clone(),
-            matched: Vec::new(),
-            matched_dropped: 0,
+            matched: matched.lines.clone(),
+            matched_dropped: matched.dropped,
             quarantined: surface_changes.iter().any(|change| change.quarantined),
             surface_changes,
             survivors,
@@ -1737,6 +1803,8 @@ impl JobTask {
                     exit_code: ended.exit_code,
                     stopped_by: ended.stopped_by,
                     tail: &tail,
+                    matched: &matched.lines,
+                    matched_dropped: matched.dropped,
                 };
                 let shown = self.output_path.display().to_string();
                 let text = notice_text_refused(&final_info, &shown, body, refused.as_deref());

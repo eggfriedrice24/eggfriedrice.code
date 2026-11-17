@@ -10,11 +10,16 @@
 //! command can cut, change or replace an output.
 //!
 //! The same reader keeps the last [`TAIL_BYTES`] for the job's end, and splits the
-//! output into lines of at most [`MAX_LINE_BYTES`] for a `watch` pattern. A write that
+//! output into lines of at most [`MAX_LINE_BYTES`] for a `watch` pattern. It puts each
+//! line that matches into the job's [`MatchWindow`], which keeps the first
+//! [`BATCH_HEAD`] and the last [`BATCH_TAIL`] lines of a batch and counts the lines
+//! between them, so a burst of lines holds a fixed amount of memory. Once the watch is
+//! over, the window is closed and the reader does no more pattern work. A write that
 //! fails (a full disk, a refused open) stops the file, never the reader: it drains the
 //! pipe to its end, so the job never blocks on a full pipe, and the end says
 //! `output_truncated`.
 
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -25,8 +30,9 @@ use std::os::unix::fs::FileExt as _;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use efr_protocol::{BATCH_HEAD, BATCH_TAIL};
 use rustix::fs::{Mode, OFlags, ResolveFlags};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, watch};
 
 use crate::sandbox::fs::DaemonFs;
 
@@ -287,6 +293,101 @@ impl Matcher {
     }
 }
 
+/// The lines of one batch of a watch: at most the first [`BATCH_HEAD`] and the last
+/// [`BATCH_TAIL`] lines that matched, in order, and the count of the lines between them
+/// that it leaves out.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Matched {
+    pub(crate) lines: Vec<String>,
+    pub(crate) dropped: u32,
+}
+
+/// The matched lines of a job that no notice told yet. The reader thread puts lines in;
+/// the job's follower takes them out once per batch. The lock is held for one push or
+/// one take, never across an await.
+#[derive(Debug, Default)]
+pub(crate) struct MatchWindow {
+    window: Mutex<Window>,
+    /// Notified when a line comes into an empty window.
+    added: Notify,
+}
+
+#[derive(Debug, Default)]
+struct Window {
+    head: Vec<String>,
+    tail: VecDeque<String>,
+    /// The lines between `head` and `tail` that the window left out.
+    dropped: u32,
+    /// True once the watch is over: the window takes no more lines.
+    closed: bool,
+}
+
+impl MatchWindow {
+    /// Puts `line` in: into the head while it has room, else into the tail, whose
+    /// oldest line a full tail drops. False when the window is closed.
+    fn push(&self, line: &str) -> bool {
+        let first = {
+            let mut window = self.lock();
+            let window = &mut *window;
+            if window.closed {
+                return false;
+            }
+            let first = window.head.is_empty();
+            if window.head.len() < BATCH_HEAD {
+                window.head.push(line.to_owned());
+            } else if window.tail.len() < BATCH_TAIL {
+                window.tail.push_back(line.to_owned());
+            } else if let Some(mut oldest) = window.tail.pop_front() {
+                // NOTE: a burst reuses the buffer of the line that it drops.
+                oldest.clear();
+                oldest.push_str(line);
+                window.tail.push_back(oldest);
+                window.dropped = window.dropped.saturating_add(1);
+            }
+            first
+        };
+        // NOTE: only the first line of a batch wakes the follower; the others wait for
+        // the take of that batch. A burst costs one wakeup, and no wakeup is left over
+        // for a batch that was taken.
+        if first {
+            self.added.notify_one();
+        }
+        true
+    }
+
+    /// Takes the lines out; `None` when no line waits. When `close` and lines wait, the
+    /// window closes in the same step, so no line comes in after the last batch.
+    pub(crate) fn take(&self, close: bool) -> Option<Matched> {
+        let mut window = self.lock();
+        if window.head.is_empty() {
+            return None;
+        }
+        window.closed |= close;
+        let mut lines = std::mem::take(&mut window.head);
+        lines.extend(window.tail.drain(..));
+        let dropped = std::mem::take(&mut window.dropped);
+        Some(Matched { lines, dropped })
+    }
+
+    /// Waits until a line came into the empty window; at once when one came since the
+    /// last wait.
+    pub(crate) async fn added(&self) {
+        self.added.notified().await;
+    }
+
+    /// True once the window is closed.
+    #[cfg(test)]
+    pub(crate) fn closed(&self) -> bool {
+        self.lock().closed
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Window> {
+        // NOTE: a push and a take each leave the window whole, so a poisoned lock still
+        // holds a usable one.
+        self.window.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// What a job's reader knows so far; the job and the tools read it while the job runs.
 #[derive(Debug, Default)]
 pub(crate) struct Progress {
@@ -393,25 +494,29 @@ impl Lines {
     }
 }
 
-/// A line as text, cut to [`MAX_LINE_BYTES`] on a character boundary.
-fn line_text(line: &[u8]) -> String {
-    let text = String::from_utf8_lossy(line);
+/// A line as text, cut to [`MAX_LINE_BYTES`] on a character boundary. A line of valid
+/// UTF-8 is borrowed, so a line that does not match costs no copy.
+fn line_text(line: &[u8]) -> Cow<'_, str> {
+    let mut text = String::from_utf8_lossy(line);
     let mut end = text.len().min(MAX_LINE_BYTES);
     while !text.is_char_boundary(end) {
         end -= 1;
     }
-    text[..end].to_owned()
+    match &mut text {
+        Cow::Borrowed(borrowed) => *borrowed = &borrowed[..end],
+        Cow::Owned(owned) => owned.truncate(end),
+    }
+    text
 }
 
 /// Starts the reader of `pipe` on a thread of its own: it writes `file` (when there is
-/// one), keeps the tail, and sends each line that `matcher` matches to `matches`. The
-/// thread ends at the pipe's end.
+/// one), keeps the tail, and puts each line that the matcher of `watch` matches into
+/// its window until the window closes. The thread ends at the pipe's end.
 pub(crate) fn spawn_reader(
     name: &str,
     mut pipe: impl io::Read + Send + 'static,
     file: Option<OutputFile>,
-    matcher: Option<Matcher>,
-    matches: mpsc::UnboundedSender<String>,
+    watch: Option<(Matcher, Arc<MatchWindow>)>,
 ) -> io::Result<Output> {
     let progress = Arc::new(Mutex::new(Progress::default()));
     let (done_tx, done) = watch::channel(false);
@@ -420,15 +525,16 @@ pub(crate) fn spawn_reader(
         shared.lock().unwrap_or_else(PoisonError::into_inner).truncated = true;
     }
     let mut file = file;
+    let mut watch = watch;
     efr_stdx::thread::spawn_named(format!("job-{name}"), READER_STACK, move || {
         let mut buffer = vec![0_u8; READ_CHUNK];
         let mut lines = Lines::default();
         let mut send = |line: &[u8]| {
-            if let Some(matcher) = &matcher {
-                let text = line_text(line);
-                if matcher.is_match(&text) {
-                    let _ = matches.send(text);
-                }
+            let Some((matcher, window)) = &watch else { return };
+            let text = line_text(line);
+            if matcher.is_match(&text) && !window.push(&text) {
+                // NOTE: the watch is over: the rest of the output costs no pattern work.
+                watch = None;
             }
         };
         loop {
@@ -452,12 +558,12 @@ pub(crate) fn spawn_reader(
             if failed {
                 file = None;
             }
-            {
-                let mut progress = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                progress.take(bytes);
-                progress.truncated |= failed;
-            }
+            // NOTE: the lines before the count: a reader that sees the bytes of a line
+            // finds its match in the window.
             lines.feed(bytes, &mut send);
+            let mut progress = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            progress.take(bytes);
+            progress.truncated |= failed;
         }
         lines.finish(&mut send);
         let _ = done_tx.send(true);

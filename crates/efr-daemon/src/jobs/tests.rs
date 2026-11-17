@@ -15,6 +15,8 @@ use pretty_assertions::assert_eq;
 use super::{JobKey, JobParts, JobTable, NewJob, SpawnEnv, end_of, job_call_dir, sweep};
 use crate::sandbox::gc;
 
+mod watch;
+
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
 }
@@ -49,11 +51,20 @@ impl Scene {
 
     /// A scene whose jobs get their cgroups from `cgroups` (ADR 0021).
     async fn with_cgroups(cgroups: super::cgroup::Cgroups) -> Scene {
+        Scene::build(cgroups, LAUNCHER).await
+    }
+
+    /// A scene whose launcher is the script `launcher`, with no cgroups.
+    async fn with_launcher(launcher: &str) -> Scene {
+        Scene::build(super::cgroup::Cgroups::off(super::cgroup::NOT_A_UNIT), launcher).await
+    }
+
+    async fn build(cgroups: super::cgroup::Cgroups, script: &str) -> Scene {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
         let store = TestStore::open(clock.shared()).await.unwrap();
         let launcher = dirs.root().join("efr-sbx");
-        std::fs::write(&launcher, LAUNCHER).unwrap();
+        std::fs::write(&launcher, script).unwrap();
         std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
         let full = crate::full::FullTurns::default();
         let (table, notices) = JobTable::new(JobParts {

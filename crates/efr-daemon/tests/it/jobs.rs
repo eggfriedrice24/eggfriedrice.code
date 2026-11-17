@@ -672,29 +672,120 @@ async fn jobs_read_output_offset_and_tail() {
     daemon.stop().await.unwrap();
 }
 
-#[tokio::test]
-async fn watch_max_wakes_respected() {
-    let setup = Setup::new();
-    let input = json!({
-        "command": "echo error one; echo fine; echo error two; echo error three",
-        "background": true,
-        "watch": { "pattern": "^error", "max_wakes": 2 }
-    });
-    let daemon = setup.start(JobModel::shell(vec![input])).await;
-    let (sent, events) = auto_turn(&daemon, "watch it").await;
-    let [job] = started(&events).try_into().unwrap();
-    assert_eq!(job.watch.unwrap().max_wakes, 2);
-    // NOTE: every match of a job is recorded before its end.
-    let events =
-        until(&daemon, sent.conversation_id, |event| matches!(event, Event::JobEnded { .. })).await;
-    let matched: Vec<(String, u8)> = events
-        .iter()
-        .filter_map(|envelope| match &envelope.event {
-            Event::JobWatchMatched { line, wakes_left, .. } => Some((line.clone(), *wakes_left)),
-            _ => None,
+/// The batch window of a watch on efrd's clock.
+pub(crate) const BATCH_WINDOW: Duration = Duration::from_secs(1);
+
+/// Waits until the running job `id` of `conversation` wrote `bytes` bytes of output: the
+/// reader then holds each match of those bytes in the watch's window.
+pub(crate) async fn output_read(
+    daemon: &TestDaemon,
+    conversation: ConversationId,
+    id: &str,
+    bytes: usize,
+) {
+    let client = daemon.client().await.unwrap();
+    let list = Method::JobsList(JobsList { conversation_id: Some(conversation) });
+    Wait::new("the job's output")
+        .until_some_async(async || {
+            let listed: JobsListResult = client.call(list.clone()).await.unwrap();
+            listed
+                .jobs
+                .into_iter()
+                .find(|job| job.id.as_str() == id && job.output_bytes >= bytes as u64)
         })
-        .collect();
-    assert_eq!(matched, [("error one".to_owned(), 1), ("error two".to_owned(), 0)]);
+        .await
+        .unwrap();
+}
+
+/// The events of `conversation` from its start up to the first that `stop` accepts,
+/// while the clock moves one batch window at a time, so each waiting batch of a watch
+/// ends.
+pub(crate) async fn moving_until(
+    daemon: &TestDaemon,
+    conversation: ConversationId,
+    stop: impl FnMut(&Event) -> bool,
+) -> Vec<EventEnvelope> {
+    let client = daemon.client().await.unwrap();
+    let mut follow = daemon.follow(&client, conversation).await.unwrap();
+    let found = events_until(&mut follow, stop);
+    tokio::pin!(found);
+    loop {
+        tokio::select! {
+            events = &mut found => break events.unwrap(),
+            () = efr_stdx::time::SystemClock.sleep(Duration::from_millis(20)) => {
+                daemon.clock().advance(BATCH_WINDOW);
+            }
+        }
+    }
+}
+
+/// The `n`th `job_watch_matched` of `conversation`, once its batch window ended.
+async fn nth_batch(
+    daemon: &TestDaemon,
+    conversation: ConversationId,
+    n: usize,
+) -> (String, Vec<String>, u32, u8) {
+    let mut seen = 0;
+    let events = moving_until(daemon, conversation, |event| {
+        seen += usize::from(matches!(event, Event::JobWatchMatched { .. }));
+        seen == n
+    })
+    .await;
+    let Some(Event::JobWatchMatched { line, more, dropped, wakes_left, .. }) =
+        events.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!("the stop takes only a batch")
+    };
+    (line, more, dropped, wakes_left)
+}
+
+#[tokio::test]
+async fn a_watch_without_max_wakes_gives_three_notices() {
+    let setup = Setup::new();
+    let fifos = [setup.fifo("one"), setup.fifo("two"), setup.fifo("three")];
+    let [one, two, three] = fifos.each_ref().map(|fifo| fifo.display().to_string());
+    let command = format!(
+        "echo error one; echo fine; echo error two; read a < {one}; echo error three; \
+         read a < {two}; echo error four; read a < {three}; echo error five"
+    );
+    let input = json!({ "command": command, "background": true, "watch": { "pattern": "^error" } });
+    // NOTE: no wake turn: the notices wait, and the clock moves only for the batches.
+    let daemon = setup
+        .builder(JobModel::shell(vec![input]))
+        .config(|config| config.jobs.max_wakes_per_hour = 0)
+        .start()
+        .await
+        .unwrap();
+    let (sent, events) = auto_turn(&daemon, "watch it").await;
+    let conversation = sent.conversation_id;
+    let [job] = started(&events).try_into().unwrap();
+    assert_eq!(job.watch.unwrap().max_wakes, 3, "the default");
+    let mut written = "error one\nfine\nerror two\n".len();
+    output_read(&daemon, conversation, "j1", written).await;
+    let mut batches = vec![nth_batch(&daemon, conversation, 1).await];
+    for (n, (fifo, line)) in fifos.iter().zip(["error three", "error four"]).enumerate() {
+        release(fifo).await;
+        written += line.len() + 1;
+        output_read(&daemon, conversation, "j1", written).await;
+        batches.push(nth_batch(&daemon, conversation, n + 2).await);
+    }
+    release(&fifos[2]).await;
+
+    let lines = |line: &str, more: &[&str], wakes: u8| {
+        (line.to_owned(), more.iter().map(|line| (*line).to_owned()).collect(), 0, wakes)
+    };
+    assert_eq!(
+        batches,
+        [
+            lines("error one", &["error two"], 2),
+            lines("error three", &[], 1),
+            lines("error four", &[], 0)
+        ]
+    );
+    let Event::JobEnded { matched, .. } = ended(&daemon, conversation, "j1").await else {
+        unreachable!()
+    };
+    assert!(matched.is_empty(), "a watch with no notice left reads no line: {matched:?}");
     daemon.stop().await.unwrap();
 }
 
@@ -703,23 +794,46 @@ async fn watch_match_wakes_model() {
     // NOTE: the daemon half: a match is recorded and its notice goes to the actor; the
     // actor's wake turn is the conversation crate's.
     let setup = Setup::new();
+    let fifo = setup.fifo("go");
     let input = json!({
-        "command": "echo ready on port 3000",
+        "command": format!("echo ready on port 3000; read a < {}", fifo.display()),
         "background": true,
-        "watch": { "pattern": "port [0-9]+" }
+        "watch": { "pattern": "port [0-9]+", "max_wakes": 1 }
     });
     let daemon = setup.start(JobModel::shell(vec![input])).await;
     let (sent, _) = auto_turn(&daemon, "watch it").await;
-    let events = until(&daemon, sent.conversation_id, |event| {
-        matches!(event, Event::JobWatchMatched { .. })
-    })
-    .await;
-    let Event::JobWatchMatched { job_id, line, wakes_left, .. } =
-        events.last().unwrap().event.clone()
+    output_read(&daemon, sent.conversation_id, "j1", "ready on port 3000\n".len()).await;
+    let batch = nth_batch(&daemon, sent.conversation_id, 1).await;
+    assert_eq!(batch, ("ready on port 3000".to_owned(), Vec::new(), 0, 0));
+    release(&fifo).await;
+    ended(&daemon, sent.conversation_id, "j1").await;
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn matches_right_before_the_end_go_into_job_ended() {
+    let setup = Setup::new();
+    let input = json!({
+        "command": "echo error one; echo fine; echo error two",
+        "background": true,
+        "watch": { "pattern": "^error" }
+    });
+    let daemon = setup.start(JobModel::shell(vec![input])).await;
+    let (sent, _) = auto_turn(&daemon, "watch it").await;
+    // NOTE: the clock does not move, so the batch window is still open when the
+    // output ends: the end takes the batch.
+    let events =
+        until(&daemon, sent.conversation_id, |event| matches!(event, Event::JobEnded { .. })).await;
+    assert!(!events.iter().any(|envelope| matches!(envelope.event, Event::JobWatchMatched { .. })));
+    let Some(Event::JobEnded { matched, matched_dropped, .. }) =
+        events.last().map(|envelope| envelope.event.clone())
     else {
         unreachable!()
     };
-    assert_eq!((job_id.as_str(), line.as_str(), wakes_left), ("j1", "ready on port 3000", 0));
+    assert_eq!(
+        (matched, matched_dropped),
+        (vec!["error one".to_owned(), "error two".to_owned()], 0)
+    );
     daemon.stop().await.unwrap();
 }
 
