@@ -1,4 +1,47 @@
-//! Characters that a text must not carry onto the user's screen as they are.
+//! Characters that a text must not carry onto the user's screen as they are, and the
+//! body of a desktop notice.
+
+/// The longest body of a desktop notice, in characters.
+pub const NOTICE_BODY_MAX: usize = 200;
+
+/// The `<what>` of the notice for a question that waits for the user: an approval, the
+/// quarantine question or a question of the model.
+pub const QUESTION_WAITS: &str = "a question waits";
+
+/// The `<what>` of the notice for a command that waits for the user's input.
+pub const INPUT_WAITS: &str = "a command waits for input";
+
+/// The body of a desktop notice: `<place>: <what>`, or `<what>` alone when `place` is
+/// empty, on one line of at most [`NOTICE_BODY_MAX`] characters ([`one_line`]).
+///
+/// `place` is the name of the project, or the last part of the working directory. The
+/// operating system keeps a history of notices, so a caller never puts a prompt, a
+/// command line, a title or text of the model into `what`.
+pub fn notice_body(place: &str, what: &str) -> String {
+    if place.is_empty() {
+        one_line(what, NOTICE_BODY_MAX)
+    } else {
+        one_line(&format!("{place}: {what}"), NOTICE_BODY_MAX)
+    }
+}
+
+/// `text` on one line of at most `max` characters: each control character, a line
+/// break too, becomes a space, and each format character ([`is_format`]) becomes
+/// U+FFFD. A longer text is cut and ends with `...`.
+pub fn one_line(text: &str, max: usize) -> String {
+    let count = text.chars().count();
+    let keep = if count <= max { count } else { max.saturating_sub(3) };
+    let mut line = String::with_capacity(text.len().min(max.saturating_mul(4)));
+    line.extend(text.chars().take(keep).map(|c| match c {
+        c if c.is_control() => ' ',
+        c if is_format(c) => '\u{fffd}',
+        c => c,
+    }));
+    if keep < count {
+        line.push_str("...");
+    }
+    line
+}
 
 /// The Unicode format characters (general category `Cf`, Unicode 16), as ranges: the
 /// bidi marks, embeddings, overrides and isolates, the zero-width spaces and joiners,

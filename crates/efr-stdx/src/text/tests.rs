@@ -1,4 +1,37 @@
-use super::{FORMAT_CHARS, is_format};
+use pretty_assertions::assert_eq;
+
+use super::{
+    FORMAT_CHARS, INPUT_WAITS, NOTICE_BODY_MAX, QUESTION_WAITS, is_format, notice_body, one_line,
+};
+
+#[test]
+fn a_notice_body_names_the_place_and_what_waits() {
+    assert_eq!(notice_body("app", QUESTION_WAITS), "app: a question waits");
+    assert_eq!(notice_body("~", INPUT_WAITS), "~: a command waits for input");
+    assert_eq!(notice_body("", "done in 4m 12s"), "done in 4m 12s");
+}
+
+#[test]
+fn a_notice_body_carries_no_control_or_format_character() {
+    let body = notice_body("a\x1b]777;notify;x\x07pp\n", "q\u{202e}\u{9b}\tx");
+    assert_eq!(body, "a ]777;notify;x pp : q\u{fffd}  x");
+    assert!(!body.chars().any(|c| c.is_control() || is_format(c)), "{body:?}");
+}
+
+#[test]
+fn a_long_notice_body_is_cut_to_its_maximum_with_dots() {
+    let place = "é".repeat(300);
+    let body = notice_body(&place, QUESTION_WAITS);
+    assert_eq!(body.chars().count(), NOTICE_BODY_MAX);
+    assert!(body.ends_with("éé..."), "{body}");
+
+    // NOTE: `<197 x>: y` has exactly 200 characters, so it stays whole.
+    let fits = "x".repeat(NOTICE_BODY_MAX - 3);
+    assert_eq!(notice_body(&fits, "y"), format!("{fits}: y"));
+    let over = "x".repeat(NOTICE_BODY_MAX - 2);
+    assert_eq!(notice_body(&over, "y"), format!("{fits}..."));
+    assert_eq!(one_line("", NOTICE_BODY_MAX), "");
+}
 
 #[test]
 fn bidi_controls_zero_width_characters_and_tags_are_format_characters() {
