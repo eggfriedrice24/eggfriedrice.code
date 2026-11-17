@@ -45,7 +45,8 @@
 //!   without a working sandbox runs as `cautious`. [`ExitJudge`] ([`JudgeInput`],
 //!   [`JudgeOutcome`]) is the seam of the classifier (phase A), and [`PresenceReader`]
 //!   ([`AlwaysPresent`]) says whether a person is there to answer a question.
-//! - The model's question ([`ASK_USER`], `ask.rs`): the turn owns the tool `ask_user`,
+//! - The model's question ([`ASK_USER`](efr_protocol::ASK_USER), `ask.rs`): the turn
+//!   owns the tool `ask_user`,
 //!   records the question, waits as for an approval (`turn/wait.rs`), and the model
 //!   reads the answer as the call's result. [`ConversationHandle::respond_question`]
 //!   takes a person's answer. An answer approves nothing, and efr never reads it as a
@@ -105,7 +106,6 @@ mod web;
 pub use actor::{
     ConversationActor, ConversationHandle, ConversationState, PromptRouting, completed_result,
 };
-pub use ask::ASK_USER;
 pub use config::{
     AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart,
     ForeignDefault, HostInfo,

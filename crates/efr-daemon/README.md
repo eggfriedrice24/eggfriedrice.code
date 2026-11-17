@@ -766,8 +766,7 @@ after the proof it holds its device's scopes, at most `read`, `operate` and `app
   hold it) counts, while its stream lasts, as a client that can answer the model's
   question (`connections.rs`, next to `answerers`); `presence.rs` answers
   `PresenceReader::question_followed` from that count. With no such client, the
-  question takes the away wait. A test checks that `efr_conversation::ASK_USER` equals
-  `efr_tools::ASK_USER`.
+  question takes the away wait.
 - `input.respond` types the line a user gave for a running tool call that waits for
   input into the conversation's hidden shell. A phone gets `forbidden` first, whatever
   scopes it holds: the line can be a password, and the buffers of a WebSocket cannot be

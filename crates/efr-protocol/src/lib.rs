@@ -160,8 +160,8 @@ pub use methods::turn_undo::{TurnUndo, TurnUndoResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use presence::{Presence, PresenceSource};
 pub use question::{
-    MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS, QuestionOption, QuestionReply,
-    UserAnswer,
+    ASK_USER, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MIN_QUESTION_OPTIONS, QuestionOption,
+    QuestionReply, UserAnswer,
 };
 pub use route::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};

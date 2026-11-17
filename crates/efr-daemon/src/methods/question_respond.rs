@@ -55,6 +55,3 @@ pub(crate) async fn handle(
         Err(error) => Err(receipts::refuse(state, command_id, METHOD, error).await),
     }
 }
-
-#[cfg(test)]
-mod tests;

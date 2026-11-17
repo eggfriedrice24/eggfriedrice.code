@@ -385,7 +385,7 @@ async fn wake_turn_runs_in_cautious_and_asks() {
 #[tokio::test]
 async fn a_wake_turn_asks_and_with_nobody_there_waits_the_away_wait() {
     let ask = (
-        crate::ASK_USER,
+        crate::ask::ASK_USER,
         json!({ "question": "Restart the server?", "options": [
             { "label": "Restart" }, { "label": "Leave it" }] }),
     );

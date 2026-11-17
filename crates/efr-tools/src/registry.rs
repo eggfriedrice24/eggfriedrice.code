@@ -2,14 +2,13 @@
 
 use std::sync::Arc;
 
+// NOTE: `efr-conversation` owns the model's question, because only the conversation
+// can wait for a person, so the registry never takes a tool of this name, also not
+// from a later server of tools.
+use efr_protocol::ASK_USER;
 use serde_json::Value;
 
 use crate::{Tool, ToolContext, ToolError, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec};
-
-/// The name of the model's question to the user. `efr-conversation` owns that tool,
-/// because only the conversation can wait for a person, so the registry never takes a
-/// tool of this name, also not from a later server of tools.
-pub const ASK_USER: &str = "ask_user";
 
 /// The tools the model may call.
 ///

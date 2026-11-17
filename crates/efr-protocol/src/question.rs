@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::InputRespond;
 
+/// The name of the tool of the model's question. `efr-conversation` owns the tool, the
+/// registry of `efr-tools` refuses a tool of this name, and a client hides the row of
+/// its call, because the card of the question is the call.
+pub const ASK_USER: &str = "ask_user";
+
 /// The longest question, in characters.
 pub const MAX_QUESTION_CHARS: usize = 300;
 

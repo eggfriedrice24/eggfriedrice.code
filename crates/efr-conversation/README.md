@@ -281,8 +281,8 @@ turns.
   the quarantine question and the model's question (`turn/wait.rs`); `presence.push`
   gets the call id of the call that asks.
 - The model's question (v0.0.12, `ask.rs`, ADR 0025). This crate owns the tool
-  `ask_user` (`ASK_USER`; efrd checks that it equals `efr_tools::ASK_USER`, which the
-  registry refuses), because the toolbox cannot reach the questions or the presence.
+  `ask_user` (`efr_protocol::ASK_USER`, which the registry of `efr-tools` refuses),
+  because the toolbox cannot reach the questions or the presence.
   `ask::definitions` gives the tools of a request: `Toolbox::definitions` plus the
   `ask_user` definition while `conversation.ask_user` is on. The turn, the context
   report and the compaction use it, so the estimate and the request agree. With the

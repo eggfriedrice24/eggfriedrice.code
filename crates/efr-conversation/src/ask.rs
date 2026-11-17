@@ -20,10 +20,9 @@ use serde_json::{Value, json};
 
 use crate::{ConversationConfig, Toolbox};
 
-/// The name of the tool. `efr-tools` keeps the same name
-/// (`efr_tools::ASK_USER`), so no tool of the registry can take it; efrd checks that
-/// the two agree.
-pub const ASK_USER: &str = "ask_user";
+// NOTE: the name of the tool is in efr-protocol, so the registry of efr-tools and the
+// clients use the same name.
+pub(crate) use efr_protocol::ASK_USER;
 
 /// What the tool tells the model.
 const DESCRIPTION: &str = "Ask the user one question and wait for the answer. Give 2 to 4 \

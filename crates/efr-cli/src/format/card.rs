@@ -628,9 +628,9 @@ pub(crate) fn mark_wake(card: &mut Card) {
     card.title = format!("{} {}", card.title, efr_protocol::WAKE_QUESTION.trim_end());
 }
 
-/// The name of the tool of the model's question. Its card is the call, so the call has
-/// no row of its own.
-pub(crate) const ASK_USER: &str = "ask_user";
+// NOTE: the card of the model's question is its call, so the call has no row of its
+// own.
+pub(crate) use efr_protocol::ASK_USER;
 
 /// The keys under the options of the model's question.
 pub(crate) const QUESTION_KEYS: &[(&str, &str)] = &[("t", "type an answer"), ("esc", "skip")];

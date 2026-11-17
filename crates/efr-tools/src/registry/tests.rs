@@ -77,7 +77,7 @@ fn a_name_is_registered_once() {
 #[test]
 fn the_name_of_the_models_question_is_taken_by_efr() {
     let mut registry = ToolRegistry::new();
-    let error = registry.register(Echo::named(crate::ASK_USER)).unwrap_err();
+    let error = registry.register(Echo::named(efr_protocol::ASK_USER)).unwrap_err();
     assert!(matches!(&error, ToolError::DuplicateTool { name } if name == "ask_user"), "{error:?}");
     assert!(!registry.contains("ask_user"));
 }
