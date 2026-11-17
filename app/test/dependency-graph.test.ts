@@ -10,7 +10,8 @@
 //   of them); a route imports only screens/ and model/ of the features (the root
 //   _layout.tsx can import more, for the providers); nothing imports a route.
 // - No import cycle, and no barrel (index.ts) outside the routes.
-// - zod: only src/lib/protocol/generated-zod.ts and model/*-schemas.ts call `z.`.
+// - zod: only src/lib/protocol/generated-zod.ts, its frozen copies of released apps
+//   (src/lib/protocol/frozen/<tag>/) and model/*-schemas.ts call `z.`.
 //
 // The rules are pure functions over a list of files, so the tests below also run them
 // on small made-up trees.
@@ -274,9 +275,16 @@ function barrels(files: readonly Source[]): string[] {
 
 const Z_CALL = /(?:^|[^\w$.])z\s*\.\s*[A-Za-z_$][\w$]*\s*(?:<[^>()]*>)?\s*\(/;
 
-/** True for a file that may call `z.`: the generated schemas and model/*-schemas.ts. */
+/**
+ * True for a file that may call `z.`: the generated schemas, the frozen copies of the
+ * generated schemas of a released app (src/lib/protocol/frozen/<tag>/) and
+ * model/*-schemas.ts.
+ */
 function mayCallZod(path: string): boolean {
-  return path === "src/lib/protocol/generated-zod.ts" || /\/model\/[^/]+-schemas\.ts$/.test(path);
+  return (
+    /^src\/lib\/protocol\/(?:frozen\/v[\d.]+\/)?generated-zod\.ts$/.test(path) ||
+    /\/model\/[^/]+-schemas\.ts$/.test(path)
+  );
 }
 
 /** The files that call `z.` but may not. */
@@ -416,6 +424,11 @@ describe("the rules of the dependency graph", () => {
   it("finds a zod call outside the schema files, but not a type or a comment", () => {
     const files: Source[] = [
       { path: "src/lib/protocol/generated-zod.ts", code: "export const a = z.object({});" },
+      {
+        path: "src/lib/protocol/frozen/v0.0.11/generated-zod.ts",
+        code: "export const a = z.object({});",
+      },
+      { path: "src/lib/protocol/frozen/notes/generated-zod.ts", code: "const e = z.string();" },
       { path: "src/features/machines/model/machine-schemas.ts", code: "const b = z.guid();" },
       { path: "src/features/machines/model/registry.ts", code: "const c = z.string();" },
       { path: "src/features/machines/model/types.ts", code: "type T = z.infer<typeof a>;" },
@@ -424,7 +437,10 @@ describe("the rules of the dependency graph", () => {
         code: withoutComments("// z.object() is not called here\nconst d = baz.call();", false),
       },
     ];
-    expect(zodViolations(files)).toEqual(["src/features/machines/model/registry.ts"]);
+    expect(zodViolations(files)).toEqual([
+      "src/lib/protocol/frozen/notes/generated-zod.ts",
+      "src/features/machines/model/registry.ts",
+    ]);
   });
 
   it("strips comments but keeps strings, templates and regular expressions", () => {
