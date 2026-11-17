@@ -48,6 +48,9 @@ pub(crate) fn handle(
         approval_local_only: Some(true),
         // NOTE: the lists of the phone follow the watch instead of asking again.
         conversations_watch: Some(true),
+        // NOTE: efrd answers `question.respond`; a client shows a way to answer the
+        // model's question only then.
+        user_questions: Some(true),
         ..Capabilities::default()
     };
     let result = HelloResult {

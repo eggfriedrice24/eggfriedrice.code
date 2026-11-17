@@ -111,6 +111,18 @@ impl Drop for AbortOnDrop {
     }
 }
 
+/// True when the connection of `context`, whose local peer holds `scopes`, may answer
+/// the model's question (`operate`): a remote one by its device's proof, as
+/// `methods.rs` authorizes it. A model-side peer holds `read` only, so it never counts.
+fn operates(context: &ConnectionContext, scopes: &[ScopeName]) -> bool {
+    if context.remote().is_some() {
+        return crate::remote::admission(context)
+            .and_then(crate::remote::Admission::proved)
+            .is_some_and(|proved| proved.scopes.contains(&ScopeName::Operate));
+    }
+    scopes.contains(&ScopeName::Operate)
+}
+
 pub(crate) async fn handle(
     state: &Arc<State>,
     context: &ConnectionContext,
@@ -120,11 +132,20 @@ pub(crate) async fn handle(
 ) -> Result<(), DaemonError> {
     let conversation_id = params.conversation_id;
     efr_stdx::mark::hit("sub.begin");
-    let answering = params.answers_input
-        && granted(context.surface(), peer_side(state, context).await)
-            .contains(&ScopeName::Terminal);
+    // NOTE: the peer is looked up only for a client that says it can answer, because
+    // the look walks `/proc`.
+    let scopes = if params.answers_input || params.answers_questions {
+        granted(context.surface(), peer_side(state, context).await)
+    } else {
+        &[]
+    };
+    let answering = params.answers_input && scopes.contains(&ScopeName::Terminal);
+    let questioning = params.answers_questions && operates(context, scopes);
     efr_stdx::mark::hit("sub.peer");
-    let attached = state.connections.subscribe(context.conn_id(), conversation_id, answering);
+    let attached = state
+        .connections
+        .subscribe(context.conn_id(), conversation_id, answering)
+        .answering_questions(questioning);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();
     let (sender, mut receiver) = efr_transport::subscription();

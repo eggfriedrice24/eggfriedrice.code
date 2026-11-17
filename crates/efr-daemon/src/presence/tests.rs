@@ -203,3 +203,26 @@ async fn followed_true_with_an_answering_client() {
     assert!(!table.followed(id), "the answering client left");
     drop((reading, store));
 }
+
+/// The model's question counts its own followers: a subscription that can answer it,
+/// not one that answers only the input of a command.
+#[tokio::test]
+async fn question_followed_true_with_a_client_that_answers_questions() {
+    let fixture = Fixture::new().await;
+    let id = fixture.conversation(1).await;
+    assert!(!fixture.table.question_followed(id), "a table with no connections");
+    let connections = Arc::new(crate::connections::Connections::default());
+    let hello = crate::connections::HelloInfo { surface: Origin::Phone, tty: None, client: None };
+    connections.opened(efr_transport::ConnId::new(1), hello);
+    let Fixture { clock: _clock, store, table, settings: _settings } = fixture;
+    let table = table.with_connections(Arc::clone(&connections));
+    let input = connections.subscribe(efr_transport::ConnId::new(1), id, true);
+    assert!(!table.question_followed(id), "a client that answers only input");
+    let questions =
+        connections.subscribe(efr_transport::ConnId::new(1), id, false).answering_questions(true);
+    assert!(table.question_followed(id));
+    assert!(table.followed(id), "the first subscription still answers input");
+    drop(questions);
+    assert!(!table.question_followed(id), "the client left");
+    drop((input, store));
+}

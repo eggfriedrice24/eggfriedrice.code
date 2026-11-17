@@ -11,6 +11,7 @@ mod accounts;
 mod anthropic;
 mod apply_patch;
 mod approvals;
+mod ask_user;
 mod backtrace;
 mod bus;
 mod cache_prefix;

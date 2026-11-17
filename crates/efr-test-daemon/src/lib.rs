@@ -78,5 +78,5 @@ pub use test_daemon::{
     ModelsRequest, OS, PeerSide, ReceivedRequest, ResponsesAnswer, ResponsesServer,
     SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL,
     SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY, TestDaemon, TestDaemonBuilder, TokenRequest,
-    command_id, events_until,
+    answer_question, command_id, events_until,
 };

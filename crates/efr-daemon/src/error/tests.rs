@@ -151,6 +151,19 @@ fn conversation_errors_map_by_what_failed() {
             ErrorCode::Invalid,
         ),
         (
+            ConversationError::QuestionNotPending {
+                question_id: efr_protocol::QuestionId::from_uuid(id(10)),
+            },
+            ErrorCode::NotFound,
+        ),
+        (
+            ConversationError::InvalidAnswer {
+                question_id: efr_protocol::QuestionId::from_uuid(id(11)),
+                reason: "the text is empty",
+            },
+            ErrorCode::Invalid,
+        ),
+        (
             ConversationError::Store {
                 source: StoreError::ApprovalNotPending {
                     conversation_id,

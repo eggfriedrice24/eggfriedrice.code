@@ -1,6 +1,7 @@
 //! What the daemon keeps per connection: the hello's tty and client, the open
 //! conversation subscriptions (and which of them can type answers for a waiting
-//! command), the prompts it sent, and the lease of `lease.report`.
+//! command, and which can answer the model's question), the prompts it sent, and the
+//! lease of `lease.report`.
 //!
 //! The transport carries only `{surface, uid, pid, conn_id}` with each request; the rest
 //! of the hello lives here from the accepted hello until `Dispatcher::closed`. The
@@ -88,6 +89,9 @@ struct Conn {
     /// Open subscriptions at which a person can type answers (`answers_input`), per
     /// conversation.
     answering: HashMap<ConversationId, usize>,
+    /// Open subscriptions at which a person can answer the model's question
+    /// (`answers_questions`), per conversation.
+    questioning: HashMap<ConversationId, usize>,
     lease: Option<Lease>,
     /// `prompt.send` requests of this connection that have not answered yet. Their
     /// conversation is not known before they answer, and their turn may end before.
@@ -204,6 +208,7 @@ impl Connections {
         let conn = Conn {
             hello,
             answering: HashMap::new(),
+            questioning: HashMap::new(),
             lease: None,
             prompting: 0,
             prompted: HashSet::new(),
@@ -279,6 +284,7 @@ impl Connections {
             conversation,
             tty,
             answering,
+            questioning: false,
             reached,
         }
     }
@@ -306,6 +312,16 @@ impl Connections {
             .conns
             .values()
             .filter_map(|conn| conn.answering.get(&conversation))
+            .fold(0, |total, open| total.saturating_add(*open))
+    }
+
+    /// How many live subscriptions of `conversation` can answer the model's question.
+    /// While there are none, the question waits only the away wait.
+    pub(crate) fn questioners(&self, conversation: ConversationId) -> usize {
+        self.lock()
+            .conns
+            .values()
+            .filter_map(|conn| conn.questioning.get(&conversation))
             .fold(0, |total, open| total.saturating_add(*open))
     }
 
@@ -373,10 +389,13 @@ impl Connections {
     fn unsubscribe(&self, guard: &SubscriptionGuard) {
         let readied = {
             let mut inner = self.lock();
-            if guard.answering
-                && let Some(conn) = inner.conns.get_mut(&guard.conn_id)
-            {
-                release(&mut conn.answering, guard.conversation);
+            if let Some(conn) = inner.conns.get_mut(&guard.conn_id) {
+                if guard.answering {
+                    release(&mut conn.answering, guard.conversation);
+                }
+                if guard.questioning {
+                    release(&mut conn.questioning, guard.conversation);
+                }
             }
             match &guard.tty {
                 Some(tty) => {
@@ -454,10 +473,26 @@ pub(crate) struct SubscriptionGuard {
     tty: Option<String>,
     /// True when the subscription counts as one that can type answers.
     answering: bool,
+    /// True when the subscription counts as one that can answer the model's question.
+    questioning: bool,
     reached: Arc<AtomicU64>,
 }
 
 impl SubscriptionGuard {
+    /// With `questions`, a person at the subscriber can answer the model's question,
+    /// and the subscription counts in [`Connections::questioners`] until the guard
+    /// drops. A connection that the table does not know counts nowhere.
+    pub(crate) fn answering_questions(mut self, questions: bool) -> Self {
+        if questions
+            && !self.questioning
+            && let Some(conn) = self.connections.lock().conns.get_mut(&self.conn_id)
+        {
+            *conn.questioning.entry(self.conversation).or_default() += 1;
+            self.questioning = true;
+        }
+        self
+    }
+
     /// The highest sequence number handed to the subscriber, which the subscription
     /// raises.
     pub(crate) fn reached(&self) -> Arc<AtomicU64> {

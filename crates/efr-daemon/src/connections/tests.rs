@@ -310,6 +310,36 @@ fn answering_subscriptions_are_counted_per_conversation_until_their_guards_drop(
 }
 
 #[test]
+fn subscriptions_that_answer_questions_are_counted_apart_from_those_that_answer_input() {
+    let connections = connections_with(&[(1, Some(TTY)), (2, None)]);
+    let input = connections.subscribe(ConnId::new(1), conversation(1), true);
+    let both =
+        connections.subscribe(ConnId::new(1), conversation(1), true).answering_questions(true);
+    let phone =
+        connections.subscribe(ConnId::new(2), conversation(1), false).answering_questions(true);
+    let off =
+        connections.subscribe(ConnId::new(2), conversation(2), false).answering_questions(false);
+    assert_eq!(connections.questioners(conversation(1)), 2);
+    assert_eq!(connections.answerers(conversation(1)), 2);
+    assert_eq!(connections.questioners(conversation(2)), 0, "the flag was off");
+
+    drop(both);
+    assert_eq!(
+        (connections.questioners(conversation(1)), connections.answerers(conversation(1))),
+        (1, 1)
+    );
+    connections.closed(ConnId::new(2));
+    assert_eq!(connections.questioners(conversation(1)), 0, "a closed connection answers nothing");
+    drop((input, phone, off));
+    assert_eq!(connections.questioners(conversation(1)), 0);
+
+    let unknown = Arc::new(Connections::default());
+    let _guard =
+        unknown.subscribe(ConnId::new(7), conversation(1), false).answering_questions(true);
+    assert_eq!(unknown.questioners(conversation(1)), 0, "a subscription without a hello");
+}
+
+#[test]
 fn a_closed_connection_answers_nothing_even_before_its_requests_end() {
     let connections = connections_with(&[(1, Some(TTY))]);
     let guard = connections.subscribe(ConnId::new(1), conversation(1), true);

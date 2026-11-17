@@ -1151,9 +1151,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         | ConversationError::NoRunningTurn { .. }
         | ConversationError::TurnMismatch { .. }
         | ConversationError::PromptNotWaiting { .. } => ErrorCode::Conflict,
-        ConversationError::WrongConversation { .. } | ConversationError::Unsupported { .. } => {
-            ErrorCode::Invalid
-        }
+        ConversationError::WrongConversation { .. }
+        | ConversationError::Unsupported { .. }
+        | ConversationError::InvalidAnswer { .. } => ErrorCode::Invalid,
         ConversationError::ApprovalNotPending { .. }
         | ConversationError::QuestionNotPending { .. }
         | ConversationError::UnknownTurn { .. }

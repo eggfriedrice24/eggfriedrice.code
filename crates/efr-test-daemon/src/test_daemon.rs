@@ -35,7 +35,8 @@ use efr_daemon::{
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
-    NetworkMode, Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
+    NetworkMode, Origin, PromptSend, QuestionId, QuestionReply, QuestionRespond, SandboxStatus,
+    Seq, ShellContext, TurnSettings,
 };
 use efr_test_support::{
     FakeTailscaled, Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript, Wait,
@@ -979,14 +980,19 @@ impl TestDaemon {
         client: &Client,
         conversation_id: ConversationId,
     ) -> Result<ItemStream<ConversationSubscribeItem>, TestDaemonError> {
-        let params = ConversationSubscribe {
-            conversation_id,
-            after_seq: Some(Seq::ZERO),
-            answers_input: false,
-            answers_questions: false,
-            drafts: false,
-        };
-        Ok(client.stream(Method::ConversationSubscribe(params)).await?)
+        subscribe(client, conversation_id, false).await
+    }
+
+    /// Subscribes `client` to `conversation_id` from the start of its log as a client
+    /// that can answer the model's question (`answers_questions`), as the terminal and
+    /// the phone app do. It counts only while the stream is open and the connection
+    /// holds `operate`.
+    pub async fn follow_answering(
+        &self,
+        client: &Client,
+        conversation_id: ConversationId,
+    ) -> Result<ItemStream<ConversationSubscribeItem>, TestDaemonError> {
+        subscribe(client, conversation_id, true).await
     }
 
     /// Every event of `conversation_id` in the log, oldest first, read page by page
@@ -1064,6 +1070,40 @@ impl fmt::Debug for TestDaemon {
             .field("running", &self.served.is_some())
             .finish_non_exhaustive()
     }
+}
+
+/// Subscribes `client` to `conversation_id` from the start of its log; with
+/// `answers_questions`, as a client that can answer the model's question.
+async fn subscribe(
+    client: &Client,
+    conversation_id: ConversationId,
+    answers_questions: bool,
+) -> Result<ItemStream<ConversationSubscribeItem>, TestDaemonError> {
+    let params = ConversationSubscribe {
+        conversation_id,
+        after_seq: Some(Seq::ZERO),
+        answers_input: false,
+        answers_questions,
+        drafts: false,
+    };
+    Ok(client.stream(Method::ConversationSubscribe(params)).await?)
+}
+
+/// A `question.respond` with the command id [`command_id(n)`](command_id): `answer`
+/// to the model's question `question_id` of `conversation_id`, as the terminal or the
+/// phone sends it.
+pub fn answer_question(
+    n: u128,
+    conversation_id: ConversationId,
+    question_id: QuestionId,
+    answer: QuestionReply,
+) -> Method {
+    Method::QuestionRespond(QuestionRespond {
+        command_id: command_id(n),
+        conversation_id,
+        question_id,
+        answer,
+    })
 }
 
 /// The command id `0192f0c1-7a00-7000-8000-<n as 12 hex digits>`, the form the

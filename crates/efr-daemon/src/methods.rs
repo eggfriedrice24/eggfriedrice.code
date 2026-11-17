@@ -639,7 +639,9 @@ impl Dispatcher for Methods {
                 Method::ConversationSwitchPreview(params) => {
                     conversation_switch_preview::handle(state, params, &responder).await
                 }
-                Method::QuestionRespond(params) => question_respond::handle(state, params).await,
+                Method::QuestionRespond(params) => {
+                    question_respond::handle(state, &context, params, &responder).await
+                }
             };
             state.presence.record(touched).await;
             if handled.is_ok() {

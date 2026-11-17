@@ -17,7 +17,10 @@
 //! A conversation is followed while a client that can type answers subscribes to it
 //! (`Connections::answerers`). A turn that a job notice started counts the user away
 //! unless one does, so its question never waits for hours on a person who typed in
-//! another terminal a few minutes ago.
+//! another terminal a few minutes ago. The model's question (`ask_user`) has a count of
+//! its own (`Connections::questioners`): the subscriptions that set
+//! `answers_questions` on a connection that holds `operate`. While none follows, the
+//! question waits only the away wait, in every turn.
 //!
 //! The push of an away question to the user's phones does nothing: no phone client
 //! exists yet.
@@ -252,6 +255,12 @@ impl PresenceReader for PresenceTable {
         self.connections
             .as_ref()
             .is_some_and(|connections| connections.answerers(conversation_id) > 0)
+    }
+
+    fn question_followed(&self, conversation_id: ConversationId) -> bool {
+        self.connections
+            .as_ref()
+            .is_some_and(|connections| connections.questioners(conversation_id) > 0)
     }
 }
 
