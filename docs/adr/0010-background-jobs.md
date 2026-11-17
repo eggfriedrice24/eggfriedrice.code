@@ -62,6 +62,9 @@ it ends, and what its output can do in the conversation.
    name in it. The text escapes the job's output and drops control and format
    characters. A notice waits for the end of a running turn: a steer would put output
    of a program in the middle of a turn that a user watches.
+   Note of v0.0.12: a notice of a `watch` is a batch, the lines that match within
+   1 second, and `max_wakes` counts batches, not lines. A notice still never enters a
+   running turn.
 
 8. **A job of a wake turn never wakes.** A wake turn is a turn that a notice started
    in an idle conversation in `auto`. If its jobs could wake the conversation, wake

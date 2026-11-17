@@ -1,6 +1,6 @@
 # The turn view and its keys
 
-<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, follow/view/reasoning.rs, follow/view/web.rs, format/web.rs -->
+<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, notify.rs, format/card.rs (user_question, question_end), follow/view/reasoning.rs, follow/view/web.rs, format/web.rs; crates/efr-daemon/src/notices.rs (desktop_what, place); shell/zsh/efr.plugin.zsh ("the wake of a waiting prompt"); docs/config.md [notify] -->
 
 The turn view is what efr shows while a turn runs. It is not a full-screen program.
 The reply goes into your scrollback like the output of any command, and your prompt
@@ -257,6 +257,55 @@ With `render.bell = true`, efr rings the bell once when a card shows, so the ter
 can mark the tab.
 [Permission modes](modes.md) tells what asks you in each mode.
 
+### The model's question
+
+The model can ask you a question with 2 to 4 options (the tool `ask_user`). The turn
+waits for your answer. The card shows the question as its title and one row for each
+option:
+
+```text
+ ?  Which database should the app use?
+    1 Postgres 16  the recommended choice; the server already runs it
+    2 SQLite  one file, no server
+    3 Keep the current setup
+    t type an answer   esc skip
+```
+
+- Press a digit to pick that option. It answers at once.
+- Press `t` to type an answer of your own. An answer line opens in the card, with the
+  row `Do not type a password or a token here.` and the keys `enter send   esc back to
+  the options`. An answer has at most 1024 bytes. Enter on an empty line sends nothing.
+- Press Esc to skip the question. Ctrl+C interrupts the turn, as at every card.
+- A key that you typed before the card showed never answers it, and a key that sends
+  an escape sequence, such as an arrow or F5, never counts as a digit.
+- In a job notice turn, the title ends with `(job notice turn)`.
+- When another client must answer, the card says `waiting for another client to
+  answer`, and the digits are muted.
+
+The question has no row of its own as a call. When it ends, one line takes the place
+of the card:
+
+```text
+✓ answered · Postgres 16
+✓ answered · "use the port 5433"
+✓ answered on the phone · SQLite
+· skipped · the model goes on with a choice that is safe and easy to undo
+✗ nobody answered · the model goes on with a choice that is safe and easy to undo
+✗ nobody answered while you were away · the model goes on with a safe choice
+■ not answered · you interrupted the turn
+```
+
+An answer is information for the model. It allows no command and changes no mode. When
+efr refuses an action that your answer asked for, the model tells you, and you ask for
+it in a message. When nobody who can answer follows the conversation, the question
+waits `presence.away_wait_secs` (300 s); then the model goes on with a safe choice. A
+piped `efr send` cannot read keys, so it is no answerer.
+[Permissions and rules](../permissions.md#the-models-question) has the rules.
+`efr history` shows the question, its options and the line of its end.
+
+When efr does not take an answer, such as an answer to a question that ended, the view
+says `the answer was not taken: <reason>`.
+
 ## The input row
 
 While a turn runs, the input row below the status row shows `› `. When it is empty,
@@ -403,13 +452,68 @@ command on a row of its own. efr never switches by itself. See
 `efr` then exits with code 1 and prints no other message.
 
 When a turn ends, a job ends, or a question waits in a terminal that does not follow
-the turn, your next prompt there shows one line about it. It is muted; a failed exit
-code is in the error colour, and a question that waits is in the warning colour:
+the turn, that terminal shows one line about it. It is muted; a failed exit code is in
+the error colour, and a question that waits is in the warning colour. An approval and
+a question of the model give the same line:
 
 ```text
 efr: job j3 ended after 4m 12s (exit 0) · npm run build
 efr: a question waits in "fix steer race" (/dev/pts/4) · ,resume 019a7c02
 ```
+
+### Notices at a waiting prompt
+
+At a waiting zsh prompt, the lines of efrd show at once, above the prompt. The text
+that you typed stays. zsh draws the prompt and your text again below the lines; the
+old prompt line stays above them, as for the job notices of zsh itself. A line that
+comes while a program runs in the terminal shows at the next prompt.
+
+efrd wakes the prompt through a FIFO next to the notice file of the terminal
+(`notices/<tty>.wake`, see [Storage](../storage.md)). One shell per terminal reads
+it: a nested zsh on the same terminal leaves it to the outer shell while that shell
+runs, and shows its lines at its next prompt. A shell after `exec zsh` reads the FIFO
+again. No program that you start keeps the FIFO open.
+
+### Desktop notices
+
+efr can send a desktop notice through your terminal (OSC 777, with the title `efr`).
+The body names the place and what happened, never a prompt, a command or text of the
+model, because your system keeps a history of notices:
+
+| Body | When |
+|---|---|
+| `app: a question waits` | A card waited 10 seconds here and you typed no key. Also a question of efrd at a waiting prompt. |
+| `app: a command waits for input` | An answer line waited 10 seconds here and you typed no key. Also a command left in the hidden shell that waits for your input. |
+| `app: done in 4m 12s` | The last turn of the view ended, and it took at least `notify.after_secs` (30). |
+| `app: failed after 1m 3s` | The same, for a failed turn. |
+| `app: job notice turn finished` | A job notice turn ended (at a waiting prompt). |
+| `app: job notice turn failed` | A job notice turn failed (at a waiting prompt). |
+| `app: job notices wait for your next prompt` | Job notices reached the wake limit (at a waiting prompt). |
+
+- The place is the name of the project, else the last part of the directory, else
+  `~`.
+- A question sends one notice per wait. A key, or the end of the wait, stops it. A
+  card that another client must answer sends none.
+- The time of a turn counts from its start to its end, also the waits. An
+  interrupted, cancelled or withdrawn turn sends none. `notify.after_secs = 0` sends
+  one at the end of every turn.
+- At a waiting prompt, a line that efrd shows at once sends its notice; a line that
+  shows at your next Enter sends none, because you are at that terminal.
+
+`notify.terminal` decides where efr sends them: `auto` (the default) only in Ghostty,
+and never inside tmux, GNU screen or zellij; `on` in every terminal; `off` never. The
+notice needs stdout to be a terminal. Ghostty on Linux shows the notice also while its
+split has the focus, so a question waits 10 seconds with no key first.
+
+Ghostty can also tell you that a command ended (`notify-on-command-finish`). A `,` line
+is a command of your shell, so Ghostty and efr would both send a notice at the end of
+a turn. Leave that option at its default for efr:
+
+```text
+notify-on-command-finish = never
+```
+
+Else expect two notices at the end of a turn.
 
 ## The progress bar
 
@@ -441,6 +545,13 @@ runs.
 | `diff_lines_long` | `8` | The same from the 6th call of a turn on, so a long turn shows shorter diffs. |
 | `bell` | `false` | One bell when a question appears, so the terminal can mark the tab. |
 | `progress` | `"auto"` | The progress bar of the tab: `auto`, `on` or `off`. |
+
+Under `[notify]` (efrd also hands `terminal` to the zsh plugin at your next prompt):
+
+| Setting | Default | What it sets |
+|---|---|---|
+| `terminal` | `"auto"` | The desktop notice: `auto` (only Ghostty, never in a multiplexer), `on` or `off`. |
+| `after_secs` | `30` | The shortest turn whose end sends a desktop notice, in seconds; `0` is every turn. |
 
 `[render.colors]`, `palette` and `theme` set the colours.
 [Settings](../configure/settings.md) and the

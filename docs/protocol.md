@@ -17,6 +17,13 @@ page by hand. Add a line to the changelog below for each change of the protocol.
   `{id, item}`, `{id, end}`, `{id, error}`, and `{ack: id}` on streams that ask for it.
 - `hello` comes first; both sides send `PROTOCOL_VERSION`, and a mismatch fails with
   `ProtocolMismatch` before any method runs. Additive changes do not bump the version.
+- A new value of an enum that a released client decodes is not additive. The 0.0.10
+  and 0.0.11 apps decode `status` of a conversation with a closed list, and one row
+  with a value that they do not know fails the whole list. So a new state travels in a
+  new optional member, such as `attention`. An enum that has the value `unknown` reads
+  each new value as `unknown`, and the app's generator gives such an enum
+  `.catch("unknown")`. `app/src/lib/protocol/frozen/v0.0.11/` holds the decoder of the
+  0.0.11 app, and a test reads the fixtures that an old app can get with it.
 - The frozen fixtures in `crates/efr-protocol/fixtures/v1/` are compared byte for byte.
   Changing one needs `just bless` and a line in the changelog below.
 - `docs/protocol.schema.json` holds every type of the protocol in the form that a code
@@ -160,6 +167,8 @@ What a phone may do after the proof, whatever its scopes say:
 - `approval.respond` is `forbidden` for a question with `local_only`, and for every
   `allow_always` answer. The question stays open for the user's terminal.
 - `input.respond` and `turn.undo` are `forbidden`.
+- `question.respond` is allowed: a phone holds `operate`, and an answer to the model's
+  question approves nothing.
 - A phone never holds the `admin` or the `terminal` scope.
 
 ## Changelog
@@ -1135,3 +1144,53 @@ No protocol version has shipped yet.
   commits, and removes the rest of the conversation after the answer. So `not_removed`
   of `deleted` is absent from this efrd: its log names a path that stays, and its next
   start tries again. No member changes.
+- Version 1, additive (v0.0.12): the model's question (the tool `ask_user`). New
+  event `user_question_requested` `{turn_id, call_id, question_id, question,
+  options}`: `question` has at most 300 characters, and `options` holds 2 to 4
+  `{label, description?}` (a label of at most 60 characters, a description of at most
+  200). In a job notice turn, `question` starts with `(job notice turn) `, as the
+  summary of an approval does. New event `user_question_answered`
+  `{turn_id, question_id, answer, origin?}`; `origin` is absent unless a person
+  answered. `answer` is the new union `user_answer`: `{kind: "replied", reply}`,
+  `{kind: "unanswered", away?}` (`away` true when nobody was there: the user was away,
+  or no client that answers questions followed), `{kind: "interrupted"}`, or
+  `unknown`. `reply` is the new union `question_reply`: `{kind: "option", index}` (from
+  0), `{kind: "text", text}` (not empty, at most 1024 bytes, no control character),
+  `{kind: "skipped"}`, or `unknown`. New method `question.respond` (scope `operate`,
+  unary, with a command id): `{command_id, conversation_id, question_id, answer}`, where
+  `answer` is a `question_reply`; the result is `{seq}` of the
+  `user_question_answered` event. The scope is `operate`, not `approve`: an answer is
+  information for the model, not a permission. Errors: `not_found` (no such question
+  waits, or it ended) and `invalid` (an index outside the options; a text that is
+  empty, blank, longer than 1024 bytes or with a control character; a reply of the kind
+  `unknown`). The question stays open after `invalid`. A retry with the same command id
+  answers from the receipt. New capability `user_questions`, which only efrd sends:
+  without it, a client shows no answer UI. `conversation.subscribe` gains
+  `answers_questions`, false when absent and written only when true: the client can
+  answer the model's question. efrd counts it only on a connection that holds
+  `operate`, so the flag of a model-side peer never counts. A question that no such
+  client follows waits `presence.away_wait_secs`, then ends as unanswered. New
+  fixtures `events/user_question_requested.json`,
+  `events/user_question_answered.json`, `question_respond_params.json`,
+  `question_respond_result.json` and `user_answers.json`; `hello_result.json` and
+  `conversation_subscribe_params.json` now set the new members.
+- Version 1, additive (v0.0.12): who can act on a conversation. `ConversationSummary`
+  (the rows of `conversations.list`, `conversations.recent`, `conversations.watch`,
+  `conversations.search` and the subscribe snapshot) gains an optional `attention`
+  with the new wire enum `attention`: `answer` (a question of the model waits),
+  `terminal` (only the user's own machine can answer: an approval with `local_only`, or
+  a command that waits for input, and nothing waits that a phone can answer), `failed`
+  (no turn runs, and the last turn that ended failed), or `unknown`. It is absent for
+  none of these. `status` keeps its three values: a new value would break the 0.0.10
+  and 0.0.11 apps. A quarantine question of the running turn now gives
+  `awaiting_approval`; before, it gave `running`. New fixture
+  `conversation_attention.json`; the summary fixtures now set `attention`.
+- Version 1, additive (v0.0.12): watch batches. Lines of a job's output that match
+  its `watch` within 1 second are one `job_watch_matched`: `line` is the first line,
+  the new `more` holds the other lines of the batch (absent when empty), and the new
+  `dropped` counts the lines that efrd left out (absent when 0). A batch keeps at most
+  the first 10 (`BATCH_HEAD`) and the last 10 (`BATCH_TAIL`) lines, and the gap is
+  after line 10. `job_ended` gains `matched` and `matched_dropped` in the same form:
+  the batch that waited when the job ended, which no `job_watch_matched` names. The
+  `max_wakes` of a `watch` counts notices (batches), not lines. The fixtures
+  `events/job_watch_matched.json` and `events/job_ended.json` now set them.

@@ -30,6 +30,7 @@ sections Context, Decision and Consequences.
 - [0022: A tailnet listener for the phone, with paired device keys](0022-remote-listener-and-device-keys.md). Status: accepted, 2026-10-26.
 - [0023: In auto, the reviewer decides each exit alone](0023-reviewer-decides-alone.md). Status: accepted, 2026-11-13.
 - [0024: In auto, a tool's login is a grant for one call](0024-logins-as-grants.md). Status: accepted, 2026-11-14.
+- [0025: The model's question: an answer is no permission](0025-the-models-question.md). Status: accepted, 2026-11-17.
 
 Record 0005 is still open. efr-render uses syntect for now, and the project can
 change this choice later.

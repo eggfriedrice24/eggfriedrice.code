@@ -536,7 +536,9 @@ The reviewer decides an exit in the same way while you are away. A question, of 
 few that are left, then waits `presence.away_wait_secs` (300); then the call
 does not run, and the model goes on without it and names it in its answer. A question
 that already waits when you leave gets the same wait, from the moment efr sees that you
-are away (it looks every 15 seconds).
+are away (it looks every 15 seconds). The quarantine question and the model's
+question (`ask_user`) wait in the same way: while you are away, the quarantine
+question ends after `presence.away_wait_secs`, and the change stays in quarantine.
 
 An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_write`,
 `above_root`, or a write that no bind can serve, runs outside the sandbox. Such a line
@@ -901,6 +903,42 @@ ends. The engine decides a job as follows.
   gone: it cannot answer a question, stop a job or change the settings. A process of an
   exit child job that left the job's session (`setsid`) is the exception: see
   "Known limits" in `docs/sandbox.md`.
+
+## The model's question
+
+The model can ask you a question with the tool `ask_user`: one question and 2 to 4
+options. You pick an option, type an answer or skip. [ADR
+0025](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0025-the-models-question.md)
+records the decision. The rules:
+
+- An answer is information for the model. It is no permission: it allows no action,
+  changes no mode and saves no rule. The engine never rules on the call, and the call
+  never reaches a tool.
+- An answer is never a message of yours for efr's rules. A picked option and a typed
+  answer do not count for the naming rule of a guarded exit, and the reviewer's record
+  does not hold them, in this turn or a later one. An answer also does not start the
+  counts of refusals and denials in a row again. The model wrote the question, so a
+  question from a hostile file could lead you to type the words that lift a refusal.
+  When efr refuses what your answer asked for, the model tells you; send it as a
+  message.
+- The question pauses the turn in every mode, `auto` and `full` too. In a full turn,
+  the gate before each call runs first: a full turn whose gate went off stops and asks
+  nothing.
+- While a client that can answer follows the conversation (a terminal that reads keys,
+  or a phone that says so), the question waits as an approval
+  (`conversation.approval_timeout_secs`, no end by default). While you are away, or no
+  such client follows, it waits `presence.away_wait_secs` (300) and goes to
+  `presence.push` once. Then it ends as unanswered: the model does only what is safe and
+  easy to undo, and names its choice in its answer. After one unanswered question, each
+  later question of the same turn ends at once.
+- The phone may answer (`question.respond` needs the `operate` scope). Each client
+  shows `Do not type a password or a token here.` where you type an answer: a typed
+  answer goes to the event log and to the provider, as a prompt does. The tool text
+  tells the model never to ask for a secret.
+- A bad input of the model (a blank question, a wrong number of options, a label that
+  is too long or used twice) gets an error result that starts with `The question was
+  not asked: `, and nobody is asked. The call still counts as a call of the turn.
+- `conversation.ask_user = false` takes the tool away from the next turn.
 
 ## A command left running
 

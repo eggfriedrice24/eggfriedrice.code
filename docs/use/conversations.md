@@ -328,7 +328,11 @@ delete.
 
 `efr history` shows the newest conversation of this terminal, as the view showed it.
 `efr history <id>` shows another one. The id can be the start of an id, from 4
-characters. `efr history --list` lists your recent conversations with their ids.
+characters. `efr history --list` lists your recent conversations with their ids. Its
+state column tells who must act: `needs approval`, `needs an answer` (a question of
+the model waits) and `answer in the terminal` (only your computer can answer) in the
+warning colour, `running` muted, and `failed` (the last turn failed) in the error
+colour. An idle conversation has no word. In a pipe the rows have no colour.
 
 ```text
 fix steer race in turn loop · app · 019a9b11 · 3 turns
@@ -431,6 +435,7 @@ away state.
 | `conversation.tty_idle_hours` | `12` | Hours with no activity before a scope starts a new conversation. |
 | `conversation.follow_project` | `true` | One conversation for each scope. `false`: one per terminal. |
 | `conversation.repo_hint` | `true` | The line about a git repository that is not a project. |
+| `conversation.ask_user` | `true` | The model can ask you a question with options. `false` takes the tool away. |
 | `compaction.auto` | `true` | Compact on its own at `auto_at`. |
 | `compaction.auto_at` | `76` | The percent of the model's window where efr compacts. |
 | `resume.picker` | `"auto"` | `auto` opens the fzf picker when it can. `list` always prints the list. |

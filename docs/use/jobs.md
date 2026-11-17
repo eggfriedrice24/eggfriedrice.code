@@ -1,6 +1,6 @@
 # Background jobs
 
-<!-- sources: README.md "Use" (the jobs bullet, the Ctrl+B bullet, the notice line); docs/sandbox.md "Background jobs" (all subsections, with "Ports of a job", "Moving a call to the background", "Undo and jobs"); docs/permissions.md "Background jobs"; docs/config.md [jobs]; crates/efr-cli/src/cli.rs (jobs); crates/efr-cli/README.md (the efr jobs row, "The input row": Ctrl+X, Ctrl+B); crates/efr-cli/src/commands/jobs.rs and its tests; docs/adr/0010-background-jobs.md, 0016-job-port-forwarding.md, 0018-moving-a-call-to-the-background.md -->
+<!-- sources: README.md "Use" (the jobs bullet, the Ctrl+B bullet, the notice line); docs/sandbox.md "Background jobs" (all subsections, with "Ports of a job", "Moving a call to the background", "Undo and jobs", "Watch batches"); docs/permissions.md "Background jobs"; docs/config.md [jobs]; crates/efr-tools/src/shell_tool.rs (the monitor text); crates/efr-cli/src/format/jobs.rs (the batch row); crates/efr-cli/src/cli.rs (jobs); crates/efr-cli/README.md (the efr jobs row, "The input row": Ctrl+X, Ctrl+B); crates/efr-cli/src/commands/jobs.rs and its tests; docs/adr/0010-background-jobs.md, 0016-job-port-forwarding.md, 0018-moving-a-call-to-the-background.md -->
 
 A background job is a command that runs on after its call and after its turn, such as
 a dev server, a watcher or a slow build. The agent starts a job when a command takes
@@ -82,6 +82,7 @@ Some programs keep their output in a buffer when it goes to a file. Run them wit
 | `jobs.max_running_daemon` | `16` | The most jobs that run at one time in all conversations. |
 | `jobs.nice` | `19` | The CPU priority of a job, from 0 to 19. |
 | `jobs.forward_ports` | `true` | Forward the ports of a job in the sandbox. |
+| `jobs.max_wakes_per_watch` | `10` | The most notices that one `watch` pattern gives. |
 
 [config.toml reference](../config.md#jobs) lists every key.
 [ADR 0010](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0010-background-jobs.md) records the decision for jobs.
@@ -158,10 +159,6 @@ wake turns start in a conversation in an hour (`jobs.max_wakes_per_hour`), and a
 12 in all conversations (`jobs.max_wakes_per_hour_daemon`). `0` means that a notice
 never starts a turn; it waits for your next prompt.
 
-The agent can also ask to hear about an output line that matches a pattern, such as
-the line where a dev server is ready. Each pattern can wake the agent at most 3 times
-(`jobs.max_wakes_per_watch`).
-
 Between turns, your next prompt shows one muted line for each job that ended, with
 how long it ran, its exit code and its command:
 
@@ -172,6 +169,50 @@ efr: job j4 ended after 42s (exit 101) · cargo test --workspace · efr jobs
 
 A failed exit code is in the error colour, and `efr jobs` shows the output. A job that
 something stopped says who, such as `efr: job j3 stopped by you: <title>`.
+
+When a job notice turn ends, your next prompt shows its jobs and the first line of the
+answer. When it failed, the head `efr: job notice turn failed (job j3)` is in the
+error colour and the rest is muted. With a waiting zsh prompt, these rows show at once,
+above the prompt; see [The turn view](turn-view.md#notices-at-a-waiting-prompt).
+
+## Monitor a log, a build or a deploy
+
+The agent can watch the output of a job. It starts the job with a `watch` pattern and
+ends its turn. When lines of the output match the pattern, the agent hears about them
+in a wake turn. This is how the agent monitors a log, a build, a test run or a deploy.
+There is no tool of its own for it: a monitor is a background `shell` call with
+`watch`.
+
+- Lines that match within 1 second make one notice. One notice is one wake of the
+  agent.
+- A notice holds at most 20 lines: the first 10 and the last 10 of that second. The
+  agent reads how many lines between them it does not see. The output file still has
+  every line.
+- A watch gives 3 notices when the agent names no number, and at most 10.
+  `jobs.max_wakes_per_watch` (10) cuts a higher number. The hourly limits above stay:
+  6 wake turns in a conversation and 12 in all.
+- Lines that match just before the job ends do not make a notice of their own. They go
+  into the notice of the job's end, so a burst of lines and the exit start one wake
+  turn.
+- After the last notice, efr no longer checks the lines against the pattern. The job
+  runs on until it
+  ends, its time limit passes, or you or the agent stop it. The notice of its end
+  always comes.
+
+While you follow the turn, a notice shows as one muted row:
+
+```text
+job j3 matched: error: worker 2 exited
+job j3 matched 20 lines (19 not shown): FAIL src/app.test.ts
+```
+
+The count is all the lines of the notice, and the lines that efr left out. `efr
+history` shows the same row.
+
+The tool text tells the agent how: make the command print one line for each event,
+give a pattern that matches each end state (the failure and the success), and name a
+time limit as short as the wait needs. A command that needs a login cannot run as a job
+in `auto`, so such a check runs in the foreground with a timeout.
 
 ## List your jobs
 

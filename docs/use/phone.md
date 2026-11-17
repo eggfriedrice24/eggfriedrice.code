@@ -176,17 +176,37 @@ Settings and New (`+`) at the right. New goes back to the blank root.
 ### Find a conversation
 
 - Tap the title of the bar. A sheet opens with the conversations of every machine:
-  "Needs you" (they wait for an approval) and "Running" come first, then Today,
-  Yesterday, This week and Older. Each row shows the title, the status, the machine, the
-  last folder of the directory and the time of the last activity. Pull the sheet up to
+  "Needs you" (they wait for you) and "Running" come first, then Today, Yesterday,
+  This week and Older. Each row shows the title, the status, the machine, the last
+  folder of the directory and the time of the last activity. The times move once a
+  minute while the sheet is open. Pull the sheet up to
   see more. The search bar at the bottom finds a conversation by its title, its machine
   or its directory, and then asks efrd. The words that you search for are bold in the
   titles. The button next to it (a pencil) starts a new conversation.
 - Tap a row to open the conversation. The sheet closes.
 - Touch and hold a row of the sheet for Open and Copy ID.
+- The status of a row tells who must act:
+
+  | Status | Meaning |
+  |---|---|
+  | needs approval | An approval waits. You can answer it here. |
+  | needs an answer | A question of the model waits. You can answer it here. |
+  | answer in the terminal | Only your computer can answer: a command that needs a password, a question that only the terminal answers, or a question of the model on an efrd that the app cannot answer. |
+  | running | A turn runs. |
+  | ✗ failed | The last turn failed. The row is red and stays in its day. |
+
+  The first three have the yolk "!" mark and stand in "Needs you". The phone shows
+  "needs an answer" only on an efrd that sends the model's questions (0.0.12 or
+  later).
 - When a machine does not answer, its rows stay from the last list that the phone
   keeps. They are quieter and say "offline" after the machine, and they show no status,
-  because it can be old.
+  because it can be old. A banner at the top of the sheet, with the `wifi.slash`
+  symbol, says which machines are offline and how old their rows are:
+  `homelab offline · rows from 2h ago`. It names two machines at most
+  (`homelab and laptop offline`), else their count (`3 machines offline`). The age is
+  the oldest of the kept rows: `12m ago` (at least `1m ago`), `3h ago`, `yesterday`,
+  `Nov 12` or `Nov 12, 2025`. With no kept rows of the machine, the banner gives no
+  age. The phone keeps no transcript, so an offline conversation can open empty.
 
 The app keeps at most 8 conversations on its stack. A conversation that is on the stack
 opens where it is. Touch and hold the back button to see the stack.
@@ -339,6 +359,31 @@ each change of its list of conversations to the app, so the strip and the dot sh
 new question at once. With an older efrd, the app asks every 10 seconds, so they can
 come up to 10 seconds late.
 
+### Answer a question of the model
+
+The model can ask you a question with 2 to 4 options. The strip in the composer then
+shows the yolk dot, the question and "Answer". When an approval waits too, the older
+of the two goes first, and "1 of 2" counts both. Tap the strip: the native action
+sheet opens, with the question as its title, each option with its description, then
+"Type an answer", "Skip" and Cancel.
+
+- Tap an option to answer with it.
+- "Type an answer" turns the composer into an answer field. The row `Answer ·
+  <question>` with an xmark stands where the strip was, the field says "Your answer",
+  and the hint `Do not type a password or a token here.` stands under it. Send sends
+  the answer (VoiceOver reads "Send the answer"). Line breaks become spaces. An answer
+  has at most 1024 bytes; past that, Send is dimmed. The xmark leaves the answer field,
+  and your text stays as a draft message. When the question ends elsewhere, the field
+  goes back by itself.
+- "Skip" skips the question. Cancel closes the sheet, and the question stays open.
+
+The row of the question in the conversation says "waiting for you" (a tap opens the
+sheet), then how it ended: `answered · <option>`, `answered · "<text>"`, `answered on
+<machine> · ...` for an answer from the terminal, "skipped", "nobody answered" or "not
+answered · the turn was interrupted". The status line says "waiting for you" while a
+question waits. An answer is information for the model: it is no permission, and it
+allows no command.
+
 ### Auto mode on the phone
 
 In a conversation in `auto`, a reviewer model judges each call that needs more than the
@@ -438,6 +483,10 @@ Limits of this version:
 
 - iPhone only. No Android, no iPad layout.
 - No push notifications. A question waits until you open the app.
+- The app does not yet tell efrd that it can answer the model's question. So a
+  question that only the phone follows ends after `presence.away_wait_secs` (300 s),
+  and you can answer it only in that time. The strip for another conversation counts
+  only approvals and says "Approval waiting".
 - No attachments, such as images.
 - No terminal view of the hidden shell.
 - A dark theme only.

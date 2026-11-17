@@ -45,8 +45,9 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/env` (0600) | the hidden shell's exported variables, NUL-separated, which its integration writes at each prompt where they changed; efrd copies it into a job's call dir, so a job gets the shell's environment. It holds the values that you export, secrets too, in the runtime root, which the sandbox masks | the hidden shell's integration (`efr-shell`) |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/jobs/<call>/` (0700, files 0600) | one background job: `spec.json` (with the job plan), `nonce`, `line`, `env` (at most 1 MiB) and, for a line that runs `df` or `findmnt`, `mounts` and `mounts.json` from efrd, `launcher.log` (the launcher's stderr), `started` and `result.json` from the launcher. A job with port forwards also has `forward.sock` (0600), the socket of its forwards, which efrd binds before the launcher starts; the job's forwarder (`efr-forward`) reaches it read-only at `$XDG_RUNTIME_DIR/efr-forward.sock` inside the sandbox, and the job's own commands cannot connect to it. Never a direct entry of the shell dir, so no check for a running call counts a job. efrd removes it at the job's end | `efr-daemon`, `efr-sbx` |
 | `$XDG_RUNTIME_DIR/efr/projects.tsv` (0600) | the registered projects for the zsh plugin's scope marker: one line per project, `<root>` and a tab and `<name>`, the deepest root first. efrd writes it by a rename at start, after `efr project add` and `remove`, and at a prompt when `projects.toml` changed by hand. A root with a tab or a line break is left out, so the marker shows home there | `efr-daemon/src/projects_file.rs` writes, `shell/zsh/efr.plugin.zsh` reads |
-| `$XDG_RUNTIME_DIR/efr/prompt.tsv` (0600) | what the zsh plugin's prompt corner needs from efrd: one `<key>` and a tab and `<value>` line each: `mode` (the default mode of a prompt that names none: `permissions.mode`, or `auto` when efrd refuses full mode), and `color.text`, `color.muted`, `color.accent`, `color.warning` and `color.error` when `[render.colors]` or the theme file sets them (`#rrggbb` or a slot). efrd writes it by a rename at start, after each reload of `config.toml`, and at a prompt when it is gone or differs | `efr-daemon/src/prompt_file.rs` writes, `shell/zsh/efr.plugin.zsh` reads |
+| `$XDG_RUNTIME_DIR/efr/prompt.tsv` (0600) | what the zsh plugin's prompt corner needs from efrd: one `<key>` and a tab and `<value>` line each: `mode` (the default mode of a prompt that names none: `permissions.mode`, or `auto` when efrd refuses full mode), and `color.text`, `color.muted`, `color.accent`, `color.warning` and `color.error` when `[render.colors]` or the theme file sets them (`#rrggbb` or a slot), and `notify` (`on` or `off`, from `notify.terminal`; no line for the default `auto`; the 0.0.11 plugin skips the key). efrd writes it by a rename at start, after each reload of `config.toml`, and at a prompt when it is gone or differs | `efr-daemon/src/prompt_file.rs` writes, `shell/zsh/efr.plugin.zsh` reads |
 | `$XDG_RUNTIME_DIR/efr/notices/<tty>` | notices for one terminal, shown and removed by the zsh plugin at the next prompt (`<tty>` is `$TTY` without `/dev/`, with `/` as `-`). A line is muted; a line with tabs is pieces with roles of their own, `<role>` and a tab and `<text>` one after the other, such as a failed exit code in `error` | the daemon writes, `shell/zsh/efr.plugin.zsh` reads |
+| `$XDG_RUNTIME_DIR/efr/notices/<tty>.wake` (FIFO, 0600) | the wake of the terminal's waiting prompt. efrd makes it when a `prompt.send` has a shell context that names the tty; it does not wait for it, keeps a file that is already at the path, and never removes it (the runtime root goes at logout). After each line that efrd appends to `notices/<tty>`, it writes one line here: the body of a desktop notice, or an empty line for a row that needs none. The write never blocks: no FIFO, no reader, a full pipe, a symbolic link or a path that is not a FIFO skip the line, and the row then shows at the next prompt. The plugin opens it close-on-exec and reads it while the prompt waits | `efr-daemon/src/notices/wake_fifo.rs` writes, `shell/zsh/efr.plugin.zsh` reads |
 | `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-config`, `efr-scope/src/registry.rs` |
 
 `EFR_DATA_DIR` and the matching variables for the other roots override each root, which
@@ -105,8 +106,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   so a subscriber can resume from `after_seq` without the projections. The payload is
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
-- Projections `conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`
-  and `job_notices` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
+- Projections `conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`,
+  `job_notices` and `waits` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
   rebuild matches. They serve listing and paging; they are not a second source of
   truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
@@ -163,6 +164,33 @@ conversations or the daemon's socket. The config root stays readable and read-on
   The index `conversations_tty` covers `(tty, route)`, and `conversations_route` finds
   the newest conversation of a key. Only a row with a `routed_seq`, which a terminal
   held, can be picked up.
+- Who can act on a conversation (migration 14, v0.0.12): `approvals.local_only` is 1
+  for an approval that only the terminal may answer. `waits(id, conversation_id,
+  turn_id, kind)`, with the index `waits_conversation`, holds what a running turn
+  waits for apart from an approval: `input` (by call id, from `tool_call_input_changed`
+  with a visible or hidden wait; `none` or `tool_call_completed` removes it),
+  `question` (by question id, from `user_question_requested`; `user_question_answered`
+  removes it) and `surface` (by question id, from `surface_question_requested`;
+  `surface_question_answered` removes it). The end of a turn (`turn_completed`,
+  `turn_failed`, `turn_interrupted`, `turn_cancelled`) removes the rows of the turn,
+  and the delete of a conversation removes its rows. A command left in the hidden
+  shell reports its input with `shell_command_input_changed`, which adds no row, so
+  its waits do not count in 0.0.12. `conversations.status` and
+  `conversations.attention` follow from these rows:
+  - `status`: `awaiting_approval` for a pending approval or a quarantine question of
+    the running turn, else `running` for a running turn, else `idle`. Before 0.0.12 a
+    quarantine question gave `running`.
+  - `attention` (the wire name of `efr_protocol::Attention`, NULL for none), in this
+    order: a question of the model of the running turn gives `answer`; a pending
+    approval with `local_only` or an input wait of the running turn, with no other
+    pending approval and no quarantine question, gives `terminal`; no running turn and
+    a last ended turn (completed, failed, interrupted or cancelled, in queue order; a
+    withdrawn prompt does not count) that failed gives `failed`; else NULL.
+  - The store computes both again only after the events that can change them: the
+    life of a prompt and a turn, a `job_notice` that starts a turn, the approvals,
+    `tool_call_input_changed`, `tool_call_completed` and the question events (the
+    predicate `changes_status` in `conversations.rs`). An output update does not. The
+    read of pending approvals uses the partial index `approvals_pending`.
 - The search index (migration 9): `search_docs(seq, conversation_id, kind, text)`, one
   doc per indexed event, keyed by its sequence number: the text of a prompt (kind 0),
   a steer (1), an answer of the model (2) or the command line of a `shell` call (3),
@@ -261,10 +289,16 @@ conversations or the daemon's socket. The config root stays readable and read-on
   `0009_search.sql` (the search index, v0.0.4), `0010_deletes.sql` (the tombstones
   of deleted conversations, v0.0.5), `0011_devices.sql` (the enrolled devices of
   the remote milestone), `0012_search_secure_delete.sql` (the FTS5 option
-  `secure-delete` of the search index) and `0013_receipts_seq.sql` (the index of the
-  receipts by their sequence number, for the steps of a delete). Each step has a flag that says whether it
+  `secure-delete` of the search index), `0013_receipts_seq.sql` (the index of the
+  receipts by their sequence number, for the steps of a delete) and `0014_waits.sql`
+  (`approvals.local_only`, `conversations.attention` and the `waits` projection,
+  v0.0.12). Each step has a flag that says whether it
   changes a projection. The first start of an efrd with such a migration rebuilds the
-  projections from the log once: about 3 s for 100,000 events in a debug build.
+  projections from the log once, after the backup copy: about 3 s for 100,000 events in
+  a debug build, and 7.4 s for 500,000 events on a busy machine (the bench
+  `bench_perf_rebuild`, budget 10 s). `0014_waits.sql` has the flag and no backfill
+  SQL: the rebuild fills the new columns and the new table, so the migrated database
+  equals a rebuilt one.
   `0009_search.sql`, `0010_deletes.sql`, `0011_devices.sql`,
   `0012_search_secure_delete.sql` and `0013_receipts_seq.sql` have no flag, so they
   rebuild nothing.

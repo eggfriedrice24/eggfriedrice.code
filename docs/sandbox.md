@@ -1390,8 +1390,10 @@ background").
   longer value to `jobs.max_minutes` (480), and the start result says so: `time limit:
   480 minutes (the most that efr allows)`.
 - `watch`: a pattern (a regular expression of at most 200 characters) and
-  `max_wakes`. Each output line that matches tells the model, at most `max_wakes`
-  times, cut to `jobs.max_wakes_per_watch` (3).
+  `max_wakes`, the number of notices: 3 when the model names none, else 1 to 10, cut
+  to `jobs.max_wakes_per_watch` (10). A job with a watch is a monitor: the tool text
+  tells the model to start a log, a build, a test run or a deploy as a job with a
+  watch and to end its turn. "Watch batches" below tells how the lines become notices.
 - A job takes no `timeout_seconds` and no `nested_shell`, and a line that waits for
   input at the terminal cannot run as a job: its stdin is `/dev/null`. The same holds
   for a call that you move to the background: a line with `sudo`, `ssh` or another
@@ -1651,9 +1653,10 @@ format characters. A notice never enters a running turn. It waits until the turn
 - A wake turn runs at most 20 tool calls. A job that a wake turn starts never starts
   another turn: its notices wait for your next prompt (`(job of a wake turn)`).
 - One turn takes at most 10 waiting notices and 32 KiB of their text.
-- A question in a wake turn waits only `presence.away_wait_secs`, unless a terminal of
-  yours follows the conversation. Its summary starts with `(job notice turn)`. The
-  reviewer's refusals count on from one wake turn to the next, until a turn of yours.
+- A question in a wake turn waits only `presence.away_wait_secs`, unless a client of
+  yours that can answer it follows the conversation. Its summary starts with `(job
+  notice turn)`, also for the model's question (`ask_user`). The reviewer's refusals
+  count on from one wake turn to the next, until a turn of yours.
 - A notice of a job that ended at a restart of efrd never starts a turn. It rides in
   your next prompt.
 - A job that you stop also starts a wake turn. Only two notices never start a turn.
@@ -1662,13 +1665,41 @@ format characters. A notice never enters a running turn. It waits until the turn
   off, because a wake turn would run in the mode that you just turned off. Such a
   notice rides in your next prompt.
 
+### Watch batches
+
+A watch reads the job's output line by line, as efrd writes the output file. The lines
+that match its pattern come to the model in batches:
+
+- The first matched line opens a window of 1 second (`BATCH_WINDOW`). The lines that
+  match in that window are one batch. One batch is one `job_watch_matched` event, one
+  notice, one wake and one unit of `max_wakes`.
+- A batch keeps at most 20 lines: the first 10 (`BATCH_HEAD`) and the last 10
+  (`BATCH_TAIL`). `dropped` counts the lines between them, and the gap is after line
+  10. The output file keeps every line.
+- The notice that the model reads has one `matched: <line>` row per line. With a gap,
+  the row `[efr: N more matched lines between these are not shown; the output file has
+  them.]` stands after row 10. Then `notices left: N`. At 0 it adds `[efr: the watch is
+  over. The job runs until it ends or its time limit passes; job_stop ends it.]`.
+- Lines that match right before the job ends make no notice of their own. They go into
+  `job_ended` (`matched`, `matched_dropped`) and into the end notice, under `matched
+  before the end:`, so a burst and an exit start one wake turn. This holds also when
+  output comes for more than 2 s (`OUTPUT_GRACE`) after the launcher ended: efrd then
+  cancels the reader of the matches through the job's own cancel token, and the batch
+  of the last second still goes into `job_ended`. No path loses a batch.
+- After the last notice the window closes. The reader does no more pattern work, and
+  the job runs on until it ends, its time limit passes or `job_stop` ends it. The end
+  notice always comes.
+- Cost: per job with a watch, at most 20 lines of 4 KiB wait (80 KiB), one task waits
+  for them, and efrd writes the store once per batch. A burst wakes that task once.
+
 ### What you see
 
 - While efr follows a turn, the view shows `job j3 started; output
   $SCRATCH/jobs/j3.out; ends in 60 minutes` under the call, which shows `(background)`.
   It shows each end of a job of the conversation, such as `job j3 stopped by you after
-  92 minutes; 1.2 MB output`, a matched line (`job j3 matched: <line>`) and a notice
-  that did not start a turn (`job j3: no wake turn (wake limit reached)`).
+  92 minutes; 1.2 MB output`, a batch of matched lines (`job j3 matched: <line>` for
+  one line, `job j3 matched 20 lines (19 not shown): <first line>` for more) and a
+  notice that did not start a turn (`job j3: no wake turn (wake limit reached)`).
 - When efr forwards a port of a job, the view shows `job j1 listens on
   127.0.0.1:8765 -> http://localhost:8765`, with the URL as a link where your terminal
   shows links (`job j1 listens on [::1]:5173 -> http://localhost:5173` for IPv6). A
@@ -1683,7 +1714,10 @@ format characters. A notice never enters a running turn. It waits until the turn
 - Between turns, your next prompt shows `efr: job j3 ended after 4m 12s (exit 0) ·
   npm run build`. After a
   wake turn, it shows the jobs and the first line of the model's answer: `efr: job
-  notice turn finished (job j3): <title>: The tests pass.; efr history shows all`.
+  notice turn finished (job j3): <title>: The tests pass.; efr history shows all`. The
+  row of a failed wake turn has its head, `efr: job notice turn failed (job j3)`, in
+  the error colour and the rest muted. At a waiting zsh prompt these rows show at once
+  (docs/use/turn-view.md, "Notices at a waiting prompt").
 - A notice file that is older than your shell does not show: it belongs to an earlier
   terminal with the same name, such as one before a reboot. The rule works per file, so
   one new line in it also shows the older lines of that file.
