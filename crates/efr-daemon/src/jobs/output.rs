@@ -28,6 +28,7 @@ use std::os::fd::OwnedFd;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::FileExt as _;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_protocol::{BATCH_HEAD, BATCH_TAIL};
@@ -310,6 +311,13 @@ pub(crate) struct MatchWindow {
     window: Mutex<Window>,
     /// Notified when a line comes into an empty window.
     added: Notify,
+    /// True once the watch is over: the window takes no more lines. It changes only
+    /// under the lock of `window`, so a push and the last take agree; the reader also
+    /// reads it without the lock, before any pattern work on a line.
+    closed: AtomicBool,
+    /// The lines that the reader checked against the pattern: a test seam.
+    #[cfg(test)]
+    pub(crate) checked: std::sync::atomic::AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -318,8 +326,6 @@ struct Window {
     tail: VecDeque<String>,
     /// The lines between `head` and `tail` that the window left out.
     dropped: u32,
-    /// True once the watch is over: the window takes no more lines.
-    closed: bool,
 }
 
 impl MatchWindow {
@@ -329,7 +335,7 @@ impl MatchWindow {
         let first = {
             let mut window = self.lock();
             let window = &mut *window;
-            if window.closed {
+            if self.is_closed() {
                 return false;
             }
             let first = window.head.is_empty();
@@ -362,7 +368,9 @@ impl MatchWindow {
         if window.head.is_empty() {
             return None;
         }
-        window.closed |= close;
+        if close {
+            self.closed.store(true, Ordering::Relaxed);
+        }
         let mut lines = std::mem::take(&mut window.head);
         lines.extend(window.tail.drain(..));
         let dropped = std::mem::take(&mut window.dropped);
@@ -375,10 +383,12 @@ impl MatchWindow {
         self.added.notified().await;
     }
 
-    /// True once the window is closed.
-    #[cfg(test)]
-    pub(crate) fn closed(&self) -> bool {
-        self.lock().closed
+    /// True once the window is closed: the watch is over.
+    pub(crate) fn is_closed(&self) -> bool {
+        // NOTE: Relaxed is enough: the lock of the window orders the store and the
+        // load of a push, and a reader that sees the close late only checks a few more
+        // lines.
+        self.closed.load(Ordering::Relaxed)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Window> {
@@ -531,9 +541,15 @@ pub(crate) fn spawn_reader(
         let mut lines = Lines::default();
         let mut send = |line: &[u8]| {
             let Some((matcher, window)) = &watch else { return };
+            // NOTE: the watch is over: the rest of the output costs no pattern work.
+            if window.is_closed() {
+                watch = None;
+                return;
+            }
+            #[cfg(test)]
+            window.checked.fetch_add(1, Ordering::Relaxed);
             let text = line_text(line);
             if matcher.is_match(&text) && !window.push(&text) {
-                // NOTE: the watch is over: the rest of the output costs no pattern work.
                 watch = None;
             }
         };

@@ -157,10 +157,10 @@ fn match_window_keeps_head_and_tail_and_counts_the_rest() {
 fn match_window_closes_only_with_its_last_batch() {
     let window = MatchWindow::default();
     assert_eq!(window.take(true), None);
-    assert!(!window.closed(), "a take with no batch leaves the window open");
+    assert!(!window.is_closed(), "a take with no batch leaves the window open");
     assert!(window.push("last"));
     assert_eq!(window.take(true).map(|matched| matched.lines), Some(vec!["last".to_owned()]));
-    assert!(window.closed());
+    assert!(window.is_closed());
     assert!(!window.push("after the last batch"));
     assert_eq!(window.take(false), None);
 }
@@ -178,12 +178,17 @@ async fn reader_puts_matches_into_the_window_until_it_closes() {
     Wait::new("the first chunk").until(|| output.bytes() >= first).await.unwrap();
     let taken = window.take(true).unwrap();
     assert_eq!(taken.lines, ["error one", "error two"]);
-    writeln!(writer, "error three").unwrap();
+    writeln!(writer, "fine again\nerror three").unwrap();
     write!(writer, "error four, with no newline").unwrap();
     drop(writer);
     output.ended().await;
     assert_eq!(window.take(false), None, "a closed window takes no line");
-    assert!(window.closed());
+    assert!(window.is_closed());
+    assert_eq!(
+        window.checked.load(std::sync::atomic::Ordering::Relaxed),
+        3,
+        "after the close no line costs pattern work"
+    );
 }
 
 #[tokio::test]

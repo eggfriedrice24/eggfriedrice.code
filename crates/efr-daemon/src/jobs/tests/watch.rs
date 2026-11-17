@@ -153,7 +153,7 @@ async fn max_wakes_counts_batches_and_the_last_closes_the_window() {
     assert_eq!(wakes, [1, 0], "two batches of two lines use the two notices");
     let ended = (&mut followed.task).await.unwrap();
     assert_eq!(ended, None, "the follower ends with the last notice");
-    assert!(followed.window.closed());
+    assert!(followed.window.is_closed());
     followed.write("match 3\n").await;
     assert_eq!(followed.window.take(false), None, "the reader puts no line in after the last");
     assert_eq!(recorded(&scene).await.len(), 2);
