@@ -10,6 +10,7 @@ import type { TypeName } from "@/theme/type";
 export const TYPE_CLASS = {
   body: "text-body",
   input: "text-input",
+  inputEmpty: "text-input-empty",
   row: "text-row",
   rowStrong: "text-row-strong",
   rowDetail: "text-row-detail",
