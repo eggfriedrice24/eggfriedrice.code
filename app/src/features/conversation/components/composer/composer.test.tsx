@@ -308,6 +308,23 @@ describe("the states of the composer", () => {
     expect(SPACING.action).toBe(32);
   });
 
+  it.each([true, false])(
+    "has the attach button at the left and the voice button before Send, both off (rest: %s)",
+    async (rest) => {
+      await renderComposer({ rest });
+      const attach = screen.getByRole("button", { name: "Attach a file or image" });
+      const voice = screen.getByRole("button", { name: "Record a voice message" });
+      for (const button of [attach, voice]) {
+        expect(button).toBeDisabled();
+        expect(button.props.accessibilityHint).toBe("Not available yet.");
+        expect(button.props.className).toContain("w-action h-action");
+        expect(button.props.hitSlop).toBe((SPACING.hit - SPACING.action) / 2);
+      }
+      // The order of the row (attach, the field, voice, Send) is device check 25.
+      expect(sendButton()).toBeOnTheScreen();
+    },
+  );
+
   it("enables Send while typing, and the field grows to six lines", async () => {
     await renderComposer();
     await fireEvent.changeText(input(), "Now write the migration notes");

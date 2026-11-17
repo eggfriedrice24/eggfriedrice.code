@@ -1,6 +1,7 @@
 // Slot C of the composer, the text input (design 3.3): a multiline UITextView in SF Pro
-// 15/21, text_primary on no fill, with padding 9 16 10. It has no border: the glass pill
-// of the root is the shape. It grows from 1 to 6 lines (40 to 145 pt), then scrolls
+// 15/21, text_primary on no fill, with padding 9 4 10: the attach and voice buttons
+// beside it give the room on the sides. It has no border: the glass pill of the root is
+// the shape. It grows from 1 to 6 lines (40 to 145 pt), then scrolls
 // inside.
 // Return inserts a newline; the trailing button sends. The caret is yolk.
 //
@@ -47,7 +48,7 @@ export function ComposerInput() {
       selectionColor={roles.accent_primary}
       cursorColor={roles.accent_primary}
       className={cn(
-        "flex-1 px-16 pt-9 pb-10 text-input",
+        "flex-1 px-4 pt-9 pb-10 text-input",
         size.expanded ? "min-h-field-focused max-h-field-max" : "min-h-field max-h-field",
         kind === "sending" ? "text-text-subtle" : "text-text-primary",
         kind === "disconnected" && "opacity-60",

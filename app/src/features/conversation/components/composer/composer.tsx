@@ -9,8 +9,9 @@
 //       <ComposerModelButton ... />            the model button at its end
 //     </Composer.StatusLine>
 //     <Composer.Row>
-//       <Composer.Leading />                   slot B: 0 pt in v1
+//       <Composer.Leading>                     slot B: the attach button (off for now)
 //       <Composer.Input />                     slot C: reads its own draft
+//       <ComposerVoiceButton />                the voice button (off for now)
 //       <Composer.Trailing />                  slot D: Send | Stop | Stop + Steer/Queue | sending
 //     </Composer.Row>
 //   </Composer.Root>                           slot E: the bottom edge, or 6 pt over the keyboard
@@ -25,6 +26,7 @@ import type { Readable } from "@tanstack/store";
 import type { StreamState } from "@/lib/stream/reducer";
 
 import { ComposerInput } from "./composer-input";
+import { ComposerAttachButton, ComposerVoiceButton } from "./composer-media-buttons";
 import { ComposerModeButton } from "./composer-mode-button";
 import { ComposerModelButton } from "./composer-model-button";
 import { ComposerRoot, type ComposerRootProps } from "./composer-root";
@@ -38,18 +40,19 @@ export interface ComposerRowProps {
 /**
  * The row of the field and the actions: gap 8, aligned at the bottom as the field grows.
  * With 4 pt above and under the 40 pt field, a one-line pill is 48 pt high. The 8 pt on
- * the right put the 32 pt action in the middle of the round end of the pill.
+ * each side put the 32 pt attach button and the 32 pt action in the middle of the round
+ * ends of the pill.
  */
 export function ComposerRow(props: ComposerRowProps) {
-  return <View className="flex-row items-end gap-8 py-4 pr-8">{props.children}</View>;
+  return <View className="flex-row items-end gap-8 px-8 py-4">{props.children}</View>;
 }
 
 export interface ComposerLeadingProps {
-  /** Later an attach button (a 32 pt circle, as the actions). */
+  /** The attach button (a 32 pt circle, as the actions). */
   readonly children?: ReactNode;
 }
 
-/** Slot B. It is empty in v1 and takes no width, so the row adds no gap for it. */
+/** Slot B. Empty, it takes no width, so the row adds no gap for it. */
 export function ComposerLeading(props: ComposerLeadingProps) {
   return props.children ?? null;
 }
@@ -110,8 +113,11 @@ export function DockedComposer(props: DockedComposerProps) {
         </View>
       </ComposerStatusLine>
       <ComposerRow>
-        <ComposerLeading />
+        <ComposerLeading>
+          <ComposerAttachButton />
+        </ComposerLeading>
         <ComposerInput />
+        <ComposerVoiceButton />
         <ComposerTrailing />
       </ComposerRow>
     </ComposerRoot>
