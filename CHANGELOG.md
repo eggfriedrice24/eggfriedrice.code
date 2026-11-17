@@ -10,6 +10,11 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Fixed
+
+- The quarantine sheet of the phone app shows Next after its question closed while
+  another question waits, as the approval sheet does. Before, it showed only Close.
+
 ## [0.0.11] - 2026-11-17
 
 ### Added

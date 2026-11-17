@@ -14,7 +14,7 @@
 // - Neither opens by itself: a tap on the strip or on the waiting tool card opens the
 //   sheet.
 
-import type { ApprovalView, ToolCallView } from "@/lib/stream/reducer";
+import type { ApprovalView, QuarantineQuestionView, ToolCallView } from "@/lib/stream/reducer";
 import {
   approvalBlock,
   terminalReason,
@@ -228,19 +228,37 @@ function clause(text: string): string {
   return text.trim().replace(/\.$/, "");
 }
 
+/** A question that the sheet can show: an approval or a quarantine question. */
+export interface SheetQuestion {
+  readonly callId: string;
+  /** True while the question waits for its answer. */
+  readonly open: boolean;
+}
+
 /**
- * The question that Next of the sheet header shows: after `approval` closed, the oldest
- * other question of `waiting`. None while `approval` waits for its answer, and none for a
- * question that the stream does not hold.
+ * The question that Next of the sheet header shows: after `current` closed, the oldest
+ * other question of `waiting`, approvals and quarantine questions alike (the sheet shows
+ * both). None while `current` waits for its answer, and none for a question that the
+ * stream does not hold.
  */
 export function nextQuestion(
-  approval: ApprovalView | undefined,
-  waiting: readonly ApprovalView[],
+  current: SheetQuestion | undefined,
+  waiting: readonly SheetQuestion[],
 ): string | undefined {
-  if (approval === undefined || approval.status === "pending") {
+  if (current === undefined || current.open) {
     return undefined;
   }
-  return waiting.find((one) => one.callId !== approval.callId)?.callId;
+  return waiting.find((one) => one.callId !== current.callId)?.callId;
+}
+
+/** The sheet question of an approval. */
+export function approvalQuestion(approval: ApprovalView): SheetQuestion {
+  return { callId: approval.callId, open: approval.status === "pending" };
+}
+
+/** The sheet question of a quarantine question. */
+export function quarantineQuestion(question: QuarantineQuestionView): SheetQuestion {
+  return { callId: question.callId, open: question.answer === "pending" };
 }
 
 /**

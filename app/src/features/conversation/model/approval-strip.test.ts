@@ -7,6 +7,7 @@ import {
   approvalCall,
   approvalSheet,
   approvalStrip,
+  approvalQuestion,
   nextQuestion,
   shortTimeLeft,
 } from "./approval-strip";
@@ -119,10 +120,21 @@ describe("approvalSheet", () => {
     expect(sheet.closed).toEqual({ parts: ["expired", "2 more waiting"] });
     expect(sheet.subject.kind).toBe("command");
     // Next of the native header: only after the question closed, and only when more wait.
-    expect(nextQuestion(expired, [other, third])).toBe("c2");
-    expect(nextQuestion(expired, [expired])).toBeUndefined();
-    expect(nextQuestion(PUSH, [PUSH, other])).toBeUndefined();
-    expect(nextQuestion(undefined, [other])).toBeUndefined();
+    const q = approvalQuestion;
+    expect(nextQuestion(q(expired), [q(other), q(third)])).toBe("c2");
+    expect(nextQuestion(q(expired), [q(expired)])).toBeUndefined();
+    expect(nextQuestion(q(PUSH), [q(PUSH), q(other)])).toBeUndefined();
+    expect(nextQuestion(undefined, [q(other)])).toBeUndefined();
+  });
+
+  it("offers Next after a quarantine question closed, to an approval or another question", () => {
+    const left = { callId: "q1", open: false };
+    const waitingApproval = approvalQuestion({ ...PUSH, callId: "c2" });
+    const waitingQuarantine = { callId: "q2", open: true };
+    expect(nextQuestion(left, [waitingApproval, waitingQuarantine])).toBe("c2");
+    expect(nextQuestion(left, [waitingQuarantine])).toBe("q2");
+    // While the quarantine question waits, Next does not show.
+    expect(nextQuestion({ callId: "q1", open: true }, [waitingApproval])).toBeUndefined();
   });
 
   it("names what an allow gives the call, a full-rights run, the reviewer and the facts", () => {

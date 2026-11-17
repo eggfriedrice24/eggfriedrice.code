@@ -14,14 +14,14 @@ import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
 
-import { findApproval, type StreamState } from "@/lib/stream/reducer";
+import { findApproval, findQuarantine, type StreamState } from "@/lib/stream/reducer";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { useRuntime } from "@/features/navigation/use-app-services";
 import { useMachines } from "@/features/navigation/use-machines";
 import { ApprovalSheet } from "../components/approval-sheet";
-import { nextQuestion } from "../model/approval-strip";
-import { selectPendingApprovals } from "../model/selectors";
+import { approvalQuestion, nextQuestion, quarantineQuestion } from "../model/approval-strip";
+import { selectPendingApprovals, selectPendingQuarantine } from "../model/selectors";
 import { useSheetStream } from "./use-sheet-stream";
 
 export interface ApprovalSheetScreenProps {
@@ -77,9 +77,22 @@ function SheetBody(props: SheetBodyProps) {
     (connection) => connection.view.kind === "online",
   );
   const { target } = props;
-  const next = useSelector(props.store, (state) =>
-    nextQuestion(findApproval(state, target.call), selectPendingApprovals(state)),
-  );
+  const next = useSelector(props.store, (state) => {
+    // The sheet shows an approval or a quarantine question; Next takes either kind.
+    const approval = findApproval(state, target.call);
+    const quarantine = findQuarantine(state, target.call);
+    const current =
+      approval !== undefined
+        ? approvalQuestion(approval)
+        : quarantine === undefined
+          ? undefined
+          : quarantineQuestion(quarantine);
+    const waiting = [
+      ...selectPendingApprovals(state).map(approvalQuestion),
+      ...selectPendingQuarantine(state).map(quarantineQuestion),
+    ];
+    return nextQuestion(current, waiting);
+  });
   return (
     <>
       <Stack.Toolbar placement="right">
