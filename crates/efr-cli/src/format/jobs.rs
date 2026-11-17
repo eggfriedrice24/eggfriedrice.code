@@ -299,10 +299,19 @@ pub(crate) fn ended(job_id: &JobId, end: &Ended<'_>) -> String {
     line
 }
 
-/// The line of an output line that matched a job's `watch` pattern: `job j3 matched:
-/// <line>`, on one line and safe to print.
-pub(crate) fn matched(job_id: &JobId, line: &str) -> String {
-    format!("job {job_id} matched: {}", one_line(line))
+/// The line of a batch of output lines that matched a job's `watch` pattern within one
+/// second (TM-Endings 0.0.12, frame 1): `job j3 matched: <line>` for one line, else
+/// `job j3 matched 20 lines (19 not shown): <first line>`. `more` counts the lines of
+/// the event after the first, and `dropped` those that it left out. The count stands
+/// before the line, so a cut of a long line never takes it. On one line and safe to
+/// print.
+pub(crate) fn matched(job_id: &JobId, line: &str, more: usize, dropped: u32) -> String {
+    let hidden = u64::try_from(more).unwrap_or(u64::MAX).saturating_add(dropped.into());
+    if hidden == 0 {
+        return format!("job {job_id} matched: {}", one_line(line));
+    }
+    let lines = hidden.saturating_add(1);
+    format!("job {job_id} matched {lines} lines ({hidden} not shown): {}", one_line(line))
 }
 
 /// The URL of a port that efr forwards for a job: `http://localhost:8765`.
@@ -430,7 +439,9 @@ pub(crate) fn notice_rides(job_id: &JobId) -> String {
 pub(crate) fn conversation_line(event: &Event) -> Option<String> {
     match event {
         Event::JobEnded { .. } => Ended::of(event).map(|(job_id, end)| ended(job_id, &end)),
-        Event::JobWatchMatched { job_id, line, .. } => Some(matched(job_id, line)),
+        Event::JobWatchMatched { job_id, line, more, dropped, .. } => {
+            Some(matched(job_id, line, more.len(), *dropped))
+        }
         Event::JobNoticeHeld { job_id, reason, .. } => Some(held(job_id, *reason)),
         Event::JobPortForwarded { job_id, listen, port, outcome, by_job, reason } => {
             Some(forward(job_id, listen, *port, *outcome, by_job.as_ref(), reason.as_deref()))

@@ -241,7 +241,7 @@ fn job_end_lists_blocked() {
 #[test]
 fn watch_line_goes_through_one_line() {
     let line = "ready\u{1b}[2J on \u{202e}port 3000\n\tnext";
-    let shown = matched(&j3(), line);
+    let shown = matched(&j3(), line, 0, 0);
     assert_eq!(shown, "job j3 matched: ready\u{241b}[2J on \u{fffd}port 3000  next");
     let event = Event::JobWatchMatched {
         job_id: j3(),
@@ -251,6 +251,33 @@ fn watch_line_goes_through_one_line() {
         wakes_left: 1,
     };
     assert_eq!(conversation_line(&event).unwrap(), shown);
+}
+
+#[test]
+fn a_watch_batch_counts_its_lines_before_the_first_one() {
+    let batch = |more: usize, dropped: u32| Event::JobWatchMatched {
+        job_id: j3(),
+        line: "error[E0425]: cannot find value `tx`".to_owned(),
+        more: vec!["next".to_owned(); more],
+        dropped,
+        wakes_left: 2,
+    };
+    assert_eq!(
+        conversation_line(&batch(0, 0)).unwrap(),
+        "job j3 matched: error[E0425]: cannot find value `tx`"
+    );
+    assert_eq!(
+        conversation_line(&batch(19, 0)).unwrap(),
+        "job j3 matched 20 lines (19 not shown): error[E0425]: cannot find value `tx`"
+    );
+    assert_eq!(
+        conversation_line(&batch(19, 4980)).unwrap(),
+        "job j3 matched 5000 lines (4999 not shown): error[E0425]: cannot find value `tx`"
+    );
+    assert_eq!(
+        matched(&j3(), "x", 0, u32::MAX),
+        "job j3 matched 4294967296 lines (4294967295 not shown): x"
+    );
 }
 
 #[test]
