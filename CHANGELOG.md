@@ -10,8 +10,58 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- The model can monitor a log, a build, a test run or a deploy: it starts a background
+  job with a `watch` pattern and ends its turn. Lines of the job that match the
+  pattern within 1 second reach the model as one notice of at most 20 lines (the first
+  10 and the last 10). A watch gives 3 notices by default and 10 at most. Lines that
+  match just before the job ends go into the notice of its end, so a burst and an exit
+  start one wake turn. The turn view and `efr history` show a batch as one row, such
+  as `job j3 matched 20 lines (19 not shown): <first line>`.
+- efr sends a desktop notice through the terminal (OSC 777, `[notify]`) when a
+  question or an answer line waited 10 seconds and you typed no key, and when a turn
+  that took at least `notify.after_secs` (30) ends: `app: done in 4m 12s` or
+  `app: failed after 1m 3s`. An interrupted turn sends none. `notify.terminal = "auto"`
+  sends it only in Ghostty and never through tmux, GNU screen or zellij. Leave
+  Ghostty's `notify-on-command-finish` at `never` for efr, or you get two notices at
+  the end of a turn.
+- The notices of efrd now show above a waiting zsh prompt at once, and the text that
+  you typed stays. Before, they waited for your next Enter. A notice that needs you,
+  such as a question, the end of a job notice turn or job notices that wait at the
+  wake limit, also sends a desktop notice through the same `notify.terminal` rule.
+- The model can ask you a question with 2 to 4 options (the tool `ask_user`). Press a
+  digit to pick an option, `t` to type an answer of your own, or Esc to skip. The
+  phone app can answer too, from the strip or the action sheet. An answer is
+  information for the model: it approves nothing, and efr never reads it as your
+  message for its own rules. While nobody who can answer follows the conversation, the
+  question waits `presence.away_wait_secs` (300 s), and then the model goes on with a
+  choice that is safe and easy to undo. `conversation.ask_user = false` turns the tool
+  off.
+- `efr history --list` and the conversations sheet of the phone app show who must act:
+  "needs approval", "needs an answer", "answer in the terminal", "running" and
+  "failed". The sheet shows a banner when a machine is offline, with the age of the
+  rows that the phone keeps, such as `homelab offline · rows from 2h ago`, and its
+  times move once a minute.
+
+### Changed
+
+- A watch of a job counts notices, not lines. `jobs.max_wakes_per_watch` is 10 by
+  default (it was 3), and a watch that names no `max_wakes` gives 3 notices (it was 1).
+  After the last notice the job runs on until it ends or its time limit passes, and
+  the notice of its end always comes.
+- The first start of efrd after the update rebuilds the lists from the log once.
+- A question of the model in a terminal that does not follow the turn leaves a notice
+  row, as an approval does. The row of a failed job notice turn has its head in the
+  error colour.
+- The lists count a quarantine question as "needs approval". Before, they showed the
+  conversation as running.
+
 ### Fixed
 
+- A quarantine question no longer waits without end while you are away. It waits
+  `presence.away_wait_secs`, the change stays in quarantine, and the question goes to
+  `presence.push` once.
 - The quarantine sheet of the phone app shows Next after its question closed while
   another question waits, as the approval sheet does. Before, it showed only Close.
 
