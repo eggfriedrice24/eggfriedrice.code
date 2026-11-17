@@ -550,10 +550,21 @@ struct QuestionKeys {
 }
 
 impl Asking {
-    /// True when the keys read for it may hold a password or the rest of one: before
-    /// they go to the input row, what is still unread is thrown away.
+    /// True when the keys read for it may hold a password or the rest of one, or the
+    /// rest of an answer to the model's question: before they go to the input row, what
+    /// is still unread is thrown away. So the rest of an answer that the user typed
+    /// when the question ended elsewhere never becomes a steer (ADR 0025).
     fn guards(&self) -> bool {
-        matches!(self, Asking::Input { .. } | Asking::Discard | Asking::Pending { .. })
+        match self {
+            Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => true,
+            Asking::Question(keys) => keys.line.is_some(),
+            Asking::Approval(_)
+            | Asking::Always(_)
+            | Asking::Surface(_)
+            | Asking::StopJob
+            | Asking::Move { .. }
+            | Asking::Row => false,
+        }
     }
 }
 
@@ -582,19 +593,10 @@ enum Seed {
 /// Stops `keys`. A reader that read an answer line throws away what is still unread,
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
-    match asking {
-        Asking::Approval(_)
-        | Asking::Always(_)
-        | Asking::Surface(_)
-        | Asking::StopJob
-        | Asking::Move { .. }
-        | Asking::Question(_)
-        | Asking::Row => {
-            keys.stop().await;
-        }
-        Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
-            keys.stop_discarding().await;
-        }
+    if asking.guards() {
+        keys.stop_discarding().await;
+    } else {
+        keys.stop().await;
     }
 }
 

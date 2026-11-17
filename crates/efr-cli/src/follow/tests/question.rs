@@ -11,7 +11,9 @@ use efr_protocol::{
 };
 use pretty_assertions::assert_eq;
 
+use super::super::{Asking, QuestionKeys};
 use super::{raw_view, run, run_view, subscription, turn_completed};
+use crate::answer::{AnswerLine, Sequences};
 use crate::context::Context;
 use crate::testing::{Conn, ScriptedKeys, TestEnv, call, conversation, envelope, item, turn};
 
@@ -215,4 +217,21 @@ async fn a_queued_prompt_shows_and_answers_the_question_that_the_running_turn_wa
     assert!(result.is_err(), "the followed turn was cancelled");
     assert_eq!(err.matches(" ?  Which database should the tests use?").count(), 1, "{err}");
     assert!(err.contains("\u{2713} answered \u{b7} both\n"), "{err}");
+}
+
+#[test]
+fn an_open_answer_line_throws_its_unread_keys_away() {
+    let keys = |line: Option<AnswerLine>| {
+        Asking::Question(QuestionKeys {
+            question_id: question_id(),
+            options: 3,
+            line,
+            sequences: Sequences::default(),
+        })
+    };
+    assert!(!keys(None).guards(), "a digit or Esc can go to the row");
+    assert!(
+        keys(Some(AnswerLine::new())).guards(),
+        "the rest of an answer never goes to the row, where Enter steers"
+    );
 }
