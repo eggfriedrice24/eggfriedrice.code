@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use efr_provider::{EditTool, ModelInfo};
+use efr_provider::{EditTool, InputKinds, ModelInfo};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -31,10 +31,30 @@ fn an_entry_becomes_a_model_with_the_apis_limits_and_the_edit_tool() {
         .with_max_context_window(1_000_000)
         .with_max_output_tokens(128_000)
         .with_efforts(["low", "medium", "high", "xhigh", "max"], Some(DEFAULT_EFFORT))
-        .with_edit_tool(EditTool::Replace);
+        .with_edit_tool(EditTool::Replace)
+        .with_inputs(InputKinds { image: true, pdf: true });
     assert_eq!(models, vec![expected]);
     assert!(!models[0].freeform_tools);
     assert!(!models[0].prefer_websockets);
+}
+
+#[test]
+fn the_input_kinds_come_from_the_capabilities_and_a_missing_one_is_false() {
+    let mut text_only = model_entry("text-only");
+    text_only["capabilities"]["image_input"] = json!({"supported": false});
+    text_only["capabilities"].as_object_mut().unwrap().remove("pdf_input");
+    let mut no_tree = model_entry("no-tree");
+    no_tree.as_object_mut().unwrap().remove("capabilities");
+    let models = catalog_of(&json!([model_entry("both"), text_only, no_tree])).models();
+    let inputs: Vec<InputKinds> = models.iter().map(|model| model.inputs).collect();
+    assert_eq!(
+        inputs,
+        [
+            InputKinds { image: true, pdf: true },
+            InputKinds { image: false, pdf: false },
+            InputKinds { image: false, pdf: false },
+        ]
+    );
 }
 
 #[test]

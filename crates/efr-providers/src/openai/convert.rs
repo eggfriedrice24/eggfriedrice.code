@@ -45,9 +45,10 @@
 use std::collections::HashSet;
 
 use efr_provider::{
-    ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, ModelInfo, Request, Role,
-    ToolDefinition, WebAccess,
+    AttachmentPart, ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, ModelInfo,
+    Request, Role, ToolDefinition, WebAccess, label,
 };
+use efr_stdx::media::MediaType;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
@@ -564,11 +565,26 @@ fn push_canonical(
                     "arguments": arguments,
                 }));
             }
-            ContentBlock::ToolResult { call_id, output, is_error, .. } => {
+            ContentBlock::Attachment(part) if !assistant => push_attachment(&mut content, part),
+            ContentBlock::ToolResult { call_id, output, is_error, attachments } => {
                 flush(items, role, &mut content);
                 // NOTE: the Responses API has no error flag on a tool result; goose
                 // marks a failed call in the output text the same way.
-                let output = if *is_error { format!("Error: {output}") } else { output.clone() };
+                let text = if *is_error { format!("Error: {output}") } else { output.clone() };
+                // NOTE: a result with no attachment stays a string, so the bytes of the
+                // turns before attachments do not change.
+                let output = if attachments.is_empty() {
+                    Value::String(text)
+                } else {
+                    let mut parts = Vec::with_capacity(1 + 3 * attachments.len());
+                    if !text.is_empty() {
+                        parts.push(json!({"type": "input_text", "text": text}));
+                    }
+                    for part in attachments {
+                        push_attachment(&mut parts, part);
+                    }
+                    Value::Array(parts)
+                };
                 let kind = if freeform.contains(call_id.as_str()) {
                     "custom_tool_call_output"
                 } else {
@@ -585,6 +601,37 @@ fn push_canonical(
         }
     }
     flush(items, role, &mut content);
+}
+
+/// Appends `part` to the content of a user message or of a tool result: its label as
+/// text around an `input_image` or an `input_file` when the part has data, else the
+/// label alone. An image goes with `detail: "high"`: at most 2,048 pixels and 2,500
+/// patches, so its cost is stable and the patch limit of `original` cannot refuse it.
+fn push_attachment(content: &mut Vec<Value>, part: &AttachmentPart) {
+    let attachment = &part.attachment;
+    let label = label(attachment, part.data.is_some());
+    let Some(data) = &part.data else {
+        content.push(
+            json!({"type": "input_text", "text": format!("{}\n{}", label.open, label.close)}),
+        );
+        return;
+    };
+    let media = attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type);
+    // NOTE: the one copy of the bytes for this request.
+    const SCHEME: &str = "data:";
+    const BASE64: &str = ";base64,";
+    let mut url = String::with_capacity(SCHEME.len() + media.len() + BASE64.len() + data.len());
+    url.push_str(SCHEME);
+    url.push_str(media);
+    url.push_str(BASE64);
+    url.push_str(data.as_str());
+    content.push(json!({"type": "input_text", "text": label.open}));
+    if media == MediaType::Pdf.as_str() {
+        content.push(json!({"type": "input_file", "filename": attachment.name, "file_data": url}));
+    } else {
+        content.push(json!({"type": "input_image", "image_url": url, "detail": "high"}));
+    }
+    content.push(json!({"type": "input_text", "text": label.close}));
 }
 
 fn flush(items: &mut Vec<Value>, role: &str, content: &mut Vec<Value>) {

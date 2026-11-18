@@ -182,6 +182,7 @@ pub(crate) fn builtin_entries(backend: Backend) -> Vec<CatalogEntry> {
             apply_patch_tool_type: Some(crate::openai::catalog::FREEFORM.to_owned()),
             prefer_websockets: true,
             supported_in_api: true,
+            input_modalities: None,
         })
         .collect()
 }

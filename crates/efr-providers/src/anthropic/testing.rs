@@ -166,6 +166,8 @@ pub(crate) fn model_entry(id: &str) -> Value {
                 "max": supported,
             },
             "thinking": {"supported": true, "types": {"adaptive": supported}},
+            "image_input": supported,
+            "pdf_input": supported,
         },
     })
 }

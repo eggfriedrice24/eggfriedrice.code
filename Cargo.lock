@@ -1015,6 +1015,7 @@ version = "0.0.12"
 dependencies = [
  "async-trait",
  "efr-http",
+ "efr-protocol",
  "efr-provider",
  "efr-stdx",
  "efr-test-support",

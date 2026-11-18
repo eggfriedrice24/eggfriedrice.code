@@ -1,6 +1,6 @@
 use efr_provider::{
     ContentBlock, FREEFORM_INPUT, HostedAction, HostedTool, Message, Request, Role, ToolDefinition,
-    ToolGrammar, WebAccess,
+    ToolGrammar, WebAccess, label,
 };
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use super::{OutputItem, input_items, provider_raw, request_body, tool_definition, web_tool};
 use crate::openai::catalog::with_extra;
 use crate::openai::{Catalog, OpenAiConfig, ReasoningMode};
+use crate::testing;
 
 fn shell_tool() -> ToolDefinition {
     ToolDefinition::function(
@@ -366,6 +367,87 @@ fn tool_results_become_function_call_outputs_between_messages() {
             json!({"type": "message", "role": "user", "content": [{"type": "input_text", "text": "After."}]}),
         ]
     );
+}
+
+/// The one user message of `content`, as the Responses API gets it.
+fn user_content(content: Vec<ContentBlock>) -> Value {
+    let items = input_items(&[Message::new(Role::User, content)], true, false, |_| true);
+    assert_eq!(items.len(), 1, "{items:?}");
+    items[0]["content"].clone()
+}
+
+#[test]
+fn an_image_goes_as_a_data_url_with_high_detail_inside_its_label() {
+    let part = testing::image(true);
+    let open = label(&part.attachment, true).open;
+    let content = user_content(vec![ContentBlock::Attachment(part), text("What is this?")]);
+    assert_eq!(
+        content,
+        json!([
+            {"type": "input_text", "text": open},
+            {"type": "input_image", "image_url": format!("data:image/jpeg;base64,{}", testing::DATA), "detail": "high"},
+            {"type": "input_text", "text": "</attachment>"},
+            {"type": "input_text", "text": "What is this?"},
+        ])
+    );
+}
+
+#[test]
+fn a_pdf_goes_as_an_input_file() {
+    let content = user_content(vec![ContentBlock::Attachment(testing::pdf(true))]);
+    assert_eq!(
+        content[1],
+        json!({
+            "type": "input_file",
+            "filename": "report.pdf",
+            "file_data": format!("data:application/pdf;base64,{}", testing::DATA),
+        })
+    );
+}
+
+#[test]
+fn a_part_with_no_data_goes_as_its_label_with_the_path() {
+    let part = testing::pdf(false);
+    let label = label(&part.attachment, false);
+    let content = user_content(vec![ContentBlock::Attachment(part)]);
+    assert_eq!(
+        content,
+        json!([{"type": "input_text", "text": format!("{}\n</attachment>", label.open)}])
+    );
+    assert!(label.open.ends_with("[efr: not sent as content. Open the file at the path.]"));
+}
+
+#[test]
+fn a_tool_result_with_an_image_sends_its_output_as_a_list() {
+    let part = testing::tool_image(true);
+    let open = label(&part.attachment, true).open;
+    let result = ContentBlock::ToolResult {
+        call_id: "call_1".to_owned(),
+        output: "plot.png: PNG image, 64x32, 9 KB".to_owned(),
+        is_error: false,
+        attachments: vec![part],
+    };
+    let items = input_items(&[Message::new(Role::User, vec![result])], true, false, |_| true);
+    assert_eq!(
+        items,
+        vec![json!({
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": [
+                {"type": "input_text", "text": "plot.png: PNG image, 64x32, 9 KB"},
+                {"type": "input_text", "text": open},
+                {"type": "input_image", "image_url": format!("data:image/png;base64,{}", testing::DATA), "detail": "high"},
+                {"type": "input_text", "text": "</attachment>"},
+            ],
+        })]
+    );
+}
+
+#[test]
+fn an_attachment_in_an_assistant_message_is_left_out() {
+    let message =
+        Message::new(Role::Assistant, vec![ContentBlock::Attachment(testing::image(true))]);
+    assert_eq!(input_items(&[message], true, false, |_| true), Vec::<Value>::new());
 }
 
 #[test]

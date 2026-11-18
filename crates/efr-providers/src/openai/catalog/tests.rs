@@ -1,4 +1,4 @@
-use efr_provider::ModelInfo;
+use efr_provider::{InputKinds, ModelInfo};
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -187,4 +187,34 @@ fn the_models_of_the_config_lie_over_the_catalog() {
     assert_eq!(merged[0].context_window, Some(100_000), "a missing value keeps the catalog's");
     assert_eq!(merged[0].max_output_tokens, Some(4_000));
     assert_eq!(merged[2].context_window, Some(50_000));
+}
+
+#[test]
+fn the_input_kinds_come_from_the_modalities_and_only_the_api_reads_a_pdf() {
+    let entry = |slug: &str, modalities: Value| {
+        let mut entry =
+            json!({"slug": slug, "visibility": "list", "apply_patch_tool_type": "freeform"});
+        if !modalities.is_null() {
+            entry["input_modalities"] = modalities;
+        }
+        entry
+    };
+    let body = json!({"models": [
+        entry("missing", Value::Null),
+        entry("text", json!(["text"])),
+        entry("both", json!(["text", "image"])),
+    ]});
+    let (entries, _) = entries_of(&body).unwrap();
+    let inputs = |backend: Backend| -> Vec<InputKinds> {
+        Catalog::from_backend(backend, BASE_URL, entries.clone(), None, start())
+            .models()
+            .iter()
+            .map(|model| model.inputs)
+            .collect()
+    };
+    let api = InputKinds { image: true, pdf: true };
+    let plan = InputKinds { image: true, pdf: false };
+    let text = InputKinds::default();
+    assert_eq!(inputs(Backend::Api), [api, text, api], "a missing value reads text and images");
+    assert_eq!(inputs(Backend::Subscription), [plan, text, plan]);
 }

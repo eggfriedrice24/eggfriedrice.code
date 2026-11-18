@@ -17,7 +17,7 @@
 //! | 401 `authentication_error` | `Unauthorized { message }`, at once (a key cannot refresh) | no |
 //! | any other 402 `billing_error`, 403 `permission_error` | `Api` | no |
 //! | 404 `not_found_error` for the model | `UnknownModel` | no |
-//! | 413 `request_too_large` (a body over 32 MB) | `Api`, built here and not through `ProviderError::api`, which reads 413 as an overflow | no |
+//! | 413 `request_too_large` (a body over 128 MB) | `Api`, built here and not through `ProviderError::api`, which reads 413 as an overflow | no |
 //! | 429 with `error.details.error_code: "enforced_spend_limit_reached"` | `LimitReached` (`spend_limit`) | no |
 //! | any other 429 | `RateLimited { retry_after, limit }` from `retry-after`, with the empty bucket of the `anthropic-ratelimit-*` headers | yes, after that wait |
 //! | 500 `api_error`, 504 `timeout_error`, and 502 or 503 from a proxy | `Api` after the last try | yes, with backoff |
@@ -298,7 +298,7 @@ impl Class {
                 windows: Vec::new(),
             },
             // NOTE: ProviderError::api reads a 413 as an overflow of the window, but on
-            // this API it is a body over 32 MB that compaction may not shrink.
+            // this API it is a body over 128 MB that compaction may not shrink.
             (Class::TooLarge | Class::ServerError | Class::UnknownModel, _) => {
                 ProviderError::Api { status, code, message }
             }

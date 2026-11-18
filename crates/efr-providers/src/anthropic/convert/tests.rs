@@ -1,6 +1,6 @@
 use efr_provider::{
     ContentBlock, EditTool, Message, ModelInfo, ProviderError, Request, Role, ToolDefinition,
-    ToolGrammar,
+    ToolGrammar, label,
 };
 use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::{MessagesBody, THINKING_BINDING_BETA, UNANSWERED_CALL, request_body, tool_id};
 use crate::anthropic::{AnthropicConfig, CacheTtl};
+use crate::testing;
 
 mod perf;
 mod prefix;
@@ -689,6 +690,76 @@ fn empty_text_and_empty_messages_are_left_out() {
         ])
     );
 }
+
+#[test]
+fn an_image_and_a_pdf_go_as_base64_blocks_inside_their_labels() {
+    let image = testing::image(true);
+    let pdf = testing::pdf(true);
+    let image_open = label(&image.attachment, true).open;
+    let pdf_open = label(&pdf.attachment, true).open;
+    let request = request(vec![user(vec![
+        ContentBlock::Attachment(image),
+        ContentBlock::Attachment(pdf),
+        text("What is this?"),
+    ])]);
+    let content = value(&body(&request))["messages"][0]["content"].clone();
+    let source = |media_type: &str| json!({"type": "base64", "media_type": media_type, "data": testing::DATA});
+    assert_eq!(
+        content,
+        json!([
+            {"type": "text", "text": image_open},
+            {"type": "image", "source": source("image/jpeg")},
+            {"type": "text", "text": "</attachment>"},
+            {"type": "text", "text": pdf_open},
+            {"type": "document", "source": source("application/pdf")},
+            {"type": "text", "text": "</attachment>"},
+            {"type": "text", "text": "What is this?", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+        ])
+    );
+}
+
+#[test]
+fn a_part_with_no_data_goes_as_its_label_with_the_path() {
+    let part = testing::image(false);
+    let open = label(&part.attachment, false).open;
+    let request = request(vec![user(vec![ContentBlock::Attachment(part), text("Look.")])]);
+    let content = value(&body(&request))["messages"][0]["content"].clone();
+    assert_eq!(content[0], json!({"type": "text", "text": format!("{open}\n</attachment>")}));
+    assert_eq!(content.as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn a_tool_result_with_an_image_holds_a_list_and_one_with_none_keeps_its_text() {
+    let part = testing::tool_image(true);
+    let open = label(&part.attachment, true).open;
+    let with_image = ContentBlock::ToolResult {
+        call_id: "toolu_02".to_owned(),
+        output: "plot.png: PNG image, 64x32, 9 KB".to_owned(),
+        is_error: false,
+        attachments: vec![part],
+    };
+    let request = request(vec![
+        Message::user("Plot it."),
+        written(vec![call("toolu_01", "ls"), call("toolu_02", "cat")], CALL_TWO),
+        user(vec![result("toolu_01", "plot.png"), with_image]),
+    ]);
+    let content = value(&body(&request))["messages"][2]["content"].clone();
+    assert_eq!(
+        content[0],
+        json!({"type": "tool_result", "tool_use_id": "toolu_01", "content": "plot.png"})
+    );
+    assert_eq!(
+        content[1]["content"],
+        json!([
+            {"type": "text", "text": "plot.png: PNG image, 64x32, 9 KB"},
+            {"type": "text", "text": open},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": testing::DATA}},
+            {"type": "text", "text": "</attachment>"},
+        ])
+    );
+}
+
+const CALL_TWO: &str = r#"[{"type":"tool_use","id":"toolu_01","name":"shell","input":{"command":"ls"}},{"type":"tool_use","id":"toolu_02","name":"shell","input":{"command":"cat"}}]"#;
 
 #[test]
 fn a_freeform_tool_goes_in_its_function_form() {

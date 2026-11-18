@@ -29,7 +29,7 @@ mod client;
 
 use std::sync::{Arc, PoisonError, RwLock};
 
-use efr_provider::ModelInfo;
+use efr_provider::{InputKinds, ModelInfo};
 use jiff::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -142,7 +142,7 @@ impl Catalog {
         let mut offered: Vec<&CatalogEntry> =
             self.entries.iter().filter(|entry| entry.offered(self.backend)).collect();
         offered.sort_by_key(|entry| entry.priority);
-        offered.into_iter().map(CatalogEntry::model).collect()
+        offered.into_iter().map(|entry| entry.model(self.backend)).collect()
     }
 
     /// The model of a turn that names none: the offered model with the best priority.
@@ -316,6 +316,10 @@ pub(crate) struct CatalogEntry {
     /// served.
     #[serde(default = "served")]
     pub(crate) supported_in_api: bool,
+    /// What the model reads, such as `["text", "image"]`. An entry without it reads text
+    /// and images, as Codex takes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) input_modalities: Option<Vec<String>>,
 }
 
 impl CatalogEntry {
@@ -326,9 +330,19 @@ impl CatalogEntry {
             && matches!(self.apply_patch_tool_type.as_deref(), None | Some(FREEFORM | FUNCTION))
     }
 
-    /// The model as a provider describes it. A missing window takes the largest one,
-    /// and the largest one is never below the window.
-    fn model(&self) -> ModelInfo {
+    /// What the model reads besides text on `backend`. Only the API key backend takes a
+    /// PDF as content; the subscription backend gets it as a path.
+    fn inputs(&self, backend: Backend) -> InputKinds {
+        let image = self
+            .input_modalities
+            .as_ref()
+            .is_none_or(|modalities| modalities.iter().any(|modality| modality == "image"));
+        InputKinds { image, pdf: image && backend == Backend::Api }
+    }
+
+    /// The model as a provider describes it on `backend`. A missing window takes the
+    /// largest one, and the largest one is never below the window.
+    fn model(&self, backend: Backend) -> ModelInfo {
         let window = self.context_window.or(self.max_context_window);
         let max_window = match (self.max_context_window, window) {
             (Some(max), Some(window)) => Some(max.max(window)),
@@ -338,7 +352,8 @@ impl CatalogEntry {
         let mut model = ModelInfo::new(&self.slug)
             .with_efforts(efforts, self.default_reasoning_level.as_deref())
             .with_freeform_tools(self.apply_patch_tool_type.as_deref() == Some(FREEFORM))
-            .with_prefer_websockets(self.prefer_websockets);
+            .with_prefer_websockets(self.prefer_websockets)
+            .with_inputs(self.inputs(backend));
         model.context_window = window;
         model.max_context_window = max_window;
         model

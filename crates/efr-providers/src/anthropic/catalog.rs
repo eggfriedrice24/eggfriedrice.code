@@ -17,7 +17,9 @@
 //!   `low` to `max` (a level that efr does not know comes after them, by name), and
 //!   [`DEFAULT_EFFORT`](crate::anthropic::DEFAULT_EFFORT) as `default_effort` when the model takes
 //!   it;
-//! - `edit_tool` `EditTool::Replace`, and neither freeform tools nor WebSockets.
+//! - `edit_tool` `EditTool::Replace`, and neither freeform tools nor WebSockets;
+//! - `inputs` from `capabilities.image_input.supported` and
+//!   `capabilities.pdf_input.supported`; a missing value reads as false.
 //!
 //! efr keeps no table of Claude models: there is no list until a fetch or the cache
 //! file gives one, and no guessed window. A [`ModelCatalog`] holds the current list in
@@ -33,7 +35,7 @@ mod client;
 
 use std::sync::{Arc, PoisonError, RwLock};
 
-use efr_provider::{EditTool, ModelInfo};
+use efr_provider::{EditTool, InputKinds, ModelInfo};
 use jiff::Timestamp;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -219,7 +221,8 @@ pub(crate) struct CatalogEntry {
     pub(crate) max_input_tokens: Option<u64>,
     #[serde(default, deserialize_with = "tokens", skip_serializing_if = "Option::is_none")]
     pub(crate) max_tokens: Option<u64>,
-    /// The whole tree, as the API sent it; efr reads `effort`.
+    /// The whole tree, as the API sent it; efr reads `effort`, `image_input` and
+    /// `pdf_input`.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub(crate) capabilities: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -237,13 +240,22 @@ impl CatalogEntry {
         let efforts = self.efforts();
         let default =
             efforts.iter().any(|effort| effort == DEFAULT_EFFORT).then_some(DEFAULT_EFFORT);
+        let inputs =
+            InputKinds { image: self.supports("image_input"), pdf: self.supports("pdf_input") };
         let mut model = ModelInfo::new(&self.id)
             .with_efforts(efforts, default)
-            .with_edit_tool(EditTool::Replace);
+            .with_edit_tool(EditTool::Replace)
+            .with_inputs(inputs);
         model.context_window = self.max_input_tokens;
         model.max_context_window = self.max_input_tokens;
         model.max_output_tokens = self.max_tokens.and_then(|tokens| u32::try_from(tokens).ok());
         model
+    }
+
+    /// True when `capabilities.<capability>.supported` is true.
+    fn supports(&self, capability: &str) -> bool {
+        self.capabilities.get(capability).and_then(|value| value.get("supported"))
+            == Some(&Value::Bool(true))
     }
 
     /// The effort levels whose `supported` is true, in [`EFFORT_ORDER`], then any

@@ -92,9 +92,10 @@ mod breakpoints;
 use std::io;
 
 use efr_provider::{
-    ContentBlock, FREEFORM_INPUT, HostedTool, Message, ModelInfo, ProviderError, Request, Role,
-    unoffered_call_text,
+    AttachmentPart, ContentBlock, EncodedBytes, FREEFORM_INPUT, HostedTool, Message, ModelInfo,
+    ProviderError, Request, Role, label, unoffered_call_text,
 };
+use efr_stdx::media::MediaType;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -338,12 +339,48 @@ enum Block {
     ToolResult {
         tool_use_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
+        content: Option<ResultContent>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    Image {
+        source: Source,
+    },
+    Document {
+        source: Source,
+    },
+}
+
+/// The content of a `tool_result`: the text of today, or a list of text and image
+/// blocks only for a result with attachments, so the bytes of older turns stay the
+/// same.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum ResultContent {
+    Text(String),
+    Blocks(Vec<Block>),
+}
+
+/// The bytes of an image or a document block.
+#[derive(Debug, Clone, Serialize)]
+struct Source {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    media_type: String,
+    data: Base64,
+}
+
+/// The base64 text of an attachment, which the body writes from the shared text with
+/// no copy of its own.
+#[derive(Debug, Clone)]
+struct Base64(EncodedBytes);
+
+impl Serialize for Base64 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.as_str())
+    }
 }
 
 /// The body for `request` under `config`. `model` is what the catalog and the config
@@ -568,7 +605,9 @@ impl BodyMessage {
                 *cache_control = control;
                 Some(())
             }
-            Part::Block(Block::ToolUse { .. }) | Part::Raw(_) => None,
+            // NOTE: the closing text of its label always follows an image or a document.
+            Part::Block(Block::ToolUse { .. } | Block::Image { .. } | Block::Document { .. })
+            | Part::Raw(_) => None,
         }
     }
 }
@@ -809,21 +848,57 @@ fn user_draft(message: &Message) -> Draft {
     let mut draft = Draft::new(Role::User);
     for block in &message.content {
         match block {
-            ContentBlock::ToolResult { call_id, output, is_error, .. } => {
+            ContentBlock::ToolResult { call_id, output, is_error, attachments } => {
                 let id = tool_id(call_id);
                 draft.answers.push(id.clone());
+                let content = if attachments.is_empty() {
+                    (!output.is_empty()).then(|| ResultContent::Text(output.clone()))
+                } else {
+                    let mut blocks = Vec::with_capacity(1 + 3 * attachments.len());
+                    if !output.is_empty() {
+                        blocks.push(Block::Text { text: output.clone(), cache_control: None });
+                    }
+                    for part in attachments {
+                        attachment_blocks(&mut blocks, part);
+                    }
+                    Some(ResultContent::Blocks(blocks))
+                };
                 draft.results.push(Part::Block(Block::ToolResult {
                     tool_use_id: id,
-                    content: (!output.is_empty()).then(|| output.clone()),
+                    content,
                     is_error: *is_error,
                     cache_control: None,
                 }));
             }
             ContentBlock::Text { text } => push_text(&mut draft, text),
+            ContentBlock::Attachment(part) => {
+                let mut blocks = Vec::with_capacity(3);
+                attachment_blocks(&mut blocks, part);
+                draft.rest.extend(blocks.into_iter().map(Part::Block));
+            }
             _ => tracing::debug!("a block that a user message cannot carry; left out"),
         }
     }
     draft
+}
+
+/// Appends the blocks of `part`: its label as text around an `image` or a `document`
+/// block when the part has data, else the label alone.
+fn attachment_blocks(blocks: &mut Vec<Block>, part: &AttachmentPart) {
+    let attachment = &part.attachment;
+    let label = label(attachment, part.data.is_some());
+    let Some(data) = &part.data else {
+        let text = format!("{}\n{}", label.open, label.close);
+        blocks.push(Block::Text { text, cache_control: None });
+        return;
+    };
+    let media_type =
+        attachment.sent.as_ref().map_or(&attachment.media_type, |sent| &sent.media_type).clone();
+    let pdf = media_type == MediaType::Pdf.as_str();
+    let source = Source { kind: "base64", media_type, data: Base64(data.clone()) };
+    blocks.push(Block::Text { text: label.open, cache_control: None });
+    blocks.push(if pdf { Block::Document { source } } else { Block::Image { source } });
+    blocks.push(Block::Text { text: label.close.to_owned(), cache_control: None });
 }
 
 /// Adds a text block, unless the text is empty: the API refuses an empty text block.
@@ -859,7 +934,7 @@ fn answer_open_calls(drafts: &mut Vec<Draft>) {
                     answer.answers.push(id.clone());
                     answer.results.push(Part::Block(Block::ToolResult {
                         tool_use_id: id,
-                        content: Some(UNANSWERED_CALL.to_owned()),
+                        content: Some(ResultContent::Text(UNANSWERED_CALL.to_owned())),
                         is_error: true,
                         cache_control: None,
                     }));

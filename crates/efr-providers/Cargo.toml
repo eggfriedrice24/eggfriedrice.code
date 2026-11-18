@@ -27,6 +27,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The attachments of the converter tests.
+efr-protocol.workspace = true
 # The perf corpus and the report of the bench_perf_* benches.
 efr-test-support.workspace = true
 fastwebsockets.workspace = true
