@@ -174,8 +174,9 @@ until ADR 0014 folded it into this one.
   top ones into the scrollback.
 - Lines that scroll inside a scroll region (DECSTBM) never enter the scrollback, even
   when the region starts at the top row.
-- `pwd()` is the raw OSC 7 URL as the program sent it, the form libghostty-vt's
-  `Terminal::pwd` returns. The title and the URL follow libghostty-vt's limits (1024
+- The recorder keeps the raw OSC 7 URL as the program sent it, the form
+  libghostty-vt's `Terminal::pwd` returns; only the `Debug` form and the tests read
+  it. The title and the URL follow libghostty-vt's limits (1024
   and 4096 bytes) and an empty value clears them. vte splits an OSC at every `;`, so
   the recorder joins the pieces of a title or URL that holds one; vte keeps 16 pieces
   with the OSC number, so a value with more than 14 `;` loses its tail.
