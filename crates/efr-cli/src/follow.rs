@@ -126,9 +126,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::answer::{AnswerLine, Edit, Sequences};
+use crate::attach::{self, Failure, Places, Words};
 use crate::cli::LastCommand;
 use crate::context::{Context, Stop};
 use crate::error::CliError;
+use crate::format::Tone;
 use crate::keys::{self, Key, KeyReader};
 use crate::notify::WaitNotice;
 use crate::output::Output;
@@ -1629,6 +1631,10 @@ impl Follower<'_> {
             return Ok(());
         }
         let text = view.row_take();
+        if !Words::find(&text, &Places::of(self.ctx, &compose.context.pwd)).files.is_empty() {
+            let step = view.note(attach::STEER_NOTE, self.ctx.screen.size());
+            self.apply(step, out, view, false).await?;
+        }
         let method = Method::TurnSteer(TurnSteer {
             command_id: self.ctx.command_id(),
             conversation_id: self.target.conversation,
@@ -1677,28 +1683,53 @@ impl Follower<'_> {
             return Ok(());
         }
         let text = view.row_take();
-        let method = Method::PromptSend(PromptSend {
+        let words = Words::find(&text, &Places::of(self.ctx, &compose.context.pwd));
+        let size = self.ctx.screen.size();
+        for note in &words.notes {
+            let step = view.event_row(&[(note.clone(), Tone::Attention)], size);
+            self.apply(step, out, view, false).await?;
+        }
+        let sent = words.sent_text(&text);
+        let prompt = PromptSend {
             command_id: self.ctx.command_id(),
             conversation_id: Some(self.target.conversation),
             new_conversation: false,
-            text: text.clone(),
+            text: sent.clone(),
             context: Some(compose.context),
             last_command: compose.last_command.map(LastCommand::into_string),
             recent_commands: compose.recent_commands,
             settings: compose.settings,
             attachments: Vec::new(),
-        });
-        let answer = self.send::<PromptSendResult>(method).await.inspect_err(|_| {
-            view.row_append(&text);
-        })?;
+        };
+        // NOTE: the uploads belong to this connection, so a prompt with files does not
+        // go again on a new one; a prompt with none does, as each request of the row.
+        let answer = if words.files.is_empty() {
+            self.send::<PromptSendResult>(Method::PromptSend(prompt))
+                .await
+                .inspect_err(|_| view.row_append(&text))?
+                .map_err(|body| body.message)
+        } else {
+            match attach::send(self.ctx, self.client(), prompt, &words).await {
+                Ok(result) => Ok(result),
+                Err(Failure::NotAttached(note)) => {
+                    view.row_append(&text);
+                    let step = view.event_row(&[(note, Tone::Attention)], size);
+                    return self.apply(step, out, view, false).await.map(drop);
+                }
+                Err(Failure::Lost) => Err(CliError::UploadLost.to_string()),
+                Err(Failure::Client(error)) => {
+                    Err(server_error(error).inspect_err(|_| view.row_append(&text))?.message)
+                }
+            }
+        };
         let note = match answer {
             Ok(result) => {
-                view.queued_prompt(result.turn_id, text, false);
+                view.queued_prompt(result.turn_id, sent, false);
                 None
             }
-            Err(body) => {
+            Err(message) => {
                 view.row_append(&text);
-                Some(format!("not queued: {}", crate::format::one_line(&body.message)))
+                Some(format!("not queued: {}", crate::format::one_line(&message)))
             }
         };
         self.row_done(note, out, view).await

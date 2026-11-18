@@ -1251,3 +1251,122 @@ async fn the_queued_prompts_that_did_not_go_go_back_to_the_shell_as_comma_lines(
     // The plugin puts `, ` before the text, so Enter sends both again as two prompts.
     assert_eq!(std::fs::read_to_string(dir.path().join("draft")).unwrap(), "second\n, third");
 }
+
+/// A project dir with `shot.png` and a `src` dir, and a context of the plugin whose
+/// shell runs there and that hands over `prompt`.
+fn project(env: &TestEnv, prompt: &str) -> (tempfile::TempDir, Context) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("shot.png"), b"png!").unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    let context = serde_json::json!({ "pwd": dir.path(), "tty": "/dev/pts/3" }).to_string();
+    let vars = [(Var::Context, context), (Var::Prompt, prompt.to_owned())];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    (dir, ctx)
+}
+
+fn attachments(max_file_bytes: u64) -> efr_protocol::Capabilities {
+    efr_protocol::Capabilities {
+        attachments: Some(efr_protocol::AttachmentLimits {
+            max_file_bytes,
+            max_per_message: 10,
+            chunk_bytes: efr_protocol::CHUNK_BYTES,
+            max_edge_px: 2000,
+        }),
+        ..crate::testing::hello_result().capabilities
+    }
+}
+
+#[tokio::test]
+async fn a_file_over_the_limit_sends_nothing_and_says_why() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let (_dir, ctx) = project(&env, "why is the header cut off in @shot.png");
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept_with(attachments(1)).await;
+        conn.until_closed().await
+    };
+    let line = command(&["send"]);
+    let (exit, frames) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Usage);
+    assert!(frames.is_empty(), "no prompt and no upload: {frames:?}");
+    assert_eq!(
+        captured.stderr(),
+        "not attached: shot.png is 4 B. The limit is 1 B (attachments.max_file_mib).\n"
+    );
+}
+
+#[tokio::test]
+async fn a_word_that_names_a_directory_has_a_note_and_the_prompt_goes_as_typed() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let (_dir, ctx) = project(&env, "explain what @src does");
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "It holds the code.").await
+    };
+    let line = command(&["send"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(params.text, "explain what @src does");
+    assert!(params.attachments.is_empty());
+    assert_eq!(captured.stderr(), "not attached: @src is a directory\n");
+}
+
+#[tokio::test]
+async fn a_file_goes_as_an_upload_of_the_prompt() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let (dir, ctx) = project(&env, "why is the header cut off in @shot.png");
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept_with(attachments(1024)).await;
+        let (id, method) = conn.request().await;
+        let Method::AttachmentPut(put) = method else { panic!("expected attachment.put") };
+        let upload = efr_protocol::UploadInfo {
+            name: put.name.clone(),
+            media_type: "image/png".to_owned(),
+            kind: efr_protocol::AttachmentKind::Other,
+            bytes: 4,
+            sent: None,
+        };
+        conn.reply(id, &efr_protocol::AttachmentPutResult { received: 4, upload: Some(upload) })
+            .await;
+        (put, answer(&mut conn, sent(false), "The height is fixed.").await)
+    };
+    let line = command(&["send"]);
+    let (exit, (put, params)) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    assert_eq!(put.name, "shot.png");
+    assert_eq!(put.data.as_bytes(), b"png!");
+    let real = std::fs::canonicalize(dir.path().join("shot.png")).unwrap();
+    assert_eq!(put.origin, Some(efr_protocol::AttachmentOrigin::Path { path: real }));
+    assert_eq!(params.attachments, [put.upload_id]);
+    assert_eq!(params.text, "why is the header cut off in @shot.png");
+}
+
+#[tokio::test]
+async fn a_steer_that_names_a_file_says_that_it_goes_as_text() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let (_dir, ctx) = project(&env, "use the height in @shot.png");
+    let (mut out, captured) = capture();
+    let line = command(&["send", "--steer", "--conversation", CONVERSATION]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        let Method::TurnSteer(params) = method else { panic!("expected turn.steer") };
+        conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(30), queued: false })
+            .await;
+        conn.until_closed().await;
+        params
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(params.text, "use the height in @shot.png");
+    assert_eq!(
+        captured.stderr(),
+        "attachments go with a prompt, not with a steer\nsteered the running turn\n"
+    );
+}

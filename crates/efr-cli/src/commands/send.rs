@@ -27,11 +27,13 @@ use efr_render::{Glyphs, render_trace};
 use efr_stdx::env::Var;
 use efr_transport::client::{Client, ClientError};
 
+use crate::attach::{self, Failure, Places, Words};
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::follow::{self, Compose, Look, Row, Target, TurnView};
 use crate::format::route::{self, Pieces};
+use crate::format::{self, Tone};
 use crate::keys::KeyReader;
 use crate::live::effective_width;
 use crate::notify::{self, Notices};
@@ -243,8 +245,10 @@ async fn send_and_follow(
     queued: &mut VecDeque<String>,
 ) -> Result<ConversationId, CliError> {
     let compose = compose(&prompt);
+    let words = Words::find(&prompt.text, &Places::of(ctx, &prompt.context.pwd));
+    warn(ctx, out, &words.notes);
     let client = ctx.connect(origin, prompt.context.tty.as_deref()).await?;
-    let result = send_prompt(ctx, &client, prompt).await?;
+    let result = send_prompt(ctx, out, &client, prompt, &words).await?;
     let conversation = result.conversation_id;
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
@@ -317,56 +321,92 @@ async fn queue_behind(
     conversation: ConversationId,
     queued: &mut VecDeque<String>,
 ) -> Result<(), CliError> {
+    let size = ctx.screen.size();
     while let Some(text) = queued.front().cloned() {
-        let method = Method::PromptSend(PromptSend {
+        let words = Words::find(&text, &Places::of(ctx, &compose.context.pwd));
+        for note in &words.notes {
+            let step = view.event_row(&[(note.clone(), Tone::Attention)], size);
+            out.err(&step.err);
+            out.out(&step.out)?;
+        }
+        let sent = words.sent_text(&text);
+        let prompt = PromptSend {
             command_id: ctx.command_id(),
             conversation_id: Some(conversation),
             new_conversation: false,
-            text: text.clone(),
+            text: sent.clone(),
             context: Some(compose.context.clone()),
             last_command: compose.last_command.clone().map(LastCommand::into_string),
             recent_commands: compose.recent_commands.clone(),
             settings: compose.settings.clone(),
             attachments: Vec::new(),
-        });
-        match client.call::<PromptSendResult>(method).await {
+        };
+        let failure = match attach::send(ctx, client, prompt, &words).await {
             Ok(result) => {
                 queued.pop_front();
-                view.queued_prompt(result.turn_id, text, false);
+                view.queued_prompt(result.turn_id, sent, false);
+                continue;
             }
-            Err(ClientError::Server { body }) => {
-                for text in queued.drain(..) {
-                    view.row_append(&text);
-                }
-                let note = format!("not queued: {}", crate::format::one_line(&body.message));
-                let step = view.note(&note, ctx.screen.size());
-                out.err(&step.err);
-                out.out(&step.out)?;
+            Err(failure) => failure,
+        };
+        let step = match failure {
+            Failure::NotAttached(note) => view.event_row(&[(note, Tone::Attention)], size),
+            Failure::Lost => view.note(&format!("not queued: {}", CliError::UploadLost), size),
+            Failure::Client(ClientError::Server { body }) => {
+                view.note(&format!("not queued: {}", format::one_line(&body.message)), size)
             }
-            Err(error) => return Err(error.into()),
+            Failure::Client(error) => return Err(error.into()),
+        };
+        for text in queued.drain(..) {
+            view.row_append(&text);
         }
+        out.err(&step.err);
+        out.out(&step.out)?;
     }
     Ok(())
 }
 
-/// Sends `prompt` without following the turn.
+/// Sends `prompt` with the files that its `words` name, without following the turn. A
+/// file that cannot attach sends nothing, and its note goes to stderr.
 pub(crate) async fn send_prompt(
     ctx: &Context,
+    out: &mut Output,
     client: &Client,
     prompt: Prompt,
+    words: &Words,
 ) -> Result<PromptSendResult, CliError> {
-    let method = Method::PromptSend(PromptSend {
+    let params = PromptSend {
         command_id: ctx.command_id(),
         conversation_id: prompt.conversation,
         new_conversation: prompt.new_conversation,
-        text: prompt.text,
+        text: words.sent_text(&prompt.text),
         context: Some(prompt.context),
         last_command: prompt.last_command.map(LastCommand::into_string),
         recent_commands: prompt.recent_commands,
         settings: prompt.settings,
         attachments: Vec::new(),
-    });
-    Ok(client.call(method).await?)
+    };
+    match attach::send(ctx, client, params, words).await {
+        Ok(result) => Ok(result),
+        Err(Failure::NotAttached(note)) => {
+            warn(ctx, out, &[note]);
+            Err(CliError::NotAttached)
+        }
+        Err(Failure::Lost) => Err(CliError::UploadLost),
+        Err(Failure::Client(error)) => Err(error.into()),
+    }
+}
+
+/// Writes `notes` to stderr in the `warning` role, one row each, such as `not
+/// attached: @src is a directory`.
+fn warn(ctx: &Context, out: &mut Output, notes: &[String]) {
+    if notes.is_empty() {
+        return;
+    }
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
+    for note in notes {
+        out.err(&format!("{}\n", format::paint(note, Tone::Attention, &options)));
+    }
 }
 
 /// The `↪` line of a reply whose prompt changed the terminal's conversation (TM-Scope
@@ -392,6 +432,7 @@ async fn steer(
     if conversation.is_none() && tty.is_none() {
         return Err(CliError::SteerNeedsConversation);
     }
+    let attaches = !Words::find(&text, &Places::of(ctx, &context.pwd)).files.is_empty();
     let client = ctx.connect(origin, tty).await?;
     let conversation_id = match (conversation, tty) {
         (Some(id), _) => id,
@@ -408,7 +449,11 @@ async fn steer(
     let _: TurnSteerResult = client.call(method).await?;
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
-    let line = render_trace("steered the running turn", &options);
+    let mut line = String::new();
+    if attaches {
+        line.push_str(&render_trace(attach::STEER_NOTE, &options));
+    }
+    line.push_str(&render_trace("steered the running turn", &options));
     if options.is_terminal() {
         out.out(&line)
     } else {

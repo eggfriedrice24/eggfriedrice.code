@@ -258,6 +258,15 @@ pub(crate) enum CliError {
     #[error("the prompt is empty")]
     EmptyPrompt,
 
+    /// An `@path` of the prompt names a file that cannot attach, so nothing was sent;
+    /// its note said why (`attach`).
+    #[error("a file of the prompt cannot attach")]
+    NotAttached,
+
+    /// efrd still missed uploads of the prompt after it was sent again.
+    #[error("the upload did not arrive")]
+    UploadLost,
+
     /// `efr new` came without the first prompt that a conversation needs.
     #[error("efr new needs the first prompt of the new conversation")]
     NewWithoutPrompt,
@@ -567,6 +576,7 @@ impl CliError {
             | CliError::UnknownEffort { .. }
             | CliError::EffortNotAWord { .. }
             | CliError::EmptyPrompt
+            | CliError::NotAttached
             | CliError::NewWithoutPrompt
             | CliError::SteerNeedsConversation
             | CliError::NoWorkingDirectory
@@ -674,7 +684,8 @@ impl CliError {
     }
 
     /// True when the failure needs no message: the reader of stdout went away, the user
-    /// interrupted and already sees that, or the view of the turn showed how it ended.
+    /// interrupted and already sees that, the view of the turn showed how it ended, or
+    /// the note of a file that cannot attach said why nothing was sent.
     pub(crate) fn is_silent(&self) -> bool {
         match self {
             CliError::Output { source } => source.kind() == io::ErrorKind::BrokenPipe,
@@ -685,7 +696,8 @@ impl CliError {
             | CliError::Escaped
             | CliError::Ended { .. }
             | CliError::ConfigInvalid
-            | CliError::SandboxUnavailable => true,
+            | CliError::SandboxUnavailable
+            | CliError::NotAttached => true,
             _ => false,
         }
     }
