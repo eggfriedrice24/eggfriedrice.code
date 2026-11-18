@@ -3664,6 +3664,9 @@ async fn e2e_the_built_efr_attaches_the_file_of_an_at_path_word() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim_end(), "It lists two steps.");
+    // The chip row comes from the prompt's own event, where the view starts to read. A
+    // text file goes to every model as a path (`unread_attachments`).
+    assert!(stderr.contains("@ text notes.txt 17 B as a path\n"), "{stderr}");
     let [request] = server.received().try_into().unwrap();
     let input = request.body["input"].to_string();
     let label = input.find("<attachment id=\\\"a1\\\" name=\\\"notes.txt\\\"").expect(&input);
