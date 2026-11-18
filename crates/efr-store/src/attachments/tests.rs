@@ -125,6 +125,22 @@ async fn a_withdrawn_prompt_drops_only_its_own_rows() {
 }
 
 #[tokio::test]
+async fn a_blob_is_named_while_a_row_of_its_conversation_has_its_hash() {
+    let (writer, _thread, id) = with_prompt().await;
+    let batch = Batch::new()
+        .event(id, queued(2, vec![image(3, "ab"), image(4, "ef")]))
+        .event(id, Event::PromptWithdrawn { turn_id: testing::turn(2), origin: Origin::Shell });
+    writer.append(batch).await.unwrap();
+    let names = |sha: &str, conversation| {
+        let sha256 = sha.repeat(32);
+        on_writer(&writer, move |conn| names_blob(conn, conversation, &sha256))
+    };
+    assert!(names("ab", id).await.unwrap(), "the rows of turn 1 name it");
+    assert!(!names("ef", id).await.unwrap(), "only the withdrawn prompt named it");
+    assert!(!names("ab", testing::conversation(2)).await.unwrap(), "another conversation");
+}
+
+#[tokio::test]
 async fn a_delete_drops_the_rows() {
     let (writer, _thread, id) = with_prompt().await;
     writer

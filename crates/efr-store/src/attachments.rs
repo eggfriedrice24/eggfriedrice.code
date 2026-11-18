@@ -102,6 +102,21 @@ pub fn summary(conn: &Connection, conversation_id: ConversationId) -> Result<Sum
     Ok(Summary { last: last.map_or(0, to_number), withheld })
 }
 
+/// True when a row of `conversation_id` names the blob of the bytes with the SHA-256
+/// `sha256`: the blob must stay.
+pub fn names_blob(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    sha256: &str,
+) -> Result<bool, StoreError> {
+    let named = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM attachments WHERE conversation_id = ?1 AND sha256 = ?2)",
+        params![conversation_id.to_string(), sha256],
+        |row| row.get(0),
+    )?;
+    Ok(named)
+}
+
 /// The number of `id` as the table keeps it.
 fn number(id: &AttachmentId) -> i64 {
     id.number().map_or(0, i64::from)
