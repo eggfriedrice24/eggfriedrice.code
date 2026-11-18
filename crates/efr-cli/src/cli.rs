@@ -141,6 +141,9 @@ pub(crate) enum Command {
     /// Pair a phone with efrd over Tailscale, and list or revoke the paired devices.
     #[command(subcommand)]
     Device(DeviceCommand),
+    /// Test the push notices of the paired phones.
+    #[command(subcommand)]
+    Push(PushCommand),
     /// Make the connection of this terminal's next prompt ready (the zsh plugin runs
     /// it in the background while you type a prompt line).
     #[command(hide = true)]
@@ -165,6 +168,16 @@ pub(crate) enum DeviceCommand {
     ///
     /// A revoke cannot be undone; pair the phone again with efr device add.
     Revoke(DeviceRevokeArgs),
+}
+
+/// The `efr push` commands.
+#[derive(Debug, Subcommand)]
+pub(crate) enum PushCommand {
+    /// Send a test notice to each phone that has push on, and show what became of it.
+    ///
+    /// The notice goes through the Expo push service to Apple. efr shows one line for
+    /// each phone after about 14 seconds, when Apple answered or the wait ended.
+    Test,
 }
 
 /// The arguments of `efr device add`.

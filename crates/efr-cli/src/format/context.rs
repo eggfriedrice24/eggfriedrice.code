@@ -15,7 +15,7 @@
 use efr_protocol::{Compaction, CompactionTrigger, ContextUse};
 use efr_render::{Glyphs, RenderOptions, Role};
 
-use super::{Tone, paint, wrap_spans};
+use super::{Tone, own_line};
 
 /// The percent from which the gauge is in the `warning` role.
 const WARNING_AT: u64 = 50;
@@ -156,23 +156,7 @@ fn left_out(compaction: &Compaction) -> String {
 /// where a line wider than the screen goes on in the next row, indented 2 columns, so
 /// its way out is never cut off; plain elsewhere.
 pub(crate) fn compacted_rows(compaction: &Compaction, options: &RenderOptions) -> String {
-    let line = compacted(compaction, options.glyphs());
-    if !options.is_terminal() {
-        return format!("{line}\n");
-    }
-    let columns = usize::from(options.width()).max(3);
-    let rows = wrap_spans(&[(line, Tone::Dim)], columns, columns - 2, options.width_method());
-    let mut out = String::new();
-    for (at, row) in rows.iter().enumerate() {
-        if at > 0 {
-            out.push_str("  ");
-        }
-        for (text, tone) in row {
-            out.push_str(&paint(text, *tone, options));
-        }
-        out.push('\n');
-    }
-    out
+    own_line(&[(compacted(compaction, options.glyphs()), Tone::Dim)], options)
 }
 
 /// The tokens of `text` as efrd estimates them without a count: 4 bytes a token,

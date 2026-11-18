@@ -281,6 +281,30 @@ pub(crate) fn paint(text: &str, tone: Tone, options: &RenderOptions) -> String {
     }
 }
 
+/// One of the CLI's own lines of `spans`, with its newline: painted on a terminal, where
+/// a line wider than the screen goes on in the next row, indented 2 columns, cut at a
+/// space; plain and whole elsewhere.
+pub(crate) fn own_line(spans: &[(String, Tone)], options: &RenderOptions) -> String {
+    if !options.is_terminal() {
+        let mut line: String = spans.iter().map(|(text, _)| text.as_str()).collect();
+        line.push('\n');
+        return line;
+    }
+    let columns = usize::from(options.width()).max(3);
+    let rows = wrap_spans(spans, columns, columns - 2, options.width_method());
+    let mut out = String::new();
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            out.push_str("  ");
+        }
+        for (text, tone) in row {
+            out.push_str(&paint(text, *tone, options));
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// `text` on one line and safe to print: newlines and tabs become spaces, other control
 /// characters visible stand-ins.
 pub(crate) fn one_line(text: &str) -> String {

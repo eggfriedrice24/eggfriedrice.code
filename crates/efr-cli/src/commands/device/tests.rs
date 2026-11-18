@@ -5,6 +5,7 @@ use efr_protocol::{
     DevicePairStart, DevicePairStartItem, DeviceRevoke, DeviceRevokeResult, ErrorBody, ErrorCode,
     Method, PairEnd, PairingId, PairingQr, ScopeName, SecretText,
 };
+use efr_render::RenderOptions;
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -12,6 +13,7 @@ use serde_json::json;
 use super::listing;
 use crate::context::Context;
 use crate::error::Exit;
+use crate::format::{self, Tone};
 use crate::keys::Keys;
 use crate::run;
 use crate::testing::{ScriptedKeys, TestEnv, TestInterrupt, capture, command, now};
@@ -350,12 +352,37 @@ fn listing_shows_a_revoke_and_an_empty_list() {
     let mut revoked = device(DEVICE, "old phone\u{1b}[31m");
     revoked.revoked_at = Some(now() - SignedDuration::from_mins(1));
 
-    let text = listing(&DeviceListResult { devices: vec![revoked] }, now());
-    let empty = listing(&DeviceListResult { devices: Vec::new() }, now());
+    let options = RenderOptions::new(100);
+    let text = listing(&DeviceListResult { devices: vec![revoked] }, now(), &options);
+    let empty = listing(&DeviceListResult { devices: Vec::new() }, now(), &options);
 
     assert!(text.ends_with("paired 3h 0m ago, revoked 1m 0s ago\n"), "{text}");
     assert!(!text.contains('\u{1b}'), "a name never reaches the terminal raw: {text:?}");
     assert_eq!(empty, "no device is paired; efr device add pairs a phone\n");
+}
+
+/// TM-Commands, `efr device list` with push: a column after the name, `push on` muted,
+/// or empty; it aligns, because the node has no fixed width.
+#[test]
+fn listing_shows_push_on_after_the_name() {
+    let mut iphone = device(DEVICE, "iPhone 17");
+    iphone.push = true;
+    let devices = vec![iphone, device(OTHER, "work phone")];
+    let listed = DeviceListResult { devices };
+
+    let piped = listing(&listed, now(), &RenderOptions::new(100).with_terminal(false));
+    let painted = listing(&listed, now(), &RenderOptions::new(100));
+
+    assert_eq!(
+        piped,
+        "019a9b1c  iPhone 17   push on  nPHONE1CNTRL  paired 3h 0m ago, never connected\n\
+         019a9b1c  work phone           nPHONE1CNTRL  paired 3h 0m ago, never connected\n"
+    );
+    let muted = format::paint("push on", Tone::Dim, &RenderOptions::new(100));
+    assert!(
+        painted.starts_with(&format!("019a9b1c  iPhone 17   {muted}  nPHONE1CNTRL")),
+        "{painted:?}"
+    );
 }
 
 #[tokio::test]

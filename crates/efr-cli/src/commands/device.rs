@@ -11,8 +11,9 @@
 //!   good for nothing. A no prints `nothing was paired` and exits 0; an expiry, too many
 //!   wrong tokens or a phone that left exit 1.
 //! - `list` (`device.list`) prints one row per device: the start of its id, its name,
-//!   its Tailscale node, when it was paired, when it was last seen and whether it is
-//!   revoked. `--json` prints the daemon's answer.
+//!   `push on` (muted) when efrd has its push token, its Tailscale node, when it was
+//!   paired, when it was last seen and whether it is revoked. `--json` prints the
+//!   daemon's answer.
 //! - `revoke ID` (`device.revoke`) takes a whole id, or the start of exactly one id of
 //!   the list, and prints when the device was revoked.
 
@@ -281,24 +282,39 @@ async fn list(ctx: &Context, out: &mut Output, args: &DeviceListArgs) -> Result<
         return out.out(&text);
     }
     let listed: DeviceListResult = client.call(method).await?;
-    out.out(&listing(&listed, ctx.clock.now()))
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
+    out.out(&listing(&listed, ctx.clock.now(), &options))
 }
 
-/// One row per device: the start of its id, its name, its node, when it was paired and
-/// last seen, and `revoked` with its age for a revoked one.
-pub(crate) fn listing(listed: &DeviceListResult, now: Timestamp) -> String {
+/// The label of the column of a device that has push on.
+const PUSH_ON: &str = "push on";
+
+/// One row per device: the start of its id, its name, `push on` when it has push on,
+/// its node, when it was paired and last seen, and `revoked` with its age for a revoked
+/// one. The push column stands only when a device has push on.
+pub(crate) fn listing(
+    listed: &DeviceListResult,
+    now: Timestamp,
+    options: &RenderOptions,
+) -> String {
     if listed.devices.is_empty() {
         return "no device is paired; efr device add pairs a phone\n".to_owned();
     }
     let names: Vec<String> =
         listed.devices.iter().map(|device| format::one_line(&device.name)).collect();
     let width = names.iter().map(|name| name.width()).max().unwrap_or(0);
+    let push_column = listed.devices.iter().any(|device| device.push);
     let mut out = String::new();
     for (device, name) in listed.devices.iter().zip(&names) {
         let pad = width - name.width();
+        let push = match (push_column, device.push) {
+            (false, _) => String::new(),
+            (true, true) => format!("{}  ", format::paint(PUSH_ON, Tone::Dim, options)),
+            (true, false) => format!("{:width$}  ", "", width = PUSH_ON.len()),
+        };
         let _ = writeln!(
             out,
-            "{}  {name}{:pad$}  {}  {}",
+            "{}  {name}{:pad$}  {push}{}  {}",
             short_id(device.device_id),
             "",
             format::one_line(&device.node),
