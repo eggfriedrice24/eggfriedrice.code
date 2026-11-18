@@ -42,6 +42,15 @@ impl Recorder {
         }
     }
 
+    /// A full reset (`ESC c`) clears the title. vt100 has no callback for it, so the
+    /// screen calls this; the sink hears an empty title only when one was set, as in
+    /// libghostty-vt.
+    pub(crate) fn reset(&mut self) {
+        if self.title.take().is_some() {
+            self.notices.push(Notice::Title(String::new()));
+        }
+    }
+
     fn set_title(&mut self, raw: &[u8]) {
         let title = capped(raw, MAX_TITLE_BYTES);
         self.title = (!title.is_empty()).then(|| title.clone());

@@ -4,11 +4,11 @@ input_file: crates/efr-screen/fixtures/vt/title.ndjson
 ---
 case: title
 size: 10x2
-cursor: row 0, col 0
-title: second
+cursor: row 0, col 5
+title: (none)
 rows:
-  0 ||
+  0 |after|
   1 ||
-title changes: ["first", "second"]
+title changes: ["first", "second", "", "third", ""]
 bells: 0
 replies: ""

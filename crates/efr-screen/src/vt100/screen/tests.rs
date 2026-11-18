@@ -161,6 +161,40 @@ fn a_title_split_across_feeds_is_reported_once_complete() {
 }
 
 #[test]
+fn a_full_reset_clears_the_title_and_reports_it_once() {
+    let mut screen = Vt100Screen::new(size(10, 2));
+    let mut sink = TestSink::default();
+    screen.feed(b"\x1b]2;vim\x07text\x1bc\x1b]2;make\x07\x1bcafter\x1bc", &mut sink);
+    assert_eq!(
+        sink.take(),
+        [
+            Call::Title("vim".to_owned()),
+            Call::Title(String::new()),
+            Call::Title("make".to_owned()),
+            Call::Title(String::new()),
+        ]
+    );
+    let snapshot = screen.snapshot(0);
+    assert_eq!((snapshot.title, texts(&snapshot.rows)), (None, vec![String::new(), String::new()]));
+}
+
+#[test]
+fn a_full_reset_split_across_feeds_clears_the_title() {
+    let mut screen = fed(10, 2, 0, b"\x1b]2;vim\x07\x1b");
+    let mut sink = TestSink::default();
+    screen.feed(b"", &mut sink);
+    screen.feed(b"cx", &mut sink);
+    assert_eq!(sink.take(), [Call::Title(String::new())]);
+    assert_eq!(screen.title(), None);
+    screen.feed(b"\x1b[1m", &mut sink);
+    screen.feed(b"c", &mut sink);
+    assert_eq!(
+        (sink.take(), texts(&screen.snapshot(0).rows)),
+        (vec![], vec!["xc".to_owned(), String::new()])
+    );
+}
+
+#[test]
 fn terminal_queries_get_no_answer() {
     let mut screen = Vt100Screen::new(size(10, 2));
     let mut sink = TestSink::default();

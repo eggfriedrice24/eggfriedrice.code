@@ -3,7 +3,7 @@
 //!
 //! It understands printable ASCII, CR, LF, BS, HT and BEL, deferred wrap, scrolling
 //! into scrollback, cursor movement (`CUP`, `CUU`, `CUD`, `CUF`, `CUB`), `ED` and
-//! `EL`, OSC 0 and 2 titles, and answers DA1 and DSR the way libghostty-vt does. It
+//! `EL`, OSC 0 and 2 titles, `RIS`, and answers DA1 and DSR the way libghostty-vt does. It
 //! skips every other escape sequence and drops bytes outside ASCII. It holds an `Rc`,
 //! so it is not `Send`: the actor tests prove that a screen needs no `Send`.
 
@@ -77,6 +77,10 @@ impl FakeScreen {
                     b']' => Parse::Osc,
                     b'P' | b'X' | b'^' | b'_' => Parse::Skip,
                     0x1b => Parse::Escape,
+                    b'c' => {
+                        self.full_reset(sink);
+                        Parse::Ground
+                    }
                     _ => Parse::Ground,
                 };
             }
@@ -216,6 +220,18 @@ impl FakeScreen {
         };
         for row in rows {
             self.grid[row].fill(' ');
+        }
+    }
+
+    /// RIS: a blank grid with the cursor at the top left and no title. An empty title
+    /// is reported only when one was set, as libghostty-vt does.
+    fn full_reset(&mut self, sink: &mut dyn ScreenSink) {
+        for line in &mut self.grid {
+            line.fill(' ');
+        }
+        (self.row, self.col, self.pending_wrap) = (0, 0, false);
+        if self.title.take().is_some() {
+            sink.title_changed("");
         }
     }
 

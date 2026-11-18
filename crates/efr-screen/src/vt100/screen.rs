@@ -24,8 +24,8 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 ///   fixtures that check replies list `vt100` in their `differs`.
 /// - It reports bells (BEL) and titles (OSC 0 and 2) to the sink in the order they
 ///   happened, after the bytes are processed.
-/// - The title follows libghostty-vt: an empty title clears it, and a title is cut
-///   at 1024 bytes.
+/// - The title follows libghostty-vt: an empty title and a full reset (`ESC c`) clear
+///   it, and a title is cut at 1024 bytes.
 /// - A dimension of 0 becomes 1. vt100 0.16.2 panics when a line wraps on a grid of
 ///   one row, so a one-row screen runs on two rows of vt100 and shows the row the
 ///   cursor is on: text that arrives line by line looks as it would on one row, while
@@ -42,7 +42,14 @@ pub struct Vt100Screen {
     size: Size,
     /// The scrollback capacity, kept to rebuild the parser after a vt100 panic.
     scrollback_rows: usize,
+    /// The last chunk ended with `ESC`, so a `c` at the start of the next is a full
+    /// reset.
+    open_escape: bool,
 }
+
+/// RIS, the full reset. In vte an `ESC` ends any sequence or string, so this pair is a
+/// reset wherever it comes.
+const FULL_RESET: [u8; 2] = [0x1b, b'c'];
 
 impl Vt100Screen {
     /// A blank screen of `size` with [`DEFAULT_SCROLLBACK_ROWS`] rows of scrollback.
@@ -58,6 +65,19 @@ impl Vt100Screen {
             parser: parser(size, scrollback_rows, Recorder::default()),
             size,
             scrollback_rows,
+            open_escape: false,
+        }
+    }
+
+    /// Gives `bytes` to vt100. A panic inside vt100 would otherwise end the screen
+    /// actor, and the shell would lose its screen for good.
+    fn process(&mut self, bytes: &[u8]) {
+        let parser = &mut self.parser;
+        // NOTE: AssertUnwindSafe holds because a parser that panicked is dropped unread;
+        // the recorder kept from it only appends whole values in callbacks that cannot
+        // panic.
+        if panic::catch_unwind(AssertUnwindSafe(|| parser.process(bytes))).is_err() {
+            self.start_over();
         }
     }
 
@@ -151,14 +171,24 @@ fn parser(size: Size, scrollback_rows: usize, recorder: Recorder) -> vt100::Pars
 }
 
 impl Screen for Vt100Screen {
+    /// vt100 handles a full reset inside the crate and keeps the title, so the bytes
+    /// go to vt100 in parts that end at each reset, and the title is cleared there.
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
-        let parser = &mut self.parser;
-        // NOTE: a panic inside vt100 would otherwise end the screen actor, and the
-        // shell would lose its screen for good. AssertUnwindSafe holds because a
-        // parser that panicked is dropped unread; the recorder kept from it only
-        // appends whole values in callbacks that cannot panic.
-        if panic::catch_unwind(AssertUnwindSafe(|| parser.process(bytes))).is_err() {
-            self.start_over();
+        let mut rest = bytes;
+        if self.open_escape && rest.first() == Some(&FULL_RESET[1]) {
+            self.process(&rest[..1]);
+            self.parser.callbacks_mut().reset();
+            rest = &rest[1..];
+        }
+        while let Some(at) = memchr::memmem::find(rest, &FULL_RESET) {
+            let (part, after) = rest.split_at(at + FULL_RESET.len());
+            self.process(part);
+            self.parser.callbacks_mut().reset();
+            rest = after;
+        }
+        self.process(rest);
+        if let Some(&last) = bytes.last() {
+            self.open_escape = last == FULL_RESET[0];
         }
         self.parser.callbacks_mut().drain_into(sink);
     }

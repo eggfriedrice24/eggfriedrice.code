@@ -1,6 +1,14 @@
-{"kind":"case","size":{"cols":10,"rows":2},"about":"OSC 0 and OSC 2 set the title, with both terminators, and print nothing"}
+{"kind":"case","size":{"cols":10,"rows":2},"about":"OSC 0 and OSC 2 set the title, with both terminators, and print nothing; a full reset clears it, also when it is split, and reports an empty title only when one was set"}
 {"kind":"feed","text":"\u001b]0;first\u0007"}
 {"kind":"expect_title","title":"first","changes":["first"]}
 {"kind":"feed","text":"\u001b]2;second\u001b\\"}
 {"kind":"expect_title","title":"second","changes":["second"]}
 {"kind":"expect_rows","rows":["",""]}
+{"kind":"feed","text":"text\u001bc"}
+{"kind":"expect_title","title":null,"changes":[""]}
+{"kind":"expect_rows","rows":["",""]}
+{"kind":"feed","text":"\u001bc"}
+{"kind":"expect_title","title":null,"changes":[]}
+{"kind":"feed","text":"\u001b]2;third\u0007\u001bcafter","split_at":[11]}
+{"kind":"expect_title","title":null,"changes":["third",""]}
+{"kind":"expect_rows","rows":["after",""]}
