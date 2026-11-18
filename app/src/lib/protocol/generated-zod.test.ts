@@ -29,6 +29,7 @@ const LISTS: Readonly<Record<string, string>> = {
   approval_decisions: "ApprovalDecision",
   approved_bys: "ApprovedBy",
   attach_hows: "AttachHow",
+  attachments: "Attachment",
   block_reasons: "BlockReason",
   bus_proxy_off_reasons: "BusProxyOff",
   context_part_kinds: "ContextPartKind",
@@ -50,6 +51,7 @@ const LISTS: Readonly<Record<string, string>> = {
   not_saved_reasons: "NotSavedReason",
   notice_kinds: "NoticeKind",
   pair_ends: "PairEnd",
+  push_test_results: "PushTestResult",
   route_scopes: "RouteScope",
   route_switches: "Switch",
   scope_names: "ScopeName",
@@ -64,6 +66,7 @@ const LISTS: Readonly<Record<string, string>> = {
   web_actions: "WebAction",
   web_errors: "WebError",
   withdraw_targets: "WithdrawTarget",
+  withheld_reasons: "WithheldReason",
 };
 
 /** The fixtures that are not a value of the protocol schema, and why. */
@@ -130,6 +133,9 @@ function targets(name: string, value: unknown): [Schema, unknown][] | string {
   }
   if (name.startsWith("events/")) {
     return [[schemaOf("Event"), value]];
+  }
+  if (name.startsWith("errors/")) {
+    return [[schemaOf("ErrorBody"), value]];
   }
   if (name.startsWith("frames/client_")) {
     return [[schemaOf("ClientFrame"), value]];
