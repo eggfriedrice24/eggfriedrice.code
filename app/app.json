@@ -17,25 +17,23 @@
           "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
         },
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "efr uses the camera to scan a pairing code and to take photos that you attach.",
+        "NSMicrophoneUsageDescription": "efr turns your speech into text on this iPhone. The audio does not leave the iPhone.",
+        "NSSpeechRecognitionUsageDescription": "efr turns your speech into text on this iPhone. The audio does not leave the iPhone."
       }
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "efr uses the camera to scan the pairing code that efr device add shows.",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
-        }
-      ],
-      ["expo-secure-store", { "faceIDPermission": false }],
+      ["expo-camera", { "recordAudioAndroid": false }],
+      "expo-secure-store",
       [
         "expo-local-authentication",
         { "faceIDPermission": "efr checks that it is you when it opens." }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      ["expo-image-picker", { "photosPermission": false }],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": false,
