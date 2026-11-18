@@ -3,7 +3,7 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { CALL, fixtureEvent, item, rawEvent, rawItem, TURN } from "@/lib/protocol/testing";
-import type { DraftPart, Event, SubscribeItem } from "@/lib/protocol/wire";
+import type { DraftPart, Event, EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
 import {
   EMPTY_STREAM,
   findApproval,
@@ -964,4 +964,34 @@ describe("the question of the model", () => {
     });
     expect(pendingQuestions(state)).toEqual([]);
   });
+
+  it("closes when a snapshot misses its end and the conversation asks no more", () => {
+    const held = run(asked);
+    // The question ended in the gap, and the turn ran on past the window of 128 events.
+    const later = [envelope(200, toolCallStarted(TURN, "other", "shell", { command: "ls" }))];
+    for (const window of [later, []]) {
+      const ended = reduce(held, runningSnapshot(undefined, window));
+      expect(questionOf(ended)?.answer).toEqual({ kind: "interrupted" });
+      expect(pendingQuestions(ended)).toEqual([]);
+      const waits = reduce(held, runningSnapshot("answer", window));
+      expect(questionOf(waits)?.answer).toEqual({ kind: "pending" });
+    }
+  });
 });
+
+/** A snapshot of the running conversation with `window`, and with `attention`. */
+function runningSnapshot(
+  attention: "answer" | undefined,
+  window: readonly EventEnvelope[],
+): SubscribeItem {
+  const snapshot = snapshotItem(CONVERSATION, "running", window, 200);
+  if (snapshot.kind !== "snapshot" || attention === undefined) {
+    return snapshot;
+  }
+  return { ...snapshot, conversation: { ...snapshot.conversation, attention } };
+}
+
+/** The question of the model of the call `CALL` of `TURN`. */
+function questionOf(state: StreamState) {
+  return state.turns.get(TURN)?.tools.get(CALL)?.question;
+}

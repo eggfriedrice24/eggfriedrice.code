@@ -521,7 +521,7 @@ export function underlay(current: StreamState, cached: readonly EventEnvelope[])
       historyCursor: current.historyCursor,
     };
   }
-  return { ...keepPrevious(older, current, true), link: current.link, loaded: true };
+  return { ...keepPrevious(older, current, true, true), link: current.link, loaded: true };
 }
 
 /** Applies one event. A duplicate (its seq at or below `lastSeq`) changes nothing. */
@@ -627,8 +627,12 @@ function applySnapshot(state: StreamState, snapshot: Snapshot): StreamState {
   if (snapshot.live !== undefined && snapshot.live !== null) {
     next = applyLive(next, snapshot.live);
   }
+  // NOTE: an approval or a question that only the old state holds ended in the gap
+  // unless the conversation still waits for one: a local-only approval waits too
+  // (`attention: terminal`), so the status decides for approvals.
   const waits = snapshot.conversation.status === "awaiting_approval";
-  const merged = keepPrevious(state, next, waits);
+  const asks = snapshot.conversation.attention === "answer";
+  const merged = keepPrevious(state, next, waits, asks);
   return {
     ...merged,
     summary: snapshot.conversation,
@@ -1224,7 +1228,12 @@ function askApproval(
   return addPart({ ...turn, approvals }, { kind: "approval", callId: event.call_id });
 }
 
-function keepPrevious(previous: StreamState, next: StreamState, waits: boolean): StreamState {
+function keepPrevious(
+  previous: StreamState,
+  next: StreamState,
+  waits: boolean,
+  asks: boolean,
+): StreamState {
   if (previous.order.length === 0) {
     return next;
   }
@@ -1237,10 +1246,12 @@ function keepPrevious(previous: StreamState, next: StreamState, waits: boolean):
     }
     const rebuilt = turns.get(turnId);
     if (rebuilt === undefined) {
-      turns.set(turnId, waits ? old : settle(old));
+      const kept = waits ? old : settle(old);
+      const tools = asks ? kept.tools : closeQuestions(kept.tools, false);
+      turns.set(turnId, tools === kept.tools ? kept : { ...kept, tools });
       older.push(turnId);
     } else {
-      turns.set(turnId, mergeTurn(old, rebuilt, waits));
+      turns.set(turnId, mergeTurn(old, rebuilt, waits, asks));
     }
   }
   return {
@@ -1253,7 +1264,7 @@ function keepPrevious(previous: StreamState, next: StreamState, waits: boolean):
   };
 }
 
-function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
+function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean, asks: boolean): TurnView {
   const messages = new Map(rebuilt.messages);
   for (const [index, held] of old.messages) {
     const message = rebuilt.messages.get(index);
@@ -1302,6 +1313,14 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
   for (const [callId, approval] of rebuilt.approvals) {
     approvals.set(callId, approval);
   }
+  // A question of the model that only the old state holds ended in the gap, unless the
+  // conversation still asks and the rebuilt turn holds no question of its own: one
+  // question waits at a time.
+  const keepsQuestion =
+    asks &&
+    rebuilt.end === undefined &&
+    ![...rebuilt.tools.values()].some((call) => call.question?.answer.kind === "pending");
+  const tools = keepsQuestion ? old.tools : closeQuestions(old.tools, false);
   return {
     ...rebuilt,
     prompt:
@@ -1324,7 +1343,7 @@ function mergeTurn(old: TurnView, rebuilt: TurnView, waits: boolean): TurnView {
     reasoning,
     title: rebuilt.title ?? old.title,
     thoughtEndedAt: rebuilt.thoughtEndedAt ?? old.thoughtEndedAt,
-    tools: mergeParts(old.tools, rebuilt.tools),
+    tools: mergeParts(tools, rebuilt.tools),
     approvals: mergeParts(old.approvals, approvals),
     steers: mergeParts(old.steers, rebuilt.steers),
     pause: rebuilt.pause ?? old.pause,
@@ -1528,15 +1547,17 @@ function answerQuarantine(
 
 /**
  * A quarantine question or a question of the model that is still open when its turn ends
- * can never be answered.
+ * can never be answered. With `quarantine` false, only the questions of the model close:
+ * a snapshot tells that they ended.
  */
 function closeQuestions(
   tools: ReadonlyMap<string, ToolCallView>,
+  quarantine = true,
 ): ReadonlyMap<string, ToolCallView> {
   let closed: Map<string, ToolCallView> | undefined;
   for (const [callId, call] of tools) {
     let next = call;
-    if (call.quarantine?.answer === "pending") {
+    if (quarantine && call.quarantine?.answer === "pending") {
       next = { ...next, quarantine: { ...call.quarantine, answer: "not_answered" } };
     }
     if (call.question?.answer.kind === "pending") {
@@ -1697,38 +1718,39 @@ export function pendingApprovals(state: StreamState): ApprovalView[] {
   return pending;
 }
 
-/** The quarantine questions of the conversation that wait for an answer, oldest first. */
-export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] {
-  const pending: QuarantineQuestionView[] = [];
+/**
+ * What `pick` gives of each tool call of the open turns, oldest first: the questions of
+ * the calls that wait for an answer.
+ */
+function pendingOf<T>(state: StreamState, pick: (call: ToolCallView) => T | undefined): T[] {
+  const pending: T[] = [];
   for (const turnId of state.order) {
     const turn = state.turns.get(turnId);
     if (turn === undefined || turn.end !== undefined) {
       continue;
     }
     for (const call of turn.tools.values()) {
-      if (call.quarantine?.answer === "pending") {
-        pending.push(call.quarantine);
+      const picked = pick(call);
+      if (picked !== undefined) {
+        pending.push(picked);
       }
     }
   }
   return pending;
 }
 
+/** The quarantine questions of the conversation that wait for an answer, oldest first. */
+export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] {
+  return pendingOf(state, (call) =>
+    call.quarantine?.answer === "pending" ? call.quarantine : undefined,
+  );
+}
+
 /** The questions of the model that wait for an answer, oldest first. */
 export function pendingQuestions(state: StreamState): UserQuestionView[] {
-  const pending: UserQuestionView[] = [];
-  for (const turnId of state.order) {
-    const turn = state.turns.get(turnId);
-    if (turn === undefined || turn.end !== undefined) {
-      continue;
-    }
-    for (const call of turn.tools.values()) {
-      if (call.question?.answer.kind === "pending") {
-        pending.push(call.question);
-      }
-    }
-  }
-  return pending;
+  return pendingOf(state, (call) =>
+    call.question?.answer.kind === "pending" ? call.question : undefined,
+  );
 }
 
 /** The quarantine question of the tool call `callId`, in any turn. */
