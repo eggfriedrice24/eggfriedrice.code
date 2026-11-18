@@ -258,12 +258,7 @@ pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
             key_pieces(CONFIRM_KEYS)
         }
         Footer::Typing(text) => {
-            let typed = Row::Text(vec![
-                (glyphs.prompt.to_owned(), Tone::Attention),
-                (" ".to_owned(), Tone::Plain),
-                (super::one_line(text), Tone::Text),
-            ]);
-            push_row(&mut out, &typed, options);
+            out.push_str(&typed_rows(text, options));
             key_pieces(TYPING_KEYS)
         }
     };
@@ -271,6 +266,19 @@ pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
     if matches!(footer, Footer::Typing(_)) {
         out.push_str(&hint_row(options));
     }
+    out
+}
+
+/// The first rows of [`Footer::Typing`]: the prompt mark and the text of the open
+/// answer line, with their newlines. The cursor waits at the end of the last one.
+pub(crate) fn typed_rows(text: &str, options: &RenderOptions) -> String {
+    let typed = Row::Text(vec![
+        (options.glyphs().prompt.to_owned(), Tone::Attention),
+        (" ".to_owned(), Tone::Plain),
+        (super::one_line(text), Tone::Text),
+    ]);
+    let mut out = String::new();
+    push_row(&mut out, &typed, options);
     out
 }
 

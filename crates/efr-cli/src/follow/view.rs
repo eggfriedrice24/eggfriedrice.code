@@ -182,7 +182,7 @@ use efr_protocol::{
     EventEnvelope, ExitInfo, FileChanges, Grant, InputWait, JobId, JudgeKind, Launch, Presence,
     QuestionId, Seq, ShellCommandEnd, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict,
 };
-use efr_render::{RenderOptions, WidthMethod, render_trace};
+use efr_render::{RenderOptions, WidthMethod, display_width, render_trace};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
@@ -190,7 +190,7 @@ use crate::format::card::{self, Card, Footer};
 use crate::format::changes::HomeChange;
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
-use crate::live::{LiveZone, effective_width};
+use crate::live::{Cursor, LiveZone, Tail, effective_width};
 use crate::notify::{self, Notices};
 use crate::progress;
 use crate::row::Action;
@@ -423,8 +423,35 @@ impl Shown {
         *self.rendered.get_mut() = None;
     }
 
-    /// Adds the card with its footer at `options` to `out`. It is rendered again only
-    /// when the options or the footer changed.
+    /// True while the footer is the open answer line of the model's question, which is
+    /// the tail of the live zone ([`typing_tail`](Self::typing_tail)), not a part of
+    /// the card.
+    fn typing(&self) -> bool {
+        matches!(self.footer, Footer::Typing(_))
+    }
+
+    /// The open answer line as the tail of the live zone: its rows (the text, the keys,
+    /// the hint), with the cursor at the end of the typed text, where the next key goes
+    /// (TM-Questions 0.0.12, frame 3). `None` for any other footer.
+    fn typing_tail(&self, options: &RenderOptions) -> Option<Tail> {
+        let Footer::Typing(text) = &self.footer else {
+            return None;
+        };
+        let typed = card::typed_rows(text, options);
+        let line = typed.matches('\n').count().saturating_sub(1);
+        let last =
+            typed.strip_suffix('\n').unwrap_or(&typed).rsplit('\n').next().unwrap_or_default();
+        // NOTE: after a full row the cursor waits on its last column.
+        let column = display_width(last, options.width_method())
+            .min(usize::from(options.width()).saturating_sub(1));
+        Some(Tail {
+            text: card::footer_row(&self.footer, options),
+            cursor: Some(Cursor { line, column }),
+        })
+    }
+
+    /// Adds the card with its footer at `options` to `out`, without the footer while it
+    /// is the tail. It is rendered again only when the options or the footer changed.
     fn push_card(&self, out: &mut String, options: &RenderOptions) {
         let mut rendered = self.rendered.borrow_mut();
         match rendered.as_deref() {
@@ -432,7 +459,8 @@ impl Shown {
                 out.push_str(text);
             }
             _ => {
-                let text = self.card.render(Some(&self.footer), options);
+                let footer = (!self.typing()).then_some(&self.footer);
+                let text = self.card.render(footer, options);
                 out.push_str(&text);
                 *rendered = Some(Box::new((options.clone(), self.footer.clone(), text)));
             }
@@ -1222,6 +1250,12 @@ impl TurnView {
             }
             DraftPart::ToolInput { call, tool, bytes, tail } => {
                 self.end_reasoning(Block::Row);
+                // NOTE: the card of the model's question is its call, and the call has no
+                // row, so the status row says that the model writes, not `preparing`.
+                if tool == card::ASK_USER {
+                    self.state(State::Writing);
+                    return Step::default();
+                }
                 // The calls of one answer come one after another: the newest one shows.
                 let shown = match self.status.as_ref().map(Status::state) {
                     Some(State::Preparing { call: shown, .. }) => Some(*shown),
@@ -1439,9 +1473,17 @@ impl TurnView {
             input.background = background;
         }
         // The input row is the last part of the live zone, and the cursor waits in it.
+        // While a card shows, the open answer line of the model's question takes its
+        // place.
         let input = self.input.as_ref().filter(|input| input.shown && !self.ended && !card);
-        let tail =
-            input.map(|input| input.row(&options, effective_width(size))).unwrap_or_default();
+        let tail = match input {
+            Some(input) => input.row(&options, effective_width(size)),
+            None => self
+                .question
+                .as_ref()
+                .and_then(|shown| shown.typing_tail(&options))
+                .unwrap_or_default(),
+        };
         let hide = self.ticks() && !asking && input.is_none();
         let paste = self.input.is_some() && !self.ended;
         let mut out = String::new();
@@ -2859,8 +2901,11 @@ impl TurnView {
             live.push_str(&left.live(&options));
         }
         if let Some(shown) = &self.question {
+            // NOTE: an open answer line is the tail of the live zone, with the cursor.
             if shown.committed {
-                live.push_str(&card::footer_row(&shown.footer, &options));
+                if !shown.typing() {
+                    live.push_str(&card::footer_row(&shown.footer, &options));
+                }
             } else {
                 live.push_str(self.spacing.peek(Block::Question));
                 shown.push_card(&mut live, &options);

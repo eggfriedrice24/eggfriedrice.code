@@ -151,6 +151,21 @@ fn a_connect_does_not_take_the_row_from_the_model_once_it_answers() {
 }
 
 #[test]
+fn the_draft_of_the_model_s_question_shows_as_writing() {
+    let (mut view, mut grid, size) = view_of(80);
+    let question = r#"{"question":"Which database?","options":[{"label":"Postgres"}"#;
+    let ask = DraftPart::ToolInput {
+        call: 0,
+        tool: efr_protocol::ASK_USER.to_owned(),
+        bytes: question.len() as u64,
+        tail: Some(question.to_owned()),
+    };
+    view.draft(&draft(11, ask), size);
+    // The question shows as its card, never as a call: no `preparing ask_user`.
+    assert_eq!(frame(&mut view, &mut grid, size, 1_500), ["\u{2022} writing"]);
+}
+
+#[test]
 fn a_short_tool_input_shows_no_detail() {
     let (mut view, mut grid, size) = view_of(80);
     let command = r#"{"command":"ls -la"}"#;

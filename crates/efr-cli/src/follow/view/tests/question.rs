@@ -12,7 +12,7 @@ use serde_json::json;
 use super::super::{Ask, Step, TurnView};
 use super::{feed, raw_view, turn_completed};
 use crate::terminal::Size;
-use crate::testing::{bare, call, now, turn};
+use crate::testing::{Grid, bare, call, now, turn};
 
 const WIDE: Size = Size { cols: 100, rows: 30 };
 
@@ -159,6 +159,32 @@ fn the_answer_line_shows_under_a_card_in_the_scrollback() {
     assert!(shown.contains("\u{203a} port 5433\n"), "{shown}");
     assert!(shown.contains("enter send   esc back to the options\n"), "{shown}");
     assert!(shown.contains("Do not type a password or a token here.\n"), "{shown}");
+}
+
+/// The row and the column of the cursor after the frames of `step` and of the view,
+/// and the screen rows.
+fn cursor_after(step: &Step, view: &mut TurnView, size: Size) -> ((usize, usize), Vec<String>) {
+    let mut grid = Grid::new(size.cols);
+    grid.write(&step.out);
+    grid.write(&view.frame(size, now()));
+    (grid.cursor(), grid.lines())
+}
+
+#[test]
+fn the_cursor_waits_at_the_end_of_the_typed_answer() {
+    // TM-Questions 0.0.12, frame 3: the cursor stands after the typed text, above the
+    // keys and the hint, also when the card went to the scrollback.
+    for size in [WIDE, Size { cols: 100, rows: 4 }] {
+        let mut view = terminal();
+        let mut out = view.event(&requested("Which database?"), size, true);
+        out.out.push_str(&view.frame(size, now()));
+        out.out.push_str(&view.user_typing(question_id(), Some("port 5433"), size).out);
+        let ((row, col), lines) = cursor_after(&out, &mut view, size);
+        assert_eq!(lines[row].trim_end(), "    \u{203a} port 5433", "{size:?}: {lines:#?}");
+        assert_eq!(col, "    \u{203a} port 5433".chars().count(), "{size:?}");
+        assert_eq!(lines[row + 1].trim_end(), "    enter send   esc back to the options");
+        assert_eq!(lines[row + 2].trim_end(), "    Do not type a password or a token here.");
+    }
 }
 
 #[test]
