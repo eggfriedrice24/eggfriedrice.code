@@ -1743,19 +1743,20 @@ export function pendingWaits(state: StreamState): PendingWaits {
   return waits;
 }
 
-/** The approvals of the conversation that wait for an answer, oldest first. */
+/**
+ * The approvals of the conversation that wait for an answer, oldest first. It walks only
+ * the approvals; `pendingWaits` gives the other kinds too.
+ */
 export function pendingApprovals(state: StreamState): ApprovalView[] {
-  return pendingWaits(state).approvals;
-}
-
-/** The quarantine questions of the conversation that wait for an answer, oldest first. */
-export function pendingQuarantine(state: StreamState): QuarantineQuestionView[] {
-  return pendingWaits(state).quarantine;
-}
-
-/** The questions of the model that wait for an answer, oldest first. */
-export function pendingQuestions(state: StreamState): UserQuestionView[] {
-  return pendingWaits(state).questions;
+  const approvals: ApprovalView[] = [];
+  for (const turnId of state.order) {
+    for (const approval of state.turns.get(turnId)?.approvals.values() ?? []) {
+      if (approval.status === "pending") {
+        approvals.push(approval);
+      }
+    }
+  }
+  return approvals;
 }
 
 /** The quarantine question of the tool call `callId`, in any turn. */

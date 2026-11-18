@@ -5,13 +5,15 @@
 //
 // Two sources join:
 //
-// - The streams of the conversations in the stack. They are live, so they win for
-//   their conversations.
 // - The recent lists of the connected machines. The watch of the lists of a machine
 //   (`conversations.watch`) keeps its list current; for an efrd without the watch, the
-//   app polls the list every 10 s (D7).
+//   app polls the list every 10 s (D7). The row state of a list tells each kind of wait.
+// - The streams of the conversations in the stack, which win for their conversations
+//   because they are live. A stream counts only its approvals. The hook of the app
+//   gives no streams today (see `use-approvals-elsewhere.ts`), so the lists are the
+//   only source.
 //
-// The conversation on screen never counts: its approval is in its transcript.
+// The conversation on screen never counts: its wait is in its transcript.
 
 import type { ConversationAddress } from "@/lib/query/keys";
 import { rowState, waitsForUser, type WaitState } from "@/lib/protocol/status";
@@ -24,8 +26,6 @@ export interface LiveConversation {
   readonly title?: string;
   /** The approvals of the stream that wait for an answer. */
   readonly pendingApprovals: number;
-  /** The questions of the model in the stream that wait for an answer. */
-  readonly pendingQuestions?: number;
 }
 
 /** One conversation that waits for the user, and what it waits for. */
@@ -77,12 +77,9 @@ function waitingOf(
   return waiting;
 }
 
-/** The wait of a live stream: an approval first, then a question of the model. */
+/** The wait of a live stream: an approval. */
 function liveWait(stream: LiveConversation): WaitState | undefined {
-  if (stream.pendingApprovals > 0) {
-    return "approval";
-  }
-  return (stream.pendingQuestions ?? 0) > 0 ? "answer" : undefined;
+  return stream.pendingApprovals > 0 ? "approval" : undefined;
 }
 
 /**

@@ -19,14 +19,12 @@ import {
 import {
   compareApprovals,
   comparePendingWaits,
-  compareQuestions,
   compareRows,
   compareShallow,
   createRowsSelector,
   selectApproval,
   selectMessage,
   selectPendingApprovals,
-  selectPendingQuestions,
   selectPendingWaits,
   selectPrompt,
   selectReasoning,
@@ -156,7 +154,7 @@ describe("the questions of the model", () => {
 
   it("give the question that the composer answers while it waits", () => {
     const state = run(asked());
-    const question = selectPendingQuestions(state)[0];
+    const question = selectPendingWaits(state).questions[0];
     expect(question?.questionId).toBe("q1");
     expect(selectWaitingQuestion("q1")(state)).toBe(question);
     expect(selectWaitingQuestion("other")(state)).toBeUndefined();
@@ -166,10 +164,7 @@ describe("the questions of the model", () => {
       event(userQuestionAnswered(TURN, "q1", { kind: "replied", reply: { kind: "skipped" } })),
     );
     expect(selectWaitingQuestion("q1")(ended)).toBeUndefined();
-    expect(selectPendingQuestions(ended)).toEqual([]);
-    expect(compareQuestions(selectPendingQuestions(state), selectPendingQuestions(state))).toBe(
-      true,
-    );
+    expect(selectPendingWaits(ended).questions).toEqual([]);
   });
 });
 

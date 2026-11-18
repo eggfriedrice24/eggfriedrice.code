@@ -14,14 +14,13 @@ import { useSelector } from "@tanstack/react-store";
 import type { Readable } from "@tanstack/store";
 import { Stack, useRouter } from "expo-router";
 
-import { findApproval, findQuarantine, type StreamState } from "@/lib/stream/reducer";
+import { findApproval, findQuarantine, pendingWaits, type StreamState } from "@/lib/stream/reducer";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { useRuntime } from "@/features/navigation/use-app-services";
 import { useMachines } from "@/features/navigation/use-machines";
 import { ApprovalSheet } from "../components/approval-sheet";
 import { approvalQuestion, nextQuestion, quarantineQuestion } from "../model/approval-strip";
-import { selectPendingApprovals, selectPendingQuarantine } from "../model/selectors";
 import { useSheetStream } from "./use-sheet-stream";
 
 export interface ApprovalSheetScreenProps {
@@ -87,9 +86,10 @@ function SheetBody(props: SheetBodyProps) {
         : quarantine === undefined
           ? undefined
           : quarantineQuestion(quarantine);
+    const waits = pendingWaits(state);
     const waiting = [
-      ...selectPendingApprovals(state).map(approvalQuestion),
-      ...selectPendingQuarantine(state).map(quarantineQuestion),
+      ...waits.approvals.map(approvalQuestion),
+      ...waits.quarantine.map(quarantineQuestion),
     ];
     return nextQuestion(current, waiting);
   });

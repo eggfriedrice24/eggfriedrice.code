@@ -23,11 +23,8 @@ import {
   type MessageView,
   type PromptView,
   pendingApprovals,
-  pendingQuarantine,
-  pendingQuestions,
   type PendingWaits,
   pendingWaits,
-  type QuarantineQuestionView,
   runningTurn,
   type SteerView,
   type StreamState,
@@ -282,30 +279,14 @@ export function selectPendingApprovals(state: StreamState): readonly ApprovalVie
   return pendingApprovals(state);
 }
 
-/** The quarantine questions that wait, oldest first. Compare with `compareQuarantine`. */
-export function selectPendingQuarantine(state: StreamState): readonly QuarantineQuestionView[] {
-  return pendingQuarantine(state);
-}
-
 /** True when `a` and `b` hold the same objects in the same order. */
 function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a === b || (a.length === b.length && a.every((item, i) => item === b[i]));
 }
 
-/** The compare of `selectPendingQuarantine`: the same question objects in the same order. */
-export const compareQuarantine: (
-  a: readonly QuarantineQuestionView[],
-  b: readonly QuarantineQuestionView[],
-) => boolean = sameItems;
-
 /** The compare of `selectPendingApprovals`: the same approval objects in the same order. */
 export const compareApprovals: (a: readonly ApprovalView[], b: readonly ApprovalView[]) => boolean =
   sameItems;
-
-/** The questions of the model that wait, oldest first. Compare with `compareQuestions`. */
-export function selectPendingQuestions(state: StreamState): readonly UserQuestionView[] {
-  return pendingQuestions(state);
-}
 
 /**
  * The approvals, the quarantine questions and the questions of the model that wait, in
@@ -346,9 +327,3 @@ export function selectWaitingQuestion(
     return undefined;
   };
 }
-
-/** The compare of `selectPendingQuestions`: the same question objects in the same order. */
-export const compareQuestions: (
-  a: readonly UserQuestionView[],
-  b: readonly UserQuestionView[],
-) => boolean = sameItems;

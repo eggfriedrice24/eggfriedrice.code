@@ -10,7 +10,7 @@ import {
   inputSummary,
   isQueued,
   pendingApprovals,
-  pendingQuestions,
+  pendingWaits,
   reduce,
   runningTurn,
   type StreamState,
@@ -903,7 +903,7 @@ describe("the question of the model", () => {
       "SQLite",
       "both",
     ]);
-    expect(pendingQuestions(state)).toEqual([question]);
+    expect(pendingWaits(state).questions).toEqual([question]);
   });
 
   it("gives a row to a question whose call started before the window", () => {
@@ -941,9 +941,9 @@ describe("the question of the model", () => {
     expect(end({ kind: "interrupted" })?.answer).toEqual({ kind: "interrupted" });
     expect(end({ kind: "unknown" })?.answer).toEqual({ kind: "interrupted" });
     expect(
-      pendingQuestions(
+      pendingWaits(
         run([...asked, event(4, userQuestionAnswered(TURN, QUESTION, { kind: "interrupted" }))]),
-      ),
+      ).questions,
     ).toEqual([]);
   });
 
@@ -962,7 +962,7 @@ describe("the question of the model", () => {
     expect(state.turns.get(TURN)?.tools.get(CALL)?.question?.answer).toEqual({
       kind: "interrupted",
     });
-    expect(pendingQuestions(state)).toEqual([]);
+    expect(pendingWaits(state).questions).toEqual([]);
   });
 
   it("closes when a snapshot misses its end and the conversation asks no more", () => {
@@ -972,7 +972,7 @@ describe("the question of the model", () => {
     for (const window of [later, []]) {
       const ended = reduce(held, runningSnapshot(undefined, window));
       expect(questionOf(ended)?.answer).toEqual({ kind: "interrupted" });
-      expect(pendingQuestions(ended)).toEqual([]);
+      expect(pendingWaits(ended).questions).toEqual([]);
       const waits = reduce(held, runningSnapshot("answer", window));
       expect(questionOf(waits)?.answer).toEqual({ kind: "pending" });
     }

@@ -149,16 +149,4 @@ describe("approvalsElsewhere", () => {
       "2 conversations need you",
     );
   });
-
-  it("counts a live question when no approval waits in the stream", () => {
-    const result = approvalsElsewhere({
-      current: undefined,
-      live: [{ machine: "d", id: "a", pendingApprovals: 0, pendingQuestions: 1 }],
-      listed: [],
-    });
-    expect(result).toEqual({
-      kind: "one",
-      conversation: { machine: "d", id: "a", state: "answer" },
-    });
-  });
 });

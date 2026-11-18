@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SurfaceChange } from "@/lib/protocol/generated";
 import type { Event, EventOf, SubscribeItem } from "@/lib/protocol/wire";
-import { findQuarantine, pendingQuarantine, type StreamState } from "@/lib/stream/reducer";
+import { findQuarantine, pendingWaits, type StreamState } from "@/lib/stream/reducer";
 import {
   eventItem,
   run,
@@ -89,7 +89,7 @@ describe("the quarantine question", () => {
     const state = stateOf(asked([FSMONITOR]));
     const question = questionOf(state);
     expect(question.answer).toBe("pending");
-    expect(pendingQuarantine(state)).toEqual([question]);
+    expect(pendingWaits(state).quarantine).toEqual([question]);
     const call = state.turns.get("t1")?.tools.get("c1");
     if (call === undefined) {
       throw new Error("no call");
@@ -145,7 +145,7 @@ describe("the quarantine question", () => {
       throw new Error("no call");
     }
     expect(toolStatus(call, false, 0)).toEqual({ kind: "quarantined", word: "left in quarantine" });
-    expect(pendingQuarantine(left)).toEqual([]);
+    expect(pendingWaits(left).quarantine).toEqual([]);
     expect(quarantineSheet(questionOf(left), CWD, "desktop", false)).toMatchObject({
       keepElsewhere: undefined,
       closed: "left in quarantine · on desktop",
@@ -166,7 +166,7 @@ describe("the quarantine question", () => {
   it("closes a question that waits when its turn ends", () => {
     const state = stateOf(asked([FSMONITOR]), turnCompleted("t1"));
     expect(questionOf(state).answer).toBe("not_answered");
-    expect(pendingQuarantine(state)).toEqual([]);
+    expect(pendingWaits(state).quarantine).toEqual([]);
     const call = state.turns.get("t1")?.tools.get("c1");
     if (call === undefined) {
       throw new Error("no call");
