@@ -46,7 +46,12 @@ directories, a store and provider traffic from one place and never from the mach
   drops the frames that lose and makes the corrections of the build spec (the module
   of the xtask lists them). The board `TM-Web` (web search) came later and keeps only
   its chosen looks: frames 3 and 5 lose their rejected rows, frame 13 loses today's
-  end line, and frame 11 is the `NO_COLOR` form of frame 10. `Frame::load(board,
+  end line, and frame 11 is the `NO_COLOR` form of frame 10. The 0.0.12 frames come
+  after the older frames of their boards: `TM-Questions` 12 to 29 (20 and 21 are
+  frame 15 in 16 colours and without colour, 25 and 26 frame 22), `TM-Endings` 23 to 33
+  and `TM-Commands` 7. The older frames of those boards stay as they were checked in;
+  the canvas changed some of them since, so an export adds only the new frames to them.
+  `Frame::load(board,
   number)` reads a frame;
   `cells(ansi)` reads real output as a terminal shows it (SGR, `ESC [ K` and its fill,
   OSC 8); `expect(frame, depth)` gives the board's own frame of a `Depth` or derives

@@ -4,9 +4,10 @@
 //! is the view's (`follow/view/tests/always.rs`); these tests compare the card's own
 //! rows.
 
+use efr_protocol::{QuestionOption, WAKE_QUESTION};
 use efr_test_support::design::{Depth, Frame, assert_rows, cells};
 
-use super::super::{ALLOW_KEYS, Card, Footer, Row};
+use super::super::{ALLOW_KEYS, Asks, Card, Footer, Row, user_question, user_question_footer};
 use crate::format::Tone;
 use crate::testing::design_options;
 
@@ -208,4 +209,82 @@ fn the_badge_the_label_row_and_the_keys_are_the_legend_23_24_25() {
         let keys = super::super::footer_row(&Footer::Keys(ALLOW_KEYS), &options);
         assert_rows(&Frame::load("Legend", 25).unwrap(), .., &keys, depth);
     }
+}
+
+/// An option of the model's question.
+fn option(label: &str, description: Option<&str>) -> QuestionOption {
+    QuestionOption { label: label.to_owned(), description: description.map(str::to_owned) }
+}
+
+/// The options of TM-Questions 0.0.12, frames 1, 3 and 4 (fixture 15, 18 and 19).
+fn databases() -> Vec<QuestionOption> {
+    vec![
+        option("Postgres 16", Some("the same as production; I recommend it")),
+        option("SQLite", Some("fast and needs no server, but it has no JSONB")),
+        option("both", Some("each test runs twice, so CI takes about 2 times longer")),
+    ]
+}
+
+/// Checks rows `range` of frame `number` against the card of the model's question as
+/// `asks` says, at the frame's width, in every depth.
+fn check_asks(
+    number: u32,
+    range: std::ops::Range<usize>,
+    question: &str,
+    options: &[QuestionOption],
+    asks: Asks<'_>,
+) {
+    let card = user_question(question, options, asks);
+    check("Questions", number, range, &card, &user_question_footer(asks));
+}
+
+#[test]
+fn the_model_s_question_is_a_card_with_a_digit_per_option_questions_15_20_21() {
+    // 0.0.12 frame 1: fixture 15 in truecolor, 20 in 16 colours, 21 without colour.
+    let question = "Which database should the tests use?";
+    check_asks(15, 2..7, question, &databases(), Asks::Options);
+}
+
+#[test]
+fn a_description_that_goes_on_stands_under_the_label_questions_16_17() {
+    // 0.0.12 frame 2, at 100 columns (fixture 16) and at 60 columns (fixture 17).
+    let options = [
+        option("the NAS", Some("/mnt/nas/backups on the LAN; I recommend it")),
+        option(
+            "Backblaze B2",
+            Some(
+                "off site, about 2 USD a month for 400 GB; restic needs the key in \
+                 ~/.config/restic/b2.env, and that file does not exist yet",
+            ),
+        ),
+        option("both", Some("the NAS each night and B2 each Sunday")),
+        option("an external disk", Some("only when it is plugged in")),
+    ];
+    let question = "Where should the nightly backup go?";
+    check_asks(16, 0..7, question, &options, Asks::Options);
+    check_asks(17, 0..8, question, &options, Asks::Options);
+}
+
+#[test]
+fn the_answer_line_mutes_the_digits_and_shows_its_keys_and_hint_questions_18() {
+    let typed = "Postgres 16, but on port 5433, so it does not clash with my dev server";
+    let question = "Which database should the tests use?";
+    check_asks(18, 2..9, question, &databases(), Asks::Typing(typed));
+}
+
+#[test]
+fn another_client_must_answer_the_model_s_question_questions_19() {
+    let question = "Which database should the tests use?";
+    check_asks(19, 2..7, question, &databases(), Asks::Elsewhere);
+}
+
+#[test]
+fn a_question_of_a_job_notice_turn_has_the_mark_after_its_title_questions_24() {
+    let options = [
+        option("aarch64-linux", Some("the release build; I recommend it")),
+        option("x86_64-windows", Some("only the CI matrix uses it")),
+        option("both, one after the other", Some("about 20 min more")),
+    ];
+    let question = format!("{WAKE_QUESTION}Which target should I fix first?");
+    check_asks(24, 3..9, &question, &options, Asks::Options);
 }

@@ -110,6 +110,11 @@ pub(crate) fn depth_of(board: &str, frame: u64, caption: Option<&str>) -> (Depth
         ("TM-Code" | "TM-Diffs", 3) => (Depth::NoColor, Some(1)),
         ("TM-Questions", 9) => (Depth::Ansi16, Some(1)),
         ("TM-Questions", 10) => (Depth::NoColor, Some(1)),
+        // The model's question (0.0.12): its card (15) and its end lines (22).
+        ("TM-Questions", 20) => (Depth::Ansi16, Some(15)),
+        ("TM-Questions", 21) => (Depth::NoColor, Some(15)),
+        ("TM-Questions", 25) => (Depth::Ansi16, Some(22)),
+        ("TM-Questions", 26) => (Depth::NoColor, Some(22)),
         ("TM-Markdown", 2) => (Depth::NoColor, Some(1)),
         ("TM-Web", 11) => (Depth::NoColor, Some(10)),
         _ => {

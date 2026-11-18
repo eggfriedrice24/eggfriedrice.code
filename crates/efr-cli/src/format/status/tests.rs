@@ -7,7 +7,7 @@ use efr_protocol::{
     SandboxStatus, Seq,
 };
 use efr_render::{Glyphs, RenderOptions};
-use efr_test_support::design::Depth;
+use efr_test_support::design::{Depth, Frame, assert_rows};
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
@@ -538,6 +538,64 @@ fn the_waiting_words_are_warning_running_is_muted_and_failed_is_an_error() {
     // The columns stay where the plain rows have them.
     let plain = conversations(&each_state(), now(), &RenderOptions::new(100).with_terminal(false));
     assert_eq!(bare(&shown), plain);
+}
+
+/// `efr history --list` with one conversation of each row state is TM-Commands 0.0.12
+/// (fixture 7), rows 1 to 7; rows 0 and 8 are the user's prompt.
+#[test]
+fn the_list_of_each_row_state_is_commands_7() {
+    use ConversationStatus::{AwaitingApproval, Idle, Running};
+    let row = |id: &str, status, attention, title: &str, age| ConversationSummary {
+        id: id.parse().unwrap(),
+        title: Some(title.to_owned()),
+        ..summary(1, status, attention, None, age)
+    };
+    let list = ConversationsListResult {
+        conversations: vec![
+            row(
+                "019a9b11-4c2e-7d10-9a3f-2b7c81d0e6a4",
+                AwaitingApproval,
+                None,
+                "push the steer fix",
+                30,
+            ),
+            row(
+                "019a9b0f-81aa-7c31-b6d2-5e0f1a2c3d44",
+                Running,
+                Some(Attention::Answer),
+                "pick a test database",
+                130,
+            ),
+            row(
+                "019a9a77-0b13-7e52-8c41-9d3e2f6a7b10",
+                Running,
+                Some(Attention::Terminal),
+                "prune old snapshots",
+                243,
+            ),
+            row(
+                "019a9a52-6f20-7a83-a4c5-1b2c3d4e5f60",
+                Running,
+                None,
+                "migrate the session store",
+                12,
+            ),
+            row(
+                "019a99e0-3c45-7b16-9e27-8f9a0b1c2d3e",
+                Idle,
+                Some(Attention::Failed),
+                "upgrade to Expo SDK 58",
+                3_720,
+            ),
+            row("019a9810-aa01-7f02-8b03-0c04d05e06f7", Idle, None, "rotate the logs", 200_000),
+        ],
+        next_cursor: Some(PageCursor::new("c2")),
+    };
+    let frame = Frame::load("Commands", 7).unwrap();
+    for depth in Depth::ALL {
+        let options = design_options(depth, frame.cols);
+        assert_rows(&frame, 1..=7, &conversations(&list, now(), &options), depth);
+    }
 }
 
 #[test]

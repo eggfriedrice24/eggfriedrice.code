@@ -1,8 +1,10 @@
 //! The rows of tool calls against the frames of the terminal design (`TM-Calls`,
 //! `TM-Diffs`, `TM-Legend`, `TM-LongTurn`, `TM-BeforeAfter`, `TM-Sequence`,
-//! `TM-Depths`): real events through a real view, the screen that a terminal keeps,
-//! compared cell by cell with the frame in each depth that the board draws or that the
-//! table of `efr_test_support::design::expect` derives.
+//! `TM-Depths`, and the 0.0.12 frames of `TM-Questions` and `TM-Endings` with the end
+//! lines of the model's question and the watch batches): real events through a real
+//! view, the screen that a terminal keeps, compared cell by cell with the frame in each
+//! depth that the board draws or that the table of `efr_test_support::design::expect`
+//! derives.
 //!
 //! The colours inside the rows of a diff (the syntax colours of the file, and the
 //! weight of a removed row without colour) are the render slice's (`efr_render::
@@ -629,6 +631,98 @@ fn a_failed_read_ends_the_fold_and_is_loud() {
 
 /// The Diffs board: an edit with two hunks, a new file, a delete, a move and a patch
 /// of three files, after a line of prose.
+/// The id of the model's question of call `n`.
+fn question_of(n: u8) -> efr_protocol::QuestionId {
+    format!("019a9b1c-3d00-7a10-8b20-0000000000e{n}").parse().unwrap()
+}
+
+/// The model's question of call `n`, with two options.
+fn asked_the_user(n: u8) -> Event {
+    let option =
+        |label: &str| efr_protocol::QuestionOption { label: label.to_owned(), description: None };
+    Event::UserQuestionRequested {
+        turn_id: turn(),
+        call_id: id(n),
+        question_id: question_of(n),
+        question: "Which database?".to_owned(),
+        options: vec![option("Postgres 16"), option("SQLite")],
+    }
+}
+
+/// The line of each end of the model's question in the place of its card, as TM-Questions
+/// 0.0.12 frame 5 draws them: fixture 22 in truecolor, 25 in 16 colours, 26 without
+/// colour. A typed answer is cut to one row.
+#[test]
+fn each_end_of_the_model_s_question_is_its_line_questions_22_25_26() {
+    use efr_protocol::{Origin, QuestionReply, UserAnswer};
+    let typed = "Postgres 16, but on port 5433, so it does not clash with my dev server, and \
+                 keep SQLite for the unit tests";
+    let replied = |reply| UserAnswer::Replied { reply };
+    let ends = [
+        (replied(QuestionReply::Option { index: 0 }), Some(Origin::Shell)),
+        (replied(QuestionReply::Text { text: typed.to_owned() }), Some(Origin::Shell)),
+        (replied(QuestionReply::Option { index: 1 }), Some(Origin::Phone)),
+        (replied(QuestionReply::Skipped), Some(Origin::Shell)),
+        (UserAnswer::Unanswered { away: false }, None),
+        (UserAnswer::Unanswered { away: true }, None),
+        (UserAnswer::Interrupted, None),
+    ];
+    let frame = Frame::load("Questions", 22).unwrap();
+    for depth in Depth::ALL {
+        let mut lines = String::new();
+        for (answer, origin) in &ends {
+            let mut play = Play::new(depth, frame.cols);
+            play.event(10, asked_the_user(1));
+            let ended = Event::UserQuestionAnswered {
+                turn_id: turn(),
+                question_id: question_of(1),
+                answer: answer.clone(),
+                origin: *origin,
+            };
+            play.event(20, ended);
+            let shown = play.committed();
+            let texts: Vec<String> =
+                cells(&shown).iter().map(efr_test_support::design::CellRow::text).collect();
+            let at = texts
+                .iter()
+                .position(|row| row.contains("answered") || row.contains("skipped"))
+                .unwrap_or_else(|| panic!("no line of the end: {texts:#?}"));
+            lines.push_str(&rows(&shown, at..at + 1));
+        }
+        check(&frame, 0..7, &lines, depth, all);
+    }
+}
+
+/// A watch batch on a terminal is one muted row, with the count before its first line
+/// and that line cut to the row (TM-Endings 0.0.12, frame 1: fixtures 27, 28 and 29).
+#[test]
+fn a_watch_batch_is_one_muted_row_endings_27_28_29() {
+    let batch = |line: &str, more: usize, dropped: u32| Event::JobWatchMatched {
+        job_id: JobId::nth(3),
+        line: line.to_owned(),
+        more: vec!["next".to_owned(); more],
+        dropped,
+        wakes_left: 2,
+    };
+    let slow = "WARN slow query (812 ms): SELECT * FROM events WHERE created_at > now() - \
+                interval '1 day' ORDER BY seq";
+    let cases = [
+        (27, batch("Deploy finished: https://app.example.dev is live", 0, 0)),
+        (28, batch("error[E0425]: cannot find value `tx` in this scope", 19, 0)),
+        (29, batch(slow, 19, 4980)),
+    ];
+    for (number, event) in cases {
+        let frame = Frame::load("Endings", number).unwrap();
+        let mut play = Play::new(Depth::TrueColor, frame.cols);
+        play.event(10, event);
+        let shown = play.committed();
+        let texts: Vec<String> =
+            cells(&shown).iter().map(efr_test_support::design::CellRow::text).collect();
+        let at = texts.iter().position(|row| row.starts_with("job j3 matched")).unwrap();
+        check(&frame, 0..1, &rows(&shown, at..at + 1), Depth::TrueColor, all);
+    }
+}
+
 fn diffs_turn(depth: Depth, cols: u16) -> Play {
     let mut play = Play::new(depth, cols);
     play.event(5, message(0, "I drain the channel before the end check:\n"));
