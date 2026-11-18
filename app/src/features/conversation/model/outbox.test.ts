@@ -2,16 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import type { PromptSendResult } from "@/lib/protocol/generated";
 import {
+  MAX_REUPLOADS,
   MAX_SEND_ATTEMPTS,
   drainPlan,
   entriesFor,
   resolveAlias,
   sendParams,
+  uploadsDone,
   type OutboxEntry,
   type OutboxSnapshot,
 } from "./outbox";
 import { MemoryOutboxStorage } from "./outbox-storage";
-import { CONVERSATION_A, CONVERSATION_B, DESKTOP, LAPTOP, testOutbox } from "./outbox-testing";
+import {
+  CONVERSATION_A,
+  CONVERSATION_B,
+  DESKTOP,
+  LAPTOP,
+  outboxFile,
+  testOutbox,
+} from "./outbox-testing";
 
 const TO_A = { kind: "conversation", conversationId: CONVERSATION_A } as const;
 const TO_B = { kind: "conversation", conversationId: CONVERSATION_B } as const;
@@ -311,9 +320,60 @@ describe("the outbox", () => {
     const a = outbox.enqueue({ machine: DESKTOP, target: TO_A, text: "a" });
     const b = outbox.enqueue({ machine: DESKTOP, target: TO_B, text: "b" });
     outbox.begin(a.commandId);
-    outbox.discard(a.commandId);
-    outbox.discard(b.commandId);
+    expect(outbox.discard(a.commandId)).toBeUndefined();
+    expect(outbox.discard(b.commandId)).toBe(b);
     expect(texts(outbox.store.get().entries)).toEqual(["a"]);
+  });
+
+  it("names the uploads of an entry in its send, and keeps only their end on the disk", async () => {
+    const storage = new MemoryOutboxStorage();
+    const { outbox } = testOutbox(storage);
+    const file = outboxFile("0f0f0f0f-0000-4000-8000-00000000000a", 10);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [file],
+    });
+    expect(sendParams(outbox.store.get(), entry, false).attachments).toEqual([file.uploadId]);
+    outbox.begin(entry.commandId);
+    outbox.progress(entry.commandId, file.uploadId, 4, false);
+    await outbox.flush();
+    expect((await storage.load())[0]?.attachments).toEqual([file]);
+    expect(uploadsDone(outbox.store.get().entries[0] ?? entry)).toBe(false);
+    outbox.progress(entry.commandId, file.uploadId, 10, true);
+    expect(uploadsDone(outbox.store.get().entries[0] ?? entry)).toBe(true);
+    // The files are up, so the send is in flight, and the entry stays.
+    expect(outbox.discard(entry.commandId)).toBeUndefined();
+    await outbox.flush();
+    expect((await storage.load())[0]?.attachments).toEqual([
+      { ...file, received: 10, uploaded: true },
+    ]);
+  });
+
+  it("sends lost uploads again from 0 at most MAX_REUPLOADS times, and a retry starts over", () => {
+    const { outbox } = testOutbox();
+    const file = outboxFile("0f0f0f0f-0000-4000-8000-00000000000a", 10);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [file],
+    });
+    outbox.begin(entry.commandId);
+    outbox.progress(entry.commandId, file.uploadId, 10, true);
+    for (let round = 1; round <= MAX_REUPLOADS; round++) {
+      expect(outbox.reupload(entry.commandId, [file.uploadId])).toBe(true);
+      expect(outbox.store.get().entries[0]).toMatchObject({
+        reuploads: round,
+        attachments: [{ received: 0, uploaded: false }],
+      });
+    }
+    expect(outbox.reupload(entry.commandId, [file.uploadId])).toBe(false);
+    outbox.fail(entry.commandId, { code: "upload", message: "lost" });
+    const again = outbox.retry(entry.commandId);
+    expect(again?.reuploads).toBeUndefined();
+    expect(again?.attachments).toEqual([file]);
   });
 
   it("removes the entries and aliases of a forgotten machine, also on the disk", async () => {

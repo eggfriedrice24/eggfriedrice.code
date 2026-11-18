@@ -22,6 +22,8 @@ export type RowKind =
   | "steer"
   /** The quiet line of the reviewer's pause in auto. */
   | "pause"
+  /** The quiet line of attachments that efrd sends as a path from now on. */
+  | "withheld"
   /** The running line of a turn that runs now. */
   | "status"
   | "end";
@@ -51,6 +53,12 @@ export type Row =
     }
   | { readonly kind: "steer"; readonly key: string; readonly turnId: string; readonly seq: number }
   | { readonly kind: "pause"; readonly key: string; readonly turnId: string }
+  | {
+      readonly kind: "withheld";
+      readonly key: string;
+      readonly turnId: string;
+      readonly seq: number;
+    }
   | { readonly kind: "status"; readonly key: string; readonly turnId: string }
   | { readonly kind: "end"; readonly key: string; readonly turnId: string };
 
@@ -66,6 +74,7 @@ const KINDS: Readonly<Record<string, RowKind>> = {
   a: "approval",
   s: "steer",
   x: "pause",
+  h: "withheld",
   w: "status",
   e: "end",
 };
@@ -201,6 +210,9 @@ function turnRows(turn: TurnView): Row[] {
         break;
       case "pause":
         rows.push({ kind: "pause", key: `x:${turnId}`, turnId });
+        break;
+      case "withheld":
+        rows.push({ kind: "withheld", key: `h:${turnId}:${part.seq}`, turnId, seq: part.seq });
         break;
       case "steer":
         // A steer that an interrupt sent again shows as the prompt of its new turn.

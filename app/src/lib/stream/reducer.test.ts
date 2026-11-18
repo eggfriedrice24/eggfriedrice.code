@@ -2,6 +2,7 @@
 import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
+import type { Attachment } from "@/lib/protocol/generated";
 import { CALL, fixtureEvent, item, rawEvent, rawItem, TURN } from "@/lib/protocol/testing";
 import type { DraftPart, Event, EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
 import {
@@ -768,6 +769,74 @@ describe("underlay", () => {
     const cold = underlay(EMPTY_STREAM, [envelope(1, messageCompleted(older, 0, "Old."))]);
     expect(cold.lastSeq).toBe(1);
     expect(cold.loaded).toBe(true);
+  });
+});
+
+describe("attachments", () => {
+  const shot: Attachment = {
+    id: "a1",
+    name: "shot.png",
+    media_type: "image/png",
+    bytes: 2_180_000,
+    sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    kind: { kind: "image", width: 3840, height: 2160 },
+    origin: { kind: "path", path: "/home/me/shot.png" },
+  };
+  const later = "019a9b1c-3d00-7a10-8b20-000000000003";
+
+  it("keeps the files of a prompt and the ones that its model reads only as a path", () => {
+    const state = run([
+      event(1, { ...promptQueued(TURN, "look"), attachments: [shot] }),
+      event(2, { ...turnStarted(TURN), unread_attachments: ["a1"] }),
+    ]);
+    expect(state.turns.get(TURN)?.prompt).toMatchObject({ attachments: [shot], unread: ["a1"] });
+    expect(state.attachmentNames).toEqual(new Map([["a1", "shot.png"]]));
+    const plain = run([event(1, promptQueued(TURN, "look")), event(2, turnStarted(TURN))]);
+    expect(plain.turns.get(TURN)?.prompt?.attachments).toBeUndefined();
+    expect(plain.turns.get(TURN)?.prompt?.unread).toBeUndefined();
+  });
+
+  it("puts the image of a tool call on the call", () => {
+    const state = run([
+      event(1, toolCallStarted(TURN, CALL, "read_file", { path: "shot.png" })),
+      event(2, { ...toolCallCompleted(TURN, CALL), attachments: [shot] }),
+    ]);
+    expect(state.turns.get(TURN)?.tools.get(CALL)?.attachments).toEqual([shot]);
+  });
+
+  it("marks withheld attachments for the conversation and puts the line in its turn", () => {
+    const withheld: Event = {
+      kind: "attachments_withheld",
+      turn_id: later,
+      attachments: ["a1"],
+      reason: "refused",
+    };
+    const state = run([
+      event(1, { ...promptQueued(TURN, "look"), attachments: [shot] }),
+      event(5, withheld),
+    ]);
+    expect(state.withheld).toEqual(new Set(["a1"]));
+    expect(state.turns.get(later)?.parts).toEqual([{ kind: "withheld", seq: 5 }]);
+    expect(state.turns.get(later)?.withheld.get(5)).toEqual({
+      attachments: ["a1"],
+      reason: "refused",
+    });
+    const noTurn = run([event(5, { ...withheld, turn_id: null })]);
+    expect(noTurn.withheld).toEqual(new Set(["a1"]));
+    expect(noTurn.order).toEqual([]);
+  });
+
+  it("keeps the names and the withheld marks of older history under a snapshot", () => {
+    const current = reduce(
+      EMPTY_STREAM,
+      snapshotItem(CONVERSATION, "idle", [envelope(9, turnStarted(later))], 9),
+    );
+    const paged = underlay(current, [
+      envelope(1, { ...promptQueued(TURN, "look"), attachments: [shot] }),
+      envelope(2, { kind: "attachments_withheld", attachments: ["a1"], reason: "budget" }),
+    ]);
+    expect(paged.attachmentNames.get("a1")).toBe("shot.png");
+    expect(paged.withheld.has("a1")).toBe(true);
   });
 });
 

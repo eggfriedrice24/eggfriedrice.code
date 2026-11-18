@@ -1,0 +1,280 @@
+import { describe, expect, it } from "vitest";
+
+import { flush } from "@/lib/net/testing";
+import { MemoryKeyValue } from "@/lib/store/testing";
+import type { PreparedImage } from "../../../../modules/efr-files";
+import {
+  MAX_PREVIEW_PROMPTS,
+  PREVIEWS_KEY,
+  createAttachments,
+  outboxFiles,
+  photoName,
+  selectDraftFiles,
+  selectPreview,
+  uploadName,
+  type AttachFiles,
+  type Attachments,
+} from "./attachments";
+import { draftKey } from "./drafts";
+import type { OutboxEntry } from "./outbox";
+import { CONVERSATION_A, DESKTOP, LAPTOP, idMaker, testOutbox } from "./outbox-testing";
+
+const KEY = draftKey(DESKTOP, CONVERSATION_A);
+
+/** efr-files with photos that the test prepares by hand, and a list of removed files. */
+class FakeFiles implements AttachFiles {
+  readonly removed: string[] = [];
+  readonly waiting: { readonly uri: string; done(): void; fail(): void }[] = [];
+
+  prepareImage(uri: string, maxEdge: number): Promise<PreparedImage> {
+    return new Promise((resolve, reject) => {
+      this.waiting.push({
+        uri,
+        done: () =>
+          resolve({
+            uri: `${uri}.jpg`,
+            width: maxEdge,
+            height: maxEdge / 2,
+            bytes: 1_200_000,
+            previewUri: `${uri}-preview.jpg`,
+          }),
+        fail: () => reject(new Error("iOS cannot read it as an image")),
+      });
+    });
+  }
+
+  fileInfo(): Promise<{ readonly bytes: number }> {
+    return Promise.resolve({ bytes: 48_000 });
+  }
+
+  remove(uri: string): Promise<void> {
+    this.removed.push(uri);
+    return Promise.resolve();
+  }
+
+  /** Ends the work on the photo `uri`. */
+  finish(uri: string, ok = true): void {
+    const at = this.waiting.findIndex((held) => held.uri === uri);
+    const [held] = this.waiting.splice(at, 1);
+    if (ok) {
+      held?.done();
+    } else {
+      held?.fail();
+    }
+  }
+}
+
+function setup(storage = new MemoryKeyValue()): {
+  readonly attachments: Attachments;
+  readonly files: FakeFiles;
+  readonly discards: string[];
+  readonly errors: unknown[];
+  readonly outbox: ReturnType<typeof testOutbox>["outbox"];
+} {
+  const files = new FakeFiles();
+  const { outbox } = testOutbox();
+  const discards: string[] = [];
+  const errors: unknown[] = [];
+  const attachments = createAttachments({
+    files,
+    outbox,
+    discard: (machine, uploadId) => discards.push(`${machine.slice(-1)}:${uploadId.slice(-1)}`),
+    newId: idMaker("0f0f0f0f"),
+    storage,
+    onError: (error) => errors.push(error),
+  });
+  return { attachments, files, discards, errors, outbox };
+}
+
+function draft(attachments: Attachments) {
+  return selectDraftFiles(KEY)(attachments.store.get());
+}
+
+describe("the names of an attachment", () => {
+  it("names a photo as the JPEG that efr-files writes", () => {
+    expect(photoName("IMG_2041.HEIC")).toBe("IMG_2041.jpg");
+    expect(photoName("photo")).toBe("photo.jpg");
+  });
+
+  it("takes out what efrd refuses and cuts a long name", () => {
+    expect(uploadName("a/b\u0007c.txt")).toBe("a_b_c.txt");
+    expect(uploadName("   ")).toBe("file");
+    expect(uploadName(`${"x".repeat(300)}.pdf`)).toHaveLength(240);
+  });
+});
+
+describe("the files of a draft", () => {
+  it("prepares a photo and gives a file its size, in the order of the pick", async () => {
+    const { attachments, files } = setup();
+    attachments.add(
+      KEY,
+      [
+        { kind: "photo", uri: "file:///caches/IMG_1.HEIC", name: "IMG_1.HEIC" },
+        { kind: "file", uri: "file:///caches/data.csv", name: "data.csv" },
+        { kind: "pdf", uri: "file:///caches/a.pdf", name: "a.pdf", bytes: 3_400_000 },
+      ],
+      2000,
+    );
+    expect(draft(attachments).map((file) => [file.name, file.bytes])).toEqual([
+      ["IMG_1.jpg", undefined],
+      ["data.csv", undefined],
+      ["a.pdf", 3_400_000],
+    ]);
+    await flush();
+    // A photo in the work holds the send.
+    expect(attachments.take(KEY)).toBeUndefined();
+    files.finish("file:///caches/IMG_1.HEIC");
+    await flush();
+    expect(draft(attachments)).toMatchObject([
+      {
+        name: "IMG_1.jpg",
+        uri: "file:///caches/IMG_1.HEIC.jpg",
+        bytes: 1_200_000,
+        previewUri: "file:///caches/IMG_1.HEIC-preview.jpg",
+      },
+      { name: "data.csv", bytes: 48_000 },
+      { name: "a.pdf", bytes: 3_400_000 },
+    ]);
+    // The copy of the photo picker goes once the JPEG is there.
+    expect(files.removed).toEqual(["file:///caches/IMG_1.HEIC"]);
+    const taken = attachments.take(KEY);
+    expect(taken).toHaveLength(3);
+    expect(draft(attachments)).toEqual([]);
+    expect(outboxFiles(taken ?? [])[0]).toMatchObject({ received: 0, uploaded: false });
+  });
+
+  it("removes a file and its copies, and cleans a photo that the xmark took during its work", async () => {
+    const { attachments, files } = setup();
+    attachments.add(
+      KEY,
+      [
+        { kind: "photo", uri: "file:///caches/IMG_1.HEIC", name: "IMG_1.HEIC" },
+        { kind: "file", uri: "file:///caches/data.csv", name: "data.csv", bytes: 10 },
+      ],
+      2000,
+    );
+    await flush();
+    const [photo, csv] = draft(attachments);
+    attachments.remove(KEY, csv?.id ?? "");
+    attachments.remove(KEY, photo?.id ?? "");
+    expect(draft(attachments)).toEqual([]);
+    expect(files.removed).toEqual(["file:///caches/data.csv"]);
+    files.finish("file:///caches/IMG_1.HEIC");
+    await flush();
+    expect(files.removed).toEqual([
+      "file:///caches/data.csv",
+      "file:///caches/IMG_1.HEIC",
+      "file:///caches/IMG_1.HEIC.jpg",
+      "file:///caches/IMG_1.HEIC-preview.jpg",
+    ]);
+  });
+
+  it("drops a photo that iOS cannot read and reports why", async () => {
+    const { attachments, files, errors } = setup();
+    attachments.add(KEY, [{ kind: "photo", uri: "file:///caches/x.png", name: "x.png" }], 2000);
+    await flush();
+    files.finish("file:///caches/x.png", false);
+    await flush();
+    expect(draft(attachments)).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(files.removed).toEqual(["file:///caches/x.png"]);
+  });
+});
+
+/** An outbox entry of `commandId` with the files of `attachments.take`. */
+function entryWith(
+  outbox: ReturnType<typeof testOutbox>["outbox"],
+  attachments: Attachments,
+): OutboxEntry {
+  return outbox.enqueue({
+    machine: DESKTOP,
+    target: { kind: "conversation", conversationId: CONVERSATION_A },
+    text: "look",
+    attachments: outboxFiles(attachments.take(KEY) ?? []),
+  });
+}
+
+describe("the files of a prompt", () => {
+  it("removes the uploaded copies after the send and keeps the preview, also on the disk", async () => {
+    const storage = new MemoryKeyValue();
+    const { attachments, files, outbox } = setup(storage);
+    attachments.add(
+      KEY,
+      [
+        { kind: "file", uri: "file:///caches/a.txt", name: "a.txt", bytes: 3 },
+        { kind: "photo", uri: "file:///caches/IMG_1.HEIC", name: "IMG_1.HEIC" },
+      ],
+      2000,
+    );
+    await flush();
+    files.finish("file:///caches/IMG_1.HEIC");
+    await flush();
+    const entry = entryWith(outbox, attachments);
+    files.removed.length = 0;
+    attachments.sent(entry);
+    expect(files.removed).toEqual(["file:///caches/a.txt", "file:///caches/IMG_1.HEIC.jpg"]);
+    const state = attachments.store.get();
+    expect(selectPreview(entry.commandId, 0)(state)).toBeUndefined();
+    expect(selectPreview(entry.commandId, 1)(state)).toBe("file:///caches/IMG_1.HEIC-preview.jpg");
+    await flush();
+    const again = setup(storage).attachments;
+    expect(selectPreview(entry.commandId, 1)(again.store.get())).toBe(
+      "file:///caches/IMG_1.HEIC-preview.jpg",
+    );
+    expect(storage.getItemSync(PREVIEWS_KEY)).not.toBeNull();
+  });
+
+  it("keeps the previews of the newest prompts only", async () => {
+    const { attachments, files, outbox } = setup();
+    const entries: OutboxEntry[] = [];
+    for (let i = 0; i <= MAX_PREVIEW_PROMPTS; i++) {
+      attachments.add(KEY, [{ kind: "photo", uri: `file:///caches/${i}`, name: `${i}` }], 2000);
+      await flush();
+      files.finish(`file:///caches/${i}`);
+      await flush();
+      const entry = entryWith(outbox, attachments);
+      entries.push(entry);
+      attachments.sent(entry);
+    }
+    expect(attachments.store.get().previews.size).toBe(MAX_PREVIEW_PROMPTS);
+    expect(selectPreview(entries[0]?.commandId ?? "", 0)(attachments.store.get())).toBeUndefined();
+    expect(files.removed).toContain("file:///caches/0-preview.jpg");
+  });
+
+  it("withdraws a prompt with its uploads and its files", async () => {
+    const { attachments, files, discards, outbox } = setup();
+    attachments.add(
+      KEY,
+      [{ kind: "file", uri: "file:///caches/a.txt", name: "a.txt", bytes: 3 }],
+      2000,
+    );
+    await flush();
+    const entry = entryWith(outbox, attachments);
+    attachments.withdraw(entry.commandId);
+    expect(outbox.store.get().entries).toEqual([]);
+    expect(discards).toEqual(["1:1"]);
+    expect(files.removed).toEqual(["file:///caches/a.txt"]);
+  });
+
+  it("forgets the drafts and the previews of a machine", async () => {
+    const storage = new MemoryKeyValue();
+    const { attachments, files, outbox } = setup(storage);
+    attachments.add(KEY, [{ kind: "photo", uri: "file:///caches/p", name: "p" }], 2000);
+    await flush();
+    files.finish("file:///caches/p");
+    await flush();
+    attachments.sent(entryWith(outbox, attachments));
+    const other = draftKey(LAPTOP, CONVERSATION_A);
+    attachments.add(other, [{ kind: "file", uri: "file:///caches/l", name: "l", bytes: 1 }], 2000);
+    attachments.add(KEY, [{ kind: "file", uri: "file:///caches/d", name: "d", bytes: 1 }], 2000);
+    await flush();
+    files.removed.length = 0;
+    attachments.removeMachine(DESKTOP);
+    expect(draft(attachments)).toEqual([]);
+    expect(selectDraftFiles(other)(attachments.store.get())).toHaveLength(1);
+    expect(attachments.store.get().previews.size).toBe(0);
+    expect(files.removed).toEqual(["file:///caches/d", "file:///caches/p-preview.jpg"]);
+    await flush();
+    expect(storage.getItemSync(PREVIEWS_KEY)).toBe("{}");
+  });
+});

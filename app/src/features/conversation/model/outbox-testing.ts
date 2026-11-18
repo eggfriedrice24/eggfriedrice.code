@@ -1,9 +1,19 @@
 // Helpers for the tests of the outbox: ids that are valid UUIDs, a wall clock that a test
-// sets, and a fake efrd that takes `prompt.send` as efrd does (idempotent by command id).
-// Only test files import this module.
+// sets, and a fake efrd that takes `prompt.send` and `attachment.put` as efrd does
+// (idempotent by command id, one result rule of an upload). Only test files import this
+// module.
 
-import type { ConversationId, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
-import { createOutbox, type Outbox, type OutboxStorage } from "./outbox";
+import { ServerError } from "@/lib/net/errors";
+import { base64Decode, base64Encode } from "@/lib/protocol/bytes";
+import type {
+  AttachmentPut,
+  AttachmentPutResult,
+  ConversationId,
+  PromptSend,
+  PromptSendResult,
+} from "@/lib/protocol/generated";
+import { createOutbox, type Outbox, type OutboxAttachment, type OutboxStorage } from "./outbox";
+import type { OutboxUploads } from "./outbox-drain";
 
 export const DESKTOP = "019a9b1c-3d00-7a10-8b20-000000000001";
 export const LAPTOP = "019a9b1c-3d00-7a10-8b20-000000000002";
@@ -83,6 +93,9 @@ export class FakeEfrd {
     return this.receipts.has(commandId);
   }
 
+  /** The uploads of `attachment.put`; a prompt takes its finished uploads. */
+  readonly uploads = new FakeUploads();
+
   /** Takes a send, or returns the receipt of its command id. */
   take(params: PromptSend): PromptSendResult {
     this.calls.push(params);
@@ -90,6 +103,17 @@ export class FakeEfrd {
     if (receipt !== undefined) {
       return receipt;
     }
+    const files = params.attachments ?? [];
+    const missing = files.filter((id) => !this.uploads.finished(id));
+    if (missing.length > 0) {
+      // No receipt: the client uploads the files again and sends the same command id.
+      throw new ServerError({
+        code: "not_found",
+        message: "an upload is missing",
+        data: { missing_uploads: missing },
+      });
+    }
+    this.uploads.take(files);
     let conversationId: ConversationId;
     if (params.new_conversation === true) {
       conversationId = this.newId();
@@ -113,4 +137,94 @@ export class FakeEfrd {
     this.taken.push({ commandId: params.command_id, conversationId, text: params.text });
     return result;
   }
+}
+
+/**
+ * The uploads of efrd as `attachment.put` keeps them: efrd writes a chunk only at the
+ * offset that it has, and else answers with what it has.
+ */
+export class FakeUploads {
+  /** Every put, in order. */
+  readonly puts: AttachmentPut[] = [];
+  private readonly held = new Map<string, { received: number; total: number }>();
+
+  /** The bytes that efrd has of upload `id`, or undefined for none. */
+  received(id: string): number | undefined {
+    return this.held.get(id)?.received;
+  }
+
+  /** True when efrd has every byte of upload `id`. */
+  finished(id: string): boolean {
+    const upload = this.held.get(id);
+    return upload !== undefined && upload.received === upload.total;
+  }
+
+  put(params: AttachmentPut): AttachmentPutResult {
+    this.puts.push(params);
+    const upload = this.held.get(params.upload_id) ?? { received: 0, total: params.total_bytes };
+    const bytes = base64Decode(params.data)?.length ?? 0;
+    if (params.offset === upload.received) {
+      upload.received += bytes;
+    }
+    this.held.set(params.upload_id, upload);
+    if (upload.received < upload.total) {
+      return { received: upload.received };
+    }
+    return {
+      received: upload.received,
+      upload: {
+        name: params.name,
+        bytes: upload.total,
+        media_type: "image/jpeg",
+        kind: { kind: "image", width: 2, height: 1 },
+      },
+    };
+  }
+
+  /** Removes uploads, as a restart of efrd or a prompt that takes them. */
+  take(ids: readonly string[]): void {
+    for (const id of ids) {
+      this.held.delete(id);
+    }
+  }
+}
+
+/**
+ * The uploads of a drain on `efrd`, with `chunk` as the largest chunk. `reads` holds each
+ * chunk read as `uri@offset`, and `discards` each discarded upload.
+ */
+export function fakeUploads(
+  efrd: FakeEfrd,
+  chunk = 4,
+): OutboxUploads & { readonly discards: string[]; readonly reads: string[] } {
+  const discards: string[] = [];
+  const reads: string[] = [];
+  return {
+    discards,
+    reads,
+    chunkBytes: () => chunk,
+    put: (params) => Promise.resolve(efrd.uploads.put(params)),
+    discard: (uploadId) => {
+      discards.push(uploadId);
+      efrd.uploads.take([uploadId]);
+    },
+    readChunk: (uri, offset, length) => {
+      reads.push(`${uri}@${offset}`);
+      return Promise.resolve(base64Encode(new Uint8Array(length)));
+    },
+  };
+}
+
+/** A file of `bytes` bytes for an outbox entry, with no byte uploaded yet. */
+export function outboxFile(uploadId: string, bytes: number, name = "shot.jpg"): OutboxAttachment {
+  return {
+    uploadId,
+    kind: "photo",
+    name,
+    uri: `file:///caches/${name}`,
+    bytes,
+    previewUri: `file:///caches/${name}-preview`,
+    received: 0,
+    uploaded: false,
+  };
 }

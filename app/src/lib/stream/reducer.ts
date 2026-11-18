@@ -27,6 +27,10 @@
 //   `classifier_paused` is a part of its turn: the reviewer stopped for the turn. The git
 //   settings and other files that run code which a call changed
 //   (`sandbox_surface_changed`) go on its tool call too.
+// - The attachments of a prompt and of a tool call are on them. `turn_started` names the
+//   ones that its model gets only as a path. An `attachments_withheld` is a part of its
+//   turn, and the conversation keeps its attachments as withheld from then on, with the
+//   name of each attachment that the app saw.
 // - The parts of a turn (messages, tool calls, approvals, steers) keep the order of
 //   their first sight.
 // - The first answer to an approval wins, from any client. A question that is open when
@@ -41,6 +45,7 @@ import type {
   AccountOut,
   AlwaysSaved,
   ApprovalDecision,
+  Attachment,
   ContextUse,
   ConversationSummary,
   ExitKind,
@@ -63,6 +68,7 @@ import type {
   WebAction,
   WebError,
   WebSource,
+  WithheldReason,
 } from "@/lib/protocol/generated";
 import type {
   Draft,
@@ -129,6 +135,8 @@ export interface ToolCallView {
   readonly quarantine?: QuarantineQuestionView;
   /** The question of the model that the `ask_user` call asks (`user_question_requested`). */
   readonly question?: UserQuestionView;
+  /** The images that the call gave the model, such as an image that `read_file` read. */
+  readonly attachments?: readonly Attachment[];
 }
 
 /** What became of a question of the model. */
@@ -313,6 +321,16 @@ export interface PromptView {
   readonly origin: Origin;
   readonly commandId: string;
   readonly at: number | undefined;
+  /** The files of the prompt, in their order. */
+  readonly attachments?: readonly Attachment[];
+  /** The attachments that the model of the turn gets only as a path (`turn_started`). */
+  readonly unread?: readonly string[];
+}
+
+/** The quiet line of an `attachments_withheld` event in its turn. */
+export interface WithheldView {
+  readonly attachments: readonly string[];
+  readonly reason: WithheldReason;
 }
 
 /** How a turn ended. */
@@ -343,7 +361,9 @@ export type PartKey =
   | { readonly kind: "approval"; readonly callId: string }
   | { readonly kind: "steer"; readonly seq: number }
   /** The reviewer stopped for the rest of the turn. */
-  | { readonly kind: "pause" };
+  | { readonly kind: "pause" }
+  /** efrd sends attachments as a path from now on (`attachments_withheld`). */
+  | { readonly kind: "withheld"; readonly seq: number };
 
 /** One turn. */
 export interface TurnView {
@@ -390,6 +410,8 @@ export interface TurnView {
   readonly pause: ReviewerPause | undefined;
   /** The web search of the turn, from its `turn_web_report`. */
   readonly web: TurnWebView | undefined;
+  /** The `attachments_withheld` events of the turn, by sequence number. */
+  readonly withheld: ReadonlyMap<number, WithheldView>;
 }
 
 /** A switch of model or account at the start of a turn (MS-Switched). */
@@ -456,6 +478,10 @@ export interface StreamState {
    * cache.
    */
   readonly historyCursor: string | null | undefined;
+  /** The name of each attachment of the conversation that the app saw, by its id. */
+  readonly attachmentNames: ReadonlyMap<string, string>;
+  /** The attachments that efrd sends as a path from now on (`attachments_withheld`). */
+  readonly withheld: ReadonlySet<string>;
 }
 
 /** The limits of one account, as a `limits` draft gives them. */
@@ -479,6 +505,8 @@ export const EMPTY_STREAM: StreamState = {
   loaded: false,
   link: "waiting",
   historyCursor: undefined,
+  attachmentNames: new Map(),
+  withheld: new Set(),
 };
 
 /** Applies one item of the subscribe stream. */
@@ -688,6 +716,11 @@ function applyEventBody(
         const model = settings?.model ?? turn.model;
         const provider = settings?.provider ?? turn.provider;
         const effort = settings?.effort ?? settings?.default_effort ?? turn.effort;
+        const unread = event.unread_attachments;
+        const prompt =
+          unread !== undefined && unread.length > 0 && turn.prompt !== undefined
+            ? { ...turn.prompt, unread }
+            : turn.prompt;
         if (
           turn.started &&
           turn.cwd === cwd &&
@@ -695,12 +728,14 @@ function applyEventBody(
           turn.model === model &&
           turn.provider === provider &&
           turn.effort === effort &&
-          turn.startedAt === at
+          turn.startedAt === at &&
+          turn.prompt === prompt
         ) {
           return turn;
         }
         return {
           ...turn,
+          prompt,
           started: true,
           startedAt: at ?? turn.startedAt,
           cwd,
@@ -710,6 +745,8 @@ function applyEventBody(
           effort,
         };
       });
+    case "attachments_withheld":
+      return attachmentsWithheld(state, event, seq);
     case "model_switched":
       return updateTurn(state, event.turn_id, (turn) => {
         if (turn.switched !== undefined) {
@@ -759,10 +796,15 @@ function applyEventBody(
         ),
       );
     case "tool_call_completed":
-      return updateTurn(state, event.turn_id, (turn) =>
-        updateTool(addPart(turn, { kind: "tool", callId: event.call_id }), event.call_id, (call) =>
-          completeTool(call, event, at),
+      return withNames(
+        updateTurn(state, event.turn_id, (turn) =>
+          updateTool(
+            addPart(turn, { kind: "tool", callId: event.call_id }),
+            event.call_id,
+            (call) => completeTool(call, event, at),
+          ),
         ),
+        event.attachments,
       );
     case "web_call_started":
       // A find in a page has no block: it is the model reading the page it opened.
@@ -1013,13 +1055,23 @@ function promptQueued(
   event: EventOf<"prompt_queued">,
   at: number | undefined,
 ): StreamState {
-  const next = updateTurn(state, event.turn_id, (turn) =>
-    turn.prompt !== undefined
-      ? turn
-      : {
-          ...turn,
-          prompt: { text: event.text, origin: event.origin, commandId: event.command_id, at },
-        },
+  const next = withNames(
+    updateTurn(state, event.turn_id, (turn) => {
+      if (turn.prompt !== undefined) {
+        return turn;
+      }
+      const prompt: { -readonly [K in keyof PromptView]: PromptView[K] } = {
+        text: event.text,
+        origin: event.origin,
+        commandId: event.command_id,
+        at,
+      };
+      if (event.attachments !== undefined && event.attachments.length > 0) {
+        prompt.attachments = event.attachments;
+      }
+      return { ...turn, prompt };
+    }),
+    event.attachments,
   );
   const carried = event.steers;
   if (carried === undefined || carried.length === 0) {
@@ -1033,6 +1085,45 @@ function promptQueued(
     );
   }
   return out;
+}
+
+/** `state` with the names of `attachments`, so a later withheld line can name them. */
+function withNames(
+  state: StreamState,
+  attachments: readonly Attachment[] | undefined,
+): StreamState {
+  if (
+    attachments === undefined ||
+    attachments.every((file) => state.attachmentNames.has(file.id))
+  ) {
+    return state;
+  }
+  const attachmentNames = new Map(state.attachmentNames);
+  for (const file of attachments) {
+    attachmentNames.set(file.id, file.name);
+  }
+  return { ...state, attachmentNames };
+}
+
+function attachmentsWithheld(
+  state: StreamState,
+  event: EventOf<"attachments_withheld">,
+  seq: number,
+): StreamState {
+  const withheld = new Set(state.withheld);
+  for (const id of event.attachments) {
+    withheld.add(id);
+  }
+  const next = { ...state, withheld };
+  const turnId = event.turn_id;
+  if (turnId === undefined || turnId === null) {
+    return next;
+  }
+  return updateTurn(next, turnId, (turn) => {
+    const views = new Map(turn.withheld);
+    views.set(seq, { attachments: event.attachments, reason: event.reason });
+    return addPart({ ...turn, withheld: views }, { kind: "withheld", seq });
+  });
 }
 
 function turnEnded(state: StreamState, turnId: string, end: TurnEnd): StreamState {
@@ -1124,7 +1215,7 @@ function completeTool(
   if (call.done) {
     return call;
   }
-  return {
+  const done: { -readonly [K in keyof ToolCallView]: ToolCallView[K] } = {
     ...call,
     done: true,
     isError: event.is_error,
@@ -1135,6 +1226,10 @@ function completeTool(
     leftRunning: event.left_running === true,
     endedAt: at,
   };
+  if (event.attachments !== undefined && event.attachments.length > 0) {
+    done.attachments = event.attachments;
+  }
+  return done;
 }
 
 /** `call` as the step of web search of `event`: the end of a step names its whole state. */
@@ -1261,6 +1356,14 @@ function keepPrevious(
     order: [...older, ...next.order],
     context: next.context ?? previous.context,
     limits: next.limits ?? previous.limits,
+    attachmentNames:
+      previous.attachmentNames.size === 0
+        ? next.attachmentNames
+        : new Map([...previous.attachmentNames, ...next.attachmentNames]),
+    withheld:
+      previous.withheld.size === 0
+        ? next.withheld
+        : new Set([...previous.withheld, ...next.withheld]),
   };
 }
 
@@ -1419,6 +1522,8 @@ export function samePart(a: PartKey, b: PartKey): boolean {
       return b.kind === "approval" && a.callId === b.callId;
     case "pause":
       return b.kind === "pause";
+    case "withheld":
+      return b.kind === "withheld" && a.seq === b.seq;
     default:
       return false;
   }
@@ -1455,6 +1560,7 @@ function newTurn(turnId: string): TurnView {
     steers: new Map(),
     pause: undefined,
     web: undefined,
+    withheld: new Map(),
   };
 }
 

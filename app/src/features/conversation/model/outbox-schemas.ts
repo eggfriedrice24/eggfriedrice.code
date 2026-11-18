@@ -38,4 +38,19 @@ export const outboxEntrySchema = z.object({
     })
     .exactOptional(),
   auto: z.literal(true).exactOptional(),
+  attachments: z
+    .array(
+      z.object({
+        uploadId: z.guid(),
+        kind: z.enum(["photo", "pdf", "file"]),
+        name: z.string().min(1),
+        uri: z.string(),
+        bytes: z.int().nonnegative(),
+        previewUri: z.string().exactOptional(),
+        received: z.int().nonnegative(),
+        uploaded: z.boolean(),
+      }),
+    )
+    .exactOptional(),
+  reuploads: z.int().nonnegative().exactOptional(),
 }) satisfies z.ZodType<OutboxEntry>;

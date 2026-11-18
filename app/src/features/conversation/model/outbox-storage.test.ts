@@ -4,7 +4,7 @@ import { SqliteEventCaches } from "@/lib/store/sqlite-cache";
 import { NodeDatabase } from "@/lib/store/testing";
 import type { OutboxEntry, OutboxStorage } from "./outbox";
 import { MemoryOutboxStorage, SqliteOutboxStorage } from "./outbox-storage";
-import { CONVERSATION_A, DESKTOP, LAPTOP, idMaker } from "./outbox-testing";
+import { CONVERSATION_A, DESKTOP, LAPTOP, idMaker, outboxFile } from "./outbox-testing";
 
 const ids = idMaker();
 
@@ -64,6 +64,21 @@ describe.each(KINDS)("the %s outbox storage", (_name, make) => {
     expect(await storage.load()).toEqual([b, c]);
     await storage.removeMachine(DESKTOP);
     expect(await storage.load()).toEqual([c]);
+  });
+
+  it("keeps the files of an entry, and reads a row of a build before attachments", async () => {
+    const storage = await make(new NodeDatabase());
+    const old = entry(DESKTOP, 1);
+    const withFiles = entry(DESKTOP, 2, {
+      attachments: [
+        { ...outboxFile(ids(), 10), received: 10, uploaded: true },
+        { ...outboxFile(ids(), 3, "notes.txt"), kind: "file" },
+      ],
+      reuploads: 1,
+    });
+    await storage.put(old);
+    await storage.put(withFiles);
+    expect(await storage.load()).toEqual([old, withFiles]);
   });
 
   it("skips and deletes a row that is not a valid entry", async () => {

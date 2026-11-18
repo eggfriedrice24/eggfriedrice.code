@@ -5,8 +5,21 @@ import { backoffDelayMs } from "@/lib/net/backoff";
 import { ConnectionError, ServerError } from "@/lib/net/errors";
 import { FakeClock, flush } from "@/lib/net/testing";
 import type { ErrorCode, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
-import { MAX_SEND_ATTEMPTS, resolveAlias, type Outbox, type OutboxTarget } from "./outbox";
-import { OUTBOX_BACKOFF, blockedLanes, createOutboxDrain, type OutboxDrain } from "./outbox-drain";
+import { UPLOAD_LOST } from "./attachments-format";
+import {
+  MAX_REUPLOADS,
+  MAX_SEND_ATTEMPTS,
+  resolveAlias,
+  type Outbox,
+  type OutboxTarget,
+} from "./outbox";
+import {
+  OUTBOX_BACKOFF,
+  blockedLanes,
+  createOutboxDrain,
+  type OutboxDrain,
+  type OutboxUploads,
+} from "./outbox-drain";
 import { MemoryOutboxStorage } from "./outbox-storage";
 import {
   CONVERSATION_A,
@@ -14,6 +27,8 @@ import {
   DESKTOP,
   FakeEfrd,
   LAPTOP,
+  fakeUploads,
+  outboxFile,
   testOutbox,
 } from "./outbox-testing";
 
@@ -421,6 +436,278 @@ describe("the outbox drain", () => {
       }),
       { seed: 20261026, numRuns: 150 },
     );
+  });
+});
+
+const FILE_A = "0f0f0f0f-0000-4000-8000-00000000000a";
+const FILE_B = "0f0f0f0f-0000-4000-8000-00000000000b";
+
+/**
+ * A drain whose prompts go to `efrd`, with `uploads` for their files. `before` runs
+ * before each `prompt.send`, as a restart of efrd that loses uploads.
+ */
+function uploadDrain(
+  outbox: Outbox,
+  efrd: FakeEfrd,
+  uploads: OutboxUploads,
+  clock: FakeClock,
+  before: () => void = () => undefined,
+): OutboxDrain {
+  return createOutboxDrain({
+    outbox,
+    machine: DESKTOP,
+    send: (params) => {
+      before();
+      try {
+        return Promise.resolve(efrd.take(params));
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    },
+    clock,
+    random: () => 0,
+    autoAllowed: () => true,
+    uploads,
+  });
+}
+
+/** The uploads of `efrd` whose puts wait until the test answers each one. */
+function heldUploads(efrd: FakeEfrd): {
+  readonly uploads: ReturnType<typeof fakeUploads>;
+  readonly answers: (() => void)[];
+} {
+  const answers: (() => void)[] = [];
+  const base = fakeUploads(efrd);
+  const uploads = {
+    ...base,
+    put: (params: Parameters<OutboxUploads["put"]>[0]) =>
+      new Promise<ReturnType<FakeEfrd["uploads"]["put"]>>((resolve) => {
+        answers.push(() => resolve(efrd.uploads.put(params)));
+      }),
+  };
+  return { uploads, answers };
+}
+
+/** Lets the drain run its rounds of uploads and sends: one round needs many microtasks. */
+async function drainRounds(): Promise<void> {
+  for (let round = 0; round <= MAX_REUPLOADS; round++) {
+    await flush();
+  }
+}
+
+/** Each put as `upload@offset`, with the last letter of the upload id. */
+function puts(efrd: FakeEfrd): string[] {
+  return efrd.uploads.puts.map((params) => `${params.upload_id.slice(-1)}@${params.offset}`);
+}
+
+describe("the uploads of a prompt", () => {
+  it("uploads each file in chunks, one chunk at a time, then sends the prompt that names them", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const { uploads, answers } = heldUploads(efrd);
+    const drain = uploadDrain(outbox, efrd, uploads, clock);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 10), outboxFile(FILE_B, 3, "b.jpg")],
+    });
+    drain.start();
+    await flush();
+    for (let i = 0; i < 4; i++) {
+      // One chunk in flight: the next waits for the answer of the one before.
+      expect(answers).toHaveLength(1);
+      answers.shift()?.();
+      await flush();
+    }
+    expect(answers).toHaveLength(0);
+    expect(puts(efrd)).toEqual(["a@0", "a@4", "a@8", "b@0"]);
+    expect(efrd.calls).toEqual([
+      {
+        command_id: entry.commandId,
+        conversation_id: CONVERSATION_A,
+        text: "look",
+        attachments: [FILE_A, FILE_B],
+      },
+    ]);
+    expect(states(outbox)).toEqual(["look:sent"]);
+  });
+
+  it("goes on after a lost link from the bytes that efrd has, and keeps only the end on the disk", async () => {
+    const clock = new FakeClock();
+    const storage = new MemoryOutboxStorage();
+    const { outbox } = testOutbox(storage);
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const base = fakeUploads(efrd);
+    let count = 0;
+    const drain = uploadDrain(
+      outbox,
+      efrd,
+      {
+        ...base,
+        put: (params) => {
+          count += 1;
+          // efrd takes the second chunk, but the link goes before its answer.
+          const answer = efrd.uploads.put(params);
+          return count === 2
+            ? Promise.reject(new ConnectionError("socket", "the socket closed"))
+            : Promise.resolve(answer);
+        },
+      },
+      clock,
+    );
+    outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 10)],
+    });
+    drain.start();
+    await flush();
+    expect(states(outbox)).toEqual(["look:pending"]);
+    expect(outbox.store.get().entries[0]?.attachments?.[0]).toMatchObject({
+      received: 4,
+      uploaded: false,
+    });
+    await outbox.flush();
+    expect((await storage.load())[0]?.attachments?.[0]?.received).toBe(0);
+
+    drain.start();
+    await flush();
+    // The chunk at 4 goes again; efrd answers 8 and writes nothing, so the next is at 8.
+    expect(puts(efrd)).toEqual(["a@0", "a@4", "a@4", "a@8"]);
+    expect(efrd.taken).toHaveLength(1);
+    await outbox.flush();
+    expect((await storage.load())[0]?.attachments?.[0]).toMatchObject({
+      received: 10,
+      uploaded: true,
+    });
+  });
+
+  it("uploads the files that efrd lost again, with the same ids and the same command id", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    let restarted = false;
+    const drain = uploadDrain(outbox, efrd, fakeUploads(efrd), clock, () => {
+      if (!restarted) {
+        restarted = true;
+        efrd.uploads.take([FILE_B]);
+      }
+    });
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 4), outboxFile(FILE_B, 4, "b.jpg")],
+    });
+    drain.start();
+    await drainRounds();
+    expect(puts(efrd)).toEqual(["a@0", "b@0", "b@0"]);
+    expect(efrd.calls.map((params) => params.command_id)).toEqual([
+      entry.commandId,
+      entry.commandId,
+    ]);
+    expect(efrd.taken).toHaveLength(1);
+    expect(outbox.store.get().entries[0]).toMatchObject({ state: "sent", reuploads: 1 });
+  });
+
+  it("fails the prompt when efrd lost its uploads more than MAX_REUPLOADS times", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const drain = uploadDrain(outbox, efrd, fakeUploads(efrd), clock, () => {
+      efrd.uploads.take([FILE_A]);
+    });
+    outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 4)],
+    });
+    drain.start();
+    await drainRounds();
+    expect(efrd.calls).toHaveLength(MAX_REUPLOADS + 1);
+    expect(efrd.taken).toHaveLength(0);
+    expect(outbox.store.get().entries[0]).toMatchObject({
+      state: "failed",
+      reuploads: MAX_REUPLOADS,
+      error: { code: "upload", message: UPLOAD_LOST },
+    });
+  });
+
+  it("stops the upload of a prompt that the user withdraws, and discards the chunk in flight", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const { uploads, answers } = heldUploads(efrd);
+    const drain = uploadDrain(outbox, efrd, uploads, clock);
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 10)],
+    });
+    drain.start();
+    await flush();
+    expect(outbox.discard(entry.commandId)?.commandId).toBe(entry.commandId);
+    answers.shift()?.();
+    await flush();
+    expect(answers).toHaveLength(0);
+    expect(uploads.discards).toEqual([FILE_A]);
+    expect(efrd.uploads.received(FILE_A)).toBeUndefined();
+    expect(efrd.calls).toHaveLength(0);
+    expect(outbox.store.get().entries).toEqual([]);
+  });
+
+  it("keeps a prompt whose files are all up, because its send is in flight", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const { calls, send } = manualSend();
+    const drain = createOutboxDrain({
+      outbox,
+      machine: DESKTOP,
+      send,
+      clock,
+      random: () => 0,
+      autoAllowed: () => true,
+      uploads: fakeUploads(efrd),
+    });
+    const entry = outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 2)],
+    });
+    drain.start();
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(outbox.discard(entry.commandId)).toBeUndefined();
+    expect(states(outbox)).toEqual(["look:sending"]);
+  });
+
+  it("fails a prompt with files for an efrd that takes none, and sends no chunk", async () => {
+    const clock = new FakeClock();
+    const { outbox } = testOutbox();
+    const efrd = new FakeEfrd(CONVERSATION_A);
+    const uploads = { ...fakeUploads(efrd), chunkBytes: () => undefined };
+    const drain = uploadDrain(outbox, efrd, uploads, clock);
+    outbox.enqueue({
+      machine: DESKTOP,
+      target: TO_A,
+      text: "look",
+      attachments: [outboxFile(FILE_A, 2)],
+    });
+    drain.start();
+    await flush();
+    expect(efrd.uploads.puts).toEqual([]);
+    expect(efrd.calls).toEqual([]);
+    expect(outbox.store.get().entries[0]).toMatchObject({
+      state: "failed",
+      error: { code: "upload" },
+    });
   });
 });
 

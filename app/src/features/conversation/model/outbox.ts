@@ -14,6 +14,10 @@
 //   target, also on the disk, and a later prompt for the local id goes there too.
 // - An entry stays after its result (`sent`) until the stream shows its echo, the
 //   `prompt_queued` event with its command id (`acknowledge`, or `settle` by cursor).
+// - An entry can hold the files of the prompt (spec 7.1). The drain uploads them with
+//   `attachment.put` before `prompt.send` names them. The progress of an upload lives in
+//   the store only: the one result rule of `attachment.put` lets the drain go on from any
+//   offset, so the disk needs no copy of each chunk.
 //
 // Pure TypeScript on TanStack Store. Time and ids come from the caller.
 
@@ -25,6 +29,7 @@ import type {
   DaemonId,
   PromptSend,
   PromptSendResult,
+  UploadId,
 } from "@/lib/protocol/generated";
 
 /** Where an entry goes: a known conversation, or a new one that its first send makes. */
@@ -85,6 +90,31 @@ export interface OutboxEntry {
    * cautious for a phone.
    */
   readonly auto?: true;
+  /** The files of the prompt, in the order that the user picked them. */
+  readonly attachments?: readonly OutboxAttachment[];
+  /** How often efrd lost an upload of this entry and the drain sent it again. */
+  readonly reuploads?: number;
+}
+
+/** The kind of a file that the phone attaches, for its tile. */
+export type AttachKind = "photo" | "pdf" | "file";
+
+/** One file of a prompt: an upload of `attachment.put`, which `prompt.send` names. */
+export interface OutboxAttachment {
+  /** The upload id: a UUID that the app made, the same on each try. */
+  readonly uploadId: UploadId;
+  readonly kind: AttachKind;
+  /** The name of the file, cut by `fitName`. */
+  readonly name: string;
+  /** The file to upload: the JPEG of efr-files, or the copy of the document picker. */
+  readonly uri: string;
+  readonly bytes: number;
+  /** The preview of a photo tile, at most 512 px. */
+  readonly previewUri?: string;
+  /** The bytes that efrd has, as far as the drain knows. */
+  readonly received: number;
+  /** True once efrd has the whole file: its answer named the upload. */
+  readonly uploaded: boolean;
 }
 
 /** The model settings of a prompt, as the model sheet chose them. */
@@ -111,6 +141,17 @@ export const EMPTY_OUTBOX: OutboxSnapshot = { entries: [], aliases: new Map() };
  * the entry. A lost connection does not count: the drain sends again on the next ready.
  */
 export const MAX_SEND_ATTEMPTS = 5;
+
+/**
+ * How often the drain sends the uploads that efrd lost (`missing_uploads`) before the
+ * entry fails (spec 3.1): efrd removes an upload at its start and after its life.
+ */
+export const MAX_REUPLOADS = 3;
+
+/** True when efrd has every file of `entry`, so its `prompt.send` can go. */
+export function uploadsDone(entry: OutboxEntry): boolean {
+  return entry.attachments?.every((file) => file.uploaded) ?? true;
+}
 
 /** Where the outbox keeps its entries. */
 export interface OutboxStorage {
@@ -142,6 +183,7 @@ export interface OutboxInput {
   readonly text: string;
   readonly settings?: OutboxSettings;
   readonly auto?: true;
+  readonly attachments?: readonly OutboxAttachment[];
 }
 
 /** The outbox of all machines. */
@@ -169,12 +211,26 @@ export interface Outbox {
   /** efrd refused the entry. */
   fail(commandId: CommandId, error: OutboxError): void;
   /**
+   * efrd has `received` bytes of upload `uploadId` of an entry, all of them when
+   * `uploaded`. Only the end of an upload goes to the disk.
+   */
+  progress(commandId: CommandId, uploadId: UploadId, received: number, uploaded: boolean): void;
+  /**
+   * efrd lost the uploads `missing` of an entry: they go again from 0. Returns false, and
+   * changes nothing, when the entry used its MAX_REUPLOADS.
+   */
+  reupload(commandId: CommandId, missing: readonly UploadId[]): boolean;
+  /**
    * The user sends a failed entry again. It gets a new command id, because efrd already
    * answered the old one with an error, and goes after the other entries.
    */
   retry(commandId: CommandId): OutboxEntry | undefined;
-  /** Removes an entry that is not in flight, such as a failed one that the user drops. */
-  discard(commandId: CommandId): void;
+  /**
+   * Removes an entry that is not in flight, such as a failed one that the user drops, or
+   * one whose files still upload: its `prompt.send` did not go yet. Returns the entry, or
+   * undefined when it stays.
+   */
+  discard(commandId: CommandId): OutboxEntry | undefined;
   /** The stream showed the echo of the entry with this command id: removes it. */
   acknowledge(commandId: CommandId): void;
   /** The stream of a conversation reached `cursor`: removes its sent entries up to it. */
@@ -320,6 +376,10 @@ export function sendParams(
   // NOTE: auto goes out only while the Face ID unlock is on at the moment of the send.
   if (entry.auto === true && autoAllowed) {
     params.settings = { ...params.settings, mode: "auto" };
+  }
+  const files = entry.attachments;
+  if (files !== undefined && files.length > 0) {
+    params.attachments = files.map((file) => file.uploadId);
   }
   return params;
 }
@@ -522,6 +582,9 @@ export function createOutbox(deps: OutboxDeps): Outbox {
       if (input.auto === true) {
         entry.auto = true;
       }
+      if (input.attachments !== undefined && input.attachments.length > 0) {
+        entry.attachments = input.attachments;
+      }
       store.setState((state) => ({ entries: [...state.entries, entry], aliases: state.aliases }));
       write((disk) => disk.put(entry));
       return entry;
@@ -596,13 +659,50 @@ export function createOutbox(deps: OutboxDeps): Outbox {
       );
     },
 
+    progress(commandId: CommandId, uploadId: UploadId, received: number, uploaded: boolean): void {
+      const files = find(commandId)?.attachments;
+      const file = files?.find((held) => held.uploadId === uploadId);
+      if (files === undefined || file === undefined) {
+        return;
+      }
+      if (file.received === received && file.uploaded === uploaded) {
+        return;
+      }
+      const attachments = [...files];
+      attachments[files.indexOf(file)] = { ...file, received, uploaded };
+      change(commandId, (entry) => ({ ...entry, attachments }), uploaded && !file.uploaded);
+    },
+
+    reupload(commandId: CommandId, missing: readonly UploadId[]): boolean {
+      const next = change(
+        commandId,
+        (entry) => {
+          const reuploads = entry.reuploads ?? 0;
+          if (reuploads >= MAX_REUPLOADS || entry.attachments === undefined) {
+            return undefined;
+          }
+          const lost = new Set(missing);
+          const attachments: OutboxAttachment[] = [];
+          for (const file of entry.attachments) {
+            attachments.push(
+              lost.has(file.uploadId) ? { ...file, received: 0, uploaded: false } : file,
+            );
+          }
+          return { ...entry, attachments, reuploads: reuploads + 1 };
+        },
+        true,
+      );
+      return next !== undefined;
+    },
+
     retry(commandId: CommandId): OutboxEntry | undefined {
       const old = find(commandId);
       if (old === undefined || old.state !== "failed") {
         return undefined;
       }
+      const { reuploads: _reuploads, ...rest } = old;
       const entry: OutboxEntry = {
-        ...old,
+        ...rest,
         commandId: deps.newId(),
         order: nextOrder(),
         attempts: 0,
@@ -640,8 +740,13 @@ export function createOutbox(deps: OutboxDeps): Outbox {
       }
     },
 
-    discard(commandId: CommandId): void {
-      removeWhere((entry) => entry.commandId === commandId && entry.state !== "sending");
+    discard(commandId: CommandId): OutboxEntry | undefined {
+      const entry = find(commandId);
+      if (entry === undefined || (entry.state === "sending" && uploadsDone(entry))) {
+        return undefined;
+      }
+      removeWhere((held) => held.commandId === commandId);
+      return entry;
     },
 
     acknowledge(commandId: CommandId): void {

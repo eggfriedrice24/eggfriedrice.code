@@ -15,6 +15,13 @@
 // - Every other error of efrd fails the entry: a resend with the same command id gets
 //   the same answer.
 //
+// - The files of an entry go first (spec 7.1): each with `attachment.put`, one chunk in
+//   flight, from the bytes that efrd has. A lost link keeps the progress, and the next
+//   start goes on there. When `prompt.send` answers `not_found` with `missing_uploads`,
+//   efrd lost those uploads: they go again with the same ids and the same command id,
+//   at most MAX_REUPLOADS times, and then the entry fails with UPLOAD_LOST. An entry
+//   that the user withdraws during its upload stops at the next chunk.
+//
 // - A dev build logs each failure, each wait, a send that gets no answer for
 //   STUCK_SEND_MS, and a lane that waits behind a send in flight, so the Metro log
 //   tells why a prompt did not go.
@@ -30,12 +37,23 @@ import {
   ServerError,
   retryAfterMs,
 } from "@/lib/net/errors";
-import type { CommandId, DaemonId, PromptSend, PromptSendResult } from "@/lib/protocol/generated";
+import type {
+  AttachmentPut,
+  AttachmentPutResult,
+  CommandId,
+  DaemonId,
+  PromptSend,
+  PromptSendResult,
+  UploadId,
+} from "@/lib/protocol/generated";
+import { missingUploadsSchema } from "./attachments-schemas";
+import { UPLOAD_LOST } from "./attachments-format";
 import {
   drainPlan,
   laneOf,
   sendParams,
   type Outbox,
+  type OutboxAttachment,
   type OutboxEntry,
   type OutboxError,
   type OutboxSnapshot,
@@ -59,6 +77,52 @@ export const STUCK_SEND_MS = 15_000;
 /** The codes of efrd after which a resend can work. */
 const RETRYABLE_CODES: ReadonlySet<string> = new Set(["busy", "internal"]);
 
+/** What the drain needs to upload the files of a prompt. */
+export interface OutboxUploads {
+  /**
+   * The largest chunk of efrd (`chunk_bytes` of the capability `attachments`), or
+   * undefined when the connection has no such capability.
+   */
+  readonly chunkBytes: () => number | undefined;
+  /** Sends `attachment.put` on the client of the machine. */
+  readonly put: (params: AttachmentPut) => Promise<AttachmentPutResult>;
+  /** Sends `attachment.discard` and does not wait. */
+  readonly discard: (uploadId: UploadId) => void;
+  /** At most `length` bytes of the file at `uri` from `offset`, as standard base64. */
+  readonly readChunk: (uri: string, offset: number, length: number) => Promise<string>;
+}
+
+/** The error of an entry whose uploads efrd lost MAX_REUPLOADS times. */
+const UPLOAD_ERROR: OutboxError = { code: "upload", message: UPLOAD_LOST };
+
+/** The error of an entry with files for an efrd that takes none. */
+const NO_ATTACHMENTS: OutboxError = {
+  code: "upload",
+  message: "efrd on this machine takes no attachments.",
+};
+
+/** The end of a send that no later step may change: the entry fails with `error`. */
+class FinalError extends Error {
+  readonly error: OutboxError;
+
+  constructor(error: OutboxError) {
+    super(error.message);
+    this.error = error;
+  }
+}
+
+/** The user withdrew the entry during its upload. */
+class WithdrawnError extends Error {}
+
+/** The uploads that efrd lost, from the error of `prompt.send`, or undefined. */
+function missingUploads(error: unknown): readonly UploadId[] | undefined {
+  if (!(error instanceof ServerError) || error.body.code !== "not_found") {
+    return undefined;
+  }
+  const parsed = missingUploadsSchema.safeParse(error.body.data);
+  return parsed.success ? parsed.data.missing_uploads : undefined;
+}
+
 /** What the drain needs. */
 export interface OutboxDrainOptions {
   readonly outbox: Outbox;
@@ -74,6 +138,8 @@ export interface OutboxDrainOptions {
   readonly onSent?: (entry: OutboxEntry, result: PromptSendResult) => void;
   /** True while an entry may go out in auto: the Face ID unlock is on. */
   readonly autoAllowed: () => boolean;
+  /** The uploads of the files of an entry. Without them, an entry with files fails. */
+  readonly uploads?: OutboxUploads;
 }
 
 /** The drain of one machine. */
@@ -154,6 +220,14 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
   const told = new Set<string>();
 
   const settle = (commandId: CommandId, error: unknown, sentIn: number): void => {
+    if (error instanceof WithdrawnError) {
+      return;
+    }
+    if (error instanceof FinalError) {
+      devWarn(`the outbox fails prompt ${commandId}: ${error.message}`);
+      outbox.fail(commandId, error.error);
+      return;
+    }
     const reason = outboxError(error);
     if (error instanceof ConnectionError && !LOST_KINDS.has(error.kind)) {
       devWarn(`the outbox fails prompt ${commandId}: ${reason.code}: ${reason.message}`);
@@ -185,29 +259,124 @@ export function createOutboxDrain(options: OutboxDrainOptions): OutboxDrain {
     outbox.retryLater(commandId, reason, clock.now() + wait);
   };
 
+  const current = (commandId: CommandId): OutboxEntry | undefined =>
+    outbox.store.get().entries.find((held) => held.commandId === commandId);
+
+  // Sends the chunks of `file` from the bytes that efrd has, one at a time, until efrd
+  // names the upload. The one result rule of `attachment.put`: efrd writes a chunk only
+  // at the offset that it has, and else answers with that offset.
+  const uploadFile = async (
+    commandId: CommandId,
+    file: OutboxAttachment,
+    uploads: OutboxUploads,
+    chunk: number,
+  ): Promise<void> => {
+    const put = async (offset: number): Promise<AttachmentPutResult> => {
+      const length = Math.max(0, Math.min(chunk, file.bytes - offset));
+      const data = length > 0 ? await uploads.readChunk(file.uri, offset, length) : "";
+      return uploads.put({
+        upload_id: file.uploadId,
+        name: file.name,
+        total_bytes: file.bytes,
+        offset,
+        data,
+      });
+    };
+    let offset = file.received;
+    for (;;) {
+      // oxlint-disable-next-line no-await-in-loop -- one chunk in flight (spec 7.1).
+      const answer = await put(offset);
+      if (current(commandId) === undefined) {
+        // NOTE: the withdraw sent its discard before this chunk arrived.
+        uploads.discard(file.uploadId);
+        throw new WithdrawnError();
+      }
+      const uploaded = answer.upload !== undefined && answer.upload !== null;
+      outbox.progress(commandId, file.uploadId, answer.received, uploaded);
+      if (uploaded) {
+        return;
+      }
+      if (answer.received === offset) {
+        throw new Error(`efrd took no bytes of upload ${file.uploadId} at ${offset}`);
+      }
+      offset = answer.received;
+    }
+  };
+
+  const uploadFiles = async (
+    commandId: CommandId,
+    files: readonly OutboxAttachment[],
+  ): Promise<void> => {
+    const uploads = options.uploads;
+    const chunk = uploads?.chunkBytes();
+    if (uploads === undefined || chunk === undefined) {
+      throw new FinalError(NO_ATTACHMENTS);
+    }
+    for (const file of files) {
+      if (!file.uploaded) {
+        // oxlint-disable-next-line no-await-in-loop -- one chunk in flight (spec 7.1).
+        await uploadFile(commandId, file, uploads, chunk);
+      }
+    }
+  };
+
+  // The files that efrd does not have yet, then `prompt.send`.
+  const sendWithFiles = async (
+    commandId: CommandId,
+    params: PromptSend,
+  ): Promise<PromptSendResult> => {
+    // NOTE: a prompt with no files goes in the same tick, with no await before it.
+    const files = current(commandId)?.attachments;
+    if (files !== undefined) {
+      await uploadFiles(commandId, files);
+    }
+    // Only a dev build keeps this timer: it only writes to the log.
+    const stuck = DEV_WARNINGS
+      ? clock.setTimer(STUCK_SEND_MS, () => {
+          devWarn(`prompt ${commandId} has no answer of efrd after ${STUCK_SEND_MS} ms`);
+        })
+      : undefined;
+    try {
+      return await options.send(params);
+    } finally {
+      stuck?.cancel();
+    }
+  };
+
+  // `sendWithFiles` again for each `missing_uploads`, at most MAX_REUPLOADS times.
+  const deliver = async (commandId: CommandId, params: PromptSend): Promise<PromptSendResult> => {
+    for (;;) {
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- a round waits for the uploads that efrd lost.
+        return await sendWithFiles(commandId, params);
+      } catch (error) {
+        const missing = missingUploads(error);
+        if (missing === undefined) {
+          throw error;
+        }
+        if (!outbox.reupload(commandId, missing)) {
+          throw new FinalError(UPLOAD_ERROR);
+        }
+        devWarn(`efrd lost ${missing.length} upload(s) of prompt ${commandId}: they go again`);
+      }
+    }
+  };
+
   const sendOne = (entry: OutboxEntry): void => {
     const params = sendParams(outbox.store.get(), entry, options.autoAllowed());
     if (!outbox.begin(entry.commandId)) {
       return;
     }
     const sentIn = generation;
-    // Only a dev build keeps this timer: it only writes to the log.
-    const stuck = DEV_WARNINGS
-      ? clock.setTimer(STUCK_SEND_MS, () => {
-          devWarn(`prompt ${entry.commandId} has no answer of efrd after ${STUCK_SEND_MS} ms`);
-        })
-      : undefined;
     const run = async (): Promise<void> => {
       let result: PromptSendResult;
       try {
         // A send that throws at once is a failed send too.
-        result = await options.send(params);
+        result = await deliver(entry.commandId, params);
       } catch (error) {
-        stuck?.cancel();
         settle(entry.commandId, error, sentIn);
         return;
       }
-      stuck?.cancel();
       outbox.succeed(entry.commandId, result);
       options.onSent?.(entry, result);
     };
