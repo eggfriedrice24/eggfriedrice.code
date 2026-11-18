@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    CallId, ConversationId, FullRefusal, Mode, Origin, QuestionId, TurnId, UndoRefused,
+    CallId, ConversationId, FullRefusal, Mode, Origin, QuestionId, TurnId, UndoRefused, UploadId,
 };
 use efr_provider::ProviderError;
 use efr_stdx::StdxError;
@@ -277,6 +277,15 @@ pub enum ConversationError {
     ScratchNamesExhausted {
         /// The scratch root.
         root: PathBuf,
+    },
+
+    /// A finished upload of a prompt did not become its attachment: it went, or its
+    /// blob or its copy could not be written. Nothing was recorded and the other
+    /// uploads stay, so a retry can work.
+    #[error("the upload {upload} could not be attached")]
+    UploadNotBound {
+        /// The upload.
+        upload: UploadId,
     },
 
     /// The result of a command could not be encoded for its receipt.

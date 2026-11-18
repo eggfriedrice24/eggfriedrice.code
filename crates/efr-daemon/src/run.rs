@@ -815,10 +815,16 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // follows the turns from here on, before any actor can start one.
     let (idle_trims, idle_trims_watch) = watch::channel(0);
     let heap_committed = writer.subscribe();
+    let (attachments, uploads) = crate::attachments::store(
+        &dirs,
+        settings_receiver.clone(),
+        Arc::clone(&clock),
+        readers.clone(),
+    );
     let conversation_deps = ConversationDeps {
         providers: routes,
         toolbox: Arc::new(toolbox),
-        attachments: crate::attachments::store(&dirs, settings_receiver.clone()),
+        attachments,
         engine: engine_receiver,
         scope: Arc::new(resolver),
         writer: writer.clone(),
@@ -890,11 +896,11 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         remote: Remote::new(&writer, remote_listen),
         pairings,
         deletes,
-        uploads: crate::attachments::uploads::Uploads::default(),
+        uploads,
         push: crate::push::Push::new(expo_push_url),
     });
     // NOTE: before the socket opens, so no upload of this efrd is open yet.
-    state.uploads.sweep();
+    state.uploads.sweep().await;
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
     crate::projects_file::refresh(state.engine_parts.registry.clone(), state.dirs.runtime()).await;

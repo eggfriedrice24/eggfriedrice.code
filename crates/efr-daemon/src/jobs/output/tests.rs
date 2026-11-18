@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 use std::fs::File;
 use std::io::Write as _;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,8 +9,8 @@ use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
 use super::{
-    Limits, Lines, MARKER_FILE, MAX_LINE_BYTES, MatchWindow, Matched, Matcher, OutputFile,
-    last_lines, line_text, make_dir, read, spawn_reader,
+    Limits, Lines, MAX_LINE_BYTES, MatchWindow, Matched, Matcher, OutputFile, last_lines,
+    line_text, make_dir, read, spawn_reader,
 };
 
 /// A `$SCRATCH` with the dir of the job outputs that efrd makes.
@@ -213,46 +212,6 @@ fn watch_pattern_over_200_chars_refused() {
     let invalid = Matcher::new("(unclosed").unwrap_err();
     assert!(invalid.contains("not a valid regular expression"), "{invalid}");
     assert!(Matcher::new("error|panic").unwrap().is_match("a panic here"));
-}
-
-#[test]
-fn contained_call_before_first_job_cannot_plant_job_output() {
-    // NOTE: efrd makes the dir before every contained call, with its marker, so the
-    // plan of the call (P2) finds it and keeps it read-only for the call.
-    let scratch = tempfile::tempdir().unwrap();
-    make_dir(scratch.path()).unwrap();
-    let jobs = scratch.path().join("jobs");
-    let meta = std::fs::symlink_metadata(&jobs).unwrap();
-    assert!(meta.is_dir());
-    assert_eq!(meta.permissions().mode() & 0o777, 0o700);
-    assert!(jobs.join(MARKER_FILE).is_file());
-    std::fs::write(jobs.join("j1.out"), "kept").unwrap();
-    make_dir(scratch.path()).unwrap();
-    assert_eq!(std::fs::read_to_string(jobs.join("j1.out")).unwrap(), "kept", "made once");
-    // A scratch that does not exist yet holds nothing to make.
-    make_dir(&scratch.path().join("not-yet")).unwrap();
-}
-
-#[test]
-fn foreign_jobs_dir_moved_aside() {
-    let scratch = tempfile::tempdir().unwrap();
-    let jobs = scratch.path().join("jobs");
-    std::fs::create_dir(&jobs).unwrap();
-    std::fs::write(jobs.join("j1.out"), "planted").unwrap();
-    make_dir(scratch.path()).unwrap();
-    assert!(jobs.join(MARKER_FILE).is_file());
-    assert!(!jobs.join("j1.out").exists());
-    let aside = scratch.path().join("jobs.moved-1");
-    assert_eq!(std::fs::read_to_string(aside.join("j1.out")).unwrap(), "planted");
-    // A link named jobs goes aside too, and its target is untouched.
-    let other = tempfile::tempdir().unwrap();
-    let target = other.path().join("target");
-    std::fs::create_dir(&target).unwrap();
-    std::os::unix::fs::symlink(&target, other.path().join("jobs")).unwrap();
-    make_dir(other.path()).unwrap();
-    assert!(other.path().join("jobs.moved-1").is_symlink());
-    assert!(!target.join(MARKER_FILE).exists());
-    assert!(other.path().join("jobs").join(MARKER_FILE).is_file());
 }
 
 #[test]

@@ -11,6 +11,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
 use efr_protocol::{Attachment, AttachmentId, AttachmentKind, ConversationId, UploadId};
@@ -56,6 +57,31 @@ pub trait Attachments: Send + Sync + fmt::Debug {
         conversation_id: ConversationId,
         attachment: &Attachment,
     ) -> Option<EncodedBytes>;
+
+    /// Removes the files of `attachments`, which no request will read: those of a
+    /// prompt that was withdrawn before it ran, or that was not recorded. Each blob that
+    /// another attachment of the conversation names stays. A store that keeps no files
+    /// has nothing to do.
+    async fn forget(&self, _conversation_id: ConversationId, _attachments: &[Attachment]) {}
+}
+
+/// The numbers of the attachments of one conversation, which the queue step of a
+/// prompt and the tool calls of its turns take, so no two attachments get one id.
+#[derive(Debug, Default)]
+pub(crate) struct AttachmentIds(AtomicU32);
+
+impl AttachmentIds {
+    /// Takes `last`, the highest number that the store has, as given.
+    pub(crate) fn seen(&self, last: u32) {
+        self.0.fetch_max(last, Ordering::Relaxed);
+    }
+
+    /// The id of the next attachment of the conversation.
+    pub(crate) fn next(&self) -> AttachmentId {
+        let last =
+            self.0.update(Ordering::Relaxed, Ordering::Relaxed, |last| last.saturating_add(1));
+        AttachmentId::nth(last.saturating_add(1))
+    }
 }
 
 /// The store of a daemon that takes no attachments: no upload binds, no image is kept
@@ -94,9 +120,9 @@ impl Attachments for NoAttachments {
     }
 }
 
-/// What one turn knows of the attachments of its conversation: the ids that it gives,
+/// What one turn knows of the attachments of its conversation: whether it has any,
 /// what its model reads, what goes as a label from now on, and what a good call of the
-/// model carried already.
+/// model carried already. The ids come from the [`AttachmentIds`] of the conversation.
 #[derive(Debug, Default)]
 pub(crate) struct TurnAttachments {
     /// The highest number of an attachment of the conversation so far.
@@ -125,12 +151,6 @@ impl TurnAttachments {
     /// its parts.
     pub(crate) fn any(&self) -> bool {
         self.last > 0
-    }
-
-    /// The id of the next attachment of the conversation.
-    pub(crate) fn next_id(&mut self) -> AttachmentId {
-        self.last = self.last.saturating_add(1);
-        AttachmentId::nth(self.last)
     }
 
     /// Takes `ids` as attachments that the conversation already has, such as those of

@@ -345,8 +345,9 @@ impl CallSnapshots {
     }
 
     /// The roots of `paths` with the git dirs that efrd trusts and their prefixes as
-    /// `shown` gives them, for an undo. `$SCRATCH` leaves its `jobs` dir out: efrd
-    /// writes the job outputs there and keeps them itself.
+    /// `shown` gives them, for an undo. `$SCRATCH` leaves its `jobs` and `attachments`
+    /// dirs out: efrd writes the job outputs and the copies of the attachments there and
+    /// keeps them itself.
     pub(crate) async fn undo_roots(&self, paths: Vec<(PathBuf, String)>) -> Vec<Root> {
         let state = self.state.clone();
         tokio::task::spawn_blocking(move || {
@@ -356,7 +357,11 @@ impl CallSnapshots {
                     let dirs = state.as_deref().and_then(|state| git_dirs(state, &path));
                     let scratch = shown.starts_with("$SCRATCH");
                     let root = Root::new(path, shown).with_git(dirs);
-                    if scratch { root.with_skip([efr_sandbox::JOB_DIR]) } else { root }
+                    if scratch {
+                        root.with_skip([efr_sandbox::JOB_DIR, efr_sandbox::ATTACH_DIR])
+                    } else {
+                        root
+                    }
                 })
                 .collect()
         })

@@ -6,6 +6,7 @@
 //! section 16.1) or, under `just test-sandbox`, the real `efr-sbx`.
 
 mod always;
+mod attachments;
 mod busy;
 mod dbus;
 mod forward;
@@ -32,7 +33,7 @@ use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, AdminSandboxCheck, AdminSandboxCheckResult,
     AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     CacheMode, ErrorCode, Event, EventEnvelope, Grant, JudgeKind, Launch, Method, Mode,
-    ModeFallback, NetworkMode, PromptSendResult, ReportedFile, SandboxExplain,
+    ModeFallback, NetworkMode, PromptSend, PromptSendResult, ReportedFile, SandboxExplain,
     SandboxExplainResult, SandboxPathRole, SandboxStatus, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, TurnSettings, Verdict,
 };
@@ -41,7 +42,9 @@ use efr_provider::{
 };
 use efr_sandbox::{ProbeFailure, ProbeReport, SandboxSpec};
 use efr_stdx::time::{Clock as _, SystemClock};
-use efr_test_daemon::{ClientError, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until};
+use efr_test_daemon::{
+    Client, ClientError, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until,
+};
 use efr_test_support::{TestDirs, Wait};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -198,8 +201,19 @@ pub(crate) async fn run_turn_with(
     let client = daemon.client_for_tty(tty).await.unwrap();
     let Method::PromptSend(mut params) = daemon.prompt(n, text, tty) else { unreachable!() };
     params.settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
+    run_prompt(daemon, &client, params, decision).await
+}
+
+/// The turn of the prompt `params` that `client` sends, with each approval and each
+/// surface question answered by `decision`.
+pub(crate) async fn run_prompt(
+    daemon: &TestDaemon,
+    client: &Client,
+    params: PromptSend,
+    decision: ApprovalDecision,
+) -> (PromptSendResult, Vec<EventEnvelope>) {
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
-    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let mut follow = daemon.follow(client, sent.conversation_id).await.unwrap();
     let mut seen = Vec::new();
     let mut answers = 10;
     loop {

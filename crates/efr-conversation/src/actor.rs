@@ -51,14 +51,14 @@ mod notices;
 mod undo;
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, CommandId,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Attachment, CallId, CommandId,
     ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
     ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin,
     PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId,
     QuestionRespond, QuestionRespondResult, RecentCommand, ResentSteers, Routed,
     SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
-    UndoRefused, UserAnswer, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    UndoRefused, UploadId, UserAnswer, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::{Clock, Sleep};
@@ -71,6 +71,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tracing::Instrument as _;
 
 use crate::approvals::Approvals;
+use crate::attachments::AttachmentIds;
 use crate::drafts::{ConversationDraft, LiveStatus, LiveTurn};
 use crate::fresh::Fresh;
 use crate::gap::CallGap;
@@ -280,6 +281,8 @@ struct NewPrompt {
     settings: TurnSettings,
     /// The steers that an interrupt sends again as this prompt.
     steers: Vec<Seq>,
+    /// The files of the prompt, bound from its uploads.
+    attachments: Vec<Attachment>,
 }
 
 impl std::fmt::Debug for NewPrompt {
@@ -293,6 +296,7 @@ impl std::fmt::Debug for NewPrompt {
             .field("context", &self.context)
             .field("settings", &self.settings)
             .field("steers", &self.steers)
+            .field("attachments", &self.attachments)
             .finish_non_exhaustive()
     }
 }
@@ -308,7 +312,7 @@ impl NewPrompt {
             context: self.context.clone(),
             settings: self.settings.clone(),
             steers: self.steers.clone(),
-            attachments: Vec::new(),
+            attachments: self.attachments.clone(),
         }
     }
 
@@ -327,7 +331,7 @@ impl NewPrompt {
             notices: Vec::new(),
             more_notices: 0,
             carried: None,
-            attachments: Vec::new(),
+            attachments: self.attachments,
         }
     }
 }
@@ -426,6 +430,7 @@ impl ConversationActor {
             config,
             deps,
             scratch,
+            attachment_ids: AttachmentIds::default(),
             approvals: Approvals::default(),
             questions: Questions::default(),
             user_questions: Questions::default(),
@@ -580,6 +585,7 @@ impl ConversationActor {
         efr_stdx::mark::hit("actor.prompt.admitted");
         let turn_id = self.new_turn_id();
         let queued = self.busy() || !self.queue.is_empty();
+        let attachments = self.bind(&params.attachments, &params.text).await?;
         let prompt = NewPrompt {
             command_id: params.command_id,
             text: params.text,
@@ -590,6 +596,7 @@ impl ConversationActor {
             sent_at: self.shared.deps.clock.now(),
             settings: params.settings,
             steers: Vec::new(),
+            attachments,
         };
         let (events, index) = self.queued_events(turn_id, &prompt, before);
         let result = PromptSendResult {
@@ -601,11 +608,67 @@ impl ConversationActor {
             route: route.map(Box::new),
         };
         let receipt = receipt(prompt.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
-        let committed = self.append(events, receipt).await?;
+        let committed = match self.append(events, receipt).await {
+            Ok(committed) => committed,
+            Err(error) => {
+                self.forget(&prompt.attachments).await;
+                return Err(error);
+            }
+        };
         efr_stdx::mark::hit("actor.prompt.committed");
         self.enqueue(turn_id, prompt, QueueEnd::Back);
         efr_stdx::mark::hit("actor.prompt.enqueued");
         Ok(PromptSendResult { seq: seq_of(&committed, index), ..result })
+    }
+
+    /// Binds the finished `uploads` of a prompt with `text` as its attachments, in their
+    /// order. The conversation's `$SCRATCH` is claimed first, with the name that its
+    /// turn gives it, so the copies are in the dir that the turn and its calls use. When
+    /// one upload does not bind, the copies of the others go and the prompt is refused;
+    /// the uploads stay for a retry.
+    async fn bind(
+        &self,
+        uploads: &[UploadId],
+        text: &str,
+    ) -> Result<Vec<Attachment>, ConversationError> {
+        if uploads.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conversation_id = self.conversation_id();
+        let (summary, attachments) = self
+            .shared
+            .deps
+            .readers
+            .with(move |conn| {
+                let summary = efr_store::conversations::get(conn, conversation_id)?;
+                Ok((summary, efr_store::attachments::summary(conn, conversation_id)?))
+            })
+            .await
+            .map_err(ConversationError::from_store)?;
+        let time_zone = self.shared.config.current().time_zone.clone();
+        let scratch =
+            turn::ensure_scratch(&self.shared, summary.as_ref(), text, &time_zone).await?;
+        self.shared.attachment_ids.seen(attachments.last);
+        let store = &self.shared.deps.attachments;
+        let mut bound = Vec::with_capacity(uploads.len());
+        for upload in uploads {
+            let id = self.shared.attachment_ids.next();
+            match store.bind(conversation_id, id, *upload, &scratch).await {
+                Some(attachment) => bound.push(attachment),
+                None => {
+                    self.forget(&bound).await;
+                    return Err(ConversationError::UploadNotBound { upload: *upload });
+                }
+            }
+        }
+        Ok(bound)
+    }
+
+    /// Removes the files of `attachments`, whose prompt no turn will run.
+    async fn forget(&self, attachments: &[Attachment]) {
+        if !attachments.is_empty() {
+            self.shared.deps.attachments.forget(self.conversation_id(), attachments).await;
+        }
     }
 
     /// Checks, before anything is recorded, that a prompt with `settings` from
@@ -766,6 +829,7 @@ impl ConversationActor {
             sent_at: self.shared.deps.clock.now(),
             settings,
             steers: Vec::new(),
+            attachments: Vec::new(),
         };
         let (events, index) = self.queued_events(turn_id, &prompt, None);
         let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: true };
@@ -896,6 +960,7 @@ impl ConversationActor {
                 sent_at,
                 settings,
                 steers: steers.iter().map(|steer| steer.seq).collect(),
+                attachments: Vec::new(),
             };
             (self.new_turn_id(), prompt)
         });
@@ -949,7 +1014,16 @@ impl ConversationActor {
             running.interrupt_requested = true;
             running.control.interrupt.raise();
         }
-        self.queue.retain(|spec| !withdrawn.iter().any(|(turn_id, _)| *turn_id == spec.turn_id));
+        let is_withdrawn =
+            |spec: &TurnSpec| withdrawn.iter().any(|(turn_id, _)| *turn_id == spec.turn_id);
+        let forgotten: Vec<Attachment> = self
+            .queue
+            .iter()
+            .filter(|spec| is_withdrawn(spec))
+            .flat_map(|spec| spec.attachments.iter().cloned())
+            .collect();
+        self.queue.retain(|spec| !is_withdrawn(spec));
+        self.forget(&forgotten).await;
         let seq = seq_of(&committed, 0);
         let withdrawn = result
             .withdrawn
@@ -1010,7 +1084,9 @@ impl ConversationActor {
         let committed = self.append(vec![event], receipt).await?;
         // NOTE: the actor answers one request at a time and starts a queued turn only
         // between requests, so the prompt is still at `position`.
-        self.queue.remove(position);
+        if let Some(spec) = self.queue.remove(position) {
+            self.forget(&spec.attachments).await;
+        }
         let withdrawn = WithdrawnPrompt { seq: committed.last_seq(), ..result.withdrawn };
         Ok(PromptWithdrawResult { withdrawn })
     }

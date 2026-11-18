@@ -62,12 +62,17 @@ fn a_model_reads_only_its_kinds_and_never_a_withheld_part_or_one_with_no_blob() 
 }
 
 #[test]
-fn the_next_id_follows_the_highest_one_of_the_conversation() {
-    let mut turn = TurnAttachments::new(&Summary::new(2, Vec::new()), both());
-    turn.seen([&AttachmentId::nth(5), &AttachmentId::nth(3)]);
-    assert_eq!(turn.next_id(), AttachmentId::nth(6));
+fn the_next_id_follows_the_highest_one_that_the_store_or_a_taker_had() {
+    let ids = AttachmentIds::default();
+    ids.seen(5);
+    ids.seen(3);
+    assert_eq!(ids.next(), AttachmentId::nth(6));
+    ids.seen(2);
+    assert_eq!(ids.next(), AttachmentId::nth(7), "a lower number from the store changes nothing");
+    let mut turn = TurnAttachments::new(&Summary::default(), both());
+    assert!(!turn.any());
+    turn.seen([&AttachmentId::nth(7)]);
     assert!(turn.any());
-    assert!(!TurnAttachments::new(&Summary::default(), both()).any());
 }
 
 #[test]

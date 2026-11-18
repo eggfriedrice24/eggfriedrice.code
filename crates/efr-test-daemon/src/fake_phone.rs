@@ -361,5 +361,9 @@ impl FakePhone {
     }
 }
 
+mod paired;
+
+pub use self::paired::PairedPhone;
+
 #[cfg(test)]
 mod tests;

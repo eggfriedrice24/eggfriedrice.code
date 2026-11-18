@@ -7,7 +7,7 @@ use efr_test_support::{TestClock, TestDirs, TestRng};
 use jiff::civil::{Date, date};
 use pretty_assertions::assert_eq;
 
-use super::{MARKER, Scratch, names, scratch_dirs, slug};
+use super::{MARKER, Scratch, names, naming, scratch_dirs, slug};
 use crate::ConversationError;
 
 const DAY: Date = date(2026, 10, 4);
@@ -182,4 +182,14 @@ fn the_dirs_of_a_conversation_are_found_by_their_marker_and_never_through_a_link
     expected.sort();
     assert_eq!(scratch_dirs(&root.path, id), expected);
     assert_eq!(scratch_dirs(&root.path.join("missing"), id), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn a_conversation_with_no_summary_is_named_after_today_and_the_first_line_of_its_prompt() {
+    let now: jiff::Timestamp = "2026-10-04T23:30:00Z".parse().expect("time");
+    let east = jiff::tz::TimeZone::fixed(jiff::tz::offset(2));
+    let (began, title) = naming(None, now, &east, "\n  \n  Fix the tests  \nmore");
+    assert_eq!(began, date(2026, 10, 5), "the day in the time zone of the config");
+    assert_eq!(title.as_deref(), Some("Fix the tests"));
+    assert_eq!(naming(None, now, &jiff::tz::TimeZone::UTC, " \n").1, None);
 }

@@ -1191,11 +1191,12 @@ impl SandboxService {
         tokio::task::spawn_blocking(move || {
             write_call_dir(&dirs, &dir, &files)?;
             // NOTE: before any command of the call runs, so no command can make the dir
-            // of the job outputs first and plant a file or a link there.
-            crate::jobs::output::make_dir(&scratch).map_err(|source| DaemonError::Io {
-                path: scratch.join(efr_sandbox::JOB_DIR),
-                source,
-            })?;
+            // of the job outputs or of the attachments first and plant a file or a link
+            // there.
+            for name in [efr_sandbox::JOB_DIR, efr_sandbox::ATTACH_DIR] {
+                crate::owned_dir::make(&scratch, name)
+                    .map_err(|source| DaemonError::Io { path: scratch.join(name), source })?;
+            }
             // The cache collector counts a conversation's idle days from this file.
             std::fs::write(&stamp, b"").map_err(|source| DaemonError::Io { path: stamp, source })
         })

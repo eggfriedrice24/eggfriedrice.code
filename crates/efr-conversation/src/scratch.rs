@@ -18,9 +18,11 @@ use std::io;
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::ConversationId;
+use efr_protocol::{ConversationId, ConversationSummary};
 use efr_stdx::fs::{Claim, claim_dir, write_atomic};
+use jiff::Timestamp;
 use jiff::civil::Date;
+use jiff::tz::TimeZone;
 
 use crate::ConversationError;
 
@@ -132,6 +134,23 @@ pub fn scratch_dirs(root: &Path, conversation_id: ConversationId) -> Vec<PathBuf
         entries.flatten().map(|entry| entry.path()).filter(|path| scratch.is_ours(path)).collect();
     found.sort();
     found
+}
+
+/// The day and the title that name the scratch directory of a conversation: the day it
+/// began in `time_zone` and its title from `summary`, else the day of `now` and the
+/// first line of `prompt` that is not empty, for a conversation that is not recorded
+/// yet or has no title.
+pub(crate) fn naming(
+    summary: Option<&ConversationSummary>,
+    now: Timestamp,
+    time_zone: &TimeZone,
+    prompt: &str,
+) -> (Date, Option<String>) {
+    let began = summary.map_or(now, |summary| summary.created_at);
+    let title = summary
+        .and_then(|summary| summary.title.clone())
+        .or_else(|| prompt.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned));
+    (began.to_zoned(time_zone.clone()).date(), title)
 }
 
 /// True when anything, a dangling link included, is at `path`.

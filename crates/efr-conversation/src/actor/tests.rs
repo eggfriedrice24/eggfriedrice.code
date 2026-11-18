@@ -22,6 +22,7 @@ use crate::testing::{
 };
 use crate::{ConversationError, ConversationStart};
 
+mod attachments;
 mod compact;
 mod context;
 mod idle;

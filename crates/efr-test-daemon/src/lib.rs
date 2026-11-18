@@ -61,7 +61,7 @@ pub use efr_daemon::SearchRowHook;
 pub use error::TestDaemonError;
 pub use fake_forwarder::{FakeForwarder, connect_socket, echo_server};
 pub use fake_launcher::FakeLauncher;
-pub use fake_phone::{FakePhone, PhoneKey};
+pub use fake_phone::{FakePhone, PairedPhone, PhoneKey};
 pub use fake_procs::FakeProcView;
 pub use fake_reach::{FakeReach, Told};
 pub use provider_server::{ModelsRule, PROVIDER_TEXT, ProviderServer, Saw, Seen, ServerKnobs};

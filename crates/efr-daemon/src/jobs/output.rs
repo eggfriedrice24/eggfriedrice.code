@@ -55,9 +55,6 @@ pub(crate) const TAIL_LINES: usize = 50;
 /// The longest line that a watch pattern reads; the rest of a longer line is cut.
 pub(crate) const MAX_LINE_BYTES: usize = 4 * 1024;
 
-/// The marker file that efrd keeps in `$SCRATCH/jobs`, so it knows that it made the dir.
-pub(crate) const MARKER_FILE: &str = ".efr-jobs";
-
 /// The longest watch pattern, in characters.
 pub(crate) const MAX_PATTERN_CHARS: usize = efr_protocol::Watch::MAX_PATTERN_CHARS;
 
@@ -108,7 +105,7 @@ impl OutputFile {
     /// Creates `name` (0600) in `$SCRATCH/jobs` of `scratch`, whose dir efrd made
     /// ([`make_dir`]). An old file of that name is cut to nothing.
     pub(crate) fn create(scratch: &Path, name: &str, limits: Limits) -> io::Result<OutputFile> {
-        let dir = open_jobs_dir(scratch)?;
+        let dir = crate::owned_dir::open(scratch, efr_sandbox::JOB_DIR)?;
         let file = open_beneath(&dir, OsStr::new(name), OFlags::TRUNC)?;
         Ok(OutputFile {
             dir,
@@ -172,19 +169,6 @@ fn copy_range(from: &File, offset: u64, len: u64, to: &mut File) -> io::Result<(
     Ok(())
 }
 
-/// Opens `$SCRATCH/jobs` of `scratch` with no link on the way.
-fn open_jobs_dir(scratch: &Path) -> io::Result<OwnedFd> {
-    let scratch = DaemonFs::open(scratch, OFlags::RDONLY | OFlags::DIRECTORY)?;
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
-    Ok(rustix::fs::openat2(
-        &scratch,
-        efr_sandbox::JOB_DIR,
-        flags,
-        Mode::empty(),
-        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
-    )?)
-}
-
 /// Opens `name` below `dir` for reading and writing (0600), with `extra` flags.
 fn open_beneath(dir: &OwnedFd, name: &OsStr, extra: OFlags) -> io::Result<File> {
     // NOTE: read and write: a cut copies the head and the end of the file it replaces.
@@ -199,72 +183,12 @@ fn open_beneath(dir: &OwnedFd, name: &OsStr, extra: OFlags) -> io::Result<File> 
     Ok(File::from(fd))
 }
 
-/// Makes `$SCRATCH/jobs` of `scratch` (0700) with efrd's marker file, below the
-/// descriptor of `scratch`. An entry `jobs` without the marker (a call made it before
-/// efrd did) goes aside to `jobs.moved-<n>` first. A `scratch` that does not exist yet
-/// holds nothing to make. It blocks.
+/// Makes `$SCRATCH/jobs` of `scratch` with efrd's marker file ([`owned_dir::make`]).
+/// It blocks.
+///
+/// [`owned_dir::make`]: crate::owned_dir::make
 pub(crate) fn make_dir(scratch: &Path) -> io::Result<()> {
-    let scratch = match DaemonFs::open(scratch, OFlags::RDONLY | OFlags::DIRECTORY) {
-        Ok(fd) => fd,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    let name = efr_sandbox::JOB_DIR;
-    let beneath = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS;
-    let marked = |dir: &OwnedFd| {
-        rustix::fs::openat2(
-            dir,
-            MARKER_FILE,
-            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-            Mode::empty(),
-            beneath,
-        )
-        .is_ok()
-    };
-    let dir_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
-    match rustix::fs::statat(&scratch, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(stat) => {
-            let is_dir = rustix::fs::FileType::from_raw_mode(stat.st_mode)
-                == rustix::fs::FileType::Directory;
-            let ours = is_dir
-                && rustix::fs::openat2(&scratch, name, dir_flags, Mode::empty(), beneath)
-                    .is_ok_and(|dir| marked(&dir));
-            if ours {
-                return Ok(());
-            }
-            move_aside(&scratch, name)?;
-        }
-        Err(rustix::io::Errno::NOENT) => {}
-        Err(errno) => return Err(errno.into()),
-    }
-    match rustix::fs::mkdirat(&scratch, name, Mode::from_raw_mode(0o700)) {
-        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
-        Err(errno) => return Err(errno.into()),
-    }
-    let dir = rustix::fs::openat2(&scratch, name, dir_flags, Mode::empty(), beneath)?;
-    let marker_flags = OFlags::RDWR | OFlags::CREATE | OFlags::CLOEXEC | OFlags::NOFOLLOW;
-    rustix::fs::openat2(&dir, MARKER_FILE, marker_flags, Mode::from_raw_mode(0o600), beneath)?;
-    Ok(())
-}
-
-/// Renames the entry `name` of `dir` to the first free `name.moved-<n>`.
-fn move_aside(dir: &OwnedFd, name: &str) -> io::Result<()> {
-    for n in 1..1000_u32 {
-        let aside = format!("{name}.moved-{n}");
-        match rustix::fs::statat(dir, aside.as_str(), rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
-            Ok(_) => continue,
-            Err(rustix::io::Errno::NOENT) => {
-                rustix::fs::renameat(dir, name, dir, aside.as_str())?;
-                tracing::warn!(
-                    aside,
-                    "a jobs entry in scratch that efrd did not make was moved aside"
-                );
-                return Ok(());
-            }
-            Err(errno) => return Err(errno.into()),
-        }
-    }
-    Err(io::Error::other("no free name to move the jobs entry aside"))
+    crate::owned_dir::make(scratch, efr_sandbox::JOB_DIR)
 }
 
 /// A watch pattern, compiled once for the job.

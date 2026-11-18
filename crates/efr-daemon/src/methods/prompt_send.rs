@@ -27,6 +27,12 @@
 //! A retried command id answers from its receipt and starts nothing; a refusal that a
 //! retry cannot change is kept as a rejected receipt.
 //!
+//! A prompt with attachments names finished uploads of its connection or device
+//! (`attachment.put`). A missing one answers `not_found` with `missing_uploads` and no
+//! receipt, so the client uploads it again and sends with the same command id. The
+//! conversation binds the uploads in the step that queues the prompt, and efrd removes
+//! them once it is queued; a send that fails for another reason leaves them.
+//!
 //! While the model catalog has no list yet (the Anthropic catalog before its first
 //! fetch), the prompt first waits for the first fetch after a start or a login, never
 //! for a later one (`catalog.rs`, `Models::ready`), so its turn knows the limits of its
@@ -52,14 +58,16 @@ use std::sync::Arc;
 
 use efr_conversation::{ConversationError, PromptRouting};
 use efr_protocol::{
-    AttachHow, ConversationId, ConversationSummary, Event, Mode, PromptSend, PromptSendResult,
-    RepoHint, RouteLabel, RouteScope, Routed, Seq, TurnSettings,
+    AttachHow, ConversationId, ConversationSummary, ErrorBody, ErrorCode, Event, MissingUploads,
+    Mode, PromptSend, PromptSendResult, RepoHint, RouteLabel, RouteScope, Routed, Seq,
+    TurnSettings,
 };
 use efr_scope::{Basis, Registry};
 use efr_stdx::id::uuid_v7;
 use efr_transport::{ConnectionContext, Responder};
 use serde_json::Value;
 
+use crate::attachments::uploads::Owner;
 use crate::conversations::{self, Slot};
 use crate::methods::{conversation_resume, search};
 use crate::routing::{self, Before, Candidate, Outcome, Verdict};
@@ -80,6 +88,42 @@ pub(crate) fn validate(params: &PromptSend) -> Result<(), DaemonError> {
         });
     }
     Ok(())
+}
+
+/// Checks the uploads that `params` names: this efrd takes attachments, the prompt has
+/// at most `attachments.max_per_message`, and each one is a finished upload of the
+/// connection or the device of `context`. Missing uploads answer `not_found` with
+/// `missing_uploads` and record no receipt, because the client uploads them again and
+/// sends with the same command id.
+fn check_uploads(
+    state: &State,
+    context: &ConnectionContext,
+    params: &PromptSend,
+) -> Result<(), DaemonError> {
+    if params.attachments.is_empty() {
+        return Ok(());
+    }
+    let Some(limits) = crate::attachments::limits(&state.settings.borrow()) else {
+        return Err(DaemonError::InvalidParams {
+            reason: "this efrd takes no attachments: attachments.enabled is false",
+        });
+    };
+    if params.attachments.len() > limits.max_per_message as usize {
+        return Err(DaemonError::InvalidParams {
+            reason: "the prompt has more attachments than attachments.max_per_message allows",
+        });
+    }
+    let owner = Owner::of(context);
+    let missing = state.uploads.missing(owner, &params.attachments).map_err(|e| e.into_daemon())?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let data = MissingUploads { missing_uploads: missing };
+    let data = serde_json::to_value(data)
+        .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?;
+    let body = ErrorBody::new(ErrorCode::NotFound, "efrd does not have each upload of the prompt")
+        .with_data(data);
+    Err(DaemonError::Rejected { body })
 }
 
 /// The terminal a prompt comes from: its context's tty, else the hello's.
@@ -185,6 +229,8 @@ async fn send(
         state.providers.check_list(&settings, &provider, asked)?;
     }
     validate(&params)?;
+    check_uploads(state, context, &params)?;
+    let uploads = params.attachments.clone();
     efr_stdx::mark::hit("ps.checked");
     // NOTE: counted before the prompt is recorded, because its turn may end before this
     // answers, and the notices must wait for the client that follows it.
@@ -234,6 +280,9 @@ async fn send(
     match sent {
         Ok(result) => {
             prompting.sent_to(result.conversation_id);
+            // NOTE: the queued prompt took the uploads: its attachments have their blobs
+            // and copies now.
+            state.uploads.remove(&uploads);
             serde_json::to_value(result)
                 .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })
         }

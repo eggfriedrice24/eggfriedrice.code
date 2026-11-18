@@ -69,10 +69,10 @@ use efr_permissions::{
 };
 use efr_protocol::{
     AccountOut, ApprovalDecision, ApprovedBy, Attachment, AttachmentId, CallId, ConversationId,
-    EffectiveSettings, ErrorBody, ErrorCode, Event, ExitKind, InputWait, JobInfo, JudgeKind,
-    Launch, LimitKind, LimitReached, Mode, Origin, QuestionId, QuestionReply, RecentCommand, Scope,
-    ShellContext, StopReason as WireStop, SurfaceChange, SwitchedModel, TurnId, TurnSettings,
-    TurnStop, UserAnswer, Verdict, WithheldReason,
+    ConversationSummary, EffectiveSettings, ErrorBody, ErrorCode, Event, ExitKind, InputWait,
+    JobInfo, JudgeKind, Launch, LimitKind, LimitReached, Mode, Origin, QuestionId, QuestionReply,
+    RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, SwitchedModel,
+    TurnId, TurnSettings, TurnStop, UserAnswer, Verdict, WithheldReason,
 };
 use efr_provider::{
     AttachmentPart, ContentBlock, EditTool, InputKinds, Message, Provider, ProviderError, Request,
@@ -98,7 +98,7 @@ use self::stream::Response;
 use self::wait::{Answerer, Ended, Wait, Waited};
 use crate::approvals::{self, Approvals};
 use crate::ask::{self, Question};
-use crate::attachments::{self, TurnAttachments};
+use crate::attachments::{self, AttachmentIds, TurnAttachments};
 use crate::compaction::{Placed, Window, with_window};
 use crate::context::{self, Meter};
 use crate::drafts::LiveStatus;
@@ -110,7 +110,7 @@ use crate::interrupt::Interrupt;
 use crate::notice;
 use crate::preamble::{self, LiveState};
 use crate::questions::Questions;
-use crate::scratch::Scratch;
+use crate::scratch::{self, Scratch};
 use crate::settings::{self, Place};
 use crate::steer::Steering;
 use crate::wake;
@@ -156,6 +156,9 @@ pub(crate) struct Shared {
     pub(crate) config: Arc<dyn ConfigSource>,
     pub(crate) deps: ConversationDeps,
     pub(crate) scratch: Mutex<Scratch>,
+    /// The numbers of the attachments, which a prompt's queue step and a turn's tool
+    /// calls take while the turn runs.
+    pub(crate) attachment_ids: AttachmentIds,
     pub(crate) approvals: Approvals,
     /// The quarantine questions: true keeps the changes.
     pub(crate) questions: Questions<bool>,
@@ -670,6 +673,7 @@ impl Turn {
         self.attachments =
             TurnAttachments::new(&snapshot.attachments, model_inputs(&*provider, &settings.model));
         self.attachments.seen(self.spec.attachments.iter().map(|attachment| &attachment.id));
+        shared.attachment_ids.seen(snapshot.attachments.last);
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
         self.meter = Meter::new(context::context_base(
@@ -731,7 +735,8 @@ impl Turn {
         self.notices_recorded = true;
         self.transcript.push(Message::user(self.spec.text.clone()));
 
-        self.scratch = match self.ensure_scratch(&snapshot).await {
+        let named = ensure_scratch(&shared, summary, &self.spec.text, &config.time_zone).await;
+        self.scratch = match named {
             Ok(scratch) => scratch,
             Err(error) => {
                 tracing::error!(error = %error, "the scratch directory could not be prepared");
@@ -1174,7 +1179,8 @@ impl Turn {
     async fn keep(&mut self, media: Vec<ToolImage>, output: &mut String) -> Vec<Attachment> {
         let mut kept = Vec::with_capacity(media.len());
         for ToolImage { path, bytes } in media {
-            let id = self.attachments.next_id();
+            let id = self.shared.attachment_ids.next();
+            self.attachments.seen([&id]);
             let store = &self.shared.deps.attachments;
             let note = match store.keep(self.shared.conversation_id, id, &path, bytes).await {
                 Some(attachment) => {
@@ -1320,23 +1326,6 @@ impl Turn {
             switched_from: self.switched_from.clone(),
             web: self.web.plan,
         }
-    }
-
-    /// The conversation's `$SCRATCH`, named after the day it began and its title.
-    async fn ensure_scratch(&self, snapshot: &Snapshot) -> Result<PathBuf, ConversationError> {
-        let summary = snapshot.summary.as_ref();
-        let began = summary.map_or_else(|| self.shared.deps.clock.now(), |s| s.created_at);
-        let began = began.to_zoned(self.config.time_zone.clone()).date();
-        let title = summary.and_then(|summary| summary.title.clone()).or_else(|| {
-            self.spec.text.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
-        });
-        let shared = Arc::clone(&self.shared);
-        tokio::task::spawn_blocking(move || {
-            let mut scratch = shared.scratch.lock().unwrap_or_else(PoisonError::into_inner);
-            scratch.ensure(began, title.as_deref())
-        })
-        .await
-        .map_err(|_| ConversationError::TaskPanicked { task: "scratch" })?
     }
 
     /// Records, runs and answers one tool call. With `skip`, the call is recorded as not
@@ -2390,6 +2379,25 @@ pub(crate) fn edit_tool(provider: &dyn Provider, model: &str) -> EditTool {
         }
         _ => provider.default_edit_tool(),
     }
+}
+
+/// The conversation's `$SCRATCH`, named after the day it began and its title
+/// ([`scratch::naming`]). A turn and the queue step of a prompt with attachments both
+/// claim it here, so both find the one dir of the conversation.
+pub(crate) async fn ensure_scratch(
+    shared: &Arc<Shared>,
+    summary: Option<&ConversationSummary>,
+    prompt: &str,
+    time_zone: &jiff::tz::TimeZone,
+) -> Result<PathBuf, ConversationError> {
+    let (began, title) = scratch::naming(summary, shared.deps.clock.now(), time_zone, prompt);
+    let shared = Arc::clone(shared);
+    tokio::task::spawn_blocking(move || {
+        let mut scratch = shared.scratch.lock().unwrap_or_else(PoisonError::into_inner);
+        scratch.ensure(began, title.as_deref())
+    })
+    .await
+    .map_err(|_| ConversationError::TaskPanicked { task: "scratch" })?
 }
 
 /// What `model` reads as content besides text, from the provider's list of models;

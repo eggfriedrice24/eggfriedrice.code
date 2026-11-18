@@ -8,9 +8,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, AttachmentDiscard,
-    AttachmentDiscardResult, AttachmentPut, AttachmentPutResult, Base64Bytes, ConversationDelete,
-    ConversationDeleteResult, ConversationId, ErrorCode, Event, EventEnvelope, Method,
-    PromptSendResult, UploadId,
+    AttachmentDiscardResult, AttachmentLimits, AttachmentOrigin, AttachmentPut,
+    AttachmentPutResult, Base64Bytes, CHUNK_BYTES, ConversationDelete, ConversationDeleteResult,
+    ConversationId, ErrorCode, Event, EventEnvelope, Method, PromptSendResult, UploadId,
 };
 use efr_test_daemon::{
     ClientError, MessagesAnswer, MessagesServer, ResponsesAnswer, ResponsesServer, TTY, TestDaemon,
@@ -18,6 +18,8 @@ use efr_test_daemon::{
 };
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+
+mod uploads;
 
 /// The code of the daemon's refusal of `result`.
 fn refusal<T: std::fmt::Debug>(result: Result<T, ClientError>) -> ErrorCode {
@@ -28,11 +30,26 @@ fn refusal<T: std::fmt::Debug>(result: Result<T, ClientError>) -> ErrorCode {
 }
 
 #[tokio::test]
-async fn a_daemon_that_takes_no_attachments_says_so_and_refuses_an_upload() {
+async fn a_daemon_says_its_limits_and_with_attachments_off_refuses_an_upload() {
     let daemon = TestDaemon::start().await.unwrap();
     let client = daemon.client().await.unwrap();
-    assert_eq!(client.hello().capabilities.attachments, None);
+    let limits = AttachmentLimits {
+        max_file_bytes: 20 * 1024 * 1024,
+        max_per_message: 10,
+        chunk_bytes: CHUNK_BYTES,
+        max_edge_px: 2000,
+    };
+    assert_eq!(client.hello().capabilities.attachments, Some(limits));
+    drop(client);
+    daemon.stop().await.unwrap();
 
+    let daemon = TestDaemon::builder()
+        .config(|settings| settings.attachments.enabled = false)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    assert_eq!(client.hello().capabilities.attachments, None);
     let upload_id = UploadId::from_uuid(uuid::Uuid::from_u128(1));
     let put = client
         .call::<AttachmentPutResult>(Method::AttachmentPut(AttachmentPut {
@@ -41,14 +58,14 @@ async fn a_daemon_that_takes_no_attachments_says_so_and_refuses_an_upload() {
             total_bytes: 4,
             offset: 0,
             data: Base64Bytes::new(*b"\x89PNG"),
-            origin: None,
+            origin: Some(AttachmentOrigin::Clipboard),
         }))
         .await;
     assert_eq!(refusal(put), ErrorCode::Invalid);
     let discard = client
         .call::<AttachmentDiscardResult>(Method::AttachmentDiscard(AttachmentDiscard { upload_id }))
         .await;
-    assert_eq!(refusal(discard), ErrorCode::Invalid);
+    assert!(discard.is_ok(), "an unknown upload is no error: {discard:?}");
 
     drop(client);
     daemon.stop().await.unwrap();

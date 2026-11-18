@@ -39,6 +39,20 @@ fn call(home: &Path) -> CallContext {
     )
 }
 
+#[tokio::test]
+async fn an_undo_of_scratch_leaves_the_dirs_of_efrd_alone() {
+    let home = tempfile::tempdir().unwrap();
+    let snapshots = snapshots(home.path(), Settings::default());
+    let paths = vec![
+        (home.path().join("scratch"), "$SCRATCH".to_owned()),
+        (home.path().join("p"), "~/p".to_owned()),
+    ];
+    let roots = snapshots.undo_roots(paths).await;
+    let skips: Vec<&[String]> = roots.iter().map(|root| root.skip()).collect();
+    let owned = [efr_sandbox::JOB_DIR.to_owned(), efr_sandbox::ATTACH_DIR.to_owned()];
+    assert_eq!(skips, [owned.as_slice(), &[]]);
+}
+
 #[test]
 fn the_header_of_a_written_diff_names_the_shown_path() {
     let path = Path::new("/home/u/p/a.rs");
