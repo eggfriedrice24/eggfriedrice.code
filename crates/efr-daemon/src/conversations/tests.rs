@@ -11,7 +11,7 @@ use efr_transport::ConnId;
 use pretty_assertions::assert_eq;
 
 use super::{Routes, Slot, load_slots};
-use crate::connections::{Connections, HelloInfo};
+use crate::connections::{Answers, Connections, HelloInfo};
 use crate::proc_view::ProcView;
 use crate::testing::{self, RawClient};
 use crate::{Deps, Settings};
@@ -147,10 +147,10 @@ fn pick_up_counts_a_terminal_follow_as_held_and_a_phone_follow_not() {
     let connections = Arc::new(Connections::default());
     connections.opened(ConnId::new(1), hello(Some("pts-7"), Origin::Shell));
     connections.opened(ConnId::new(2), hello(None, Origin::Phone));
-    let phone = connections.subscribe(ConnId::new(2), conversation(1), false);
+    let phone = connections.subscribe(ConnId::new(2), conversation(1), Answers::NONE);
     assert_eq!(connections.followed_from(conversation(1)), Vec::<String>::new());
 
-    let terminal = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let terminal = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     assert_eq!(connections.followed_from(conversation(1)), ["pts-7"]);
     drop(terminal);
     assert_eq!(connections.followed_from(conversation(1)), Vec::<String>::new());

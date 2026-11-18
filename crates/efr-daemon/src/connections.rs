@@ -20,11 +20,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use efr_protocol::{ConversationId, Origin, PtyId, Seq};
+use efr_protocol::{ConversationId, Origin, PtyId, Scope, Seq};
 use efr_transport::ConnId;
 use jiff::Timestamp;
 use tokio::sync::Notify;
@@ -62,15 +63,27 @@ pub(crate) struct Lease {
 }
 
 /// A notice line for the terminal `tty` about the event `seq` of `conversation`, with
-/// the body of its desktop notice when the event needs the user. A held notice keeps
-/// its body, so it sends the same desktop notice when it goes out later.
+/// its desktop notice when the event needs the user. A held notice keeps its desktop
+/// notice, so it sends the same one when it goes out later.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Notice {
     pub(crate) tty: String,
     pub(crate) conversation: ConversationId,
     pub(crate) seq: Seq,
     pub(crate) text: String,
-    pub(crate) body: Option<String>,
+    pub(crate) desktop: Option<Desktop>,
+}
+
+/// The desktop notice of a [`Notice`]. Only a notice that goes out gets its place
+/// (`notices::place_of`), so a notice that a client shows reads no project registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Desktop {
+    /// The `<what>` of the body.
+    pub(crate) what: &'static str,
+    /// The scope of the conversation, for the `<place>` of the body.
+    pub(crate) scope: Option<Scope>,
+    /// The working directory of the conversation, for the `<place>` of the body.
+    pub(crate) cwd: Option<PathBuf>,
 }
 
 /// What [`Connections::decide`] made of a notice.
@@ -255,25 +268,30 @@ impl Connections {
     /// Records an open subscription of `conn_id` to `conversation` until the guard is
     /// dropped, which happens when the request ends however it ends. The subscription
     /// raises [`SubscriptionGuard::reached`] as it hands events over; when the guard
-    /// drops, that sequence number is kept for the hello's terminal. With `answering`,
-    /// a person at the subscriber can type answers for a waiting command, and the
-    /// subscription counts in [`answerers`](Self::answerers) until the guard drops.
+    /// drops, that sequence number is kept for the hello's terminal. `answers` tells
+    /// what a person at the subscriber can answer: with `input`, the subscription
+    /// counts in [`answerers`](Self::answerers), and with `questions`, in
+    /// [`questioners`](Self::questioners), until the guard drops. A connection that the
+    /// table does not know counts nowhere.
     pub(crate) fn subscribe(
         self: &Arc<Self>,
         conn_id: ConnId,
         conversation: ConversationId,
-        answering: bool,
+        answers: Answers,
     ) -> SubscriptionGuard {
         let reached = Arc::new(AtomicU64::new(0));
         let mut inner = self.lock();
-        let (tty, answering) = match inner.conns.get_mut(&conn_id) {
+        let (tty, answers) = match inner.conns.get_mut(&conn_id) {
             Some(conn) => {
-                if answering {
+                if answers.input {
                     *conn.answering.entry(conversation).or_default() += 1;
                 }
-                (conn.hello.tty.clone(), answering)
+                if answers.questions {
+                    *conn.questioning.entry(conversation).or_default() += 1;
+                }
+                (conn.hello.tty.clone(), answers)
             }
-            None => (None, false),
+            None => (None, Answers::NONE),
         };
         if let Some(tty) = &tty {
             let follow = inner.follows.entry((tty.clone(), conversation)).or_default();
@@ -286,8 +304,7 @@ impl Connections {
             conn_id,
             conversation,
             tty,
-            answering,
-            questioning: false,
+            answers,
             reached,
         }
     }
@@ -311,21 +328,18 @@ impl Connections {
     /// that waits for input. A command that waits for hidden input while there are none
     /// is stopped.
     pub(crate) fn answerers(&self, conversation: ConversationId) -> usize {
-        self.lock()
-            .conns
-            .values()
-            .filter_map(|conn| conn.answering.get(&conversation))
-            .fold(0, |total, open| total.saturating_add(*open))
+        self.count(|conn| conn.answering.get(&conversation))
     }
 
     /// How many live subscriptions of `conversation` can answer the model's question.
     /// While there are none, the question waits only the away wait.
     pub(crate) fn questioners(&self, conversation: ConversationId) -> usize {
-        self.lock()
-            .conns
-            .values()
-            .filter_map(|conn| conn.questioning.get(&conversation))
-            .fold(0, |total, open| total.saturating_add(*open))
+        self.count(|conn| conn.questioning.get(&conversation))
+    }
+
+    /// The sum over the connections of the count that `of` finds in each.
+    fn count(&self, of: impl Fn(&Conn) -> Option<&usize>) -> usize {
+        self.lock().conns.values().filter_map(of).fold(0, |total, open| total.saturating_add(*open))
     }
 
     /// Replaces the lease of `conn_id`.
@@ -393,10 +407,10 @@ impl Connections {
         let readied = {
             let mut inner = self.lock();
             if let Some(conn) = inner.conns.get_mut(&guard.conn_id) {
-                if guard.answering {
+                if guard.answers.input {
                     release(&mut conn.answering, guard.conversation);
                 }
-                if guard.questioning {
+                if guard.answers.questions {
                     release(&mut conn.questioning, guard.conversation);
                 }
             }
@@ -465,6 +479,26 @@ fn release(counts: &mut HashMap<ConversationId, usize>, conversation: Conversati
     }
 }
 
+/// What a person at a subscriber can answer ([`Connections::subscribe`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Answers {
+    /// Typed input for a command that waits for it.
+    pub(crate) input: bool,
+    /// The model's question.
+    pub(crate) questions: bool,
+}
+
+impl Answers {
+    /// A subscriber that answers nothing.
+    pub(crate) const NONE: Self = Self { input: false, questions: false };
+    /// A subscriber that types input for a waiting command only.
+    #[cfg(test)]
+    pub(crate) const INPUT: Self = Self { input: true, questions: false };
+    /// A subscriber that answers the model's question only.
+    #[cfg(test)]
+    pub(crate) const QUESTIONS: Self = Self { input: false, questions: true };
+}
+
 /// An open subscription, counted until it is dropped.
 #[derive(Debug)]
 pub(crate) struct SubscriptionGuard {
@@ -474,28 +508,12 @@ pub(crate) struct SubscriptionGuard {
     /// The hello's terminal, kept here because the connection may be forgotten before
     /// the request that holds this guard ends.
     tty: Option<String>,
-    /// True when the subscription counts as one that can type answers.
-    answering: bool,
-    /// True when the subscription counts as one that can answer the model's question.
-    questioning: bool,
+    /// What the subscription counts as one that can answer.
+    answers: Answers,
     reached: Arc<AtomicU64>,
 }
 
 impl SubscriptionGuard {
-    /// With `questions`, a person at the subscriber can answer the model's question,
-    /// and the subscription counts in [`Connections::questioners`] until the guard
-    /// drops. A connection that the table does not know counts nowhere.
-    pub(crate) fn answering_questions(mut self, questions: bool) -> Self {
-        if questions
-            && !self.questioning
-            && let Some(conn) = self.connections.lock().conns.get_mut(&self.conn_id)
-        {
-            *conn.questioning.entry(self.conversation).or_default() += 1;
-            self.questioning = true;
-        }
-        self
-    }
-
     /// The highest sequence number handed to the subscriber, which the subscription
     /// raises.
     pub(crate) fn reached(&self) -> Arc<AtomicU64> {

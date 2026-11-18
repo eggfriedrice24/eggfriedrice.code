@@ -6,7 +6,7 @@ use efr_transport::ConnId;
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use crate::connections::{Connections, Decision, HelloInfo, Lease, Notice};
+use crate::connections::{Answers, Connections, Decision, Desktop, HelloInfo, Lease, Notice};
 
 const TTY: &str = "/dev/pts/3";
 
@@ -29,7 +29,7 @@ fn notice_in(tty: &str, conversation: ConversationId, seq: u64) -> Notice {
         conversation,
         seq: Seq::new(seq),
         text: format!("efr: turn finished: {seq}"),
-        body: None,
+        desktop: None,
     }
 }
 
@@ -48,9 +48,9 @@ fn connections_with(conns: &[(u64, Option<&str>)]) -> Arc<Connections> {
 #[test]
 fn a_notice_that_nobody_in_its_terminal_can_show_is_written_at_once() {
     let connections = connections_with(&[(1, Some("/dev/pts/4")), (2, None), (3, Some(TTY))]);
-    let _elsewhere = connections.subscribe(ConnId::new(1), conversation(1), false);
-    let _without_tty = connections.subscribe(ConnId::new(2), conversation(1), false);
-    let _other_conversation = connections.subscribe(ConnId::new(3), conversation(2), false);
+    let _elsewhere = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
+    let _without_tty = connections.subscribe(ConnId::new(2), conversation(1), Answers::NONE);
+    let _other_conversation = connections.subscribe(ConnId::new(3), conversation(2), Answers::NONE);
 
     let decision = connections.decide(notice(conversation(1), 5), at(0));
 
@@ -61,7 +61,7 @@ fn a_notice_that_nobody_in_its_terminal_can_show_is_written_at_once() {
 #[test]
 fn an_open_subscription_that_was_handed_the_event_shows_it() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     guard.reached().store(5, Ordering::Release);
 
     assert_eq!(connections.decide(notice(conversation(1), 5), at(0)), Decision::Shown);
@@ -70,7 +70,7 @@ fn an_open_subscription_that_was_handed_the_event_shows_it() {
 #[test]
 fn an_open_subscription_holds_the_notice_until_it_ends_and_then_it_shows_it() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
 
     assert_eq!(connections.decide(notice(conversation(1), 5), at(0)), Decision::Held);
     guard.reached().store(5, Ordering::Release);
@@ -83,7 +83,7 @@ fn an_open_subscription_holds_the_notice_until_it_ends_and_then_it_shows_it() {
 #[test]
 fn a_held_notice_is_ready_when_the_subscription_ends_before_the_event() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     guard.reached().store(4, Ordering::Release);
 
     assert_eq!(connections.decide(notice(conversation(1), 5), at(0)), Decision::Held);
@@ -96,9 +96,9 @@ fn a_held_notice_is_ready_when_the_subscription_ends_before_the_event() {
 #[test]
 fn a_held_notice_keeps_the_body_of_its_desktop_notice() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
-    let asks =
-        Notice { body: Some("app: a question waits".to_owned()), ..notice(conversation(1), 5) };
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
+    let desktop = Desktop { what: "a question waits", scope: None, cwd: Some("/p/app".into()) };
+    let asks = Notice { desktop: Some(desktop), ..notice(conversation(1), 5) };
 
     assert_eq!(connections.decide(asks.clone(), at(0)), Decision::Held);
     drop(guard);
@@ -109,7 +109,7 @@ fn a_held_notice_keeps_the_body_of_its_desktop_notice() {
 #[test]
 fn an_ended_subscription_shows_the_events_it_was_handed() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     guard.reached().store(10, Ordering::Release);
 
     // efr shows the turn's last event, exits, and its connection goes before the
@@ -131,8 +131,8 @@ fn an_ended_subscription_shows_the_events_it_was_handed() {
 #[test]
 fn the_furthest_ended_subscription_of_a_terminal_counts() {
     let connections = connections_with(&[(1, Some(TTY)), (2, Some(TTY))]);
-    let further = connections.subscribe(ConnId::new(1), conversation(1), false);
-    let behind = connections.subscribe(ConnId::new(2), conversation(1), false);
+    let further = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
+    let behind = connections.subscribe(ConnId::new(2), conversation(1), Answers::NONE);
     further.reached().store(20, Ordering::Release);
     behind.reached().store(5, Ordering::Release);
 
@@ -145,9 +145,9 @@ fn the_furthest_ended_subscription_of_a_terminal_counts() {
 #[test]
 fn a_subscription_without_a_tty_or_an_event_shows_nothing() {
     let connections = connections_with(&[(1, None), (2, Some(TTY))]);
-    let without_tty = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let without_tty = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     without_tty.reached().store(10, Ordering::Release);
-    let without_event = connections.subscribe(ConnId::new(2), conversation(2), false);
+    let without_event = connections.subscribe(ConnId::new(2), conversation(2), Answers::NONE);
 
     drop((without_tty, without_event));
 
@@ -185,7 +185,7 @@ fn a_turn_that_ended_before_the_view_subscribed_gets_no_notice_once_shown() {
     drop(prompting);
 
     // efr subscribes after the end, is handed it in the replay, shows it and leaves.
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     guard.reached().store(7, Ordering::Release);
     drop(guard);
     connections.closed(ConnId::new(1));
@@ -217,7 +217,7 @@ fn a_prompt_from_a_connection_without_a_hello_or_a_tty_holds_nothing() {
 #[tokio::test]
 async fn a_notice_that_becomes_ready_wakes_the_waiter() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     assert_eq!(connections.decide(notice(conversation(1), 5), at(0)), Decision::Held);
 
     drop(guard);
@@ -230,7 +230,7 @@ async fn a_notice_that_becomes_ready_wakes_the_waiter() {
 #[test]
 fn a_view_that_stays_open_keeps_only_the_notices_it_was_not_handed_yet() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     for seq in 1..=200 {
         assert_eq!(connections.decide(notice(conversation(1), seq), at(0)), Decision::Held);
         guard.reached().store(seq, Ordering::Release);
@@ -245,7 +245,7 @@ fn a_view_that_stays_open_keeps_only_the_notices_it_was_not_handed_yet() {
 #[test]
 fn at_most_the_newest_held_notices_wait() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     let count = u64::try_from(super::MAX_HELD).unwrap() + 1;
     for seq in 1..=count {
         connections.decide(notice(conversation(1), seq), at(0));
@@ -291,7 +291,7 @@ fn only_the_newest_ended_subscriptions_are_remembered() {
     let connections = connections_with(&[(1, Some(TTY))]);
     let count = u128::try_from(super::MAX_FOLLOWED).unwrap() + 1;
     for n in 1..=count {
-        let guard = connections.subscribe(ConnId::new(1), conversation(n), false);
+        let guard = connections.subscribe(ConnId::new(1), conversation(n), Answers::NONE);
         guard.reached().store(u64::try_from(n).unwrap(), Ordering::Release);
     }
 
@@ -308,11 +308,11 @@ fn answering_subscriptions_are_counted_per_conversation_until_their_guards_drop(
     let connections = connections_with(&[(1, Some(TTY)), (2, None)]);
     assert_eq!(connections.answerers(conversation(1)), 0);
 
-    let watching = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let watching = connections.subscribe(ConnId::new(1), conversation(1), Answers::NONE);
     assert_eq!(connections.answerers(conversation(1)), 0, "a viewer cannot answer");
-    let first = connections.subscribe(ConnId::new(1), conversation(1), true);
-    let second = connections.subscribe(ConnId::new(2), conversation(1), true);
-    let other = connections.subscribe(ConnId::new(2), conversation(2), true);
+    let first = connections.subscribe(ConnId::new(1), conversation(1), Answers::INPUT);
+    let second = connections.subscribe(ConnId::new(2), conversation(1), Answers::INPUT);
+    let other = connections.subscribe(ConnId::new(2), conversation(2), Answers::INPUT);
     assert_eq!(connections.answerers(conversation(1)), 2);
     assert_eq!(connections.answerers(conversation(2)), 1);
 
@@ -326,13 +326,11 @@ fn answering_subscriptions_are_counted_per_conversation_until_their_guards_drop(
 #[test]
 fn subscriptions_that_answer_questions_are_counted_apart_from_those_that_answer_input() {
     let connections = connections_with(&[(1, Some(TTY)), (2, None)]);
-    let input = connections.subscribe(ConnId::new(1), conversation(1), true);
-    let both =
-        connections.subscribe(ConnId::new(1), conversation(1), true).answering_questions(true);
-    let phone =
-        connections.subscribe(ConnId::new(2), conversation(1), false).answering_questions(true);
-    let off =
-        connections.subscribe(ConnId::new(2), conversation(2), false).answering_questions(false);
+    let input = connections.subscribe(ConnId::new(1), conversation(1), Answers::INPUT);
+    let both = Answers { input: true, questions: true };
+    let both = connections.subscribe(ConnId::new(1), conversation(1), both);
+    let phone = connections.subscribe(ConnId::new(2), conversation(1), Answers::QUESTIONS);
+    let off = connections.subscribe(ConnId::new(2), conversation(2), Answers::NONE);
     assert_eq!(connections.questioners(conversation(1)), 2);
     assert_eq!(connections.answerers(conversation(1)), 2);
     assert_eq!(connections.questioners(conversation(2)), 0, "the flag was off");
@@ -348,15 +346,14 @@ fn subscriptions_that_answer_questions_are_counted_apart_from_those_that_answer_
     assert_eq!(connections.questioners(conversation(1)), 0);
 
     let unknown = Arc::new(Connections::default());
-    let _guard =
-        unknown.subscribe(ConnId::new(7), conversation(1), false).answering_questions(true);
+    let _guard = unknown.subscribe(ConnId::new(7), conversation(1), Answers::QUESTIONS);
     assert_eq!(unknown.questioners(conversation(1)), 0, "a subscription without a hello");
 }
 
 #[test]
 fn a_closed_connection_answers_nothing_even_before_its_requests_end() {
     let connections = connections_with(&[(1, Some(TTY))]);
-    let guard = connections.subscribe(ConnId::new(1), conversation(1), true);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), Answers::INPUT);
     connections.closed(ConnId::new(1));
     assert_eq!(connections.answerers(conversation(1)), 0);
     drop(guard);
@@ -366,7 +363,7 @@ fn a_closed_connection_answers_nothing_even_before_its_requests_end() {
 #[test]
 fn a_subscription_without_a_hello_never_counts() {
     let connections = Arc::new(Connections::default());
-    let _guard = connections.subscribe(ConnId::new(7), conversation(1), true);
+    let _guard = connections.subscribe(ConnId::new(7), conversation(1), Answers::INPUT);
     assert_eq!(connections.answerers(conversation(1)), 0);
     let notice = notice(conversation(1), 1);
     assert_eq!(connections.decide(notice.clone(), at(0)), Decision::Write(notice));

@@ -75,6 +75,7 @@ use tokio_util::sync::CancellationToken;
 
 use self::pending::{Boundary, Gate, PendingDrafts};
 use crate::DaemonError;
+use crate::connections::Answers;
 use crate::methods::{cursor, granted, peer_side};
 use crate::state::State;
 
@@ -127,15 +128,14 @@ pub(crate) async fn handle(
     } else {
         &[]
     };
-    let answering = params.answers_input && scopes.contains(&ScopeName::Terminal);
-    // NOTE: the model's question needs `operate`, which a model-side peer never holds,
-    // so a command of the model cannot hold a question open without end.
-    let questioning = params.answers_questions && super::holds(context, scopes, ScopeName::Operate);
+    let answers = Answers {
+        input: params.answers_input && scopes.contains(&ScopeName::Terminal),
+        // NOTE: the model's question needs `operate`, which a model-side peer never
+        // holds, so a command of the model cannot hold a question open without end.
+        questions: params.answers_questions && super::holds(context, scopes, ScopeName::Operate),
+    };
     efr_stdx::mark::hit("sub.peer");
-    let attached = state
-        .connections
-        .subscribe(context.conn_id(), conversation_id, answering)
-        .answering_questions(questioning);
+    let attached = state.connections.subscribe(context.conn_id(), conversation_id, answers);
     // Subscribing before the read means no commit falls between the two.
     let committed = state.writer.subscribe();
     let (sender, mut receiver) = efr_transport::subscription();

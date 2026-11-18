@@ -1744,7 +1744,10 @@ or failure of a turn that a prompt started, restarts and config notices get no b
 (its registered name, else the last part of its root), else the last part of the
 conversation's directory, else `~`. Each body goes through
 `efr_stdx::text::notice_body`. A held notice (a client in the terminal was about to
-show the event) gets no body when it is written later. efrd does not read
+show the event) keeps its desktop notice and sends the body when it is written later.
+`notify` keeps only the `<what>`, the scope and the directory in the notice
+(`connections::Desktop`); `write` finds the `<place>`, so a notice that a client shows
+reads no project registry. efrd does not read
 `notify.terminal` for this: the plugin is the one gate.
 
 ### The search index

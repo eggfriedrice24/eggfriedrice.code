@@ -11,6 +11,7 @@ use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 
 use super::{PresenceTable, batch};
+use crate::connections::Answers;
 
 struct Fixture {
     clock: TestClock,
@@ -193,9 +194,9 @@ async fn followed_true_with_an_answering_client() {
     let Fixture { clock, store, table, settings: _settings } = fixture;
     let table = table.with_connections(Arc::clone(&connections));
     assert!(!table.followed(id));
-    let reading = connections.subscribe(efr_transport::ConnId::new(1), id, false);
+    let reading = connections.subscribe(efr_transport::ConnId::new(1), id, Answers::NONE);
     assert!(!table.followed(id), "a subscription that cannot answer");
-    let answering = connections.subscribe(efr_transport::ConnId::new(1), id, true);
+    let answering = connections.subscribe(efr_transport::ConnId::new(1), id, Answers::INPUT);
     assert!(table.followed(id));
     let other = ConversationId::from_uuid(uuid_v7(&clock, &TestRng::new(9)));
     assert!(!table.followed(other));
@@ -216,10 +217,9 @@ async fn question_followed_true_with_a_client_that_answers_questions() {
     connections.opened(efr_transport::ConnId::new(1), hello);
     let Fixture { clock: _clock, store, table, settings: _settings } = fixture;
     let table = table.with_connections(Arc::clone(&connections));
-    let input = connections.subscribe(efr_transport::ConnId::new(1), id, true);
+    let input = connections.subscribe(efr_transport::ConnId::new(1), id, Answers::INPUT);
     assert!(!table.question_followed(id), "a client that answers only input");
-    let questions =
-        connections.subscribe(efr_transport::ConnId::new(1), id, false).answering_questions(true);
+    let questions = connections.subscribe(efr_transport::ConnId::new(1), id, Answers::QUESTIONS);
     assert!(table.question_followed(id));
     assert!(table.followed(id), "the first subscription still answers input");
     drop(questions);

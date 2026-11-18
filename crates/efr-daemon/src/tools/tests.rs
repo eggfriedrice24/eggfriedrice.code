@@ -25,7 +25,7 @@ use efr_tools::{ToolError, ToolRequirements, ToolResult};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::connections::Connections;
+use crate::connections::{Answers, Connections};
 use crate::reload::Reloads;
 use crate::screens::ScreenBackend;
 use crate::tools::{
@@ -1031,10 +1031,10 @@ fn a_call_s_sink_passes_output_and_waits_on_and_asks_the_live_subscriptions() {
 
         let hello = HelloInfo { surface: Origin::Shell, tty: None, client: None };
         connections.opened(ConnId::new(1), hello);
-        let viewer = connections.subscribe(ConnId::new(1), conversation_id, false);
+        let viewer = connections.subscribe(ConnId::new(1), conversation_id, Answers::NONE);
         assert!(!sink.can_answer_hidden(), "a viewer cannot type an answer");
         assert!(!sink.can_answer(), "a viewer keeps no call past its timeout");
-        let answerer = connections.subscribe(ConnId::new(1), conversation_id, true);
+        let answerer = connections.subscribe(ConnId::new(1), conversation_id, Answers::INPUT);
         assert!(sink.can_answer_hidden());
         assert!(sink.can_answer());
         drop(answerer);

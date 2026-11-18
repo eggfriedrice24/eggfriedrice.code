@@ -47,8 +47,9 @@
 //! command left in the hidden shell that waits for input. The body is `<place>: <what>`
 //! and holds no text of the event. The plugin is the one gate of the desktop notice
 //! (`notify.terminal`, which efrd gives it in `prompt.tsv`). A notice that was held
-//! gets no body: it is written when the client in its terminal ends, so the user was
-//! at that terminal a moment before.
+//! keeps its body and sends it when it is written later, after the client in its
+//! terminal ends. Only a notice that is written reads the project registry for its
+//! `<place>`; a notice that a client shows reads nothing more.
 
 use std::collections::HashMap;
 use std::fs::{DirBuilder, OpenOptions};
@@ -60,7 +61,7 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovedBy, CallId, ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, InputWait,
-    JobState, JobStopBy, RouteScope, Scope, ShellCommandEnd, TurnId,
+    JobState, JobStopBy, Scope, ShellCommandEnd, TurnId,
 };
 use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, notice_place, one_line};
 use jiff::Timestamp;
@@ -68,7 +69,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
-use crate::connections::{Decision, Notice};
+use crate::connections::{Decision, Desktop, Notice};
 use crate::state::State;
 
 mod wake_fifo;
@@ -629,8 +630,7 @@ async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> S
     let project = match scope {
         Some(Scope::Project(id)) => {
             let registry = crate::engine::load_registry(&state.engine_parts.registry).await;
-            let key = RouteScope::Project(*id);
-            crate::routing::label(&registry, &key, Path::new("")).name
+            crate::routing::name_of(&registry, id)
         }
         _ => None,
     };
@@ -765,16 +765,14 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     let Some(text) = text else {
         return;
     };
-    // NOTE: the body comes before the decision, so a notice that waits for a client
-    // keeps it (`write_ready`).
-    let body = match desktop_what(&envelope.event, wake.as_ref()) {
-        Some(what) => {
-            let place = place_of(state, summary.scope.as_ref(), summary.cwd.as_deref()).await;
-            Some(notice_body(&place, what))
-        }
-        None => None,
-    };
-    let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text, body };
+    // NOTE: the desktop notice comes before the decision, so a notice that waits for a
+    // client keeps it (`write_ready`).
+    let desktop = desktop_what(&envelope.event, wake.as_ref()).map(|what| Desktop {
+        what,
+        scope: summary.scope,
+        cwd: summary.cwd,
+    });
+    let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text, desktop };
     match state.connections.decide(notice, state.clock.now()) {
         Decision::Write(notice) => write(state, notice).await,
         Decision::Shown | Decision::Held => {}
@@ -848,7 +846,13 @@ pub(crate) async fn wake_turn(
 /// terminal's prompt with the body of its desktop notice.
 async fn write(state: &State, notice: Notice) {
     let dir = state.dirs.runtime().join(NOTICES_DIR);
-    let Notice { tty, conversation: conversation_id, text, body, .. } = notice;
+    let Notice { tty, conversation: conversation_id, text, desktop, .. } = notice;
+    let body = match desktop {
+        Some(Desktop { what, scope, cwd }) => {
+            Some(notice_body(&place_of(state, scope.as_ref(), cwd.as_deref()).await, what))
+        }
+        None => None,
+    };
     let written =
         tokio::task::spawn_blocking(move || append_and_wake(&dir, &tty, &text, body.as_deref()));
     match written.await {

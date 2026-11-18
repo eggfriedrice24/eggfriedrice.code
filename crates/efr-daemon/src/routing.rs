@@ -10,7 +10,9 @@
 use std::path::Path;
 use std::time::Duration;
 
-use efr_protocol::{ConversationId, ConversationStatus, NewReason, RouteLabel, RouteScope, Switch};
+use efr_protocol::{
+    ConversationId, ConversationStatus, NewReason, ProjectId, RouteLabel, RouteScope, Switch,
+};
 use efr_scope::Registry;
 use jiff::Timestamp;
 
@@ -37,6 +39,11 @@ pub(crate) fn label(registry: &Registry, scope: &RouteScope, pwd: &Path) -> Rout
         },
         None => RouteLabel { scope: scope.clone(), name: None, dir: pwd.to_path_buf() },
     }
+}
+
+/// The name of the project `id`, or `None` when it is no longer registered.
+pub(crate) fn name_of(registry: &Registry, id: &ProjectId) -> Option<String> {
+    registry.get(id).map(|project| project_name(project.name(), project.root()))
 }
 
 /// A project's name: the registered one, else the last part of its root.
