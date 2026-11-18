@@ -225,10 +225,10 @@ impl Screen for GhosttyScreen {
         snapshot::capture(&self.terminal, scrollback_rows)
     }
 
-    /// libghostty-vt keeps the count of its rows, so this reads no row, and
-    /// [`Screen::text`] reads no cell of a full scrollback.
-    fn scrollback_rows(&mut self) -> Option<usize> {
-        self.terminal.scrollback_rows().ok()
+    /// libghostty-vt keeps the count of its rows, so this reads no row. A count that
+    /// the library cannot give is 0, as in a snapshot.
+    fn scrollback_rows(&mut self) -> usize {
+        self.terminal.scrollback_rows().unwrap_or(0)
     }
 
     fn alternate_screen(&mut self) -> bool {

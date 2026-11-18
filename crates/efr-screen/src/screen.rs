@@ -61,19 +61,17 @@ pub trait Screen {
     /// [`ScreenText::of`] its normalised form. A backend that can format its text
     /// more cheaply overrides it, and must give the same text.
     fn text(&mut self, scrollback_limit: usize) -> Option<ScreenText> {
-        if self.scrollback_rows().is_some_and(|rows| rows >= scrollback_limit) {
+        if self.scrollback_rows() >= scrollback_limit {
             return None;
         }
         let snapshot = self.snapshot(scrollback_limit);
-        (snapshot.scrollback.len() < scrollback_limit)
-            .then(|| ScreenText::of(&normalize(snapshot, scrollback_limit)))
+        Some(ScreenText::of(&normalize(snapshot, scrollback_limit)))
     }
 
-    /// The rows of scrollback that the screen holds, when the backend can count them
-    /// without reading them. The default is `None`: the backend cannot.
-    fn scrollback_rows(&mut self) -> Option<usize> {
-        None
-    }
+    /// The rows of scrollback that a [`snapshot`](Screen::snapshot) with all of it
+    /// gives. A backend counts them without reading them, so that
+    /// [`text`](Screen::text) reads no row of a full scrollback.
+    fn scrollback_rows(&mut self) -> usize;
 
     /// True while the alternate screen is up, as a full-screen program sets it. The
     /// default reads a [`snapshot`](Screen::snapshot) without scrollback; a backend

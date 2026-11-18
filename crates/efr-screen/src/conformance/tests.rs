@@ -45,6 +45,10 @@ impl Screen for Mute {
     fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
         self.0.snapshot(scrollback_rows)
     }
+
+    fn scrollback_rows(&mut self) -> usize {
+        self.0.scrollback_rows()
+    }
 }
 
 fn mute(size: Size) -> impl FnOnce() -> Mute + Send + 'static {
@@ -63,6 +67,10 @@ impl Screen for Broken {
 
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
+    }
+
+    fn scrollback_rows(&mut self) -> usize {
+        0
     }
 }
 

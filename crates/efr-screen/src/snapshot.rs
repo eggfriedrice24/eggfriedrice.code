@@ -25,8 +25,16 @@ pub struct ScreenCapture {
 /// the second cell of a wide character, and no trailing spaces.
 pub fn row_text(row: &RowCells) -> String {
     let mut text = String::new();
+    push_cells(&mut text, &row.cells);
+    text.truncate(text.trim_end_matches(' ').len());
+    text
+}
+
+/// Appends the text of `cells` to `text`: each cell's grapheme, a space for a blank
+/// cell and nothing for the second cell of a wide character.
+pub(crate) fn push_cells(text: &mut String, cells: &[Cell]) {
     let mut after_wide = false;
-    for cell in &row.cells {
+    for cell in cells {
         if cell.text.is_empty() {
             if !after_wide {
                 text.push(' ');
@@ -36,8 +44,6 @@ pub fn row_text(row: &RowCells) -> String {
         }
         after_wide = cell.wide;
     }
-    text.truncate(text.trim_end_matches(' ').len());
-    text
 }
 
 /// Shapes a backend's snapshot into the wire form:
@@ -68,7 +74,7 @@ fn trim_trailing_blanks(row: &mut RowCells) {
 
 /// A cell that shows nothing: no glyph and nothing that paints the cell itself. A
 /// foreground colour, bold or italic on an empty cell does not show.
-pub(crate) fn is_blank(cell: &Cell) -> bool {
+fn is_blank(cell: &Cell) -> bool {
     (cell.text.is_empty() || cell.text == " ")
         && cell.bg.is_none()
         && !cell.underline

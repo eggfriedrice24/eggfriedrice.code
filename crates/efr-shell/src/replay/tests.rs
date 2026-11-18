@@ -4,14 +4,16 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use efr_holder::Size;
-use efr_protocol::{Cell, Cursor, RowCells, ScreenSnapshot};
-use efr_screen::{Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink};
+use efr_protocol::{ScreenSnapshot, Seq};
+use efr_screen::{
+    Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink, ScreenText, ShellMark,
+};
 use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FULL_SCREEN_NOTE, MAX_ROWS, Replayer, Scan, TRUSTED_SCROLLBACK, middle_line_end, rows_needed,
-    screen_text,
+    FULL_SCREEN_NOTE, MAX_ROWS, Replayer, Scan, TRUSTED_SCROLLBACK, middle_line_end, piece_text,
+    rows_needed,
 };
 use crate::capture::{Capture, clean};
 use crate::testing::{CountingScreens, DyingScreens, NoScreens, Vt100Screens};
@@ -320,36 +322,17 @@ fn a_split_falls_after_the_line_feed_nearest_the_middle() {
     assert_eq!(middle_line_end(b""), None);
 }
 
-fn row(text: &str) -> RowCells {
-    let cells = text.chars().map(|c| Cell { text: c.to_string(), ..Cell::default() }).collect();
-    RowCells { cells, wrapped: false }
-}
-
-fn snapshot(rows: Vec<RowCells>, cursor_row: u16) -> ScreenSnapshot {
-    ScreenSnapshot {
-        size: Size { cols: 4, rows: 4 },
-        cursor: Cursor { row: cursor_row, col: 0, hidden: false },
-        rows,
-        ..ScreenSnapshot::default()
-    }
+fn screen_text(text: &str, blank_lines_before_cursor: usize) -> ScreenText {
+    ScreenText { text: text.to_owned(), blank_lines_before_cursor }
 }
 
 #[test]
 fn a_piece_that_more_output_follows_keeps_its_blank_lines_above_the_cursor() {
-    let screen = snapshot(vec![row("a"), row(""), row(""), row("")], 2);
-    assert_eq!(screen_text(&screen, false), "a\n\n");
-    assert_eq!(screen_text(&screen, true), "a");
-    let blank = snapshot(vec![row(""), row(""), row(""), row("")], 1);
-    assert_eq!(screen_text(&blank, false), "\n");
-}
-
-#[test]
-fn a_wide_character_at_the_end_of_a_wrapped_row_fills_it() {
-    let mut first = row("ab");
-    first.cells.push(Cell { text: "日".to_owned(), wide: true, ..Cell::default() });
-    first.wrapped = true;
-    let screen = snapshot(vec![first, row("c"), row(""), row("")], 2);
-    assert_eq!(screen_text(&screen, true), "ab日c");
+    assert_eq!(piece_text(screen_text("a", 1), false), "a\n\n");
+    assert_eq!(piece_text(screen_text("a", 1), true), "a");
+    assert_eq!(piece_text(screen_text("", 1), false), "\n");
+    assert_eq!(piece_text(screen_text("a", 0), false), "a\n");
+    assert_eq!(piece_text(screen_text("", 0), false), "");
 }
 
 #[test]
@@ -373,6 +356,16 @@ impl<S: Screen> Screen for CountedScreen<S> {
         self.inner.feed(bytes, sink);
     }
 
+    fn feed_marked(
+        &mut self,
+        bytes: &[u8],
+        base: Seq,
+        marks: &[ShellMark],
+        sink: &mut dyn ScreenSink,
+    ) {
+        self.inner.feed_marked(bytes, base, marks, sink);
+    }
+
     fn resize(&mut self, cols: u16, rows: u16, sink: &mut dyn ScreenSink) {
         self.inner.resize(cols, rows, sink);
     }
@@ -386,7 +379,7 @@ impl<S: Screen> Screen for CountedScreen<S> {
 
     // The count reads no row, so the default `text` takes a snapshot, and counts its
     // rows, only for a screen whose scrollback is not full.
-    fn scrollback_rows(&mut self) -> Option<usize> {
+    fn scrollback_rows(&mut self) -> usize {
         self.inner.scrollback_rows()
     }
 }
@@ -442,8 +435,8 @@ struct Asked {
     newest: bool,
 }
 
-/// A vt100 screen with `scrollback` rows of history, whose snapshots also take one with
-/// all of it, as the replay asked for before it asked for [`TRUSTED_SCROLLBACK`] rows.
+/// A vt100 screen whose snapshots also take one with all the scrollback, to check that
+/// each snapshot that the replay asks for is the newest part of it.
 struct CheckedScreen {
     inner: efr_screen::vt100::Vt100Screen,
     asked: Arc<std::sync::Mutex<Vec<Asked>>>,
@@ -452,6 +445,20 @@ struct CheckedScreen {
 impl Screen for CheckedScreen {
     fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
         self.inner.feed(bytes, sink);
+    }
+
+    fn feed_marked(
+        &mut self,
+        bytes: &[u8],
+        base: Seq,
+        marks: &[ShellMark],
+        sink: &mut dyn ScreenSink,
+    ) {
+        self.inner.feed_marked(bytes, base, marks, sink);
+    }
+
+    fn scrollback_rows(&mut self) -> usize {
+        self.inner.scrollback_rows()
     }
 
     fn resize(&mut self, cols: u16, rows: u16, sink: &mut dyn ScreenSink) {

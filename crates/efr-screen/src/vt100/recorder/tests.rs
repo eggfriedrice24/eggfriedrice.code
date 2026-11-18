@@ -75,42 +75,10 @@ fn a_title_that_is_not_utf8_is_repaired() {
 }
 
 #[test]
-fn osc_7_keeps_the_raw_url_in_both_forms() {
-    let recorder = parse(b"\x1b]7;file://arch/tmp/a%20b\x07");
-    assert_eq!(recorder.pwd(), Some("file://arch/tmp/a%20b"));
-    let recorder = parse(b"\x1b]7;kitty-shell-cwd://arch/tmp/a b\x1b\\");
-    assert_eq!(recorder.pwd(), Some("kitty-shell-cwd://arch/tmp/a b"));
-}
-
-#[test]
 fn osc_7_is_no_title_change() {
-    assert_eq!(parse(b"\x1b]7;file://arch/tmp\x07").notices, []);
-}
-
-#[test]
-fn a_url_with_semicolons_is_kept_whole() {
-    let recorder = parse(b"\x1b]7;file://arch/tmp/a;b;c\x07");
-    assert_eq!(recorder.pwd(), Some("file://arch/tmp/a;b;c"));
-}
-
-#[test]
-fn an_empty_url_clears_the_pwd() {
-    let recorder = parse(b"\x1b]7;file://arch/tmp\x07\x1b]7;\x07");
-    assert_eq!(recorder.pwd(), None);
-}
-
-#[test]
-fn osc_7_without_a_url_changes_nothing() {
-    let recorder = parse(b"\x1b]7;file://arch/tmp\x07\x1b]7\x07");
-    assert_eq!(recorder.pwd(), Some("file://arch/tmp"));
-}
-
-#[test]
-fn a_long_url_is_cut() {
-    let mut osc = b"\x1b]7;file://arch/".to_vec();
-    osc.extend(std::iter::repeat_n(b'd', MAX_PWD_BYTES));
-    osc.push(0x07);
-    assert_eq!(parse(&osc).pwd().map(str::len), Some(MAX_PWD_BYTES));
+    let recorder = parse(b"\x1b]7;file://arch/tmp;a\x07");
+    assert_eq!(recorder.title(), None);
+    assert_eq!(recorder.notices, []);
 }
 
 #[test]
@@ -118,7 +86,6 @@ fn other_oscs_are_ignored() {
     let recorder =
         parse(b"\x1b]133;A;cl=line\x07\x1b]52;c;aGk=\x07\x1b]10;?\x07\x1b]8;;http://x\x07");
     assert_eq!(recorder.title(), None);
-    assert_eq!(recorder.pwd(), None);
     assert_eq!(recorder.notices, []);
 }
 

@@ -35,7 +35,6 @@ fn a_new_screen_is_blank_at_its_size() {
     assert_eq!(snapshot.scrollback, []);
     assert_eq!(snapshot.title, None);
     assert!(!snapshot.alternate_screen);
-    assert_eq!(screen.pwd(), None);
 }
 
 #[test]
@@ -111,9 +110,8 @@ fn a_one_column_screen_wraps_every_character() {
 }
 
 #[test]
-fn a_vt100_panic_starts_the_screen_over_and_keeps_title_and_pwd() {
-    let mut screen =
-        fed(10, 2, 10, "\x1b]2;vim\x07\x1b]7;file://arch/srv\x07abcd\u{4e2d}".as_bytes());
+fn a_vt100_panic_starts_the_screen_over_and_keeps_the_title() {
+    let mut screen = fed(10, 2, 10, "\x1b]2;vim\x07abcd\u{4e2d}".as_bytes());
     // Narrowing cuts the wide character in half; vt100 0.16.2 then panics when
     // anything prints over the half left in the last column.
     screen.resize(5, 2, &mut TestSink::default());
@@ -124,7 +122,6 @@ fn a_vt100_panic_starts_the_screen_over_and_keeps_title_and_pwd() {
     assert_eq!(snapshot.size, size(5, 2));
     assert_eq!(texts(&snapshot.rows), ["", ""]);
     assert_eq!(snapshot.title.as_deref(), Some("vim"));
-    assert_eq!(screen.pwd(), Some("file://arch/srv"));
 
     screen.feed(b"ok\r\n1\r\n2", &mut sink);
     let snapshot = screen.snapshot(10);
@@ -276,11 +273,11 @@ fn the_alternate_screen_is_reported_and_shows_no_scrollback() {
 }
 
 #[test]
-fn the_scrollback_is_counted_without_a_row_and_matches_a_snapshot() {
+fn the_scrollback_count_matches_a_snapshot() {
     for (rows, kept, lines) in [(2, 100, 6), (2, 3, 10), (1, 100, 5), (3, 0, 7), (3, 100, 1)] {
         let mut screen = fed(5, rows, kept, &numbered_lines(lines));
         let held = screen.snapshot(usize::MAX).scrollback.len();
-        assert_eq!(screen.scrollback_rows(), Some(held), "{rows} rows, {kept} kept, {lines} lines");
+        assert_eq!(screen.scrollback_rows(), held, "{rows} rows, {kept} kept, {lines} lines");
         // The count leaves the view at the bottom.
         assert_eq!(screen.parser.screen().scrollback(), 0);
     }
@@ -297,7 +294,7 @@ fn the_text_is_the_text_of_the_snapshot_until_the_limit() {
 }
 
 #[test]
-fn the_alternate_screen_is_told_without_a_snapshot() {
+fn the_alternate_screen_follows_the_mode() {
     let mut screen = fed(5, 2, 100, b"x");
     assert!(!screen.alternate_screen());
     screen.feed(b"\x1b[?1049h", &mut TestSink::default());
@@ -305,10 +302,9 @@ fn the_alternate_screen_is_told_without_a_snapshot() {
 }
 
 #[test]
-fn title_and_pwd_come_from_the_stream() {
+fn the_title_comes_from_the_stream() {
     let mut screen = fed(10, 2, 0, b"\x1b]2;vim\x07\x1b]7;file://arch/etc\x07");
     assert_eq!(screen.title(), Some("vim"));
-    assert_eq!(screen.pwd(), Some("file://arch/etc"));
     assert_eq!(screen.snapshot(0).title.as_deref(), Some("vim"));
 }
 

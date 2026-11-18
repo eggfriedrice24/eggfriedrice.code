@@ -1,5 +1,4 @@
-//! What vt100 reports through its callbacks while it parses: bells, titles and the
-//! OSC 7 working directory.
+//! What vt100 reports through its callbacks while it parses: bells and titles.
 //!
 //! vt100 owns its `Callbacks` value for the life of the parser, while a
 //! [`ScreenSink`] is lent to each [`Screen::feed`](crate::Screen::feed) call
@@ -12,10 +11,6 @@ use crate::ScreenSink;
 /// so a hostile title costs both backends the same memory.
 pub(crate) const MAX_TITLE_BYTES: usize = 1024;
 
-/// The longest OSC 7 URL kept, in bytes: Linux `PATH_MAX` plus room for the scheme,
-/// the host and percent-encoding, the limit libghostty-vt uses.
-pub(crate) const MAX_PWD_BYTES: usize = 4096;
-
 /// One callback that the sink must hear about, in the order it happened.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Notice {
@@ -27,7 +22,6 @@ pub(crate) enum Notice {
 #[derive(Debug, Default)]
 pub(crate) struct Recorder {
     title: Option<String>,
-    pwd: Option<String>,
     notices: Vec<Notice>,
 }
 
@@ -36,15 +30,6 @@ impl Recorder {
     /// one, as in libghostty-vt.
     pub(crate) fn title(&self) -> Option<&str> {
         self.title.as_deref()
-    }
-
-    /// The URL of the last OSC 7 report exactly as the program sent it
-    /// (`file://host/path` or `kitty-shell-cwd://host/path`), the same raw form
-    /// libghostty-vt's `Terminal::pwd` returns, so the cross-check against the
-    /// scanner's marks reads both backends alike. `None` before any report and after
-    /// an empty one.
-    pub(crate) fn pwd(&self) -> Option<&str> {
-        self.pwd.as_deref()
     }
 
     /// Hands the notices recorded since the last call to `sink`, oldest first.
@@ -62,11 +47,6 @@ impl Recorder {
         self.title = (!title.is_empty()).then(|| title.clone());
         self.notices.push(Notice::Title(title));
     }
-
-    fn set_pwd(&mut self, raw: &[u8]) {
-        let url = capped(raw, MAX_PWD_BYTES);
-        self.pwd = (!url.is_empty()).then_some(url);
-    }
 }
 
 impl vt100::Callbacks for Recorder {
@@ -79,12 +59,12 @@ impl vt100::Callbacks for Recorder {
     }
 
     fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
-        match params {
-            // vte splits an OSC body at every `;`, so vt100 matches OSC 0 and 2 only
-            // when the title holds none; a title with one arrives here in pieces.
-            [b"0" | b"2", rest @ ..] if rest.len() > 1 => self.set_title(&rest.join(&b';')),
-            [b"7", rest @ ..] if !rest.is_empty() => self.set_pwd(&rest.join(&b';')),
-            _ => {}
+        // vte splits an OSC body at every `;`, so vt100 matches OSC 0 and 2 only when
+        // the title holds none; a title with one arrives here in pieces.
+        if let [b"0" | b"2", rest @ ..] = params
+            && rest.len() > 1
+        {
+            self.set_title(&rest.join(&b';'));
         }
     }
 }

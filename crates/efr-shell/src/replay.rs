@@ -107,7 +107,7 @@ impl<'a> Replayer<'a> {
         }
         match self.visible(bytes).await {
             Ok(snapshot) => {
-                let mut text = screen_text(&snapshot, true);
+                let mut text = ScreenText::of(&snapshot).text;
                 if scan.full_screen {
                     if !text.is_empty() {
                         text.push('\n');
@@ -359,11 +359,6 @@ pub(crate) fn middle_line_end(bytes: &[u8]) -> Option<usize> {
         .flatten()
         .filter(|&at| at > 0 && at < bytes.len())
         .min_by_key(|&at| at.abs_diff(middle))
-}
-
-/// The text of a replayed screen snapshot, by the rules of [`piece_text`].
-pub(crate) fn screen_text(snapshot: &ScreenSnapshot, last: bool) -> String {
-    piece_text(ScreenText::of(snapshot), last)
 }
 
 /// The text of a replayed piece: the scrollback, then the visible rows, a soft-wrapped

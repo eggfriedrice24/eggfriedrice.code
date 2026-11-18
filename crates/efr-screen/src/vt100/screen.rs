@@ -24,9 +24,8 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 ///   fixtures that check replies list `vt100` in their `differs`.
 /// - It reports bells (BEL) and titles (OSC 0 and 2) to the sink in the order they
 ///   happened, after the bytes are processed.
-/// - The title and the OSC 7 URL follow libghostty-vt: an empty value clears them, a
-///   title is cut at 1024 bytes and the URL at 4096, and the URL is kept as the
-///   program sent it.
+/// - The title follows libghostty-vt: an empty title clears it, and a title is cut
+///   at 1024 bytes.
 /// - A dimension of 0 becomes 1. vt100 0.16.2 panics when a line wraps on a grid of
 ///   one row, so a one-row screen runs on two rows of vt100 and shows the row the
 ///   cursor is on: text that arrives line by line looks as it would on one row, while
@@ -34,8 +33,8 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 /// - vt100 0.16.2 also panics on a few rare inputs (a wide character on a grid of one
 ///   column, or printing over a wide character that a narrower resize cut at the
 ///   right edge). The screen catches the panic, logs it and starts over blank with the
-///   same size, title and working directory, so a vt100 bug cannot end the screen
-///   actor; the rest of that chunk is lost.
+///   same size and title, so a vt100 bug cannot end the screen actor; the rest of that
+///   chunk is lost.
 pub struct Vt100Screen {
     parser: vt100::Parser<Recorder>,
     /// The grid the owner asked for, at least 1 by 1. vt100's own grid may be taller;
@@ -92,9 +91,7 @@ impl Vt100Screen {
     /// time and ends back at the bottom, where every other method expects it.
     fn vt100_scrollback(&mut self, limit: usize) -> Vec<RowCells> {
         let screen = self.parser.screen_mut();
-        // vt100 clamps the offset to the rows it holds.
-        screen.set_scrollback(limit);
-        let mut offset = screen.scrollback();
+        let mut offset = held_scrollback(screen, limit);
         let (rows, _) = screen.size();
         let mut scrollback = Vec::with_capacity(offset);
         while offset > 0 {
@@ -138,6 +135,16 @@ fn grid_size(size: Size) -> (u16, u16) {
     (size.rows.max(2), size.cols)
 }
 
+/// The rows of vt100's own scrollback, at most `limit`. vt100 clamps the offset of its
+/// scrolled view to the rows it holds, so this reads no row. The view ends at the
+/// bottom.
+fn held_scrollback(screen: &mut vt100::Screen, limit: usize) -> usize {
+    screen.set_scrollback(limit);
+    let held = screen.scrollback();
+    screen.set_scrollback(0);
+    held
+}
+
 fn parser(size: Size, scrollback_rows: usize, recorder: Recorder) -> vt100::Parser<Recorder> {
     let (rows, cols) = grid_size(size);
     vt100::Parser::new_with_callbacks(rows, cols, scrollback_rows, recorder)
@@ -179,14 +186,9 @@ impl Screen for Vt100Screen {
     }
 
     /// The rows that a snapshot with all the scrollback gives: vt100's own scrollback
-    /// and, on a one-row screen, the rows above the view. vt100 clamps the offset of
-    /// its scrolled view to the rows it holds, so this reads no row.
-    fn scrollback_rows(&mut self) -> Option<usize> {
-        let screen = self.parser.screen_mut();
-        screen.set_scrollback(usize::MAX);
-        let held = screen.scrollback();
-        screen.set_scrollback(0);
-        Some(held + usize::from(self.top()))
+    /// and, on a one-row screen, the rows above the view. It reads no row.
+    fn scrollback_rows(&mut self) -> usize {
+        held_scrollback(self.parser.screen_mut(), usize::MAX) + usize::from(self.top())
     }
 
     fn alternate_screen(&mut self) -> bool {
@@ -213,12 +215,6 @@ impl Vt100Screen {
     fn title(&self) -> Option<&str> {
         self.parser.callbacks().title()
     }
-
-    /// The raw OSC 7 URL that the program sent last, if any. Only the `Debug` form
-    /// and the tests read it; the shell marks are the source of truth.
-    fn pwd(&self) -> Option<&str> {
-        self.parser.callbacks().pwd()
-    }
 }
 
 // vt100::Parser has no Debug of its own.
@@ -229,7 +225,6 @@ impl fmt::Debug for Vt100Screen {
             .field("cursor", &self.cursor())
             .field("alternate_screen", &self.parser.screen().alternate_screen())
             .field("title", &self.title())
-            .field("pwd", &self.pwd())
             .finish_non_exhaustive()
     }
 }

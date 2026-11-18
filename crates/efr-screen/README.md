@@ -5,17 +5,18 @@
 The screen model boundary. Everything that turns PTY output into a terminal screen
 goes through this crate, whichever backend renders it:
 
-- `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`; `feed_marked`, which
-  gets the marks of the actor's scan with the bytes and by default ignores them;
-  `text`, `scrollback_rows` and `alternate_screen` with defaults that read a
+- `screen`: the `Screen` trait (`feed`, `resize`, `snapshot` and `scrollback_rows`;
+  `feed_marked`, which gets the marks of the actor's scan with the bytes and by
+  default ignores them; `text` and `alternate_screen` with defaults that read a
   snapshot; and `idle_delay` and `idle` with defaults that do nothing), implemented by
   the `vt100` module of this crate and by `efr-screen-ghostty`. It has no `Send`
-  bound. Both backends count their scrollback rows and tell the alternate screen
-  without reading a row, so `text` reads no row of a full scrollback.
+  bound. A backend counts its scrollback rows without reading a row, so `text` reads
+  no row of a full scrollback. Both backends also tell the alternate screen without
+  a snapshot.
 - `text`: `ScreenText`, the scrollback and the visible rows as lines of text: a
   soft-wrapped row joined to the next, no trailing spaces, no blank line at the end,
   and the count of blank lines above the cursor apart. `ScreenText::of` makes it from
-  a snapshot.
+  a snapshot in the wire form.
 - `sink`: the `ScreenSink` trait through which a backend reports PTY replies (DA, DSR,
   DECRQM, OSC 10 and 11 answers), bells and title changes while it processes bytes.
 - `actor`: `ScreenActor::spawn`, which runs one screen on its own named std thread,
@@ -162,7 +163,7 @@ until ADR 0014 folded it into this one.
 - `vt100/recorder`: the `vt100::Callbacks` value. vt100 owns it for the life of the parser
   while a `ScreenSink` is lent to one `feed` call only, so it keeps bells and title
   changes in order and the screen hands them to the sink after each `process`. It
-  also keeps the title and the OSC 7 URL.
+  also keeps the title.
 
 #### What vt100 does and does not do
 
@@ -174,12 +175,10 @@ until ADR 0014 folded it into this one.
   top ones into the scrollback.
 - Lines that scroll inside a scroll region (DECSTBM) never enter the scrollback, even
   when the region starts at the top row.
-- The recorder keeps the raw OSC 7 URL as the program sent it, the form
-  libghostty-vt's `Terminal::pwd` returns; only the `Debug` form and the tests read
-  it. The title and the URL follow libghostty-vt's limits (1024
-  and 4096 bytes) and an empty value clears them. vte splits an OSC at every `;`, so
-  the recorder joins the pieces of a title or URL that holds one; vte keeps 16 pieces
-  with the OSC number, so a value with more than 14 `;` loses its tail.
+- The title follows libghostty-vt's limit of 1024 bytes, and an empty title clears
+  it. vte splits an OSC at every `;`, so the recorder joins the pieces of a title
+  that holds one; vte keeps 16 pieces with the OSC number, so a title with more than
+  14 `;` loses its tail.
 
 #### Guards against vt100 panics
 
@@ -193,8 +192,7 @@ larger without a resize:
 - A wide character on a grid of one column, and printing over the first half of a
   wide character that a narrower resize cut at the right edge, index past the row.
   `feed` catches the panic, logs a warning and starts over with a blank grid of the
-  same size, keeping the title and the working directory; the rest of that chunk is
-  lost. Without the guard the panic would end the screen actor and the shell would
+  same size, keeping the title; the rest of that chunk is lost. Without the guard the panic would end the screen actor and the shell would
   lose its screen for good.
 
 A dimension of 0 becomes 1, because vt100 subtracts 1 from both when it builds or
@@ -249,7 +247,7 @@ file and a proptest that checks that any split of a byte stream yields the same 
 The conformance suite runs against the fake screen through a dev-dependency of the
 crate on itself with the `conformance` feature.
 
-The vt100 backend has unit tests for the cell conversion, the recorder (titles, URLs,
+The vt100 backend has unit tests for the cell conversion, the recorder (titles,
 limits, order) and the screen (scrollback paging, the one-row view, the panic guard,
 the cursor at a pending wrap). A proptest feeds random escape fragments between random
 resizes (sizes 0 to 6) and snapshots, and checks that nothing panics out of the

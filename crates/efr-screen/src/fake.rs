@@ -278,4 +278,8 @@ impl Screen for FakeScreen {
             alternate_screen: false,
         }
     }
+
+    fn scrollback_rows(&mut self) -> usize {
+        self.scrollback.len()
+    }
 }

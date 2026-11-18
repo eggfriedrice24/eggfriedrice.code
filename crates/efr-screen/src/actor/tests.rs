@@ -301,6 +301,10 @@ impl Screen for GatedScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
     }
+
+    fn scrollback_rows(&mut self) -> usize {
+        0
+    }
 }
 
 /// A gated screen with its command queue full and the actor held inside `feed`.
@@ -366,6 +370,11 @@ impl Screen for IdleScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
     }
+
+    fn scrollback_rows(&mut self) -> usize {
+        0
+    }
+
     fn idle_delay(&self) -> Option<Duration> {
         Some(Duration::from_millis(1))
     }

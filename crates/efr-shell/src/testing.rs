@@ -330,6 +330,10 @@ impl Screen for DyingScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot { size: self.size, ..ScreenSnapshot::default() }
     }
+
+    fn scrollback_rows(&mut self) -> usize {
+        0
+    }
 }
 
 /// Screens that answer a primary device attributes query (`ESC [ c`), which vt100
@@ -360,6 +364,10 @@ impl Screen for AnsweringScreen {
 
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot { size: self.size, ..ScreenSnapshot::default() }
+    }
+
+    fn scrollback_rows(&mut self) -> usize {
+        0
     }
 }
 

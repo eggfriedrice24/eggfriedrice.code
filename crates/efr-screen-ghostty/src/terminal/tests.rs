@@ -443,7 +443,7 @@ fn bench_perf_idle_compression() {
 fn a_full_scrollback_gives_no_text() {
     let mut screen = screen(10, 2);
     feed(&mut screen, b"1\r\n2\r\n3\r\n4\r\n5");
-    assert_eq!(screen.scrollback_rows(), Some(3));
+    assert_eq!(screen.scrollback_rows(), 3);
     assert_eq!(screen.text(3), None);
     assert_eq!(screen.text(4).map(|text| text.text), Some("1\n2\n3\n4\n5".to_owned()));
 }
@@ -458,7 +458,7 @@ fn a_text_read_of_the_scrollback_gives_the_idle_steps_work_again() {
 }
 
 #[test]
-fn the_alternate_screen_is_told_without_a_snapshot() {
+fn the_alternate_screen_follows_the_mode() {
     let mut screen = screen(10, 2);
     assert!(!screen.alternate_screen());
     feed(&mut screen, b"\x1b[?1049h");
