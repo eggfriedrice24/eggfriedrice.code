@@ -927,9 +927,9 @@ records the decision. The rules:
 - While a client that can answer follows the conversation (a terminal that reads keys,
   or a phone that says so), the question waits as an approval
   (`conversation.approval_timeout_secs`, no end by default). While you are away, or no
-  such client follows, it waits `presence.away_wait_secs` (300) and goes to
-  `presence.push` once. Then it ends as unanswered: the model does only what is safe and
-  easy to undo, and names its choice in its answer. After one unanswered question, each
+  such client follows, it waits `presence.away_wait_secs` (300). Then it ends as
+  unanswered: the model does only what is safe and easy to undo, and names its choice
+  in its answer. After one unanswered question, each
   later question of the same turn ends at once.
 - The phone may answer (`question.respond` needs the `operate` scope). Each client
   shows `Do not type a password or a token here.` where you type an answer: a typed
