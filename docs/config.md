@@ -236,7 +236,7 @@ When efr counts you away from a conversation, and how long a question waits then
 |---|---|---|---|
 | `away_after_minutes` | `10` | live | The minutes without input in a conversation after which efr counts you away, from 1 to 1440. Input is a prompt, a steer, an answer or keys for the hidden shell. `efr away` and `,away` also count you away; your next input ends it. |
 | `away_wait_secs` | `300` | live | How long a question waits while you are away, in seconds, from 1 to 86400. Then the call does not run, and the model goes on without it. |
-| `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. No phone client exists yet, so it does nothing today. |
+| `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. efrd sends no push to the phone app yet, so it does nothing today. |
 
 ## [notify]
 

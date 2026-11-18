@@ -27,7 +27,7 @@ pub trait PresenceReader: Send + Sync + fmt::Debug {
     fn presence(&self, conversation_id: ConversationId) -> Presence;
 
     /// Sends the question of `call_id` to the user's paired phones, once per question.
-    /// No phone client exists yet, so the default does nothing.
+    /// efrd sends no push to the phone app yet, so the default does nothing.
     fn push(&self, _conversation_id: ConversationId, _call_id: CallId) {}
 
     /// True while a client that can answer input follows `conversation_id`. A turn

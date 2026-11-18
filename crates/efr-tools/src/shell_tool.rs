@@ -595,11 +595,11 @@ impl Tool for ShellTool {
              needs. Lines that match within 1 second reach you as one notice of at most 20 \
              lines, the first 10 and the last 10. A watch gives you 3 notices unless you \
              name max_wakes, and at most 10; a conversation gets at most 6 notices in one \
-             hour, unless the user changed these limits. After the last notice the job runs on until it ends or its time limit \
-             passes; job_stop ends it. The notice of the job's end always comes. In auto, a \
-             command that needs a login cannot run as a job; run it in the foreground with \
-             timeout_seconds. Processes that a normal call starts with \
-             &, nohup or setsid stop when the call ends. The \
+             hour, unless the user changed these limits. After the last notice the job \
+             runs on until it ends or its time limit passes; job_stop ends it. The notice \
+             of the job's end always comes. In auto, a command that needs a login cannot \
+             run as a job; run it in the foreground with timeout_seconds. Processes that a \
+             normal call starts with &, nohup or setsid stop when the call ends. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout holds the shell; efr tells the user, and \
              the next call fails at once while that command waits for input, else waits \

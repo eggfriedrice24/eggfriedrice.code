@@ -18,7 +18,7 @@ pub struct PresenceSettings {
     /// Then the call does not run, and the model goes on without it.
     pub away_wait_secs: u32,
     /// `true` sends a question that waits while you are away to your paired phones.
-    /// No phone client exists yet, so it does nothing today.
+    /// efrd sends no push to the phone app yet, so it does nothing today.
     pub push: bool,
 }
 

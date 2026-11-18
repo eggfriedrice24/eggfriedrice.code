@@ -10172,7 +10172,7 @@
         },
         {
           "const": "watch",
-          "description": "A line of the job's output matched its `watch` pattern.",
+          "description": "A batch of lines of the job's output matched its `watch` pattern.",
           "type": "string"
         },
         {

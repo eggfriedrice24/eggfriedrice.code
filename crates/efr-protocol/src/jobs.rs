@@ -216,7 +216,7 @@ impl JobStopBy {
 pub enum NoticeKind {
     /// The job ended.
     Exited,
-    /// A line of the job's output matched its `watch` pattern.
+    /// A batch of lines of the job's output matched its `watch` pattern.
     Watch,
     /// A kind that this build does not know.
     #[serde(other)]

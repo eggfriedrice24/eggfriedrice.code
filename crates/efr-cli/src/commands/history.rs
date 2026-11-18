@@ -694,6 +694,41 @@ impl<'a> Transcript<'a> {
         }
     }
 
+    /// The model's question as the view leaves it (TM-Questions 0.0.12): the question
+    /// with its options under it, then the line of its end.
+    fn user_question(&mut self, event: &Event) {
+        match event {
+            Event::UserQuestionRequested { question_id, question, options, .. } => {
+                let card = card::user_question(question, options, card::Asks::Elsewhere);
+                self.pieces(&vec![
+                    (self.options.glyphs().question.to_owned(), Tone::Attention),
+                    (" ".to_owned(), Tone::Plain),
+                    (card.title, Tone::Text),
+                ]);
+                for row in &card.rows {
+                    if let card::Row::Text(pieces) = row {
+                        let rows = ending::rows(pieces, UNDER, &self.inner);
+                        self.out.push_str(&indented_rows(&rows));
+                    }
+                }
+                let labels = options.iter().map(|option| option.label.clone()).collect();
+                self.questions.insert(*question_id, labels);
+            }
+            Event::UserQuestionAnswered { question_id, answer, origin, .. } => {
+                let labels = self.questions.remove(question_id).unwrap_or_default();
+                let glyphs = self.options.glyphs();
+                let (end, words) = card::question_end(answer, *origin, &labels, glyphs.separator);
+                let (mark, tone) = end.mark(glyphs);
+                self.pieces(&vec![
+                    (mark.to_owned(), tone),
+                    (" ".to_owned(), Tone::Plain),
+                    (words, Tone::Dim),
+                ]);
+            }
+            _ => {}
+        }
+    }
+
     fn other(&mut self, event: &Event) {
         match event {
             Event::PromptQueued { text, turn_id, .. } => {
@@ -728,35 +763,8 @@ impl<'a> Transcript<'a> {
             }
             Event::ToolCallCompleted { call_id, .. }
                 if self.tools.get(call_id).is_some_and(|tool| tool == card::ASK_USER) => {}
-            Event::UserQuestionRequested { question_id, question, options, .. } => {
-                let card = card::user_question(question, options, card::Asks::Elsewhere);
-                self.pieces(&vec![
-                    (self.options.glyphs().question.to_owned(), Tone::Attention),
-                    (" ".to_owned(), Tone::Plain),
-                    (card.title, Tone::Text),
-                ]);
-                for row in &card.rows {
-                    if let card::Row::Text(pieces) = row {
-                        self.out.push_str(&indented_rows(&ending::rows(
-                            pieces,
-                            UNDER,
-                            &self.inner,
-                        )));
-                    }
-                }
-                let labels = options.iter().map(|option| option.label.clone()).collect();
-                self.questions.insert(*question_id, labels);
-            }
-            Event::UserQuestionAnswered { question_id, answer, origin, .. } => {
-                let labels = self.questions.remove(question_id).unwrap_or_default();
-                let glyphs = self.options.glyphs();
-                let (end, words) = card::question_end(answer, *origin, &labels, glyphs.separator);
-                let (mark, tone) = end.mark(glyphs);
-                self.pieces(&vec![
-                    (mark.to_owned(), tone),
-                    (" ".to_owned(), Tone::Plain),
-                    (words, Tone::Dim),
-                ]);
+            Event::UserQuestionRequested { .. } | Event::UserQuestionAnswered { .. } => {
+                self.user_question(event);
             }
             Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());

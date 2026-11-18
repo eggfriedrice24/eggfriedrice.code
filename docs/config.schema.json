@@ -1088,7 +1088,7 @@
         },
         "push": {
           "default": true,
-          "description": "`true` sends a question that waits while you are away to your paired phones.\nNo phone client exists yet, so it does nothing today.",
+          "description": "`true` sends a question that waits while you are away to your paired phones.\nefrd sends no push to the phone app yet, so it does nothing today.",
           "type": "boolean"
         }
       },
