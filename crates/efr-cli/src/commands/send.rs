@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, Method, Origin, PromptSend,
-    PromptSendResult, RecentCommand, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
+    PromptSendResult, RecentCommand, Seq, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
 };
 use efr_render::{Glyphs, render_trace};
 use efr_stdx::env::Var;
@@ -273,7 +273,8 @@ async fn send_and_follow(
         .with_corner(ctx.env.flag(Var::Corner).unwrap_or(false))
         .with_settings(result.settings.clone())
         .with_model(result.settings.as_ref())
-        .with_zone(ctx.time_zone.clone());
+        .with_zone(ctx.time_zone.clone())
+        .with_file_links(!ctx.term.ssh);
     if reader.is_some() {
         view = view.with_input();
     }
@@ -303,7 +304,8 @@ async fn send_and_follow(
         queue_behind(ctx, &client, out, &mut view, &compose, conversation, queued).await?;
     }
     view.start();
-    let target = Target { conversation, turn: result.turn_id, after: result.seq };
+    let after = Seq::new(result.seq.get().saturating_sub(1));
+    let target = Target { conversation, turn: result.turn_id, after };
     let row = reader.take().map(|reader| Row { compose, reader, origin });
     follow::follow(ctx, &client, out, &mut view, target, row).await?;
     Ok(conversation)

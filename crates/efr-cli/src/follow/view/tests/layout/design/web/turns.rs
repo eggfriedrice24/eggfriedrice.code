@@ -90,6 +90,7 @@ fn history(ran: &Ran, events: &[(i64, Event)], depth: Depth, verbose: bool) -> S
         groups: &DiffGroups::default(),
         zone: &TimeZone::UTC,
         head: Some(&head),
+        file_links: true,
     };
     let id = "019a7c02-3d00-7a10-8b20-000000000001".parse().unwrap();
     transcript(id, &page, &shown)

@@ -374,6 +374,7 @@ async fn print(
         groups: &ctx.settings.diff.groups,
         zone: &ctx.time_zone,
         head: head.as_ref(),
+        file_links: !ctx.term.ssh,
     };
     out.out(&history::transcript(id, &page, &shown))
 }

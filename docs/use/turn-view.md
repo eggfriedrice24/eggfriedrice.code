@@ -1,6 +1,6 @@
 # The turn view and its keys
 
-<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, notify.rs, format/card.rs (user_question, question_end), follow/view/reasoning.rs, follow/view/web.rs, format/web.rs; crates/efr-daemon/src/notices.rs (desktop_what, place); shell/zsh/efr.plugin.zsh ("the wake of a waiting prompt"); docs/config.md [notify] -->
+<!-- sources: README.md "Use" (the bullets on the status row, the input row, `ctx`, approvals, commands that wait for input, the diff line, the notice line, `,!`, the hand-back of the row); docs/config.md [render]; crates/efr-cli/README.md (Replies: the status row, the end of a turn, Context, the question card, the input row, Ctrl+X, Ctrl+B, Esc, Ctrl+C, the answer line, Ctrl+\, the progress bar, exit codes); crates/efr-cli/src/row.rs, keys.rs, follow.rs, answer.rs, live.rs, quit.rs, progress.rs, draft.rs, notify.rs, format/card.rs (user_question, question_end), follow/view/reasoning.rs, follow/view/web.rs, format/web.rs, format/attach.rs, follow/view/ending.rs (the chip row); crates/efr-daemon/src/notices.rs (desktop_what, place); shell/zsh/efr.plugin.zsh ("the wake of a waiting prompt"); docs/config.md [notify] -->
 
 The turn view is what efr shows while a turn runs. It is not a full-screen program.
 The reply goes into your scrollback like the output of any command, and your prompt
@@ -150,6 +150,13 @@ stays when something else shows. A single read names its file:
 
 ```text
 ✓ read 6 files  crates/app/src/lib.rs, session.rs, json.rs (+3)
+```
+
+A read of an image names its pixels at the end of its row, or of the row of the
+reads that it folds into. A row of several images counts them, such as `2 images`:
+
+```text
+✓ read docs/shot.png  image 1920x1080
 ```
 
 A file write names its file and the lines that it added and removed. Its diff follows
@@ -402,6 +409,33 @@ goes. A line comes only when something changed:
   medium · cache starts cold`.
 - When both changed, `↪` comes first.
 
+A prompt with attachments (`@path` in a `,` line) gets one row for them, after these
+lines and before the reply. `efr history` shows the same row under the model row of
+the prompt:
+
+```text
+@ image shot.png 1920x1080 2.1 MB, pdf report.pdf 3.4 MB, text data.csv 48 KB
+@ pdf manual.pdf 18 MB as a path
+```
+
+- Each file shows its kind (`image`, `pdf`, `text` or `file`), its name and its size.
+  An image also shows its pixels.
+- `as a path` tells that the model of the turn does not read the file as content. It
+  gets the path of the file, and it can open the file with a tool.
+- The name is a link to the copy of the file in `$SCRATCH/attachments`: Ctrl+click
+  opens it in the viewer of your system. A rule of your window manager can make that
+  viewer window float. There is no link when OSC 8 links are off, and when `efr` runs
+  over SSH: the copy is on the other machine.
+- A row that is too wide goes on 2 columns in. A file never breaks across two rows.
+
+When efr stops to send a file as content, one row says so where it happens, also in
+`efr history`:
+
+```text
+not sent: shot.png. The provider refused it; the model gets the path.
+not sent from now on: 46 older images. The request had too many; the model gets the paths.
+```
+
 A prompt that sets its own mode, model or effort gets no line for it. A turn in full
 mode gets no line either: `,mode full` says once what full mode does.
 
@@ -494,9 +528,11 @@ model, because your system keeps a history of notices:
   `~`.
 - A question sends one notice per wait. A key, or the end of the wait, stops it. A
   card that another client must answer sends none.
-- The time of a turn counts from its start to its end, also the waits. An
-  interrupted, cancelled or withdrawn turn sends none. `notify.after_secs = 0` sends
-  one at the end of every turn.
+- The end notice needs a turn that ran for at least `notify.after_secs` after you
+  last answered a card in this view, or after its start: a wait for your answer does
+  not count. The body names the whole time of the turn. An interrupted, cancelled or
+  withdrawn turn sends none. `notify.after_secs = 0` sends one at the end of every
+  turn.
 - No notice goes out within 10 seconds after a key, because you are at the keys. So
   the answer to a card right before the end of a turn sends no end notice. Ghostty
   on Linux shows a notice also in the split that has the focus, so a turn that you

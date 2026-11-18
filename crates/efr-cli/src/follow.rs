@@ -226,7 +226,8 @@ pub(crate) struct Target {
     pub(crate) conversation: ConversationId,
     /// The turn, which Ctrl+C interrupts.
     pub(crate) turn: TurnId,
-    /// The sequence number of the prompt's event; the turn's events come after it.
+    /// The sequence number before the prompt's event: the prompt's event, which names
+    /// its attachments, and the turn's events come after it.
     pub(crate) after: Seq,
 }
 

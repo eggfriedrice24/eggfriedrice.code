@@ -2758,6 +2758,31 @@ fn the_end_right_after_a_key_sends_no_desktop_notice() {
     assert!(noticed(10_000), "the last key is as old as the time of a wait");
 }
 
+/// F8: a card waited 4 minutes for its answer, and the turn ended 20 s after it. The
+/// wait at the card does not count, so no end notice goes; 40 s after it, one goes
+/// with the whole time.
+#[test]
+fn the_wait_at_a_card_does_not_count_for_the_end_notice() {
+    let noticed = |after_answer: i64| {
+        let mut view = started_view(ALL).with_notices(Some(notices(30)));
+        view.envelope(&sent(11, 0, turn_started()), SIZE, true);
+        view.envelope(&sent(12, 100, approval(None)), SIZE, true);
+        view.frame(SIZE, at(100));
+        view.keyed(at(240_000));
+        view.answered(call(), ApprovalDecision::Allow, SIZE);
+        let end = 240_000 + after_answer;
+        view.envelope(&sent(13, end, completed_turn()), SIZE, true);
+        view.frame(SIZE, at(end))
+    };
+    assert!(!noticed(20_000).contains("\x1b]777;"));
+    let frame = noticed(40_000);
+    assert!(
+        frame.contains("\x1b]777;notify;efr;app: done in 4m 40s\x1b\\"),
+        "{}",
+        readable(&frame)
+    );
+}
+
 #[test]
 fn a_short_turn_an_interrupt_and_the_setting_off_send_no_desktop_notice() {
     assert!(!ended_noticed(30, completed_turn(), 29_000).contains("\x1b]777;"));
@@ -2925,6 +2950,7 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
 }
 
 mod always;
+mod attach;
 mod changes;
 mod context;
 mod full;

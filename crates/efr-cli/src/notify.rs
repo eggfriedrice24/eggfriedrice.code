@@ -42,6 +42,8 @@ pub(crate) struct Notices {
     after: Duration,
     /// When the last key came.
     key_at: Option<Timestamp>,
+    /// When you last answered a card of the view: the turn waited for you until then.
+    answered_at: Option<Timestamp>,
 }
 
 impl Notices {
@@ -52,12 +54,16 @@ impl Notices {
             place,
             after: Duration::from_secs(settings.after_secs.into()),
             key_at: None,
+            answered_at: None,
         })
     }
 
-    /// A key came at `now`.
-    pub(crate) fn keyed(&mut self, now: Timestamp) {
+    /// A key came at `now`; `card` when it answered a card of the view.
+    pub(crate) fn keyed(&mut self, now: Timestamp, card: bool) {
         self.key_at = Some(now);
+        if card {
+            self.answered_at = Some(now);
+        }
     }
 
     /// True when a key came less than [`WAIT_AFTER`] before `now`: the user is at the
@@ -75,11 +81,23 @@ impl Notices {
         notice_body(&self.place, if question { QUESTION_WAITS } else { INPUT_WAITS })
     }
 
-    /// The body for the end of the last turn of the view, which took `took` and failed
-    /// or not: `app: done in 4m 12s`, `app: failed after 1m 3s`. `None` when the turn
-    /// took less than `notify.after_secs`.
-    pub(crate) fn ended(&self, took: Duration, failed: bool) -> Option<String> {
-        (took >= self.after).then(|| notice_ended(&self.place, took, failed))
+    /// The body for the end at `end` of the last turn of the view, which took `took` and
+    /// failed or not: `app: done in 4m 12s`, `app: failed after 1m 3s`. `None` when the
+    /// turn ran for less than `notify.after_secs` after you last answered a card in it,
+    /// or from its start: a wait at a card does not count, but the body names the whole
+    /// time.
+    pub(crate) fn ended(
+        &self,
+        took: Duration,
+        end: Option<Timestamp>,
+        failed: bool,
+    ) -> Option<String> {
+        let since_answer = self
+            .answered_at
+            .zip(end)
+            .and_then(|(answered, end)| Duration::try_from(end.duration_since(answered)).ok());
+        let ran = since_answer.map_or(took, |since| since.min(took));
+        (ran >= self.after).then(|| notice_ended(&self.place, took, failed))
     }
 }
 

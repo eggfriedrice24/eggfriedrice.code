@@ -45,10 +45,11 @@ use std::path::{Path, PathBuf};
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
-    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, EffectiveSettings,
-    Event, EventEnvelope, FileChanges, Launch, Method, Origin, PageCursor, QuestionId, Seq,
-    StoredCopyReason, SwitchedModel, TurnId, TurnUndoInfo, Usage, WebAction, WebResult, WebSource,
+    Attachment, CallId, ConversationHistory, ConversationHistoryResult, ConversationId,
+    ConversationsList, ConversationsListResult, ConversationsRecent, ConversationsRecentResult,
+    EffectiveSettings, Event, EventEnvelope, FileChanges, Launch, Method, Origin, PageCursor,
+    QuestionId, Seq, StoredCopyReason, SwitchedModel, TurnId, TurnUndoInfo, Usage, WebAction,
+    WebResult, WebSource,
 };
 use efr_render::{Glyphs, RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -64,7 +65,8 @@ use crate::format::ending::UNDER;
 use crate::format::route::Pieces;
 use crate::format::web::{self, End, Ended, Fit};
 use crate::format::{
-    self, Block, Spacing, Tone, accounts, card, changes, context, ending, jobs, resume, sandbox,
+    self, Block, Spacing, Tone, accounts, attach, card, changes, context, ending, jobs, resume,
+    sandbox,
 };
 use crate::live::effective_width;
 use crate::output::Output;
@@ -118,6 +120,7 @@ pub(crate) async fn run(
         groups: &ctx.settings.diff.groups,
         zone: &ctx.time_zone,
         head: head.as_ref(),
+        file_links: !ctx.term.ssh,
     };
     let mut text = String::new();
     if let Some(picked) = Picked::said(picked) {
@@ -226,6 +229,9 @@ pub(crate) struct Shown<'a> {
     pub(crate) zone: &'a TimeZone,
     /// What the head says of the conversation, when efrd named it.
     pub(crate) head: Option<&'a Head>,
+    /// A `file://` link opens a file at this terminal: `efr` does not run over SSH, so
+    /// the name in a chip row links to the copy of its file.
+    pub(crate) file_links: bool,
 }
 
 /// The conversation that `query` names: a whole id, or the start of exactly one
@@ -485,6 +491,13 @@ struct Transcript<'a> {
     questions: HashMap<QuestionId, Vec<String>>,
     /// The steps of web search of the current group and its report.
     web: Box<WebSteps>,
+    /// The attachments of each prompt on the page, until its turn starts: its chip row
+    /// stands under the model row of the prompt.
+    chips: HashMap<TurnId, Vec<Attachment>>,
+    /// The attachments on the page, for the row of those that efrd stops to send.
+    known: attach::Known,
+    /// A `file://` link opens a file at this terminal ([`Shown::file_links`]).
+    file_links: bool,
 }
 
 /// What a transcript keeps of the steps of web search of one turn (`format::web`).
@@ -546,6 +559,9 @@ impl<'a> Transcript<'a> {
             asked: HashMap::new(),
             questions: HashMap::new(),
             web: Box::default(),
+            chips: HashMap::new(),
+            known: attach::Known::default(),
+            file_links: shown.file_links,
         }
     }
 
@@ -731,25 +747,43 @@ impl<'a> Transcript<'a> {
 
     fn other(&mut self, event: &Event) {
         match event {
-            Event::PromptQueued { text, turn_id, .. } => {
+            Event::PromptQueued { text, turn_id, attachments, .. } => {
                 self.prompt_at = Some((*turn_id, self.out.len()));
                 self.prompt(text);
+                if !attachments.is_empty() {
+                    self.known.add(attachments);
+                    self.chips.insert(*turn_id, attachments.clone());
+                }
             }
             // NOTE: a turn recorded before turn settings names none.
-            Event::TurnStarted { settings: Some(settings), cwd, .. } => {
+            Event::TurnStarted { turn_id, settings, cwd, unread_attachments, .. } => {
                 self.turns += 1;
                 self.started = self.at;
                 self.cwd = Some(cwd.clone());
-                self.effort = settings.effort.clone().or_else(|| settings.default_effort.clone());
-                self.model_line(settings);
-                if let Some(fallback) = &settings.fallback {
+                if let Some(settings) = settings {
+                    self.effort =
+                        settings.effort.clone().or_else(|| settings.default_effort.clone());
+                    self.model_line(settings);
+                }
+                if let Some(attachments) = self.chips.remove(turn_id) {
+                    let rows = attach::chip_rows(
+                        &attachments,
+                        unread_attachments,
+                        self.file_links,
+                        &self.inner,
+                    );
+                    self.out.push_str(self.spacing.before(Block::Row));
+                    self.out.push_str(&indented_rows(&rows));
+                }
+                if let Some(settings) = settings
+                    && let Some(fallback) = &settings.fallback
+                {
                     self.note(&sandbox::fallback_note(fallback, settings.mode));
                 }
             }
-            Event::TurnStarted { cwd, .. } => {
-                self.turns += 1;
-                self.started = self.at;
-                self.cwd = Some(cwd.clone());
+            Event::AttachmentsWithheld { attachments, reason, .. } => {
+                let row = self.known.withheld(attachments, *reason);
+                self.pieces(&row);
             }
             // NOTE: the line waits for a compaction that comes right after it, whose
             // counts it carries (TM-Commands 4), as the view's line does.
@@ -864,8 +898,10 @@ impl<'a> Transcript<'a> {
                 changes,
                 diff,
                 left_running,
+                attachments,
                 ..
             } => {
+                self.known.add(attachments);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let contained = self.contained.contains(call_id)
                     || summary.as_ref().is_some_and(|summary| summary.confined);
@@ -877,7 +913,8 @@ impl<'a> Transcript<'a> {
                     // NOTE: the `!` row named the line, and the floor's text that a
                     // refusal of the floor holds: a refusal is one row.
                     self.calls.remove(call_id);
-                } else if let Some(call) = self.calls.remove(call_id) {
+                } else if let Some(mut call) = self.calls.remove(call_id) {
+                    call.read(attachments);
                     // NOTE: the row of the view (TM-Commands frame 4), with no diff and no
                     // tail: `--verbose` adds the tails.
                     let outcome = match (refusal, setup, *exit_code, &moved) {

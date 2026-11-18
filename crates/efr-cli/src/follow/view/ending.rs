@@ -16,7 +16,8 @@
 //! interrupt, what goes again.
 
 use efr_protocol::{
-    EffectiveSettings, Event, FileChanges, Mode, Scope, SwitchedModel, TurnUndoInfo,
+    Attachment, AttachmentId, EffectiveSettings, Event, FileChanges, Mode, Scope, SwitchedModel,
+    TurnId, TurnUndoInfo,
 };
 use efr_render::RenderOptions;
 use jiff::Timestamp;
@@ -30,7 +31,7 @@ use crate::format::changes::HomeChange;
 use crate::format::context::{self as gauge};
 use crate::format::ending::{self as end_lines, UNDER};
 use crate::format::route::{self, Pieces};
-use crate::format::{self, Block, Tone, accounts, sandbox};
+use crate::format::{self, Block, Tone, accounts, attach, sandbox};
 use crate::progress;
 use crate::terminal::Size;
 
@@ -40,7 +41,7 @@ impl TurnView {
     /// note shows. Full mode has no line here: `,mode full` said it once, and the
     /// status row keeps `full` (`DECISIONS.md`).
     pub(super) fn turn_started(&mut self, event: &Event, size: Size) -> Step {
-        let Event::TurnStarted { scope, settings, cwd, .. } = event else {
+        let Event::TurnStarted { scope, settings, cwd, unread_attachments, .. } = event else {
             return Step::default();
         };
         self.queued = false;
@@ -51,6 +52,7 @@ impl TurnView {
         let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);
         self.ending.full_exits.clear();
         self.ending.switch = None;
+        self.ending.chips = None;
         if settings.is_some() {
             self.ending.settings.clone_from(settings);
         }
@@ -93,6 +95,25 @@ impl TurnView {
             let noted = self.row(&[(note, Tone::Dim)], size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
+        }
+        let turn = self.turn;
+        let Some(at) = self.ending.prompts.iter().position(|(of, _)| *of == turn) else {
+            return step;
+        };
+        let (_, attachments) = self.ending.prompts.swap_remove(at);
+        let unread = unread_attachments.clone();
+        // NOTE: on a terminal the chip row waits in the live zone for the `⇄` line of
+        // the same batch, which stands before it (TM-Attach 2h); the next block writes
+        // both. stderr has no live zone, so there the row goes at once.
+        if self.terminal() {
+            let separator = self.spacing.before(Block::Row);
+            self.ending.chips = Some(Chips { attachments, unread, separator });
+            self.dirty = true;
+        } else {
+            let chips = Chips { attachments, unread, separator: "" };
+            let links = self.ending.file_links;
+            let rows = self.rendered_as(Block::Row, |options| chips.rows(links, options), size);
+            step.err.push_str(&rows.err);
         }
         step
     }
@@ -200,30 +221,96 @@ impl TurnView {
             return self.row(&line, size);
         }
         // NOTE: the line takes its place now, after the `↪` line, so what comes after it
-        // has its blank line as after a row.
-        let separator = self.spacing.before(Block::Row);
+        // has its blank line as after a row. A chip row that waits took the place of the
+        // first row already; the line stands before it and takes that place.
+        let mut separator = self.spacing.before(Block::Row);
+        if let Some(chips) = &mut self.ending.chips {
+            std::mem::swap(&mut separator, &mut chips.separator);
+        }
         self.ending.switch = Some(Box::new(Switch { from: from.clone(), to, separator }));
         self.dirty = true;
         Step::default()
     }
 
-    /// The `⇄` line that waits in the live zone, with its blank line; empty when none
-    /// waits.
-    pub(super) fn switch_live(&self, options: &RenderOptions) -> String {
-        match &self.ending.switch {
+    /// The rows of the turn's start that wait in the live zone, the `⇄` line and then
+    /// the chip row, each with its blank line; empty when none waits.
+    pub(super) fn start_live(&self, options: &RenderOptions) -> String {
+        let mut live = match &self.ending.switch {
             Some(switch) => switch.render(None, options),
             None => String::new(),
+        };
+        if let Some(chips) = &self.ending.chips {
+            live.push_str(chips.separator);
+            live.push_str(&chips.rows(self.ending.file_links, options));
+        }
+        live
+    }
+
+    /// Commits the rows of the turn's start that wait, before any other block: they go
+    /// to the text that the next frame writes.
+    pub(super) fn release_start(&mut self) {
+        if self.ending.switch.is_none() && self.ending.chips.is_none() {
+            return;
+        }
+        let options = self.options_now();
+        if let Some(switch) = self.ending.switch.take() {
+            self.pending.push_str(&switch.render(None, &options));
+        }
+        let chips = self.take_chips(&options);
+        self.pending.push_str(&chips);
+        self.dirty = true;
+    }
+
+    /// The chip row that waits, with its blank line, out of the live zone; empty when
+    /// none waits.
+    fn take_chips(&mut self, options: &RenderOptions) -> String {
+        let Some(chips) = self.ending.chips.take() else {
+            return String::new();
+        };
+        let mut rows = chips.separator.to_owned();
+        rows.push_str(&chips.rows(self.ending.file_links, options));
+        rows
+    }
+
+    /// The same view, whose chip rows link each name to the copy of its file when
+    /// `on`: `efr` runs where efrd does, not over SSH (TM-Attach 2g).
+    pub(crate) fn with_file_links(mut self, on: bool) -> TurnView {
+        self.ending.file_links = on;
+        self
+    }
+
+    /// Keeps the attachments of `event`: those of the prompt of the followed turn or of
+    /// one that this view queued, for the chip row at the start of its turn, and the
+    /// names of those of a call of the followed turn, for the row of those that efrd
+    /// stops to send.
+    pub(super) fn keep_attachments(&mut self, event: &Event) {
+        match event {
+            Event::PromptQueued { turn_id, attachments, .. }
+                if !attachments.is_empty()
+                    && (*turn_id == self.turn
+                        || self
+                            .input
+                            .as_ref()
+                            .is_some_and(|input| input.queued_turns().contains(turn_id))) =>
+            {
+                self.ending.known.add(attachments);
+                self.ending.prompts.push((*turn_id, attachments.clone()));
+            }
+            Event::ToolCallCompleted { turn_id, attachments, .. } if *turn_id == self.turn => {
+                self.ending.known.add(attachments);
+            }
+            _ => {}
         }
     }
 
-    /// Commits the `⇄` line that waits, before any other block: it goes to the text
-    /// that the next frame writes.
-    pub(super) fn release_switch(&mut self) {
-        if let Some(switch) = self.ending.switch.take() {
-            let options = self.options_now();
-            self.pending.push_str(&switch.render(None, &options));
-            self.dirty = true;
-        }
+    /// efrd stops to send attachments of the followed turn as content
+    /// (`attachments_withheld`): one row with their names and why (TM-Attach 9).
+    pub(super) fn withheld(&mut self, event: &Event, size: Size) -> Step {
+        let Event::AttachmentsWithheld { attachments, reason, .. } = event else {
+            return Step::default();
+        };
+        let row = self.ending.known.withheld(attachments, *reason);
+        self.row(&row, size)
     }
 
     /// The end of a completed turn: why the model stopped, the files it changed and the
@@ -337,6 +424,7 @@ impl TurnView {
             let options = self.options_at(size);
             let mut committed = before;
             committed.push_str(&switch.render(counts, &options));
+            committed.push_str(&self.take_chips(&options));
             self.stage(&committed);
             return Step::default();
         }
@@ -355,7 +443,7 @@ impl TurnView {
         mut under: Vec<Pieces>,
         size: Size,
     ) -> Step {
-        self.release_switch();
+        self.release_start();
         // NOTE: the count of the searches goes last on the cost of the outcome line, and
         // the note of the stored copy under all of it (TM-Web 13).
         let web_note = self.web_end(outcome.as_mut());
@@ -382,7 +470,7 @@ impl TurnView {
                     .notices
                     .as_ref()
                     .zip(took)
-                    .and_then(|(notices, took)| notices.ended(took, failed))
+                    .and_then(|(notices, took)| notices.ended(took, self.event_at, failed))
                     .map(String::into_boxed_str);
             }
             self.close()
@@ -534,7 +622,7 @@ impl TurnView {
 
     /// The mark of turn `turn`, which a job notice started: once, however many notices
     /// it takes (spec 1.4: `↪ a job notice started this turn (not your input)`).
-    pub(super) fn wake_mark(&mut self, turn: efr_protocol::TurnId, size: Size) -> Step {
+    pub(super) fn wake_mark(&mut self, turn: TurnId, size: Size) -> Step {
         if !self.jobs.woken.insert(turn) {
             return Step::default();
         }
@@ -563,6 +651,34 @@ pub(super) struct Ending {
     /// whose account is out (`accounts::offer_rows`); `None` until the follow loop
     /// asked efrd, and empty when efrd did not tell.
     providers: Option<Vec<String>>,
+    /// The attachments of the prompts of the followed turn and of those that this view
+    /// queued, each until its turn starts.
+    prompts: Vec<(TurnId, Vec<Attachment>)>,
+    /// The chip row of the prompt of the turn, while it waits in the live zone for the
+    /// `⇄` line that the batch of the turn's start can bring.
+    chips: Option<Chips>,
+    /// The attachments that this view saw, for the row of those that efrd stops to send.
+    known: attach::Known,
+    /// A `file://` link opens a file at this terminal: `efr` runs on the machine of
+    /// efrd, not over SSH.
+    file_links: bool,
+}
+
+/// The chip row of a prompt: its attachments, and those that the turn's model does not
+/// read as content.
+#[derive(Debug)]
+struct Chips {
+    attachments: Vec<Attachment>,
+    unread: Vec<AttachmentId>,
+    /// The blank line above it, taken when the turn started.
+    separator: &'static str,
+}
+
+impl Chips {
+    /// The row, with its newline; with a link on each name when `links`.
+    fn rows(&self, links: bool, options: &RenderOptions) -> String {
+        attach::chip_rows(&self.attachments, &self.unread, links, options)
+    }
 }
 
 /// A switch of model that waits in the live zone for the next block.

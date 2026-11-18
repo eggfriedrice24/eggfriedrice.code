@@ -27,7 +27,8 @@
 //! When the call ends, one row takes the place of the live rows:
 //!
 //! - A call that went well: `✓` in `success`, the rest `muted`, the time after two
-//!   spaces from a tenth of a second on. A file tool shows no time.
+//!   spaces from a tenth of a second on. A file tool shows no time; a read of an image
+//!   names its pixels there: `✓ read docs/shot.png  image 1920x1080`.
 //! - A failed call: a bold `✗` in `error`, the name `muted`, what it ran in `text`, then
 //!   `exit 2` or `failed` in `error` and ` · ` and the time, which always shows. The last
 //!   lines of its output follow, 4 columns in, in `text`.
@@ -70,7 +71,9 @@
 
 use std::time::Duration;
 
-use efr_protocol::{Blocked, CallId, ChangeKind, ContextUse, FileChanges, JobId};
+use efr_protocol::{
+    Attachment, AttachmentKind, Blocked, CallId, ChangeKind, ContextUse, FileChanges, JobId,
+};
 use efr_render::{RenderOptions, text_width};
 use jiff::Timestamp;
 
@@ -243,6 +246,9 @@ pub(crate) struct Call {
     pub(crate) header_due: bool,
     /// It starts a background job (`background: true`): its row says so after its time.
     background: bool,
+    /// The size of the image that it read, such as `image 1920x1080`, which its row
+    /// names after two spaces (TM-Attach 5).
+    image: Option<String>,
 }
 
 impl Call {
@@ -256,7 +262,21 @@ impl Call {
             awaiting: false,
             header_due: false,
             background: false,
+            image: None,
         }
+    }
+
+    /// The call ended with `attachments`: the first image of them is what it read.
+    pub(crate) fn read(&mut self, attachments: &[Attachment]) {
+        self.image = attachments.iter().find_map(|attachment| match attachment.kind {
+            AttachmentKind::Image { width, height } => Some(format!("image {width}x{height}")),
+            _ => None,
+        });
+    }
+
+    /// The size of the image that the call read, such as `image 1920x1080`.
+    pub(crate) fn image(&self) -> Option<&str> {
+        self.image.as_deref()
     }
 
     /// The same call, which starts a background job.
@@ -478,6 +498,10 @@ impl Call {
         let separator = options.glyphs().separator;
         match outcome {
             Outcome::Ran => {
+                if let Some(image) = &self.image {
+                    suffix.push((GAP.to_owned(), Tone::Plain));
+                    suffix.push((image.clone(), Tone::Dim));
+                }
                 if let Some(took) = took.filter(|took| *took >= ROW_TIME && !self.file_tool()) {
                     suffix.push((GAP.to_owned(), Tone::Plain));
                     suffix.push((took_text(took), Tone::Dim));
@@ -747,11 +771,20 @@ pub(crate) fn deleted(options: &RenderOptions) -> String {
 }
 
 /// The row of calls of `word` that went well and fold into one (`fold`), such as `✓
-/// read 6 files  lib.rs, session.rs, json.rs (+3)`: the mark in `success`, the rest
-/// muted.
-pub(crate) fn folded(word: &str, text: &str, options: &RenderOptions) -> String {
+/// read 6 files  lib.rs, session.rs, json.rs (+3)`, with `detail` after two spaces: the
+/// mark in `success`, the rest muted.
+pub(crate) fn folded(
+    word: &str,
+    text: &str,
+    detail: Option<&str>,
+    options: &RenderOptions,
+) -> String {
     let mark = Outcome::Ran.mark(options);
-    layout(mark, word, Body::Spans(vec![(text.to_owned(), Tone::Dim)]), Vec::new(), options)
+    let suffix = match detail {
+        Some(detail) => vec![(GAP.to_owned(), Tone::Plain), (detail.to_owned(), Tone::Dim)],
+        None => Vec::new(),
+    };
+    layout(mark, word, Body::Spans(vec![(text.to_owned(), Tone::Dim)]), suffix, options)
 }
 
 /// `line` as rows of `room` columns, cut at spaces and with no marks, for what is no

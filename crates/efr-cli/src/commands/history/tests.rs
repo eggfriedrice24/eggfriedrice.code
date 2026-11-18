@@ -34,6 +34,7 @@ fn show(page: &ConversationHistoryResult, options: &RenderOptions) -> String {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     )
 }
@@ -636,6 +637,7 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(!plain.contains("exit requested"), "{plain}");
@@ -649,6 +651,7 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
@@ -683,6 +686,7 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(shown.contains("later"), "{shown}");
@@ -869,6 +873,7 @@ fn a_steer_taken_back_says_that_the_model_did_not_read_it() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(shown.contains("took back a steer that the model did not read"), "{shown}");
@@ -936,6 +941,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     let verbose = transcript(
@@ -948,6 +954,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
@@ -1245,6 +1252,7 @@ fn a_compaction_marks_its_place_and_verbose_adds_its_summary() {
                 groups: &DiffGroups::default(),
                 zone: &TimeZone::UTC,
                 head: None,
+                file_links: true,
             };
             let text = transcript(conversation(), &page, &shown_as);
             shown.push(format!("=== {name}, verbose {verbose}\n{}", readable(&text)));
@@ -1350,6 +1358,7 @@ fn history_shows_reviewer_and_backup_lines() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     // NOTE: the backup line stays whole at 60 columns: it names where the copy is.
@@ -1370,6 +1379,7 @@ fn history_shows_reviewer_and_backup_lines() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
@@ -1444,6 +1454,7 @@ fn history_shows_a_floor_refusal_in_one_row() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(plain.contains("! efr: echo Host x >> ~/.ssh/config: a secret (floor)\n"), "{plain}");
@@ -1521,6 +1532,7 @@ fn history_shows_judge_always_with_the_rule() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(plain.contains("\u{2713} allowed always\n"), "{plain}");
@@ -1539,6 +1551,7 @@ fn history_shows_judge_always_with_the_rule() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(
@@ -1591,6 +1604,7 @@ fn history_verbose_shows_exit_allowed_by_full_mode() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(verbose.contains("exit allowed by full mode\n"), "{verbose}");
@@ -1604,6 +1618,7 @@ fn history_verbose_shows_exit_allowed_by_full_mode() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(!plain.contains("exit allowed"), "{plain}");
@@ -1698,6 +1713,7 @@ fn history_names_a_home_file_that_two_calls_changed_once() {
                 groups: &DiffGroups::default(),
                 zone: &TimeZone::UTC,
                 head: None,
+                file_links: true,
             },
         )
     };
@@ -1728,6 +1744,7 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     for line in [
@@ -1752,6 +1769,7 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(
@@ -1870,6 +1888,7 @@ fn wake_turn_marked_in_history() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: None,
+            file_links: true,
         },
     );
     assert!(verbose.contains("    error[E0308]: mismatched types\n"), "{verbose}");
@@ -1955,6 +1974,7 @@ fn a_turn_that_undo_cannot_take_back_shows_the_count_of_its_files() {
         groups: &groups,
         zone: &TimeZone::UTC,
         head: None,
+        file_links: true,
     };
     let text = transcript(conversation(), &page, &shown);
     assert!(text.contains("2 files changed  +10 -1\n"), "{text}");
@@ -1986,6 +2006,7 @@ fn plain(page: &ConversationHistoryResult, verbose: bool) -> String {
         groups: &DiffGroups::default(),
         zone: &TimeZone::UTC,
         head: None,
+        file_links: true,
     };
     transcript(conversation(), page, &shown)
 }
@@ -2236,6 +2257,7 @@ fn design_transcript(
         groups: &DiffGroups::default(),
         zone: &TimeZone::UTC,
         head: Some(head),
+        file_links: true,
     };
     transcript(id.parse().unwrap(), &two_turns(), &shown)
 }
@@ -2448,6 +2470,7 @@ fn the_calls_and_the_end_lines_of_a_transcript_are_the_design() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: Some(&head),
+            file_links: true,
         };
         let id = "019a9b11-3d00-7a10-8b20-000000000001".parse().unwrap();
         let text = transcript(id, &first_turn_with_calls(), &shown);
@@ -2599,6 +2622,7 @@ fn a_transcript_of_two_turns_is_the_design() {
             groups: &DiffGroups::default(),
             zone: &TimeZone::UTC,
             head: Some(&head),
+            file_links: true,
         };
         let id = "019a9b11-3d00-7a10-8b20-000000000001".parse().unwrap();
         let text = transcript(id, &commands_4(), &shown);
@@ -2672,4 +2696,5 @@ fn the_question_of_the_model_shows_its_options_and_its_answer() {
     );
 }
 
+mod attach;
 mod web;

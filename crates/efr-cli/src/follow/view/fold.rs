@@ -32,6 +32,8 @@ pub(super) struct Fold {
     word: String,
     /// What each call read, safe to print, in order.
     subjects: Vec<String>,
+    /// The sizes of the images that the calls read, such as `image 1920x1080`, in order.
+    images: Vec<String>,
 }
 
 impl Fold {
@@ -46,12 +48,14 @@ impl Fold {
         self.is_empty() || self.word == word
     }
 
-    /// Adds a call of `word` that read `subject`; `separator` is what stands before the
-    /// row, taken from the turn's spacing when the fold was empty.
+    /// Adds a call of `word` that read `subject`, and the size of the image that it
+    /// read; `separator` is what stands before the row, taken from the turn's spacing
+    /// when the fold was empty.
     pub(super) fn push(
         &mut self,
         word: &str,
         subject: String,
+        image: Option<String>,
         separator: impl FnOnce() -> &'static str,
     ) {
         if self.is_empty() {
@@ -59,6 +63,7 @@ impl Fold {
             word.clone_into(&mut self.word);
         }
         self.subjects.push(subject);
+        self.images.extend(image);
     }
 
     /// The live row of the fold, with its separator and its newline, or nothing while it
@@ -68,7 +73,7 @@ impl Fold {
         if self.is_empty() {
             return String::new();
         }
-        format!("{}{}", self.separator, row(&self.word, &self.subjects, options))
+        format!("{}{}", self.separator, row(&self.word, &self.subjects, &self.images, options))
     }
 
     /// The fold as it is written once, and an empty fold in its place.
@@ -80,8 +85,10 @@ impl Fold {
 }
 
 /// The row of calls of `word` that read `subjects`: `✓ read <path>` for one, `✓ read 6
-/// files  <first>, <second>, <third> (+3)` for more.
-pub(crate) fn row(word: &str, subjects: &[String], options: &RenderOptions) -> String {
+/// files  <first>, <second>, <third> (+3)` for more. The images that they read go at
+/// its end (TM-Attach 5): the size of one, such as `  image 1920x1080`, else their
+/// count, such as `  2 images`.
+fn row(word: &str, subjects: &[String], images: &[String], options: &RenderOptions) -> String {
     let text = match subjects {
         [one] => one.clone(),
         _ => {
@@ -100,5 +107,10 @@ pub(crate) fn row(word: &str, subjects: &[String], options: &RenderOptions) -> S
             text
         }
     };
-    call::folded(word, &text, options)
+    let images = match images {
+        [] => None,
+        [one] => Some(one.clone()),
+        many => Some(format!("{} images", many.len())),
+    };
+    call::folded(word, &text, images.as_deref(), options)
 }

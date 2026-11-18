@@ -74,6 +74,7 @@ impl TurnView {
             changes,
             diff,
             left_running,
+            attachments,
             ..
         } = event
         else {
@@ -150,7 +151,8 @@ impl TurnView {
             // the floor holds: a refusal is one row (TM-Calls 24, 25, 26).
             Some(_) if denied && lined && notes.is_empty() => Step::default(),
             Some(call) if denied && refusal.is_none() => self.denied_block(&call, &notes, size),
-            Some(call) => {
+            Some(mut call) => {
+                call.read(attachments);
                 let outcome = match (refusal, setup, *exit_code, &moved) {
                     (Some(reason), ..) => Outcome::Refused(reason),
                     (None, Some(reason), ..) => Outcome::NotStarted(reason),
@@ -206,7 +208,8 @@ impl TurnView {
             let subject = call.subject().unwrap_or_default().to_owned();
             if self.kept.fold.takes(call::READ) {
                 let spacing = &mut self.spacing;
-                self.kept.fold.push(call::READ, subject, || spacing.before(Block::Row));
+                let image = call.image().map(str::to_owned);
+                self.kept.fold.push(call::READ, subject, image, || spacing.before(Block::Row));
                 self.dirty = true;
                 return Step::default();
             }

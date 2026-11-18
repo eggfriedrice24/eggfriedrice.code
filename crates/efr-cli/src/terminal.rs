@@ -37,6 +37,9 @@ pub(crate) struct TermFacts {
     pub(crate) multiplexer: bool,
     /// `WT_SESSION` is set: the terminal is Windows Terminal.
     pub(crate) wt_session: bool,
+    /// `SSH_CONNECTION` is set and not empty: `efr` runs over SSH, so a `file://` link
+    /// would open a file of another machine.
+    pub(crate) ssh: bool,
     /// The locale is UTF-8 (`LC_ALL`, else `LC_CTYPE`, else `LANG`), so efr's own lines
     /// use the Unicode glyphs; else their ASCII forms ([`utf8_locale`]).
     pub(crate) utf8: bool,
@@ -64,6 +67,7 @@ impl TermFacts {
             term_program_version: text("TERM_PROGRAM_VERSION"),
             multiplexer: multiplexed(|name| std::env::var_os(name).is_some(), text("TERM")),
             wt_session: std::env::var_os("WT_SESSION").is_some(),
+            ssh: text("SSH_CONNECTION").is_some(),
             utf8: utf8_locale(text("LC_ALL"), text("LC_CTYPE"), text("LANG")),
         }
     }

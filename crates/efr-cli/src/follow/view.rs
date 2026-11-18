@@ -1588,10 +1588,13 @@ impl TurnView {
     }
 
     /// A key came at `now`: for [`notify::WAIT_AFTER`] the user is at the keys, and the
-    /// end of the turn sends no desktop notice ([`Notices::at_the_keys`]).
+    /// end of the turn sends no desktop notice ([`Notices::at_the_keys`]). A key at a
+    /// card answers it: the time of the turn up to it was a wait for the user, which the
+    /// end notice does not count.
     pub(crate) fn keyed(&mut self, now: Timestamp) {
+        let card = self.question_pending();
         if let Some(notices) = &mut self.notices {
-            notices.keyed(now);
+            notices.keyed(now, card);
         }
     }
 
@@ -1735,6 +1738,7 @@ impl TurnView {
         if let Some(step) = self.left_event(event, size, can_ask) {
             return step;
         }
+        self.keep_attachments(event);
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
         }
@@ -1802,6 +1806,7 @@ impl TurnView {
         match event {
             Event::TurnStarted { .. } => self.turn_started(event, size),
             Event::ModelSwitched { .. } => self.model_switched(event, size),
+            Event::AttachmentsWithheld { .. } => self.withheld(event, size),
             Event::AssistantMessageUpdated { index, offset, delta, .. } => {
                 // NOTE: drafts showed most of this text before it was recorded; an update
                 // that adds nothing must not take the row back from a newer draft state.
@@ -2706,8 +2711,9 @@ impl TurnView {
         if index < self.next_index {
             return Step::default();
         }
-        // NOTE: a `⇄` line that waits in the live zone stands before the reply.
-        self.release_switch();
+        // NOTE: the `⇄` line and the chip row that wait in the live zone stand before
+        // the reply.
+        self.release_start();
         let mut committed = String::new();
         if self.message.as_ref().is_some_and(|message| message.index != index) {
             committed.push_str(&self.finish_message());
@@ -2850,8 +2856,9 @@ impl TurnView {
     /// Keeps `committed` for the next frame, after the text that the current message
     /// still holds back, and marks the live zone for that frame.
     fn stage(&mut self, committed: &str) {
-        // NOTE: a `⇄` line that waits in the live zone stands before any other block.
-        self.release_switch();
+        // NOTE: the `⇄` line and the chip row that wait in the live zone stand before any
+        // other block.
+        self.release_start();
         // NOTE: the fold of reads ends with anything that is written after it.
         if !committed.is_empty() {
             self.flush_fold();
@@ -2871,7 +2878,7 @@ impl TurnView {
     /// and the input it waits for, then the question when one is pending.
     fn live_body(&self, size: Size, now: Timestamp) -> String {
         let options = self.options_at(size);
-        let mut live = self.switch_live(&options);
+        let mut live = self.start_live(&options);
         live.push_str(self.message.as_ref().map_or("", |message| message.live()));
         live.push_str(&self.kept.fold.live(&options));
         // NOTE: the unread steers and the queued prompts stand above the call row or the

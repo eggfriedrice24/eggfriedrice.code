@@ -5,11 +5,12 @@ use efr_config::{AutoOnOff, NotifySettings};
 use efr_protocol::{RouteLabel, RouteScope};
 use efr_test_support::TestClock;
 use futures::FutureExt as _;
+use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 
 use super::{Notices, WAIT_AFTER, WaitNotice, place, sequence, wanted};
 use crate::terminal::TermFacts;
-use crate::testing::{notices, terminal_facts};
+use crate::testing::{notices, now, terminal_facts};
 
 /// A terminal with this `TERM_PROGRAM`, behind a multiplexer or not.
 fn facts(program: Option<&str>, multiplexer: bool) -> TermFacts {
@@ -86,15 +87,51 @@ fn a_wait_names_a_question_or_a_command_that_waits_for_input() {
 #[test]
 fn the_end_of_a_turn_sends_a_notice_only_from_after_secs_on() {
     let half = notices(30);
-    assert_eq!(half.ended(Duration::from_secs(29), false), None);
-    assert_eq!(half.ended(Duration::from_secs(30), false).as_deref(), Some("app: done in 30s"));
-    assert_eq!(half.ended(Duration::from_secs(252), false).as_deref(), Some("app: done in 4m 12s"));
+    let end = Some(now());
+    assert_eq!(half.ended(Duration::from_secs(29), end, false), None);
     assert_eq!(
-        half.ended(Duration::from_secs(63), true).as_deref(),
+        half.ended(Duration::from_secs(30), end, false).as_deref(),
+        Some("app: done in 30s")
+    );
+    assert_eq!(
+        half.ended(Duration::from_secs(252), end, false).as_deref(),
+        Some("app: done in 4m 12s")
+    );
+    assert_eq!(
+        half.ended(Duration::from_secs(63), end, true).as_deref(),
         Some("app: failed after 1m 3s")
     );
     // 0 sends one for each turn.
-    assert_eq!(notices(0).ended(Duration::ZERO, false).as_deref(), Some("app: done in 0s"));
+    assert_eq!(notices(0).ended(Duration::ZERO, end, false).as_deref(), Some("app: done in 0s"));
+}
+
+/// F8: a turn of 5 minutes that waited at a card until 10 s before its end sends no end
+/// notice; one that ran 40 s after the answer sends one with its whole time.
+#[test]
+fn the_wait_at_a_card_does_not_count_for_the_end_notice() {
+    let end = now();
+    let mut answered = notices(30);
+    answered.keyed(end - SignedDuration::from_secs(10), true);
+    assert_eq!(answered.ended(Duration::from_secs(300), Some(end), false), None);
+    answered.keyed(end - SignedDuration::from_secs(40), true);
+    assert_eq!(
+        answered.ended(Duration::from_secs(300), Some(end), false).as_deref(),
+        Some("app: done in 5m 0s")
+    );
+    // A key that answered no card leaves the whole time.
+    let mut typed = notices(30);
+    typed.keyed(end - SignedDuration::from_secs(10), false);
+    assert_eq!(
+        typed.ended(Duration::from_secs(300), Some(end), false).as_deref(),
+        Some("app: done in 5m 0s")
+    );
+    // An answer before the turn started, at a card of the turn ahead, leaves it too.
+    let mut ahead = notices(30);
+    ahead.keyed(end - SignedDuration::from_secs(600), true);
+    assert_eq!(
+        ahead.ended(Duration::from_secs(300), Some(end), false).as_deref(),
+        Some("app: done in 5m 0s")
+    );
 }
 
 #[test]
