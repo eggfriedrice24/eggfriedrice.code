@@ -29,7 +29,7 @@ use efr_protocol::{ScreenSnapshot, Seq};
 use efr_screen::{ScreenError, ScreenHandle, ScreenText};
 
 use crate::ScreenFactory;
-use crate::capture::{Captured, Kept, clean, join, skip_escape};
+use crate::capture::{Captured, Kept, clean, skip_escape};
 
 /// The most rows a capture screen has, unless the shell itself has more. A backend
 /// allocates the rows up front (vt100 takes 32 bytes a cell, so 200 rows of 160
@@ -68,12 +68,11 @@ impl<'a> Replayer<'a> {
     /// them.
     pub(crate) async fn render(&self, kept: &Kept) -> Captured {
         let head = self.text(&kept.head).await;
-        let text = if kept.truncated() {
-            join(&head, kept.dropped, &self.text(&kept.tail).await)
+        if kept.truncated() {
+            Captured::joined(&head, kept.dropped, &self.text(&kept.tail).await, kept.bytes)
         } else {
-            head
-        };
-        Captured { text, truncated: kept.truncated(), bytes: kept.bytes }
+            Captured::whole(head, kept.bytes)
+        }
     }
 
     /// One part of the output as text.

@@ -277,6 +277,9 @@ pub struct CommandResult {
     pub output: String,
     /// True when bytes were left out of [`output`](Self::output).
     pub truncated: bool,
+    /// Where the marker line of the bytes that the shell left out stands in
+    /// [`output`](Self::output), so a later cut can count them with its own.
+    pub gap: Option<OutputGap>,
     /// The size of the whole output so far, in bytes.
     pub output_bytes: u64,
     /// Where the output lies in the PTY recording, when its start is known; the full
@@ -292,6 +295,17 @@ pub struct CommandResult {
     pub delimiter: Delimiter,
     /// The launcher's `result.json`, for a sandboxed run that ended with one.
     pub sandbox: Option<SandboxResult>,
+}
+
+/// The marker line that stands for the middle of an output that the shell left out:
+/// [`omitted_marker`](efr_stdx::text::omitted_marker) of `dropped`, at byte `at` of the
+/// text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputGap {
+    /// The byte of the text where the marker line starts.
+    pub at: usize,
+    /// How many bytes of the output the marker stands for.
+    pub dropped: u64,
 }
 
 impl CommandResult {
@@ -311,6 +325,7 @@ impl CommandResult {
             output_bytes: output.len() as u64,
             output,
             truncated: false,
+            gap: None,
             output_range: None,
             cwd_after: cwd_after.into(),
             screen_tail: None,
@@ -345,6 +360,13 @@ impl CommandResult {
     pub fn with_truncation(mut self, output_bytes: u64) -> Self {
         self.truncated = true;
         self.output_bytes = output_bytes;
+        self
+    }
+
+    /// Sets where the marker line of the bytes left out stands in the output.
+    #[must_use]
+    pub fn with_gap(mut self, gap: OutputGap) -> Self {
+        self.gap = Some(gap);
         self
     }
 

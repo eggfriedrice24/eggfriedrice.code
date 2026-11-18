@@ -8,7 +8,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use efr_protocol::{ApprovedBy, InputWait};
-use efr_shell::{CommandResult, Completion, OutputUpdate, RunMode, RunRequest, ShellError};
+use efr_shell::{
+    CommandResult, Completion, OutputGap, OutputUpdate, RunMode, RunRequest, ShellError,
+};
+use efr_stdx::text::omitted_marker;
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -530,6 +533,26 @@ async fn the_shells_own_truncation_is_reported() {
     let result =
         tool.invoke(fixture.context(), json!({"command": "seq 1e9"}), &mut NoOutput).await.unwrap();
     assert!(result.truncated);
+}
+
+#[tokio::test]
+async fn a_long_output_that_the_shell_cut_shows_one_marker_with_the_sum() {
+    let fixture = Fixture::new();
+    let (head, tail) = ("h".repeat(2000), "t".repeat(2000));
+    let output = format!("{head}{}{tail}", omitted_marker(1_000_000));
+    let gap = OutputGap { at: head.len(), dropped: 1_000_000 };
+    let outcome =
+        CommandResult::finished(Some(0), output, "/").with_truncation(1_004_000).with_gap(gap);
+    let tool = ShellTool::new(FakeRunner::answering(Ok(outcome))).with_output_limit(300);
+    let result =
+        tool.invoke(fixture.context(), json!({"command": "seq 1e6"}), &mut NoOutput).await.unwrap();
+    let (kept_head, rest) = result.output.split_once('\n').unwrap();
+    let kept_tail = rest.split('\n').nth(1).unwrap();
+    let omitted = 1_004_000 - (kept_head.len() + kept_tail.len()) as u64;
+    assert_eq!(
+        result.output,
+        format!("{kept_head}{}{kept_tail}\n[exit code 0, cwd /]", omitted_marker(omitted))
+    );
 }
 
 #[tokio::test]

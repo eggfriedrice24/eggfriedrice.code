@@ -78,8 +78,8 @@ pub use modes::{InputModes, TerminalModes, Termios};
 pub use orphan::{Followers, LeftRunning};
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{
-    CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,
-    RunRequest,
+    CommandResult, Completion, Delimiter, NoProgress, OutputGap, OutputUpdate, RunMode,
+    RunProgress, RunRequest,
 };
 pub use sandbox::SandboxRun;
 pub use screens::ScreenFactory;

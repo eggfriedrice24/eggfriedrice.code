@@ -24,7 +24,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::output::{DEFAULT_OUTPUT_LIMIT, truncate_middle};
+use crate::output::{DEFAULT_OUTPUT_LIMIT, truncate_around};
 use crate::tool::parse_input;
 use crate::{Tool, ToolContext, ToolError, ToolOutputSink, ToolRequirements, ToolResult, ToolSpec};
 
@@ -451,7 +451,7 @@ impl ShellTool {
 
     /// The model's answer for the run of `result`, after the command ran for `waited`.
     fn render_run(&self, result: &CommandResult, waited: Duration, contained: bool) -> ToolResult {
-        let cut = truncate_middle(&result.output, self.output_limit);
+        let cut = truncate_around(&result.output, self.output_limit, result.gap);
         let mut text = cut.text;
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');

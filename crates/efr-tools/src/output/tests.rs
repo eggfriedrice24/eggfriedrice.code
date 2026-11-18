@@ -1,7 +1,10 @@
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
-use super::{DEFAULT_OUTPUT_LIMIT, truncate_middle};
+use efr_shell::OutputGap;
+use efr_stdx::text::omitted_marker;
+
+use super::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_around, truncate_middle};
 
 #[test]
 fn text_that_fits_is_unchanged() {
@@ -63,9 +66,84 @@ proptest! {
             let (head, tail) = cut.text.split_once(&marker).unwrap();
             prop_assert!(text.starts_with(head));
             prop_assert!(text.ends_with(tail));
-            prop_assert_eq!(head.len() + cut.omitted + tail.len(), text.len());
+            prop_assert_eq!(head.len() as u64 + cut.omitted + tail.len() as u64, text.len() as u64);
         } else {
             prop_assert_eq!(&cut.text, &text);
         }
     }
+
+    /// Around the shell's marker, the cut keeps a prefix of the text before it and a
+    /// suffix of the text after it, and its one marker counts every byte left out.
+    #[test]
+    fn the_cut_around_a_gap_counts_both_cuts(
+        before in "\\PC{0,300}",
+        after in "\\PC{0,300}",
+        dropped in 0u64..10_000_000,
+        limit in 60usize..400,
+    ) {
+        let (text, gap) = shell_output(&before, dropped, &after);
+        let cut = truncate_around(&text, limit, Some(gap));
+        if !cut.truncated {
+            prop_assert_eq!(&cut.text, &text);
+            return Ok(());
+        }
+        prop_assert!(cut.text.len() <= limit);
+        let marker = omitted_marker(cut.omitted);
+        prop_assert_eq!(cut.text.matches(&marker).count(), 1);
+        let (head, tail) = cut.text.split_once(&marker).unwrap();
+        prop_assert!(before.starts_with(head));
+        prop_assert!(after.ends_with(tail));
+        let whole = (before.len() + after.len()) as u64 + dropped;
+        prop_assert_eq!(head.len() as u64 + cut.omitted + tail.len() as u64, whole);
+    }
+}
+
+/// The lines `from`, `from + 1` and on, as `seq` prints them, up to `bytes` bytes.
+fn numbered_lines(from: usize, bytes: usize) -> String {
+    let mut text = String::with_capacity(bytes);
+    for n in from.. {
+        let line = format!("{n}\n");
+        if text.len() + line.len() > bytes {
+            break;
+        }
+        text.push_str(&line);
+    }
+    text
+}
+
+/// A text with the shell's marker of `dropped` bytes between `before` and `after`.
+fn shell_output(before: &str, dropped: u64, after: &str) -> (String, OutputGap) {
+    let text = format!("{before}{}{after}", omitted_marker(dropped));
+    (text, OutputGap { at: before.len(), dropped })
+}
+
+#[test]
+fn a_cut_of_a_cut_output_writes_one_marker_with_the_sum() {
+    const KIB: usize = 1024;
+    let before = numbered_lines(1, 512 * KIB);
+    let after = numbered_lines(900_000, 512 * KIB);
+    let dropped = 4 * 1024 * 1024;
+    let (text, gap) = shell_output(&before, dropped, &after);
+    let cut = truncate_around(&text, DEFAULT_OUTPUT_LIMIT, Some(gap));
+    assert!(cut.truncated);
+    assert!(cut.text.len() <= DEFAULT_OUTPUT_LIMIT);
+    assert_eq!(cut.text.matches("bytes omitted").count(), 1, "{}", cut.text);
+    let (head, tail) = cut.text.split_once(&omitted_marker(cut.omitted)).unwrap();
+    let whole = (before.len() + after.len()) as u64 + dropped;
+    assert_eq!(cut.omitted, whole - (head.len() + tail.len()) as u64);
+    assert!(cut.omitted > 5_000_000, "{}", cut.omitted);
+}
+
+#[test]
+fn a_cut_output_that_fits_keeps_the_shells_marker() {
+    let (text, gap) = shell_output("head\n", 4096, "tail\n");
+    let cut = truncate_around(&text, DEFAULT_OUTPUT_LIMIT, Some(gap));
+    assert_eq!(cut, Truncated { text, truncated: false, omitted: 0 });
+}
+
+#[test]
+fn a_gap_that_does_not_point_at_its_marker_is_no_gap() {
+    let text = "a".repeat(100) + &"b".repeat(100);
+    let gap = OutputGap { at: 100, dropped: 7 };
+    assert_eq!(truncate_around(&text, 100, Some(gap)), truncate_middle(&text, 100));
 }

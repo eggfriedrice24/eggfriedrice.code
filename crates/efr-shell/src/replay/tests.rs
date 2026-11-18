@@ -17,7 +17,7 @@ use super::{
 };
 use crate::capture::{Capture, clean};
 use crate::testing::{CountingScreens, DyingScreens, NoScreens, Vt100Screens};
-use crate::{RunRequest, ScreenFactory};
+use crate::{OutputGap, RunRequest, ScreenFactory};
 
 const SIZE: Size = Size { cols: 40, rows: 10 };
 
@@ -104,7 +104,7 @@ async fn output_over_the_limit_keeps_its_head_the_marker_and_its_tail() {
     capture.push(tail);
     let captured = replayer(&Vt100Screens, SIZE).render(&capture.finish()).await;
     assert_eq!(captured.text, "a 2\n[... 100 bytes omitted ...]\nb 2");
-    assert!(captured.truncated);
+    assert_eq!(captured.gap, Some(OutputGap { at: 3, dropped: 100 }));
     assert_eq!(captured.bytes, 126);
 }
 
@@ -114,7 +114,7 @@ async fn output_within_the_limit_is_one_replay() {
     capture.push(DISPLAY);
     let captured = replayer(&Vt100Screens, SIZE).render(&capture.finish()).await;
     assert_eq!(captured.text, "layer a: done\nlayer b: done");
-    assert!(!captured.truncated);
+    assert_eq!(captured.gap, None);
     assert_eq!(captured.bytes, DISPLAY.len() as u64);
 }
 

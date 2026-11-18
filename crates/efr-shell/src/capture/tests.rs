@@ -2,6 +2,7 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
 use super::{Capture, clean};
+use crate::OutputGap;
 
 #[test]
 fn crlf_becomes_lf() {
@@ -67,7 +68,7 @@ fn a_capture_under_its_limit_keeps_everything() {
     assert!(!kept.truncated());
     let captured = kept.clean();
     assert_eq!(captured.text, "hello world");
-    assert!(!captured.truncated);
+    assert_eq!(captured.gap, None);
     assert_eq!(captured.bytes, 11);
 }
 
@@ -81,7 +82,7 @@ fn a_capture_over_its_limit_keeps_the_head_and_the_tail() {
     assert_eq!((&kept.head[..], &kept.tail[..], kept.dropped), (&b"0123"[..], &b"cdef"[..], 8));
     let captured = kept.clean();
     assert_eq!(captured.text, "0123\n[... 8 bytes omitted ...]\ncdef");
-    assert!(captured.truncated);
+    assert_eq!(captured.gap, Some(OutputGap { at: 4, dropped: 8 }));
     assert_eq!(captured.bytes, 16);
 }
 

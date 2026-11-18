@@ -5,6 +5,9 @@
 use std::collections::VecDeque;
 
 use bytes::Bytes;
+use efr_stdx::text::omitted_marker;
+
+use crate::OutputGap;
 
 mod stream;
 
@@ -48,10 +51,28 @@ pub(crate) struct Captured {
     /// The output as plain text. When bytes were dropped, a marker line stands where
     /// they were.
     pub(crate) text: String,
-    /// True when bytes were dropped from the middle.
-    pub(crate) truncated: bool,
+    /// Where the marker line stands in `text`, when bytes were dropped from the middle.
+    pub(crate) gap: Option<OutputGap>,
     /// The size of the whole output in bytes.
     pub(crate) bytes: u64,
+}
+
+impl Captured {
+    /// The text of an output that dropped nothing.
+    pub(crate) fn whole(text: String, bytes: u64) -> Self {
+        Captured { text, gap: None, bytes }
+    }
+
+    /// The text of a truncated output: its head, the marker line of the `dropped`
+    /// bytes, and its tail.
+    pub(crate) fn joined(head: &str, dropped: u64, tail: &str, bytes: u64) -> Self {
+        let marker = omitted_marker(dropped);
+        let mut text = String::with_capacity(head.len() + marker.len() + tail.len());
+        text.push_str(head);
+        text.push_str(&marker);
+        text.push_str(tail);
+        Captured { text, gap: Some(OutputGap { at: head.len(), dropped }), bytes }
+    }
 }
 
 impl Capture {
@@ -174,16 +195,12 @@ impl Kept {
     /// The text through the byte cleaner alone.
     pub(crate) fn clean(&self) -> Captured {
         let head = clean(&self.head);
-        let text =
-            if self.truncated() { join(&head, self.dropped, &clean(&self.tail)) } else { head };
-        Captured { text, truncated: self.truncated(), bytes: self.bytes }
+        if self.truncated() {
+            Captured::joined(&head, self.dropped, &clean(&self.tail), self.bytes)
+        } else {
+            Captured::whole(head, self.bytes)
+        }
     }
-}
-
-/// The text of a truncated output: its head, a marker line for the `dropped` bytes, and
-/// its tail.
-pub(crate) fn join(head: &str, dropped: u64, tail: &str) -> String {
-    format!("{head}\n[... {dropped} bytes omitted ...]\n{tail}")
 }
 
 /// Terminal output as plain text: escape sequences (CSI, OSC, DCS and the like)
