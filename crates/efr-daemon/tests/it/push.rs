@@ -6,8 +6,9 @@
 //! The daemon runs on a manual clock. A question pushes when its follower or its turn
 //! finds you away; a turn that a phone started pushes at its end, here after 0 seconds
 //! (`notify.after_secs = 0`). The look of a waiting turn, the waits between the tries
-//! of a request, the receipts and the waits of the push test run only when the clock
-//! moves, so a test moves it a step at each look until it sees what it waits for.
+//! of a request, the receipts and the waits of the push test end only when the clock
+//! moves, so a test waits until the daemon starts each sleep and then moves the clock
+//! to its end ([`pass`]).
 
 use std::time::Duration;
 

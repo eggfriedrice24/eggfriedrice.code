@@ -72,7 +72,7 @@ use tickets::OpenTickets;
 
 /// How recently a phone must have proved its key to get a push. A phone that was not
 /// revoked gets no push after this long without a connection.
-pub(crate) const SEEN_WITHIN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const SEEN_WITHIN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// How long Apple keeps a notice that is not a question for a phone that is off. A
 /// question lasts `presence.away_wait_secs`, as long as it waits.
@@ -171,7 +171,7 @@ impl PushQueue {
     }
 
     /// Hands `row` to the push task. A closed queue means that efrd sends no push.
-    pub(crate) fn queue(&self, row: Row) {
+    pub(crate) fn hand_over(&self, row: Row) {
         if let Err(mpsc::error::TrySendError::Full(row)) = self.0.try_send(row) {
             tracing::warn!(conversation_id = %row.conversation, "the push queue is full; a push was dropped");
         }

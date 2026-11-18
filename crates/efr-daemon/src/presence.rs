@@ -288,7 +288,7 @@ impl PresenceReader for PresenceTable {
 
     fn push(&self, conversation_id: ConversationId, call_id: CallId) {
         if let Some(pushes) = &self.pushes {
-            pushes.queue(Row::question(conversation_id, call_id));
+            pushes.hand_over(Row::question(conversation_id, call_id));
         }
     }
 

@@ -98,7 +98,7 @@ fn the_body_names_the_place_and_a_question_lasts_the_away_wait() {
 fn a_full_queue_drops_the_newest_row() {
     let (queue, mut rows) = PushQueue::channel();
     for _ in 0..=QUEUE_CAPACITY {
-        queue.queue(Row::question(conversation(), call()));
+        queue.hand_over(Row::question(conversation(), call()));
     }
 
     let mut taken = 0;

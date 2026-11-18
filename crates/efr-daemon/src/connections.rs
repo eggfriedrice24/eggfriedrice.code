@@ -5,7 +5,8 @@
 //!
 //! The transport carries only `{surface, uid, pid, conn_id}` with each request; the rest
 //! of the hello lives here from the accepted hello until `Dispatcher::closed`. The
-//! notices use it to decide whether a terminal shows a conversation's event.
+//! notices use it to decide whether a terminal shows a conversation's event, and the
+//! pushes whether the app of a phone is in front (`Connections::visible_on`).
 //!
 //! The notices decide after the commit, on a task of their own, and by then `efr` may
 //! have shown the event, exited and closed its connection, or, for a turn that ended

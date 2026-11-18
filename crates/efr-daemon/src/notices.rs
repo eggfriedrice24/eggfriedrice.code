@@ -753,7 +753,7 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     let wake = wake_turn(&state.readers, conversation_id, envelope).await;
     // NOTE: a push needs no terminal: a conversation of the phone has none.
     if let Some(row) = crate::push::row(state, conversation_id, envelope, wake.as_ref()).await {
-        state.push.queue().queue(row);
+        state.push.queue().hand_over(row);
     }
     let Some(tty) = summary.tty else {
         return;
