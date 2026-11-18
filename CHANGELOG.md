@@ -10,6 +10,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- efrd can show the log of libghostty-vt, the terminal core that reads the output of
+  your shell: set `EFR_LOG=info,libghostty=debug`. When libghostty-vt fails in a way
+  that it does not handle, efrd logs one warning for that screen.
+
 ### Changed
 
 - efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the

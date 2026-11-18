@@ -9,7 +9,7 @@ use libghostty_vt::color::Rgb;
 use crate::GhosttyError;
 use crate::effects::Effects;
 use crate::semantic_prompt::CrossCheck;
-use crate::snapshot;
+use crate::{ffi, snapshot};
 
 /// The pixel size of one cell, which libghostty-vt puts into in-band resize reports
 /// (mode 2048). A hidden terminal has no pixels, but a program that divides by the
@@ -79,6 +79,9 @@ pub struct GhosttyScreen {
     terminal: Terminal<'static, 'static>,
     effects: Rc<Effects>,
     cross_check: CrossCheck,
+    /// True once a failure inside libghostty-vt was logged. The library flag stays
+    /// set for the life of the terminal, so it is logged once.
+    failure_logged: bool,
 }
 
 impl GhosttyScreen {
@@ -90,6 +93,7 @@ impl GhosttyScreen {
     /// [`GhosttyError::Create`] when libghostty-vt cannot allocate the terminal, and
     /// [`GhosttyError::Configure`] when it refuses a setting of `config`.
     pub fn new(size: Size, config: &GhosttyConfig) -> Result<Self, GhosttyError> {
+        ffi::init();
         let (cols, rows) = grid(size.cols, size.rows);
         let terminal = Terminal::new(cols, rows).map_err(|source| GhosttyError::Create {
             cols,
@@ -111,6 +115,7 @@ impl GhosttyScreen {
     /// snapshot, and [`GhosttyError::Configure`] when libghostty-vt refuses a setting
     /// of `config`.
     pub fn restore(snapshot: &[u8], config: &GhosttyConfig) -> Result<Self, GhosttyError> {
+        ffi::init();
         let terminal = snapshot::decode(snapshot)?;
         Self::configure(terminal, config)
     }
@@ -157,7 +162,21 @@ impl GhosttyScreen {
         terminal.resize(cols, rows, CELL_WIDTH_PX, CELL_HEIGHT_PX).map_err(configure)?;
         let effects = Effects::install(&mut terminal).map_err(configure)?;
         let cross_check = CrossCheck::new(&terminal);
-        Ok(GhosttyScreen { terminal, effects, cross_check })
+        Ok(GhosttyScreen { terminal, effects, cross_check, failure_logged: false })
+    }
+
+    /// Logs once when libghostty-vt failed inside a feed in a way that it did not
+    /// handle, so the screen can miss a change that the program made. Input that the
+    /// library refuses on purpose does not set the flag.
+    fn log_failure(&mut self) {
+        if !self.failure_logged && self.terminal.vt_processing_error().unwrap_or(false) {
+            self.failure_logged = true;
+            tracing::warn!(
+                "libghostty-vt failed while it read the output of the program; the screen \
+                 can miss a change from now on, and the log target {} can name the cause",
+                ffi::TARGET
+            );
+        }
     }
 }
 
@@ -166,6 +185,7 @@ impl Screen for GhosttyScreen {
         for disagreement in self.cross_check.write(&mut self.terminal, &self.effects, bytes) {
             disagreement.log();
         }
+        self.log_failure();
         self.effects.drain(sink);
     }
 

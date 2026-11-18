@@ -1141,6 +1141,7 @@ dependencies = [
  "pretty_assertions",
  "thiserror 2.0.21",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

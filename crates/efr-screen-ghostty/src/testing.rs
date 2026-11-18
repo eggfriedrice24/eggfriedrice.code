@@ -52,6 +52,7 @@ impl ScreenSink for Recorder {
 
 /// A bare terminal with the crate's effect callbacks installed.
 pub(crate) fn terminal(cols: u16, rows: u16) -> (Terminal<'static, 'static>, Rc<Effects>) {
+    crate::ffi::init();
     let mut terminal = Terminal::new(cols, rows).unwrap();
     let effects = Effects::install(&mut terminal).unwrap();
     (terminal, effects)

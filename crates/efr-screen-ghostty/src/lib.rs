@@ -20,6 +20,10 @@
 
 mod effects;
 mod error;
+// NOTE: the log hook of libghostty-vt has no safe setter. It is the one module of the
+// crate that allows `unsafe_code` (the allowlist is in `xtask/src/tidy.rs`).
+#[allow(unsafe_code)]
+mod ffi;
 mod semantic_prompt;
 mod snapshot;
 mod terminal;

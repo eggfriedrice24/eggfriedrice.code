@@ -21,6 +21,8 @@ pub(crate) const UNSAFE_ALLOWLIST: &[&str] = &[
     "crates/efr-sbx/src/fds.rs",
     // glibc's mallopt and malloc_trim in efrd (ADR 0020).
     "crates/efr-daemon/src/malloc.rs",
+    // The process-global log hook of libghostty-vt.
+    "crates/efr-screen-ghostty/src/ffi.rs",
 ];
 
 /// Files in which `cfg(feature = ...)` may appear, one per feature, so feature-gated

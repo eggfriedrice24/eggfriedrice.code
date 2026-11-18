@@ -52,15 +52,22 @@ Tier 2.
 
 Third-party crates: `libghostty-vt` at the pinned git rev with default features off
 and `kitty-graphics` on (only for the setter that turns the protocol off), `thiserror`
-and `tracing` (the cross-check warnings and the factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
+and `tracing` (the cross-check warnings and the factory error). Tests add `bytes`, `pretty_assertions`, `tracing-subscriber` (the log
+test), `efr-screen` with its
 `conformance` feature, `efr-render` (a dev-dependency only, for its width count) and
 `efr-test-support` (the bench helpers).
 
 ## Invariant
 
-- No `unsafe` code. libghostty-vt is used through its safe API only. A future pin that
-  needs a hand-written trampoline puts it in `src/ffi.rs` and adds that file to the
-  tidy allowlist in the same commit.
+- `unsafe` only in `src/ffi.rs`, which is on the tidy allowlist. It sets the
+  process-global log hook of libghostty-vt once, under a `Once`, and every path into
+  libghostty-vt (`GhosttyScreen::new`, `GhosttyScreen::restore`, the test helper)
+  passes that `Once` first. Everything else uses the safe API.
+- The library log goes to `tracing` with the target `libghostty`, at `debug` for its
+  errors and warnings and at `trace` for the rest, because the program in the hidden
+  shell controls what the library logs. `EFR_LOG=info,libghostty=debug` shows it.
+  When libghostty-vt reports a failure that it did not handle
+  (`Terminal::vt_processing_error`), the screen logs one warning.
 - A `GhosttyScreen` is built, used and dropped on its actor thread. Its callbacks own
   what they touch (`Rc` buffers), so the terminal borrows nothing.
 - A callback never blocks and never calls back into the terminal; the screen drains

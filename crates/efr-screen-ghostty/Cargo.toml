@@ -26,6 +26,8 @@ efr-screen = { workspace = true, features = ["conformance"] }
 # The bench of the capture screens reports through the shared bench helpers.
 efr-test-support.workspace = true
 pretty_assertions.workspace = true
+# The log test reads the events of the library log.
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
