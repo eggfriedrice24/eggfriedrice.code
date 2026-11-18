@@ -29,6 +29,7 @@ All bytes cross to JavaScript as standard base64 strings.
 | `fileInfo(uri)`                       | The name and the size in bytes of the file                      |
 | `readChunk(uri, offset, length)`      | At most `length` bytes (1 MiB at most) from `offset`, as base64 |
 | `remove(uri)`                         | Removes the file; a missing file is not an error                |
+| `quickLook(uri, title)`               | Shows the file full screen in Quick Look, with `title` on top   |
 
 A file that is gone gives an error with the code `ERR_FILE_GONE`.
 
@@ -48,3 +49,5 @@ Do these checks on the first EAS development build:
 2. In the app, `requireOptionalNativeModule("EfrFiles")` is not `null`, so the plus shows.
 3. Attach a HEIC photo of 48 MP. The JPEG is at most 2000 px, it has no GPS tag, and its
    preview is at most 512 px.
+4. Quick Look in the menu of a photo tile shows the photo full screen with its name at the
+   top, and Done closes it.

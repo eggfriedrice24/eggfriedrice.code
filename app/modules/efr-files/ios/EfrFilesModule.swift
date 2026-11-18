@@ -12,10 +12,14 @@
 //   uri cannot read or remove another file of the app.
 // - The size comes from `fileSizeKey`, which is not one of the file timestamp APIs that
 //   need a reason in the privacy manifest of the app.
+// - `quickLook` shows a file full screen in the Quick Look of iOS, with its name as the
+//   title (board S-Attach: a tap on a photo, and Quick Look in the menu of a tile).
 
 import ExpoModulesCore
 import Foundation
 import ImageIO
+import QuickLook
+import UIKit
 import UniformTypeIdentifiers
 
 @ExpoModule("EfrFiles")
@@ -93,6 +97,63 @@ public class EfrFilesModule: Module {
     } catch let error as CocoaError where AppFiles.missing(error) {
       return
     }
+  }
+
+  /// Shows the file at `uri` full screen in Quick Look, with `title` at the top. It resolves
+  /// when Quick Look starts to show.
+  @JS(.concurrent)
+  func quickLook(uri: String, title: String) async throws {
+    let url = try AppFiles.checked(uri)
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      throw FileGoneException(url.lastPathComponent)
+    }
+    try await MainActor.run {
+      guard let presenter = self.appContext?.utilities?.currentViewController() else {
+        throw NoScreenException()
+      }
+      let controller = QuickLookController()
+      let source = QuickLookSource(item: QuickLookItem(url: url, title: title))
+      controller.source = source
+      controller.dataSource = source
+      presenter.present(controller, animated: true)
+    }
+  }
+}
+
+/// The one file of a Quick Look, with the name that the app gives it: the file on the disk
+/// has a UUID as its name.
+private final class QuickLookItem: NSObject, QLPreviewItem {
+  let previewItemURL: URL?
+  let previewItemTitle: String?
+
+  init(url: URL, title: String) {
+    previewItemURL = url
+    previewItemTitle = title
+  }
+}
+
+/// Quick Look of one file. It keeps its data source, because `dataSource` is a weak
+/// reference.
+private final class QuickLookController: QLPreviewController {
+  var source: QuickLookSource?
+}
+
+/// The data source of a Quick Look of one file.
+private final class QuickLookSource: NSObject, QLPreviewControllerDataSource {
+  private let item: QuickLookItem
+
+  init(item: QuickLookItem) {
+    self.item = item
+  }
+
+  func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+    return 1
+  }
+
+  func previewController(_ controller: QLPreviewController, previewItemAt index: Int)
+    -> QLPreviewItem
+  {
+    return item
   }
 }
 
@@ -243,6 +304,12 @@ private final class NotAFileException: GenericException<String> {
 private final class ImageReadException: GenericException<String> {
   override var reason: String {
     "iOS cannot read '\(param)' as an image"
+  }
+}
+
+private final class NoScreenException: Exception {
+  override var reason: String {
+    "efr has no screen to show Quick Look on"
   }
 }
 

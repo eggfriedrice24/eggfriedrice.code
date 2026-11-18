@@ -31,4 +31,6 @@ export interface EfrFilesNative {
   readChunk(uri: string, offset: number, length: number): Promise<string>;
   /** Removes the file. A missing file is not an error. */
   remove(uri: string): Promise<void>;
+  /** Shows the file full screen in Quick Look, with `title` at the top. */
+  quickLook(uri: string, title: string): Promise<void>;
 }
