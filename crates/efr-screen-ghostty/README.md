@@ -24,7 +24,8 @@ libghostty-vt, so it is the only crate whose build needs Zig.
   apart, until the pass is done; then nothing happens until
   `Terminal::compression_activity` changes. A full scrollback of 160 columns goes from
   about 7 MiB to under 1 MiB (see the bench `bench_perf_idle_compression`).
-  libghostty-vt decompresses a page again when a snapshot reads it.
+  libghostty-vt decompresses a page again when a snapshot reads it, and that does not
+  change the activity, so a snapshot with scrollback starts a new pass.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it

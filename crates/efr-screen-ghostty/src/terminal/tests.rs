@@ -329,14 +329,21 @@ fn the_idle_steps_compress_the_scrollback_and_keep_its_text() {
     assert!(screen.terminal.memory_usage().unwrap().compression_supported);
     let before = resident_bytes(&screen);
     let text = texts(&screen.snapshot(usize::MAX).scrollback);
-    // The snapshot read the whole history, so the steps start from the start.
     idle_until_done(&mut screen);
     let after = resident_bytes(&screen);
     assert!(after < before / 2, "{before} bytes before the steps, {after} after");
     assert!(screen.terminal.memory_usage().unwrap().primary_compressed_pages > 0);
     // Nothing changed since the last pass, so there is no work.
     assert_eq!(screen.idle(), None);
+    // A snapshot without scrollback reads no compressed page.
+    screen.snapshot(0);
+    assert_eq!(screen.idle(), None);
+    // A snapshot of the scrollback decompresses it, and the next pass compresses it
+    // again.
     assert_eq!(texts(&screen.snapshot(usize::MAX).scrollback), text);
+    assert!(resident_bytes(&screen) > after * 2);
+    idle_until_done(&mut screen);
+    assert!(resident_bytes(&screen) < before / 2);
 }
 
 #[test]

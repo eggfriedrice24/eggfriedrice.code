@@ -218,6 +218,12 @@ impl Screen for GhosttyScreen {
     }
 
     fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
+        // NOTE: a read of the scrollback decompresses the pages that it reads, and
+        // that does not change the compression activity. So the next idle steps must
+        // run a pass again.
+        if scrollback_rows > 0 {
+            self.compressed = None;
+        }
         snapshot::capture(&self.terminal, scrollback_rows)
     }
 
