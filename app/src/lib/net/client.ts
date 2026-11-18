@@ -14,12 +14,19 @@
 // - A watch of the conversation lists (`conversations.watch`) follows the same rules: it
 //   watches again on each new connection and after an overflow, and each new watch
 //   starts with a snapshot.
+// - The lease (`lease.report`) tells efrd that a person sees the app, so efrd sends no
+//   push for what the phone shows. The client reports it on each new connection, when
+//   the app goes to the background or comes back, when the subscribed conversations
+//   change, and each 25 s while the app is in the foreground: efrd drops a lease after
+//   60 s. The conversations of the lease are those that the client subscribes to, which
+//   are the conversations on screen.
 
 import { decodeSubscribeItem, decodeWatchItem } from "@/lib/protocol/envelope";
 import type {
   ConversationSubscribe,
   ErrorBody,
   HelloResult,
+  LeaseReport,
   MethodParams,
   ScopeName,
 } from "@/lib/protocol/generated";
@@ -124,8 +131,13 @@ export interface Watch {
 /** The error codes after which a subscription subscribes again on its backoff ladder. */
 const RETRY_CODES: ReadonlySet<string> = new Set(["overflow", "busy", "cancelled", "internal"]);
 
+/** How often the client renews its lease in the foreground; efrd keeps one for 60 s. */
+export const LEASE_RENEW_MS = 25_000;
+
 /** The stream of one entry: how it starts, and what it does with each raw item. */
 interface EntryTarget {
+  /** The conversation of a subscription, which the lease names. */
+  readonly conversationId?: string;
   /** Starts the stream on `connection`. */
   open(connection: Connection, handlers: StreamHandlers): StreamHandle;
   /**
@@ -156,6 +168,10 @@ export class Client {
   private backoff: Backoff = INITIAL_BACKOFF;
   private retryTimer: Timer | undefined;
   private backgroundAt: number | undefined;
+  private leaseTimer: Timer | undefined;
+  /** The lease that the connection has, as JSON, so an equal lease is not sent again. */
+  private leaseSent: string | undefined;
+  private leaseQueued = false;
 
   constructor(options: ClientOptions) {
     const url = socketUrl(options.endpoint);
@@ -192,6 +208,7 @@ export class Client {
     this.generation += 1;
     this.retryTimer?.cancel();
     this.retryTimer = undefined;
+    this.endLease();
     const connection = this.connection;
     this.connection = undefined;
     this.detachAll();
@@ -204,6 +221,7 @@ export class Client {
     const now = this.options.clock.now();
     if (!active) {
       this.backgroundAt ??= now;
+      this.reportLease();
       return;
     }
     const replace = replaceOnForeground(
@@ -216,6 +234,8 @@ export class Client {
       this.connectNow();
     } else if (replace && (this.current.state === "ready" || this.current.state === "connecting")) {
       this.connectNow();
+    } else {
+      this.reportLease();
     }
   }
 
@@ -250,6 +270,7 @@ export class Client {
    */
   subscribe(conversationId: string, sink: SubscriptionSink): Subscription {
     const target: EntryTarget = {
+      conversationId,
       open: (connection, handlers) => {
         const params: ConversationSubscribe = {
           conversation_id: conversationId,
@@ -310,6 +331,7 @@ export class Client {
     } else {
       target.status?.({ state: "waiting" });
     }
+    this.leaseChanged(target);
     return () => {
       if (!this.entries.delete(entry)) {
         return;
@@ -319,7 +341,56 @@ export class Client {
       entry.handle?.cancel();
       entry.handle = undefined;
       target.status?.({ state: "closed" });
+      this.leaseChanged(target);
     };
+  }
+
+  /**
+   * A subscription came or went. The report waits for the end of the current task, so a
+   * move from one conversation to the next sends one lease.
+   */
+  private leaseChanged(target: EntryTarget): void {
+    if (target.conversationId === undefined || this.leaseQueued) {
+      return;
+    }
+    this.leaseQueued = true;
+    queueMicrotask(() => {
+      this.leaseQueued = false;
+      this.reportLease();
+    });
+  }
+
+  /**
+   * Sends the lease of now on the ready connection, unless the connection has it already,
+   * and renews it each `LEASE_RENEW_MS` while the app is in the foreground.
+   */
+  private reportLease(): void {
+    this.leaseTimer?.cancel();
+    this.leaseTimer = undefined;
+    const connection = this.connection;
+    if (connection === undefined || this.current.state !== "ready") {
+      return;
+    }
+    const lease = leaseOf(this.backgroundAt === undefined, this.entries);
+    const json = JSON.stringify(lease);
+    if (json !== this.leaseSent) {
+      this.leaseSent = json;
+      void connection.call("lease.report", lease).catch(() => undefined);
+    }
+    if (lease.visible) {
+      this.leaseTimer = this.options.clock.setTimer(LEASE_RENEW_MS, () => {
+        this.leaseTimer = undefined;
+        this.leaseSent = undefined;
+        this.reportLease();
+      });
+    }
+  }
+
+  /** The connection is gone: a new one starts with no lease. */
+  private endLease(): void {
+    this.leaseTimer?.cancel();
+    this.leaseTimer = undefined;
+    this.leaseSent = undefined;
   }
 
   private setState(state: ClientState): void {
@@ -343,6 +414,7 @@ export class Client {
     this.generation += 1;
     const generation = this.generation;
     this.detachAll();
+    this.endLease();
     this.setState({ state: "connecting" });
     const { options } = this;
     const opening = Connection.open({
@@ -388,10 +460,12 @@ export class Client {
         this.startEntry(entry);
       }
     }
+    this.reportLease();
   }
 
   private failed(error: ConnectionError): void {
     this.detachAll();
+    this.endLease();
     if (error.recovery === "none") {
       return;
     }
@@ -494,4 +568,19 @@ export class Client {
     });
     entry.target.status?.({ state: "retrying", retryAt: now + next.delayMs, error });
   }
+}
+
+/** The lease of a client with `entries`: the conversations of its live subscriptions. */
+function leaseOf(visible: boolean, entries: Iterable<Entry>): LeaseReport {
+  const conversations = new Set<string>();
+  for (const { target, done } of entries) {
+    if (target.conversationId !== undefined && !done) {
+      conversations.add(target.conversationId);
+    }
+  }
+  const lease: LeaseReport = { visible };
+  if (conversations.size > 0) {
+    lease.conversations = [...conversations];
+  }
+  return lease;
 }

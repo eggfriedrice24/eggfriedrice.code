@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { SubscribeItem, WatchItem } from "@/lib/protocol/wire";
 import {
   Client,
+  LEASE_RENEW_MS,
   type ClientState,
   type SubscriptionSink,
   type SubscriptionStatus,
@@ -460,5 +461,65 @@ describe("calls", () => {
     sockets.last.drop();
     await flush();
     await expect(client.call("models.list", {})).rejects.toMatchObject({ kind: "offline" });
+  });
+});
+
+function leases(socket: FakeSocket): unknown[] {
+  return socket.requests("lease.report").map((frame) => frame["params"]);
+}
+
+describe("the lease", () => {
+  const OTHER = "019a9b1c-3d00-7a10-8b20-0000000000cc";
+
+  it("is visible on each new connection and renews each 25 s", async () => {
+    const { clock, sockets } = await started();
+    const socket = sockets.last;
+    expect(leases(socket)).toEqual([{ visible: true }]);
+    await idle(clock, socket, LEASE_RENEW_MS - 1000);
+    expect(leases(socket)).toHaveLength(1);
+    await idle(clock, socket, 1000);
+    expect(leases(socket)).toEqual([{ visible: true }, { visible: true }]);
+
+    socket.drop();
+    await flush();
+    await clock.advance(1000);
+    await completeHandshake(sockets.last);
+    expect(leases(sockets.last)).toEqual([{ visible: true }]);
+  });
+
+  it("names the subscribed conversations, with one report for a move to the next one", async () => {
+    const { client, sockets } = await started();
+    const first = client.subscribe(CONVERSATION, new Sink());
+    await flush();
+    expect(leases(sockets.last).at(-1)).toEqual({ visible: true, conversations: [CONVERSATION] });
+
+    first.close();
+    client.subscribe(OTHER, new Sink());
+    await flush();
+    expect(leases(sockets.last)).toEqual([
+      { visible: true },
+      { visible: true, conversations: [CONVERSATION] },
+      { visible: true, conversations: [OTHER] },
+    ]);
+  });
+
+  it("is not visible in the background, renews nothing there, and is visible again on return", async () => {
+    const { client, clock, sockets } = await started();
+    client.subscribe(CONVERSATION, new Sink());
+    await flush();
+    client.setForeground(false);
+    expect(leases(sockets.last).at(-1)).toEqual({ visible: false, conversations: [CONVERSATION] });
+
+    client.setForeground(true);
+    expect(leases(sockets.last).at(-1)).toEqual({ visible: true, conversations: [CONVERSATION] });
+
+    client.setForeground(false);
+    const sent = leases(sockets.last).length;
+    await idle(clock, sockets.last, 2 * LEASE_RENEW_MS);
+    expect(leases(sockets.last)).toHaveLength(sent);
+    // After 10 s away the client opens a new socket, which gets the lease of now.
+    client.setForeground(true);
+    await completeHandshake(sockets.last);
+    expect(leases(sockets.last)).toEqual([{ visible: true, conversations: [CONVERSATION] }]);
   });
 });
