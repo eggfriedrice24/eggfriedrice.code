@@ -17,6 +17,11 @@ into the GitHub release notes, and it stops when the section is missing.
   that it does not handle, efrd logs one warning for that screen.
 - The model sees an image file that it reads with `read_file` (PNG, JPEG, GIF, WebP),
   when its model reads images. Each other model gets the path of the file.
+- efrd takes the files of a prompt. A client uploads each file in chunks
+  (`attachment.put`) and names the uploads in `prompt.send`. Images and PDFs go to a
+  model that reads them; each other file goes as a path. Each file gets a copy in
+  `$SCRATCH/attachments`, which a contained call can read but not write.
+  `[attachments]` sets the limits.
 
 ### Changed
 
