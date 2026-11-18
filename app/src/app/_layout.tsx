@@ -2,13 +2,14 @@ import "../../global.css";
 
 import Constants from "expo-constants";
 
+import { EfrSpeech } from "../../modules/efr-speech";
 import { appStorage } from "@/lib/native/kv";
 import { AccessibilityInfo, ActionSheetIOS, Keyboard } from "react-native";
 
 import { appPhase, followAppPhase, followAppState } from "@/lib/native/app-state";
 import { systemClock } from "@/lib/native/clock";
 import { newCommandId, openAppDatabase, openEventCaches } from "@/lib/native/database";
-import { setHapticsEnabled } from "@/lib/native/haptics";
+import { haptic, setHapticsEnabled } from "@/lib/native/haptics";
 import { checkOwner, hasPasscode, ownerFacts } from "@/lib/native/owner-check";
 import { blurSearchBars } from "@/lib/native/search-bars";
 import { followNetwork, followOnline } from "@/lib/native/netinfo";
@@ -96,6 +97,7 @@ const services = createAppServices({
   push: nativePush(),
   noticeTaps,
   attach: nativeAttach(),
+  voice: EfrSpeech === null ? null : { speech: EfrSpeech, haptic: () => haptic("light") },
 });
 
 function machineMenu(machine: string) {

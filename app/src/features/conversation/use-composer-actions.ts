@@ -38,6 +38,7 @@ import type { Drafts } from "./model/drafts";
 import type { ModelChoices } from "./model/model-choices";
 import type { Outbox, OutboxEntry } from "./model/outbox";
 import { sendPrompt } from "./model/send-prompt";
+import type { Voice } from "./model/voice";
 
 /** What the composer needs from the app. The root layout makes each of them once. */
 export interface ComposerDeps {
@@ -54,6 +55,8 @@ export interface ComposerDeps {
   readonly lock: Pick<AppLock, "store" | "facts">;
   /** The pickers and the files of the drafts; null in a build without them. */
   readonly attach?: AppAttach | null;
+  /** Voice input; null in a build without efr-speech. */
+  readonly voice?: Voice | null;
 }
 
 /** The actions of one composer. */

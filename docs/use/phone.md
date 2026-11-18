@@ -253,8 +253,21 @@ the send button. Tap it to write: it grows to the full composer, with the status
 on top and room for 6 lines. When you tap the transcript or close the keyboard, it
 becomes a pill again and keeps your text.
 
-The microphone before the send button (record a voice message) is off for now. A later
-release turns it on.
+The microphone before the send button turns your speech into text in the draft. It
+shows on iOS 26 and later, when the iPhone has a speech model for its language; else
+the composer has no microphone, and the dictation key of the keyboard stays. Tap it to
+record: the first time, iOS asks for the microphone, and for a new language the line
+"Getting the speech model" shows while iOS gets it. While it records, the microphone is
+a stop button with the time next to it, and the words go into the draft at the cursor,
+after the text that was there. Voice never sends: Send is off while it records, and you
+send when you want. A recording stops at the stop button, after 5 minutes, or when a
+phone call or Siri takes the microphone; the text so far stays. The iPhone does the
+work: no audio file is written, and no audio leaves the iPhone.
+
+A line above the status line tells when something went wrong, such as "efr heard
+nothing" or "A call stopped the recording". When the microphone is off for efr, a tap on
+the line opens the iOS settings of efr. The line goes at the next tap of the microphone
+or at Send.
 
 The status line shows the directory and how full the context of the model is, such as `ctx 42%`. It shows
 "waiting for you" while a question of this conversation waits, and "reconnecting" while

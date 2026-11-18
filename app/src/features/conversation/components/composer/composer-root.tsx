@@ -28,7 +28,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Material } from "@/components/ui/material";
 import { RADII } from "@/theme/metrics";
 
-import { ComposerContext, ComposerInputRefContext, ComposerSizeContext } from "./composer-context";
+import {
+  ComposerContext,
+  ComposerCursorContext,
+  ComposerInputRefContext,
+  ComposerSizeContext,
+} from "./composer-context";
 import { useComposer, type ComposerOptions } from "./use-composer";
 
 /** The gap between the pill and the keyboard, or between the pill and the bottom edge. */
@@ -61,6 +66,7 @@ export function ComposerRoot(props: ComposerRootProps) {
   const { children, onHeightChange, ...options } = props;
   const model = useComposer(options);
   const inputRef = useRef<TextInputInstance>(null);
+  const cursorRef = useRef<number | undefined>(undefined);
   // Short local UI state: the input has focus.
   const [focused, setFocused] = useState(false);
   const bottom = bottomEdge(useSafeAreaInsets().bottom);
@@ -70,30 +76,32 @@ export function ComposerRoot(props: ComposerRootProps) {
   return (
     <ComposerContext value={model}>
       <ComposerInputRefContext value={inputRef}>
-        <ComposerSizeContext value={{ expanded: focused, setFocused }}>
-          <KeyboardStickyView
-            testID="composer"
-            offset={{ closed: 0, opened: bottom }}
-            onLayout={layout}
-          >
-            <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
-              <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
-              <Pressable
-                testID="composer-pill"
-                accessible={false}
-                onPress={() => {
-                  if (model.state.kind !== "disconnected") {
-                    inputRef.current?.focus();
-                  }
-                }}
-                className="overflow-hidden rounded-composer"
-              >
-                <Material kind="glass" radius={RADII.composer} />
-                {children}
-              </Pressable>
-            </View>
-          </KeyboardStickyView>
-        </ComposerSizeContext>
+        <ComposerCursorContext value={cursorRef}>
+          <ComposerSizeContext value={{ expanded: focused, setFocused }}>
+            <KeyboardStickyView
+              testID="composer"
+              offset={{ closed: 0, opened: bottom }}
+              onLayout={layout}
+            >
+              <View className="px-12 pt-6" style={{ paddingBottom: bottom + KEYBOARD_GAP }}>
+                <View testID="composer-scrim" pointerEvents="none" className={SCRIM_CLASS} />
+                <Pressable
+                  testID="composer-pill"
+                  accessible={false}
+                  onPress={() => {
+                    if (model.state.kind !== "disconnected") {
+                      inputRef.current?.focus();
+                    }
+                  }}
+                  className="overflow-hidden rounded-composer"
+                >
+                  <Material kind="glass" radius={RADII.composer} />
+                  {children}
+                </Pressable>
+              </View>
+            </KeyboardStickyView>
+          </ComposerSizeContext>
+        </ComposerCursorContext>
       </ComposerInputRefContext>
     </ComposerContext>
   );

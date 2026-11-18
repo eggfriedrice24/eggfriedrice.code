@@ -11,6 +11,10 @@
 // The files of the draft (S-Attach): the plus shows when the build has the pickers and
 // efrd sent the capability `attachments`. A draft with a file that is not ready sends
 // nothing, and while a turn runs it only queues.
+//
+// Voice (S-Voice): the microphone shows when the build has efr-speech and the iPhone
+// turns speech into text in its language. While a recording writes into the draft, Send
+// is off, so voice never sends; a Send takes the line of a problem away.
 
 import { useSelector } from "@tanstack/react-store";
 import { createStore, type Readable } from "@tanstack/store";
@@ -35,6 +39,14 @@ import {
 } from "../../model/attachments-tiles";
 import type { DraftKey } from "../../model/drafts";
 import {
+  NO_VOICE,
+  trailingWhileVoice,
+  voiceOf,
+  voiceWrites,
+  type Voice,
+  type VoiceState,
+} from "../../model/voice";
+import {
   composerDraftKey,
   composerEditable,
   composerPlaceholder,
@@ -51,7 +63,12 @@ import type { OutboxEntry } from "../../model/outbox";
 import { selectLockOn } from "@/features/navigation/model/app-lock";
 import { ANSWER_PLACEHOLDER, answerText } from "../../model/question";
 import { useComposerActions, type ComposerDeps } from "../../use-composer-actions";
-import type { ComposerAnswer, ComposerAttach, ComposerModel } from "./composer-context";
+import type {
+  ComposerAnswer,
+  ComposerAttach,
+  ComposerModel,
+  ComposerVoice,
+} from "./composer-context";
 
 /** The typed answer of a composer that answers no question. */
 const NO_ANSWER: Readable<string> = createStore("");
@@ -97,6 +114,7 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     deps.attach?.attachments.store ?? NO_ATTACHMENTS,
     selectDraftFiles(key),
   );
+  const allVoice = useSelector(deps.voice?.store ?? NO_VOICE, (voice) => voice);
   const actions = useComposerActions(deps, target, runningTurnId);
   const state = composerState({
     isBlankRoot: target.isBlankRoot,
@@ -108,6 +126,10 @@ export function useComposer(options: ComposerOptions): ComposerModel {
   });
   const tiles = draftTiles(files, limits);
   const attach = composerAttach(deps.attach, key, tiles, limits);
+  const voiceState = voiceOf(allVoice, key);
+  const voice = composerVoice(deps.voice, voiceState, allVoice, (cursor) =>
+    deps.voice?.start(key, cursor ?? text.length),
+  );
 
   // NOTE: Each send runs before the call of `onSend`. `onSend?.(actions.send(text))` does
   // not send at all when the screen gives no `onSend`, as a conversation screen does.
@@ -118,10 +140,11 @@ export function useComposer(options: ComposerOptions): ComposerModel {
       devWarn(`the composer of ${target.id} ignores a submit: ${ignoreReason(state)}`);
       return;
     }
-    if (!tilesReady(tiles)) {
-      devWarn(`the composer of ${target.id} ignores a submit: a file is not ready`);
+    if (!tilesReady(tiles) || voiceWrites(voiceState)) {
+      devWarn(`the composer of ${target.id} ignores a submit: a file or voice is not ready`);
       return;
     }
+    deps.voice?.dismiss();
     // A steer names no mode: it joins the turn that runs, in its own mode.
     if (kind === "steer") {
       actions.steer(text);
@@ -136,8 +159,9 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     answering: undefined,
     attach,
     queueOnly: tiles.length > 0,
+    voice,
     state,
-    trailing: trailingWithFiles(composerTrailing(state), tiles),
+    trailing: trailingWhileVoice(trailingWithFiles(composerTrailing(state), tiles), voiceState),
     isBlankRoot: target.isBlankRoot,
     value: state.kind === "sending" ? (inFlight ?? text) : text,
     placeholder: composerPlaceholder(state, {
@@ -181,6 +205,7 @@ export function useComposer(options: ComposerOptions): ComposerModel {
     answering,
     attach: undefined,
     queueOnly: false,
+    voice: undefined,
     trailing: answering.sending
       ? { kind: "sending", stop: false }
       : { kind: "send", enabled: answer !== undefined && online },
@@ -235,6 +260,27 @@ function composerAttach(
         });
       }
     },
+  };
+}
+
+/**
+ * Voice input of the draft, or undefined when no microphone shows: no efr-speech in the
+ * build, or no speech support on this iPhone.
+ */
+function composerVoice(
+  voice: Voice | null | undefined,
+  state: VoiceState,
+  all: VoiceState,
+  start: (cursor: number | undefined) => void,
+): ComposerVoice | undefined {
+  if (voice === null || voice === undefined || state.kind === "off") {
+    return undefined;
+  }
+  return {
+    state,
+    busy: state.kind === "idle" && all.kind !== "idle",
+    start,
+    stop: () => voice.stop(),
   };
 }
 

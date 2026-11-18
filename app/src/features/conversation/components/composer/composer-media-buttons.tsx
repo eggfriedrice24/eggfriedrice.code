@@ -5,31 +5,38 @@
 //   menu Photo Library, Take Photo, Choose File. It shows only when the build has the
 //   pickers and efrd takes attachments; else nothing stands in its place. At the limit
 //   of efrd it is off.
-// - Voice (mic) before the trailing action: later it records a voice message, which
-//   needs a native audio module.
+// - Voice (mic) before the trailing action (board S-Voice): a tap records, and the
+//   words go into the draft. It shows only when the build has efr-speech and the iPhone
+//   turns speech into text in its language; else nothing stands in its place and the
+//   dictation key of the keyboard stays. While it records, it is a stop button in
+//   state_error with the time before it; while it prepares or ends, the braille cell.
 //
 // Each is a 32 pt circle with no fill and a 44 pt hit area, as the other actions, with
 // its glyph in text_muted, or in text_decorative while it is off.
 
 import { use } from "react";
-import { Pressable } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
+import { BrailleCell } from "@/components/ui/braille-cell";
 import { cn } from "@/components/ui/cn";
 import type { MenuEntry } from "@/components/ui/menu-actions";
 import { MenuView } from "@/components/ui/menu-view";
-import { SymbolIcon, type SymbolName } from "@/components/ui/symbol";
+import { SymbolIcon } from "@/components/ui/symbol";
 import { SPACING } from "@/theme/metrics";
 
 import type { AttachSource } from "../../model/attachments";
-import { ComposerContext } from "./composer-context";
+import { clock } from "../../model/format";
+import { MODEL_LINE, stopLabel } from "../../model/voice";
+import { useNow } from "../use-now";
+import { ComposerContext, ComposerCursorContext } from "./composer-context";
 
 /** The hit slop that takes a 32 pt action to the 44 pt hit area. */
 const SLOP = (SPACING.hit - SPACING.action) / 2;
 
 const CIRCLE = "w-action h-action my-4 items-center justify-center rounded-full";
 
-/** The VoiceOver hint of a media button that is not available yet. */
-export const NOT_YET_HINT = "Not available yet.";
+/** The VoiceOver label of the microphone. */
+const VOICE_LABEL = "Record a voice message";
 
 /** The items of the plus menu, in the order of the board. */
 export const ATTACH_MENU: readonly (MenuEntry & { readonly id: AttachSource })[] = [
@@ -40,30 +47,6 @@ export const ATTACH_MENU: readonly (MenuEntry & { readonly id: AttachSource })[]
 
 function isSource(id: string): id is AttachSource {
   return id === "photos" || id === "camera" || id === "files";
-}
-
-interface MediaButtonProps {
-  readonly testID: string;
-  readonly icon: SymbolName;
-  readonly label: string;
-}
-
-/** A media button that is off until its feature ships. */
-function MediaButton(props: MediaButtonProps) {
-  return (
-    <Pressable
-      testID={props.testID}
-      accessibilityRole="button"
-      accessibilityLabel={props.label}
-      accessibilityHint={NOT_YET_HINT}
-      accessibilityState={{ disabled: true }}
-      disabled
-      hitSlop={SLOP}
-      className={CIRCLE}
-    >
-      <SymbolIcon name={props.icon} size={17} weight="medium" tone="text_decorative" />
-    </Pressable>
-  );
 }
 
 /** Slot B: attach a photo or a file, or nothing when the composer takes none. */
@@ -114,7 +97,72 @@ export function ComposerAttachButton() {
   );
 }
 
-/** Before the trailing action: record a voice message (off for now). */
+/**
+ * Before the trailing action: record a voice message, or nothing where the iPhone has no
+ * speech support. While it records, a stop button with the time before it.
+ */
 export function ComposerVoiceButton() {
-  return <MediaButton testID="composer-voice" icon="mic" label="Record a voice message" />;
+  const voice = use(ComposerContext)?.voice;
+  const cursor = use(ComposerCursorContext);
+  const state = voice?.state;
+  const now = useNow(state?.kind === "recording");
+  if (voice === undefined || state === undefined) {
+    return null;
+  }
+  switch (state.kind) {
+    case "recording": {
+      const seconds = Math.max(0, Math.floor((now - state.startedAt) / 1000));
+      return (
+        <View className="flex-row items-center gap-6">
+          <Text accessibilityElementsHidden className="text-mono-xs text-text-muted">
+            {clock(seconds)}
+          </Text>
+          <Pressable
+            testID="composer-voice"
+            accessibilityRole="button"
+            accessibilityLabel={stopLabel(seconds)}
+            hitSlop={SLOP}
+            onPress={voice.stop}
+            className={cn(CIRCLE, "active:opacity-60")}
+          >
+            <SymbolIcon name="stop.fill" size={13} tone="state_error" />
+          </Pressable>
+        </View>
+      );
+    }
+    case "preparing":
+    case "transcribing":
+      return (
+        <View
+          testID="composer-voice"
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={state.kind === "preparing" && state.model ? MODEL_LINE : VOICE_LABEL}
+          accessibilityState={{ disabled: true, busy: true }}
+          className={CIRCLE}
+        >
+          <BrailleCell size="row" tint="work" />
+        </View>
+      );
+    default:
+      return (
+        <Pressable
+          testID="composer-voice"
+          accessibilityRole="button"
+          accessibilityLabel={VOICE_LABEL}
+          accessibilityState={{ disabled: voice.busy }}
+          disabled={voice.busy}
+          hitSlop={SLOP}
+          onPress={() => voice.start(cursor?.current)}
+          className={cn(CIRCLE, "active:opacity-60")}
+        >
+          <SymbolIcon
+            name="mic"
+            size={17}
+            weight="medium"
+            tone={voice.busy ? "text_decorative" : "text_muted"}
+          />
+        </Pressable>
+      );
+  }
 }

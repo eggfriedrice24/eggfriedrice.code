@@ -3,6 +3,7 @@
 //
 //   <Composer.Root deps={deps} target={target} connection={connection} machineName="laptop">
 //     {strip}                                  the approval strip while a question waits
+//     <ComposerVoiceLine />                    the line of voice input, when it has one
 //     <Composer.StatusLine>                    slot A: cwd · ctx · waiting / reconnecting
 //       <Composer.Status store={stream.store} />
 //       <ComposerModeButton ... />             the mode control, then
@@ -12,7 +13,7 @@
 //                                              at rest one row, focused a column:
 //       attach (slot B, the plus menu)
 //       <Composer.Input />                     slot C: reads its own draft
-//       voice (off for now)
+//       voice (the microphone, or stop while it records)
 //       <Composer.Trailing />                  slot D: Send | Stop | Stop + Steer/Queue | sending
 //     </Composer.Body>
 //   </Composer.Root>                           slot E: the bottom edge, or 6 pt over the keyboard
@@ -38,6 +39,7 @@ import { ComposerModelButton } from "./composer-model-button";
 import { ComposerRoot, type ComposerRootProps } from "./composer-root";
 import { ComposerStatus, ComposerStatusLine } from "./composer-status-line";
 import { ComposerTrailing } from "./composer-trailing";
+import { ComposerVoiceLine } from "./composer-voice-line";
 
 /**
  * The field and the actions, in the two sizes of the composer (as t3code):
@@ -110,6 +112,7 @@ export function DockedComposer(props: DockedComposerProps) {
   return (
     <ComposerRoot {...root}>
       {answering ? <ComposerAnswerRow /> : strip}
+      <ComposerVoiceLine />
       {answering ? null : (
         <ComposerStatusLine>
           {stream === undefined ? <ComposerStatus /> : <ComposerStatus store={stream} />}

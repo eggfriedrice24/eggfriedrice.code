@@ -12,6 +12,7 @@ import type { AttachSource } from "../../model/attachments";
 import type { TileView } from "../../model/attachments-tiles";
 import type { ComposerState, ComposerTrailing } from "../../model/composer-state";
 import type { PhoneMode } from "../../model/model-choices";
+import type { VoiceState } from "../../model/voice";
 
 /**
  * The question of the model that Send answers (S-Ask 3, "Type an answer"). The text of
@@ -52,6 +53,17 @@ export interface ComposerAttach {
   readonly quickLook: (key: string) => void;
 }
 
+/** Voice input of the draft (board S-Voice). */
+export interface ComposerVoice {
+  /** The state of voice input for this draft. */
+  readonly state: VoiceState;
+  /** True while voice writes into another draft: the microphone takes no tap. */
+  readonly busy: boolean;
+  /** Starts a recording at `cursor`, or at the end of the draft when it is unknown. */
+  readonly start: (cursor: number | undefined) => void;
+  readonly stop: () => void;
+}
+
 /** What the slots of the composer read. */
 export interface ComposerModel {
   /** The question that Send answers now; none for a message. */
@@ -63,6 +75,11 @@ export interface ComposerModel {
   readonly attach: ComposerAttach | undefined;
   /** True while the draft holds a file: a steer takes none, so the capsule is only Queue. */
   readonly queueOnly: boolean;
+  /**
+   * Voice input. Undefined when no microphone shows: a build without efr-speech, an
+   * iPhone with no speech support for its language, or an answer to a question.
+   */
+  readonly voice: ComposerVoice | undefined;
   readonly state: ComposerState;
   readonly trailing: ComposerTrailing;
   /** True on the blank root: a prompt there starts a new conversation. */
@@ -101,6 +118,13 @@ export const ComposerContext = createContext<ComposerModel | null>(null);
 export const ComposerInputRefContext = createContext<RefObject<TextInputInstance | null> | null>(
   null,
 );
+
+/**
+ * Where the cursor of the field is, as a UTF-16 index of the draft, so the words of voice
+ * go there. A ref and not state: the field sets it on each move, and nothing renders for
+ * it. `Composer.Root` gives it.
+ */
+export const ComposerCursorContext = createContext<RefObject<number | undefined> | null>(null);
 
 /**
  * The size of the composer (as t3code and Claude Code): a one-line pill at rest, the full

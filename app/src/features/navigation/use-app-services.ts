@@ -8,6 +8,7 @@ import { createContext, use } from "react";
 import type { Drafts } from "@/features/conversation/model/drafts";
 import type { ModelChoices } from "@/features/conversation/model/model-choices";
 import type { Outbox } from "@/features/conversation/model/outbox";
+import type { Voice } from "@/features/conversation/model/voice";
 import type { PreferencesStore } from "@/features/settings/model/preferences";
 import type { AppLock } from "./model/app-lock";
 import type { AppAttach, AppRuntime, AppServices } from "./model/app-services";
@@ -57,4 +58,9 @@ export function useAppLock(): AppLock {
 /** The attachments of the composer, or null in a build without efr-files and the pickers. */
 export function useAttach(): AppAttach | null {
   return useAppServices().attach;
+}
+
+/** Voice input of the composer, or null in a build without efr-speech. */
+export function useVoice(): Voice | null {
+  return useAppServices().voice;
 }

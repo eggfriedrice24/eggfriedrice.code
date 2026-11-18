@@ -20,12 +20,18 @@ import { cn } from "@/components/ui/cn";
 import { roles } from "@/theme/roles";
 
 import { ANSWER_PLACEHOLDER } from "../../model/question";
-import { ComposerContext, ComposerInputRefContext, ComposerSizeContext } from "./composer-context";
+import {
+  ComposerContext,
+  ComposerCursorContext,
+  ComposerInputRefContext,
+  ComposerSizeContext,
+} from "./composer-context";
 
 /** The text input of the composer. It reads the draft through the composer. */
 export function ComposerInput() {
   const model = use(ComposerContext);
   const inputRef = use(ComposerInputRefContext);
+  const cursorRef = use(ComposerCursorContext);
   const size = use(ComposerSizeContext);
   if (model === null) {
     return null;
@@ -41,6 +47,11 @@ export function ComposerInput() {
       keyboardAppearance="dark"
       value={model.value}
       onChangeText={model.setText}
+      onSelectionChange={(event) => {
+        if (cursorRef !== null) {
+          cursorRef.current = event.nativeEvent.selection.start;
+        }
+      }}
       editable={kind !== "disconnected"}
       onFocus={() => size.setFocused(true)}
       onBlur={() => size.setFocused(false)}

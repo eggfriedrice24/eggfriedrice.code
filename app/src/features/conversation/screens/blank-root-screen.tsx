@@ -36,6 +36,7 @@ import {
   useOutbox,
   usePreferences,
   useRuntime,
+  useVoice,
 } from "@/features/navigation/use-app-services";
 import { useMachineConnections, useRootMachine } from "@/features/navigation/use-machines";
 import { useOpenConversation } from "@/features/navigation/use-open-conversation";
@@ -82,6 +83,7 @@ function BlankRoot(props: BlankRootProps) {
   const modelChoices = useModelChoices();
   const appLock = useAppLock();
   const attach = useAttach();
+  const voice = useVoice();
   const router = useRouter();
   const open = useOpenConversation();
   const top = useHeaderHeight();
@@ -97,6 +99,7 @@ function BlankRoot(props: BlankRootProps) {
     newCommandId,
     lock: appLock,
     attach,
+    voice,
   };
   const target: ComposerTarget = { machine: machine.id, id: localId, isBlankRoot: true };
   // The shell block shows the mode of the mode control (round 7, item 8).

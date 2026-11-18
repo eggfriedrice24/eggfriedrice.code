@@ -22,6 +22,7 @@
 // - In a build with efr-files and the pickers, the attachments hold the files of each
 //   draft, the drains upload the files of a prompt, and a sent prompt keeps only the
 //   previews of its photos.
+// - In a build with efr-speech, voice input writes speech into a draft.
 //
 // Every effect comes in as a parameter, so the services run in Vitest with fakes. The
 // root layout gives the native ones.
@@ -40,6 +41,7 @@ import type { EventCaches } from "@/lib/store/event-cache";
 import type { FrameScheduler } from "@/lib/store/frame-store";
 import type { KeyValueStorage } from "@/lib/store/key-value";
 import type { SqlDatabase } from "@/lib/store/sqlite-cache";
+import type { EfrSpeechNative } from "../../../../modules/efr-speech";
 import {
   createAttachments,
   type AttachNative,
@@ -51,6 +53,7 @@ import {
 } from "@/features/conversation/model/conversation-stream";
 import { createDrafts, type Drafts } from "@/features/conversation/model/drafts";
 import { createModelChoices, type ModelChoices } from "@/features/conversation/model/model-choices";
+import { createVoice, type Voice } from "@/features/conversation/model/voice";
 import {
   createOutbox,
   type Outbox,
@@ -102,6 +105,8 @@ export interface AppServices {
   readonly push: Push | null;
   /** The attachments of the composer, or null in a build without efr-files and the pickers. */
   readonly attach: AppAttach | null;
+  /** Voice input of the composer, or null in a build without efr-speech. */
+  readonly voice: Voice | null;
   /** Settles when the runtime read the paired machines. It never rejects. */
   readonly loaded: Promise<void>;
   /** Stops every connection, drain and listener. */
@@ -154,6 +159,14 @@ export interface AppServicesDeps {
   readonly queryManagers?: QueryManagers;
   /** The pickers of iOS and efr-files; none in a build without them. */
   readonly attach?: AttachNative | null;
+  /** efr-speech and the haptic of a recording; none in a build without the module. */
+  readonly voice?: VoiceEffects | null;
+}
+
+/** The native side of voice input. */
+export interface VoiceEffects {
+  readonly speech: EfrSpeechNative;
+  readonly haptic: () => void;
 }
 
 /** The pickers and the files of the drafts and the prompts. */
@@ -354,6 +367,20 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     });
   }
 
+  const speech = deps.voice ?? null;
+  let voice: Voice | null = null;
+  if (speech !== null) {
+    const created = createVoice({
+      speech: speech.speech,
+      drafts,
+      clock: deps.clock,
+      haptic: speech.haptic,
+      onError,
+    });
+    voice = created;
+    stops.push(() => created.dispose());
+  }
+
   return {
     runtime,
     queryClient,
@@ -365,6 +392,7 @@ export function createAppServices(deps: AppServicesDeps): AppServices {
     appLock,
     push,
     attach,
+    voice,
     loaded,
     dispose(): void {
       for (const stop of stops.splice(0)) {

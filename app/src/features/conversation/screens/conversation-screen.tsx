@@ -50,6 +50,7 @@ import {
   useOutbox,
   usePreferences,
   useRuntime,
+  useVoice,
 } from "@/features/navigation/use-app-services";
 import { useHeaderSlot } from "@/features/navigation/use-header-slot";
 import { useMachineConnections, useMachines } from "@/features/navigation/use-machines";
@@ -130,6 +131,7 @@ function ConversationView(props: ConversationViewProps) {
   const modelChoices = useModelChoices();
   const appLock = useAppLock();
   const attach = useAttach();
+  const voice = useVoice();
   const route = useRouteConversation(machine, props.routeId, props.focus);
   const ref: ConversationRef = { machine, id: route.id };
   const list = useRef<TranscriptListHandle>(null);
@@ -189,6 +191,7 @@ function ConversationView(props: ConversationViewProps) {
     newCommandId,
     lock: appLock,
     attach,
+    voice,
   };
   const openModels = (select?: { readonly model: string; readonly provider?: string }): void => {
     const sheet: { -readonly [K in keyof ModelSheetTarget]: ModelSheetTarget[K] } = {

@@ -5,13 +5,13 @@ import { describe, expect, it, jest } from "@jest/globals";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createAtom, createStore, type Atom, type Readable } from "@tanstack/store";
 import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
-import { processColor, StyleSheet, TextInput } from "react-native";
+import { Linking, processColor, StyleSheet, TextInput } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import type { ConnectionView } from "@/features/machines/model/connection-view";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import { createPreferences, type PreferencesStore } from "@/features/settings/model/preferences";
-import { remoteHello } from "@/lib/net/testing";
+import { FakeClock, remoteHello } from "@/lib/net/testing";
 import type { AttachmentLimits, ModelsListResult } from "@/lib/protocol/generated";
 import { FakeCaller } from "@/lib/query/testing";
 import type { KeyValueStorage } from "@/lib/store/key-value";
@@ -21,6 +21,8 @@ import { RADII, SPACING, TILE } from "@/theme/metrics";
 import { roles } from "@/theme/roles";
 
 import { testAttach, type TestAttach } from "../../model/attachments-testing";
+import { MICROPHONE_DENIED, VOICE_LINES, createVoice } from "../../model/voice";
+import { FakeSpeech } from "../../model/voice-testing";
 import { composerDraftKey, type ComposerTarget } from "../../model/composer-state";
 import { createDrafts, type Drafts } from "../../model/drafts";
 import { createModelChoices, type ModelChoice, type ModelChoices } from "../../model/model-choices";
@@ -114,6 +116,8 @@ interface Harness {
   readonly sent: OutboxEntry[];
   /** How often the model button opened the sheet. */
   readonly opened: { count: number };
+  /** efr-speech of the composer, when the setup asked for voice. */
+  readonly speech: FakeSpeech | undefined;
 }
 
 interface Setup {
@@ -137,6 +141,8 @@ interface Setup {
   readonly answering?: ComposerAnswer;
   /** The pickers and the files; with them efrd sends the capability `attachments`. */
   readonly attach?: (outbox: Outbox) => TestAttach;
+  /** True for efr-speech on an iPhone with speech support for its language. */
+  readonly voice?: boolean;
 }
 
 /** The limits of the capability `attachments` of the test efrd. */
@@ -182,6 +188,22 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
   if (setup.text !== undefined) {
     drafts.set(composerDraftKey(target), setup.text);
   }
+  const speech = setup.voice === true ? new FakeSpeech() : undefined;
+  const voice =
+    speech === undefined
+      ? null
+      : createVoice({
+          speech,
+          drafts,
+          // The time of a recording counts from the wall clock, as `useNow` reads it.
+          clock: new FakeClock(Date.now()),
+          haptic: () => undefined,
+          onError: () => undefined,
+        });
+  // The voice controller asks the module for support once, at once.
+  await act(async () => {
+    await Promise.resolve();
+  });
   const deps: ComposerDeps = {
     caller,
     outbox,
@@ -194,6 +216,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       facts: () => Promise.resolve(DEFAULT_FACTS),
     },
     attach: attach ?? null,
+    voice,
   };
   const sent: OutboxEntry[] = [];
   // No garbage collection timer, so jest ends when the tests do.
@@ -245,7 +268,7 @@ async function renderComposer(setup: Setup = {}): Promise<Harness> {
       "focus",
     );
   }
-  return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened };
+  return { caller, outbox, drafts, preferences, modelChoices, connection, sent, opened, speech };
 }
 
 /** Lets TanStack Query tell the observers of a mutation (it notifies on a timer of 0 ms). */
@@ -341,13 +364,12 @@ describe("the states of the composer", () => {
   it.each([true, false])(
     "has the plus at the left and the voice button before Send (rest: %s)",
     async (rest) => {
-      await renderComposer({ rest, attach: testAttach });
+      await renderComposer({ rest, attach: testAttach, voice: true });
       const attach = screen.getByRole("button", { name: "Attach" });
       const voice = screen.getByRole("button", { name: "Record a voice message" });
       expect(attach).toBeEnabled();
       expect(attach.props.accessibilityHint).toBe("Photo Library, Take Photo or Choose File.");
-      expect(voice).toBeDisabled();
-      expect(voice.props.accessibilityHint).toBe("Not available yet.");
+      expect(voice).toBeEnabled();
       for (const button of [attach, voice]) {
         expect(button.props.className).toContain("w-action h-action");
         expect(button.props.hitSlop).toBe((SPACING.hit - SPACING.action) / 2);
@@ -357,10 +379,11 @@ describe("the states of the composer", () => {
     },
   );
 
-  it("has no plus and nothing in its place without the pickers or the capability", async () => {
+  it("has no plus and no microphone, and nothing in their place, in a build without them", async () => {
     await renderComposer();
     expect(screen.queryByTestId("composer-attach")).toBeNull();
-    expect(screen.getByRole("button", { name: "Record a voice message" })).toBeOnTheScreen();
+    expect(screen.queryByTestId("composer-voice")).toBeNull();
+    expect(sendButton()).toBeOnTheScreen();
   });
 
   it("enables Send while typing, and the field grows to six lines", async () => {
@@ -1094,5 +1117,82 @@ describe("the files of the draft (S-Attach)", () => {
     await fireEvent.press(capsule);
     expect(harness.caller.callsOf("turn.steer")).toHaveLength(0);
     expect(harness.outbox.store.get().entries[0]?.attachments).toHaveLength(1);
+  });
+});
+
+/** The efr-speech of a composer that the setup gave voice. */
+function speechOf(harness: Harness): FakeSpeech {
+  if (harness.speech === undefined) {
+    throw new Error("the composer has no voice");
+  }
+  return harness.speech;
+}
+
+describe("voice input (S-Voice)", () => {
+  it("records into the draft at the cursor, with Send off, and never sends", async () => {
+    const harness = await renderComposer({ voice: true, text: "Look at the header." });
+    const speech = speechOf(harness);
+    await fireEvent(input(), "selectionChange", {
+      nativeEvent: { selection: { start: 19, end: 19 } },
+    });
+    await fireEvent.press(screen.getByRole("button", { name: "Record a voice message" }));
+    expect(speech.calls).toEqual(["start"]);
+    await act(async () => {
+      speech.phase("recording");
+    });
+    expect(screen.getByRole("button", { name: "Stop recording, 0 seconds" })).toBeOnTheScreen();
+    expect(screen.getByText("0:00", HIDDEN)).toBeOnTheScreen();
+    expect(sendButton()).toBeDisabled();
+    await act(async () => {
+      speech.transcript("It is cut off.");
+    });
+    expect(input().props.value).toBe("Look at the header. It is cut off.");
+    await fireEvent.press(screen.getByRole("button", { name: "Stop recording, 0 seconds" }));
+    expect(speech.calls).toEqual(["start", "stop"]);
+    await act(async () => {
+      speech.end("stopped");
+    });
+    expect(screen.getByRole("button", { name: "Record a voice message" })).toBeOnTheScreen();
+    expect(sendButton()).toBeEnabled();
+    expect(harness.outbox.store.get().entries).toEqual([]);
+  });
+
+  it("says that iOS gets the speech model, in the slot of the microphone and above the line", async () => {
+    const harness = await renderComposer({ voice: true });
+    await fireEvent.press(screen.getByRole("button", { name: "Record a voice message" }));
+    await act(async () => {
+      speechOf(harness).phase("model");
+    });
+    expect(screen.getByText("Getting the speech model")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Getting the speech model" })).toBeDisabled();
+  });
+
+  it("opens the iOS settings from the line of a denied microphone, and Send takes a line away", async () => {
+    const open = jest.spyOn(Linking, "openSettings").mockResolvedValue();
+    const harness = await renderComposer({ voice: true, text: "Hi" });
+    speechOf(harness).startError = MICROPHONE_DENIED;
+    await fireEvent.press(screen.getByRole("button", { name: "Record a voice message" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const line = screen.getByRole("button", { name: VOICE_LINES.denied });
+    await fireEvent.press(line);
+    expect(open).toHaveBeenCalledTimes(1);
+    await fireEvent.press(sendButton());
+    expect(screen.queryByTestId("composer-voice-line")).toBeNull();
+    open.mockRestore();
+  });
+
+  it("names a call that stopped the recording, and keeps the text so far", async () => {
+    const harness = await renderComposer({ voice: true });
+    const speech = speechOf(harness);
+    await fireEvent.press(screen.getByRole("button", { name: "Record a voice message" }));
+    await act(async () => {
+      speech.phase("recording");
+      speech.transcript("so far");
+      speech.end("interrupted");
+    });
+    expect(screen.getByText(VOICE_LINES.interrupted)).toBeOnTheScreen();
+    expect(input().props.value).toBe("so far");
   });
 });
