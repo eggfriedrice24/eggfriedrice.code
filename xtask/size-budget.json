@@ -1,8 +1,8 @@
 {
-  "about": "The largest size in bytes of each release binary of `just build-release` (stripped, with the ghostty screen backend). `just bench-size` fails when a binary is larger. The budgets of 2026-10-23 are the sizes of v0.0.4 plus about 2 percent; lower a budget when a change makes its binary smaller.",
+  "about": "The largest size in bytes of each release binary of `just build-release` (stripped, with the ghostty screen backend). `just bench-size` fails when a binary is larger. The budgets of 2026-11-18 are the sizes of 3ef1f834 (0.0.12 and the libghostty-vt fixes) plus 2 percent. cargo bloat found no crate twice that matters and no feature on by accident in efr: the growth since the budgets of v0.0.4 is efr's own code of 0.0.5 to 0.0.12. It found one fault in efrd: `just build-release` builds the three binaries in one cargo run, so the regex features of efr's syntax colours (fancy-regex) join the regex of efrd, which costs efrd 1.15 MB (42053240 bytes alone). Lower a budget when a change makes its binary smaller.",
   "max_bytes": {
-    "efrd": 38400000,
-    "efr": 13600000,
-    "efr-sbx": 3650000
+    "efrd": 44064000,
+    "efr": 15249000,
+    "efr-sbx": 3632000
   }
 }
