@@ -10,6 +10,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+## [0.0.12] - 2026-11-18
+
 ### Added
 
 - The model can monitor a log, a build, a test run or a deploy: it starts a background
@@ -2627,7 +2629,8 @@ The first release, on the AUR as `efr-code` and `efr-code-bin`.
 - Settings in `config.toml` with live reload, `efr config` commands and `efr paths`.
 - The AUR packages `efr-code` and `efr-code-bin`.
 
-[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.11...HEAD
+[Unreleased]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.12...HEAD
+[0.0.12]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.11...v0.0.12
 [0.0.11]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.10...v0.0.11
 [0.0.10]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.9...v0.0.10
 [0.0.9]: https://github.com/eggfriedrice24/eggfriedrice.code/compare/v0.0.8...v0.0.9
