@@ -5,14 +5,21 @@
 // The plugins run in the reverse order of the list, after the static `ios.infoPlist`. A
 // plugin option `false` deletes its key, also a key of `ios.infoPlist`, so the test reads
 // the result and not the options.
+//
+// Autolinking links each local module of app/modules by the class in its
+// expo-module.config.json. A class that the Swift file does not declare fails only at
+// the EAS build, so the test reads both.
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 const APP = join(import.meta.dirname, "..");
-const EXPO_CLI = createRequire(join(APP, "package.json")).resolve("expo/bin/cli");
+const resolve = createRequire(join(APP, "package.json")).resolve;
+const EXPO_CLI = resolve("expo/bin/cli");
+const AUTOLINKING_CLI = resolve("expo/bin/autolinking");
 
 /** The slow part: one run of the Expo CLI for each variant. */
 const CONFIG_TIMEOUT_MS = 60_000;
@@ -28,16 +35,30 @@ interface IosConfig {
   readonly entitlements: Readonly<Record<string, unknown>>;
 }
 
-function introspect(variant: string): IosConfig {
-  const run = spawnSync(process.execPath, [EXPO_CLI, "config", "--type", "introspect", "--json"], {
+/** What a CLI of Expo prints to stdout. */
+function run(cli: string, args: readonly string[], env: Record<string, string> = {}): string {
+  const result = spawnSync(process.execPath, [cli, ...args], {
     cwd: APP,
     encoding: "utf8",
-    env: { ...process.env, APP_VARIANT: variant, EXPO_OFFLINE: "1", EXPO_NO_TELEMETRY: "1" },
+    env: { ...process.env, ...env, EXPO_OFFLINE: "1", EXPO_NO_TELEMETRY: "1" },
   });
-  expect(run.stderr).not.toContain("Error");
-  expect(run.status).toBe(0);
-  const config: { readonly ios: IosConfig } = JSON.parse(run.stdout);
+  expect(result.stderr).not.toContain("Error");
+  expect(result.status).toBe(0);
+  return result.stdout;
+}
+
+function introspect(variant: string): IosConfig {
+  const args = ["config", "--type", "introspect", "--json"];
+  const config: { readonly ios: IosConfig } = JSON.parse(
+    run(EXPO_CLI, args, { APP_VARIANT: variant }),
+  );
   return config.ios;
+}
+
+interface LinkedModule {
+  readonly packageName: string;
+  readonly pods: readonly { readonly podName: string; readonly podspecDir: string }[];
+  readonly modules: readonly { readonly class: string }[];
 }
 
 describe.each([
@@ -62,6 +83,35 @@ describe.each([
       // A push only shows a notice: the app has no background mode for it.
       expect(ios.infoPlist).not.toHaveProperty("UIBackgroundModes");
       expect(ios.entitlements).toHaveProperty("aps-environment");
+    },
+    CONFIG_TIMEOUT_MS,
+  );
+});
+
+describe("the local modules", () => {
+  it(
+    "are linked with a pod and the module class that their Swift file declares",
+    () => {
+      const resolved: { readonly modules: readonly LinkedModule[] } = JSON.parse(
+        run(AUTOLINKING_CLI, ["resolve", "-p", "apple", "--json"]),
+      );
+      const local = resolved.modules.filter((linked) => linked.packageName.startsWith("efr-"));
+      expect(local.map((linked) => linked.packageName).sort()).toEqual([
+        "efr-device-key",
+        "efr-files",
+        "efr-speech",
+      ]);
+      for (const linked of local) {
+        const [pod] = linked.pods;
+        const [module] = linked.modules;
+        expect(pod).toBeDefined();
+        expect(module).toBeDefined();
+        const swift = readFileSync(
+          join(pod?.podspecDir ?? "", `${module?.class ?? ""}.swift`),
+          "utf8",
+        );
+        expect(swift).toContain(`public class ${module?.class ?? ""}: Module`);
+      }
     },
     CONFIG_TIMEOUT_MS,
   );
