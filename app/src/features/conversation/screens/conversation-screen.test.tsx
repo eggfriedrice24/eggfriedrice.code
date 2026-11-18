@@ -244,7 +244,9 @@ describe("the conversation screen", () => {
 
   it("subscribes while it has the focus, and again with after_seq when it gets it back", async () => {
     await open(`/c/${DESKTOP}/${CONVERSATION}`);
-    expect(subscribes()).toEqual([{ conversation_id: CONVERSATION, drafts: true }]);
+    expect(subscribes()).toEqual([
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true },
+    ]);
     await act(async () => {
       await stream(services(), DESKTOP, CONVERSATION, [finished()]);
     });
@@ -262,6 +264,7 @@ describe("the conversation screen", () => {
     expect(subscribes().at(-1)).toEqual({
       conversation_id: CONVERSATION,
       drafts: true,
+      answers_questions: true,
       after_seq: 3,
     });
     // The stream stayed in memory, so the transcript shows at once.

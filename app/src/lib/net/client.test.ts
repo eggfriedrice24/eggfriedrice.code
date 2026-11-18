@@ -260,8 +260,9 @@ describe("subscriptions", () => {
     const { client, clock, sockets } = await started();
     const sink = new Sink();
     client.subscribe(CONVERSATION, sink);
+    // The phone can answer the model's question, so efrd waits for it.
     expect(subscribeParams(sockets.last)).toEqual([
-      { conversation_id: CONVERSATION, drafts: true },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true },
     ]);
     const id = sockets.last.lastId("conversation.subscribe");
     sockets.last.receive({ id, item: event(41) });
@@ -273,7 +274,7 @@ describe("subscriptions", () => {
     await clock.advance(1000);
     await completeHandshake(sockets.last);
     expect(subscribeParams(sockets.last)).toEqual([
-      { conversation_id: CONVERSATION, drafts: true, after_seq: 42 },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true, after_seq: 42 },
     ]);
     expect(sink.statuses).toEqual(["subscribing", "live", "waiting", "subscribing"]);
   });
@@ -302,6 +303,7 @@ describe("subscriptions", () => {
     expect(subscribeParams(socket).at(-1)).toEqual({
       conversation_id: CONVERSATION,
       drafts: true,
+      answers_questions: true,
       after_seq: 7,
     });
     // A second overflow before any item waits twice as long.

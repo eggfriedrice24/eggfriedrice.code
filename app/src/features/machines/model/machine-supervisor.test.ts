@@ -243,7 +243,7 @@ describe("with the stream of the conversation feature", () => {
     await flush();
     expect(hold.stream.ref).toEqual({ machine: DESKTOP, id: CONVERSATION });
     expect(subscribes(sockets.last)).toEqual([
-      { conversation_id: CONVERSATION, drafts: true, after_seq: 41 },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true, after_seq: 41 },
     ]);
 
     const id = sockets.last.lastId("conversation.subscribe");
@@ -266,7 +266,7 @@ describe("the streams", () => {
     streams.last.finishCache();
     await flush();
     expect(subscribes(sockets.last)).toEqual([
-      { conversation_id: CONVERSATION, drafts: true, after_seq: 41 },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true, after_seq: 41 },
     ]);
     expect(hold.stream).toBe(streams.last);
     expect(streams.last.ref).toEqual({ machine: DESKTOP, id: CONVERSATION });
@@ -315,8 +315,8 @@ describe("the streams", () => {
     const again = supervisor.hold(CONVERSATION, "follow");
     await flush();
     expect(subscribes(sockets.last)).toEqual([
-      { conversation_id: CONVERSATION, drafts: true },
-      { conversation_id: CONVERSATION, drafts: true, after_seq: 7 },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true },
+      { conversation_id: CONVERSATION, drafts: true, answers_questions: true, after_seq: 7 },
     ]);
     again.release();
   });

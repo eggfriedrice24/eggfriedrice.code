@@ -243,11 +243,19 @@ export class Client {
     return connection.call(method, params, options);
   }
 
-  /** Follows conversation `conversationId` with drafts, across connections. */
+  /**
+   * Follows conversation `conversationId` with drafts, across connections. The phone can
+   * answer the model's question, so it says so: while it follows, a question waits as an
+   * approval does, and not only `presence.away_wait_secs`.
+   */
   subscribe(conversationId: string, sink: SubscriptionSink): Subscription {
     const target: EntryTarget = {
       open: (connection, handlers) => {
-        const params: ConversationSubscribe = { conversation_id: conversationId, drafts: true };
+        const params: ConversationSubscribe = {
+          conversation_id: conversationId,
+          drafts: true,
+          answers_questions: true,
+        };
         const cursor = sink.cursor();
         if (cursor !== undefined && cursor > 0) {
           params.after_seq = cursor;
