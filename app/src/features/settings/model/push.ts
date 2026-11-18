@@ -194,8 +194,14 @@ export function createPush(deps: PushDeps): Push {
   const stops = [
     runtime.onReady((machine) => {
       const takes = takesToken(runtime, machine) === true;
-      const others = store.state.unavailable.filter((id) => id !== machine);
-      update({ unavailable: takes ? others : [...others, machine] });
+      const { unavailable } = store.state;
+      if (takes === unavailable.includes(machine)) {
+        update({
+          unavailable: takes
+            ? unavailable.filter((id) => id !== machine)
+            : [...unavailable, machine],
+        });
+      }
       sync(machine);
     }),
     native.followTokens(() => {
