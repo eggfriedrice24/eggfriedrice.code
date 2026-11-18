@@ -18,6 +18,10 @@ across a restart:
   log, but only when an applied step adds or reshapes a projection (`REBUILDS`, one
   flag per step); `0009_search.sql` adds only the search tables, so the start after it
   does not replay the log. `MigrationReport::rebuilt` says whether a rebuild ran.
+  Before the first step, a start that must rebuild sets `PRAGMA application_id` to the
+  mark `efrb`, and the transaction of the rebuild clears it. So a start that stopped
+  after the steps and before the rebuild rebuilds at the next start, also when no
+  step is left.
   After the migrations, also when none ran, only the newest `KEPT_BACKUPS` (2) copies
   by version stay in `backups/`, the copy of this start among them;
   `MigrationReport::pruned` and `not_pruned` name the older copies; `not_pruned`

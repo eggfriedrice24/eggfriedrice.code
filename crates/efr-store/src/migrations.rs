@@ -180,30 +180,67 @@ impl Migrations {
         if from > latest {
             return Err(StoreError::SchemaTooNew { found: from, supported: latest });
         }
+        // NOTE: a start that ended after the steps and before the rebuild left the mark;
+        // the rebuild runs now, also when no step is pending.
+        let pending = rebuild_pending(conn)?;
         if from == latest {
-            return Ok(MigrationReport::new(from, from, None, false));
+            if pending {
+                rebuild(conn)?;
+            }
+            return Ok(MigrationReport::new(from, from, None, pending));
         }
         let backup = match backups {
             Some(dir) if from > 0 => backup(conn, dir, from)?,
             _ => None,
         };
+        // A migration may add or reshape a projection, and projections are a function
+        // of the log, so they are rebuilt rather than migrated row by row. The steps
+        // run from index `from` (version `from + 1`) on.
+        let rebuilt = pending
+            || (from > 0
+                && (from..latest)
+                    .any(|index| self.rebuilds.get(index as usize).copied().unwrap_or(true)));
+        // NOTE: each step commits on its own, and the rebuild after them; the mark
+        // commits before the first step, so a stop between them never skips the
+        // rebuild.
+        if rebuilt && !pending {
+            mark_rebuild(conn, true)?;
+        }
         for version in from + 1..=latest {
             // One call per file, so each file commits on its own.
             self.steps.to_version(conn, version as usize)?;
         }
-        // A migration may add or reshape a projection, and projections are a function
-        // of the log, so they are rebuilt rather than migrated row by row. The steps
-        // run from index `from` (version `from + 1`) on.
-        let rebuilt = from > 0
-            && (from..latest)
-                .any(|index| self.rebuilds.get(index as usize).copied().unwrap_or(true));
         if rebuilt {
-            let tx = conn.transaction()?;
-            projection::rebuild(&tx)?;
-            tx.commit()?;
+            rebuild(conn)?;
         }
         Ok(MigrationReport::new(from, latest, backup, rebuilt))
     }
+}
+
+/// The `application_id` of a database whose projections must be rebuilt: `efrb`. The
+/// mark lives in the header of the file, so it needs no table, and a change of it
+/// commits or rolls back with its transaction.
+const REBUILD_MARK: i32 = 0x6566_7262;
+
+/// True when a start marked the projections for a rebuild that has not run yet.
+fn rebuild_pending(conn: &Connection) -> Result<bool, StoreError> {
+    let id: i32 = conn.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    Ok(id == REBUILD_MARK)
+}
+
+/// Sets or clears the mark of a pending rebuild.
+fn mark_rebuild(conn: &Connection, pending: bool) -> Result<(), StoreError> {
+    conn.pragma_update(None, "application_id", if pending { REBUILD_MARK } else { 0 })?;
+    Ok(())
+}
+
+/// Rebuilds the projections from the log and clears the mark in one transaction.
+fn rebuild(conn: &mut Connection) -> Result<(), StoreError> {
+    let tx = conn.transaction()?;
+    projection::rebuild(&tx)?;
+    mark_rebuild(&tx, false)?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Removes the copies of the database's file in `dir` beyond the newest

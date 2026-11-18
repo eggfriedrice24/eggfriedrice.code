@@ -427,6 +427,30 @@ fn database_with_an_unprojected_event(dir: &Path, version: usize) -> Connection 
 }
 
 #[test]
+fn a_start_that_stopped_before_the_rebuild_rebuilds_at_the_next_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(dir.path(), 13);
+    // The start marked the rebuild and ran step 14, then stopped before the rebuild.
+    mark_rebuild(&conn, true).unwrap();
+    Migrations::new().steps.to_version(&mut conn, 14).unwrap();
+    assert_eq!(count(&conn, "conversations"), 0);
+
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert_eq!((report.from, report.to, report.rebuilt), (14, 14, true));
+    assert_eq!(count(&conn, "conversations"), 1);
+    assert!(!rebuild_pending(&conn).unwrap(), "the rebuild clears the mark");
+    let again = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert!(!again.rebuilt, "one rebuild");
+
+    // A migration that rebuilds leaves no mark behind.
+    let from_13 = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(from_13.path(), 13);
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert!(report.rebuilt);
+    assert!(!rebuild_pending(&conn).unwrap());
+}
+
+#[test]
 fn migration_9_needs_no_rebuild() {
     let from_8 = tempfile::tempdir().unwrap();
     let mut conn = database_with_an_unprojected_event(from_8.path(), 8);
