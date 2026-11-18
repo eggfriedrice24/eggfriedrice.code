@@ -11,8 +11,10 @@
 //! The tables are not projections: a rebuild of the projections leaves them alone.
 //! The row id of a doc is the sequence number of its event, and one event gives at
 //! most one doc. Indexed are the text of `prompt_queued` (a prompt), of `turn_steered`
-//! (a steer), of `assistant_message_completed` (an answer) and the command line of a
-//! `tool_call_started` of the tool `shell` (a command). `prompt_withdrawn`,
+//! (a steer), of `assistant_message_completed` (an answer), the command line of a
+//! `tool_call_started` of the tool `shell` (a command), the question and the option
+//! labels of `user_question_requested` (a question of the model), and the typed text of
+//! a `user_question_answered` (a reply of the user). `prompt_withdrawn`,
 //! `steering_withdrawn` and the steers that a `prompt_queued` sends again take docs
 //! back. Nothing else is indexed: no output, no diff, no file contents.
 //!
@@ -72,7 +74,7 @@ pub const SOURCE_CHARS: u32 = 33_792;
 
 const STATE: &str = "search_state";
 
-/// What a doc of the index holds. Stored as 0 to 3 in `search_docs.kind`.
+/// What a doc of the index holds. Stored as 0 to 5 in `search_docs.kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DocKind {
     /// The text of a prompt (`prompt_queued`).
@@ -83,6 +85,13 @@ pub enum DocKind {
     Answer,
     /// The command line of a `shell` call (`tool_call_started`).
     Command,
+    /// The model's question and the labels of its options, one per line
+    /// (`user_question_requested`). A search shows it as text of the model.
+    Question,
+    /// An answer that the user typed to the model's question (`user_question_answered`).
+    /// A search shows it as text of the user, but it is a kind of its own: it never
+    /// names a conversation, as a prompt does.
+    Reply,
 }
 
 impl DocKind {
@@ -93,6 +102,8 @@ impl DocKind {
             DocKind::Steer => 1,
             DocKind::Answer => 2,
             DocKind::Command => 3,
+            DocKind::Question => 4,
+            DocKind::Reply => 5,
         }
     }
 
@@ -103,6 +114,8 @@ impl DocKind {
             1 => Some(DocKind::Steer),
             2 => Some(DocKind::Answer),
             3 => Some(DocKind::Command),
+            4 => Some(DocKind::Question),
+            5 => Some(DocKind::Reply),
             _ => None,
         }
     }
@@ -193,7 +206,10 @@ pub fn state(conn: &Connection) -> Result<SearchState, StoreError> {
 }
 
 /// The source events of the index, with the text that each carries cut in SQL, and
-/// the event kinds that take a doc back. Codes 0 to 3 are [`DocKind`]s.
+/// the event kinds that take a doc back. Codes 0 to 5 are [`DocKind`]s. The text of a
+/// question is the question and the label of each option, one per line, in the order
+/// of the options. A picked option, a skip and an answer that nobody gave carry no
+/// text of their own.
 const PENDING_SQL: &str = "\
     SELECT seq, conversation_id, \
         CASE kind \
@@ -201,8 +217,10 @@ const PENDING_SQL: &str = "\
             WHEN 'turn_steered' THEN 1 \
             WHEN 'assistant_message_completed' THEN 2 \
             WHEN 'tool_call_started' THEN 3 \
-            WHEN 'prompt_withdrawn' THEN 4 \
-            ELSE 5 \
+            WHEN 'user_question_requested' THEN 4 \
+            WHEN 'user_question_answered' THEN 5 \
+            WHEN 'prompt_withdrawn' THEN 6 \
+            ELSE 7 \
         END, \
         CASE \
             WHEN kind IN ('prompt_queued', 'turn_steered', 'assistant_message_completed') \
@@ -211,6 +229,17 @@ const PENDING_SQL: &str = "\
             WHEN kind = 'tool_call_started' AND json_extract(payload, '$.tool') = 'shell' \
                 AND json_type(payload, '$.input.command') = 'text' \
                 THEN substr(json_extract(payload, '$.input.command'), 1, ?3) \
+            WHEN kind = 'user_question_requested' AND json_type(payload, '$.question') = 'text' \
+                THEN substr(json_extract(payload, '$.question') || coalesce(( \
+                    SELECT char(10) || group_concat(label, char(10)) FROM ( \
+                        SELECT json_extract(value, '$.label') AS label \
+                        FROM json_each(payload, '$.options') \
+                        WHERE json_type(value, '$.label') = 'text' ORDER BY key)), ''), 1, ?3) \
+            WHEN kind = 'user_question_answered' \
+                AND json_extract(payload, '$.answer.kind') = 'replied' \
+                AND json_extract(payload, '$.answer.reply.kind') = 'text' \
+                AND json_type(payload, '$.answer.reply.text') = 'text' \
+                THEN substr(json_extract(payload, '$.answer.reply.text'), 1, ?3) \
         END, \
         CASE WHEN kind IN ('prompt_queued', 'steering_withdrawn') \
             THEN json_extract(payload, '$.steers') END, \
@@ -219,7 +248,8 @@ const PENDING_SQL: &str = "\
     FROM events \
     WHERE seq > ?1 AND seq <= ?2 AND conversation_id IS NOT NULL \
         AND kind IN ('prompt_queued', 'turn_steered', 'assistant_message_completed', \
-            'tool_call_started', 'prompt_withdrawn', 'steering_withdrawn') \
+            'tool_call_started', 'user_question_requested', 'user_question_answered', \
+            'prompt_withdrawn', 'steering_withdrawn') \
     ORDER BY seq";
 
 /// The next page of the index's source after `after`, in sequence order: at most

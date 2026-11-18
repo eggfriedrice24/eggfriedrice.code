@@ -21,7 +21,7 @@ use super::fuzzy::Scorer;
 use super::lane::VOCABULARY;
 use super::query::{self, Query, QueryError};
 use super::snippet::{self, Needle};
-use super::{SearchStop, marks, rank, state};
+use super::{DocKind, SearchStop, marks, rank, state};
 use crate::{StoreError, sql};
 
 /// The most rows of the full text index that one search reads, newest first.
@@ -692,13 +692,14 @@ fn needles(parsed: &Query) -> Vec<Needle> {
         .collect()
 }
 
-/// The kind of a hit from the kind code of its doc.
+/// The kind of a hit from the kind code of its doc: a reply of the user to the model's
+/// question shows as text of the user, the question as text of the model.
 fn search_kind(kind: i64) -> SearchKind {
-    match kind {
-        0 | 1 => SearchKind::Prompt,
-        2 => SearchKind::Answer,
-        3 => SearchKind::Command,
-        _ => SearchKind::Unknown,
+    match DocKind::from_code(kind) {
+        Some(DocKind::Prompt | DocKind::Steer | DocKind::Reply) => SearchKind::Prompt,
+        Some(DocKind::Answer | DocKind::Question) => SearchKind::Answer,
+        Some(DocKind::Command) => SearchKind::Command,
+        None => SearchKind::Unknown,
     }
 }
 

@@ -80,11 +80,11 @@ credential agent socket). That rule reads only the user's own messages.
   only they follow takes the away wait.
 - `ask_user` was also a verdict of the reviewer in old `exit_judged` events (ADR 0023).
   The two names are in different members of different events and do not collide.
-- 0.0.12 does not put the question, its options or a typed answer into the search
-  index. `efr search` and the search of the phone do not find them. A later version can
-  index the question as text of the model and the answer as a kind of its own, never as
-  a prompt or a steer, so a result never shows an answer as a message of the user
-  (decision 3).
+- The search index holds the question with the label of each option as text of the
+  model, and a typed answer as text of the user, both with the secrets that efr
+  recognises replaced. A picked option adds no text. The typed answer has a doc kind of
+  its own in the store, never that of a prompt or a steer: it never names a
+  conversation, and the rules of decision 3 never read the index.
 
 ## Alternatives
 

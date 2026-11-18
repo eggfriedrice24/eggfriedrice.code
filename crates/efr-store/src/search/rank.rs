@@ -25,11 +25,12 @@ const SECOND_SHARE: f64 = 0.25;
 /// The buckets of `S`: scores within one bucket are a tie that recency breaks.
 const BUCKETS: f64 = 20.0;
 
-/// The weight of a hit by the kind code of its doc: 2 for a prompt or a steer, 1.5 for
-/// a command, 1 for an answer. What the person typed says most about a conversation.
+/// The weight of a hit by the kind code of its doc: 2 for a prompt, a steer or a reply
+/// that the person typed to the model's question, 1.5 for a command, 1 for an answer
+/// or a question of the model. What the person typed says most about a conversation.
 pub fn weight(kind: i64) -> f64 {
     match kind {
-        0 | 1 => 2.0,
+        0 | 1 | 5 => 2.0,
         3 => 1.5,
         _ => 1.0,
     }

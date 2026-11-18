@@ -32,11 +32,12 @@ pub fn index_text(kind: DocKind, text: &str) -> Option<String> {
     (!text.trim().is_empty()).then(|| text.to_owned())
 }
 
-/// The cap of a doc of `kind`, in bytes.
+/// The cap of a doc of `kind`, in bytes: text of the user takes the cap of a prompt,
+/// text of the model the cap of an answer.
 pub(crate) fn cap(kind: DocKind) -> usize {
     match kind {
-        DocKind::Prompt | DocKind::Steer => PROMPT_CAP,
-        DocKind::Answer => ANSWER_CAP,
+        DocKind::Prompt | DocKind::Steer | DocKind::Reply => PROMPT_CAP,
+        DocKind::Answer | DocKind::Question => ANSWER_CAP,
         DocKind::Command => COMMAND_CAP,
     }
 }

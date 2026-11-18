@@ -113,7 +113,9 @@ across a restart:
   page of newest events does not reach back to them.
 - `search` (migration 9): the search index of the conversations. `search_docs` holds
   one doc per indexed event, keyed by its sequence number: the text of a prompt, a
-  steer or an answer, or the command line of a `shell` call. `search_fts` is an FTS5
+  steer or an answer, the command line of a `shell` call, a question of the model with
+  its option labels, or an answer that the user typed to it. A typed answer has a kind
+  of its own, so it never names a conversation as a prompt does. `search_fts` is an FTS5
   index over it: external content, `unicode61 remove_diacritics 2`, and a prefix
   index of 3 characters, so a search expands no prefix shorter than 3. Its merges run
   in short steps (`automerge` 8, leaves of 1,000 bytes). From migration 12 it has the

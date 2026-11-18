@@ -1,4 +1,4 @@
-use efr_protocol::{Event, Origin, Usage};
+use efr_protocol::{Event, Origin, QuestionOption, QuestionReply, Usage, UserAnswer};
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use serde_json::json;
@@ -247,6 +247,86 @@ async fn pending_reads_the_four_kinds_and_skips_others() {
     );
     assert_eq!(page.drops, []);
     assert_eq!(page.through, Seq::new(12));
+}
+
+/// The end of the model's question `n` of turn 1.
+fn question_answered(n: u64, answer: UserAnswer) -> Event {
+    Event::UserQuestionAnswered {
+        turn_id: testing::turn(1),
+        question_id: testing::question(n),
+        answer,
+        origin: Some(Origin::Cli),
+    }
+}
+
+#[tokio::test]
+async fn pending_reads_the_question_and_a_typed_reply() {
+    let (writer, _thread) = writer();
+    create(&writer).await;
+    let option = |label: &str, description: Option<&str>| QuestionOption {
+        label: label.to_owned(),
+        description: description.map(str::to_owned),
+    };
+    let replied = |reply| UserAnswer::Replied { reply };
+    append(
+        &writer,
+        vec![
+            testing::queued(1, "set up the app"),
+            testing::started(1, "/p/app"),
+            Event::UserQuestionRequested {
+                turn_id: testing::turn(1),
+                call_id: testing::call(9),
+                question_id: testing::question(1),
+                question: "Which database?".to_owned(),
+                options: vec![
+                    option("Postgres", Some("the server already runs it")),
+                    option("SQLite", None),
+                ],
+            },
+            question_answered(1, replied(QuestionReply::Option { index: 1 })),
+            testing::user_question(2),
+            question_answered(2, replied(QuestionReply::Text { text: "port 5433".to_owned() })),
+            // A skip, an answer that nobody gave and an interrupt carry no text.
+            testing::user_question(3),
+            question_answered(3, replied(QuestionReply::Skipped)),
+            testing::user_question(4),
+            question_answered(4, UserAnswer::Unanswered { away: true }),
+            testing::user_question(5),
+            question_answered(5, UserAnswer::Interrupted),
+        ],
+    )
+    .await;
+
+    let page = pending_after(&writer, 0).await;
+
+    let id = conversation();
+    let row = |seq, kind, text: &str| SourceRow {
+        seq: Seq::new(seq),
+        conversation_id: id,
+        kind,
+        text: text.to_owned(),
+    };
+    assert_eq!(
+        page.rows,
+        [
+            row(2, DocKind::Prompt, "set up the app"),
+            // The descriptions stay out: the labels name the choices.
+            row(4, DocKind::Question, "Which database?\nPostgres\nSQLite"),
+            // A question with no options is its question alone.
+            row(6, DocKind::Question, "Which database?"),
+            row(7, DocKind::Reply, "port 5433"),
+            row(8, DocKind::Question, "Which database?"),
+            row(10, DocKind::Question, "Which database?"),
+            row(12, DocKind::Question, "Which database?"),
+        ]
+    );
+    assert_eq!(page.drops, []);
+
+    // A reply never names the conversation, as a prompt does.
+    index_all(&writer).await;
+    assert_eq!(titles(&writer).await, [title("set up the app", 2)]);
+    assert_eq!(found(&writer, "5433").await, [7]);
+    assert_eq!(found(&writer, "postgres").await, [4]);
 }
 
 #[tokio::test]
@@ -594,13 +674,18 @@ fn search_tables(conn: &Connection) -> Vec<Vec<String>> {
 
 #[test]
 fn doc_kinds_keep_their_codes() {
-    for (kind, code) in
-        [(DocKind::Prompt, 0), (DocKind::Steer, 1), (DocKind::Answer, 2), (DocKind::Command, 3)]
-    {
+    for (kind, code) in [
+        (DocKind::Prompt, 0),
+        (DocKind::Steer, 1),
+        (DocKind::Answer, 2),
+        (DocKind::Command, 3),
+        (DocKind::Question, 4),
+        (DocKind::Reply, 5),
+    ] {
         assert_eq!(kind.code(), code);
         assert_eq!(DocKind::from_code(code), Some(kind));
     }
-    assert_eq!(DocKind::from_code(4), None);
+    assert_eq!(DocKind::from_code(6), None);
 }
 
 /// One step of the proptest: a page of new docs and drops, or a merge.

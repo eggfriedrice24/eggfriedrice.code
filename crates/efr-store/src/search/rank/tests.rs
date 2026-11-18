@@ -29,8 +29,10 @@ fn buckets_of_twentieths() {
 fn weights_favour_what_the_person_typed() {
     assert_eq!(weight(0), 2.0);
     assert_eq!(weight(1), 2.0);
+    assert_eq!(weight(5), 2.0, "a typed reply to the model's question");
     assert_eq!(weight(3), 1.5);
     assert_eq!(weight(2), 1.0);
+    assert_eq!(weight(4), 1.0, "the model's question");
     assert_eq!(hit_score(0, Some(-3.0)), 6.0);
     assert_eq!(hit_score(2, Some(-3.0)), 3.0);
     assert_eq!(hit_score(3, None), 1.5, "without bm25 the weight alone");

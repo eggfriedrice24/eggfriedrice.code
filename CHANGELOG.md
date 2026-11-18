@@ -38,7 +38,8 @@ into the GitHub release notes, and it stops when the section is missing.
   message for its own rules. While nobody who can answer follows the conversation, the
   question waits `presence.away_wait_secs` (300 s), and then the model goes on with a
   choice that is safe and easy to undo. `conversation.ask_user = false` turns the tool
-  off.
+  off. `efr search` and the search of the phone find the question, its option labels
+  and an answer that you typed.
 - `efr history --list` and the conversations sheet of the phone app show who must act:
   "needs approval", "needs an answer", "answer in the terminal", "running" and
   "failed". The sheet shows a banner when a machine is offline, with the age of the

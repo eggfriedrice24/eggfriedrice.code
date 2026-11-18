@@ -193,8 +193,9 @@ conversations or the daemon's socket. The config root stays readable and read-on
     read of pending approvals uses the partial index `approvals_pending`.
 - The search index (migration 9): `search_docs(seq, conversation_id, kind, text)`, one
   doc per indexed event, keyed by its sequence number: the text of a prompt (kind 0),
-  a steer (1), an answer of the model (2) or the command line of a `shell` call (3),
-  without the bodies of heredocs. `search_fts` is an FTS5 table over it: external
+  a steer (1), an answer of the model (2), the command line of a `shell` call (3)
+  without the bodies of heredocs, a question of the model with the label of each
+  option on a line (4), or an answer that the user typed to that question (5). `search_fts` is an FTS5 table over it: external
   content, `unicode61 remove_diacritics 2`, a prefix index of 3 characters, and merges
   in short steps (`automerge` 8, leaves of 1,000 bytes). `search_titles(conversation_id,
   title, first_seq)` holds the title of each conversation from its first indexed

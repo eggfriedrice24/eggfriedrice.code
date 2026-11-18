@@ -56,6 +56,8 @@ fn text_rules_cut_per_kind() {
         (DocKind::Steer, PROMPT_CAP),
         (DocKind::Answer, ANSWER_CAP),
         (DocKind::Command, COMMAND_CAP),
+        (DocKind::Question, ANSWER_CAP),
+        (DocKind::Reply, PROMPT_CAP),
     ] {
         let fill = "x".repeat(cap - 10);
         let text = format!("{fill} ghp_{KEY_BODY}");

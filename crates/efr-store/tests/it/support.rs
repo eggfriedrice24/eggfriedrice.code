@@ -48,8 +48,8 @@ pub(crate) fn temp_dir() -> TempDir {
 /// control character strip change the size little, and the store cannot reach them.
 pub(crate) fn index_text(kind: DocKind, text: &str) -> Option<String> {
     let cap = match kind {
-        DocKind::Prompt | DocKind::Steer => 32 * 1024,
-        DocKind::Answer => 16 * 1024,
+        DocKind::Prompt | DocKind::Steer | DocKind::Reply => 32 * 1024,
+        DocKind::Answer | DocKind::Question => 16 * 1024,
         DocKind::Command => 2 * 1024,
     };
     let text = if kind == DocKind::Command { without_heredoc(text) } else { text.to_owned() };

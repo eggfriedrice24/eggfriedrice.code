@@ -3029,7 +3029,7 @@
       "type": "object"
     },
     "ConversationsSearch": {
-      "description": "The params of `conversations.search`, a read method for user-side peers: one row per\nconversation.\n\nefrd searches an index of the titles, the user's prompts, the model's answers and\nthe commands that the agent ran. The index holds no command output and no file\ncontents, and its text has the secrets that efr recognises replaced. efrd parses\n`query` itself, so a client never sends search syntax: words split on white space,\na `\"double quoted\"` part is one phrase, every word must match in one prompt, answer\nor command, and only the last word matches as a prefix. A query of more than 256\ncharacters or 16 words is `invalid`.",
+      "description": "The params of `conversations.search`, a read method for user-side peers: one row per\nconversation.\n\nefrd searches an index of the titles, the user's prompts, the model's answers and\nquestions, the answers that the user typed to them, and the commands that the agent\nran. The index holds no command output and no file\ncontents, and its text has the secrets that efr recognises replaced. efrd parses\n`query` itself, so a client never sends search syntax: words split on white space,\na `\"double quoted\"` part is one phrase, every word must match in one prompt, answer\nor command, and only the last word matches as a prefix. A query of more than 256\ncharacters or 16 words is `invalid`.",
       "properties": {
         "limit": {
           "description": "The most rows to return: 50 when absent, 200 at most.",
@@ -12277,12 +12277,12 @@
         },
         {
           "const": "prompt",
-          "description": "A prompt of the user, or a steer.",
+          "description": "A prompt of the user, a steer, or an answer that the user typed to a question of\nthe model.",
           "type": "string"
         },
         {
           "const": "answer",
-          "description": "An answer of the model.",
+          "description": "An answer of the model, or a question of the model with the labels of its\noptions.",
           "type": "string"
         },
         {

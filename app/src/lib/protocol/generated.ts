@@ -4208,7 +4208,8 @@ export interface CallBackground {
  * conversation.
  *
  * efrd searches an index of the titles, the user's prompts, the model's answers and
- * the commands that the agent ran. The index holds no command output and no file
+ * questions, the answers that the user typed to them, and the commands that the agent
+ * ran. The index holds no command output and no file
  * contents, and its text has the secrets that efr recognises replaced. efrd parses
  * `query` itself, so a client never sends search syntax: words split on white space,
  * a `"double quoted"` part is one phrase, every word must match in one prompt, answer

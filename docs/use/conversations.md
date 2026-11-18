@@ -231,6 +231,8 @@ efrd keeps a search index of your conversations. The index holds:
 
 - your prompts and steers,
 - the model's answers,
+- the model's questions with the labels of their options, and the answers that you
+  typed to them (a picked option adds no text),
 - the command lines that the agent ran.
 
 It never holds the output of a command, the contents of a file, a diff, the command of
