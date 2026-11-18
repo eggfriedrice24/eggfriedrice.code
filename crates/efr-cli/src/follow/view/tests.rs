@@ -16,11 +16,11 @@ use super::{AnswerKind, Ask, Look, Step, TurnEnd, TurnView, last_line};
 
 /// What the echo of a visible answer starts with.
 const ECHO_PREFIX: &str = "\u{203a} ";
-use crate::notify::Notices;
 use crate::progress;
 use crate::terminal::Size;
 use crate::testing::{
-    FAILED_UNITS, FROM_SRC, call, exit_info, exit_record, now, program_fact, readable, turn,
+    FAILED_UNITS, FROM_SRC, call, exit_info, exit_record, notices, now, program_fact, readable,
+    turn,
 };
 
 const SIZE: Size = Size { cols: 40, rows: 20 };
@@ -2685,18 +2685,10 @@ fn without_the_bar_no_osc_9_goes_out() {
     assert!(!out.contains("\x1b]9;"), "{}", readable(&out));
 }
 
-/// The desktop notices of `[notify]` with `after_secs`, from the place `app`.
-fn notices(after_secs: u32) -> Option<Notices> {
-    let mut settings = efr_config::NotifySettings::default();
-    settings.terminal = efr_config::AutoOnOff::On;
-    settings.after_secs = after_secs;
-    Notices::of(&settings, &crate::testing::terminal_facts(), "app".to_owned())
-}
-
 /// The last frame of a turn that sends desktop notices from `after_secs` on and ends
 /// with `end` after `millis`.
 fn ended_noticed(after_secs: u32, end: Event, millis: i64) -> String {
-    let mut view = started_view(ALL).with_notices(notices(after_secs));
+    let mut view = started_view(ALL).with_notices(Some(notices(after_secs)));
     view.envelope(&sent(11, 0, turn_started()), SIZE, false);
     view.frame(SIZE, at(0));
     let step = view.envelope(&sent(12, millis, end), SIZE, false);
@@ -2744,7 +2736,7 @@ fn a_long_turn_ends_with_a_desktop_notice_of_its_time() {
 fn the_end_right_after_a_key_sends_no_desktop_notice() {
     // A card waited 40 s, and the user answered it 2 s before the end of the turn.
     let noticed = |key_before_end: i64| {
-        let mut view = started_view(ALL).with_notices(notices(30));
+        let mut view = started_view(ALL).with_notices(Some(notices(30)));
         view.envelope(&sent(11, 0, turn_started()), SIZE, false);
         view.frame(SIZE, at(0));
         view.keyed(at(42_000 - key_before_end));
@@ -2774,7 +2766,7 @@ fn a_short_turn_an_interrupt_and_the_setting_off_send_no_desktop_notice() {
 
 #[test]
 fn an_old_wait_sends_one_desktop_notice_of_a_card_or_an_answer_line() {
-    let mut view = started_view(ALL).with_notices(notices(30));
+    let mut view = started_view(ALL).with_notices(Some(notices(30)));
     view.envelope(&sent(11, 0, turn_started()), SIZE, true);
     view.frame(SIZE, at(0));
     // Nothing waits: nothing goes.
@@ -2795,7 +2787,7 @@ fn an_old_wait_sends_one_desktop_notice_of_a_card_or_an_answer_line() {
 
 #[test]
 fn an_old_answer_line_sends_the_notice_of_a_command_that_waits_for_input() {
-    let mut view = started_view(ALL).with_notices(notices(30));
+    let mut view = started_view(ALL).with_notices(Some(notices(30)));
     view.envelope(&sent(11, 0, turn_started()), SIZE, true);
     view.envelope(&sent(12, 10, tool_started("pacman -Syu")), SIZE, true);
     let step = view.envelope(&sent(13, 20, input(InputWait::Visible)), SIZE, true);

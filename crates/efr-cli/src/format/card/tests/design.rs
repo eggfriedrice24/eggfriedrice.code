@@ -8,6 +8,7 @@ use efr_protocol::{QuestionOption, WAKE_QUESTION};
 use efr_test_support::design::{Depth, Frame, assert_rows, cells};
 
 use super::super::{ALLOW_KEYS, Asks, Card, Footer, Row, user_question, user_question_footer};
+use super::{backups, databases, option};
 use crate::format::Tone;
 use crate::testing::design_options;
 
@@ -211,20 +212,6 @@ fn the_badge_the_label_row_and_the_keys_are_the_legend_23_24_25() {
     }
 }
 
-/// An option of the model's question.
-fn option(label: &str, description: Option<&str>) -> QuestionOption {
-    QuestionOption { label: label.to_owned(), description: description.map(str::to_owned) }
-}
-
-/// The options of TM-Questions 0.0.12, frames 1, 3 and 4 (fixture 15, 18 and 19).
-fn databases() -> Vec<QuestionOption> {
-    vec![
-        option("Postgres 16", Some("the same as production; I recommend it")),
-        option("SQLite", Some("fast and needs no server, but it has no JSONB")),
-        option("both", Some("each test runs twice, so CI takes about 2 times longer")),
-    ]
-}
-
 /// Checks rows `range` of frame `number` against the card of the model's question as
 /// `asks` says, at the frame's width, in every depth.
 fn check_asks(
@@ -248,18 +235,7 @@ fn the_model_s_question_is_a_card_with_a_digit_per_option_questions_15_20_21() {
 #[test]
 fn a_description_that_goes_on_stands_under_the_label_questions_16_17() {
     // 0.0.12 frame 2, at 100 columns (fixture 16) and at 60 columns (fixture 17).
-    let options = [
-        option("the NAS", Some("/mnt/nas/backups on the LAN; I recommend it")),
-        option(
-            "Backblaze B2",
-            Some(
-                "off site, about 2 USD a month for 400 GB; restic needs the key in \
-                 ~/.config/restic/b2.env, and that file does not exist yet",
-            ),
-        ),
-        option("both", Some("the NAS each night and B2 each Sunday")),
-        option("an external disk", Some("only when it is plugged in")),
-    ];
+    let options = backups();
     let question = "Where should the nightly backup go?";
     check_asks(16, 0..7, question, &options, Asks::Options);
     check_asks(17, 0..8, question, &options, Asks::Options);

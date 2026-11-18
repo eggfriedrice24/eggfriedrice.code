@@ -345,7 +345,8 @@ fn option(label: &str, description: Option<&str>) -> QuestionOption {
     QuestionOption { label: label.to_owned(), description: description.map(str::to_owned) }
 }
 
-/// The options of TM-Questions 0.0.12, frame 1.
+/// The options of TM-Questions 0.0.12, frames 1, 3 and 4 (design fixture 15, 18 and
+/// 19).
 fn databases() -> Vec<QuestionOption> {
     vec![
         option("Postgres 16", Some("the same as production; I recommend it")),
@@ -354,7 +355,8 @@ fn databases() -> Vec<QuestionOption> {
     ]
 }
 
-/// The options of TM-Questions 0.0.12, frame 2: one description goes on.
+/// The options of TM-Questions 0.0.12, frame 2 (design fixture 16 and 17): one
+/// description goes on.
 fn backups() -> Vec<QuestionOption> {
     vec![
         option("the NAS", Some("/mnt/nas/backups on the LAN; I recommend it")),

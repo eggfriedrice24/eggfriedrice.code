@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 
 use super::{Notices, WAIT_AFTER, WaitNotice, place, sequence, wanted};
 use crate::terminal::TermFacts;
-use crate::testing::terminal_facts;
+use crate::testing::{notices, terminal_facts};
 
 /// A terminal with this `TERM_PROGRAM`, behind a multiplexer or not.
 fn facts(program: Option<&str>, multiplexer: bool) -> TermFacts {
@@ -27,11 +27,6 @@ fn settings(terminal: AutoOnOff, after_secs: u32) -> NotifySettings {
     settings.terminal = terminal;
     settings.after_secs = after_secs;
     settings
-}
-
-fn notices(after_secs: u32) -> Notices {
-    let settings = settings(AutoOnOff::On, after_secs);
-    Notices::of(&settings, &terminal_facts(), "app".to_owned()).unwrap()
 }
 
 #[test]

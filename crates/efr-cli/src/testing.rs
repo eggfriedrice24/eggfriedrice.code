@@ -24,7 +24,7 @@ use efr_protocol::{
     CompactionTrigger, ConversationId, ConversationSubscribeItem, DaemonPaths, ErrorBody, Event,
     EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, Hello, HelloResult,
     JobId, JobInfo, JobState, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
-    PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
+    PROTOCOL_VERSION, ProgramFact, QuestionId, RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
 };
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role};
 use efr_stdx::env::{Env, Var};
@@ -47,6 +47,7 @@ use crate::context::{
 };
 use crate::error::CliError;
 use crate::keys::{Key, KeyReader, Keys, Read};
+use crate::notify::Notices;
 use crate::output::Output;
 use crate::picker::{
     Finding, Fzf, NoPicker, Outcome, PickRequest, Picker, Picking, Stops, Version,
@@ -84,6 +85,11 @@ pub(crate) fn turn() -> TurnId {
 
 pub(crate) fn call() -> CallId {
     CALL.parse().unwrap()
+}
+
+/// The id of the model's question in the tests of its card and its keys.
+pub(crate) fn question_id() -> QuestionId {
+    "019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap()
 }
 
 /// Escape bytes as `\e` and carriage returns as `\r`, so snapshots of terminal output
@@ -936,6 +942,15 @@ pub(crate) fn terminal_facts() -> TermFacts {
         utf8: true,
         ..TermFacts::default()
     }
+}
+
+/// The desktop notices of the project `app` in the terminal of [`terminal_facts`],
+/// with `[notify]` `terminal = "on"` and `after_secs`.
+pub(crate) fn notices(after_secs: u32) -> Notices {
+    let mut settings = efr_config::NotifySettings::default();
+    settings.terminal = efr_config::AutoOnOff::On;
+    settings.after_secs = after_secs;
+    Notices::of(&settings, &terminal_facts(), "app".to_owned()).unwrap()
 }
 
 /// Temporary efr roots, and contexts and fake daemons on them.

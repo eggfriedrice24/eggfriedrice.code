@@ -5,9 +5,8 @@
 use std::sync::{Arc, Mutex};
 
 use efr_protocol::{
-    ConversationHistoryResult, ErrorBody, ErrorCode, Event, Method, Origin, QuestionId,
-    QuestionOption, QuestionReply, QuestionRespond, QuestionRespondResult, RequestId, Seq, TurnId,
-    UserAnswer,
+    ConversationHistoryResult, ErrorBody, ErrorCode, Event, Method, Origin, QuestionOption,
+    QuestionReply, QuestionRespond, QuestionRespondResult, RequestId, Seq, TurnId, UserAnswer,
 };
 use pretty_assertions::assert_eq;
 
@@ -15,11 +14,9 @@ use super::super::{Asking, QuestionKeys};
 use super::{raw_view, run, run_view, subscription, turn_completed};
 use crate::answer::{AnswerLine, Sequences};
 use crate::context::Context;
-use crate::testing::{Conn, ScriptedKeys, TestEnv, call, conversation, envelope, item, turn};
-
-fn question_id() -> QuestionId {
-    "019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap()
-}
+use crate::testing::{
+    Conn, ScriptedKeys, TestEnv, call, conversation, envelope, item, question_id, turn,
+};
 
 fn requested() -> Event {
     asked_in(turn())
