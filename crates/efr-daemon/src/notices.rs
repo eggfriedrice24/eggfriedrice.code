@@ -726,7 +726,7 @@ pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
 /// Writes the held notices that became ready.
 async fn write_ready(state: &State) {
     for notice in state.connections.take_ready() {
-        write(state, notice, None).await;
+        write(state, notice).await;
     }
 }
 
@@ -765,19 +765,18 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     let Some(text) = text else {
         return;
     };
-    let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
-    match state.connections.decide(notice, state.clock.now()) {
-        Decision::Write(notice) => {
-            let body = match desktop_what(&envelope.event, wake.as_ref()) {
-                Some(what) => {
-                    let place =
-                        place_of(state, summary.scope.as_ref(), summary.cwd.as_deref()).await;
-                    Some(notice_body(&place, what))
-                }
-                None => None,
-            };
-            write(state, notice, body).await;
+    // NOTE: the body comes before the decision, so a notice that waits for a client
+    // keeps it (`write_ready`).
+    let body = match desktop_what(&envelope.event, wake.as_ref()) {
+        Some(what) => {
+            let place = place_of(state, summary.scope.as_ref(), summary.cwd.as_deref()).await;
+            Some(notice_body(&place, what))
         }
+        None => None,
+    };
+    let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text, body };
+    match state.connections.decide(notice, state.clock.now()) {
+        Decision::Write(notice) => write(state, notice).await,
         Decision::Shown | Decision::Held => {}
     }
 }
@@ -846,10 +845,10 @@ pub(crate) async fn wake_turn(
 }
 
 /// Appends a decided notice to its terminal's file under the runtime root and wakes the
-/// terminal's prompt with `body`, the body of its desktop notice.
-async fn write(state: &State, notice: Notice, body: Option<String>) {
+/// terminal's prompt with the body of its desktop notice.
+async fn write(state: &State, notice: Notice) {
     let dir = state.dirs.runtime().join(NOTICES_DIR);
-    let Notice { tty, conversation: conversation_id, text, .. } = notice;
+    let Notice { tty, conversation: conversation_id, text, body, .. } = notice;
     let written =
         tokio::task::spawn_blocking(move || append_and_wake(&dir, &tty, &text, body.as_deref()));
     match written.await {

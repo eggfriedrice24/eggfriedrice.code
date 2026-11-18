@@ -29,6 +29,7 @@ fn notice_in(tty: &str, conversation: ConversationId, seq: u64) -> Notice {
         conversation,
         seq: Seq::new(seq),
         text: format!("efr: turn finished: {seq}"),
+        body: None,
     }
 }
 
@@ -90,6 +91,19 @@ fn a_held_notice_is_ready_when_the_subscription_ends_before_the_event() {
 
     assert_eq!(connections.take_ready(), vec![notice(conversation(1), 5)]);
     assert!(connections.take_ready().is_empty(), "a ready notice is taken once");
+}
+
+#[test]
+fn a_held_notice_keeps_the_body_of_its_desktop_notice() {
+    let connections = connections_with(&[(1, Some(TTY))]);
+    let guard = connections.subscribe(ConnId::new(1), conversation(1), false);
+    let asks =
+        Notice { body: Some("app: a question waits".to_owned()), ..notice(conversation(1), 5) };
+
+    assert_eq!(connections.decide(asks.clone(), at(0)), Decision::Held);
+    drop(guard);
+
+    assert_eq!(connections.take_ready(), vec![asks]);
 }
 
 #[test]

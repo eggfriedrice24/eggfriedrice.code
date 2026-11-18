@@ -61,13 +61,16 @@ pub(crate) struct Lease {
     pub(crate) expires_at: Timestamp,
 }
 
-/// A notice line for the terminal `tty` about the event `seq` of `conversation`.
+/// A notice line for the terminal `tty` about the event `seq` of `conversation`, with
+/// the body of its desktop notice when the event needs the user. A held notice keeps
+/// its body, so it sends the same desktop notice when it goes out later.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Notice {
     pub(crate) tty: String,
     pub(crate) conversation: ConversationId,
     pub(crate) seq: Seq,
     pub(crate) text: String,
+    pub(crate) body: Option<String>,
 }
 
 /// What [`Connections::decide`] made of a notice.
