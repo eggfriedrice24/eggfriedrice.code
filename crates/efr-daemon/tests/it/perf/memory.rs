@@ -1,8 +1,9 @@
-//! `bench_perf_daemon_memory` and `bench_perf_daemon_growth`: the resident memory of
-//! the daemon. The daemon of a `TestDaemon` runs in this test's process, so the numbers
-//! are those of this process (`VmRSS` and `VmHWM` from `/proc/self/status`): they hold
-//! the test's client and its runtime too, which a bench starts before the first line,
-//! so the differences between the lines are the daemon's.
+//! `bench_perf_daemon_memory`, `bench_perf_daemon_growth` and
+//! `bench_perf_daemon_shell_growth`: the resident memory of the daemon. The daemon of a
+//! `TestDaemon` runs in this test's process, so the numbers are those of this process
+//! (`VmRSS` and `VmHWM` from `/proc/self/status`): they hold the test's client and its
+//! runtime too, which a bench starts before the first line, so the differences between
+//! the lines are the daemon's.
 //!
 //! Each turn reads a file with `read_file` and answers. The memory bench reads a file of
 //! 1 MiB, which `read_file` cuts to its output limit of 32 KiB, so the history of each
@@ -32,12 +33,24 @@
 //! decodes from the same event: the page leaves out the body events of the turns that
 //! the start has as messages, so it decodes no earlier tool output; it fails when the
 //! mean passes [`PAGE_BUDGET`].
+//!
+//! The shell growth bench runs a real hidden zsh (so it needs `EFR_TEST_ZSH=1`), once on
+//! each screen backend of the build: 60 turns of one conversation in `cautious`, each a
+//! shell call of about 2.7 MB of output (`seq 1 400000`); every sixth also moves the
+//! cursor, so its output is replayed on capture screens. It reads the resident set after
+//! each turn and fits a slope to turns 1 to 10, 11 to 30 and 31 to 60, and reads it
+//! again after the idle trim and the heap trim. It measures and does not fail: its
+//! line `levels off` is 1 when the slope of turns 31 to 60 is under [`LEVEL_BUDGET`]
+//! percent of the slope of turns 1 to 10, and only a 0 there asks for a fix of the
+//! growth. The ghostty half runs only in a build with `screen-ghostty`.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use efr_daemon::ScreenChoice;
+use efr_protocol::{AdminStatus, AdminStatusResult, Method, Mode};
 use efr_provider::Provider;
 use efr_stdx::time::{Clock as _, SystemClock};
 use efr_test_daemon::TestDaemon;
@@ -407,7 +420,8 @@ async fn bench_perf_daemon_memory() {
     );
 }
 
-/// The least squares slope of `points`, in bytes per conversation.
+/// The least squares slope of `points`, in bytes per step of the first value (a
+/// conversation, a turn).
 fn bytes_per(points: &[(u64, u64)]) -> u64 {
     let count = points.len() as f64;
     let mean_x = points.iter().map(|(x, _)| *x as f64).sum::<f64>() / count;
@@ -478,4 +492,110 @@ async fn bench_perf_daemon_growth() {
         growth <= GROWTH_BUDGET,
         "each conversation keeps {growth} bytes after its idle trim, over {GROWTH_BUDGET}"
     );
+}
+
+/// The turns of the shell growth bench.
+const SHELL_TURNS: usize = 60;
+
+/// Every this many turns, the shell growth bench's command also moves the cursor, so
+/// its output is replayed on a capture screen: 10 of the 60 turns.
+const REPLAY_EVERY: usize = 6;
+
+/// The most real time that one backend of the shell growth bench runs its turns.
+const SHELL_DEADLINE: Duration = Duration::from_secs(300);
+
+/// The growth of the shell growth bench levels off when the slope of turns 31 to 60 is
+/// under this part of the slope of turns 1 to 10, in percent.
+const LEVEL_BUDGET: u64 = 10;
+
+/// Reports the resident memory over [`SHELL_TURNS`] turns of one conversation in
+/// `cautious` on the `choice` backend, each a shell call of about 2.7 MB of output,
+/// whether its growth levels off, and the memory after the idle trim and the heap trim.
+/// It reports a skip when this build has no such backend or the turns do not end in
+/// time.
+async fn shell_growth(report: &mut Report, choice: ScreenChoice) {
+    let trims = trims();
+    efr_daemon::init_malloc();
+    let dirs = tree();
+    let cwd = dirs.create_dir("home/project").unwrap();
+    let clock = TestClock::new();
+    let _follower = Follower::start(&clock);
+    let model = PerfModel::new(Plan::answer("ok"));
+    let daemon = Box::pin(
+        builder(&dirs, &clock)
+            .local_pty()
+            .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+            .config(|config| {
+                config.screen = choice;
+                config.shell.idle_minutes = 60;
+            })
+            .start(),
+    )
+    .await
+    .unwrap();
+    let tty = "/dev/pts/perf-shell-growth";
+    let client = daemon.client_for_tty(tty).await.unwrap();
+    let status: AdminStatusResult =
+        client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+    let backend = choice.as_str();
+    if status.screen_backend != backend {
+        report.count(&format!("skipped {backend}: this build has no such screen"), 1);
+        daemon.stop().await.unwrap();
+        return;
+    }
+    let mut points = Vec::with_capacity(SHELL_TURNS);
+    let deadline = Instant::now() + SHELL_DEADLINE;
+    for turn in 1..=SHELL_TURNS {
+        if Instant::now() > deadline {
+            report.count(&format!("{backend}: stopped_at_n (turns)"), turn as u64 - 1);
+            daemon.stop().await.unwrap();
+            return;
+        }
+        let command = if turn % REPLAY_EVERY == 0 {
+            "seq 1 400000; printf 'one\\ntwo\\n\\e[2Aone again\\n'"
+        } else {
+            "seq 1 400000"
+        };
+        model.set_plan(Plan::call("shell", json!({ "command": command }), "done"));
+        let run = run_turn(&client, prompt(tty, &cwd, "run it", Some(Mode::Cautious))).await;
+        assert_eq!(run.end_kind(), "turn_completed", "{:#?}", run.events);
+        points.push((turn as u64, memory().rss));
+    }
+    for turn in [10, 30, 60] {
+        report.bytes(&format!("{backend}: after turn {turn}: rss"), points[turn - 1].1);
+    }
+    let first = bytes_per(&points[..10]);
+    let middle = bytes_per(&points[10..30]);
+    let last = bytes_per(&points[30..]);
+    report.bytes(&format!("{backend}: rss growth per turn, turns 1-10 (fit)"), first);
+    report.bytes(&format!("{backend}: rss growth per turn, turns 11-30 (fit)"), middle);
+    report.bytes(&format!("{backend}: rss growth per turn, turns 31-60 (fit)"), last);
+    let levels = last == 0 || last * 100 < first * LEVEL_BUDGET;
+    report.count(&format!("{backend}: levels off"), u64::from(levels));
+    let peak = memory().peak;
+    let trimmed = idle_trim(&clock, TRIM, trims, trims.trims() + 1).await
+        && heap_trim(&clock, trims, trims.heap() + 1).await;
+    let after = memory();
+    report.bytes(&format!("{backend}: after the trims: rss"), after.rss);
+    report.count(
+        &format!("{backend}: after the trims: rss in % of the peak"),
+        after.rss * 100 / peak,
+    );
+    daemon.stop().await.unwrap();
+    assert!(trimmed, "{backend}: no idle trim and heap trim after the turns");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_daemon_shell_growth() {
+    let mut report = Report::new("bench_perf_daemon_shell_growth");
+    if !crate::support::zsh_enabled("bench_perf_daemon_shell_growth") {
+        report.count("skipped: EFR_TEST_ZSH is not 1", 1);
+        report.finish();
+        return;
+    }
+    for choice in [ScreenChoice::Vt100, ScreenChoice::Ghostty] {
+        shell_growth(&mut report, choice).await;
+    }
+    report.finish();
 }
