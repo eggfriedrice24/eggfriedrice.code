@@ -3644,3 +3644,30 @@ fn e2e_tab_after_an_at_sign_completes_a_file_name() {
         [", why @shot.png ", ",new see @notes.md ", ",! look at @shot.png ", ", plain notes.md "]
     );
 }
+
+/// The built `efr` uploads the file of an `@path` word to the daemon, which sends the
+/// model its label before the prompt text, and the prompt text keeps the word.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_the_built_efr_attaches_the_file_of_an_at_path_word() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let server = ResponsesServer::start().await;
+    server.push(ResponsesAnswer::text("It lists two steps."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    std::fs::write(daemon.cwd().join("notes.txt"), "1. build\n2. test\n").unwrap();
+    let home = Home::new();
+    let mut zsh = built_efr_zsh(&home, &daemon, ", what is in @notes.txt");
+
+    let output = tokio::task::spawn_blocking(move || zsh.output().unwrap()).await.unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim_end(), "It lists two steps.");
+    let [request] = server.received().try_into().unwrap();
+    let input = request.body["input"].to_string();
+    let label = input.find("<attachment id=\\\"a1\\\" name=\\\"notes.txt\\\"").expect(&input);
+    let text = input.find("what is in @notes.txt").expect(&input);
+    assert!(label < text, "the label stands before the text: {input}");
+    daemon.stop().await.unwrap();
+}
