@@ -5,14 +5,14 @@ and all three parts move together.
 
 | Component | Pinned value | Why |
 |---|---|---|
-| libghostty-rs | git rev `635b1cc037e66ebb83c9fa39db782b77cd15014d` (master, 2026-11-10; workspace version 0.2.1) | master has `snapshot.rs` (the GHOSTSNP record stream behind `Terminal::encode_snapshot` and `Decoder`) and `io.rs`; attach snapshots need them. `Terminal::title` and `Terminal::pwd` return bytes, not `&str`. The constructor is `Terminal::new(cols, rows)`. |
-| ghostty | `0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec` (2026-11-06, the `vt-1.0.0` tag: libghostty-vt 1.0.0) | the `GHOSTTY_COMMIT` that this rev's `crates/libghostty-vt-sys/build.rs` clones and builds. It follows from the rev; it is not a separate choice. |
-| Zig | 0.17.0 exactly | ghostty 0fa3d577's `build.zig.zon` sets `minimum_zig_version = "0.17.0"`, and the flake of libghostty-rs pins 0.17.0. libghostty-vt 1.0.0 builds with Zig 0.17.x only, not with 0.16 or 0.18. efr tests 0.17.0 only, so the pin is exact. |
+| libghostty-rs | git rev `483ea3d5247b214060da58ef6037a95f30ae89fb` (master, 2026-11-14; workspace version 0.2.1) | master has `snapshot.rs` (the GHOSTSNP record stream behind `Terminal::encode_snapshot` and `Decoder`) and `io.rs`; attach snapshots need them. `Terminal::title` and `Terminal::pwd` return bytes, not `&str`. The constructor is `Terminal::new(cols, rows)`. |
+| ghostty | `108cacb17ed8990840cd14abfce43d8ed8503ca1` (2026-11-11, the `vt-1.0.1` tag: libghostty-vt 1.0.1) | the `GHOSTTY_COMMIT` that this rev's `crates/libghostty-vt-sys/build.rs` clones and builds. It follows from the rev; it is not a separate choice. |
+| Zig | 0.17.0 exactly | ghostty 108cacb1's `build.zig.zon` sets `minimum_zig_version = "0.17.0"`, and the flake of libghostty-rs pins 0.17.0. libghostty-vt 1.0.1 builds with Zig 0.17.x only, not with 0.16 or 0.18. efr tests 0.17.0 only, so the pin is exact. |
 
 In `Cargo.toml`:
 
 ```toml
-libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "635b1cc037e66ebb83c9fa39db782b77cd15014d", default-features = false }
+libghostty-vt = { git = "https://github.com/uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb", default-features = false }
 ```
 
 `deny.toml` allows this one git source. CI installs Zig with `mlugg/setup-zig` at
@@ -131,10 +131,14 @@ needs no conversion.
 
 ## Next target
 
-A libghostty-rs rev that wraps a libghostty-vt 1.0.x release later than 1.0.0. Ghostty
-`main` has fixes that 1.0.0 does not have, for example the scrollback after a resize
-that adds rows and removes columns (`e0e57281`) and the page capacity of a restored
-snapshot (`a622196c`). No such release exists on 2026-11-11.
+A libghostty-rs rev that wraps a libghostty-vt 1.0.x release later than 1.0.1 and
+still builds with Zig 0.17.0. On 2026-11-18 no later `vt-*` tag exists. Do not pin a
+commit of ghostty `main` after the tag: `main` needs Zig 0.17.1, so such a pin moves
+the Zig version in CI, in the release workflow and in the PKGBUILD too.
+
+libghostty-vt 1.0.1 has the two fixes that the pin waited for: the scrollback after a
+resize that adds rows and removes columns (`e0e57281`) and the page capacity of a
+restored snapshot (`a622196c`).
 
 The pin has `Terminal::on_semantic_prompt`, the semantic prompt effect of ghostty.
 efr does not use it yet. When it does, the effect is wired in

@@ -6,9 +6,10 @@
 
 use efr_screen::{Cell, Color, RowCells};
 use libghostty_vt::Terminal;
-use libghostty_vt::screen::{CellContentTag, CellWide, GridRef, Row};
+use libghostty_vt::grid_ref::GridRef;
+use libghostty_vt::point::Point;
+use libghostty_vt::screen::{CellContentTag, CellWide, Row};
 use libghostty_vt::style::{StyleColor, Underline};
-use libghostty_vt::terminal::Point;
 
 /// Enough room for almost every grapheme; a longer cluster is read again with the
 /// size libghostty-vt asks for.

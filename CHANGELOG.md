@@ -10,6 +10,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the
+  scrollback after a resize, for prompts after a resize and for a scrollback line
+  limit that was slow. A build from source still needs Zig 0.17.0.
+
 ## [0.0.12] - 2026-11-18
 
 ### Added

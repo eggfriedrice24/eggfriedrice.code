@@ -28,8 +28,8 @@ use std::path::PathBuf;
 
 use efr_screen::{PromptKind, SemanticPromptEvent, Seq, ShellMarkKind, ShellMarkScanner};
 use libghostty_vt::Terminal;
+use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::screen::RowSemanticPrompt;
-use libghostty_vt::terminal::{Point, PointCoordinate};
 
 use crate::effects::Effects;
 
@@ -203,7 +203,7 @@ fn check_prompt(
 fn cursor_row_prompt(terminal: &Terminal<'_, '_>) -> Option<RowSemanticPrompt> {
     let x = terminal.cursor_x().ok()?;
     let y = terminal.cursor_y().ok()?;
-    let point = Point::Active(PointCoordinate { x, y: u32::from(y) });
+    let point = Point::Active(Coordinate { x, y: u32::from(y) });
     terminal.grid_ref(point).ok()?.row().ok()?.semantic_prompt().ok()
 }
 

@@ -2121,7 +2121,7 @@ checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 [[package]]
 name = "libghostty-vt"
 version = "0.2.1"
-source = "git+https://github.com/uzaaft/libghostty-rs?rev=635b1cc037e66ebb83c9fa39db782b77cd15014d#635b1cc037e66ebb83c9fa39db782b77cd15014d"
+source = "git+https://github.com/uzaaft/libghostty-rs?rev=483ea3d5247b214060da58ef6037a95f30ae89fb#483ea3d5247b214060da58ef6037a95f30ae89fb"
 dependencies = [
  "bitflags 2.13.2",
  "int-enum",
@@ -2131,7 +2131,7 @@ dependencies = [
 [[package]]
 name = "libghostty-vt-sys"
 version = "0.2.1"
-source = "git+https://github.com/uzaaft/libghostty-rs?rev=635b1cc037e66ebb83c9fa39db782b77cd15014d#635b1cc037e66ebb83c9fa39db782b77cd15014d"
+source = "git+https://github.com/uzaaft/libghostty-rs?rev=483ea3d5247b214060da58ef6037a95f30ae89fb#483ea3d5247b214060da58ef6037a95f30ae89fb"
 
 [[package]]
 name = "libsqlite3-sys"

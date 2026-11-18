@@ -13,9 +13,9 @@ mod cells;
 
 use efr_screen::{Cursor, RowCells, ScreenSnapshot, Size};
 use libghostty_vt::Terminal;
+use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::screen::Screen as ActiveScreen;
 use libghostty_vt::snapshot::Decoder;
-use libghostty_vt::terminal::{Point, PointCoordinate};
 
 use crate::GhosttyError;
 
@@ -26,7 +26,7 @@ pub(crate) fn capture(terminal: &Terminal<'_, '_>, scrollback_rows: usize) -> Sc
     let history = terminal.scrollback_rows().unwrap_or(0);
     let scrollback = (history.saturating_sub(scrollback_rows)..history)
         .filter_map(|y| u32::try_from(y).ok())
-        .map(|y| cells::row(terminal, size.cols, |x| Point::History(PointCoordinate { x, y })))
+        .map(|y| cells::row(terminal, size.cols, |x| Point::History(Coordinate { x, y })))
         .collect();
     let rows = (0..size.rows).map(|y| visible_row(terminal, size.cols, y)).collect();
     ScreenSnapshot {
@@ -91,7 +91,7 @@ fn size(terminal: &Terminal<'_, '_>) -> Size {
 }
 
 fn visible_row(terminal: &Terminal<'_, '_>, cols: u16, y: u16) -> RowCells {
-    cells::row(terminal, cols, |x| Point::Active(PointCoordinate { x, y: u32::from(y) }))
+    cells::row(terminal, cols, |x| Point::Active(Coordinate { x, y: u32::from(y) }))
 }
 
 #[cfg(test)]

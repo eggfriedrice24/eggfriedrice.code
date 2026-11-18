@@ -1,6 +1,6 @@
 use efr_screen::{Cell, Color};
 use libghostty_vt::Terminal;
-use libghostty_vt::terminal::{Point, PointCoordinate};
+use libghostty_vt::point::{Coordinate, Point};
 use pretty_assertions::assert_eq;
 
 use super::{cell, row};
@@ -8,7 +8,7 @@ use crate::testing::{terminal, texts};
 
 fn cells(terminal: &Terminal<'_, '_>, y: u32) -> Vec<Cell> {
     let cols = terminal.cols().unwrap();
-    row(terminal, cols, |x| Point::Active(PointCoordinate { x, y })).cells
+    row(terminal, cols, |x| Point::Active(Coordinate { x, y })).cells
 }
 
 fn text(content: &str) -> Cell {
@@ -82,10 +82,7 @@ fn a_wide_character_takes_two_cells() {
 fn the_spacer_at_the_end_of_a_wrapped_row_is_blank() {
     let (mut terminal, _effects) = terminal(3, 2);
     terminal.vt_write("ab\u{4e2d}".as_bytes());
-    assert_eq!(
-        texts(&[row(&terminal, 3, |x| Point::Active(PointCoordinate { x, y: 0 }))]),
-        vec!["ab"]
-    );
+    assert_eq!(texts(&[row(&terminal, 3, |x| Point::Active(Coordinate { x, y: 0 }))]), vec!["ab"]);
     assert_eq!(cells(&terminal, 0)[2], Cell::default());
     assert_eq!(cells(&terminal, 1)[0], Cell { wide: true, ..text("\u{4e2d}") });
 }
@@ -105,6 +102,6 @@ fn a_long_grapheme_cluster_is_read_whole() {
     let cluster: String =
         std::iter::once('e').chain((0x301..0x313).filter_map(char::from_u32)).collect();
     terminal.vt_write(cluster.as_bytes());
-    let grid = terminal.grid_ref(Point::Active(PointCoordinate { x: 0, y: 0 })).unwrap();
+    let grid = terminal.grid_ref(Point::Active(Coordinate { x: 0, y: 0 })).unwrap();
     assert_eq!(cell(&grid).text, cluster);
 }

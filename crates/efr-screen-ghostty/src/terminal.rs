@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
 use libghostty_vt::Terminal;
-use libghostty_vt::style::RgbColor;
+use libghostty_vt::color::Rgb;
 
 use crate::GhosttyError;
 use crate::effects::Effects;
@@ -251,8 +251,8 @@ fn grid(cols: u16, rows: u16) -> (u16, u16) {
     (cols.max(1), rows.max(1))
 }
 
-fn rgb([r, g, b]: [u8; 3]) -> RgbColor {
-    RgbColor { r, g, b }
+fn rgb([r, g, b]: [u8; 3]) -> Rgb {
+    Rgb { r, g, b }
 }
 
 #[cfg(test)]
