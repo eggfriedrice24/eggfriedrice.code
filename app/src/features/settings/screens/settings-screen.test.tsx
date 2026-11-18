@@ -37,6 +37,7 @@ import {
   accountParamsSchema,
   settingsParamsSchema,
 } from "@/features/navigation/model/route-schemas";
+import { FakePushNative, expoToken } from "../model/testing";
 import { AccountScreen } from "./account-screen";
 import { SettingsScreen, UNLOCK_MARK_MS } from "./settings-screen";
 
@@ -620,5 +621,103 @@ describe("the Face ID unlock row (Settings round 9)", () => {
     expect(screen.getByTestId("unlock-line")).toHaveTextContent(
       "Opens efr with Face ID. Auto from this phone needs it.",
     );
+  });
+});
+
+/** Settings with push on a fake iPhone, with desktop and laptop paired. */
+async function openWithPush(native: FakePushNative): Promise<TestServices> {
+  const parts = await testServices([machineRecord(DESKTOP), machineRecord(LAPTOP)], {
+    push: native,
+  });
+  opened.push({
+    dispose: () => {
+      parts.services.queryClient.clear();
+      parts.services.dispose();
+    },
+  });
+  await openSettings({
+    services: parts.services,
+    sockets: parts.sockets,
+    client: parts.services.queryClient,
+    devices: { list: () => parts.devices.loadAll() },
+  });
+  await act(async () => {
+    await flush();
+  });
+  return parts;
+}
+
+/** The row "Notifications". */
+function notifications() {
+  return screen.getByTestId("notifications-row");
+}
+
+describe("the row Notifications (Settings 0.0.13)", () => {
+  it("is not there in a build without expo-notifications", async () => {
+    await openWithLock();
+    expect(screen.queryByRole("header", { name: "When you are away" })).toBeNull();
+    expect(screen.queryByTestId("notifications-row")).toBeNull();
+  });
+
+  it("is off by default, lets iOS ask on a tap and moves after the answer", async () => {
+    const native = new FakePushNative();
+    const parts = await openWithPush(native);
+    expect(screen.getByRole("header", { name: "When you are away" })).toBeOnTheScreen();
+    expect(notifications()).toHaveAccessibleName("Notifications");
+    expect(notifications().props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByTestId("notifications-line")).toHaveTextContent(
+      "A notice when something needs you and you are not at the terminal.",
+    );
+    await act(async () => {
+      await parts.connect(DESKTOP, { capabilities: { device_prove: true, push: true } });
+    });
+    await fireEvent.press(notifications());
+    await act(async () => {
+      await flush();
+    });
+    expect(native.questions).toBe(1);
+    expect(notifications().props.accessibilityState).toMatchObject({ checked: true });
+    expect(lastOf(parts.sockets, DESKTOP_URL).requests("device.push_set").at(-1)).toMatchObject({
+      params: { token: expoToken(1) },
+    });
+  });
+
+  it("names a machine whose efrd takes no push token", async () => {
+    const parts = await openWithPush(new FakePushNative());
+    await act(async () => {
+      await parts.connect(LAPTOP);
+    });
+    expect(screen.getByTestId("notifications-note")).toHaveTextContent("Not available on laptop");
+    expect(screen.getByTestId("notifications-note").props.className).toContain("text-text-muted");
+  });
+
+  it("says so when iOS denies the notices, and a tap opens the iOS settings", async () => {
+    const native = new FakePushNative();
+    native.permissionNow = "denied";
+    await openWithPush(native);
+    expect(notifications()).toHaveAccessibleName("Notifications, off in iOS Settings");
+    expect(notifications().props.accessibilityRole).toBe("button");
+    const line = screen.getByTestId("notifications-line");
+    expect(line).toHaveTextContent(
+      "Notifications are off for efr in iOS Settings. Tap to open them.",
+    );
+    expect(line.props.className).toContain("text-state-warning");
+    await fireEvent.press(notifications());
+    expect(native.settingsOpened).toBe(1);
+    expect(native.questions).toBe(0);
+  });
+
+  it("sends no token to a machine before Forget", async () => {
+    const parts = await openWithPush(new FakePushNative());
+    await act(async () => {
+      await parts.connect(DESKTOP, { capabilities: { device_prove: true, push: true } });
+    });
+    const socket = lastOf(parts.sockets, DESKTOP_URL);
+    const before = socket.requests("device.push_set").length;
+    answerSheet(0);
+    await pickInMenu("desktop", "forget");
+    expect(socket.requests("device.push_set").slice(before)).toEqual([
+      expect.objectContaining({ params: {} }),
+    ]);
   });
 });

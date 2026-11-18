@@ -1,5 +1,6 @@
 // The words of the Settings screen (design 3.16): the three lines of a machine row, the
-// row menu, the Forget sheet and the version. Pure, for the tests.
+// row menu, the Forget sheet, the version and the row "Notifications". Pure, for the
+// tests.
 //
 // A machine row is all mono:
 // - the name, in text_bright, or in text_muted while the machine is offline;
@@ -21,6 +22,7 @@ import {
   type MachineTone,
   type ZoneOffset,
 } from "@/features/machines/model/machine-status";
+import type { PushPermission } from "./push";
 
 /** The text of a machine row. */
 export interface MachineRowText {
@@ -152,4 +154,61 @@ export function forgetFailedText(name: string): ForgetFailedText {
 export function versionText(version: string | undefined, build: string | undefined): string {
   const name = version === undefined || version === "" ? "unknown" : version;
   return build === undefined || build === "" ? name : `${name} (${build})`;
+}
+
+/** The title of the row "Notifications" and of its group "When you are away". */
+export const NOTIFICATIONS_TITLE = "Notifications";
+export const AWAY_HEADER = "When you are away";
+
+/** The words of the row "Notifications" (the 0.0.13 frames of the Settings board). */
+export interface NotificationsRowText {
+  /** iOS denies the notices: the row opens the iOS settings, and its switch is dim. */
+  readonly denied: boolean;
+  readonly value: boolean;
+  /** What the switch does, or, denied, why it is off (state_warning). */
+  readonly line: string;
+  /** The machines that take no push token, such as "Not available on homelab". */
+  readonly note: string | undefined;
+  readonly label: string;
+  readonly hint: string;
+}
+
+/**
+ * The row "Notifications". `unavailable` names the machines whose efrd takes no push
+ * token (before 0.0.13, or `presence.push` off).
+ */
+export function notificationsRowText(
+  on: boolean,
+  permission: PushPermission | undefined,
+  unavailable: readonly string[],
+): NotificationsRowText {
+  if (permission === "denied") {
+    return {
+      denied: true,
+      value: false,
+      line: "Notifications are off for efr in iOS Settings. Tap to open them.",
+      note: undefined,
+      label: `${NOTIFICATIONS_TITLE}, off in iOS Settings`,
+      hint: "Opens Settings.",
+    };
+  }
+  const line = "A notice when something needs you and you are not at the terminal.";
+  const note = unavailableText(unavailable);
+  return {
+    denied: false,
+    value: on && permission === "granted",
+    line,
+    note,
+    label: NOTIFICATIONS_TITLE,
+    hint: note === undefined ? line : `${line} ${note}.`,
+  };
+}
+
+/** "Not available on homelab", "on homelab and laptop", "on 3 machines", or undefined. */
+function unavailableText(names: readonly string[]): string | undefined {
+  if (names.length === 0) {
+    return undefined;
+  }
+  const which = names.length <= 2 ? names.join(" and ") : `${String(names.length)} machines`;
+  return `Not available on ${which}`;
 }

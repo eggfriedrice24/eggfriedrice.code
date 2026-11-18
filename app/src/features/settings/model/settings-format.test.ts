@@ -17,6 +17,7 @@ import {
   machineAction,
   machineRowText,
   nodeName,
+  notificationsRowText,
   versionText,
 } from "./settings-format";
 
@@ -224,5 +225,47 @@ describe("versionText", () => {
     expect(versionText("0.1.0", undefined)).toBe("0.1.0");
     expect(versionText("0.1.0", "")).toBe("0.1.0");
     expect(versionText(undefined, undefined)).toBe("unknown");
+  });
+});
+
+describe("notificationsRowText", () => {
+  const LINE = "A notice when something needs you and you are not at the terminal.";
+
+  it("is on only while the switch is on and iOS allows the notices", () => {
+    expect(notificationsRowText(true, "granted", [])).toEqual({
+      denied: false,
+      value: true,
+      line: LINE,
+      note: undefined,
+      label: "Notifications",
+      hint: LINE,
+    });
+    expect(notificationsRowText(false, "granted", []).value).toBe(false);
+    expect(notificationsRowText(true, "undetermined", []).value).toBe(false);
+    expect(notificationsRowText(true, undefined, []).value).toBe(false);
+  });
+
+  it("names the machines that take no push token, and counts three or more", () => {
+    expect(notificationsRowText(true, "granted", ["homelab"]).note).toBe(
+      "Not available on homelab",
+    );
+    expect(notificationsRowText(false, "granted", ["homelab", "laptop"])).toMatchObject({
+      note: "Not available on homelab and laptop",
+      hint: `${LINE} Not available on homelab and laptop.`,
+    });
+    expect(notificationsRowText(true, "granted", ["a", "b", "c"]).note).toBe(
+      "Not available on 3 machines",
+    );
+  });
+
+  it("says that iOS denies the notices and that a tap opens the iOS settings", () => {
+    expect(notificationsRowText(true, "denied", ["homelab"])).toEqual({
+      denied: true,
+      value: false,
+      line: "Notifications are off for efr in iOS Settings. Tap to open them.",
+      note: undefined,
+      label: "Notifications, off in iOS Settings",
+      hint: "Opens Settings.",
+    });
   });
 });

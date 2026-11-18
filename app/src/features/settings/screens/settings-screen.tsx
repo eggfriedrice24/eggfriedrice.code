@@ -14,6 +14,10 @@
 //   switch moves only after the check passed. With `focus=unlock` (the item "Turn on Face
 //   ID unlock" of the mode menu) Settings scrolls to the group and marks the row with
 //   selection_bg for about 1 s.
+// - The group "When you are away" holds the row "Notifications" (0.0.13), in a build with
+//   expo-notifications. The first tap on lets iOS ask; denied in iOS, the row opens the
+//   iOS settings. A machine whose efrd takes no push token is named under the row.
+//   Before a Forget, the machine gets no token, so it stops its pushes at once.
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSelector } from "@tanstack/react-store";
@@ -70,16 +74,21 @@ import { AppServicesContext } from "@/features/navigation/use-app-services";
 import { useNow } from "@/features/navigation/use-now";
 import { accountHref } from "@/features/navigation/model/routes";
 import { AccountsGroup } from "../components/accounts-group";
+import { SwitchCell } from "../components/switch-cell";
 import { UnlockRow } from "../components/unlock-row";
 import { MachineRow } from "../components/machine-row";
 import { forgetPlan } from "../model/forget-plan";
 import { DEFAULT_PREFERENCES, type PreferencesStore } from "../model/preferences";
+import type { Push } from "../model/push";
 import {
+  AWAY_HEADER,
   FORGET_ACTION,
+  NOTIFICATIONS_TITLE,
   forgetFailedText,
   forgetSheet,
   machineRowText,
   nodeName,
+  notificationsRowText,
   versionText,
   type MachineAction,
 } from "../model/settings-format";
@@ -114,6 +123,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       runtime={services.runtime}
       preferences={services.preferences}
       lock={services.appLock}
+      push={services.push}
       focus={props.focus}
     />
   );
@@ -138,11 +148,12 @@ interface WiredSettingsProps {
   readonly runtime: Runtime;
   readonly preferences: PreferencesStore;
   readonly lock: AppLock;
+  readonly push: Push | null;
   readonly focus: "unlock" | undefined;
 }
 
 function WiredSettings(props: WiredSettingsProps) {
-  const { runtime, preferences } = props;
+  const { runtime, preferences, push } = props;
   const router = useRouter();
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const reduceMotion = useReduceMotion();
@@ -176,6 +187,7 @@ function WiredSettings(props: WiredSettingsProps) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     }
     let failed = false;
+    push?.release(machine.id);
     try {
       await forget.mutateAsync(machine.id);
     } catch {
@@ -233,6 +245,9 @@ function WiredSettings(props: WiredSettingsProps) {
       machines={machines}
       accounts={accounts}
       unlock={<UnlockGroup lock={props.lock} mark={props.focus === "unlock"} />}
+      notifications={
+        push === null ? undefined : <NotificationsGroup push={push} runtime={runtime} />
+      }
       focusUnlock={props.focus === "unlock"}
       reduceMotion={reduceMotion}
       haptics={haptics}
@@ -292,6 +307,44 @@ function UnlockGroup(props: UnlockGroupProps) {
   );
 }
 
+interface NotificationsGroupProps {
+  readonly push: Push;
+  readonly runtime: Runtime;
+}
+
+/** The group "When you are away": the row "Notifications" with the state of push. */
+function NotificationsGroup(props: NotificationsGroupProps) {
+  const { push } = props;
+  const on = useSelector(push.store, (state) => state.on);
+  const permission = useSelector(push.store, (state) => state.permission);
+  const asking = useSelector(push.store, (state) => state.asking);
+  const unavailable = useSelector(push.store, (state) => state.unavailable);
+  const machines = useSelector(props.runtime.registry, (state) => state.machines);
+  const names = unavailable.flatMap((id) => {
+    const machine = machines.find((one) => one.id === id);
+    return machine === undefined ? [] : [machine.name];
+  });
+  const text = notificationsRowText(on, permission, names);
+  return (
+    <InsetGroup header={AWAY_HEADER}>
+      <SwitchCell
+        id="notifications"
+        title={NOTIFICATIONS_TITLE}
+        line={{ text: text.line, tone: text.denied ? "state_warning" : "text_subtle" }}
+        note={text.note === undefined ? undefined : { text: text.note, tone: "text_muted" }}
+        value={text.value}
+        dim={text.denied}
+        disabled={asking}
+        busy={asking}
+        onPress={() => (text.denied ? push.openSettings() : push.setOn(!text.value))}
+        role={text.denied ? "button" : "switch"}
+        accessibilityLabel={text.label}
+        accessibilityHint={text.hint}
+      />
+    </InsetGroup>
+  );
+}
+
 interface ConnectedMachineRowProps {
   readonly runtime: Runtime;
   readonly machine: Machine;
@@ -329,6 +382,8 @@ interface SettingsListProps {
   readonly accounts?: ReactNode;
   /** The group Privacy with the row "Face ID unlock"; none without the services. */
   readonly unlock?: ReactNode;
+  /** The group "When you are away"; none in a build without expo-notifications. */
+  readonly notifications?: ReactNode;
   readonly haptics: boolean;
   readonly onHapticsChange: (on: boolean) => void;
   /** "Ask before a costly model switch". */
@@ -344,8 +399,8 @@ interface SettingsListProps {
 /** The space above the group Privacy after the scroll to it. */
 const FOCUS_MARGIN = 20;
 
-/** The groups of Settings: Machines, the accounts of each machine, Models, Privacy,
- * Feedback, About. */
+/** The groups of Settings: Machines, the accounts of each machine, Models, Privacy, When
+ * you are away, Feedback, About. */
 function SettingsList(props: SettingsListProps) {
   const scroll = useRef<ScrollViewInstance>(null);
   const scrolled = useRef(false);
@@ -400,6 +455,7 @@ function SettingsList(props: SettingsListProps) {
           {props.unlock}
         </View>
       )}
+      {props.notifications}
       <InsetGroup header="Feedback" footer="Haptics for taps, copies, scans and errors.">
         <SwitchRow title="Haptics" value={props.haptics} onValueChange={props.onHapticsChange} />
       </InsetGroup>
