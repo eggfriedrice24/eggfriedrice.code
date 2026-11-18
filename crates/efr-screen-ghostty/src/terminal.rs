@@ -108,7 +108,6 @@ impl GhosttyScreen {
     /// [`GhosttyError::DecodeSnapshot`] when the bytes are not a complete, intact
     /// snapshot, and [`GhosttyError::Configure`] when libghostty-vt refuses a setting.
     pub fn restore(snapshot: &[u8]) -> Result<Self, GhosttyError> {
-        ffi::init();
         let terminal = snapshot::decode(snapshot)?;
         Self::configure(terminal)
     }
@@ -173,9 +172,9 @@ impl GhosttyScreen {
         if !self.failure_logged && self.terminal.vt_processing_error().unwrap_or(false) {
             self.failure_logged = true;
             tracing::warn!(
+                log_target = ffi::TARGET,
                 "libghostty-vt failed while it read the output of the program; the screen \
-                 can miss a change from now on, and the log target {} can name the cause",
-                ffi::TARGET
+                 can miss a change from now on, and the library log can name the cause"
             );
         }
     }

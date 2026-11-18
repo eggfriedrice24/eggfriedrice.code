@@ -77,13 +77,15 @@ test), `efr-screen` with its
 
 - `unsafe` only in `src/ffi.rs`, which is on the tidy allowlist. It sets the
   process-global log hook of libghostty-vt once, under a `Once`, and every path into
-  libghostty-vt (`GhosttyScreen::new`, `GhosttyScreen::restore`, the test helper)
-  passes that `Once` first. Everything else uses the safe API.
+  libghostty-vt (`GhosttyScreen::new`, `snapshot::decode`, the test helper) passes
+  that `Once` first. Everything else uses the safe API.
 - The library log goes to `tracing` with the target `libghostty`, at `debug` for its
   errors and warnings and at `trace` for the rest, because the program in the hidden
   shell controls what the library logs. `EFR_LOG=info,libghostty=debug` shows it.
-  When libghostty-vt reports a failure that it did not handle
-  (`Terminal::vt_processing_error`), the screen logs one warning.
+  The hook is set only when the filter shows that target at `debug` when the first
+  screen starts; otherwise the library formats no log line. A later change of the
+  filter does not change the hook. When libghostty-vt reports a failure that it did
+  not handle (`Terminal::vt_processing_error`), the screen logs one warning.
 - A `GhosttyScreen` is built, used and dropped on its actor thread. Its callbacks own
   what they touch (`Rc` buffers), so the terminal borrows nothing.
 - A callback never blocks and never calls back into the terminal; the screen drains

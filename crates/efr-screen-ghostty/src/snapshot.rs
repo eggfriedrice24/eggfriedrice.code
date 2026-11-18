@@ -17,7 +17,7 @@ use libghostty_vt::point::{Coordinate, Point};
 use libghostty_vt::screen::Screen as ActiveScreen;
 use libghostty_vt::snapshot::Decoder;
 
-use crate::GhosttyError;
+use crate::{GhosttyError, ffi};
 
 /// The longest unfinished escape sequence kept for a GHOSTSNP snapshot. A snapshot
 /// taken while the parser is inside a longer one (a large DCS image) fails until
@@ -48,7 +48,7 @@ pub(crate) fn capture(terminal: &Terminal<'_, '_>, scrollback_rows: usize) -> Sc
 
 /// The cursor in the visible grid. libghostty-vt keeps a cursor with a pending wrap
 /// on the last column, so it is always inside the grid.
-pub(crate) fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
+fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
     Cursor {
         row: terminal.cursor_y().unwrap_or(0),
         col: terminal.cursor_x().unwrap_or(0),
@@ -58,7 +58,7 @@ pub(crate) fn cursor(terminal: &Terminal<'_, '_>) -> Cursor {
 
 /// The title the program set; libghostty-vt reports "no title" as an empty string.
 /// A title that is not UTF-8 shows as no title.
-pub(crate) fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
+fn title<'t>(terminal: &'t Terminal<'_, '_>) -> Option<&'t str> {
     terminal.title().ok().and_then(title_text).filter(|title| !title.is_empty())
 }
 
@@ -92,6 +92,7 @@ pub(crate) fn encode(terminal: &mut Terminal<'_, '_>) -> Result<Vec<u8>, Ghostty
 /// snapshot up to [`CONTINUATION_LIMIT`], so a snapshot of it is possible at once.
 /// A snapshot with a longer unfinished sequence is refused.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Terminal<'static, 'static>, GhosttyError> {
+    ffi::init();
     let decode = |source| GhosttyError::DecodeSnapshot { source };
     let mut decoder = Decoder::new_buf(bytes).map_err(decode)?;
     // NOTE: the tracking must be on before the decode. Turned on after it, while the
