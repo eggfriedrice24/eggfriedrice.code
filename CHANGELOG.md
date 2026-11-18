@@ -15,8 +15,15 @@ into the GitHub release notes, and it stops when the section is missing.
 - efrd can show the log of libghostty-vt, the terminal core that reads the output of
   your shell: set `EFR_LOG=info,libghostty=debug`. When libghostty-vt fails in a way
   that it does not handle, efrd logs one warning for that screen.
+- The model sees an image file that it reads with `read_file` (PNG, JPEG, GIF, WebP),
+  when its model reads images. Each other model gets the path of the file.
 
 ### Changed
+
+- efr makes large PNG and JPEG images smaller and removes EXIF, GPS and comment data
+  from PNG, JPEG, GIF and WebP images before a model gets them. A broken image goes as
+  a path. If a provider refuses an image, efr sends the request again with its path,
+  and later requests send the path too.
 
 - efrd reads the output of your shell with libghostty-vt 1.0.1. It has fixes for the
   scrollback after a resize, for prompts after a resize and for a scrollback line

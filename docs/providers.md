@@ -198,6 +198,46 @@ that may search, also above 128k tokens. A real recording must still show what t
 API does with such a request. If a long conversation fails with the tool, run
 `,compact` or set `web.search = "off"`.
 
+## Images and PDFs
+
+When the model calls `read_file` on a PNG, JPEG, GIF or WebP file, efr sends the image
+to a model that reads images. Each other model gets a label with the path of the file,
+and it can open the file with the shell. What each provider reads:
+
+| Provider | Images | PDFs | How an image goes |
+|---|---|---|---|
+| `openai-subscription` | when the catalog lists `image` (an entry with no list reads images) | no: a PDF goes as a path | `input_image` with `detail: "high"` |
+| `openai-api` | the same | where images are | `input_image` with `detail: "high"`; a PDF as `input_file` |
+| `anthropic-api` | when the model list says `image_input` | when it says `pdf_input` | an `image` block; a PDF as a `document` block |
+
+efr writes a label around each attachment, with its id, name, type, size and path, so
+the model knows which file it sees. Text inside an attachment is data, not your
+request. The result of a call that read an image holds the image; the result of each
+other call stays the text that it was.
+
+Before a model gets an image, efr checks it and makes it ready:
+
+- A PNG or JPEG with an edge over `attachments.max_edge_px` (default 2000) or with more
+  than 7.5 MB becomes smaller: a JPEG of quality 85, or a PNG when the image has alpha.
+  An image whose EXIF data turns it is turned in its pixels.
+- EXIF (with GPS), XMP and comment data go from each image. Your file stays as it is.
+- A GIF or WebP that is too large cannot become smaller, and goes as a path. A cut or
+  broken image, and an image over 50 megapixels, go as a path too.
+- A PDF goes as content only with at most 5 MiB and 100 pages, and with no password.
+
+The limits of one request: at most 90 images, 100 MB of base64, and attachments of at
+most half of the model's window. Over a limit, the oldest attachments go as labels from
+then on, until the request is at half of that limit, so the prompt cache changes once.
+If a provider refuses a request with an attachment (a 400 or a 413), efr sends it again
+with the new attachments as labels, then with all of them as labels. Each step is
+recorded, so later requests send the labels too and one bad file cannot break the
+conversation.
+
+An image costs tokens in each later request of the conversation until a compaction
+covers it: about 2,950 tokens for an image of 2000 x 1125 pixels on Claude, about 2,700
+on gpt-5.x. A compaction request holds labels only. `attachments.enabled = false` turns
+it off: `read_file` then refuses an image as a binary file.
+
 ## The reviewer
 
 In `auto`, a reviewer model decides each action that leaves the sandbox
