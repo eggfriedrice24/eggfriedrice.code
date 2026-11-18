@@ -168,13 +168,13 @@ async fn the_end_of_the_output_takes_the_waiting_batch() {
     window_open(&scene, 1).await;
     drop(followed.writer.take());
     let matched = followed.task.await.unwrap();
-    assert_eq!(matched, Some(Matched { lines: numbered(1, 2), dropped: 0 }));
+    assert_eq!(matched, Matched::of(numbered(1, 2), 0));
     // NOTE: the output ends before the follower woke for its first line.
     let mut followed = Followed::new(&scene, 2, 3).await;
     followed.write("match 3\n").await;
     drop(followed.writer.take());
     let matched = followed.task.await.unwrap();
-    assert_eq!(matched, Some(Matched { lines: numbered(3, 3), dropped: 0 }));
+    assert_eq!(matched, Matched::of(numbered(3, 3), 0));
     assert!(recorded(&scene).await.is_empty(), "no batch became a notice of its own");
 }
 
@@ -186,7 +186,7 @@ async fn a_cancel_takes_the_waiting_batch_at_once() {
     window_open(&scene, 1).await;
     followed.end.cancel();
     let matched = followed.task.await.unwrap();
-    assert_eq!(matched, Some(Matched { lines: numbered(1, 1), dropped: 0 }));
+    assert_eq!(matched, Matched::of(numbered(1, 1), 0));
     assert!(recorded(&scene).await.is_empty());
 }
 

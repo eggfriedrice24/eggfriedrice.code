@@ -297,10 +297,31 @@ impl Matcher {
 /// The lines of one batch of a watch: at most the first [`BATCH_HEAD`] and the last
 /// [`BATCH_TAIL`] lines that matched, in order, and the count of the lines between them
 /// that it leaves out.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Matched {
-    pub(crate) lines: Vec<String>,
+    /// The first line of the batch: a batch always has one.
+    pub(crate) first: String,
+    /// The lines after `first`.
+    pub(crate) more: Vec<String>,
     pub(crate) dropped: u32,
+}
+
+impl Matched {
+    /// All the lines of the batch, in order.
+    pub(crate) fn into_lines(self) -> Vec<String> {
+        let mut lines = Vec::with_capacity(self.more.len().saturating_add(1));
+        lines.push(self.first);
+        lines.extend(self.more);
+        lines
+    }
+
+    /// The batch of `lines` with `dropped` left out; `None` with no line.
+    #[cfg(test)]
+    pub(crate) fn of(lines: Vec<String>, dropped: u32) -> Option<Self> {
+        let mut lines = lines.into_iter();
+        let first = lines.next()?;
+        Some(Self { first, more: lines.collect(), dropped })
+    }
 }
 
 /// The matched lines of a job that no notice told yet. The reader thread puts lines in;
@@ -365,16 +386,16 @@ impl MatchWindow {
     /// window closes in the same step, so no line comes in after the last batch.
     pub(crate) fn take(&self, close: bool) -> Option<Matched> {
         let mut window = self.lock();
-        if window.head.is_empty() {
-            return None;
-        }
+        let mut head = std::mem::take(&mut window.head).into_iter();
+        let first = head.next()?;
         if close {
             self.closed.store(true, Ordering::Relaxed);
         }
-        let mut lines = std::mem::take(&mut window.head);
-        lines.extend(window.tail.drain(..));
+        // NOTE: the collect keeps the buffer of the head.
+        let mut more: Vec<String> = head.collect();
+        more.extend(window.tail.drain(..));
         let dropped = std::mem::take(&mut window.dropped);
-        Some(Matched { lines, dropped })
+        Some(Matched { first, more, dropped })
     }
 
     /// Waits until a line came into the empty window; at once when one came since the

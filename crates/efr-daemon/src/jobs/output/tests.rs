@@ -138,19 +138,21 @@ fn match_window_keeps_head_and_tail_and_counts_the_rest() {
     for line in lines(3) {
         assert!(window.push(&line));
     }
-    assert_eq!(window.take(false), Some(Matched { lines: lines(3), dropped: 0 }));
+    assert_eq!(window.take(false), Matched::of(lines(3), 0));
     assert_eq!(window.take(false), None, "a take empties the window");
     for line in lines(5_000) {
         assert!(window.push(&line));
     }
-    let Some(Matched { lines: kept, dropped }) = window.take(false) else { unreachable!() };
+    let Some(taken) = window.take(false) else { unreachable!() };
+    let dropped = taken.dropped;
+    let kept = taken.into_lines();
     assert_eq!(kept.len(), BATCH_HEAD + BATCH_TAIL);
     assert_eq!(kept[..BATCH_HEAD], lines(10));
     assert_eq!(kept[BATCH_HEAD..], lines(5_000)[4_990..]);
     assert_eq!(dropped, 4_980);
     // The next batch starts with no count.
     assert!(window.push("again"));
-    assert_eq!(window.take(false), Some(Matched { lines: vec!["again".to_owned()], dropped: 0 }));
+    assert_eq!(window.take(false), Matched::of(vec!["again".to_owned()], 0));
 }
 
 #[test]
@@ -159,7 +161,7 @@ fn match_window_closes_only_with_its_last_batch() {
     assert_eq!(window.take(true), None);
     assert!(!window.is_closed(), "a take with no batch leaves the window open");
     assert!(window.push("last"));
-    assert_eq!(window.take(true).map(|matched| matched.lines), Some(vec!["last".to_owned()]));
+    assert_eq!(window.take(true).map(Matched::into_lines), Some(vec!["last".to_owned()]));
     assert!(window.is_closed());
     assert!(!window.push("after the last batch"));
     assert_eq!(window.take(false), None);
@@ -177,7 +179,7 @@ async fn reader_puts_matches_into_the_window_until_it_closes() {
     let first = b"error one\nfine\nerror two\n".len() as u64;
     Wait::new("the first chunk").until(|| output.bytes() >= first).await.unwrap();
     let taken = window.take(true).unwrap();
-    assert_eq!(taken.lines, ["error one", "error two"]);
+    assert_eq!(taken.into_lines(), ["error one", "error two"]);
     writeln!(writer, "fine again\nerror three").unwrap();
     write!(writer, "error four, with no newline").unwrap();
     drop(writer);
@@ -200,7 +202,7 @@ async fn reader_puts_a_last_line_without_newline_into_the_window() {
     write!(writer, "work\ndone").unwrap();
     drop(writer);
     output.ended().await;
-    assert_eq!(window.take(false).map(|matched| matched.lines), Some(vec!["done".to_owned()]));
+    assert_eq!(window.take(false).map(Matched::into_lines), Some(vec!["done".to_owned()]));
 }
 
 #[test]

@@ -952,27 +952,17 @@ impl JobTable {
             if last {
                 return Some(matched);
             }
-            let mut more = matched.lines;
-            // NOTE: a take is never empty; the check keeps `remove` from a panic.
-            if more.is_empty() {
-                continue;
-            }
-            let line = more.remove(0);
+            let output::Matched { first: line, more, dropped } = matched;
             wakes -= 1;
             info.wakes = info.wakes.saturating_add(1);
             self.update(key, |live| live.wakes = live.wakes.saturating_add(1));
-            let body = NoticeBody::Watch {
-                line: &line,
-                more: &more,
-                dropped: matched.dropped,
-                wakes_left: wakes,
-            };
+            let body = NoticeBody::Watch { line: &line, more: &more, dropped, wakes_left: wakes };
             let text = notice_text(&info, &shown, body);
             let event = Event::JobWatchMatched {
                 job_id: info.id.clone(),
                 line,
                 more,
-                dropped: matched.dropped,
+                dropped,
                 wakes_left: wakes,
             };
             let committed =
@@ -1646,9 +1636,19 @@ impl JobTask {
                 if !output_ended {
                     watching.end.cancel();
                 }
-                watching.task.await.ok().flatten().unwrap_or_default()
+                watching.task.await.unwrap_or_else(|error| {
+                    tracing::warn!(%error, job = %info.id, "the watch of a job failed; its last batch is lost");
+                    None
+                })
             }
-            None => output::Matched::default(),
+            None => None,
+        };
+        let (matched, matched_dropped) = match matched {
+            Some(matched) => {
+                let dropped = matched.dropped;
+                (matched.into_lines(), dropped)
+            }
+            None => (Vec::new(), 0),
         };
         let info = table.lock().running.get(&self.key).map_or(info, |entry| entry.info.clone());
         // NOTE: the launcher ended, and the bridge with it; the socket closes before the
@@ -1758,8 +1758,8 @@ impl JobTask {
             output_bytes: final_info.output_bytes,
             ran_secs: ran_secs(info.started_at, now),
             tail: tail.clone(),
-            matched: matched.lines.clone(),
-            matched_dropped: matched.dropped,
+            matched: matched.clone(),
+            matched_dropped,
             quarantined: surface_changes.iter().any(|change| change.quarantined),
             surface_changes,
             survivors,
@@ -1803,8 +1803,8 @@ impl JobTask {
                     exit_code: ended.exit_code,
                     stopped_by: ended.stopped_by,
                     tail: &tail,
-                    matched: &matched.lines,
-                    matched_dropped: matched.dropped,
+                    matched: &matched,
+                    matched_dropped,
                 };
                 let shown = self.output_path.display().to_string();
                 let text = notice_text_refused(&final_info, &shown, body, refused.as_deref());
