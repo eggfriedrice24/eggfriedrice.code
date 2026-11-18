@@ -53,6 +53,8 @@ pub(crate) mod prove;
 mod tailnet;
 
 pub(crate) use admission::Admission;
+#[cfg(test)]
+pub(crate) use admission::Proved;
 use live::LiveDevices;
 use tailnet::View;
 

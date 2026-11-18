@@ -656,6 +656,56 @@ fn a_remote_connection_holds_nothing_before_its_proof_and_its_device_scopes_afte
     }
 }
 
+/// The model's question counts a follower only with `operate` (`holds`): never a
+/// model-side peer, never a remote device before its proof or without `operate`, and
+/// never a scope that no phone may hold.
+#[test]
+fn only_a_connection_that_holds_operate_may_answer_the_model_s_question() {
+    use std::sync::Arc;
+
+    use efr_protocol::DeviceId;
+    use efr_transport::{ConnId, ConnectionContext, PeerCred, RemotePeer};
+
+    use crate::methods::holds;
+    use crate::remote::Proved;
+
+    let local = ConnectionContext::new(ConnId::new(1), Origin::Cli, PeerCred::new(1000, Some(5)));
+    let model_side = granted(Origin::Cli, PeerSide::ModelSide);
+    assert!(!holds(&local, model_side, ScopeName::Operate), "a model-side peer reads only");
+    assert!(holds(&local, granted(Origin::Cli, PeerSide::User), ScopeName::Operate));
+
+    let peer = crate::pairing::EnrollPeer {
+        node_stable_id: "nPHONE1CNTRL".to_owned(),
+        node_name: "phone.tail1234.ts.net.".to_owned(),
+        user_id: 42,
+        user_login: "me@example.com".to_owned(),
+        tailnet_stable_id: "TtAiLnEt1".to_owned(),
+        os: None,
+    };
+    let remote = |proved: Option<Vec<ScopeName>>| {
+        let admission = crate::remote::test_admission(&peer);
+        if let Some(scopes) = proved {
+            let device_id = DeviceId::from_uuid(id(9));
+            assert!(admission.prove(Proved { device_id, scopes }));
+        }
+        let addr: std::net::SocketAddr = "100.64.0.2:51000".parse().unwrap();
+        ConnectionContext::new(
+            ConnId::new(2),
+            Origin::Phone,
+            RemotePeer::new(addr, Arc::new(admission)),
+        )
+    };
+    // NOTE: the local scopes never count for a remote connection.
+    let every = &ScopeName::ALL;
+    assert!(!holds(&remote(None), every, ScopeName::Operate), "no proof yet");
+    let approve = remote(Some(vec![ScopeName::Read, ScopeName::Approve]));
+    assert!(!holds(&approve, every, ScopeName::Operate), "a device without operate");
+    let operate = remote(Some(vec![ScopeName::Read, ScopeName::Operate]));
+    assert!(holds(&operate, &[], ScopeName::Operate));
+    let terminal = remote(Some(vec![ScopeName::Terminal]));
+    assert!(!holds(&terminal, every, ScopeName::Terminal), "no phone holds terminal");
+}
+
 /// The Unix socket refuses the methods of the tailnet listener for every peer.
 #[test]
 fn the_proof_methods_are_remote_only() {

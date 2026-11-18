@@ -111,18 +111,6 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// True when the connection of `context`, whose local peer holds `scopes`, may answer
-/// the model's question (`operate`): a remote one by its device's proof, as
-/// `methods.rs` authorizes it. A model-side peer holds `read` only, so it never counts.
-fn operates(context: &ConnectionContext, scopes: &[ScopeName]) -> bool {
-    if context.remote().is_some() {
-        return crate::remote::admission(context)
-            .and_then(crate::remote::Admission::proved)
-            .is_some_and(|proved| proved.scopes.contains(&ScopeName::Operate));
-    }
-    scopes.contains(&ScopeName::Operate)
-}
-
 pub(crate) async fn handle(
     state: &Arc<State>,
     context: &ConnectionContext,
@@ -140,7 +128,9 @@ pub(crate) async fn handle(
         &[]
     };
     let answering = params.answers_input && scopes.contains(&ScopeName::Terminal);
-    let questioning = params.answers_questions && operates(context, scopes);
+    // NOTE: the model's question needs `operate`, which a model-side peer never holds,
+    // so a command of the model cannot hold a question open without end.
+    let questioning = params.answers_questions && super::holds(context, scopes, ScopeName::Operate);
     efr_stdx::mark::hit("sub.peer");
     let attached = state
         .connections

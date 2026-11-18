@@ -364,11 +364,30 @@ pub(crate) fn authorize_remote(
         return Err(DaemonError::ProofNeeded { method: method.name() });
     };
     let needed = scope(method);
-    if scopes.contains(&needed) && PHONE_SCOPES.contains(&needed) {
+    if remote_holds(scopes, needed) {
         Ok(())
     } else {
         Err(DaemonError::Forbidden { method: method.name(), scope: needed })
     }
+}
+
+/// True when a remote connection whose device proved `proved` holds `scope`: the device
+/// and the phone both hold it.
+fn remote_holds(proved: &[ScopeName], scope: ScopeName) -> bool {
+    proved.contains(&scope) && PHONE_SCOPES.contains(&scope)
+}
+
+/// True when the connection of `context` holds `scope`, by the rule of
+/// [`authorize_context`]: a remote one by its device's proof, a local one when
+/// `local`, the scopes of its peer ([`granted`]), holds it. A model-side peer holds
+/// `read` only.
+pub(crate) fn holds(context: &ConnectionContext, local: &[ScopeName], scope: ScopeName) -> bool {
+    if context.remote().is_some() {
+        return crate::remote::admission(context)
+            .and_then(crate::remote::Admission::proved)
+            .is_some_and(|proved| remote_holds(&proved.scopes, scope));
+    }
+    local.contains(&scope)
 }
 
 /// Refuses `method` on the connection of `context`: a remote one by its device's
