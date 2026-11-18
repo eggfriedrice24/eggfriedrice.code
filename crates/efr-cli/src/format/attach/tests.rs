@@ -155,3 +155,21 @@ fn the_row_of_a_refusal_names_the_files_and_the_row_of_the_budget_counts_them() 
         [("not sent from now on: 1 older file. The request had too many; the model gets the path.".to_owned(), Tone::Dim)]
     );
 }
+
+/// TM-Attach 8c: without colour the mark and `as a path` are bold, the name is
+/// underlined while it is a link, and the rest is dim.
+#[test]
+fn without_colour_the_mark_and_the_path_words_are_bold_and_a_link_is_underlined() {
+    let mut big = attachment(1, "manual.pdf", 18_000_000, AttachmentKind::Pdf { pages: None });
+    big.sent = None;
+    let options = terminal(80).with_colour(efr_render::ColourMode::None);
+    let row = chip_rows(&[big], &[], true, &options);
+    let url = "file:///home/you/.local/share/efr/scratch/s/attachments/a1-manual.pdf";
+    assert_eq!(
+        row,
+        format!(
+            "\x1b[1m@\x1b[0m \x1b[2mpdf\x1b[0m \x1b]8;;{url}\x1b\\\x1b[4mmanual.pdf\x1b[0m\x1b]8;;\x1b\\ \
+             \x1b[2m18 MB\x1b[0m \x1b[1mas a path\x1b[0m\n"
+        )
+    );
+}

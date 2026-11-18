@@ -47,8 +47,8 @@ impl From<ClientError> for Failure {
     }
 }
 
-/// Sends `prompt` on `client` with the files of `words`, which `ctx` names the uploads
-/// of. A prompt with no file is one `prompt.send`.
+/// Sends `prompt` on `client` with the files of `words`; the clock and the randomness
+/// of `ctx` make the ids of the uploads. A prompt with no file is one `prompt.send`.
 pub(crate) async fn send(
     ctx: &Context,
     client: &Client,
