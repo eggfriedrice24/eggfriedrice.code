@@ -111,6 +111,7 @@ impl MountPlan {
         for dir in &path_dirs {
             builder.floor(dir, FloorKind::PathDir)?;
         }
+        builder.owned_floors()?;
         builder.job_floors()?;
         builder.assets()?;
         builder.sockets_and_devices()?;
@@ -587,17 +588,29 @@ impl Builder<'_> {
         Ok(())
     }
 
-    /// The floors of jobs. `$SCRATCH/jobs`, where efrd writes the job outputs, is
+    /// The floors of the dirs that efrd writes in `$SCRATCH`: `jobs` with the job
+    /// outputs and `attachments` with the copies of the attachments. Each one is
     /// read-only for every call once efrd made it as a dir; a link or a file there is
-    /// not efrd's, and efrd moves it away before it makes the dir. A job also gets every
-    /// git dir that it finds at its start read-only whole: the pinned ones and each one
-    /// that the surface guard's scan finds in the guard roots, so a job that runs for
-    /// hours cannot plant a hook or a config in a known repository.
-    fn job_floors(&mut self) -> Result<(), SandboxError> {
-        let outputs = self.spec.runtime.job_outputs();
-        if self.lstat(&outputs)? == Some(FileKind::Dir) {
-            self.floor(&outputs, FloorKind::JobOutput)?;
+    /// not efrd's, and efrd moves it away before it makes the dir.
+    fn owned_floors(&mut self) -> Result<(), SandboxError> {
+        let runtime = &self.spec.runtime;
+        let owned = [
+            (runtime.job_outputs(), FloorKind::JobOutput),
+            (runtime.attachment_copies(), FloorKind::Attachments),
+        ];
+        for (dir, kind) in owned {
+            if self.lstat(&dir)? == Some(FileKind::Dir) {
+                self.floor(&dir, kind)?;
+            }
         }
+        Ok(())
+    }
+
+    /// The floors of a job: every git dir that it finds at its start, read-only whole:
+    /// the pinned ones and each one that the surface guard's scan finds in the guard
+    /// roots, so a job that runs for hours cannot plant a hook or a config in a known
+    /// repository.
+    fn job_floors(&mut self) -> Result<(), SandboxError> {
         if self.spec.job.is_none() {
             return Ok(());
         }

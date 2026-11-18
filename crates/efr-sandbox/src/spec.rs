@@ -42,6 +42,11 @@ pub const JOB_OOM_SCORE_ADJ: i32 = 1000;
 /// holds the job outputs that efrd writes.
 pub const JOB_DIR: &str = "jobs";
 
+/// The dir of the attachments in `$SCRATCH`: `$SCRATCH/attachments/<id>-<name>` is the
+/// copy of an attachment that efrd writes, with the bytes of the file as it was
+/// attached.
+pub const ATTACH_DIR: &str = "attachments";
+
 /// The name of a call's proxy socket in its call dir: efrd binds `$CALL/proxy.sock`,
 /// and [`NetworkPlan::Proxy`] must name exactly that file.
 pub const PROXY_SOCKET_FILE: &str = "proxy.sock";
@@ -433,6 +438,9 @@ pub enum FloorKind {
     /// `$SCRATCH/jobs`: the job outputs that efrd writes, read-only for every
     /// contained call.
     JobOutput,
+    /// `$SCRATCH/attachments`: the copies of the attachments that efrd writes,
+    /// read-only for every contained call.
+    Attachments,
     /// A git dir that a job finds at its start, pinned or nested: read-only whole, so a
     /// job that runs for hours cannot plant a hook or a config in it.
     JobGitDir,
@@ -659,6 +667,11 @@ impl RuntimePaths {
     /// `$SCRATCH/jobs`, where efrd writes the job outputs.
     pub fn job_outputs(&self) -> PathBuf {
         self.scratch.join(JOB_DIR)
+    }
+
+    /// `$SCRATCH/attachments`, where efrd writes the copies of the attachments.
+    pub fn attachment_copies(&self) -> PathBuf {
+        self.scratch.join(ATTACH_DIR)
     }
 }
 

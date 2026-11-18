@@ -1353,20 +1353,28 @@ fn without_job_floors(plan: &MountPlan) -> Vec<(PathBuf, MountOrigin, OpKind)> {
 }
 
 #[test]
-fn plan_floors_the_job_output_dir_once_efrd_made_it() {
-    let mut fs = world();
-    let outputs = spec().runtime.job_outputs();
-    let output_floor = (outputs.clone(), FloorKind::JobOutput);
-    assert!(!floors(&plan(&spec(), &fs)).contains(&output_floor));
-    // A link that a call left there is not efrd's dir: no floor, and the call still
-    // runs (efrd moves it away before it makes the dir).
-    fs.link(&outputs.to_string_lossy(), PROJECT);
-    assert!(!floors(&plan(&spec(), &fs)).contains(&output_floor));
-    fs.remove(&outputs.to_string_lossy()).dir(&outputs.to_string_lossy());
-    assert!(floors(&plan(&spec(), &fs)).contains(&output_floor));
-    // Every contained call gets it, a job too.
-    let job = job_spec(&mut fs);
-    assert!(floors(&plan(&job, &fs)).contains(&output_floor));
+fn plan_floors_the_dirs_of_efrd_in_scratch_once_efrd_made_them() {
+    let runtime = spec().runtime;
+    let owned = [
+        (runtime.job_outputs(), FloorKind::JobOutput),
+        (runtime.attachment_copies(), FloorKind::Attachments),
+    ];
+    for (dir, kind) in owned {
+        let mut fs = world();
+        let floor = (dir.clone(), kind);
+        assert!(!floors(&plan(&spec(), &fs)).contains(&floor), "{kind:?}");
+        // A link that a call left there is not efrd's dir: no floor, and the call still
+        // runs (efrd moves it away before it makes the dir).
+        fs.link(&dir.to_string_lossy(), PROJECT);
+        assert!(!floors(&plan(&spec(), &fs)).contains(&floor), "{kind:?}");
+        fs.remove(&dir.to_string_lossy()).file(&dir.to_string_lossy(), "");
+        assert!(!floors(&plan(&spec(), &fs)).contains(&floor), "{kind:?}");
+        fs.remove(&dir.to_string_lossy()).dir(&dir.to_string_lossy());
+        assert!(floors(&plan(&spec(), &fs)).contains(&floor), "{kind:?}");
+        // Every contained call gets it, a job too.
+        let job = job_spec(&mut fs);
+        assert!(floors(&plan(&job, &fs)).contains(&floor), "{kind:?}");
+    }
 }
 
 #[test]
