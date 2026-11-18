@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use efr_protocol::{ApprovalDecision, Origin};
 use efr_render::{Attrs, ColourMode, RenderOptions, Role, WidthMethod, text_width};
-use efr_stdx::text::is_format;
+use efr_stdx::text::{is_format, span};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
@@ -558,18 +558,6 @@ pub(crate) fn ago(then: Timestamp, now: Timestamp) -> String {
 pub(crate) fn until(then: Timestamp, now: Timestamp) -> String {
     let seconds = then.duration_since(now).as_secs();
     if seconds < 0 { ago(then, now) } else { format!("in {}", span(seconds.unsigned_abs())) }
-}
-
-/// A duration in its two largest units: `45s`, `5m 3s`, `2h 5m`, `3d 4h`.
-pub(crate) fn span(seconds: u64) -> String {
-    let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
-    let secs = seconds % 60;
-    match (days, hours, minutes) {
-        (0, 0, 0) => format!("{secs}s"),
-        (0, 0, _) => format!("{minutes}m {secs}s"),
-        (0, _, _) => format!("{hours}h {minutes}m"),
-        _ => format!("{days}d {hours}h"),
-    }
 }
 
 /// A running time in whole seconds, as the status row counts it: `0s` to `59s`, then

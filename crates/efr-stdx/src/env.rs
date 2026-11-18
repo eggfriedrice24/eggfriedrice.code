@@ -67,6 +67,10 @@ pub enum Var {
     /// body of each model request and the stream of its answer to private files below
     /// `<state dir>/streams/`, never a header. Off by default.
     RecordStreams,
+    /// `EFR_EXPO_PUSH_URL`: an `http` or `https` URL that replaces
+    /// `https://exp.host` for the push requests of `efrd`, read once at its start.
+    /// Only the tests and the smoke set it, to a fake push server.
+    ExpoPushUrl,
     /// `EFR_EVAL_CASES`: an absolute path to the cases of the live reviewer eval
     /// (`just eval-reviewer`); without it, the eval does not run.
     EvalCases,
@@ -141,6 +145,7 @@ impl Var {
         Var::BenchProject,
         Var::Mark,
         Var::RecordStreams,
+        Var::ExpoPushUrl,
         Var::EvalCases,
         Var::EvalOut,
         Var::EvalAnthropicKey,
@@ -199,6 +204,7 @@ impl Var {
             Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mark => "EFR_MARK",
             Var::RecordStreams => "EFR_RECORD_STREAMS",
+            Var::ExpoPushUrl => "EFR_EXPO_PUSH_URL",
             Var::EvalCases => "EFR_EVAL_CASES",
             Var::EvalOut => "EFR_EVAL_OUT",
             Var::EvalAnthropicKey => "EFR_EVAL_ANTHROPIC_KEY",

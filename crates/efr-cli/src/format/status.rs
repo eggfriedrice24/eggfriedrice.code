@@ -12,12 +12,13 @@ use efr_protocol::{
     FullModeStatus, HeldConfig, LoginKind, Mode, ProviderStatus, SandboxStatus,
 };
 use efr_render::RenderOptions;
+use efr_stdx::text::span;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use unicode_width::UnicodeWidthStr as _;
 
 use super::sandbox::{self, tilde};
-use super::{Tone, accounts, ago, one_line, paint, span};
+use super::{Tone, accounts, ago, one_line, paint};
 use crate::error::login_command;
 
 /// Who can act on a conversation, from its `status` and its `attention`: the one rule of

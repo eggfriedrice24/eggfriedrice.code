@@ -145,6 +145,7 @@ fn all_lists_every_variant() {
         Var::BenchProject,
         Var::Mark,
         Var::RecordStreams,
+        Var::ExpoPushUrl,
         Var::EvalCases,
         Var::EvalOut,
         Var::EvalAnthropicKey,
@@ -179,6 +180,7 @@ fn all_lists_every_variant() {
             | Var::BenchProject
             | Var::Mark
             | Var::RecordStreams
+            | Var::ExpoPushUrl
             | Var::EvalCases
             | Var::EvalOut
             | Var::EvalAnthropicKey

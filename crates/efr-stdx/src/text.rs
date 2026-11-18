@@ -1,5 +1,8 @@
-//! Characters that a text must not carry onto the user's screen as they are, and the
-//! body of a desktop notice.
+//! Characters that a text must not carry onto the user's screen as they are, the body
+//! of a desktop notice, and the texts of a duration, a size and a cut that efrd and
+//! `efr` both write.
+
+use std::time::Duration;
 
 /// The longest body of a desktop notice, in characters.
 pub const NOTICE_BODY_MAX: usize = 200;
@@ -23,6 +26,52 @@ pub fn notice_body(place: &str, what: &str) -> String {
     } else {
         one_line(&format!("{place}: {what}"), NOTICE_BODY_MAX)
     }
+}
+
+/// The body of the notice at the end of a turn that took `took`: `<place>: done in
+/// 4m 12s`, or `<place>: failed after 1m 3s` when it failed ([`notice_body`],
+/// [`span`]).
+pub fn notice_ended(place: &str, took: Duration, failed: bool) -> String {
+    let span = span(took.as_secs());
+    let what = if failed { format!("failed after {span}") } else { format!("done in {span}") };
+    notice_body(place, &what)
+}
+
+/// A duration in its two largest units: `45s`, `5m 3s`, `2h 5m`, `3d 4h`.
+pub fn span(seconds: u64) -> String {
+    let (days, hours, minutes) = (seconds / 86_400, seconds / 3_600 % 24, seconds / 60 % 60);
+    let secs = seconds % 60;
+    match (days, hours, minutes) {
+        (0, 0, 0) => format!("{secs}s"),
+        (0, 0, _) => format!("{minutes}m {secs}s"),
+        (0, _, _) => format!("{hours}h {minutes}m"),
+        _ => format!("{days}d {hours}h"),
+    }
+}
+
+/// A size in bytes, counted in thousands, with one decimal under 10 of its unit and
+/// none from 10: `512 B`, `2.0 KB`, `14 KB`, `2.1 MB`, `310 MB`, `1.2 GB`.
+pub fn byte_size(bytes: u64) -> String {
+    let (unit_bytes, unit) = match bytes {
+        0..1_000 => return format!("{bytes} B"),
+        1_000..1_000_000 => (1_000, "KB"),
+        1_000_000..1_000_000_000 => (1_000_000, "MB"),
+        _ => (1_000_000_000, "GB"),
+    };
+    let whole = bytes / unit_bytes;
+    if whole < 10 {
+        format!("{whole}.{} {unit}", bytes / (unit_bytes / 10) % 10)
+    } else {
+        format!("{whole} {unit}")
+    }
+}
+
+/// The line that stands where a cut left `omitted` bytes of a text out, with a line
+/// break before and after it: `\n[... 1048576 bytes omitted ...]\n`. The capture of a
+/// command and the cut of a tool's output write this one form, so the model reads one
+/// form.
+pub fn omitted_marker(omitted: u64) -> String {
+    format!("\n[... {omitted} bytes omitted ...]\n")
 }
 
 /// The `<place>` of a desktop notice: `project`, the name of the conversation's

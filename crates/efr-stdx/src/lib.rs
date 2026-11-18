@@ -22,6 +22,7 @@ mod error;
 pub mod fs;
 pub mod id;
 pub mod mark;
+pub mod media;
 pub mod panic;
 pub mod paths;
 pub mod process;

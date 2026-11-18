@@ -23,11 +23,10 @@ use std::time::Duration;
 
 use efr_config::{AutoOnOff, NotifySettings};
 use efr_protocol::{RouteLabel, RouteScope};
-use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, notice_place};
+use efr_stdx::text::{INPUT_WAITS, QUESTION_WAITS, notice_body, notice_ended, notice_place};
 use efr_stdx::time::{Clock, Sleep};
 use jiff::Timestamp;
 
-use crate::format;
 use crate::terminal::TermFacts;
 
 /// How long a question or an answer line waits with no key before its notice goes.
@@ -80,12 +79,7 @@ impl Notices {
     /// or not: `app: done in 4m 12s`, `app: failed after 1m 3s`. `None` when the turn
     /// took less than `notify.after_secs`.
     pub(crate) fn ended(&self, took: Duration, failed: bool) -> Option<String> {
-        if took < self.after {
-            return None;
-        }
-        let span = format::span(took.as_secs());
-        let what = if failed { format!("failed after {span}") } else { format!("done in {span}") };
-        Some(notice_body(&self.place, &what))
+        (took >= self.after).then(|| notice_ended(&self.place, took, failed))
     }
 }
 

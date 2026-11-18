@@ -20,6 +20,7 @@ use efr_protocol::{
     JobStopBy, SurfaceChange,
 };
 use efr_render::{Glyphs, RenderOptions, WidthMethod};
+use efr_stdx::text::byte_size;
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -559,18 +560,6 @@ fn when(job: &JobInfo, now: Timestamp) -> String {
     }
 }
 
-/// The size of a job's output in the list: one decimal under 10 of its unit, such as
-/// `2.0 KB` and `1.2 MB`, none from 10, such as `14 KB`.
-fn output_size(bytes: u64) -> String {
-    let shown = size(bytes);
-    match shown.split_once(' ') {
-        Some((number, unit)) if number.len() > 3 && number.contains('.') => {
-            format!("{} {unit}", number.split('.').next().unwrap_or(number))
-        }
-        _ => shown,
-    }
-}
-
 /// The narrowest column of the time: `ends in 52m 3s` and `ended 59m 59s ago` change
 /// width from run to run, so the column of the output stays where it is.
 const WHEN_COLUMNS: usize = 16;
@@ -608,7 +597,7 @@ pub(crate) fn list(
             lead.push((row.job.id.to_string(), Tone::Text));
             lead.push(state_words(row.job));
             lead.push((when(row.job, now), Tone::Text));
-            lead.push((output_size(row.job.output_bytes), Tone::Text));
+            lead.push((byte_size(row.job.output_bytes), Tone::Text));
             lead.push((command(&row.job.command, COMMAND_COLUMNS), Tone::Text));
             let mut marks = Vec::new();
             if let Some(ports) = ports(row.job) {
