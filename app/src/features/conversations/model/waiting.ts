@@ -1,4 +1,4 @@
-// Approvals elsewhere: the conversations other than the one on screen that wait for the
+// Waits elsewhere: the conversations other than the one on screen that wait for the
 // user (plan section 2.2, design-spec section 2): an approval, a question of the model or
 // a wait that only the terminal can answer (C-Waiting 0.0.12). They feed the yolk dot on
 // the title chevron and the strip under the header. Pure.
@@ -10,7 +10,7 @@
 //   app polls the list every 10 s (D7). The row state of a list tells each kind of wait.
 // - The streams of the conversations in the stack, which win for their conversations
 //   because they are live. A stream counts only its approvals. The hook of the app
-//   gives no streams today (see `use-approvals-elsewhere.ts`), so the lists are the
+//   gives no streams today (see `use-waits-elsewhere.ts`), so the lists are the
 //   only source.
 //
 // The conversation on screen never counts: its wait is in its transcript.
@@ -43,7 +43,7 @@ export interface WaitingConversation {
  * and a tap opens the sheet with its Needs you section on top. `count` counts
  * conversations.
  */
-export type ApprovalsElsewhere =
+export type WaitsElsewhere =
   | { readonly kind: "none" }
   | { readonly kind: "one"; readonly conversation: WaitingConversation }
   | {
@@ -52,7 +52,7 @@ export type ApprovalsElsewhere =
       readonly conversations: readonly WaitingConversation[];
     };
 
-/** The sources of approvals elsewhere. */
+/** The sources of the waits elsewhere. */
 export interface WaitingInput {
   /** The conversation on screen; undefined on the blank root. */
   readonly current: ConversationAddress | undefined;
@@ -93,7 +93,7 @@ function listedWait(item: ConversationItem): WaitState | undefined {
 }
 
 /** The waits elsewhere: newest first by the lists, then the live ones they lack. */
-export function approvalsElsewhere(input: WaitingInput): ApprovalsElsewhere {
+export function waitsElsewhere(input: WaitingInput): WaitsElsewhere {
   const isCurrent = (ref: ConversationAddress): boolean =>
     input.current !== undefined && sameConversation(ref, input.current);
   const live = new Map<string, LiveConversation>();
@@ -130,7 +130,7 @@ export function approvalsElsewhere(input: WaitingInput): ApprovalsElsewhere {
 }
 
 /** True when the title chevron shows the yolk dot. */
-export function showsApprovalDot(elsewhere: ApprovalsElsewhere): boolean {
+export function showsWaitDot(elsewhere: WaitsElsewhere): boolean {
   return elsewhere.kind !== "none";
 }
 
@@ -166,7 +166,7 @@ export function manyWaitingText(conversations: readonly WaitingConversation[]): 
  * The words of the waits elsewhere for VoiceOver, after the title of the bar, such as
  * "question waiting" or "3 conversations need you"; undefined when none waits.
  */
-export function waitingWords(elsewhere: ApprovalsElsewhere): string | undefined {
+export function waitingWords(elsewhere: WaitsElsewhere): string | undefined {
   switch (elsewhere.kind) {
     case "one":
       return waitWord(elsewhere.conversation.state).toLowerCase();

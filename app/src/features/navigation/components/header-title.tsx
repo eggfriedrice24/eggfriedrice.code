@@ -11,10 +11,10 @@ import { Stack, useRouter } from "expo-router";
 
 import type { Machine } from "@/features/machines/model/machine";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
-import { showsApprovalDot, waitingWords } from "@/features/conversations/model/waiting";
+import { showsWaitDot, waitingWords } from "@/features/conversations/model/waiting";
 import { conversationsSheetHref } from "../model/routes";
 import { titleLabel } from "../model/title-label";
-import { useApprovalsElsewhere } from "../use-approvals-elsewhere";
+import { useWaitsElsewhere } from "../use-waits-elsewhere";
 import { TitleButton } from "./title-button";
 
 export interface HeaderTitleProps {
@@ -29,7 +29,7 @@ export interface HeaderTitleProps {
 /** The title of the bar. */
 export function HeaderTitle(props: HeaderTitleProps) {
   const { machine, current } = props;
-  const elsewhere = useApprovalsElsewhere(current);
+  const elsewhere = useWaitsElsewhere(current);
   const router = useRouter();
   return (
     <>
@@ -38,7 +38,7 @@ export function HeaderTitle(props: HeaderTitleProps) {
         <TitleButton
           title={props.title}
           mono={current === undefined}
-          dot={showsApprovalDot(elsewhere)}
+          dot={showsWaitDot(elsewhere)}
           label={titleLabel(props.title, waitingWords(elsewhere))}
           onPress={() => router.push(conversationsSheetHref(machine.id))}
         />

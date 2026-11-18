@@ -225,7 +225,7 @@ describe("the sections of the sheet", () => {
   it("gives each row the icon of its status, yolk for waiting and running", async () => {
     await renderSheet();
     const hidden = { includeHiddenElements: true } as const;
-    expect(screen.getAllByTestId("row-icon-approval", hidden)).toHaveLength(2);
+    expect(screen.getAllByTestId("row-icon-wait", hidden)).toHaveLength(2);
     expect(screen.getAllByTestId("row-icon-running", hidden)).toHaveLength(1);
     expect(screen.getAllByTestId("row-icon-none", hidden)).toHaveLength(3);
     const migrate = screen.getByLabelText(
@@ -233,7 +233,7 @@ describe("the sections of the sheet", () => {
     );
     expect(within(migrate).getByText("3m")).toBeOnTheScreen();
     expect(ROW_SYMBOLS).toEqual({
-      approval: { name: "exclamationmark.circle.fill", size: 19, tone: "accent_primary" },
+      wait: { name: "exclamationmark.circle.fill", size: 19, tone: "accent_primary" },
       none: { name: "bubble.left", size: 17, tone: "border_subtle" },
     });
   });
@@ -350,9 +350,7 @@ describe("the sections of the sheet", () => {
       "text-row text-text-muted",
     );
     expect(within(btrfs).queryByText("needs approval")).toBeNull();
-    expect(
-      screen.getAllByTestId("row-icon-approval", { includeHiddenElements: true }),
-    ).toHaveLength(1);
+    expect(screen.getAllByTestId("row-icon-wait", { includeHiddenElements: true })).toHaveLength(1);
     expect(
       screen.getByLabelText("Set up restic backups. laptop, offline, ~. Yesterday at 20:00."),
     ).toBeOnTheScreen();

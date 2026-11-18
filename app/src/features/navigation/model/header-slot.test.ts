@@ -79,7 +79,7 @@ describe("slotContent", () => {
       }),
     );
     expect(content).toEqual({
-      kind: "approval",
+      kind: "wait",
       word: "Approval waiting",
       conversation: { machine: DESKTOP, id: "a" },
       machineName: "desktop",
@@ -89,9 +89,9 @@ describe("slotContent", () => {
   });
 
   it("names the wait of one conversation in the words of the board", () => {
-    expect(one("answer")).toMatchObject({ kind: "approval", word: "Question waiting" });
+    expect(one("answer")).toMatchObject({ kind: "wait", word: "Question waiting" });
     expect(slotLabel(one("answer"))).toBe("Question waiting, desktop, x");
-    expect(one("terminal")).toMatchObject({ kind: "approval", word: "Answer in the terminal" });
+    expect(one("terminal")).toMatchObject({ kind: "wait", word: "Answer in the terminal" });
   });
 
   it("names a conversation without a title Untitled", () => {
@@ -100,13 +100,13 @@ describe("slotContent", () => {
         elsewhere: { kind: "one", conversation: { machine: DESKTOP, id: "a", state: "approval" } },
       }),
     );
-    expect(content).toMatchObject({ kind: "approval", title: "Untitled" });
+    expect(content).toMatchObject({ kind: "wait", title: "Untitled" });
   });
 
   it("counts two or more waits, with a mixed count as conversations that need you", () => {
-    expect(many("approval")).toEqual({ kind: "approvals", count: 2, text: "2 approvals waiting" });
+    expect(many("approval")).toEqual({ kind: "waits", count: 2, text: "2 approvals waiting" });
     expect(many("answer")).toEqual({
-      kind: "approvals",
+      kind: "waits",
       count: 2,
       text: "2 conversations need you",
     });
@@ -131,7 +131,7 @@ describe("slotContent", () => {
     expect(slotLabel(content)).toBe("laptop offline · seen 13:58 · retrying");
   });
 
-  it("gives the slot to an approval over the offline line", () => {
+  it("gives the slot to a wait over the offline line", () => {
     const content = slotContent(
       input({
         elsewhere: {
@@ -145,7 +145,7 @@ describe("slotContent", () => {
         },
       }),
     );
-    expect(content.kind).toBe("approval");
+    expect(content.kind).toBe("wait");
   });
 
   it("waits for the grace after the connection went down", () => {

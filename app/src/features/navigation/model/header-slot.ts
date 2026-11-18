@@ -8,7 +8,7 @@
 //   menu from code).
 // - Else, when the machine of the screen has no connection: the offline line, such as
 //   "laptop offline · seen 13:58 · retrying". It is quiet and takes no tap.
-// - An approval strip wins the slot over the offline line.
+// - A strip of a wait wins the slot over the offline line.
 //
 // The offline line waits until the reconnect failed for a while (design section 1, "After
 // a few failed tries, the offline line replaces reconnecting…"): for OFFLINE_GRACE_MS
@@ -22,21 +22,21 @@ import { rowTitle } from "@/features/conversations/model/list-format";
 import {
   manyWaitingText,
   waitWord,
-  type ApprovalsElsewhere,
+  type WaitsElsewhere,
 } from "@/features/conversations/model/waiting";
 
 /** What the slot shows. */
 export type SlotContent =
   | { readonly kind: "none" }
   | {
-      readonly kind: "approval";
+      readonly kind: "wait";
       /** What the conversation waits for: "Approval waiting", "Question waiting", ... */
       readonly word: string;
       readonly conversation: ConversationRef;
       readonly machineName: string;
       readonly title: string;
     }
-  | { readonly kind: "approvals"; readonly count: number; readonly text: string }
+  | { readonly kind: "waits"; readonly count: number; readonly text: string }
   | { readonly kind: "offline"; readonly machineName: string; readonly words: string };
 
 /** How long after the connection went down the offline line waits. */
@@ -52,7 +52,7 @@ export interface SlotMachine {
 
 /** What the slot reads. */
 export interface SlotInput {
-  readonly elsewhere: ApprovalsElsewhere;
+  readonly elsewhere: WaitsElsewhere;
   /** The name of a machine, such as `desktop`, for the strip. */
   readonly machineName: (machine: MachineId) => string;
   /** The machine of the screen; undefined when it is not paired any more. */
@@ -70,7 +70,7 @@ export function slotContent(input: SlotInput): SlotContent {
   if (elsewhere.kind === "one") {
     const { machine, id, title, state } = elsewhere.conversation;
     return {
-      kind: "approval",
+      kind: "wait",
       word: waitWord(state),
       conversation: { machine, id },
       machineName: input.machineName(machine),
@@ -79,7 +79,7 @@ export function slotContent(input: SlotInput): SlotContent {
   }
   if (elsewhere.kind === "many") {
     const text = manyWaitingText(elsewhere.conversations);
-    return { kind: "approvals", count: elsewhere.count, text };
+    return { kind: "waits", count: elsewhere.count, text };
   }
   const machine = input.machine;
   if (machine?.connection === undefined || !machine.graceOver) {
@@ -131,9 +131,9 @@ export function offlineFrom(connection: MachineConnection | undefined): number |
 /** The VoiceOver label of the slot. */
 export function slotLabel(content: SlotContent): string | undefined {
   switch (content.kind) {
-    case "approval":
+    case "wait":
       return `${content.word}, ${content.machineName}, ${content.title}`;
-    case "approvals":
+    case "waits":
       return content.text;
     case "offline":
       return `${content.machineName} ${content.words}`;

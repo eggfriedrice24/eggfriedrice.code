@@ -1,32 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import { item } from "./testing";
-import {
-  approvalsElsewhere,
-  manyWaitingText,
-  showsApprovalDot,
-  waitingWords,
-  waitWord,
-} from "./waiting";
+import { waitsElsewhere, manyWaitingText, showsWaitDot, waitingWords, waitWord } from "./waiting";
 
 /** A conversation `id` that waits in `state`. */
 function wait(id: string, state: "approval" | "answer" | "terminal") {
   return { machine: "d", id, state };
 }
 
-describe("approvalsElsewhere", () => {
+describe("waitsElsewhere", () => {
   it("is none when nothing waits", () => {
-    const result = approvalsElsewhere({
+    const result = waitsElsewhere({
       current: undefined,
       live: [{ machine: "d", id: "a", pendingApprovals: 0 }],
       listed: [item("d", "b", 1, { status: "running" })],
     });
     expect(result).toEqual({ kind: "none" });
-    expect(showsApprovalDot(result)).toBe(false);
+    expect(showsWaitDot(result)).toBe(false);
   });
 
   it("gives one waiting conversation from a polled list", () => {
-    const result = approvalsElsewhere({
+    const result = waitsElsewhere({
       current: { machine: "d", id: "here" },
       live: [],
       listed: [
@@ -38,11 +32,11 @@ describe("approvalsElsewhere", () => {
       kind: "one",
       conversation: { machine: "l", id: "steer", title: "Fix steer race", state: "approval" },
     });
-    expect(showsApprovalDot(result)).toBe(true);
+    expect(showsWaitDot(result)).toBe(true);
   });
 
   it("never counts the conversation on screen", () => {
-    const result = approvalsElsewhere({
+    const result = waitsElsewhere({
       current: { machine: "d", id: "a" },
       live: [{ machine: "d", id: "a", pendingApprovals: 2 }],
       listed: [item("d", "a", 1, { status: "awaiting_approval" })],
@@ -51,7 +45,7 @@ describe("approvalsElsewhere", () => {
   });
 
   it("counts the same id on another machine as another conversation", () => {
-    const result = approvalsElsewhere({
+    const result = waitsElsewhere({
       current: { machine: "d", id: "a" },
       live: [],
       listed: [item("l", "a", 1, { status: "awaiting_approval" })],
@@ -60,13 +54,13 @@ describe("approvalsElsewhere", () => {
   });
 
   it("trusts a live stream over a polled list that is behind", () => {
-    const answered = approvalsElsewhere({
+    const answered = waitsElsewhere({
       current: undefined,
       live: [{ machine: "d", id: "a", pendingApprovals: 0 }],
       listed: [item("d", "a", 1, { status: "awaiting_approval" })],
     });
     expect(answered).toEqual({ kind: "none" });
-    const asked = approvalsElsewhere({
+    const asked = waitsElsewhere({
       current: undefined,
       live: [{ machine: "d", id: "a", title: "Live title", pendingApprovals: 1 }],
       listed: [item("d", "a", 1, { status: "running", title: "Old title" })],
@@ -78,7 +72,7 @@ describe("approvalsElsewhere", () => {
   });
 
   it("counts conversations, the polled ones newest first, then the live ones they lack", () => {
-    const result = approvalsElsewhere({
+    const result = waitsElsewhere({
       current: { machine: "d", id: "here" },
       live: [
         { machine: "d", id: "stacked", pendingApprovals: 3 },
@@ -111,7 +105,7 @@ describe("approvalsElsewhere", () => {
       item("l", "failed", 5, { status: "idle", attention: "failed" }),
     ];
     const one = (state: "answer" | "terminal") =>
-      approvalsElsewhere({
+      waitsElsewhere({
         current: undefined,
         live: [],
         listed: listed.filter((row) => row.attention === state),
@@ -123,7 +117,7 @@ describe("approvalsElsewhere", () => {
     });
     expect(waitWord("answer")).toBe("Question waiting");
     expect(waitingWords(question)).toBe("question waiting");
-    const terminal = approvalsElsewhere({
+    const terminal = waitsElsewhere({
       current: undefined,
       live: [],
       listed: listed.slice(1, 2),
@@ -131,7 +125,7 @@ describe("approvalsElsewhere", () => {
     expect(waitingWords(terminal)).toBe("answer in the terminal");
     expect(one("terminal")).toMatchObject({ kind: "many", count: 2 });
 
-    const all = approvalsElsewhere({ current: undefined, live: [], listed });
+    const all = waitsElsewhere({ current: undefined, live: [], listed });
     expect(all).toMatchObject({ kind: "many", count: 3 });
     expect(waitingWords(all)).toBe("3 conversations need you");
   });

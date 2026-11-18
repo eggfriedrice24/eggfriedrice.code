@@ -4,7 +4,7 @@ import { flush } from "@/lib/net/testing";
 import type { EventEnvelope, SubscribeItem } from "@/lib/protocol/wire";
 import { BLANK_ROOT, DRAFTS_KEY, draftKey } from "@/features/conversation/model/drafts";
 import { conversationsKeys, recentItems } from "@/features/conversations/conversations-queries";
-import { approvalsElsewhere } from "@/features/conversations/model/waiting";
+import { waitsElsewhere } from "@/features/conversations/model/waiting";
 import type { ConversationsRecentResult } from "@/lib/protocol/generated";
 import {
   DESKTOP,
@@ -236,12 +236,10 @@ describe("the services and the screens outside the stream", () => {
       return recent === undefined ? [] : recentItems(DESKTOP, recent);
     };
     expect(listed().map((item) => item.status)).toEqual(["running"]);
-    expect(approvalsElsewhere({ current: undefined, live: [], listed: listed() }).kind).toBe(
-      "none",
-    );
+    expect(waitsElsewhere({ current: undefined, live: [], listed: listed() }).kind).toBe("none");
 
     socket.receive({ id, item: { kind: "changed", conversation: row("awaiting_approval") } });
-    expect(approvalsElsewhere({ current: undefined, live: [], listed: listed() })).toEqual({
+    expect(waitsElsewhere({ current: undefined, live: [], listed: listed() })).toEqual({
       kind: "one",
       conversation: { machine: DESKTOP, id: CONVERSATION, title: "Fan", state: "approval" },
     });

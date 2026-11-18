@@ -26,9 +26,9 @@ export function HeaderSlot(props: HeaderSlotProps) {
   const router = useRouter();
   const top = useHeaderHeight();
   const onPress = (): void => {
-    if (content.kind === "approval") {
+    if (content.kind === "wait") {
       open(content.conversation, { focus: "approval" });
-    } else if (content.kind === "approvals") {
+    } else if (content.kind === "waits") {
       router.push(conversationsHref("waiting"));
     }
   };

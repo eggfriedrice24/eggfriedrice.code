@@ -73,16 +73,8 @@ describe("sheetSections (S-Rows, Sections)", () => {
       [
         "Needs you",
         [
-          ["Prune old btrfs snapshots", "needs approval", "laptop", "~", "3m", "approval", true],
-          [
-            "Fix steer race in turn loop",
-            "needs approval",
-            "desktop",
-            "efr",
-            "20m",
-            "approval",
-            true,
-          ],
+          ["Prune old btrfs snapshots", "needs approval", "laptop", "~", "3m", "wait", true],
+          ["Fix steer race in turn loop", "needs approval", "desktop", "efr", "20m", "wait", true],
         ],
       ],
       [
@@ -164,10 +156,10 @@ describe("sheetSections (S-Rows, Sections)", () => {
       [
         "needs",
         [
-          ["approval", "needs approval", "accent_primary", "approval"],
-          ["answer", "needs an answer", "accent_primary", "approval"],
-          ["terminal", "answer in the terminal", "accent_primary", "approval"],
-          ["local", "answer in the terminal", "accent_primary", "approval"],
+          ["approval", "needs approval", "accent_primary", "wait"],
+          ["answer", "needs an answer", "accent_primary", "wait"],
+          ["terminal", "answer in the terminal", "accent_primary", "wait"],
+          ["local", "answer in the terminal", "accent_primary", "wait"],
         ],
       ],
       ["running", [["running", "running", "accent_primary", "running"]]],

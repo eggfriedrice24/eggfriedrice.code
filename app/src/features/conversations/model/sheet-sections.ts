@@ -27,7 +27,7 @@ import { folderName, listDay, listTime, rowTitle, spokenTime, statusWord } from 
 export type SheetSectionKind = "needs" | "running" | "today" | "yesterday" | "week" | "older";
 
 /** The icon of a row: the yolk "!" circle, the yolk braille loader, or the quiet bubble. */
-export type SheetRowMark = "approval" | "running" | "none";
+export type SheetRowMark = "wait" | "running" | "none";
 
 /** The colour role of the status word of a row. */
 export type SheetStatusTone = "accent_primary" | "state_error";
@@ -94,9 +94,9 @@ function liveState(item: ConversationItem, context: RowContext): RowState {
 }
 
 const MARKS: Readonly<Record<RowState, SheetRowMark>> = {
-  approval: "approval",
-  answer: "approval",
-  terminal: "approval",
+  approval: "wait",
+  answer: "wait",
+  terminal: "wait",
   running: "running",
   failed: "none",
   idle: "none",

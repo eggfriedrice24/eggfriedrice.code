@@ -4,7 +4,7 @@
 import { isTailnetDown } from "@/features/machines/model/machine-status";
 import type { ConversationRef, MachineId } from "@/features/machines/model/machine-ref";
 import { offlineFrom, slotContent, type SlotContent } from "./model/header-slot";
-import { useApprovalsElsewhere } from "./use-approvals-elsewhere";
+import { useWaitsElsewhere } from "./use-waits-elsewhere";
 import { useMachineConnections, useMachines } from "./use-machines";
 import { zoneAt } from "@/features/machines/model/machine-status";
 import { useNow, useReached } from "./use-now";
@@ -16,7 +16,7 @@ const UNKNOWN_MACHINE = "another machine";
 export function useHeaderSlot(current: ConversationRef): SlotContent {
   const machines = useMachines();
   const connections = useMachineConnections();
-  const elsewhere = useApprovalsElsewhere(current);
+  const elsewhere = useWaitsElsewhere(current);
   const now = useNow();
   const nameOf = (id: MachineId): string =>
     machines.find((machine) => machine.id === id)?.name ?? UNKNOWN_MACHINE;

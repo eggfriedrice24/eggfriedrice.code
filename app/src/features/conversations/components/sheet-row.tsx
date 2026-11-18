@@ -136,7 +136,7 @@ export function SheetRow(props: SheetRowProps) {
 
 /** The SF Symbol of each still mark: its name, its size in points and its colour role. */
 export const ROW_SYMBOLS = {
-  approval: { name: "exclamationmark.circle.fill", size: 19, tone: "accent_primary" },
+  wait: { name: "exclamationmark.circle.fill", size: 19, tone: "accent_primary" },
   none: { name: "bubble.left", size: 17, tone: "border_subtle" },
 } as const satisfies Record<
   Exclude<SheetRowModel["mark"], "running">,

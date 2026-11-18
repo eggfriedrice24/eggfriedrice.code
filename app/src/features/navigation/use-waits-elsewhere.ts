@@ -1,5 +1,6 @@
-// The approvals in other conversations (plan section 2.2, "Approvals elsewhere"), for the
-// dot on the title chevron and the strip under the header.
+// The waits in other conversations (plan section 2.2, "Approvals elsewhere"): an
+// approval, a question of the model or a wait for the terminal. They feed the dot on the
+// title chevron and the strip under the header.
 //
 // The source is the recent list of each connected machine. The watch of the lists of the
 // machine (`conversations.watch`) writes it as efrd commits; for an efrd without the
@@ -17,16 +18,13 @@ import { useQueries } from "@tanstack/react-query";
 import type { ConversationRef } from "@/features/machines/model/machine-ref";
 import { recentConversationsQueryOptions } from "@/features/conversations/conversations-queries";
 import type { ConversationItem } from "@/features/conversations/model/conversation-item";
-import {
-  approvalsElsewhere,
-  type ApprovalsElsewhere,
-} from "@/features/conversations/model/waiting";
+import { waitsElsewhere, type WaitsElsewhere } from "@/features/conversations/model/waiting";
 import { onlineMachines } from "./model/machine-connections";
 import { useRuntime } from "./use-app-services";
 import { useMachineConnections, useMachines } from "./use-machines";
 
-/** The approvals that wait in conversations other than `current`, on every machine. */
-export function useApprovalsElsewhere(current: ConversationRef | undefined): ApprovalsElsewhere {
+/** The waits of the conversations other than `current`, on every machine. */
+export function useWaitsElsewhere(current: ConversationRef | undefined): WaitsElsewhere {
   const runtime = useRuntime();
   const machines = useMachines();
   const online = onlineMachines(useMachineConnections());
@@ -34,7 +32,7 @@ export function useApprovalsElsewhere(current: ConversationRef | undefined): App
     queries: machines.map((machine) => recentConversationsQueryOptions(runtime, machine.id)),
     combine: (results): ConversationItem[] => results.flatMap((result) => result.data ?? []),
   });
-  return approvalsElsewhere({
+  return waitsElsewhere({
     current,
     live: [],
     listed: listed.filter((item) => online.has(item.machine)),
