@@ -6,9 +6,10 @@
 //! Leave; the conversation refuses a Keep from a phone. A retried command answers from
 //! its receipt, as `approval.respond` does.
 
-use efr_conversation::ConversationError;
-use efr_protocol::SandboxSurfaceRespond;
+use efr_conversation::{ConversationError, ConversationHandle};
+use efr_protocol::{CommandId, ConversationId, QuestionId, SandboxSurfaceRespond};
 use efr_transport::{ConnectionContext, Responder};
+use serde::Serialize;
 
 use crate::methods::prompt_send::ensure_exists;
 use crate::state::State;
@@ -22,19 +23,53 @@ pub(crate) async fn handle(
     params: SandboxSurfaceRespond,
     responder: &Responder,
 ) -> Result<(), DaemonError> {
-    let command_id = params.command_id;
+    let parked = Parked {
+        method: METHOD,
+        command_id: params.command_id,
+        conversation_id: params.conversation_id,
+        question_id: params.question_id,
+    };
+    let origin = context.surface();
+    respond_parked(state, parked, responder, |handle| async move {
+        handle.respond_surface(params, origin).await
+    })
+    .await
+}
+
+/// The answer to a question that a turn parked: the method, the command, and where
+/// the question is.
+pub(super) struct Parked {
+    pub(super) method: &'static str,
+    pub(super) command_id: CommandId,
+    pub(super) conversation_id: ConversationId,
+    pub(super) question_id: QuestionId,
+}
+
+/// The flow of an answer to a question that a turn parked (`sandbox.surface_respond`,
+/// `question.respond`): a retried command answers from its receipt; the live
+/// conversation takes the answer through `respond`; a conversation that is not live
+/// has no question that waits. A refusal goes into the receipt of the command.
+pub(super) async fn respond_parked<R, F>(
+    state: &State,
+    parked: Parked,
+    responder: &Responder,
+    respond: impl FnOnce(ConversationHandle) -> F,
+) -> Result<(), DaemonError>
+where
+    R: Serialize,
+    F: Future<Output = Result<R, ConversationError>>,
+{
+    let Parked { method, command_id, conversation_id, question_id } = parked;
     if let Some(receipt) = receipts::lookup(state, command_id).await? {
-        responder.item(&receipts::replay(METHOD, receipt)?).await?;
+        responder.item(&receipts::replay(method, receipt)?).await?;
         return Ok(());
     }
-    let conversation_id = params.conversation_id;
-    let question_id = params.question_id;
     let outcome = match state.conversations.live(conversation_id) {
-        Some(handle) => match handle.respond_surface(params, context.surface()).await {
+        Some(handle) => match respond(handle).await {
             Ok(result) => Ok(serde_json::to_value(result)
-                .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?),
+                .map_err(|source| DaemonError::EncodeResult { method, source })?),
             Err(ConversationError::DuplicateCommand { receipt }) => {
-                receipts::replay(METHOD, *receipt)
+                receipts::replay(method, *receipt)
             }
             Err(error) => Err(error.into()),
         },
@@ -51,6 +86,6 @@ pub(crate) async fn handle(
             Ok(())
         }
         Err(error @ DaemonError::Rejected { .. }) => Err(error),
-        Err(error) => Err(receipts::refuse(state, command_id, METHOD, error).await),
+        Err(error) => Err(receipts::refuse(state, command_id, method, error).await),
     }
 }
