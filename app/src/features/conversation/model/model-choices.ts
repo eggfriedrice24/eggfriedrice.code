@@ -22,7 +22,7 @@
 
 import { createStore, type Readable } from "@tanstack/store";
 import type { DaemonId } from "@/lib/protocol/generated";
-import type { KeyValueStorage } from "@/lib/store/key-value";
+import { readSaved, type KeyValueStorage } from "@/lib/store/key-value";
 import type { DraftKey } from "./drafts";
 import { savedModelChoicesSchema } from "./model-choices-schemas";
 
@@ -163,36 +163,25 @@ export function cleanChoice(choice: ModelChoice): ModelChoice {
 
 /** Reads the saved choices, or none when there are none or they are broken. */
 function load(deps: ModelChoicesDeps): ModelChoicesState {
-  let json: string | null;
-  try {
-    json = deps.storage.getItemSync(MODEL_CHOICES_KEY);
-  } catch (error) {
-    deps.onStorageError?.(error);
-    return EMPTY;
-  }
-  if (json === null) {
-    return EMPTY;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return EMPTY;
-  }
-  const parsed = savedModelChoicesSchema.safeParse(value);
-  if (!parsed.success) {
+  const saved = readSaved(
+    deps.storage,
+    MODEL_CHOICES_KEY,
+    savedModelChoicesSchema,
+    deps.onStorageError,
+  );
+  if (saved === undefined) {
     return EMPTY;
   }
   const choices = new Map<string, ModelChoice>();
-  for (const [key, choice] of Object.entries(parsed.data.choices)) {
+  for (const [key, choice] of Object.entries(saved.choices)) {
     choices.set(key, cleanChoice(choice));
   }
   return {
     choices,
-    quiet: new Set(parsed.data.quiet),
-    auto: new Set(parsed.data.auto),
-    favourites: new Map(Object.entries(parsed.data.favourites)),
-    plans: new Map(Object.entries(parsed.data.plans)),
+    quiet: new Set(saved.quiet),
+    auto: new Set(saved.auto),
+    favourites: new Map(Object.entries(saved.favourites)),
+    plans: new Map(Object.entries(saved.plans)),
   };
 }
 

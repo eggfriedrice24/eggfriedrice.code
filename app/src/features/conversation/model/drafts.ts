@@ -15,7 +15,7 @@ import { Debouncer } from "@tanstack/pacer";
 import { createStore, type Readable } from "@tanstack/store";
 
 import type { ConversationId, DaemonId } from "@/lib/protocol/generated";
-import type { KeyValueStorage } from "@/lib/store/key-value";
+import { readSaved, type KeyValueStorage } from "@/lib/store/key-value";
 import { savedDraftsSchema } from "./drafts-schemas";
 
 /** The key-value key of the drafts. */
@@ -73,28 +73,9 @@ export interface Drafts {
 
 /** Reads the saved drafts, or none when there are none or they are broken. */
 function load(deps: DraftsDeps): Map<string, string> {
-  let json: string | null;
-  try {
-    json = deps.storage.getItemSync(DRAFTS_KEY);
-  } catch (error) {
-    deps.onStorageError?.(error);
-    return new Map();
-  }
-  if (json === null) {
-    return new Map();
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return new Map();
-  }
-  const parsed = savedDraftsSchema.safeParse(value);
-  if (!parsed.success) {
-    return new Map();
-  }
+  const saved = readSaved(deps.storage, DRAFTS_KEY, savedDraftsSchema, deps.onStorageError);
   const texts = new Map<string, string>();
-  for (const [key, text] of Object.entries(parsed.data)) {
+  for (const [key, text] of Object.entries(saved ?? {})) {
     if (text !== "") {
       texts.set(key, text);
     }

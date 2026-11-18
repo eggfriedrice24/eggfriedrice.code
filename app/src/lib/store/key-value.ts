@@ -3,6 +3,38 @@
 // tests give it a store in memory (src/lib/store/testing.ts). It holds no secret: the
 // pairing record is in expo-secure-store.
 
+import type { ZodType } from "zod";
+
+/**
+ * The saved JSON of `key` as `schema` reads it, or undefined when there is none, when it
+ * is broken, or when the read fails. A store reads its value once, when it is made.
+ */
+export function readSaved<T>(
+  storage: KeyValueStorage,
+  key: string,
+  schema: ZodType<T>,
+  onError?: (error: unknown) => void,
+): T | undefined {
+  let json: string | null;
+  try {
+    json = storage.getItemSync(key);
+  } catch (error) {
+    onError?.(error);
+    return undefined;
+  }
+  if (json === null) {
+    return undefined;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** The part of expo-sqlite's kv-store `Storage` that the app's stores use. */
 export interface KeyValueStorage {
   /**
