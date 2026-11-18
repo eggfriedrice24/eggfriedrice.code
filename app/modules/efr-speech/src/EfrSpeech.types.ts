@@ -2,7 +2,7 @@
 // (ios/EfrSpeechModule.swift). The module records only while the app asks it to, and it
 // never writes the audio to a file.
 
-import type { NativeModule } from "expo";
+import type { EventSubscription } from "expo";
 
 /** `model` while iOS gets the speech model of the language, then `recording`. */
 export type SpeechPhase = "model" | "recording";
@@ -19,8 +19,17 @@ export type EfrSpeechEvents = {
   end: (event: { readonly reason: SpeechEndReason; readonly message?: string | null }) => void;
 };
 
-/** The native module, as `requireOptionalNativeModule("EfrSpeech")` gives it. */
-export interface EfrSpeechNative extends NativeModule<EfrSpeechEvents> {
+/**
+ * The native module, as `requireOptionalNativeModule("EfrSpeech")` gives it. The type
+ * `NativeModule` of expo is the class, not an instance, so the listener of its events is
+ * written out here.
+ */
+export interface EfrSpeechNative {
+  /** Calls `listener` for each event `event` until the subscription is removed. */
+  addListener<E extends keyof EfrSpeechEvents>(
+    event: E,
+    listener: EfrSpeechEvents[E],
+  ): EventSubscription;
   /** True on iOS 26 and later when this iPhone turns speech into text in its language. */
   isAvailable(): Promise<boolean>;
   /**
