@@ -754,6 +754,12 @@ class ZodEmitter {
         tag === undefined
           ? `z.union([${sources.join(", ")}])`
           : `z.discriminatedUnion(${JSON.stringify(tag)}, [${sources.join(", ")}])`;
+      // A tagged union with a bare `unknown` variant reads a variant that this build does
+      // not know as that variant, as efr-protocol does (`#[serde(other)]`), so a new kind
+      // from a newer efrd does not fail the event that holds it.
+      if (tag !== undefined && rest.some((option) => isBareUnknown(option, tag))) {
+        base = `${base}.catch(${JSON.stringify({ [tag]: UNKNOWN_VALUE })})`;
+      }
     }
     return nulls.length > 0 ? `${base}.nullable()` : base;
   }
@@ -930,6 +936,23 @@ function isStringConstant(schema) {
 
 /** The value that efr-protocol reads for a value of an enum that it does not know. */
 const UNKNOWN_VALUE = "unknown";
+
+/**
+ * True when `option` is the object `{ <tag>: "unknown" }` and holds nothing else: the
+ * variant that efr-protocol reads for a kind that it does not know.
+ *
+ * @param {unknown} option
+ * @param {string} tag
+ * @returns {boolean}
+ */
+function isBareUnknown(option, tag) {
+  if (!isObject(option) || !isObject(option["properties"])) {
+    return false;
+  }
+  const keys = Object.keys(option["properties"]);
+  const member = option["properties"][tag];
+  return keys.length === 1 && isObject(member) && member["const"] === UNKNOWN_VALUE;
+}
 
 /**
  * A set of strings. An enum that has the value `unknown` reads a value that this build

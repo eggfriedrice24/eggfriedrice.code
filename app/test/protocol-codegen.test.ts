@@ -255,6 +255,15 @@ describe("the generated constants", () => {
 });
 
 /** The source of the schema of definition `name` in the output of `zodSchemas`. */
+/** The schema of an object of the kind `kind`, with the members `extra`. */
+function tagged(kind: string, extra: Record<string, unknown> = {}) {
+  return {
+    properties: { kind: { const: kind, type: "string" }, ...extra },
+    required: ["kind"],
+    type: "object",
+  };
+}
+
 function schemaOf(defs: Record<string, unknown>, name: string): string {
   const source = zodSchemas(defs);
   const start = source.indexOf(`export const ${schemaName(name)}`);
@@ -367,6 +376,15 @@ describe("the zod emitter", () => {
       '= z.enum(["none","unknown"]).catch("unknown") satisfies',
     );
     expect(schemaOf(defs, "Status")).toContain('= z.enum(["idle","running"]) satisfies');
+  });
+
+  it("reads a new kind of a tagged union with an unknown variant as that variant", () => {
+    const defs = {
+      Answer: { oneOf: [tagged("replied", { text: { type: "string" } }), tagged("unknown")] },
+      Closed: { oneOf: [tagged("a"), tagged("b")] },
+    };
+    expect(schemaOf(defs, "Answer")).toContain('.catch({"kind":"unknown"}) satisfies');
+    expect(schemaOf(defs, "Closed")).not.toContain(".catch(");
   });
 
   it("writes a union tagged by a constant member as a discriminated union", () => {

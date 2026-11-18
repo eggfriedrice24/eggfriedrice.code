@@ -411,21 +411,23 @@ export const desktopKindSchema = z.enum([
   "niri",
 ]) satisfies z.ZodType<DesktopKind>;
 
-export const grantSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("write"), path: z.string() }),
-  z.object({ host: z.string(), kind: z.literal("host"), port: z.int().min(0).max(65535) }),
-  z.object({ kind: z.literal("open_network") }),
-  z.object({ kind: z.literal("socket"), path: z.string() }),
-  z.object({ bus: busKindSchema, kind: z.literal("bus") }),
-  z.object({ desktop: desktopKindSchema, kind: z.literal("desktop") }),
-  z.object({ kind: z.literal("device"), path: z.string() }),
-  z.object({ kind: z.literal("unmask"), path: z.string() }),
-  z.object({ kind: z.literal("env"), name: z.string() }),
-  z.object({ kind: z.literal("keyring") }),
-  z.object({ kind: z.literal("net_view") }),
-  z.object({ bus: busKindSchema, kind: z.literal("bus_filter") }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<Grant>;
+export const grantSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("write"), path: z.string() }),
+    z.object({ host: z.string(), kind: z.literal("host"), port: z.int().min(0).max(65535) }),
+    z.object({ kind: z.literal("open_network") }),
+    z.object({ kind: z.literal("socket"), path: z.string() }),
+    z.object({ bus: busKindSchema, kind: z.literal("bus") }),
+    z.object({ desktop: desktopKindSchema, kind: z.literal("desktop") }),
+    z.object({ kind: z.literal("device"), path: z.string() }),
+    z.object({ kind: z.literal("unmask"), path: z.string() }),
+    z.object({ kind: z.literal("env"), name: z.string() }),
+    z.object({ kind: z.literal("keyring") }),
+    z.object({ kind: z.literal("net_view") }),
+    z.object({ bus: busKindSchema, kind: z.literal("bus_filter") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<Grant>;
 
 export const projectIdSchema = z.guid() satisfies z.ZodType<ProjectId>;
 
@@ -689,11 +691,13 @@ export const notSavedReasonSchema = z
   .enum(["changed", "read_only", "load_check", "io", "reload_timeout", "unknown"])
   .catch("unknown") satisfies z.ZodType<NotSavedReason>;
 
-export const alwaysSavedSchema = z.discriminatedUnion("kind", [
-  z.object({ index: z.uint32(), kind: z.literal("saved"), rule: z.string() }),
-  z.object({ kind: z.literal("not_saved"), reason: notSavedReasonSchema }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<AlwaysSaved>;
+export const alwaysSavedSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ index: z.uint32(), kind: z.literal("saved"), rule: z.string() }),
+    z.object({ kind: z.literal("not_saved"), reason: notSavedReasonSchema }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<AlwaysSaved>;
 
 export const approvalDecisionSchema = z.enum([
   "allow",
@@ -839,17 +843,19 @@ export const exitInfoSchema = z.object({
 
 export const jobIdSchema = z.string().regex(/^j[1-9][0-9]{0,8}$/) satisfies z.ZodType<JobId>;
 
-export const callBackgroundResultSchema = z.discriminatedUnion("kind", [
-  z.object({
-    command: z.string(),
-    exits: z.array(exitInfoSchema).exactOptional(),
-    kind: z.literal("preview"),
-    max_minutes: z.uint32(),
-    token: z.int().nonnegative(),
-  }),
-  z.object({ job_id: jobIdSchema, kind: z.literal("moved") }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<CallBackgroundResult>;
+export const callBackgroundResultSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      command: z.string(),
+      exits: z.array(exitInfoSchema).exactOptional(),
+      kind: z.literal("preview"),
+      max_minutes: z.uint32(),
+      token: z.int().nonnegative(),
+    }),
+    z.object({ job_id: jobIdSchema, kind: z.literal("moved") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<CallBackgroundResult>;
 
 export const capabilitiesSchema = z.looseObject({
   admin: z.boolean().nullable().exactOptional(),
@@ -1157,12 +1163,14 @@ export const ptyWriteSchema = z.object({
 
 export const questionIdSchema = z.guid() satisfies z.ZodType<QuestionId>;
 
-export const questionReplySchema = z.discriminatedUnion("kind", [
-  z.object({ index: z.int().min(0).max(255), kind: z.literal("option") }),
-  z.object({ kind: z.literal("text"), text: z.string() }),
-  z.object({ kind: z.literal("skipped") }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<QuestionReply>;
+export const questionReplySchema = z
+  .discriminatedUnion("kind", [
+    z.object({ index: z.int().min(0).max(255), kind: z.literal("option") }),
+    z.object({ kind: z.literal("text"), text: z.string() }),
+    z.object({ kind: z.literal("skipped") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<QuestionReply>;
 
 export const questionRespondSchema = z.object({
   answer: questionReplySchema,
@@ -1404,21 +1412,23 @@ export const conversationContextResultSchema = z.object({
   window_known: z.boolean(),
 }) satisfies z.ZodType<ConversationContextResult>;
 
-export const conversationDeleteResultSchema = z.discriminatedUnion("kind", [
-  z.object({
-    conversation_id: conversationIdSchema,
-    jobs_stopped: z.uint32().exactOptional(),
-    kind: z.literal("deleted"),
-    not_removed: z.array(z.string()).exactOptional(),
-    title: z.string().nullable().exactOptional(),
-  }),
-  z.object({
-    kind: z.literal("held"),
-    title: z.string().nullable().exactOptional(),
-    tty: z.string(),
-  }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<ConversationDeleteResult>;
+export const conversationDeleteResultSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      conversation_id: conversationIdSchema,
+      jobs_stopped: z.uint32().exactOptional(),
+      kind: z.literal("deleted"),
+      not_removed: z.array(z.string()).exactOptional(),
+      title: z.string().nullable().exactOptional(),
+    }),
+    z.object({
+      kind: z.literal("held"),
+      title: z.string().nullable().exactOptional(),
+      tty: z.string(),
+    }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<ConversationDeleteResult>;
 
 export const fileChangeSchema = z.object({
   added: z.uint32(),
@@ -1690,11 +1700,13 @@ export const reportedFileSchema = z.object({
   path: z.string(),
 }) satisfies z.ZodType<ReportedFile>;
 
-export const routeScopeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("project"), value: projectIdSchema }),
-  z.object({ kind: z.literal("outside") }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<RouteScope>;
+export const routeScopeSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("project"), value: projectIdSchema }),
+    z.object({ kind: z.literal("outside") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<RouteScope>;
 
 export const surfaceChangeSchema = z.object({
   key: z.string().nullable().exactOptional(),
@@ -1768,12 +1780,14 @@ export const turnUndoInfoSchema = z.object({
 
 export const undoIdSchema = z.guid() satisfies z.ZodType<UndoId>;
 
-export const userAnswerSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("replied"), reply: questionReplySchema }),
-  z.object({ away: z.boolean().exactOptional(), kind: z.literal("unanswered") }),
-  z.object({ kind: z.literal("interrupted") }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<UserAnswer>;
+export const userAnswerSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("replied"), reply: questionReplySchema }),
+    z.object({ away: z.boolean().exactOptional(), kind: z.literal("unanswered") }),
+    z.object({ kind: z.literal("interrupted") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<UserAnswer>;
 
 export const webActionSchema = z
   .enum(["search", "open", "find", "unknown"])
@@ -2264,24 +2278,26 @@ export const routeLabelSchema = z.object({
   scope: routeScopeSchema,
 }) satisfies z.ZodType<RouteLabel>;
 
-export const conversationResumeResultSchema = z.discriminatedUnion("kind", [
-  z.object({
-    continues_here: z.boolean().exactOptional(),
-    conversation_id: conversationIdSchema,
-    here: z.boolean().exactOptional(),
-    kind: z.literal("resumed"),
-    scope: routeLabelSchema,
-    shell_dir: z.string().nullable().exactOptional(),
-    title: z.string().nullable().exactOptional(),
-    updated_at: z.iso.datetime({ offset: true }),
-  }),
-  z.object({
-    kind: z.literal("held"),
-    title: z.string().nullable().exactOptional(),
-    tty: z.string(),
-  }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<ConversationResumeResult>;
+export const conversationResumeResultSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      continues_here: z.boolean().exactOptional(),
+      conversation_id: conversationIdSchema,
+      here: z.boolean().exactOptional(),
+      kind: z.literal("resumed"),
+      scope: routeLabelSchema,
+      shell_dir: z.string().nullable().exactOptional(),
+      title: z.string().nullable().exactOptional(),
+      updated_at: z.iso.datetime({ offset: true }),
+    }),
+    z.object({
+      kind: z.literal("held"),
+      title: z.string().nullable().exactOptional(),
+      tty: z.string(),
+    }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<ConversationResumeResult>;
 
 export const searchKindSchema = z
   .enum(["title", "prompt", "answer", "command", "unknown"])
@@ -2721,35 +2737,39 @@ export const projectsListResultSchema = z.object({
 
 export const repoHintSchema = z.object({ root: z.string() }) satisfies z.ZodType<RepoHint>;
 
-export const newReasonSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("scope") }),
-  z.object({ hours: z.int().nonnegative(), kind: z.literal("idle") }),
-  z.object({
-    kind: z.literal("moved"),
-    title: z.string().nullable().exactOptional(),
-    tty: z.string(),
-  }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<NewReason>;
+export const newReasonSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("scope") }),
+    z.object({ hours: z.int().nonnegative(), kind: z.literal("idle") }),
+    z.object({
+      kind: z.literal("moved"),
+      title: z.string().nullable().exactOptional(),
+      tty: z.string(),
+    }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<NewReason>;
 
-export const switchSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("back"),
-    title: z.string().nullable().exactOptional(),
-    updated_at: z.iso.datetime({ offset: true }),
-  }),
-  z.object({
-    kind: z.literal("picked_up"),
-    title: z.string().nullable().exactOptional(),
-    updated_at: z.iso.datetime({ offset: true }),
-  }),
-  z.object({
-    from: routeLabelSchema.nullable().exactOptional(),
-    kind: z.literal("new"),
-    reason: newReasonSchema,
-  }),
-  z.object({ kind: z.literal("unknown") }),
-]) satisfies z.ZodType<Switch>;
+export const switchSchema = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("back"),
+      title: z.string().nullable().exactOptional(),
+      updated_at: z.iso.datetime({ offset: true }),
+    }),
+    z.object({
+      kind: z.literal("picked_up"),
+      title: z.string().nullable().exactOptional(),
+      updated_at: z.iso.datetime({ offset: true }),
+    }),
+    z.object({
+      from: routeLabelSchema.nullable().exactOptional(),
+      kind: z.literal("new"),
+      reason: newReasonSchema,
+    }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<Switch>;
 
 export const routedSchema = z.object({
   hint: repoHintSchema.nullable().exactOptional(),
