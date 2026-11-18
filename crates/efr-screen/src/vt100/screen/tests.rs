@@ -68,8 +68,6 @@ fn a_one_row_screen_shows_the_row_the_cursor_is_on() {
     assert_eq!(texts(&snapshot.rows), ["three"]);
     assert_eq!(texts(&snapshot.scrollback), ["one", "two"]);
     assert_eq!(snapshot.cursor, Cursor { row: 0, col: 5, hidden: false });
-    assert_eq!(row_text(&screen.row(0)), "three");
-    assert_eq!(screen.row(1), RowCells::default());
     assert_eq!(texts(&screen.snapshot(1).scrollback), ["two"]);
     assert_eq!(screen.snapshot(0).scrollback, []);
 }
@@ -249,7 +247,7 @@ fn a_snapshot_leaves_the_view_at_the_bottom() {
     let mut screen = fed(5, 2, 100, &numbered_lines(6));
     let _ = screen.snapshot(100);
     assert_eq!(screen.parser.screen().scrollback(), 0);
-    assert_eq!(row_text(&screen.row(0)), "5");
+    assert_eq!(row_text(&cells::row(screen.parser.screen(), 0)), "5");
     screen.feed(b"\r\n7", &mut TestSink::default());
     assert_eq!(texts(&screen.snapshot(1).rows), ["6", "7"]);
     assert_eq!(texts(&screen.snapshot(1).scrollback), ["5"]);
@@ -304,25 +302,6 @@ fn the_alternate_screen_is_told_without_a_snapshot() {
     assert!(!screen.alternate_screen());
     screen.feed(b"\x1b[?1049h", &mut TestSink::default());
     assert!(screen.alternate_screen());
-}
-
-#[test]
-fn row_matches_the_snapshot_rows() {
-    let mut screen = fed(6, 3, 0, b"\x1b[31mred\r\nplain");
-    let snapshot = screen.snapshot(0);
-    for (index, row) in snapshot.rows.iter().enumerate() {
-        let mut direct = screen.row(index);
-        direct.cells.truncate(row.cells.len());
-        assert_eq!(&direct, row, "row {index}");
-    }
-}
-
-#[test]
-fn a_row_outside_the_grid_is_empty() {
-    let screen = fed(6, 3, 10, &numbered_lines(5));
-    assert_eq!(screen.row(3), RowCells::default());
-    assert_eq!(screen.row(usize::from(u16::MAX) + 1), RowCells::default());
-    assert_eq!(screen.row(usize::MAX), RowCells::default());
 }
 
 #[test]
@@ -454,7 +433,6 @@ proptest! {
                     prop_assert!(snapshot.scrollback.len() <= rows);
                     prop_assert!(snapshot.cursor.row < visible && snapshot.cursor.col < cols);
                     prop_assert_eq!(screen.cursor(), snapshot.cursor);
-                    prop_assert_eq!(&screen.row(0), &snapshot.rows[0]);
                 }
             }
         }

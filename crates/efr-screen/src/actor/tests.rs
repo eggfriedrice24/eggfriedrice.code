@@ -6,7 +6,7 @@ use std::task::Poll;
 use std::time::Duration;
 
 use bytes::Bytes;
-use efr_protocol::{Cursor, RowCells, ScreenSnapshot, Seq, Size};
+use efr_protocol::{Cursor, ScreenSnapshot, Seq, Size};
 use pretty_assertions::assert_eq;
 use tokio::sync::mpsc;
 
@@ -301,22 +301,6 @@ impl Screen for GatedScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
     }
-
-    fn row(&self, _index: usize) -> RowCells {
-        RowCells::default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor::default()
-    }
-
-    fn title(&self) -> Option<&str> {
-        None
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
-    }
 }
 
 /// A gated screen with its command queue full and the actor held inside `feed`.
@@ -382,23 +366,6 @@ impl Screen for IdleScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
     }
-
-    fn row(&self, _index: usize) -> RowCells {
-        RowCells::default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor::default()
-    }
-
-    fn title(&self) -> Option<&str> {
-        None
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
-    }
-
     fn idle_delay(&self) -> Option<Duration> {
         Some(Duration::from_millis(1))
     }

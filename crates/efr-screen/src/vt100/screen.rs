@@ -24,9 +24,9 @@ pub const DEFAULT_SCROLLBACK_ROWS: usize = 1_000;
 ///   fixtures that check replies list `vt100` in their `differs`.
 /// - It reports bells (BEL) and titles (OSC 0 and 2) to the sink in the order they
 ///   happened, after the bytes are processed.
-/// - [`title`](Screen::title) and [`pwd`](Screen::pwd) follow libghostty-vt: an empty
-///   value clears them, a title is cut at 1024 bytes and the OSC 7 URL at 4096, and
-///   `pwd` is the raw URL as the program sent it.
+/// - The title and the OSC 7 URL follow libghostty-vt: an empty value clears them, a
+///   title is cut at 1024 bytes and the URL at 4096, and the URL is kept as the
+///   program sent it.
 /// - A dimension of 0 becomes 1. vt100 0.16.2 panics when a line wraps on a grid of
 ///   one row, so a one-row screen runs on two rows of vt100 and shows the row the
 ///   cursor is on: text that arrives line by line looks as it would on one row, while
@@ -192,16 +192,10 @@ impl Screen for Vt100Screen {
     fn alternate_screen(&mut self) -> bool {
         self.parser.screen().alternate_screen()
     }
+}
 
-    fn row(&self, index: usize) -> RowCells {
-        match u16::try_from(index) {
-            Ok(index) if index < self.size.rows => {
-                cells::row(self.parser.screen(), self.top() + index)
-            }
-            _ => RowCells::default(),
-        }
-    }
-
+impl Vt100Screen {
+    /// The cursor in the visible grid.
     fn cursor(&self) -> Cursor {
         let screen = self.parser.screen();
         let (row, col) = screen.cursor_position();
@@ -215,10 +209,13 @@ impl Screen for Vt100Screen {
         }
     }
 
+    /// The window title that the program set, if any.
     fn title(&self) -> Option<&str> {
         self.parser.callbacks().title()
     }
 
+    /// The raw OSC 7 URL that the program sent last, if any. Only the `Debug` form
+    /// and the tests read it; the shell marks are the source of truth.
     fn pwd(&self) -> Option<&str> {
         self.parser.callbacks().pwd()
     }

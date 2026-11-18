@@ -4,8 +4,8 @@
 //! default (`grapheme-width-method = unicode`), so the screen here turns it on as well.
 
 use efr_render::{WidthMethod, text_width};
-use efr_screen::{Screen as _, ScreenSink, Size};
-use efr_screen_ghostty::{GhosttyConfig, GhosttyScreen};
+use efr_screen::{Cursor, Screen as _, ScreenSink, Size};
+use efr_screen_ghostty::GhosttyScreen;
 use pretty_assertions::assert_eq;
 
 /// A sink for a screen whose replies and notices nobody reads.
@@ -32,10 +32,15 @@ const SAMPLES: &[&str] = &[
 
 /// A screen `cols` wide that clusters graphemes, as Ghostty does by default.
 fn ghostty(cols: u16) -> GhosttyScreen {
-    let mut screen = GhosttyScreen::new(Size { cols, rows: 10 }, &GhosttyConfig::default())
-        .expect("libghostty-vt creates a terminal");
+    let mut screen =
+        GhosttyScreen::new(Size { cols, rows: 10 }).expect("libghostty-vt creates a terminal");
     screen.feed(b"\x1b[?2027h", &mut Quiet);
     screen
+}
+
+/// The cursor of `screen`, as a snapshot shows it.
+fn cursor(screen: &mut GhosttyScreen) -> Cursor {
+    screen.snapshot(0).cursor
 }
 
 #[test]
@@ -44,7 +49,7 @@ fn the_width_of_each_cluster_is_the_one_ghostty_gives_it() {
         let mut screen = ghostty(80);
         screen.feed(sample.as_bytes(), &mut Quiet);
         let counted = text_width(sample, WidthMethod::Grapheme);
-        assert_eq!(usize::from(screen.cursor().col), counted, "{sample:?}");
+        assert_eq!(usize::from(cursor(&mut screen).col), counted, "{sample:?}");
     }
 }
 
@@ -79,7 +84,7 @@ fn the_glyphs_of_the_look_take_one_column() {
                 screen.feed(b"\x1b[?2027l", &mut Quiet);
             }
             screen.feed(glyph.as_bytes(), &mut Quiet);
-            assert_eq!(screen.cursor().col, 1, "{glyph:?}, mode 2027 on: {clustering}");
+            assert_eq!(cursor(&mut screen).col, 1, "{glyph:?}, mode 2027 on: {clustering}");
         }
         assert_eq!(text_width(glyph, WidthMethod::Grapheme), 1, "{glyph:?}");
     }
@@ -90,7 +95,7 @@ fn the_glyphs_of_the_look_take_one_column() {
             screen.feed(b"\x1b[?2027l", &mut Quiet);
         }
         screen.feed(robot.as_bytes(), &mut Quiet);
-        assert_eq!(screen.cursor().col, 3, "mode 2027 on: {clustering}");
+        assert_eq!(cursor(&mut screen).col, 3, "mode 2027 on: {clustering}");
     }
 }
 
@@ -103,6 +108,6 @@ fn a_line_of_clusters_wraps_onto_the_rows_that_efr_counts() {
         screen.feed(b"\r\n", &mut Quiet);
         let width = text_width(&line, WidthMethod::Grapheme);
         let rows = width.div_ceil(10).max(1);
-        assert_eq!(usize::from(screen.cursor().row), rows, "{sample:?} is {width} columns");
+        assert_eq!(usize::from(cursor(&mut screen).row), rows, "{sample:?} is {width} columns");
     }
 }

@@ -19,6 +19,11 @@ use libghostty_vt::snapshot::Decoder;
 
 use crate::GhosttyError;
 
+/// The longest unfinished escape sequence kept for a GHOSTSNP snapshot. A snapshot
+/// taken while the parser is inside a longer one (a large DCS image) fails until
+/// the sequence ends; ordinary sequences are far shorter.
+pub(crate) const CONTINUATION_LIMIT: usize = 1 << 20;
+
 /// The visible grid, `scrollback_rows` rows of scrollback (fewer when the terminal
 /// holds fewer), the cursor, the title and the screen in use.
 pub(crate) fn capture(terminal: &Terminal<'_, '_>, scrollback_rows: usize) -> ScreenSnapshot {
@@ -38,15 +43,6 @@ pub(crate) fn capture(terminal: &Terminal<'_, '_>, scrollback_rows: usize) -> Sc
         alternate_screen: terminal
             .active_screen()
             .is_ok_and(|screen| screen == ActiveScreen::Alternate),
-    }
-}
-
-/// Row `index` of the visible grid; an empty row outside it.
-pub(crate) fn active_row(terminal: &Terminal<'_, '_>, index: usize) -> RowCells {
-    let size = size(terminal);
-    match u16::try_from(index) {
-        Ok(y) if y < size.rows => visible_row(terminal, size.cols, y),
-        _ => RowCells::default(),
     }
 }
 
@@ -91,9 +87,21 @@ pub(crate) fn encode(terminal: &mut Terminal<'_, '_>) -> Result<Vec<u8>, Ghostty
 
 /// A terminal restored from a GHOSTSNP record stream, its scrollback included. The
 /// terminal does not borrow `bytes`.
+///
+/// The restored terminal keeps tracking the unfinished escape sequence of the
+/// snapshot up to [`CONTINUATION_LIMIT`], so a snapshot of it is possible at once.
+/// A snapshot with a longer unfinished sequence is refused.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Terminal<'static, 'static>, GhosttyError> {
     let decode = |source| GhosttyError::DecodeSnapshot { source };
-    Decoder::new_buf(bytes).and_then(Decoder::decode).map_err(decode)
+    let mut decoder = Decoder::new_buf(bytes).map_err(decode)?;
+    // NOTE: the tracking must be on before the decode. Turned on after it, while the
+    // parser is inside a sequence, it loses that sequence, and the next encode fails
+    // until the sequence ends.
+    decoder
+        .set_max_continuation_bytes(CONTINUATION_LIMIT)
+        .and_then(|decoder| decoder.set_retain_continuation(true))
+        .map_err(decode)?;
+    decoder.decode().map_err(decode)
 }
 
 fn size(terminal: &Terminal<'_, '_>) -> Size {

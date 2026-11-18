@@ -1,7 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{Cursor, RowCells, ScreenSnapshot, Seq, Size};
+use efr_protocol::{ScreenSnapshot, Seq, Size};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -45,22 +45,6 @@ impl Screen for Mute {
     fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
         self.0.snapshot(scrollback_rows)
     }
-
-    fn row(&self, index: usize) -> RowCells {
-        self.0.row(index)
-    }
-
-    fn cursor(&self) -> Cursor {
-        self.0.cursor()
-    }
-
-    fn title(&self) -> Option<&str> {
-        self.0.title()
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
-    }
 }
 
 fn mute(size: Size) -> impl FnOnce() -> Mute + Send + 'static {
@@ -79,22 +63,6 @@ impl Screen for Broken {
 
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot::default()
-    }
-
-    fn row(&self, _index: usize) -> RowCells {
-        RowCells::default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor::default()
-    }
-
-    fn title(&self) -> Option<&str> {
-        None
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
     }
 }
 

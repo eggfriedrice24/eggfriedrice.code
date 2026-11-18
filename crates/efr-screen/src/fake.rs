@@ -267,31 +267,15 @@ impl Screen for FakeScreen {
                 cols: u16::try_from(self.cols).unwrap_or(u16::MAX),
                 rows: u16::try_from(self.rows).unwrap_or(u16::MAX),
             },
-            cursor: self.cursor(),
+            cursor: Cursor {
+                row: u16::try_from(self.row).unwrap_or(u16::MAX),
+                col: u16::try_from(self.col).unwrap_or(u16::MAX),
+                hidden: false,
+            },
             rows: self.grid.iter().map(|line| Self::cells(line)).collect(),
             scrollback: self.scrollback.iter().skip(skip).map(|line| Self::cells(line)).collect(),
             title: self.title.clone(),
             alternate_screen: false,
         }
-    }
-
-    fn row(&self, index: usize) -> RowCells {
-        self.grid.get(index).map(|line| Self::cells(line)).unwrap_or_default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor {
-            row: u16::try_from(self.row).unwrap_or(u16::MAX),
-            col: u16::try_from(self.col).unwrap_or(u16::MAX),
-            hidden: false,
-        }
-    }
-
-    fn title(&self) -> Option<&str> {
-        self.title.as_deref()
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
     }
 }

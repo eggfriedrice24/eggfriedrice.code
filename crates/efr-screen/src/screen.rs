@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use efr_protocol::{Cursor, RowCells, ScreenSnapshot, Seq};
+use efr_protocol::{ScreenSnapshot, Seq};
 
 use crate::snapshot::normalize;
 use crate::{ScreenSink, ScreenText, ShellMark};
@@ -81,20 +81,6 @@ pub trait Screen {
     fn alternate_screen(&mut self) -> bool {
         self.snapshot(0).alternate_screen
     }
-
-    /// One row of the visible grid, counted from 0 at the top. A row outside the grid
-    /// is empty.
-    fn row(&self, index: usize) -> RowCells;
-
-    /// The cursor position in the visible grid.
-    fn cursor(&self) -> Cursor;
-
-    /// The window title that the program set, if any.
-    fn title(&self) -> Option<&str>;
-
-    /// The backend's own view of the OSC 7 working directory. It is a cross-check
-    /// against the scanner's marks only; the marks are the source of truth.
-    fn pwd(&self) -> Option<&str>;
 
     /// How long the screen must get no command before the actor calls
     /// [`idle`](Screen::idle). The actor reads it once, when the screen starts.

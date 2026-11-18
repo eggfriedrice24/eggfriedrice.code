@@ -389,22 +389,6 @@ impl<S: Screen> Screen for CountedScreen<S> {
     fn scrollback_rows(&mut self) -> Option<usize> {
         self.inner.scrollback_rows()
     }
-
-    fn row(&self, index: usize) -> RowCells {
-        self.inner.row(index)
-    }
-
-    fn cursor(&self) -> Cursor {
-        self.inner.cursor()
-    }
-
-    fn title(&self) -> Option<&str> {
-        self.inner.title()
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        self.inner.pwd()
-    }
 }
 
 /// What the capture screens of a replay did.
@@ -485,22 +469,6 @@ impl Screen for CheckedScreen {
         };
         self.asked.lock().unwrap().push(asked);
         snapshot
-    }
-
-    fn row(&self, index: usize) -> RowCells {
-        self.inner.row(index)
-    }
-
-    fn cursor(&self) -> Cursor {
-        self.inner.cursor()
-    }
-
-    fn title(&self) -> Option<&str> {
-        self.inner.title()
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        self.inner.pwd()
     }
 }
 

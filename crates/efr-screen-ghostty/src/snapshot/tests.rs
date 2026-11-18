@@ -1,7 +1,7 @@
 use efr_screen::{Cursor, RowCells, Size};
 use pretty_assertions::assert_eq;
 
-use super::{active_row, capture, cursor, decode, encode, title, title_text};
+use super::{capture, cursor, decode, encode, title, title_text};
 use crate::testing::{terminal, texts};
 
 #[test]
@@ -79,15 +79,6 @@ fn title_text_drops_only_a_cut_character_at_the_end() {
     assert_eq!(title_text(b"\xf0\x9f\x98"), Some(""));
     assert_eq!(title_text(b"bad \xff byte"), None);
     assert_eq!(title_text(b"bad end \xff"), None);
-}
-
-#[test]
-fn rows_outside_the_grid_are_empty() {
-    let (mut terminal, _effects) = terminal(5, 2);
-    terminal.vt_write(b"ab\r\ncd");
-    assert_eq!(texts(&[active_row(&terminal, 1)]), vec!["cd"]);
-    assert_eq!(active_row(&terminal, 2), RowCells::default());
-    assert_eq!(active_row(&terminal, usize::MAX), RowCells::default());
 }
 
 #[test]

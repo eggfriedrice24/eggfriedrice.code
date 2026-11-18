@@ -6,17 +6,17 @@ The libghostty-vt screen backend: `efr_screen::Screen` over a libghostty-vt
 `Terminal`, the terminal emulator inside Ghostty. It is the only crate that links
 libghostty-vt, so it is the only crate whose build needs Zig.
 
-- `terminal`: `GhosttyScreen`, `GhosttyConfig` and the factories `factory`,
-  `factory_with` and `restore_factory` that `ScreenActor::spawn` runs on the screen
-  thread. libghostty-vt types are neither `Send` nor `Sync`, so the screen is built
-  there with `Terminal::new` (never a borrowed allocator) and never leaves. A factory
-  that cannot build its terminal logs the error and panics; the actor turns that into
-  `ScreenError::Closed` for every handle.
+- `terminal`: `GhosttyScreen` and the factories `factory` and `restore_factory` that
+  `ScreenActor::spawn` runs on the screen thread. libghostty-vt types are neither
+  `Send` nor `Sync`, so the screen is built there with `Terminal::new` (never a
+  borrowed allocator) and never leaves. A factory that cannot build its terminal logs
+  the error and panics; the actor turns that into `ScreenError::Closed` for every
+  handle. Every screen has the same settings: 5000 lines of scrollback and ghostty's
+  own default colours (`#ffffff` on `#282c34`) for the OSC 10 and 11 answers.
 - `effects`: the effect callbacks. libghostty-vt runs them inside `vt_write`, so they
   push answers to terminal queries (DA, DSR, DECRQM, OSC 10 and 11, in-band resize
   reports), bells, title changes and OSC 133 steps into `RefCell` buffers, and the
-  screen drains
-  them into the `ScreenSink` after each feed and resize. A full reset (RIS) clears
+  screen drains them into the `ScreenSink` after each feed and resize. A full reset (RIS) clears
   the title without a title callback, so its own callback reports an empty title.
   libghostty-vt cuts a title at 1024 bytes, also inside a character; such a title
   keeps its whole characters.
@@ -30,7 +30,11 @@ libghostty-vt, so it is the only crate whose build needs Zig.
 - `snapshot`: the conversion to the wire `ScreenSnapshot` (visible rows, scrollback,
   cursor, title, alternate screen) and GHOSTSNP, libghostty-vt's own snapshot of the
   whole terminal, parser state included. `GhosttyScreen::encode_snapshot` writes it
-  and `GhosttyScreen::restore` reads it back, here or in another process.
+  and `GhosttyScreen::restore` reads it back, here or in another process. It is kept
+  for the attach of a client that runs libghostty-vt itself
+  (`docs/adr/0004-ghostty-pin.md`); nothing calls it yet. The decoder keeps tracking
+  the unfinished escape sequence of the snapshot, so a restored screen can make a
+  snapshot again at once, also inside a sequence.
 - `semantic_prompt`: the cross-check. The actor gives the screen the marks of its one
   scan with the bytes (`Screen::feed_marked`); the screen runs no scanner of its own.
   The bytes go to libghostty-vt through `Terminal::vt_write_until`, which stops at the

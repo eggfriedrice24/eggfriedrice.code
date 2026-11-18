@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use efr_screen::{Color, Cursor, Screen, ScreenActor, ScreenEvent, Seq, Size};
+use efr_screen::{Color, Cursor, RowCells, Screen, ScreenActor, ScreenEvent, Seq, Size};
 use pretty_assertions::assert_eq;
 
-use super::{GhosttyConfig, GhosttyScreen, factory, factory_with, restore_factory};
+use super::{GhosttyScreen, SCROLLBACK_LINES, factory, restore_factory};
 use crate::GhosttyError;
 use crate::testing::{Call, Recorder, texts};
 
@@ -11,7 +11,26 @@ fn size(cols: u16, rows: u16) -> Size {
 }
 
 fn screen(cols: u16, rows: u16) -> GhosttyScreen {
-    GhosttyScreen::new(size(cols, rows), &GhosttyConfig::default()).unwrap()
+    GhosttyScreen::new(size(cols, rows)).unwrap()
+}
+
+/// libghostty-vt's working directory: the raw OSC 7 URL as the program sent it.
+fn pwd(screen: &GhosttyScreen) -> Option<String> {
+    let pwd = str::from_utf8(screen.terminal.pwd().ok()?).ok()?;
+    (!pwd.is_empty()).then(|| pwd.to_owned())
+}
+
+fn cursor(screen: &mut GhosttyScreen) -> Cursor {
+    screen.snapshot(0).cursor
+}
+
+fn title(screen: &mut GhosttyScreen) -> Option<String> {
+    screen.snapshot(0).title
+}
+
+/// Visible row `index`, as the backend reads it.
+fn row(screen: &mut GhosttyScreen, index: usize) -> RowCells {
+    screen.snapshot(0).rows.swap_remove(index)
 }
 
 fn feed(screen: &mut GhosttyScreen, bytes: &[u8]) -> Recorder {
@@ -27,9 +46,9 @@ fn a_new_screen_is_blank_at_its_size() {
     assert_eq!(snapshot.size, size(10, 3));
     assert_eq!(texts(&snapshot.rows), vec!["", "", ""]);
     assert_eq!(snapshot.scrollback, Vec::new());
-    assert_eq!(screen.cursor(), Cursor { row: 0, col: 0, hidden: false });
-    assert_eq!(screen.title(), None);
-    assert_eq!(screen.pwd(), None);
+    assert_eq!(cursor(&mut screen), Cursor { row: 0, col: 0, hidden: false });
+    assert_eq!(title(&mut screen), None);
+    assert_eq!(pwd(&screen), None);
 }
 
 #[test]
@@ -46,8 +65,7 @@ fn feed_renders_text_and_moves_the_cursor() {
     let sink = feed(&mut screen, b"hello\r\nworld");
     assert_eq!(sink.calls, Vec::new());
     assert_eq!(texts(&screen.snapshot(0).rows), vec!["hello", "world", ""]);
-    assert_eq!(screen.cursor(), Cursor { row: 1, col: 5, hidden: false });
-    assert_eq!(texts(&[screen.row(1)]), vec!["world"]);
+    assert_eq!(cursor(&mut screen), Cursor { row: 1, col: 5, hidden: false });
 }
 
 #[test]
@@ -59,7 +77,7 @@ fn terminal_queries_are_answered_through_the_sink() {
 }
 
 #[test]
-fn osc_10_and_11_are_answered_with_the_configured_colours() {
+fn osc_10_and_11_are_answered_with_ghosttys_colours() {
     let mut screen = screen(10, 2);
     let sink = feed(&mut screen, b"\x1b]10;?\x07\x1b]11;?\x1b\\");
     assert_eq!(
@@ -69,27 +87,20 @@ fn osc_10_and_11_are_answered_with_the_configured_colours() {
 }
 
 #[test]
-fn without_default_colours_osc_10_and_11_go_unanswered() {
-    let config = GhosttyConfig { foreground: None, background: None, ..GhosttyConfig::default() };
-    let mut screen = GhosttyScreen::new(size(10, 2), &config).unwrap();
-    assert_eq!(feed(&mut screen, b"\x1b]10;?\x07\x1b]11;?\x07").calls, Vec::new());
-}
-
-#[test]
 fn bells_and_titles_reach_the_sink_in_order() {
     let mut screen = screen(10, 2);
     let sink = feed(&mut screen, b"\x07\x1b]2;make\x07\x07");
     assert_eq!(sink.calls, vec![Call::Bell, Call::Title("make".to_owned()), Call::Bell]);
-    assert_eq!(screen.title(), Some("make"));
+    assert_eq!(title(&mut screen).as_deref(), Some("make"));
 }
 
 #[test]
 fn pwd_is_the_raw_osc_7_url() {
     let mut screen = screen(10, 2);
     feed(&mut screen, b"\x1b]7;file://arch/home/egg/My%20Docs\x07");
-    assert_eq!(screen.pwd(), Some("file://arch/home/egg/My%20Docs"));
+    assert_eq!(pwd(&screen).as_deref(), Some("file://arch/home/egg/My%20Docs"));
     feed(&mut screen, b"\x1b]7;kitty-shell-cwd://arch/tmp/x y\x07");
-    assert_eq!(screen.pwd(), Some("kitty-shell-cwd://arch/tmp/x y"));
+    assert_eq!(pwd(&screen).as_deref(), Some("kitty-shell-cwd://arch/tmp/x y"));
 }
 
 #[test]
@@ -101,8 +112,8 @@ fn a_disagreement_with_the_scanner_never_fails_a_feed() {
     let mut sink = Recorder::default();
     screen.feed_marked(bytes, Seq::ZERO, &marks, &mut sink);
     assert_eq!(sink.replies(), b"\x1b[?62;22c".to_vec());
-    assert_eq!(texts(&[screen.row(0)]), vec!["ok"]);
-    assert_eq!(screen.pwd(), Some("http://arch/tmp"));
+    assert_eq!(texts(&[row(&mut screen, 0)]), vec!["ok"]);
+    assert_eq!(pwd(&screen).as_deref(), Some("http://arch/tmp"));
 }
 
 /// The Kitty graphics support query: can the terminal take one RGB pixel as image 31?
@@ -152,7 +163,7 @@ fn an_apc_longer_than_the_limit_is_dropped() {
     assert_eq!(feed(&mut screen, &long).replies(), Vec::<u8>::new());
     // The terminal reads on after the dropped APC.
     feed(&mut screen, b"ok");
-    assert_eq!(texts(&[screen.row(0)]), vec!["ok"]);
+    assert_eq!(texts(&[row(&mut screen, 0)]), vec!["ok"]);
     // With the library default, the same image is stored: the limit is what drops it.
     screen.terminal.set_apc_max_bytes(None).unwrap();
     assert_eq!(
@@ -184,14 +195,14 @@ fn resize_reports_in_band_when_the_program_asked_for_it() {
 
 #[test]
 fn the_scrollback_limit_drops_old_rows() {
-    let config = GhosttyConfig { scrollback_lines: 10, ..GhosttyConfig::default() };
-    let mut screen = GhosttyScreen::new(size(20, 2), &config).unwrap();
-    let lines: Vec<u8> = (0..3000).flat_map(|line| format!("{line}\r\n").into_bytes()).collect();
+    let mut screen = screen(20, 2);
+    let lines: Vec<u8> = (0..12_000).flat_map(|line| format!("{line}\r\n").into_bytes()).collect();
     feed(&mut screen, &lines);
     let kept = screen.snapshot(usize::MAX).scrollback.len();
-    // libghostty-vt prunes whole pages, so it keeps more than ten lines, but far
-    // fewer than three thousand.
-    assert!((10..3000).contains(&kept), "{kept} rows of scrollback kept");
+    // libghostty-vt prunes whole pages, and a page holds thousands of rows this
+    // narrow, so it keeps a page or so less than the limit, but far fewer than twelve
+    // thousand.
+    assert!((SCROLLBACK_LINES / 5..12_000 / 2).contains(&kept), "{kept} rows kept");
 }
 
 #[test]
@@ -199,14 +210,13 @@ fn the_default_scrollback_keeps_its_lines_whatever_their_bytes() {
     // NOTE: a byte limit cuts the scrollback before the line limit does. In
     // libghostty-vt 1.0.0 a limit of `None` is the library's default of 10,000 bytes,
     // one page, which holds only some hundred rows of this width.
-    let config = GhosttyConfig::default();
-    let mut screen = GhosttyScreen::new(size(160, 48), &config).unwrap();
+    let mut screen = screen(160, 48);
     let lines: Vec<u8> =
         (0..8000).flat_map(|line| format!("line {line}\r\n").into_bytes()).collect();
     feed(&mut screen, &lines);
     let kept = screen.snapshot(usize::MAX).scrollback.len();
     // libghostty-vt prunes whole pages, so it can keep one page less than the limit.
-    assert!(kept >= config.scrollback_lines * 4 / 5, "{kept} rows of scrollback kept");
+    assert!(kept >= SCROLLBACK_LINES * 4 / 5, "{kept} rows of scrollback kept");
 }
 
 #[test]
@@ -217,10 +227,10 @@ fn a_snapshot_round_trip_restores_the_same_screen() {
         b"1\r\n2\r\n3\r\n\x1b[1;31mred\x1b[0m\r\nlast\x1b]2;title\x07\x1b]7;file:///tmp\x07",
     );
     let bytes = screen.encode_snapshot().unwrap();
-    let mut restored = GhosttyScreen::restore(&bytes, &GhosttyConfig::default()).unwrap();
+    let mut restored = GhosttyScreen::restore(&bytes).unwrap();
     assert_eq!(restored.snapshot(100), screen.snapshot(100));
-    assert_eq!(restored.pwd(), Some("file:///tmp"));
-    assert_eq!(restored.cursor(), screen.cursor());
+    assert_eq!(pwd(&restored).as_deref(), Some("file:///tmp"));
+    assert_eq!(cursor(&mut restored), cursor(&mut screen));
     // The callbacks are installed again, so the restored screen answers queries.
     assert_eq!(feed(&mut restored, b"\x1b[5n").replies(), b"\x1b[0n".to_vec());
 }
@@ -230,21 +240,33 @@ fn a_sequence_cut_by_a_snapshot_completes_after_the_restore() {
     let mut screen = screen(10, 2);
     feed(&mut screen, b"hello\x1b[3");
     let bytes = screen.encode_snapshot().unwrap();
-    let mut restored = GhosttyScreen::restore(&bytes, &GhosttyConfig::default()).unwrap();
+    let mut restored = GhosttyScreen::restore(&bytes).unwrap();
     feed(&mut restored, b"1mX");
-    let row = restored.row(0);
+    let row = row(&mut restored, 0);
+    assert_eq!(texts(std::slice::from_ref(&row)), vec!["helloX"]);
+    assert_eq!(row.cells[5].fg, Some(Color::Indexed(1)));
+}
+
+#[test]
+fn a_screen_restored_inside_a_sequence_can_make_a_snapshot_at_once() {
+    let mut screen = screen(10, 2);
+    feed(&mut screen, b"hello\x1b[3");
+    let mut restored = GhosttyScreen::restore(&screen.encode_snapshot().unwrap()).unwrap();
+    // Still inside the sequence: the restored terminal kept its continuation.
+    let mut again = GhosttyScreen::restore(&restored.encode_snapshot().unwrap()).unwrap();
+    feed(&mut again, b"1mX");
+    let row = row(&mut again, 0);
     assert_eq!(texts(std::slice::from_ref(&row)), vec!["helloX"]);
     assert_eq!(row.cells[5].fg, Some(Color::Indexed(1)));
 }
 
 #[test]
 fn restore_refuses_bytes_that_are_not_a_whole_snapshot() {
-    let config = GhosttyConfig::default();
-    let err = GhosttyScreen::restore(b"not a snapshot", &config).unwrap_err();
+    let err = GhosttyScreen::restore(b"not a snapshot").unwrap_err();
     assert!(matches!(err, GhosttyError::DecodeSnapshot { .. }), "{err:?}");
     let mut screen = screen(10, 2);
     let bytes = screen.encode_snapshot().unwrap();
-    let err = GhosttyScreen::restore(&bytes[..bytes.len() / 2], &config).unwrap_err();
+    let err = GhosttyScreen::restore(&bytes[..bytes.len() / 2]).unwrap_err();
     assert!(matches!(err, GhosttyError::DecodeSnapshot { .. }), "{err:?}");
 }
 
@@ -307,20 +329,7 @@ fn a_feed_of_the_actor_reaches_the_terminal_in_full_with_its_marks() {
     let marks = efr_screen::ShellMarkScanner::new().scan(bytes, Seq::new(100));
     screen.feed_marked(bytes, Seq::new(100), &marks, &mut Recorder::default());
     assert_eq!(texts(&screen.snapshot(0).rows), vec!["$ ok", "", ""]);
-    assert_eq!(screen.pwd(), Some("file://arch/srv"));
-}
-
-#[test]
-fn factory_with_applies_the_config() {
-    let config = GhosttyConfig { background: Some([0, 0, 0]), ..GhosttyConfig::default() };
-    let (handle, mut events) =
-        ScreenActor::spawn("screen-ghostty-test", factory_with(size(8, 2), config), size(8, 2))
-            .unwrap();
-    handle.feed_blocking(Bytes::from_static(b"\x1b]11;?\x07"), Seq::ZERO).unwrap();
-    assert_eq!(
-        events.blocking_recv(),
-        Some(ScreenEvent::PtyReply(Bytes::from_static(b"\x1b]11;rgb:0000/0000/0000\x07")))
-    );
+    assert_eq!(pwd(&screen).as_deref(), Some("file://arch/srv"));
 }
 
 #[test]
@@ -328,7 +337,7 @@ fn restore_factory_restores_on_the_actor_thread() {
     let mut screen = screen(10, 2);
     feed(&mut screen, b"kept\x1b]2;old\x07");
     let snapshot = screen.encode_snapshot().unwrap();
-    let factory = restore_factory(snapshot, size(10, 2), GhosttyConfig::default());
+    let factory = restore_factory(snapshot, size(10, 2));
     let (handle, _events) =
         ScreenActor::spawn("screen-ghostty-test", factory, size(10, 2)).unwrap();
     let capture = handle.snapshot_blocking(0).unwrap();
@@ -338,8 +347,7 @@ fn restore_factory_restores_on_the_actor_thread() {
 
 #[test]
 fn restore_factory_starts_blank_when_the_snapshot_is_broken() {
-    let factory =
-        restore_factory(b"GHOSTSNP broken".to_vec(), size(6, 2), GhosttyConfig::default());
+    let factory = restore_factory(b"GHOSTSNP broken".to_vec(), size(6, 2));
     let (handle, _events) = ScreenActor::spawn("screen-ghostty-test", factory, size(6, 2)).unwrap();
     let capture = handle.snapshot_blocking(0).unwrap();
     assert_eq!(capture.snapshot.size, size(6, 2));
@@ -457,12 +465,4 @@ fn the_alternate_screen_is_told_without_a_snapshot() {
     assert!(screen.alternate_screen());
     feed(&mut screen, b"\x1b[?1049l");
     assert!(!screen.alternate_screen());
-}
-
-#[test]
-fn the_default_config_uses_ghosttys_colours() {
-    let config = GhosttyConfig::default();
-    assert_eq!(config.scrollback_lines, 5000);
-    assert_eq!(config.foreground, Some([0xff, 0xff, 0xff]));
-    assert_eq!(config.background, Some([0x28, 0x2c, 0x34]));
 }

@@ -5,10 +5,9 @@
 //!   exports and restores GHOSTSNP snapshots, and cross-checks libghostty-vt's OSC 133
 //!   steps, working directory and per-row prompt state against the actor's shell
 //!   marks.
-//! - [`factory`], [`factory_with`] and [`restore_factory`]: the `Send` factories that
+//! - [`factory`] and [`restore_factory`]: the `Send` factories that
 //!   `efr_screen::ScreenActor::spawn` runs on the screen thread. libghostty-vt types
 //!   are neither `Send` nor `Sync`, so a screen is built there and never leaves.
-//! - [`GhosttyConfig`]: scrollback and the default colours.
 //! - [`GhosttyError`]: what can fail; a feed never does.
 //!
 //! This is the only crate that links libghostty-vt, so the only one whose build needs
@@ -32,4 +31,4 @@ mod terminal;
 mod testing;
 
 pub use error::GhosttyError;
-pub use terminal::{GhosttyConfig, GhosttyScreen, factory, factory_with, restore_factory};
+pub use terminal::{GhosttyScreen, factory, restore_factory};

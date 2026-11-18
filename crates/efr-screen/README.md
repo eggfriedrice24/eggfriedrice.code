@@ -5,8 +5,9 @@
 The screen model boundary. Everything that turns PTY output into a terminal screen
 goes through this crate, whichever backend renders it:
 
-- `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`, `row`, `cursor`, `title`,
-  `pwd`; `text`, `scrollback_rows` and `alternate_screen` with defaults that read a
+- `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`; `feed_marked`, which
+  gets the marks of the actor's scan with the bytes and by default ignores them;
+  `text`, `scrollback_rows` and `alternate_screen` with defaults that read a
   snapshot; and `idle_delay` and `idle` with defaults that do nothing), implemented by
   the `vt100` module of this crate and by `efr-screen-ghostty`. It has no `Send`
   bound. Both backends count their scrollback rows and tell the alternate screen

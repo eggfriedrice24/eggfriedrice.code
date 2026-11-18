@@ -15,7 +15,7 @@ use efr_holder::{
     ChildStatus, HolderError, PtyHandle, PtyHolder, PtyId, PtyInfo, Signal, SignalTarget, Size,
     SpawnSpec,
 };
-use efr_protocol::{ConversationId, Cursor, InputWait, RowCells, ScreenSnapshot, Seq};
+use efr_protocol::{ConversationId, InputWait, ScreenSnapshot, Seq};
 use efr_screen::{Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink};
 use efr_stdx::StdxError;
 use efr_test_support::{TestClock, TestRng};
@@ -330,22 +330,6 @@ impl Screen for DyingScreen {
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot { size: self.size, ..ScreenSnapshot::default() }
     }
-
-    fn row(&self, _index: usize) -> RowCells {
-        RowCells::default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor::default()
-    }
-
-    fn title(&self) -> Option<&str> {
-        None
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
-    }
 }
 
 /// Screens that answer a primary device attributes query (`ESC [ c`), which vt100
@@ -376,22 +360,6 @@ impl Screen for AnsweringScreen {
 
     fn snapshot(&mut self, _scrollback_rows: usize) -> ScreenSnapshot {
         ScreenSnapshot { size: self.size, ..ScreenSnapshot::default() }
-    }
-
-    fn row(&self, _index: usize) -> RowCells {
-        RowCells::default()
-    }
-
-    fn cursor(&self) -> Cursor {
-        Cursor::default()
-    }
-
-    fn title(&self) -> Option<&str> {
-        None
-    }
-
-    fn pwd(&self) -> Option<&str> {
-        None
     }
 }
 
