@@ -829,6 +829,7 @@ impl ShellSessions {
             .get(&conversation)
             .cloned();
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
+        let mark_id = start.integration.then(|| env::mark_id(&*inner.deps.rng));
         // NOTE: the shell is a child subreaper, so a process that a command leaves
         // behind after a double fork or `setsid` stays in the shell's process tree,
         // where the daemon's peer check finds it (efr's auto spec, 2.2 and 13.5).
@@ -836,6 +837,7 @@ impl ShellSessions {
             .args(integration::args(start.login))
             .vars(env::shell_env(&config, start_dir, start.integration, scratch.as_deref()))
             .vars(env::sandbox_env(&config, conversation, start.integration))
+            .vars(mark_id.clone().map(|id| (env::MARK_ID, id)))
             .child_subreaper(true);
         let PtyHandle { master, child_pid, .. } = inner
             .deps
@@ -844,7 +846,7 @@ impl ShellSessions {
             .await
             .map_err(|source| ShellError::Spawn { conversation, source })?;
         let trusted = start.integration.then(|| Arc::clone(&start.trusted_programs));
-        match self.launch(conversation, pty_id, child_pid, master, start_dir, trusted) {
+        match self.launch(conversation, pty_id, child_pid, master, start_dir, trusted, mark_id) {
             Ok(session) => {
                 // NOTE: only the zsh integration exports `$SCRATCH` again after the
                 // user's startup files. Another shell gets the line at its first run,
@@ -874,7 +876,9 @@ impl ShellSessions {
 
     /// Starts the tasks of a spawned shell: the writer, the reader, the screen's reply
     /// forwarder, the exit waiter and the actor. `trusted` is the set of trusted programs
-    /// a shell with the integration started with, `None` for a shell without it.
+    /// a shell with the integration started with, `None` for a shell without it;
+    /// `mark_id` is the id on the integration's own marks.
+    #[expect(clippy::too_many_arguments, reason = "the parts of one spawned shell")]
     fn launch(
         &self,
         conversation: ConversationId,
@@ -883,6 +887,7 @@ impl ShellSessions {
         master: OwnedFd,
         cwd: &Path,
         trusted: Option<Arc<[String]>>,
+        mark_id: Option<String>,
     ) -> Result<SessionHandle, ShellError> {
         let inner = &self.inner;
         let integration = trusted.is_some();
@@ -920,7 +925,8 @@ impl ShellSessions {
         });
         let state = ShellState::new(pty_id, pid, cwd.to_path_buf(), integration);
         let actor = SessionActor {
-            core: SessionCore::new(conversation, state, Arc::clone(&deps.observer)),
+            core: SessionCore::new(conversation, state, Arc::clone(&deps.observer))
+                .with_mark_id(mark_id),
             clock: Arc::clone(&deps.clock),
             holder: Arc::clone(&deps.holder),
             writer: writer.clone(),

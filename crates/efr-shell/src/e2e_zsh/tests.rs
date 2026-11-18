@@ -486,6 +486,28 @@ async fn e2e_unsent_text_at_the_prompt_does_not_join_the_command() {
 }
 
 #[tokio::test]
+async fn e2e_marks_that_a_command_prints_do_not_end_its_run() {
+    let Some(zsh) = Zsh::start("e2e_marks_that_a_command_prints_do_not_end_its_run") else {
+        return;
+    };
+    let end = zsh.run(r"printf 'before\n\e]133;D;0\aafter\n'; (exit 2)").await;
+    assert_eq!((end.completion, end.exit_code), (Completion::Finished, Some(2)));
+    assert_eq!(end.output, "before\nafter\n");
+
+    let prompt = zsh.run(r"printf '\e]133;A\a\e]133;B\a'; sleep 0.2; echo done").await;
+    assert_eq!((prompt.exit_code, prompt.output.as_str()), (Some(0), "done\n"));
+
+    // A nested shell with marks of its own prompts while the outer line runs.
+    let nested = r"PS1=$'%{\e]133;A\a%}nested%# %{\e]133;B\a%}' zsh -fi";
+    let nested = zsh.run_until_shown(zsh.request(nested), "nested%").await;
+    assert!(nested.interactive(), "{nested:?}");
+    assert_eq!(zsh.sessions.state(zsh.conversation).await.unwrap().phase, Phase::Running);
+    zsh.sessions.write(zsh.conversation, Bytes::from_static(b"exit\r")).await.unwrap();
+    let back = zsh.run("echo back").await;
+    assert_eq!((back.delimiter, back.output.as_str()), (Delimiter::Marks, "back\n"));
+}
+
+#[tokio::test]
 async fn e2e_a_nested_shell_is_driven_by_sentinels() {
     let Some(zsh) = Zsh::start("e2e_a_nested_shell_is_driven_by_sentinels") else {
         return;

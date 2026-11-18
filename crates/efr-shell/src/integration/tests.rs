@@ -10,12 +10,12 @@ use super::{CHILD, CHILD_FILE, EDITOR, EDITOR_FILE, INTEGRATION, ZSHENV, args, i
 #[test]
 fn the_script_emits_the_ghostty_sequence_set() {
     for sequence in [
-        r"$'\e]133;A;cl=line\a'",
-        r"$'\e]133;P;k=s\a\e]133;B\a'",
+        r#"$'\e]133;A;cl=line'"${_efr_hs_aid_opt}"$'\a'"#,
+        r#"$'\e]133;P;k=s'"${_efr_hs_aid_opt}"$'\a\e]133;B\a'"#,
         r"$'\e]133;B\a'",
-        r"$'\e]133;C\a'",
-        r#"$'\e]133;D;'"${st}"$'\a'"#,
-        r"$'\e]133;D\a'",
+        r#"$'\e]133;C'"${_efr_hs_aid_opt}"$'\a'"#,
+        r#"$'\e]133;D;'"${st}${_efr_hs_aid_opt}"$'\a'"#,
+        r#"$'\e]133;D'"${_efr_hs_aid_opt}"$'\a'"#,
         r#"$'\e]7;kitty-shell-cwd://'"${HOST}${PWD}"$'\a'"#,
     ] {
         assert!(INTEGRATION.contains(sequence), "missing {sequence}");
@@ -100,7 +100,7 @@ fn the_child_script_writes_every_record_kind_on_descriptor_3() {
 #[test]
 fn input_left_over_by_a_command_is_thrown_away_before_its_end_mark() {
     let drain = INTEGRATION.find("    _efr_hs_drain\n").expect("precmd drains the input");
-    let end = INTEGRATION.find(r#"$'\e]133;D;'"${st}"$'\a'"#).unwrap();
+    let end = INTEGRATION.find(r#"$'\e]133;D;'"${st}${_efr_hs_aid_opt}"$'\a'"#).unwrap();
     assert!(drain < end, "the drain runs before D");
     assert!(INTEGRATION.contains("while builtin read -s -t 0 -k 1 junk 2>/dev/null; do :; done"));
 }
@@ -188,6 +188,8 @@ fn the_shim_restores_zdotdir_and_sources_the_users_zshenv() {
     assert!(ZSHENV.contains("builtin unset ZDOTDIR"));
     assert!(ZSHENV.contains("${ZDOTDIR:-$HOME}/.zshenv"));
     assert!(ZSHENV.contains("efr-integration.zsh"));
+    let id = ZSHENV.find("builtin unset _EFR_HS_AID").unwrap();
+    assert!(id < ZSHENV.find("builtin source -- $_efr_rc").unwrap(), "no child sees the id");
 }
 
 #[test]

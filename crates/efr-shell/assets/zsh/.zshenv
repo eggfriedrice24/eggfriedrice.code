@@ -6,7 +6,9 @@
 #
 # 1. ZDOTDIR goes back to the user's value (kept in _EFR_USER_ZDOTDIR) or is unset,
 #    so zsh reads the user's .zprofile, .zshrc and .zlogin next, as in any terminal,
-#    and child shells never see this directory.
+#    and child shells never see this directory. The id of this shell's own OSC 133
+#    marks moves from _EFR_HS_AID to a parameter that is not exported, so no process
+#    that the user's files start sees it.
 # 2. The user's .zshenv is sourced here, because zsh has already passed that step.
 # 3. In an interactive shell, efr-integration.zsh from this directory is sourced. It
 #    only defines functions and arms a hook for the first prompt, so it works whatever
@@ -22,6 +24,8 @@ if [[ -n ${_EFR_USER_ZDOTDIR+set} ]]; then
 else
   builtin unset ZDOTDIR
 fi
+builtin typeset -gr _efr_hs_aid=${_EFR_HS_AID-}
+builtin unset _EFR_HS_AID
 
 {
   # An unset ZDOTDIR means $HOME to zsh, and zsh skips unreadable startup files.

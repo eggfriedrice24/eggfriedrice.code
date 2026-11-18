@@ -12,6 +12,10 @@
 #   ESC ] 7 ; kitty-shell-cwd://<host><path> BEL   the working directory
 #   ESC ] 133 ; efr-sbx ; <nonce> BEL  a sandboxed call has ended   (_efr_hs_sbx)
 #
+# A, P, C and D also carry `aid=<id>`, the id that efr gave this shell (.zshenv keeps
+# it in _efr_hs_aid). efr reads a mark with another id, or with none, as the output of
+# a command, such as the marks of a nested shell, so it does not end the run.
+#
 # efr cuts a command's output from the recording between the end of C and the start
 # of D, so nothing else may print between them: the precmd hook runs first and the
 # preexec hook runs last. The directory report goes out before D, so the directory a
@@ -61,6 +65,9 @@ builtin unset _EFR_HS_SCRATCH
 # 1 while snapshot.zsh may be older than this shell's functions, aliases and options:
 # from the start, and after every line that efr did not type for a sandboxed call.
 builtin typeset -gi _efr_hs_sbx_stale=1
+
+# The `;aid=<id>` option of the own marks, or nothing for a shell that got no id.
+builtin typeset -gr _efr_hs_aid_opt=${_efr_hs_aid:+;aid=$_efr_hs_aid}
 
 # 0: nothing shown yet, 1: a prompt is shown, 2: a command line runs.
 builtin typeset -gi _efr_hs_state=0
@@ -124,9 +131,9 @@ _efr_hs_precmd() {
   _efr_hs_report_path
   if (( _efr_hs_state == 2 )); then
     _efr_hs_drain
-    builtin print -rn -- $'\e]133;D;'"${st}"$'\a'
+    builtin print -rn -- $'\e]133;D;'"${st}${_efr_hs_aid_opt}"$'\a'
   elif (( _efr_hs_state == 1 )); then
-    builtin print -rn -- $'\e]133;D\a'
+    builtin print -rn -- $'\e]133;D'"${_efr_hs_aid_opt}"$'\a'
   fi
   # zsh prints its PROMPT_SP mark before any precmd hook runs, which would put it
   # inside the output of every command, so _efr_hs_init turns the option off and the
@@ -134,7 +141,7 @@ _efr_hs_precmd() {
   if (( _efr_hs_prompt_sp )); then
     builtin printf '%s%*s\r \r' "${(%)PROMPT_EOL_MARK-%B%S%#%s%b}" $(( COLUMNS - 1 )) ''
   fi
-  builtin print -rn -- $'\e]133;A;cl=line\a'
+  builtin print -rn -- $'\e]133;A;cl=line'"${_efr_hs_aid_opt}"$'\a'
   _efr_hs_state=1
   _efr_hs_no_user_hooks
   # efrd can start a background job at any time, and the job replays the snapshot and
@@ -193,7 +200,7 @@ _efr_hs_preexec() {
   # and filtered exports, so the snapshot of functions, aliases and options stays
   # fresh; any other line may change them.
   [[ ${3:-$1} == *' && \_efr_hs_sbx '[0-9a-f-](#c36) ]] || _efr_hs_sbx_stale=1
-  builtin print -rn -- $'\e]133;C\a'
+  builtin print -rn -- $'\e]133;C'"${_efr_hs_aid_opt}"$'\a'
   _efr_hs_state=2
 }
 
@@ -201,7 +208,7 @@ _efr_hs_line_init() {
   builtin emulate -L zsh
   case $CONTEXT in
     start) builtin print -rn -- $'\e]133;B\a' ;;
-    cont) builtin print -rn -- $'\e]133;P;k=s\a\e]133;B\a' ;;
+    cont) builtin print -rn -- $'\e]133;P;k=s'"${_efr_hs_aid_opt}"$'\a\e]133;B\a' ;;
   esac
 }
 

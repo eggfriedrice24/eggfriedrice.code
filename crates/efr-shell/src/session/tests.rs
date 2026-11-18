@@ -849,3 +849,81 @@ async fn an_exit_child_takes_a_manual_answer() {
     answer(&mut core, &terminal, call_id(1), &SecretText::new("go"), false, true).unwrap();
     assert_eq!(typed_so_far(&mut theirs), b"go\r");
 }
+
+/// The id of the shell in the tests of its own marks.
+const MARK_ID: &str = "00112233445566778899aabbccddeeff";
+
+/// A session of a zsh whose integration writes [`MARK_ID`] on its marks, at a prompt
+/// that its marks with the id made ready.
+fn core_with_id(at: &mut u64) -> SessionCore {
+    let (core, _) = core(true);
+    let mut core = core.with_mark_id(Some(MARK_ID.to_owned()));
+    let prompt = format!("\x1b]133;A;aid={MARK_ID}\x07% \x1b]133;B\x07");
+    feed(&mut core, at, prompt.as_bytes());
+    assert_eq!(core.state().phase, Phase::Ready);
+    core
+}
+
+/// The integration's `C` and the command's `output` after it.
+fn own_start(output: &str) -> String {
+    format!("\r\n\x1b]133;C;aid={MARK_ID}\x07{output}")
+}
+
+/// The integration's `D` with `status`.
+fn own_end(status: i32) -> String {
+    format!("\x1b]133;D;{status};aid={MARK_ID}\x07")
+}
+
+#[test]
+fn a_printed_end_mark_is_output_and_does_not_end_the_run() {
+    let mut at = 0;
+    let mut core = core_with_id(&mut at);
+    let (order, mut answer, _) = order(1, "cat log", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, own_start("before\r\n\x1b]133;D;0\x07after\r\n").as_bytes());
+    assert!(answer.try_recv().is_err(), "the printed D ended the run");
+    assert_eq!(core.state().phase, Phase::Running);
+    feed(&mut core, &mut at, own_end(0).as_bytes());
+    let end = answer.try_recv().unwrap().unwrap();
+    assert_eq!(end.output.kept.clean().text, "before\nafter\n");
+    assert_eq!(end.output.exit_code, Some(0));
+}
+
+#[test]
+fn a_printed_prompt_does_not_make_a_running_shell_ready() {
+    let mut at = 0;
+    let mut core = core_with_id(&mut at);
+    let (first, _first_answer, _) = order(1, "zsh -fi", RunMode::Auto);
+    core.submit(first);
+    let nested = own_start("\x1b]133;D;0\x07\x1b]133;A\x07nested% \x1b]133;B\x07");
+    feed(&mut core, &mut at, nested.as_bytes());
+    assert_eq!(core.state().phase, Phase::Running);
+    let (second, _second_answer, _) = order(2, "ls", RunMode::Auto);
+    assert!(core.submit(second).is_empty(), "a line was typed into the running program");
+}
+
+#[test]
+fn a_mark_with_another_id_is_output() {
+    let mut at = 0;
+    let mut core = core_with_id(&mut at);
+    let (order, mut answer, _) = order(1, "zsh", RunMode::Auto);
+    core.submit(order);
+    let output = "\x1b]133;D;0;aid=ffeeddccbbaa99887766554433221100\x07inner\r\n";
+    feed(&mut core, &mut at, (own_start(output) + &own_end(3)).as_bytes());
+    let end = answer.try_recv().unwrap().unwrap();
+    assert_eq!(end.output.kept.clean().text, "inner\n");
+    assert_eq!(end.output.exit_code, Some(3));
+}
+
+#[test]
+fn marks_without_the_id_count_until_the_first_mark_with_it() {
+    let (core, _) = core(true);
+    let mut core = core.with_mark_id(Some(MARK_ID.to_owned()));
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    feed(&mut core, &mut at, format!("\x1b]133;A;aid={MARK_ID}\x07% ").as_bytes());
+    feed(&mut core, &mut at, b"\x1b]133;D\x07");
+    assert_eq!(core.state().phase, Phase::Prompting { continuation: false });
+    feed(&mut core, &mut at, b"\x1b]133;B\x07");
+    assert_eq!(core.state().phase, Phase::Ready);
+}

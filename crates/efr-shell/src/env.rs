@@ -6,6 +6,7 @@ use std::path::Path;
 
 use efr_protocol::ConversationId;
 use efr_stdx::env::Var;
+use efr_stdx::rng::Rng;
 
 use crate::ShellConfig;
 
@@ -142,6 +143,20 @@ pub(crate) fn shell_env(
         env.insert(SCRATCH.to_owned(), scratch);
     }
     env
+}
+
+/// The id that the integration writes as `aid` on its own OSC 133 marks, for a zsh with
+/// the integration. The ZDOTDIR shim moves it to a shell parameter that is not
+/// exported before the user's `.zshenv` runs, so no child process sees it.
+pub(crate) const MARK_ID: &str = "_EFR_HS_AID";
+
+/// A new id for [`MARK_ID`]: 128 bits from `rng`, as 32 hex digits. A command's own
+/// marks do not carry it, so they cannot end its run or move the shell's state. It is
+/// no secret: a command of the shell can read it.
+pub(crate) fn mark_id(rng: &dyn Rng) -> String {
+    let mut id = [0; 16];
+    rng.fill_bytes(&mut id);
+    efr_sandbox::nonce_hex(&id)
 }
 
 /// The conversation's sandbox dir, for a zsh with the integration. The integration

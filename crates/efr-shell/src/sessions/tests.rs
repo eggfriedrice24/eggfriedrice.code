@@ -365,6 +365,7 @@ async fn a_shell_that_is_not_a_zsh_is_driven_by_sentinels_at_once() {
         .await;
     let spec = &harness.holder.specs()[0];
     assert!(!spec.env.contains_key("ZDOTDIR"), "bash gets no shim");
+    assert!(!spec.env.contains_key("_EFR_HS_AID"), "bash prints no marks with an id");
 }
 
 #[tokio::test]
@@ -1442,6 +1443,10 @@ async fn new_trusted_programs_restart_an_idle_shell_in_its_directory_before_the_
     assert_eq!(spec.cwd, PathBuf::from("/srv"));
     assert_eq!(spec.env["_EFR_HS_TRUSTED_PROGRAMS"], "ls git");
     assert_eq!(harness.holder.specs()[0].env.get("_EFR_HS_TRUSTED_PROGRAMS"), None);
+    let specs = harness.holder.specs();
+    let ids: Vec<&str> = specs.iter().map(|spec| spec.env["_EFR_HS_AID"].as_str()).collect();
+    assert!(ids.iter().all(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())));
+    assert_ne!(ids[0], ids[1], "each shell gets an id of its own");
 }
 
 #[tokio::test]

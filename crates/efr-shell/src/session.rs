@@ -18,7 +18,7 @@ use efr_holder::{ChildStatus, HolderError, PtyHolder, Signal, SignalTarget, Size
 use efr_protocol::{
     ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText, Seq, ShellCommandEnd,
 };
-use efr_screen::{ScreenHandle, ShellMark, ShellMarkKind, ShellMarkScanner};
+use efr_screen::{ScreenHandle, SemanticPromptEvent, ShellMark, ShellMarkKind, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -496,6 +496,13 @@ pub(crate) struct SessionCore {
     used: bool,
     /// The marks that a sandboxed run held back from the state, newest last.
     held: VecDeque<ShellMarkKind>,
+    /// The `aid` on the integration's own marks; `None` for a shell that got no id,
+    /// where every mark counts.
+    mark_id: Option<String>,
+    /// A mark with [`mark_id`](Self::mark_id) came: from then on only such marks count.
+    id_seen: bool,
+    /// The last own mark started a prompt, so a `B`, which has no `aid`, is its end.
+    own_prompt: bool,
     observer: Arc<dyn ShellObserver>,
 }
 
@@ -522,8 +529,19 @@ impl SessionCore {
             check: None,
             used: false,
             held: VecDeque::new(),
+            mark_id: None,
+            id_seen: false,
+            own_prompt: false,
             observer,
         }
+    }
+
+    /// The same session for a shell whose integration writes `mark_id` as the `aid` of
+    /// its own marks. A mark of a command (a nested shell's, a printed recording's)
+    /// then is output: it moves no state and ends no run.
+    pub(crate) fn with_mark_id(mut self, mark_id: Option<String>) -> Self {
+        self.mark_id = mark_id;
+        self
     }
 
     pub(crate) fn state(&self) -> &ShellState {
@@ -687,6 +705,11 @@ impl SessionCore {
         let mut writes = Vec::new();
         let mut cursor = base;
         for mark in self.scanner.scan(bytes, start) {
+            // The bytes of a command's own mark stay in the output, as the terminal
+            // showed them.
+            if !self.own(&mark.kind) {
+                continue;
+            }
             // A mark that began in an earlier chunk starts before this one.
             let before = mark.start.get().max(cursor);
             if before > cursor {
@@ -1206,6 +1229,33 @@ impl SessionCore {
             }
             self.finish(output);
         }
+    }
+
+    /// True when `kind` is a mark of this shell's integration, which writes the shell's
+    /// id as `aid` on `A`, `P`, `C` and `D`; a `B` is its own when it ends an own
+    /// prompt. Every mark counts in a shell with no id, and until the first mark with
+    /// the id: the integration prints that mark at the first prompt, before any line
+    /// is typed.
+    fn own(&mut self, kind: &ShellMarkKind) -> bool {
+        let Some(mark_id) = &self.mark_id else {
+            return true;
+        };
+        let ShellMarkKind::SemanticPrompt(event) = kind else {
+            return true;
+        };
+        let (aid, prompt) = match event {
+            SemanticPromptEvent::InputStart => return !self.id_seen || self.own_prompt,
+            SemanticPromptEvent::PromptStart { aid, .. } => (aid, true),
+            SemanticPromptEvent::OutputStart { aid, .. }
+            | SemanticPromptEvent::CommandEnd { aid, .. } => (aid, false),
+            _ => return !self.id_seen,
+        };
+        if aid.as_ref() == Some(mark_id) {
+            self.id_seen = true;
+            self.own_prompt = prompt;
+            return true;
+        }
+        !self.id_seen
     }
 
     /// True while a sandboxed run, active or orphaned, is between its `C` and its end
