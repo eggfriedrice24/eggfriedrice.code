@@ -227,7 +227,7 @@ impl ExpoPush {
         let request = self.send.clone().json(&wire)?;
         let ttl = messages.iter().map(|message| message.ttl).min();
         let response = self.exchange(&request, ttl).await?;
-        let answer = parse::<Vec<WireTicket>>(response).await?;
+        let answer = self.answer::<Vec<WireTicket>>(response).await?;
         Ok(map(answer, |tickets| tickets.into_iter().map(WireTicket::ticket).collect()))
     }
 
@@ -240,7 +240,7 @@ impl ExpoPush {
         let ids: Vec<&str> = ids.iter().map(TicketId::as_str).collect();
         let request = self.receipts.clone().json(&WireIds { ids })?;
         let response = self.exchange(&request, None).await?;
-        let answer = parse::<HashMap<String, WireTicket>>(response).await?;
+        let answer = self.answer::<HashMap<String, WireTicket>>(response).await?;
         Ok(map(answer, |receipts| {
             receipts
                 .into_iter()
@@ -285,6 +285,17 @@ impl ExpoPush {
             .await
             .map(|attempt| attempt.value)
             .map_err(|attempt| attempt.value)
+    }
+
+    /// The answer of `response`, with its body read within [`REQUEST_TIMEOUT`] on the
+    /// clock: a body that stalls after its head ends the request too.
+    async fn answer<T: serde::de::DeserializeOwned>(
+        &self,
+        response: HttpResponse,
+    ) -> Result<ExpoAnswer<T>, HttpError> {
+        let url = response.url().to_owned();
+        let read = self.clock.timeout(REQUEST_TIMEOUT, parse(response)).await;
+        read.unwrap_or_else(|_| Err(HttpError::Timeout { url }))
     }
 }
 
