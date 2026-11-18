@@ -25,7 +25,7 @@ import { devWarn } from "@/lib/dev/dev-warn";
 import { copyText } from "@/lib/native/clipboard";
 import { haptic } from "@/lib/native/haptics";
 import type { AppAttach } from "@/features/navigation/model/app-services";
-import { NO_ATTACHMENTS } from "../model/attachments";
+import { NO_ATTACHMENTS, selectPreviews } from "../model/attachments";
 import { promptTiles, type TileView } from "../model/attachments-tiles";
 import { clockTime } from "../model/durations";
 import { paragraphs } from "../model/paragraphs";
@@ -188,9 +188,9 @@ export function PromptRow(props: PromptRowProps) {
   const scope = useTranscriptScope();
   const view = useSelector(scope.store, selectPrompt(props.turnId), { compare: compareShallow });
   const withheld = useSelector(scope.store, (state) => state.withheld);
-  const commandId = view.prompt?.commandId ?? "";
-  const previews = useSelector(scope.attach?.attachments.store ?? NO_ATTACHMENTS, (state) =>
-    state.previews.get(commandId),
+  const previews = useSelector(
+    scope.attach?.attachments.store ?? NO_ATTACHMENTS,
+    selectPreviews(view.prompt?.commandId ?? ""),
   );
   if (view.prompt === undefined) {
     return null;

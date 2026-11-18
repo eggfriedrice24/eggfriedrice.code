@@ -17,7 +17,7 @@
 import { createStore, type Readable } from "@tanstack/store";
 
 import type { AttachmentLimits, DaemonId, UploadId } from "@/lib/protocol/generated";
-import type { KeyValueStorage } from "@/lib/store/key-value";
+import { readSaved, type KeyValueStorage } from "@/lib/store/key-value";
 import type { MachineConnection } from "@/features/machines/model/machine-connection";
 import type { EfrFilesNative } from "../../../../modules/efr-files";
 import { savedPreviewsSchema } from "./attachments-schemas";
@@ -88,12 +88,11 @@ export function selectDraftFiles(
   return (state) => state.drafts.get(key) ?? NO_FILES;
 }
 
-/** The preview of file `index` of the prompt `commandId`, for `useSelector`. */
-export function selectPreview(
+/** The previews that this phone kept of the prompt `commandId`, for `useSelector`. */
+export function selectPreviews(
   commandId: string,
-  index: number,
-): (state: AttachmentsState) => string | undefined {
-  return (state) => state.previews.get(commandId)?.uris[index] ?? undefined;
+): (state: AttachmentsState) => SentPreviews | undefined {
+  return (state) => state.previews.get(commandId);
 }
 
 /**
@@ -208,32 +207,14 @@ export interface Attachments {
   removeMachine(machine: DaemonId): void;
 }
 
-/** Reads the saved previews, or none when they are broken. */
-function loadPreviews(deps: AttachmentsDeps): Map<string, SentPreviews> {
-  let json: string | null;
-  try {
-    json = deps.storage.getItemSync(PREVIEWS_KEY);
-  } catch (error) {
-    deps.onError(error);
-    return new Map();
-  }
-  if (json === null) {
-    return new Map();
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return new Map();
-  }
-  const parsed = savedPreviewsSchema.safeParse(value);
-  return parsed.success ? new Map(Object.entries(parsed.data)) : new Map();
-}
-
 /** Makes the attachments and reads the saved previews. */
 export function createAttachments(deps: AttachmentsDeps): Attachments {
   const { files, outbox, onError } = deps;
-  const store = createStore<AttachmentsState>({ drafts: new Map(), previews: loadPreviews(deps) });
+  const saved = readSaved(deps.storage, PREVIEWS_KEY, savedPreviewsSchema, onError) ?? {};
+  const store = createStore<AttachmentsState>({
+    drafts: new Map(),
+    previews: new Map(Object.entries(saved)),
+  });
   let saves: Promise<void> = Promise.resolve();
 
   const drop = (uri: string | null | undefined): void => {

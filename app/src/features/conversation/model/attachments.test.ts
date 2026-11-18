@@ -8,7 +8,7 @@ import {
   outboxFiles,
   photoName,
   selectDraftFiles,
-  selectPreview,
+  selectPreviews,
   uploadName,
   type Attachments,
 } from "./attachments";
@@ -147,15 +147,12 @@ describe("the files of a prompt", () => {
     files.removed.length = 0;
     attachments.sent(entry);
     expect(files.removed).toEqual(["file:///caches/a.txt", "file:///caches/IMG_1.HEIC.jpg"]);
-    const state = attachments.store.get();
-    expect(selectPreview(entry.commandId, 0)(state)).toBeUndefined();
-    expect(selectPreview(entry.commandId, 1)(state)).toBe("file:///caches/IMG_1.HEIC-preview.jpg");
+    const kept = { machine: DESKTOP, uris: [null, "file:///caches/IMG_1.HEIC-preview.jpg"] };
+    expect(selectPreviews(entry.commandId)(attachments.store.get())).toEqual(kept);
     await flush();
-    const again = setup(storage).attachments;
-    expect(selectPreview(entry.commandId, 1)(again.store.get())).toBe(
-      "file:///caches/IMG_1.HEIC-preview.jpg",
-    );
     expect(storage.getItemSync(PREVIEWS_KEY)).not.toBeNull();
+    const again = setup(storage).attachments;
+    expect(selectPreviews(entry.commandId)(again.store.get())).toEqual(kept);
   });
 
   it("keeps the previews of the newest prompts only", async () => {
@@ -171,7 +168,7 @@ describe("the files of a prompt", () => {
       attachments.sent(entry);
     }
     expect(attachments.store.get().previews.size).toBe(MAX_PREVIEW_PROMPTS);
-    expect(selectPreview(entries[0]?.commandId ?? "", 0)(attachments.store.get())).toBeUndefined();
+    expect(selectPreviews(entries[0]?.commandId ?? "")(attachments.store.get())).toBeUndefined();
     expect(files.removed).toContain("file:///caches/0-preview.jpg");
   });
 
