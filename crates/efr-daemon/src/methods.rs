@@ -298,16 +298,17 @@ impl Input {
         }
     }
 
-    /// Marks the input before its request runs, in a conversation that the presence
-    /// table knows; the changes to record after it.
-    fn touch(&self, state: &State) -> Vec<crate::presence::Change> {
-        self.conversation(state).map(|id| state.presence.touch(id)).unwrap_or_default()
+    /// Marks the input from a client of `origin` before its request runs, in a
+    /// conversation that the presence table knows; the changes to record after it.
+    fn touch(&self, state: &State, origin: Origin) -> Vec<crate::presence::Change> {
+        self.conversation(state).map(|id| state.presence.touch(id, origin)).unwrap_or_default()
     }
 
-    /// Marks the input after its request succeeded, in the conversation that it reached.
-    async fn mark(&self, state: &State) {
+    /// Marks the input from a client of `origin` after its request succeeded, in the
+    /// conversation that it reached.
+    async fn mark(&self, state: &State, origin: Origin) {
         if let Some(conversation_id) = self.conversation(state) {
-            state.presence.input(conversation_id).await;
+            state.presence.input(conversation_id, origin).await;
         }
     }
 }
@@ -527,7 +528,7 @@ impl Dispatcher for Methods {
             // NOTE: marked before the handler, so a turn that the input starts never
             // reads the idle state that the input ends; recorded after it, so a prompt
             // is routed by the conversation's last activity before the input.
-            let touched = input.touch(state);
+            let touched = input.touch(state, context.surface());
             let handled = match method {
                 Method::Hello(_) => Err(DaemonError::HelloRepeated),
                 Method::ConversationsList(params) => {
@@ -689,7 +690,7 @@ impl Dispatcher for Methods {
             };
             state.presence.record(touched).await;
             if handled.is_ok() {
-                input.mark(state).await;
+                input.mark(state, context.surface()).await;
             }
             handled
         };

@@ -58,7 +58,7 @@ impl Fixture {
 async fn idle_minutes_make_a_conversation_away_and_the_first_look_records_it() {
     let fixture = Fixture::new().await;
     let id = fixture.conversation(1).await;
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
 
     fixture.clock.advance(Duration::from_secs(9 * 60));
     assert_eq!(fixture.table.presence(id), Presence::Present, "9 minutes is not idle");
@@ -71,7 +71,7 @@ async fn idle_minutes_make_a_conversation_away_and_the_first_look_records_it() {
         .until_some_async(async || (fixture.changes().await == away).then_some(()))
         .await
         .unwrap();
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
     assert_eq!(fixture.table.presence(id), Presence::Present);
     assert_eq!(
         fixture.changes().await,
@@ -87,13 +87,13 @@ async fn idle_minutes_make_a_conversation_away_and_the_first_look_records_it() {
 async fn input_after_an_unseen_idle_state_records_it_before_the_return() {
     let fixture = Fixture::new().await;
     let id = fixture.conversation(1).await;
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
     fixture.clock.advance(Duration::from_secs(5 * 60));
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
     assert_eq!(fixture.changes().await, [], "input within the limit changes nothing");
 
     fixture.clock.advance(Duration::from_secs(11 * 60));
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
 
     assert_eq!(
         fixture.changes().await,
@@ -108,10 +108,10 @@ async fn input_after_an_unseen_idle_state_records_it_before_the_return() {
 async fn a_touch_marks_input_now_and_leaves_the_record_to_the_caller() {
     let fixture = Fixture::new().await;
     let id = fixture.conversation(1).await;
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
     fixture.clock.advance(Duration::from_secs(30 * 60));
 
-    let changes = fixture.table.touch(id);
+    let changes = fixture.table.touch(id, Origin::Shell);
     assert_eq!(fixture.table.presence(id), Presence::Present, "present from the touch on");
     assert_eq!(fixture.changes().await, [], "nothing recorded yet");
     fixture.table.record(changes).await;
@@ -129,7 +129,7 @@ async fn a_touch_marks_input_now_and_leaves_the_record_to_the_caller() {
 async fn the_limit_comes_from_the_latest_settings() {
     let fixture = Fixture::new().await;
     let id = fixture.conversation(1).await;
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
     let mut settings = Settings::default();
     settings.presence.away_after_minutes = 2;
     fixture.settings.send_replace(Arc::new(settings));
@@ -143,14 +143,14 @@ async fn the_limit_comes_from_the_latest_settings() {
 async fn the_user_sets_away_until_the_next_input() {
     let fixture = Fixture::new().await;
     let id = fixture.conversation(1).await;
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
 
     let changes = fixture.table.set(&[id], Presence::Away);
     fixture.store.writer().append(batch(changes).unwrap()).await.unwrap();
     assert_eq!(fixture.table.presence(id), Presence::Away);
     assert!(fixture.table.set(&[id], Presence::Away).is_empty(), "away twice changes nothing");
     assert!(fixture.table.present().is_empty());
-    fixture.table.input(id).await;
+    fixture.table.input(id, Origin::Shell).await;
 
     assert_eq!(fixture.table.presence(id), Presence::Present);
     assert_eq!(
@@ -168,12 +168,47 @@ async fn an_unknown_conversation_counts_as_present_from_the_first_look() {
     let id = fixture.conversation(1).await;
     let other = fixture.conversation(2).await;
 
-    assert_eq!(fixture.table.touch(other), []);
+    assert_eq!(fixture.table.touch(other, Origin::Shell), []);
     assert_eq!(fixture.table.known(), [], "an unknown id never enters through a touch");
     assert_eq!(fixture.table.presence(id), Presence::Present);
     assert_eq!(fixture.table.known(), [id]);
     fixture.clock.advance(Duration::from_secs(10 * 60));
     assert_eq!(fixture.table.presence(id), Presence::Away);
+}
+
+/// You are at the terminal only while the conversation is present and its newest
+/// input came from a terminal.
+#[tokio::test]
+async fn the_newest_input_from_a_phone_or_away_is_not_at_the_terminal() {
+    let fixture = Fixture::new().await;
+    let id = fixture.conversation(1).await;
+    assert!(!fixture.table.not_at_terminal(id), "an unknown conversation");
+
+    fixture.table.input(id, Origin::Phone).await;
+    assert!(fixture.table.not_at_terminal(id));
+    fixture.table.input(id, Origin::Cli).await;
+    assert!(!fixture.table.not_at_terminal(id));
+    let _changes = fixture.table.touch(id, Origin::Phone);
+    assert!(fixture.table.not_at_terminal(id), "a touch marks the origin too");
+    fixture.table.input(id, Origin::Shell).await;
+    fixture.clock.advance(Duration::from_secs(10 * 60));
+    assert!(fixture.table.not_at_terminal(id), "away");
+}
+
+/// A question that waits with nobody there goes to the push queue, with no record.
+#[tokio::test]
+async fn a_push_of_a_question_goes_to_the_queue() {
+    let fixture = Fixture::new().await;
+    let id = fixture.conversation(1).await;
+    let (queue, mut rows) = crate::push::PushQueue::channel();
+    let Fixture { clock, store, table, settings: _settings } = fixture;
+    let table = table.with_pushes(queue);
+    let call = efr_protocol::CallId::from_uuid(uuid_v7(&clock, &TestRng::new(3)));
+
+    table.push(id, call);
+
+    assert_eq!(rows.try_recv().unwrap(), crate::push::Row::question(id, call));
+    drop(store);
 }
 
 /// A conversation counts as followed while a client that can type answers subscribes to

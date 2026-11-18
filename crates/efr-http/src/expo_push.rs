@@ -82,19 +82,28 @@ pub const EXPO_RETRY: RetryPolicy = RetryPolicy {
 /// One notice for one phone.
 #[derive(Debug, Clone)]
 pub struct PushMessage {
-    /// The Expo push token of the phone, `ExponentPushToken[...]`.
-    pub to: SecretString,
-    /// The text under the title [`TITLE`].
-    pub body: String,
-    /// How long Apple keeps the notice for a phone that is off. No try of the send
-    /// starts after it.
-    pub ttl: Duration,
-    /// The conversation that a tap opens. A newer notice of the same conversation
-    /// replaces the older one, and iOS groups them.
-    pub conversation: Option<String>,
-    /// The id of the efrd that sends, so the app opens the conversation on the right
-    /// machine.
-    pub daemon: String,
+    to: SecretString,
+    body: String,
+    ttl: Duration,
+    conversation: Option<String>,
+    daemon: String,
+}
+
+impl PushMessage {
+    /// A notice for the phone of `token`, its Expo push token (`ExponentPushToken[...]`),
+    /// with `body` under the title [`TITLE`]. Apple keeps it `ttl` for a phone that is
+    /// off, and no try of its send starts after that. A tap opens `conversation` on the
+    /// efrd `daemon`; a newer notice of the same conversation replaces the older one,
+    /// and iOS groups them.
+    pub fn new(
+        token: &str,
+        body: String,
+        ttl: Duration,
+        conversation: Option<String>,
+        daemon: String,
+    ) -> Self {
+        PushMessage { to: SecretString::from(token), body, ttl, conversation, daemon }
+    }
 }
 
 /// A code of the Expo push service, such as [`DEVICE_NOT_REGISTERED`]: 1 to

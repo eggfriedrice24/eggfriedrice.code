@@ -187,7 +187,15 @@ struct Launch {
     search_hook: Option<SearchRowHook>,
     /// The fake tailscaled of the remote listener; `None` while it is off.
     tailscaled: Option<Arc<FakeTailscaled>>,
+    /// The base URL of the fake Expo push service; `None` sends each push to
+    /// [`NO_EXPO_PUSH`].
+    expo_push: Option<String>,
 }
+
+/// Where the pushes of a test daemon go unless the test names a fake Expo push service:
+/// the discard port of loopback, which refuses each connection, so no test reaches
+/// `exp.host`.
+const NO_EXPO_PUSH: &str = "http://127.0.0.1:9";
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
 /// the model's commands (a hidden shell's or a job's), or one that is gone.
@@ -256,6 +264,7 @@ impl Default for TestDaemonBuilder {
                 system_host_ports: false,
                 search_hook: None,
                 tailscaled: None,
+                expo_push: None,
             }),
         }
     }
@@ -574,6 +583,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Sends the pushes of the daemon to the fake Expo push service at `base_url`, as
+    /// `EFR_EXPO_PUSH_URL` does. A restart keeps it.
+    #[must_use]
+    pub fn expo_push(mut self, base_url: impl Into<String>) -> Self {
+        self.settings.expo_push = Some(base_url.into());
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(mut self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -711,6 +728,7 @@ impl TestDaemon {
         if settings.tailscaled.is_some() {
             deps = deps.with_remote_listen(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0));
         }
+        deps = deps.with_expo_push_url(settings.expo_push.as_deref().unwrap_or(NO_EXPO_PUSH));
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());
         // NOTE: a map of free ports for each start, so a restarted daemon binds again.

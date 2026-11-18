@@ -1,16 +1,19 @@
 //! `admin.push_test`: a test notice to each phone that has push on, for
-//! `efr push test`.
+//! `efr push test`. The answer comes after the receipts, in about 14 seconds
+//! (`push/check.rs`).
 
-use efr_protocol::AdminPushTest;
+use efr_protocol::{AdminPushTest, AdminPushTestResult};
 use efr_transport::Responder;
 
 use crate::DaemonError;
 use crate::state::State;
 
 pub(crate) async fn handle(
-    _state: &State,
+    state: &State,
     _params: AdminPushTest,
-    _responder: &Responder,
+    responder: &Responder,
 ) -> Result<(), DaemonError> {
-    Err(DaemonError::InvalidParams { reason: "this efrd sends no push" })
+    let devices = crate::push::check(state).await?;
+    responder.item(&AdminPushTestResult { devices }).await?;
+    Ok(())
 }

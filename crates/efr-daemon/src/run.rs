@@ -389,6 +389,14 @@ impl Deps {
         self.search_hook = Some(hook);
         self
     }
+
+    /// Sends the pushes to the Expo push service at `url` in place of
+    /// `https://exp.host`, as `EFR_EXPO_PUSH_URL` does: a test's fake server.
+    #[must_use]
+    pub fn with_expo_push_url(mut self, url: impl Into<String>) -> Self {
+        self.expo_push_url = Some(url.into());
+        self
+    }
 }
 
 /// A started daemon: the socket is open and `daemon.json` written; nothing is served
@@ -622,7 +630,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         &settings,
         secrets,
         ProviderParts {
-            http,
+            http: http.clone(),
             clock: Arc::clone(&clock),
             rng: Arc::clone(&rng),
             factory: providers,
@@ -658,6 +666,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // change of the mode alone needs no new engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let providers = providers.with_settings(settings_receiver.clone());
+    let push = crate::push::Push::new(
+        expo_push_url.as_deref(),
+        http,
+        settings_receiver.clone(),
+        Arc::clone(&clock),
+        Arc::clone(&rng),
+    );
     let (reloads, reload_requests) = Reloads::new();
     reloads.held_at_start(held);
     let settings_tool = SettingsTool::new(
@@ -784,7 +799,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let presence = Arc::new(
         PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone())
-            .with_connections(Arc::clone(&connections)),
+            .with_connections(Arc::clone(&connections))
+            .with_pushes(push.queue().clone()),
     );
     // NOTE: one router for the turns and the judge, which asks the provider of each
     // exit's turn; its company names the small model.
@@ -897,7 +913,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         pairings,
         deletes,
         uploads,
-        push: crate::push::Push::new(expo_push_url),
+        push,
     });
     // NOTE: before the socket opens, so no upload of this efrd is open yet.
     state.uploads.sweep().await;
@@ -950,6 +966,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     tokio::spawn(state.jobs.clone().guard_schedule());
     let mut background = vec![
         tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
+        tokio::spawn(crate::push::serve(Arc::clone(&state), stop.clone())),
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
         tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
         // NOTE: every later probe (a reload, a failed launch, `efr sandbox check`)

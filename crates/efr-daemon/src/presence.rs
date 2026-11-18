@@ -22,8 +22,11 @@
 //! `answers_questions` on a connection that holds `operate`. While none follows, the
 //! question waits only the away wait, in every turn.
 //!
-//! The push of an away question to the user's phones does nothing: no phone client
-//! exists yet.
+//! Each entry also keeps where its newest input came from. You are not at the terminal
+//! of a conversation while it is away or while its newest input came from a phone
+//! ([`PresenceTable::not_at_terminal`]); only then may a question push to the phone
+//! (`push.rs`). The push of a question that a turn finds with nobody there goes to the
+//! push task through [`PushQueue`].
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -31,13 +34,14 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_conversation::PresenceReader;
-use efr_protocol::{ConversationId, Event, Presence, PresenceSource};
+use efr_protocol::{CallId, ConversationId, Event, Origin, Presence, PresenceSource};
 use efr_stdx::time::Clock;
 use efr_store::{Batch, WriterHandle};
 use jiff::Timestamp;
 use tokio::sync::watch;
 
 use crate::connections::Connections;
+use crate::push::{PushQueue, Row};
 
 /// One change of presence to record: the conversation and its `presence_changed`.
 pub(crate) type Change = (ConversationId, Event);
@@ -52,11 +56,13 @@ struct Entry {
     /// The presence that the log holds now: the newest `presence_changed`, or present
     /// when there is none.
     recorded: Presence,
+    /// True when the newest input came from a phone.
+    phone: bool,
 }
 
 impl Entry {
     fn new(now: Timestamp) -> Self {
-        Entry { last_input: now, set_away: false, recorded: Presence::Present }
+        Entry { last_input: now, set_away: false, recorded: Presence::Present, phone: false }
     }
 
     /// The presence at `now`, when no input for `away_after` counts as away.
@@ -93,6 +99,9 @@ pub(crate) struct PresenceTable {
     /// The live subscriptions, which say whether a client that answers input follows a
     /// conversation; `None` knows no client, so nobody follows.
     connections: Option<Arc<Connections>>,
+    /// Where a question that waits with nobody there goes to push; `None` pushes
+    /// nothing.
+    pushes: Option<PushQueue>,
 }
 
 impl PresenceTable {
@@ -103,7 +112,14 @@ impl PresenceTable {
         clock: Arc<dyn Clock>,
         writer: WriterHandle,
     ) -> Self {
-        PresenceTable { entries: Mutex::default(), settings, clock, writer, connections: None }
+        PresenceTable {
+            entries: Mutex::default(),
+            settings,
+            clock,
+            writer,
+            connections: None,
+            pushes: None,
+        }
     }
 
     /// The table, which reads from `connections` whether a client that answers input
@@ -113,10 +129,17 @@ impl PresenceTable {
         self
     }
 
-    /// Input of a person in `conversation_id` now: an idle state that the log does not
-    /// hold yet is recorded first, then the return to present.
-    pub(crate) async fn input(&self, conversation_id: ConversationId) {
-        let changes = self.mark(conversation_id, true);
+    /// The table, which hands a question that waits with nobody there to `pushes`.
+    pub(crate) fn with_pushes(mut self, pushes: PushQueue) -> Self {
+        self.pushes = Some(pushes);
+        self
+    }
+
+    /// Input of a person from a client of `origin` in `conversation_id` now: an idle
+    /// state that the log does not hold yet is recorded first, then the return to
+    /// present.
+    pub(crate) async fn input(&self, conversation_id: ConversationId, origin: Origin) {
+        let changes = self.mark(conversation_id, true, origin);
         self.record(changes).await;
     }
 
@@ -124,8 +147,19 @@ impl PresenceTable {
     /// an id that names no conversation never enters it, and without the record: the
     /// caller [`record`](Self::record)s the changes later, such as after a prompt was
     /// routed, because each event moves the conversation's time of last activity.
-    pub(crate) fn touch(&self, conversation_id: ConversationId) -> Vec<Change> {
-        self.mark(conversation_id, false)
+    pub(crate) fn touch(&self, conversation_id: ConversationId, origin: Origin) -> Vec<Change> {
+        self.mark(conversation_id, false, origin)
+    }
+
+    /// True when you are not at the terminal of `conversation_id`: it is away, or its
+    /// newest input came from a phone. A conversation that the table does not know
+    /// counts as present from the terminal, as [`presence`](PresenceReader::presence)
+    /// counts it.
+    pub(crate) fn not_at_terminal(&self, conversation_id: ConversationId) -> bool {
+        let (now, away_after) = (self.clock.now(), self.away_after());
+        self.lock()
+            .get(&conversation_id)
+            .is_some_and(|entry| entry.phone || entry.presence(now, away_after) == Presence::Away)
     }
 
     /// Records `changes` in one batch. A failure is logged: the table keeps its state,
@@ -179,9 +213,9 @@ impl PresenceTable {
             .collect()
     }
 
-    /// Marks input in `conversation_id`, and adds it when `add` says so; the changes to
-    /// record.
-    fn mark(&self, conversation_id: ConversationId, add: bool) -> Vec<Change> {
+    /// Marks input from a client of `origin` in `conversation_id`, and adds it when
+    /// `add` says so; the changes to record.
+    fn mark(&self, conversation_id: ConversationId, add: bool, origin: Origin) -> Vec<Change> {
         let (now, away_after) = (self.clock.now(), self.away_after());
         let mut entries = self.lock();
         let entry = match entries.get_mut(&conversation_id) {
@@ -197,6 +231,7 @@ impl PresenceTable {
         }
         entry.set_away = false;
         entry.last_input = now;
+        entry.phone = origin == Origin::Phone;
         changes.extend(entry.record(conversation_id, Presence::Present, PresenceSource::Input));
         changes
     }
@@ -249,6 +284,12 @@ impl PresenceReader for PresenceTable {
             }
         }
         presence
+    }
+
+    fn push(&self, conversation_id: ConversationId, call_id: CallId) {
+        if let Some(pushes) = &self.pushes {
+            pushes.queue(Row::question(conversation_id, call_id));
+        }
     }
 
     fn followed(&self, conversation_id: ConversationId) -> bool {

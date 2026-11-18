@@ -626,7 +626,7 @@ pub(crate) fn desktop_what(event: &Event, wake: Option<&Wake>) -> Option<&'stati
 
 /// The [`notice_place`] of a conversation of the scope `scope` and the working
 /// directory `cwd`. Only a project's name reads the registry.
-async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> String {
+pub(crate) async fn place_of(state: &State, scope: Option<&Scope>, cwd: Option<&Path>) -> String {
     let project = match scope {
         Some(Scope::Project(id)) => {
             let registry = crate::engine::load_registry(&state.engine_parts.registry).await;
@@ -750,10 +750,14 @@ async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
             return;
         }
     };
+    let wake = wake_turn(&state.readers, conversation_id, envelope).await;
+    // NOTE: a push needs no terminal: a conversation of the phone has none.
+    if let Some(row) = crate::push::row(state, conversation_id, envelope, wake.as_ref()).await {
+        state.push.queue().queue(row);
+    }
     let Some(tty) = summary.tty else {
         return;
     };
-    let wake = wake_turn(&state.readers, conversation_id, envelope).await;
     let title = summary.title.as_deref();
     let command = job_command(&state.readers, conversation_id, &envelope.event).await;
     let known = Known {

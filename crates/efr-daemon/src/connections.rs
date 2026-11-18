@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use efr_protocol::{ConversationId, Origin, PtyId, Scope, Seq};
+use efr_protocol::{ConversationId, DeviceId, Origin, PtyId, Scope, Seq};
 use efr_transport::ConnId;
 use jiff::Timestamp;
 use tokio::sync::Notify;
@@ -60,6 +60,9 @@ pub(crate) struct Lease {
     pub(crate) ptys: Vec<PtyId>,
     pub(crate) visible: bool,
     pub(crate) expires_at: Timestamp,
+    /// The device of the proof, for a connection of the tailnet listener: while one of
+    /// its leases is visible, nothing pushes to it.
+    pub(crate) device: Option<DeviceId>,
 }
 
 /// A notice line for the terminal `tty` about the event `seq` of `conversation`, with
@@ -390,6 +393,16 @@ impl Connections {
     /// became ready while nobody waited completes the next wait at once.
     pub(crate) fn readied(&self) -> impl Future<Output = ()> + '_ {
         self.wake.notified()
+    }
+
+    /// True when a connection of `device` holds a live lease that is visible: the app
+    /// is in front.
+    pub(crate) fn visible_on(&self, device: DeviceId, now: Timestamp) -> bool {
+        self.lock().conns.values().any(|conn| {
+            conn.lease.as_ref().is_some_and(|lease| {
+                lease.device == Some(device) && lease.visible && lease.expires_at > now
+            })
+        })
     }
 
     /// True when a live lease names `pty_id`.

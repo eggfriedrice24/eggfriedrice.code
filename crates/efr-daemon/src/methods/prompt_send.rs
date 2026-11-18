@@ -331,7 +331,7 @@ async fn send_routed(
     // (so its turn never reads the idle state that the input ends) and after it; the
     // terminal's current conversation may be another scope's, which the prompt does
     // not touch (`methods.rs`, `Input::Routed`).
-    let touched = target.map(|id| state.presence.touch(id)).unwrap_or_default();
+    let touched = target.map(|id| state.presence.touch(id, origin)).unwrap_or_default();
     let own = context_tty.as_deref() == Some(tty.as_str());
     let route = label.map(|scope| Routed { scope, switch, hint: hint.clone() });
     let sent = match (target, claim) {
@@ -406,7 +406,7 @@ async fn send_routed(
     };
     state.presence.record(touched).await;
     if let Ok(result) = &sent {
-        state.presence.input(result.conversation_id).await;
+        state.presence.input(result.conversation_id, origin).await;
         if let Some(hint) = hint {
             hint_shown(state, hint.root).await;
         }

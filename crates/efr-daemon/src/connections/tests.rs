@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use efr_protocol::{ConversationId, Origin, PtyId, Seq};
+use efr_protocol::{ConversationId, DeviceId, Origin, PtyId, Seq};
 use efr_transport::ConnId;
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
@@ -269,6 +269,7 @@ fn a_lease_shows_until_it_expires() {
             ptys: vec![pty],
             visible: true,
             expires_at: at(60),
+            device: None,
         },
     );
 
@@ -277,6 +278,31 @@ fn a_lease_shows_until_it_expires() {
     let expired = notice(conversation(1), 1);
     assert_eq!(connections.decide(expired.clone(), at(60)), Decision::Write(expired));
     assert!(!connections.watches_pty(pty, at(60)));
+}
+
+/// A phone is in front while one of its connections holds a visible lease that did
+/// not expire.
+#[test]
+fn a_visible_lease_of_a_device_shows_until_it_expires() {
+    let connections = connections_with(&[(1, None), (2, None)]);
+    let device = DeviceId::from_uuid(uuid::Uuid::from_u128(7));
+    let other = DeviceId::from_uuid(uuid::Uuid::from_u128(8));
+    let lease = |visible, device| Lease {
+        conversations: vec![conversation(1)],
+        ptys: Vec::new(),
+        visible,
+        expires_at: at(60),
+        device,
+    };
+
+    connections.report_lease(ConnId::new(1), lease(false, Some(device)));
+    assert!(!connections.visible_on(device, at(0)), "a lease of the background");
+    connections.report_lease(ConnId::new(2), lease(true, Some(device)));
+    assert!(connections.visible_on(device, at(59)));
+    assert!(!connections.visible_on(other, at(59)));
+    assert!(!connections.visible_on(device, at(60)), "the lease ended");
+    connections.closed(ConnId::new(2));
+    assert!(!connections.visible_on(device, at(0)));
 }
 
 #[test]

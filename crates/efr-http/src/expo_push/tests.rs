@@ -56,13 +56,13 @@ fn push(server: &MockServer, clock: Arc<dyn Clock>) -> ExpoPush {
 }
 
 fn message(conversation: Option<&str>, ttl: u64) -> PushMessage {
-    PushMessage {
-        to: SecretString::from(TOKEN),
-        body: "app: a question waits".to_owned(),
-        ttl: Duration::from_secs(ttl),
-        conversation: conversation.map(str::to_owned),
-        daemon: "d-1".to_owned(),
-    }
+    PushMessage::new(
+        TOKEN,
+        "app: a question waits".to_owned(),
+        Duration::from_secs(ttl),
+        conversation.map(str::to_owned),
+        "d-1".to_owned(),
+    )
 }
 
 fn ok(body: serde_json::Value) -> ResponseTemplate {
