@@ -414,7 +414,7 @@ fn notify_keys_have_defaults_and_checks() {
     );
     assert_eq!(crate::kind("notify.after_secs"), Some(Kind::Integer));
     assert_eq!(Applies::of("notify.terminal"), Applies::Live, "efrd hands it to the shell");
-    assert_eq!(Applies::of("notify.after_secs"), Applies::Client);
+    assert_eq!(Applies::of("notify.after_secs"), Applies::Live, "efrd times the push of a turn");
     assert!(!RESTART_KEYS.iter().any(|key| key.starts_with("notify.")));
 
     let mut settings = Settings::default();
@@ -438,6 +438,60 @@ fn notify_keys_have_defaults_and_checks() {
         Settings::parse(path, Some("[notify]\nbell = true\n")).is_err(),
         "an unknown key of [notify] is an error"
     );
+}
+
+#[test]
+fn attachment_keys_have_defaults_ranges_and_their_reader() {
+    use std::path::Path;
+
+    use crate::{Applies, AutoOnOff, Kind, RESTART_KEYS};
+
+    let defaults = Settings::default().attachments;
+    assert!(defaults.enabled);
+    assert_eq!(
+        (defaults.max_file_mib, defaults.max_per_message, defaults.max_edge_px),
+        (20, 10, 2000)
+    );
+    assert_eq!(defaults.paste, AutoOnOff::Auto);
+    assert_eq!(Settings::default().render.images, AutoOnOff::Auto);
+    assert_eq!(crate::kind("attachments.enabled"), Some(Kind::Boolean));
+    assert_eq!(
+        crate::kind("attachments.paste"),
+        Some(Kind::Choice(AutoOnOff::ALL.map(|c| c.as_str().to_owned()).to_vec()))
+    );
+    assert_eq!(Applies::of("attachments.max_file_mib"), Applies::Live);
+    assert_eq!(Applies::of("attachments.paste"), Applies::Client, "the plugin reads it");
+    assert_eq!(Applies::of("render.images"), Applies::Client);
+    assert!(!RESTART_KEYS.iter().any(|key| key.starts_with("attachments.")));
+
+    for (key, low, high) in [
+        ("attachments.max_file_mib", 1, 50),
+        ("attachments.max_per_message", 1, 20),
+        ("attachments.max_edge_px", 256, 2_576),
+    ] {
+        let set = |value: u32| {
+            let mut settings = Settings::default();
+            let field = match key {
+                "attachments.max_file_mib" => &mut settings.attachments.max_file_mib,
+                "attachments.max_per_message" => &mut settings.attachments.max_per_message,
+                _ => &mut settings.attachments.max_edge_px,
+            };
+            *field = value;
+            check(&settings).map_err(|invalid| invalid.key)
+        };
+        assert_eq!(set(low), Ok(()), "{key} = {low}");
+        assert_eq!(set(high), Ok(()), "{key} = {high}");
+        assert_eq!(set(low - 1), Err(key));
+        assert_eq!(set(high + 1), Err(key));
+    }
+
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let text = "[attachments]\nenabled = false\npaste = \"off\"\n[render]\nimages = \"on\"\n";
+    let read = Settings::parse(path, Some(text)).unwrap();
+    assert!(!read.attachments.enabled);
+    assert_eq!((read.attachments.paste, read.render.images), (AutoOnOff::Off, AutoOnOff::On));
+    let error = Settings::parse(path, Some("[attachments]\nmax_file_mb = 5\n")).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("attachments.max_file_mb"));
 }
 
 #[test]

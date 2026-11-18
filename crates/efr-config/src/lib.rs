@@ -4,7 +4,7 @@
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`ContextSettings`], [`CompactionSettings`],
+//!   [`ContextSettings`], [`AttachmentsSettings`], [`CompactionSettings`],
 //!   [`SandboxSettings`] with [`AskDestructive`] and the always-allow rules
 //!   ([`AllowRule`], re-exported from `efr-permissions`), [`NetworkSettings`] with
 //!   [`NetworkHost`], [`DbusSettings`],
@@ -15,8 +15,9 @@
 //!   [`RemoteSettings`],
 //!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`RenderColors`] and
-//!   [`DiffColors`], and [`AutoOnOff`], the choice of `render.progress` and
-//!   `notify.terminal`): every key with its default, read with
+//!   [`DiffColors`], and [`AutoOnOff`], the choice of `render.progress`,
+//!   `render.images`, `notify.terminal` and `attachments.paste`): every key with its
+//!   default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
 //!   an environment variable or a flag over a key.
@@ -82,6 +83,7 @@ pub use reload::Reloaded;
 pub use settings::{CONFIG_FILE, Settings};
 pub use tables::accounts::AccountsSettings;
 pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
+pub use tables::attachments::AttachmentsSettings;
 pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
 pub use tables::context::ContextSettings;

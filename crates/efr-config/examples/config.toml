@@ -213,6 +213,28 @@
 # starts with a space.
 # recent_commands = 8
 
+[attachments]
+# The files that you attach to a prompt with @path in a , line, with a paste, or with
+# the plus button of the phone, and the image files that the model reads with
+# read_file. false: efrd takes no file, an @path stays text, and read_file refuses an
+# image file as a binary file.
+# enabled = true
+
+# The largest file of an attachment, in MiB, from 1 to 50. A PDF goes to a model as
+# content only up to 5 MiB and 100 pages; a larger one goes as a path.
+# max_file_mib = 20
+
+# The most attachments of one prompt, from 1 to 20.
+# max_per_message = 10
+
+# The longest edge in pixels of an image that a model gets, from 256 to 2576. efrd
+# makes a larger PNG or JPEG smaller before a model gets it.
+# max_edge_px = 2000
+
+# The paste of an image into a , line (OSC 5522). auto: in Ghostty 1.4.0 or later,
+# never inside tmux, GNU screen or zellij. on: in every terminal. off: never.
+# paste = "auto"
+
 [compaction]
 # true compacts a conversation's context on its own when it reaches auto_at, before a
 # model call, and the turn goes on. false compacts only when you run ,compact (efr
@@ -449,8 +471,9 @@
 # call does not run, and the model goes on without it.
 # away_wait_secs = 300
 
-# Send a question that waits while you are away to your paired phones. No phone
-# client exists yet, so it does nothing today.
+# Send a push to a paired phone that has push on, through the Expo push service: when
+# a question waits while you are away, and at the end of a long turn that the phone
+# started. false: efrd sends no push.
 # push = true
 
 [notify]
@@ -462,7 +485,8 @@
 # terminal = "auto"
 
 # The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400; 0:
-# the end of each turn. An interrupted turn sends no notice. If Ghostty also tells you
+# the end of each turn. It is also the shortest turn of the phone whose end sends a
+# push to the phone. An interrupted turn sends no notice. If Ghostty also tells you
 # the end of a command (notify-on-command-finish), set that option to never, or you
 # get two notices.
 # after_secs = 30
@@ -600,6 +624,11 @@
 # Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux,
 # GNU screen or zellij), on or off.
 # progress = "auto"
+
+# Small pictures of the attached images in the rows of a prompt: auto (only in Ghostty
+# 1.4.0 or later and kitty, never inside tmux, GNU screen or zellij, and only when
+# stdout is a terminal), on or off.
+# images = "auto"
 
 # An input row below the status row while a turn runs, when the terminal is
 # interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts

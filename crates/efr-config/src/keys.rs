@@ -12,11 +12,12 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    AccountsSettings, AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
-    ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
-    NetworkSettings, NotifySettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RecordingSettings, RemoteSettings, RenderColors, RenderSettings, ResumeSettings,
-    SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings, WebSettings,
+    AccountsSettings, AnthropicSettings, AttachmentsSettings, ClassifierSettings,
+    CompactionSettings, ContextSettings, ConversationSettings, DbusSettings, DiffColors,
+    DiffSettings, JobsSettings, ModelSettings, NetworkSettings, NotifySettings, OpenAiSettings,
+    PermissionSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
+    RenderSettings, ResumeSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings,
+    UndoSettings, WebSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -27,11 +28,11 @@ pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/e
 const CLIENT_TABLES: [&str; 3] = ["render.", "diff.", "resume."];
 
 /// The keys outside [`CLIENT_TABLES`] that only `efr` reads ([`Applies::Client`]).
-const CLIENT_KEYS: [&str; 1] = ["notify.after_secs"];
+const CLIENT_KEYS: [&str; 1] = ["attachments.paste"];
 
 /// The keys a change applies to only after the daemon restarts. Every other key of the
 /// daemon applies to the next turn, prompt or tool call; the `render`, `diff` and
-/// `resume` keys and `notify.after_secs` belong to `efr`.
+/// `resume` keys and `attachments.paste` belong to `efr`.
 pub const RESTART_KEYS: &[&str] = &[
     "screen",
     "openai.originator",
@@ -126,6 +127,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
         "context" => fields::<ContextSettings>(),
+        "attachments" => fields::<AttachmentsSettings>(),
         "compaction" => fields::<CompactionSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
         "network" => fields::<NetworkSettings>(),

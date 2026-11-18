@@ -152,6 +152,10 @@ pub struct RenderSettings {
     /// (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never
     /// inside tmux, GNU screen or zellij), `on` or `off`.
     pub progress: AutoOnOff,
+    /// Small pictures of the attached images in the rows of a prompt: `auto` (only in
+    /// Ghostty 1.4.0 or later and kitty, never inside tmux, GNU screen or zellij, and
+    /// only when stdout is a terminal), `on` or `off`.
+    pub images: AutoOnOff,
     /// An input row below the status row while a turn runs, when the terminal is
     /// interactive. Enter steers the turn, Tab queues a prompt behind it and Esc
     /// interrupts it. `false` shows no input row: keys typed during a turn go to the
@@ -177,6 +181,7 @@ impl Default for RenderSettings {
             diff_lines: 20,
             diff_lines_long: 8,
             progress: AutoOnOff::Auto,
+            images: AutoOnOff::Auto,
             turn_input: true,
             bell: false,
             colors: RenderColors::default(),

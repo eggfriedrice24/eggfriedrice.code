@@ -13,12 +13,12 @@ use crate::keys::{self, Kind};
 use crate::location::{key_at, location, span_of, span_of_entry, span_of_rule};
 use crate::validate::{self, BadEntry, Invalid};
 use crate::{
-    AccountsSettings, AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError,
-    ContextSettings, ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings,
-    Location, ModelSettings, NetworkSettings, NotifySettings, OpenAiSettings, PermissionSettings,
-    PresenceSettings, RecordingSettings, RemoteSettings, RenderSettings, ResumeSettings,
-    SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
-    WebSettings,
+    AccountsSettings, AnthropicSettings, AttachmentsSettings, ClassifierSettings,
+    CompactionSettings, ConfigError, ContextSettings, ConversationSettings, DEFAULT_LOG,
+    DbusSettings, DiffSettings, JobsSettings, Location, ModelSettings, NetworkSettings,
+    NotifySettings, OpenAiSettings, PermissionSettings, PresenceSettings, RecordingSettings,
+    RemoteSettings, RenderSettings, ResumeSettings, SandboxSettings, ScreenChoice, ShellSettings,
+    SnapshotSettings, Source, UndoSettings, WebSettings,
 };
 
 /// The file name under the config root.
@@ -60,6 +60,8 @@ pub struct Settings {
     pub conversation: ConversationSettings,
     /// What a prompt tells the model about your terminal: its recent commands.
     pub context: ContextSettings,
+    /// The files that go with a prompt: their limits and the paste of an image.
+    pub attachments: AttachmentsSettings,
     /// When efrd compacts a conversation's context on its own.
     pub compaction: CompactionSettings,
     /// The kernel sandbox of the `auto` mode.
@@ -113,6 +115,7 @@ impl Default for Settings {
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
             context: ContextSettings::default(),
+            attachments: AttachmentsSettings::default(),
             compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
             network: NetworkSettings::default(),

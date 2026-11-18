@@ -123,6 +123,18 @@ What a prompt tells the model about your terminal: its recent commands.
 |---|---|---|---|
 | `recent_commands` | `8` | live | How many of the terminal's recent commands a prompt shows the model, from 0 to 10; 0 shows none. Each one comes with its exit status, its directory when that is not the current one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of each terminal. It does not keep a `,` line, an `efr` command or a line that starts with a space. |
 
+## [attachments]
+
+The files that go with a prompt: their limits and the paste of an image.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `false`: efrd takes no file and tells no client that it takes files, an `@path` stays text, and `read_file` refuses an image file as a binary file. |
+| `max_file_mib` | `20` | live | The largest file of an attachment, in MiB, from 1 to 50. 50 MB is the file limit of the OpenAI Responses API. A larger value does not send a larger PDF as content: a PDF goes as content only up to 5 MiB and 100 pages. |
+| `max_per_message` | `10` | live | The most attachments of one prompt, from 1 to 20. |
+| `max_edge_px` | `2000` | live | The longest edge in pixels of an image that a model gets, from 256 to 2576. efrd makes a larger PNG or JPEG smaller before a model gets it; 2576 is the largest edge that Claude reads. |
+| `paste` | `"auto"` | client | The paste of an image into a `,` line (OSC 5522). `auto`: in Ghostty 1.4.0 or later, never inside tmux, GNU screen or zellij. `on`: in every terminal. `off`: never. |
+
 ## [compaction]
 
 When efrd compacts a conversation's context on its own.
@@ -236,7 +248,7 @@ When efr counts you away from a conversation, and how long a question waits then
 |---|---|---|---|
 | `away_after_minutes` | `10` | live | The minutes without input in a conversation after which efr counts you away, from 1 to 1440. Input is a prompt, a steer, an answer or keys for the hidden shell. `efr away` and `,away` also count you away; your next input ends it. |
 | `away_wait_secs` | `300` | live | How long a question waits while you are away, in seconds, from 1 to 86400. Then the call does not run, and the model goes on without it. |
-| `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. efrd sends no push to the phone app yet, so it does nothing today. |
+| `push` | `true` | live | `true` sends a push to a paired phone that has push on, through the Expo push service: when a question waits while you are away, and at the end of a long turn that the phone started. `false`: efrd sends no push, and the app shows push as not available. |
 
 ## [notify]
 
@@ -245,7 +257,7 @@ When efr sends a desktop notice through your terminal.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `terminal` | `"auto"` | live | The desktop notice of the terminal (OSC 777): when a question waited 10 seconds and you typed no key, when efrd shows a notice above a waiting prompt that needs you, and at the end of a long turn (`after_secs`). `auto`: only in Ghostty, never inside tmux, GNU screen or zellij. `on`: in every terminal. `off`: never. efrd gives it to the shell at the next prompt; `efr` reads it at its next run. |
-| `after_secs` | `30` | client | The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400; 0: the end of each turn. An interrupted turn sends no notice. A question does not wait for this time. If Ghostty also tells you the end of a command (`notify-on-command-finish`), set that option to `never`, or you get two notices. |
+| `after_secs` | `30` | live | The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400; 0: the end of each turn. It is also the shortest turn of the phone whose end sends a push to the phone (`presence.push`). An interrupted turn sends no notice. A question does not wait for this time. If Ghostty also tells you the end of a command (`notify-on-command-finish`), set that option to `never`, or you get two notices. |
 
 ## [jobs]
 
@@ -314,6 +326,7 @@ How `efr` shows replies.
 | `diff_lines` | `20` | client | The lines of a file tool's diff that a call shows after it ran, from 0 to 1000; a muted line then says how many more there are. 0 shows no diff. `efr diff` shows all of a turn's diff. |
 | `diff_lines_long` | `8` | client | The lines of a file tool's diff from the 6th call of a turn on, from 0 to 1000, in place of `diff_lines`: a long turn shows shorter diffs. 0 shows no diff there. |
 | `progress` | `"auto"` | client | The progress bar of the terminal's tab (OSC 9;4) while a turn runs: `auto` (only in Ghostty 1.2 or later, kitty 0.47 or later and Windows Terminal, never inside tmux, GNU screen or zellij), `on` or `off`. |
+| `images` | `"auto"` | client | Small pictures of the attached images in the rows of a prompt: `auto` (only in Ghostty 1.4.0 or later and kitty, never inside tmux, GNU screen or zellij, and only when stdout is a terminal), `on` or `off`. |
 | `turn_input` | `true` | client | An input row below the status row while a turn runs, when the terminal is interactive. Enter steers the turn, Tab queues a prompt behind it and Esc interrupts it. `false` shows no input row: keys typed during a turn go to the shell's next prompt. |
 | `bell` | `false` | client | One bell (BEL) when a question appears while a turn runs, so a terminal can mark the tab or the window. |
 | `colors.text` | unset | client | Prose and plain lines. Unset: the terminal's foreground. |

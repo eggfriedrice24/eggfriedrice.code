@@ -14,9 +14,9 @@ use crate::tables::render::{
     BACKGROUND_EXPECTED, BACKGROUND_ROLES, COLOR_EXPECTED, COLOR_ROLES, CONFIG_COLOR_KEYS,
 };
 use crate::{
-    AccountsSettings, ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings,
-    ModelEntry, NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings, RenderColors,
-    SandboxSettings, Settings, SnapshotSettings,
+    AccountsSettings, AttachmentsSettings, ClassifierSettings, CompactionSettings, DiffSettings,
+    JobsSettings, ModelEntry, NetworkSettings, PresenceSettings, RecordingSettings, RemoteSettings,
+    RenderColors, SandboxSettings, Settings, SnapshotSettings,
 };
 
 /// What `permissions.mode = "full"` needs: the gate key next to it. The text names both
@@ -80,6 +80,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         shell,
         conversation,
         context,
+        attachments,
         compaction,
         sandbox,
         network,
@@ -225,6 +226,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         0..=10,
         "between 0 and 10",
     )?;
+    check_attachments(attachments)?;
     check_compaction(compaction)?;
     check_sandbox(sandbox)?;
     check_network(network)?;
@@ -386,6 +388,28 @@ fn check_classifier(classifier: &ClassifierSettings) -> Result<(), Invalid> {
         u64::from(classifier.timeout_secs),
         1..=300,
         "between 1 and 300",
+    )
+}
+
+/// The checks of `[attachments]`, in the order of the table.
+fn check_attachments(attachments: &AttachmentsSettings) -> Result<(), Invalid> {
+    within(
+        "attachments.max_file_mib",
+        u64::from(attachments.max_file_mib),
+        1..=50,
+        "between 1 and 50",
+    )?;
+    within(
+        "attachments.max_per_message",
+        u64::from(attachments.max_per_message),
+        1..=20,
+        "between 1 and 20",
+    )?;
+    within(
+        "attachments.max_edge_px",
+        u64::from(attachments.max_edge_px),
+        256..=2_576,
+        "between 256 and 2576",
     )
 }
 

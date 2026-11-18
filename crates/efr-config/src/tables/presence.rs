@@ -17,8 +17,10 @@ pub struct PresenceSettings {
     /// How long a question waits while you are away, in seconds, from 1 to 86400.
     /// Then the call does not run, and the model goes on without it.
     pub away_wait_secs: u32,
-    /// `true` sends a question that waits while you are away to your paired phones.
-    /// efrd sends no push to the phone app yet, so it does nothing today.
+    /// `true` sends a push to a paired phone that has push on, through the Expo push
+    /// service: when a question waits while you are away, and at the end of a long turn
+    /// that the phone started. `false`: efrd sends no push, and the app shows push as
+    /// not available.
     pub push: bool,
 }
 

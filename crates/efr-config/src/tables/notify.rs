@@ -19,9 +19,11 @@ pub struct NotifySettings {
     /// gives it to the shell at the next prompt; `efr` reads it at its next run.
     pub terminal: AutoOnOff,
     /// The shortest turn, in seconds, whose end sends a desktop notice, from 0 to 86400;
-    /// 0: the end of each turn. An interrupted turn sends no notice. A question does
-    /// not wait for this time. If Ghostty also tells you the end of a command
-    /// (`notify-on-command-finish`), set that option to `never`, or you get two notices.
+    /// 0: the end of each turn. It is also the shortest turn of the phone whose end
+    /// sends a push to the phone (`presence.push`). An interrupted turn sends no
+    /// notice. A question does not wait for this time. If Ghostty also tells you the end
+    /// of a command (`notify-on-command-finish`), set that option to `never`, or you get
+    /// two notices.
     pub after_secs: u32,
 }
 
