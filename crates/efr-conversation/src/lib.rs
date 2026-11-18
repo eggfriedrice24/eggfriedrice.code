@@ -134,7 +134,7 @@ pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use router::{OneProvider, ProviderRouter, context_window};
 pub use scratch::scratch_dirs;
 pub use toolbox::{
-    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
-    Toolbox, TurnChanges, UndoCandidate, UndoRequest,
+    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolImage,
+    ToolOutcome, Toolbox, TurnChanges, UndoCandidate, UndoRequest,
 };
 pub use web::{DEFAULT_MAX_SEARCHES, WebConfig, WebSearch};

@@ -12,12 +12,13 @@ use std::collections::HashSet;
 use efr_protocol::{Compaction, CompactionTrigger, TurnId};
 use efr_provider::{
     CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, StopReason,
-    TokenUsage,
+    TokenUsage, attachment_tokens,
 };
 use efr_stdx::time::Clock;
 use futures::StreamExt as _;
 use tracing::Instrument as _;
 
+use crate::attachments::strip;
 use crate::context::{
     ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
     SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens, json_len,
@@ -168,8 +169,9 @@ pub(crate) fn minimal_tail(placed: &[Placed]) -> usize {
 }
 
 /// Gives every tool result outside the newest [`PRUNE_KEEP_TOKENS`] of `placed`, and
-/// outside the shortest tail, whose output is longer than [`PRUNED_OUTPUT_STUB`] the
-/// stub as its output. The caller decides with [`Pruning::worth_it`] whether to use it.
+/// outside the shortest tail, whose output is longer than [`PRUNED_OUTPUT_STUB`] or that
+/// sends an image as content, the stub as its output; its images go as labels from then
+/// on. The caller decides with [`Pruning::worth_it`] whether to use it.
 pub(crate) fn prune(placed: &[Placed]) -> Pruning {
     let mut kept: u64 = 0;
     let mut protected = placed.len();
@@ -184,27 +186,35 @@ pub(crate) fn prune(placed: &[Placed]) -> Pruning {
     let mut pruned = placed.to_vec();
     let mut outputs = 0;
     let mut freed_bytes: u64 = 0;
+    let mut freed_attachments: u64 = 0;
     let mut newest = None;
     for (at, item) in pruned.iter_mut().enumerate().take(protected) {
         let before = json_len(&item.message);
+        let before_attachments = attachment_tokens(&item.message);
         let mut stubbed = false;
         for block in &mut item.message.content {
-            if let ContentBlock::ToolResult { output, .. } = block
-                && output.len() > PRUNED_OUTPUT_STUB.len()
+            if let ContentBlock::ToolResult { output, attachments, .. } = block
+                && output != PRUNED_OUTPUT_STUB
+                && (output.len() > PRUNED_OUTPUT_STUB.len()
+                    || attachments.iter().any(|part| part.data.is_some()))
             {
                 PRUNED_OUTPUT_STUB.clone_into(output);
+                attachments.iter_mut().for_each(|part| part.data = None);
                 outputs += 1;
                 stubbed = true;
             }
         }
         if stubbed {
             freed_bytes += before.saturating_sub(json_len(&item.message));
+            freed_attachments +=
+                before_attachments.saturating_sub(attachment_tokens(&item.message));
             newest = Some(at);
         }
     }
     let cut = newest.map(|at| place_after(&pruned, at));
     let after = newest.map_or(0, |at| at + 1);
-    Pruning { placed: pruned, outputs, tokens: estimate_tokens(freed_bytes), cut, after }
+    let tokens = estimate_tokens(freed_bytes).saturating_add(freed_attachments);
+    Pruning { placed: pruned, outputs, tokens, cut, after }
 }
 
 /// The place right after `placed[at]`.
@@ -339,6 +349,8 @@ pub(crate) fn summary_request(
     left_out: LeftOut,
 ) -> Request {
     let mut messages = unoffered::as_offered(messages, &base.tools);
+    // NOTE: a summary needs no image: the attachments go as their labels with the path.
+    messages.iter_mut().for_each(strip);
     messages.push(Message::user(summary_prompt(focus, left_out)));
     Request {
         model: base.model.clone(),
@@ -397,10 +409,12 @@ pub(crate) fn with_window(base: &Request, window: &Window) -> Request {
 
 /// The estimated tokens of [`with_window`] of `base` and `window`, counted without a
 /// copy of the history: `base` is measured without its messages, and each message as
-/// the request holds it ([`unoffered::offered_len`]). The count is the
-/// [`request_tokens`] of the request that [`with_window`] builds.
+/// the request holds it ([`unoffered::offered_len`]), with the attachments that it
+/// sends as content. The count is the [`request_tokens`] of the request that
+/// [`with_window`] builds.
 pub(crate) fn window_tokens(base: &Request, window: &Window) -> u64 {
-    estimate_tokens(parts_len(base, &window.head, &window.placed))
+    let attachments: u64 = window.iter().map(attachment_tokens).sum();
+    estimate_tokens(parts_len(base, &window.head, &window.placed)).saturating_add(attachments)
 }
 
 /// The length as JSON of the request of `base` with the messages of `head` and

@@ -7,7 +7,10 @@
 //! history, the live-state preamble with the prompt, and the tool definitions. Before
 //! each model call it estimates the request and guards it: it compacts at the trigger,
 //! never sends a request above the hard cap, and compacts once and sends the call once
-//! more when the provider refuses it as too large (the README, section "Context"). It
+//! more when the provider refuses it as too large (the README, section "Context"). In a
+//! conversation with attachments it also fills the bytes of each one that the model
+//! reads, keeps each request within the budget of attachments, and sends a request again
+//! with labels when the provider refuses an attachment (`attachments.rs`). It
 //! then streams the provider and records what comes back. Each tool call the model asks for
 //! is recorded, goes through [`Turn::authorize_tool_call`], runs when allowed or
 //! approved, and its result goes back to the model, until the model answers without a
@@ -65,14 +68,15 @@ use efr_permissions::{
     Engine, Layer, Policy, Requirements, Subject, runs_as_another_user,
 };
 use efr_protocol::{
-    AccountOut, ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, LimitKind, LimitReached,
-    Mode, Origin, QuestionId, QuestionReply, RecentCommand, Scope, ShellContext,
-    StopReason as WireStop, SurfaceChange, SwitchedModel, TurnId, TurnSettings, TurnStop,
-    UserAnswer, Verdict,
+    AccountOut, ApprovalDecision, ApprovedBy, Attachment, AttachmentId, CallId, ConversationId,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, ExitKind, InputWait, JobInfo, JudgeKind,
+    Launch, LimitKind, LimitReached, Mode, Origin, QuestionId, QuestionReply, RecentCommand, Scope,
+    ShellContext, StopReason as WireStop, SurfaceChange, SwitchedModel, TurnId, TurnSettings,
+    TurnStop, UserAnswer, Verdict, WithheldReason,
 };
 use efr_provider::{
-    ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
+    AttachmentPart, ContentBlock, EditTool, InputKinds, Message, Provider, ProviderError, Request,
+    Role, StopReason, TokenUsage, fit,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
@@ -94,6 +98,7 @@ use self::stream::Response;
 use self::wait::{Answerer, Ended, Wait, Waited};
 use crate::approvals::{self, Approvals};
 use crate::ask::{self, Question};
+use crate::attachments::{self, TurnAttachments};
 use crate::compaction::{Placed, Window, with_window};
 use crate::context::{self, Meter};
 use crate::drafts::LiveStatus;
@@ -112,7 +117,7 @@ use crate::wake;
 use crate::web::{self, WebPlan, WhyOff};
 use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, FileBackup,
-    JobNoticeInput, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
+    JobNoticeInput, OutputSink, ToolCall, ToolImage, ToolOutcome, Toolbox, TurnChanges,
 };
 use crate::{router, sticky};
 
@@ -205,6 +210,8 @@ pub(crate) struct TurnSpec {
     /// The classifier's denial counts of the turn that notices started before this
     /// one, which a turn that notices start goes on with (phase C).
     pub(crate) carried: Option<TurnExits>,
+    /// The files of the prompt, which its first message holds before the prompt text.
+    pub(crate) attachments: Vec<Attachment>,
 }
 
 /// What started a turn.
@@ -486,6 +493,8 @@ struct Turn {
     /// the user was away: each later `ask_user` of the turn gets the same answer at
     /// once and asks nobody.
     unanswered: Option<bool>,
+    /// The ids, the input kinds of the model and the withheld set of the attachments.
+    attachments: TurnAttachments,
 }
 
 /// What the check point found about one call before the call's start is recorded.
@@ -588,6 +597,7 @@ impl Turn {
             calls: 0,
             notices_recorded: false,
             unanswered: None,
+            attachments: TurnAttachments::default(),
         }
     }
 
@@ -657,6 +667,9 @@ impl Turn {
         self.switched_from =
             previous.as_ref().and_then(|previous| sticky::switched(previous, &settings));
         self.settings = Some(settings.clone());
+        self.attachments =
+            TurnAttachments::new(&snapshot.attachments, model_inputs(&*provider, &settings.model));
+        self.attachments.seen(self.spec.attachments.iter().map(|attachment| &attachment.id));
         // NOTE: the actor reads it to keep a phone's steer out of a full turn.
         let _ = self.control.mode.set(settings.mode);
         self.meter = Meter::new(context::context_base(
@@ -693,7 +706,7 @@ impl Turn {
             cwd: self.cwd.clone(),
             scope: self.scope.clone(),
             settings: Some(settings.clone()),
-            unread_attachments: Vec::new(),
+            unread_attachments: self.attachments.unread(&self.spec.attachments),
         });
         if let Some(from) = &self.switched_from {
             started.push(Event::ModelSwitched {
@@ -771,8 +784,14 @@ impl Turn {
             snapshot.window(Some(turn_id), cache, &self.model_key(), history, fresh.as_deref());
         self.carry(&window);
         // NOTE: a wake turn has no prompt: its first message is the preamble and the
-        // notices. A prompt turn reads the notices that waited after its prompt.
+        // notices. A prompt turn reads the notices that waited after its prompt. Its
+        // attachments stand before its text, as the vision docs of Anthropic advise.
         let mut blocks = vec![ContentBlock::Text { text: preamble }];
+        blocks.extend(
+            self.spec.attachments.iter().map(|attachment| {
+                ContentBlock::Attachment(AttachmentPart::new(attachment.clone()))
+            }),
+        );
         if !self.spec.is_wake() {
             blocks.push(ContentBlock::Text { text: self.spec.text.clone() });
         }
@@ -782,15 +801,24 @@ impl Turn {
         if self.spec.more_notices > 0 {
             blocks.push(ContentBlock::Text { text: wake::more_notices(self.spec.more_notices) });
         }
-        let prompt = Message::new(Role::User, blocks);
-        // NOTE: the history is in the base already, the context at the end of the
-        // previous turn; only the new prompt comes after it.
-        self.meter.add(&prompt);
+        let mut prompt = Message::new(Role::User, blocks);
         // NOTE: the prompt is kept as the model reads it, with its preamble, so every
         // later request sends the same bytes and the provider's cache reads them.
         if let Some(first) = self.transcript.first_mut() {
             first.clone_from(&prompt);
         }
+        if self.attachments.any() {
+            self.fill(window.placed.iter_mut().map(|placed| &mut placed.message)).await;
+            // NOTE: what the history sent as content, the same model read before.
+            if self.switched_from.is_none() {
+                let sent = window.placed.iter_mut().map(|placed| &mut placed.message);
+                self.attachments.carried(attachments::with_data(sent));
+            }
+            self.fill(std::iter::once(&mut prompt)).await;
+        }
+        // NOTE: the history is in the base already, the context at the end of the
+        // previous turn; only the new prompt comes after it.
+        self.meter.add(&prompt);
         window.placed.push(Placed { turn: turn_id, index: 0, message: prompt });
         efr_stdx::mark::hit("turn.window");
         self.edit_tool = edit_tool(&*provider, &settings.model);
@@ -848,7 +876,12 @@ impl Turn {
             efr_stdx::mark::hit("turn.guard");
             let request = with_window(&base, &window);
             efr_stdx::mark::hit("turn.request");
-            let message = match self.respond(request).await? {
+            let response = if self.attachments.any() {
+                self.respond_with_attachments(&base, &mut window, request).await?
+            } else {
+                self.respond(request).await?
+            };
+            let message = match response {
                 Response::Done(message) => message,
                 // NOTE: never retried as a transient error: the same request fails
                 // again. One compaction and one more try; a second refusal ends the
@@ -898,7 +931,11 @@ impl Turn {
                     break;
                 }
             }
-            self.push(&mut window, Message::new(Role::User, results));
+            let mut results = Message::new(Role::User, results);
+            if self.attachments.any() {
+                self.fill(std::iter::once(&mut results)).await;
+            }
+            self.push(&mut window, results);
             if let Some(error) = self.stop.take() {
                 return Ok(Ending::Failed(error));
             }
@@ -1111,7 +1148,107 @@ impl Turn {
         self.meter.add(&message);
         let index = u32::try_from(self.transcript.len()).unwrap_or(u32::MAX);
         window.placed.push(Placed { turn: self.turn_id(), index, message: message.clone() });
-        self.transcript.push(message);
+        let mut kept = message;
+        // NOTE: the bytes of an attachment live in the window of the turn only, never in
+        // the actor's cache of the turn.
+        attachments::strip(&mut kept);
+        self.transcript.push(kept);
+    }
+
+    /// Fills the data of each part of `messages` that the turn's model reads as content
+    /// and that has none yet, from the daemon's cache or its blob dir. A part whose bytes
+    /// do not load goes as its label.
+    async fn fill<'a>(&self, messages: impl Iterator<Item = &'a mut Message>) {
+        let store = &self.shared.deps.attachments;
+        for message in messages {
+            for part in attachments::parts_mut(message) {
+                if part.data.is_none() && self.attachments.reads(&part.attachment) {
+                    part.data = store.load(self.shared.conversation_id, &part.attachment).await;
+                }
+            }
+        }
+    }
+
+    /// Keeps each image of `media` that a call read as an attachment of the
+    /// conversation, and adds to `output` why the model does not see one.
+    async fn keep(&mut self, media: Vec<ToolImage>, output: &mut String) -> Vec<Attachment> {
+        let mut kept = Vec::with_capacity(media.len());
+        for ToolImage { path, bytes } in media {
+            let id = self.attachments.next_id();
+            let store = &self.shared.deps.attachments;
+            let note = match store.keep(self.shared.conversation_id, id, &path, bytes).await {
+                Some(attachment) => {
+                    let note = attachments::tool_note(&attachment);
+                    kept.push(attachment);
+                    note
+                }
+                None => Some(attachments::NOT_KEPT.to_owned()),
+            };
+            if let Some(note) = note {
+                output.push('\n');
+                output.push_str(&note);
+            }
+        }
+        kept
+    }
+
+    /// Sends `request` of a conversation with attachments. Before the call, the oldest
+    /// parts over the budget of a request go as labels ([`fit`]). When the provider
+    /// refuses the request with a 400 or a 413 that can be an attachment, the turn does
+    /// not fail at once: it withholds the attachments that no good call carried yet and
+    /// sends again, then all that still have data, and sends once more. Each step is
+    /// one `attachments_withheld`, so later requests send labels too.
+    async fn respond_with_attachments(
+        &mut self,
+        base: &Request,
+        window: &mut Window,
+        mut request: Request,
+    ) -> Result<Response, ConversationError> {
+        let over = fit(&request.messages, self.limits().window);
+        if !over.is_empty() {
+            self.withhold(window, &over, WithheldReason::Budget).await?;
+            attachments::clear(request.messages.iter_mut(), &over);
+        }
+        let mut sent = attachments::with_data(request.messages.iter_mut());
+        let mut response = self.respond(request).await?;
+        let mut first = true;
+        while let Response::Failed(error) = &response
+            && attachments::refused(error)
+        {
+            let refused = self.attachments.refused(&sent, first);
+            if refused.is_empty() {
+                break;
+            }
+            tracing::warn!(error = %error, attachments = refused.len(), "the provider refused a request with attachments; they go as labels");
+            self.withhold(window, &refused, WithheldReason::Refused).await?;
+            first = false;
+            let mut request = with_window(base, window);
+            sent = attachments::with_data(request.messages.iter_mut());
+            response = self.respond(request).await?;
+        }
+        if matches!(response, Response::Done(_)) {
+            self.attachments.carried(sent);
+        }
+        Ok(response)
+    }
+
+    /// Records that `ids` go as labels from now on for `reason`, and drops their data
+    /// from `window`.
+    async fn withhold(
+        &mut self,
+        window: &mut Window,
+        ids: &[AttachmentId],
+        reason: WithheldReason,
+    ) -> Result<(), ConversationError> {
+        self.record(vec![Event::AttachmentsWithheld {
+            turn_id: Some(self.turn_id()),
+            attachments: ids.to_vec(),
+            reason,
+        }])
+        .await?;
+        attachments::clear(window.placed.iter_mut().map(|placed| &mut placed.message), ids);
+        self.attachments.withhold(ids);
+        Ok(())
     }
 
     /// Notes the earlier turns that `window` carries, the only ones that the next turn
@@ -1345,6 +1482,12 @@ impl Turn {
                     }
                 },
             };
+            let media = std::mem::take(&mut outcome.media);
+            let kept = if media.is_empty() {
+                Vec::new()
+            } else {
+                self.keep(media, &mut outcome.output).await
+            };
             let watch = Stopwatch::start();
             let mut events = vec![Event::ToolCallCompleted {
                 turn_id,
@@ -1358,7 +1501,7 @@ impl Turn {
                 changes: outcome.changes.take(),
                 diff: outcome.diff.take(),
                 left_running: outcome.left_running,
-                attachments: Vec::new(),
+                attachments: kept.clone(),
             }];
             // NOTE: names only: the copy stays in efr's store, and the line at the end of
             // the turn names the file.
@@ -1423,7 +1566,7 @@ impl Turn {
                 call_id: call.provider_call_id,
                 output: outcome.output,
                 is_error: outcome.is_error,
-                attachments: Vec::new(),
+                attachments: kept.into_iter().map(AttachmentPart::new).collect(),
             };
             tracing::debug!(phase = "tool_call", elapsed_ms = %call_watch, "phase=tool_call elapsed_ms={}", call_watch);
             Ok((result, interrupted))
@@ -2247,6 +2390,17 @@ pub(crate) fn edit_tool(provider: &dyn Provider, model: &str) -> EditTool {
         }
         _ => provider.default_edit_tool(),
     }
+}
+
+/// What `model` reads as content besides text, from the provider's list of models;
+/// only text for a model that the list does not name.
+fn model_inputs(provider: &dyn Provider, model: &str) -> InputKinds {
+    provider
+        .models()
+        .iter()
+        .find(|info| info.id == model)
+        .map(|info| info.inputs)
+        .unwrap_or_default()
 }
 
 /// The context of a model call: its input, cached tokens included, plus its output.

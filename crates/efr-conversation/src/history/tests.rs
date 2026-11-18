@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId,
-    Scope, Seq, TurnId, TurnSettings,
+    Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, CallId, CommandId, ConversationId,
+    ErrorBody, ErrorCode, Event, EventEnvelope, Origin, PtyId, Scope, Seq, TurnId, TurnSettings,
 };
-use efr_provider::{ContentBlock, Message, ProviderId, Role};
+use efr_provider::{AttachmentPart, ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Clock;
 use efr_store::Batch;
@@ -120,6 +120,60 @@ fn a_text_turn_is_the_prompt_and_the_answer() {
     let t = turn(2);
     let events = [completed(t, 0, "Hi.")];
     assert_eq!(rebuilt("hello", &events), vec![Message::user("hello"), Message::assistant("Hi.")]);
+}
+
+/// The image `a<n>` that a tool read.
+fn image(n: u32) -> Attachment {
+    Attachment {
+        id: AttachmentId::nth(n),
+        name: format!("img-{n}.png"),
+        media_type: "image/png".to_owned(),
+        bytes: 9_000,
+        sha256: "ab".repeat(32),
+        kind: AttachmentKind::Image { width: 64, height: 32 },
+        origin: AttachmentOrigin::Tool { path: format!("/home/u/img-{n}.png").into() },
+        copy: None,
+        sent: None,
+    }
+}
+
+#[test]
+fn the_files_of_a_prompt_and_of_a_tool_result_come_back_as_their_parts() {
+    let t = turn(2);
+    let c = call(3);
+    let queued = Event::PromptQueued {
+        turn_id: t,
+        command_id: CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1000))),
+        text: "look".to_owned(),
+        origin: Origin::Shell,
+        context: None,
+        settings: TurnSettings::default(),
+        steers: Vec::new(),
+        attachments: vec![image(1)],
+    };
+    let mut read = finished(t, c, "img-2.png: PNG image, 9 KB");
+    if let Event::ToolCallCompleted { attachments, .. } = &mut read {
+        attachments.push(image(2));
+    }
+    let events = [queued, started(t, c, "read_file"), read, completed(t, 0, "A plot.")];
+    let rebuilt = rebuilt("look", &events);
+    assert_eq!(
+        rebuilt[0].content,
+        [
+            ContentBlock::Attachment(AttachmentPart::new(image(1))),
+            ContentBlock::Text { text: "look".to_owned() },
+        ],
+        "the files stand before the text"
+    );
+    assert_eq!(
+        rebuilt[2].content,
+        [ContentBlock::ToolResult {
+            call_id: c.to_string(),
+            output: "img-2.png: PNG image, 9 KB".to_owned(),
+            is_error: false,
+            attachments: vec![AttachmentPart::new(image(2))],
+        }]
+    );
 }
 
 #[test]

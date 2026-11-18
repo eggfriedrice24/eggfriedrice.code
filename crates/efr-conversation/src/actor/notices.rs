@@ -219,6 +219,7 @@ impl ConversationActor {
             notices: Vec::new(),
             more_notices: 0,
             carried: self.notices.carried.clone(),
+            attachments: Vec::new(),
         }))
     }
 

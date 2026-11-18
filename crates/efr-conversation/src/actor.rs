@@ -327,6 +327,7 @@ impl NewPrompt {
             notices: Vec::new(),
             more_notices: 0,
             carried: None,
+            attachments: Vec::new(),
         }
     }
 }

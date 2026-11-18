@@ -25,6 +25,13 @@ pub struct Summary {
     pub withheld: Vec<AttachmentId>,
 }
 
+impl Summary {
+    /// A summary of a conversation whose highest number is `last`.
+    pub fn new(last: u32, withheld: Vec<AttachmentId>) -> Self {
+        Summary { last, withheld }
+    }
+}
+
 /// Brings the table up to date with one event of the conversation; other events change
 /// nothing.
 pub(crate) fn apply(

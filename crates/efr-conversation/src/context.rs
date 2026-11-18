@@ -7,7 +7,7 @@
 //! for `conversation.context`.
 
 use efr_protocol::{ContextUse, ErrorBody, ErrorCode, Event, EventEnvelope};
-use efr_provider::{Message, Request};
+use efr_provider::{Message, Request, attachment_tokens};
 
 pub(crate) mod breakdown;
 
@@ -146,14 +146,17 @@ fn percent_of(window: u64, percent: u64) -> u64 {
 }
 
 /// The estimated tokens of the whole of `request`: its JSON, system prompt, tool
-/// definitions and messages, at [`BYTES_PER_TOKEN`].
+/// definitions and messages, at [`BYTES_PER_TOKEN`], and the attachments that it sends
+/// as content ([`attachment_tokens`]).
 pub(crate) fn request_tokens(request: &Request) -> u64 {
-    estimate_tokens(json_len(request))
+    let attachments: u64 = request.messages.iter().map(attachment_tokens).sum();
+    estimate_tokens(json_len(request)).saturating_add(attachments)
 }
 
-/// The estimated tokens of `message`, from its JSON.
+/// The estimated tokens of `message`: its JSON, and the attachments that it sends as
+/// content, whose bytes are not in the JSON.
 pub(crate) fn message_tokens(message: &Message) -> u64 {
-    estimate_tokens(json_len(message))
+    estimate_tokens(json_len(message)).saturating_add(attachment_tokens(message))
 }
 
 /// The length of `value` as JSON, counted as it is written, so no copy of a request or

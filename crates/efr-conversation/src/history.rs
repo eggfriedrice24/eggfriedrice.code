@@ -39,8 +39,9 @@ use efr_protocol::{
     Compaction, ConversationId, ConversationSummary, EffectiveSettings, Event, EventEnvelope, Seq,
     TurnId,
 };
-use efr_provider::{ContentBlock, Message, ProviderId, Role};
+use efr_provider::{AttachmentPart, ContentBlock, Message, ProviderId, Role};
 use efr_store::Readers;
+use efr_store::attachments;
 use efr_store::compactions::{self, LatestCompactions};
 use efr_store::conversations::{self, Turn, TurnStatus};
 use efr_store::events;
@@ -206,6 +207,8 @@ pub(crate) struct Snapshot {
     /// Every prompt and steer of the conversation, and the events that take one back,
     /// from the whole log: the name check of an exit reads them, never the page alone.
     pub(crate) user_events: Vec<EventEnvelope>,
+    /// The highest number and the withheld ones of the conversation's attachments.
+    pub(crate) attachments: attachments::Summary,
 }
 
 /// What a read and a window do with the turns that the newest summary covers. Only the
@@ -336,6 +339,7 @@ impl Snapshot {
                     saved,
                     compactions,
                     user_events: user_messages::of_conversation(conn, conversation_id)?,
+                    attachments: attachments::summary(conn, conversation_id)?,
                 };
                 Ok((snapshot, decoded))
             })
@@ -762,13 +766,22 @@ pub(crate) fn rebuild(prompt: &str, status: TurnStatus, events: &[&EventEnvelope
         })
         .collect();
     let woke = notices.iter().any(|(_, woke)| *woke);
-    let mut first: Vec<ContentBlock> = Vec::new();
+    // NOTE: the files of the prompt stand before its text, as the turn sent them.
+    let mut first: Vec<ContentBlock> = events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::PromptQueued { attachments, .. } => Some(attachments),
+            _ => None,
+        })
+        .flatten()
+        .map(|attachment| ContentBlock::Attachment(AttachmentPart::new(attachment.clone())))
+        .collect();
+    let plain = notices.is_empty() && first.is_empty();
     if !woke {
         first.push(ContentBlock::Text { text: prompt.to_owned() });
     }
     first.extend(notices.iter().map(|(text, _)| ContentBlock::Text { text: (*text).to_owned() }));
-    let first =
-        if notices.is_empty() { Message::user(prompt) } else { Message::new(Role::User, first) };
+    let first = if plain { Message::user(prompt) } else { Message::new(Role::User, first) };
     let mut rebuilt = Rebuilt { messages: vec![first], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
     let mut steers: HashMap<Seq, &str> = HashMap::new();
@@ -805,12 +818,12 @@ pub(crate) fn rebuild(prompt: &str, status: TurnStatus, events: &[&EventEnvelope
                 };
                 rebuilt.assistant(block, false);
             }
-            Event::ToolCallCompleted { call_id, output, is_error, .. } => {
+            Event::ToolCallCompleted { call_id, output, is_error, attachments, .. } => {
                 rebuilt.result(ContentBlock::ToolResult {
                     call_id: call_id.to_string(),
                     output: output.clone(),
                     is_error: *is_error,
-                    attachments: Vec::new(),
+                    attachments: attachments.iter().cloned().map(AttachmentPart::new).collect(),
                 });
             }
             Event::TurnSteered { text, .. } if typed_place => rebuilt.steer(text),

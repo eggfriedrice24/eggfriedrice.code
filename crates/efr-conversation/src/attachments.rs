@@ -1,12 +1,25 @@
 //! The attachments of a conversation as the actor and the turns see them: the files of
 //! a prompt and the images of a tool, which the daemon stores (ADR 0026).
+//!
+//! The history holds only their metadata. A turn fills the bytes of each part that its
+//! model reads as content into its window once, when it starts or when a tool result
+//! brings a new image ([`Turn::fill`](crate::turn)), and strips them from the messages
+//! that it keeps. The rules of what goes as content are here ([`TurnAttachments`]):
+//! the model's input kinds, the withheld set of the conversation, the budget of each
+//! request and the recovery after a provider refused one.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
 
 use async_trait::async_trait;
-use efr_protocol::{Attachment, AttachmentId, ConversationId, UploadId};
-use efr_provider::EncodedBytes;
+use efr_protocol::{Attachment, AttachmentId, AttachmentKind, ConversationId, UploadId};
+use efr_provider::{
+    AttachmentPart, ContentBlock, EncodedBytes, InputKinds, Message, ProviderError,
+};
+use efr_store::attachments::Summary;
+
+use crate::context::PRUNED_OUTPUT_STUB;
 
 /// The store of the attachments, which the daemon implements: its blob dir, the copies
 /// in `$SCRATCH/attachments` and the base64 text that a request sends.
@@ -80,3 +93,170 @@ impl Attachments for NoAttachments {
         None
     }
 }
+
+/// What one turn knows of the attachments of its conversation: the ids that it gives,
+/// what its model reads, what goes as a label from now on, and what a good call of the
+/// model carried already.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TurnAttachments {
+    /// The highest number of an attachment of the conversation so far.
+    last: u32,
+    /// What the turn's model reads as content besides text.
+    inputs: InputKinds,
+    /// The attachments that go as a label from now on (`attachments_withheld`).
+    withheld: HashSet<AttachmentId>,
+    /// The attachments that a model call of the turn's model sent as content and that
+    /// it answered: a refused request withholds the others first.
+    carried: HashSet<AttachmentId>,
+}
+
+impl TurnAttachments {
+    /// The state of a turn whose model reads `inputs`, in a conversation of `summary`.
+    pub(crate) fn new(summary: &Summary, inputs: InputKinds) -> Self {
+        TurnAttachments {
+            last: summary.last,
+            inputs,
+            withheld: summary.withheld.iter().cloned().collect(),
+            carried: HashSet::new(),
+        }
+    }
+
+    /// True when the conversation has an attachment, so a request must be walked for
+    /// its parts.
+    pub(crate) fn any(&self) -> bool {
+        self.last > 0
+    }
+
+    /// The id of the next attachment of the conversation.
+    pub(crate) fn next_id(&mut self) -> AttachmentId {
+        self.last = self.last.saturating_add(1);
+        AttachmentId::nth(self.last)
+    }
+
+    /// Takes `ids` as attachments that the conversation already has, such as those of
+    /// the turn's prompt.
+    pub(crate) fn seen<'a>(&mut self, ids: impl IntoIterator<Item = &'a AttachmentId>) {
+        let highest = ids.into_iter().filter_map(AttachmentId::number).max().unwrap_or(0);
+        self.last = self.last.max(highest);
+    }
+
+    /// True when the turn's model gets `attachment` as content: efrd keeps the bytes
+    /// for a model, the model reads its kind, and it is not withheld.
+    pub(crate) fn reads(&self, attachment: &Attachment) -> bool {
+        let kind = match attachment.kind {
+            AttachmentKind::Image { .. } => self.inputs.image,
+            AttachmentKind::Pdf { .. } => self.inputs.pdf,
+            _ => false,
+        };
+        kind && attachment.sent.is_some() && !self.withheld.contains(&attachment.id)
+    }
+
+    /// The attachments of a prompt that the turn's model gets as a path, for
+    /// `turn_started`.
+    pub(crate) fn unread(&self, attachments: &[Attachment]) -> Vec<AttachmentId> {
+        attachments.iter().filter(|a| !self.reads(a)).map(|a| a.id.clone()).collect()
+    }
+
+    /// `ids` go as a label from now on.
+    pub(crate) fn withhold(&mut self, ids: &[AttachmentId]) {
+        self.withheld.extend(ids.iter().cloned());
+    }
+
+    /// A model call that sent `sent` as content got an answer.
+    pub(crate) fn carried(&mut self, sent: Vec<AttachmentId>) {
+        self.carried.extend(sent);
+    }
+
+    /// What a request that sent `sent` as content and that the provider refused
+    /// withholds: at the first refusal of a request the attachments that no good call
+    /// carried yet, else, or when there are none, every one of `sent`. Empty when the
+    /// request sent none, and then the refusal has another cause.
+    pub(crate) fn refused(&self, sent: &[AttachmentId], first: bool) -> Vec<AttachmentId> {
+        let new: Vec<AttachmentId> =
+            sent.iter().filter(|id| !self.carried.contains(id)).cloned().collect();
+        if first && !new.is_empty() { new } else { sent.to_vec() }
+    }
+}
+
+/// True when `error` can be the refusal of an attachment: a 400 or a 413 of the API that
+/// is no overflow of the window, no limit and no login error (those have their own
+/// variants).
+pub(crate) fn refused(error: &ProviderError) -> bool {
+    matches!(error, ProviderError::Api { status: Some(400 | 413), .. })
+}
+
+/// The parts of `message` that can go as content: those of the message itself and of
+/// each tool result that a prune did not cut, whose attachments go as labels.
+pub(crate) fn parts_mut(message: &mut Message) -> Vec<&mut AttachmentPart> {
+    let mut parts = Vec::new();
+    for block in &mut message.content {
+        match block {
+            ContentBlock::Attachment(part) => parts.push(part),
+            ContentBlock::ToolResult { output, attachments, .. }
+                if output != PRUNED_OUTPUT_STUB =>
+            {
+                parts.extend(attachments.iter_mut());
+            }
+            _ => {}
+        }
+    }
+    parts
+}
+
+/// The ids of the parts of `messages` that have data, in their order.
+pub(crate) fn with_data<'a>(messages: impl Iterator<Item = &'a mut Message>) -> Vec<AttachmentId> {
+    messages
+        .flat_map(parts_mut)
+        .filter(|part| part.data.is_some())
+        .map(|part| part.attachment.id.clone())
+        .collect()
+}
+
+/// Drops the data of each part of `messages` that `ids` names, so it goes as its label.
+pub(crate) fn clear<'a>(messages: impl Iterator<Item = &'a mut Message>, ids: &[AttachmentId]) {
+    let ids: HashSet<&AttachmentId> = ids.iter().collect();
+    for part in messages.flat_map(parts_mut) {
+        if ids.contains(&part.attachment.id) {
+            part.data = None;
+        }
+    }
+}
+
+/// The line that a tool result gets for an image of `attachment` that no model gets as
+/// content: efrd keeps no bytes for it. A valid image is too large; any other file of
+/// an image type is broken.
+pub(crate) fn tool_note(attachment: &Attachment) -> Option<String> {
+    if attachment.sent.is_some() {
+        return None;
+    }
+    Some(match attachment.kind {
+        AttachmentKind::Image { width, height } => {
+            format!("[efr: too large to show; {width}x{height}]")
+        }
+        _ => BROKEN_IMAGE.to_owned(),
+    })
+}
+
+/// The line of a tool result for an image that is cut or broken.
+pub(crate) const BROKEN_IMAGE: &str = "[efr: the image is broken]";
+
+/// The line of a tool result for an image that efrd could not keep.
+pub(crate) const NOT_KEPT: &str = "[efr: efr could not keep the image, so you do not see it]";
+
+/// Drops the data of every part of `message`, of a pruned tool result too: the history,
+/// the saved messages and a compaction request hold only the metadata.
+pub(crate) fn strip(message: &mut Message) {
+    for block in &mut message.content {
+        let parts = match block {
+            ContentBlock::Attachment(part) => std::slice::from_mut(part),
+            ContentBlock::ToolResult { attachments, .. } => attachments.as_mut_slice(),
+            _ => continue,
+        };
+        for part in parts {
+            part.data = None;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -164,6 +164,7 @@ fn notice_job(text: &str) -> Option<String> {
 /// The kind of a block of a message from `role`.
 fn kind_of(role: Role, block: &ContentBlock) -> ContextPartKind {
     match (role, block) {
+        (_, ContentBlock::Attachment(_)) => ContextPartKind::Attachments,
         (_, ContentBlock::ToolCall { .. }) => ContextPartKind::ToolCalls,
         (_, ContentBlock::ToolResult { output, .. }) if output == PRUNED_OUTPUT_STUB => {
             ContextPartKind::Pruned

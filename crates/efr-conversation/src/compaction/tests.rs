@@ -1,12 +1,14 @@
-use efr_protocol::TurnId;
-use efr_provider::{ContentBlock, Message, Request, Role};
+use efr_protocol::{Attachment, AttachmentId, AttachmentKind, AttachmentOrigin, SentForm, TurnId};
+use efr_provider::{
+    AttachmentPart, ContentBlock, EncodedBytes, IMAGE_MAX_TOKENS, Message, Request, Role,
+};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
     Cut, LeftOut, Placed, SUMMARY_CLOSE, SUMMARY_OPEN, SUMMARY_PROMPT, Window, cut_before,
     message_tokens, minimal_tail, parts_len, prune, request_tokens, summary_message,
-    summary_prompt, tail_start, window_tokens, with_window,
+    summary_prompt, summary_request, tail_start, window_tokens, with_window,
 };
 use crate::context::{
     PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB, TAIL_TOKENS, json_len,
@@ -196,6 +198,72 @@ fn the_newest_call_and_its_result_are_never_pruned_however_large() {
 
     assert_eq!(outputs(&pruning.placed), [PRUNED_OUTPUT_STUB.len(), 400_000]);
     assert_eq!(pruning.cut, Some(Cut { through_turn: turn(1), through_message: Some(3) }));
+}
+
+/// A result of `read_file` that sends an image of 2000 x 2000 pixels as content: few
+/// bytes of JSON and the most tokens of an image.
+fn image_result(id: &str) -> Message {
+    let attachment = Attachment {
+        id: AttachmentId::nth(1),
+        name: "plot.png".to_owned(),
+        media_type: "image/png".to_owned(),
+        bytes: 9_000,
+        sha256: "ab".repeat(32),
+        kind: AttachmentKind::Image { width: 2000, height: 2000 },
+        origin: AttachmentOrigin::Tool { path: "/home/u/plot.png".into() },
+        copy: None,
+        sent: Some(SentForm {
+            media_type: "image/png".to_owned(),
+            bytes: 9_000,
+            width: Some(2000),
+            height: Some(2000),
+        }),
+    };
+    let part = AttachmentPart { attachment, data: Some(EncodedBytes::new("AAAA")) };
+    Message::new(
+        Role::User,
+        vec![ContentBlock::ToolResult {
+            call_id: id.to_owned(),
+            output: "plot.png: PNG image, 9 KB".to_owned(),
+            is_error: false,
+            attachments: vec![part],
+        }],
+    )
+}
+
+#[test]
+fn a_prune_cuts_an_old_result_with_an_image_and_counts_the_tokens_of_the_image() {
+    let mut placed = vec![at(1, 0, Message::user("plot them"))];
+    let ids: Vec<String> = (0..12).map(|n| format!("c{n}")).collect();
+    for (index, id) in ids.iter().enumerate() {
+        let index = u32::try_from(index).expect("small") * 2;
+        placed.push(at(1, index + 1, call(id)));
+        placed.push(at(1, index + 2, image_result(id)));
+    }
+
+    let pruning = prune(&placed);
+
+    let image = IMAGE_MAX_TOKENS;
+    assert!(pruning.outputs >= 2, "{}", pruning.outputs);
+    assert!(pruning.tokens >= pruning.outputs as u64 * image, "{}", pruning.tokens);
+    let pruned_data = pruning.placed.iter().take(pruning.after).any(|item| {
+        item.message.content.iter().any(|block| {
+            matches!(block, ContentBlock::ToolResult { attachments, .. }
+                if attachments.iter().any(|part| part.data.is_some()))
+        })
+    });
+    assert!(!pruned_data, "a pruned result sends its image as a label");
+}
+
+#[test]
+fn a_summary_request_carries_no_attachment_data() {
+    let summary =
+        summary_request(&request(Vec::new()), vec![image_result("c1")], None, LeftOut::default());
+    let ContentBlock::ToolResult { attachments, .. } = &summary.messages[0].content[0] else {
+        panic!("{:?}", summary.messages[0]);
+    };
+    assert_eq!(attachments.len(), 1);
+    assert_eq!(attachments[0].data, None);
 }
 
 #[test]

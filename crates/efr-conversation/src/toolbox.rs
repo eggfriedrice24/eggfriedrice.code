@@ -440,6 +440,24 @@ pub struct ToolOutcome {
     /// True when the call answered while its command goes on in the hidden shell (its
     /// timeout passed), for `tool_call_completed`.
     pub left_running: bool,
+    /// The image files that the call read, which the turn keeps as attachments, so the
+    /// model sees them.
+    pub media: Vec<ToolImage>,
+}
+
+/// An image file that a call read, with its bytes. `Debug` shows only their length.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ToolImage {
+    /// The file, absolute.
+    pub path: PathBuf,
+    /// Its bytes.
+    pub bytes: Vec<u8>,
+}
+
+impl fmt::Debug for ToolImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ToolImage({}, <{} bytes>)", self.path.display(), self.bytes.len())
+    }
 }
 
 impl ToolOutcome {
@@ -456,6 +474,7 @@ impl ToolOutcome {
             backups: Vec::new(),
             job: None,
             left_running: false,
+            media: Vec::new(),
         }
     }
 
@@ -518,6 +537,13 @@ impl ToolOutcome {
     #[must_use]
     pub fn with_job(mut self, job: JobInfo) -> Self {
         self.job = Some(job);
+        self
+    }
+
+    /// Sets the image files that the call read.
+    #[must_use]
+    pub fn with_media(mut self, media: Vec<ToolImage>) -> Self {
+        self.media = media;
         self
     }
 }

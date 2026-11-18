@@ -683,6 +683,8 @@ pub(crate) struct Setup {
     /// The permission engine, when a test needs another machine than the plain one of
     /// the home directory and [`project`](Self::project).
     pub(crate) engine: Option<Engine>,
+    /// The store of the attachments; one that takes none unless a test gives one.
+    pub(crate) attachments: Arc<dyn crate::Attachments>,
     /// The seed of the actor's generator. A restarted actor needs another one, or it
     /// would make the ids of the first actor again.
     rng_seed: u64,
@@ -715,6 +717,7 @@ impl Setup {
             allow_writer: None,
             presence: Arc::default(),
             engine: None,
+            attachments: Arc::new(crate::NoAttachments),
             rng_seed: 7,
         }
     }
@@ -839,7 +842,7 @@ impl Setup {
         let deps = ConversationDeps {
             providers: router,
             toolbox: toolbox.clone(),
-            attachments: Arc::new(crate::NoAttachments),
+            attachments: Arc::clone(&self.attachments),
             engine,
             scope: Arc::new(self.scope),
             writer: store.writer().clone(),
@@ -877,6 +880,7 @@ impl Setup {
             judge: self.judge,
             presence: self.presence,
             idle_trims: self.idle_trims,
+            attachments: self.attachments,
         }
     }
 }
@@ -905,6 +909,8 @@ pub(crate) struct Harness {
     pub(crate) presence: Arc<FakePresence>,
     /// The count of the actor's idle trims.
     pub(crate) idle_trims: watch::Sender<u64>,
+    /// The store of the attachments of the setup.
+    attachments: Arc<dyn crate::Attachments>,
 }
 
 impl Harness {
@@ -946,6 +952,7 @@ impl Harness {
             allow_writer: None,
             presence: self.presence,
             engine: None,
+            attachments: self.attachments,
             rng_seed: 8,
         };
         let router = Arc::new(crate::OneProvider::new(model));
