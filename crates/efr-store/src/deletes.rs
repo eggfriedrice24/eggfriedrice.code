@@ -139,6 +139,7 @@ pub(crate) fn tombstone(
     // NOTE: children first, for the foreign keys of turns, approvals, waits and shells.
     conn.execute("DELETE FROM job_notices WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM jobs WHERE conversation_id = ?1", [&id])?;
+    conn.execute("DELETE FROM attachments WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM compactions WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM approvals WHERE conversation_id = ?1", [&id])?;
     conn.execute("DELETE FROM waits WHERE conversation_id = ?1", [&id])?;
