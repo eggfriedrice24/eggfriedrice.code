@@ -63,6 +63,7 @@ fn device(id: &str, name: &str) -> DeviceInfo {
         created_at: now() - SignedDuration::from_hours(3),
         last_seen_at: None,
         revoked_at: None,
+        push: false,
     }
 }
 

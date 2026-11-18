@@ -613,6 +613,7 @@ fn sigterm_while_a_turn_runs_ends_efr_by_the_signal() {
                     cwd: PathBuf::from("/srv"),
                     scope: efr_protocol::Scope::Machine,
                     settings: None,
+                    unread_attachments: Vec::new(),
                 },
             ),
         );

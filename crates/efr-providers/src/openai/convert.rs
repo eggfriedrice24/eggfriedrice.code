@@ -542,22 +542,6 @@ fn push_canonical(
                     content.push(json!({"type": kind, "text": text}));
                 }
             }
-            ContentBlock::Image { media_type, data } => {
-                if assistant {
-                    tracing::debug!(
-                        "an image in an assistant message; the Responses API takes none"
-                    );
-                    continue;
-                }
-                // The canonical form already serialises as standard base64.
-                match serde_json::to_value(data) {
-                    Ok(Value::String(base64)) => content.push(json!({
-                        "type": "input_image",
-                        "image_url": format!("data:{media_type};base64,{base64}"),
-                    })),
-                    _ => tracing::debug!("an image whose bytes did not encode; left out"),
-                }
-            }
             ContentBlock::ToolCall { call_id, name, input, freeform: true } if takes_freeform => {
                 flush(items, role, &mut content);
                 items.push(json!({
@@ -580,7 +564,7 @@ fn push_canonical(
                     "arguments": arguments,
                 }));
             }
-            ContentBlock::ToolResult { call_id, output, is_error } => {
+            ContentBlock::ToolResult { call_id, output, is_error, .. } => {
                 flush(items, role, &mut content);
                 // NOTE: the Responses API has no error flag on a tool result; goose
                 // marks a failed call in the output text the same way.

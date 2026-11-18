@@ -32,6 +32,8 @@ import type {
   AdminProjectAddResult,
   AdminProjectRemove,
   AdminProjectRemoveResult,
+  AdminPushTest,
+  AdminPushTestResult,
   AdminSandboxCheck,
   AdminSandboxCheckResult,
   AdminStatus,
@@ -42,6 +44,15 @@ import type {
   ApprovalRespondResult,
   ApprovedBy,
   AttachHow,
+  Attachment,
+  AttachmentDiscard,
+  AttachmentDiscardResult,
+  AttachmentId,
+  AttachmentKind,
+  AttachmentLimits,
+  AttachmentOrigin,
+  AttachmentPut,
+  AttachmentPutResult,
   Attention,
   Base64Bytes,
   BlockReason,
@@ -127,6 +138,8 @@ import type {
   DevicePairStartItem,
   DeviceProve,
   DeviceProveResult,
+  DevicePushSet,
+  DevicePushSetResult,
   DeviceRevoke,
   DeviceRevokeResult,
   Draft,
@@ -228,6 +241,8 @@ import type {
   PtyResizeResult,
   PtyWrite,
   PtyWriteResult,
+  PushTestResult,
+  PushTestRow,
   QuestionId,
   QuestionOption,
   QuestionReply,
@@ -268,6 +283,7 @@ import type {
   SearchRow,
   SearchStats,
   SecretText,
+  SentForm,
   Seq,
   ServerAckFrame,
   ServerEndFrame,
@@ -305,6 +321,8 @@ import type {
   UndoId,
   UndoReason,
   UndoableTurn,
+  UploadId,
+  UploadInfo,
   Usage,
   UserAnswer,
   UserAuthorization,
@@ -317,6 +335,7 @@ import type {
   WithdrawTarget,
   WithdrawnPrompt,
   WithdrawnSteer,
+  WithheldReason,
 } from "./generated";
 
 export const limitKindSchema = z
@@ -530,6 +549,22 @@ export const adminProjectRemoveResultSchema = z.object({
   reload: adminConfigReloadResultSchema,
 }) satisfies z.ZodType<AdminProjectRemoveResult>;
 
+export const adminPushTestSchema = z.object({}) satisfies z.ZodType<AdminPushTest>;
+
+export const pushTestResultSchema = z
+  .enum(["sent", "no_receipt", "not_sent", "unknown"])
+  .catch("unknown") satisfies z.ZodType<PushTestResult>;
+
+export const pushTestRowSchema = z.object({
+  code: z.string().nullable().exactOptional(),
+  name: z.string(),
+  result: pushTestResultSchema,
+}) satisfies z.ZodType<PushTestRow>;
+
+export const adminPushTestResultSchema = z.object({
+  devices: z.array(pushTestRowSchema),
+}) satisfies z.ZodType<AdminPushTestResult>;
+
 export const adminSandboxCheckSchema = z.object({}) satisfies z.ZodType<AdminSandboxCheck>;
 
 export const checkOutcomeSchema = z.enum([
@@ -732,11 +767,93 @@ export const attachHowSchema = z
   .enum(["picked_up", "resumed", "unknown"])
   .catch("unknown") satisfies z.ZodType<AttachHow>;
 
+export const attachmentIdSchema = z
+  .string()
+  .regex(/^a[1-9][0-9]{0,8}$/) satisfies z.ZodType<AttachmentId>;
+
+export const attachmentKindSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ height: z.uint32(), kind: z.literal("image"), width: z.uint32() }),
+    z.object({ kind: z.literal("pdf"), pages: z.uint32().nullable().exactOptional() }),
+    z.object({ kind: z.literal("text") }),
+    z.object({ kind: z.literal("other") }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<AttachmentKind>;
+
+export const attachmentOriginSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("path"), path: z.string() }),
+    z.object({ kind: z.literal("clipboard") }),
+    z.object({ kind: z.literal("phone") }),
+    z.object({ kind: z.literal("tool"), path: z.string() }),
+    z.object({ kind: z.literal("unknown") }),
+  ])
+  .catch({ kind: "unknown" }) satisfies z.ZodType<AttachmentOrigin>;
+
+export const sentFormSchema = z.object({
+  bytes: z.int().nonnegative(),
+  height: z.uint32().nullable().exactOptional(),
+  media_type: z.string(),
+  width: z.uint32().nullable().exactOptional(),
+}) satisfies z.ZodType<SentForm>;
+
+export const attachmentSchema = z.object({
+  bytes: z.int().nonnegative(),
+  copy: z.string().nullable().exactOptional(),
+  id: attachmentIdSchema,
+  kind: attachmentKindSchema,
+  media_type: z.string(),
+  name: z.string(),
+  origin: attachmentOriginSchema,
+  sent: sentFormSchema.nullable().exactOptional(),
+  sha256: z.string(),
+}) satisfies z.ZodType<Attachment>;
+
+export const uploadIdSchema = z.guid() satisfies z.ZodType<UploadId>;
+
+export const attachmentDiscardSchema = z.object({
+  upload_id: uploadIdSchema,
+}) satisfies z.ZodType<AttachmentDiscard>;
+
+export const attachmentDiscardResultSchema = z.object(
+  {},
+) satisfies z.ZodType<AttachmentDiscardResult>;
+
+export const attachmentLimitsSchema = z.object({
+  chunk_bytes: z.int().nonnegative(),
+  max_edge_px: z.uint32(),
+  max_file_bytes: z.int().nonnegative(),
+  max_per_message: z.uint32(),
+}) satisfies z.ZodType<AttachmentLimits>;
+
+export const base64BytesSchema = z.string() satisfies z.ZodType<Base64Bytes>;
+
+export const attachmentPutSchema = z.object({
+  data: base64BytesSchema,
+  name: z.string(),
+  offset: z.int().nonnegative(),
+  origin: attachmentOriginSchema.nullable().exactOptional(),
+  total_bytes: z.int().nonnegative(),
+  upload_id: uploadIdSchema,
+}) satisfies z.ZodType<AttachmentPut>;
+
+export const uploadInfoSchema = z.object({
+  bytes: z.int().nonnegative(),
+  kind: attachmentKindSchema,
+  media_type: z.string(),
+  name: z.string(),
+  sent: sentFormSchema.nullable().exactOptional(),
+}) satisfies z.ZodType<UploadInfo>;
+
+export const attachmentPutResultSchema = z.object({
+  received: z.int().nonnegative(),
+  upload: uploadInfoSchema.nullable().exactOptional(),
+}) satisfies z.ZodType<AttachmentPutResult>;
+
 export const attentionSchema = z
   .enum(["answer", "terminal", "failed", "unknown"])
   .catch("unknown") satisfies z.ZodType<Attention>;
-
-export const base64BytesSchema = z.string() satisfies z.ZodType<Base64Bytes>;
 
 export const blockReasonSchema = z
   .enum([
@@ -860,9 +977,11 @@ export const callBackgroundResultSchema = z
 export const capabilitiesSchema = z.looseObject({
   admin: z.boolean().nullable().exactOptional(),
   approval_local_only: z.boolean().nullable().exactOptional(),
+  attachments: attachmentLimitsSchema.nullable().exactOptional(),
   conversations_watch: z.boolean().nullable().exactOptional(),
   device_prove: z.boolean().nullable().exactOptional(),
   drafts_coalesced: z.boolean().nullable().exactOptional(),
+  push: z.boolean().nullable().exactOptional(),
   screen_snapshots: z.boolean().nullable().exactOptional(),
   search: z.boolean().nullable().exactOptional(),
   snapshot_live: z.boolean().nullable().exactOptional(),
@@ -1039,6 +1158,10 @@ export const deviceProveSchema = z.object({
   signature: base64BytesSchema,
 }) satisfies z.ZodType<DeviceProve>;
 
+export const devicePushSetSchema = z.object({
+  token: secretTextSchema.nullable().exactOptional(),
+}) satisfies z.ZodType<DevicePushSet>;
+
 export const deviceRevokeSchema = z.object({
   device_id: deviceIdSchema,
 }) satisfies z.ZodType<DeviceRevoke>;
@@ -1111,6 +1234,7 @@ export const turnSettingsSchema = z.object({
 }) satisfies z.ZodType<TurnSettings>;
 
 export const promptSendSchema = z.object({
+  attachments: z.array(uploadIdSchema).exactOptional(),
   command_id: commandIdSchema,
   context: shellContextSchema.nullable().exactOptional(),
   conversation_id: conversationIdSchema.nullable().exactOptional(),
@@ -1293,6 +1417,10 @@ export const methodSchema = z.discriminatedUnion("method", [
     params: conversationSwitchPreviewSchema,
   }),
   z.object({ method: z.literal("question.respond"), params: questionRespondSchema }),
+  z.object({ method: z.literal("attachment.put"), params: attachmentPutSchema }),
+  z.object({ method: z.literal("attachment.discard"), params: attachmentDiscardSchema }),
+  z.object({ method: z.literal("device.push_set"), params: devicePushSetSchema }),
+  z.object({ method: z.literal("admin.push_test"), params: adminPushTestSchema }),
 ]) satisfies z.ZodType<Method>;
 
 export const clientRequestSchema = z.intersection(
@@ -1361,6 +1489,7 @@ export const contextPartKindSchema = z
     "tool_calls",
     "tool_outputs",
     "pruned",
+    "attachments",
     "unknown",
   ])
   .catch("unknown") satisfies z.ZodType<ContextPartKind>;
@@ -1817,6 +1946,10 @@ export const webSourceSchema = z.object({
   url: z.string(),
 }) satisfies z.ZodType<WebSource>;
 
+export const withheldReasonSchema = z
+  .enum(["budget", "refused", "unknown"])
+  .catch("unknown") satisfies z.ZodType<WithheldReason>;
+
 export const eventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("conversation_created"),
@@ -1832,6 +1965,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     tty: z.string(),
   }),
   z.object({
+    attachments: z.array(attachmentSchema).exactOptional(),
     command_id: commandIdSchema,
     context: shellContextSchema.nullable().exactOptional(),
     kind: z.literal("prompt_queued"),
@@ -1849,6 +1983,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     scope: scopeSchema,
     settings: effectiveSettingsSchema.nullable().exactOptional(),
     turn_id: turnIdSchema,
+    unread_attachments: z.array(attachmentIdSchema).exactOptional(),
   }),
   z.object({
     from: switchedModelSchema,
@@ -1900,6 +2035,7 @@ export const eventSchema = z.discriminatedUnion("kind", [
     turn_id: turnIdSchema,
   }),
   z.object({
+    attachments: z.array(attachmentSchema).exactOptional(),
     call_id: callIdSchema,
     changes: fileChangesSchema.nullable().exactOptional(),
     diff: z.string().nullable().exactOptional(),
@@ -2257,6 +2393,12 @@ export const eventSchema = z.discriminatedUnion("kind", [
     how: shellCommandEndSchema,
     kind: z.literal("shell_command_ended"),
   }),
+  z.object({
+    attachments: z.array(attachmentIdSchema),
+    kind: z.literal("attachments_withheld"),
+    reason: withheldReasonSchema,
+    turn_id: turnIdSchema.nullable().exactOptional(),
+  }),
   z.object({ kind: z.literal("conversation_deleted"), origin: originSchema }),
 ]) satisfies z.ZodType<Event>;
 
@@ -2508,6 +2650,7 @@ export const deviceInfoSchema = z.object({
   last_seen_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
   name: z.string(),
   node: z.string(),
+  push: z.boolean().exactOptional(),
   revoked_at: z.iso.datetime({ offset: true }).nullable().exactOptional(),
   scopes: z.array(scopeNameSchema),
 }) satisfies z.ZodType<DeviceInfo>;
@@ -2555,6 +2698,8 @@ export const devicePairStartItemSchema = z.discriminatedUnion("kind", [
 export const deviceProveResultSchema = z.object({
   scopes: z.array(scopeNameSchema),
 }) satisfies z.ZodType<DeviceProveResult>;
+
+export const devicePushSetResultSchema = z.object({}) satisfies z.ZodType<DevicePushSetResult>;
 
 export const deviceRevokeResultSchema = z.object({
   revoked_at: z.iso.datetime({ offset: true }),
@@ -2647,6 +2792,10 @@ export const methodNameSchema = z.enum([
   "provider.warm",
   "conversation.switch_preview",
   "question.respond",
+  "attachment.put",
+  "attachment.discard",
+  "device.push_set",
+  "admin.push_test",
 ]) satisfies z.ZodType<MethodName>;
 
 export const methodParamsSchema = z.strictObject({
@@ -2656,9 +2805,12 @@ export const methodParamsSchema = z.strictObject({
   "admin.logout": adminLogoutSchema,
   "admin.project_add": adminProjectAddSchema,
   "admin.project_remove": adminProjectRemoveSchema,
+  "admin.push_test": adminPushTestSchema,
   "admin.sandbox_check": adminSandboxCheckSchema,
   "admin.status": adminStatusSchema,
   "approval.respond": approvalRespondSchema,
+  "attachment.discard": attachmentDiscardSchema,
+  "attachment.put": attachmentPutSchema,
   "call.background": callBackgroundSchema,
   "conversation.compact": conversationCompactSchema,
   "conversation.context": conversationContextSchema,
@@ -2678,6 +2830,7 @@ export const methodParamsSchema = z.strictObject({
   "device.pair_confirm": devicePairConfirmSchema,
   "device.pair_start": devicePairStartSchema,
   "device.prove": deviceProveSchema,
+  "device.push_set": devicePushSetSchema,
   "device.revoke": deviceRevokeSchema,
   hello: helloSchema,
   "input.respond": inputRespondSchema,
@@ -2934,9 +3087,12 @@ export const methodResultsSchema = z.strictObject({
   "admin.logout": adminLogoutResultSchema,
   "admin.project_add": adminProjectAddResultSchema,
   "admin.project_remove": adminProjectRemoveResultSchema,
+  "admin.push_test": adminPushTestResultSchema,
   "admin.sandbox_check": adminSandboxCheckResultSchema,
   "admin.status": adminStatusResultSchema,
   "approval.respond": approvalRespondResultSchema,
+  "attachment.discard": attachmentDiscardResultSchema,
+  "attachment.put": attachmentPutResultSchema,
   "call.background": callBackgroundResultSchema,
   "conversation.compact": conversationCompactResultSchema,
   "conversation.context": conversationContextResultSchema,
@@ -2956,6 +3112,7 @@ export const methodResultsSchema = z.strictObject({
   "device.pair_confirm": devicePairConfirmResultSchema,
   "device.pair_start": devicePairStartItemSchema,
   "device.prove": deviceProveResultSchema,
+  "device.push_set": devicePushSetResultSchema,
   "device.revoke": deviceRevokeResultSchema,
   hello: helloResultSchema,
   "input.respond": inputRespondResultSchema,

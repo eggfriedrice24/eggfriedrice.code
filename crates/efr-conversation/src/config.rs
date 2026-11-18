@@ -21,8 +21,8 @@ use serde_json::{Map, Value};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
-    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader, ProviderRouter,
-    ScopeResolver, Toolbox, WebConfig,
+    Attachments, CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader,
+    ProviderRouter, ScopeResolver, Toolbox, WebConfig,
 };
 
 /// The settings of one conversation.
@@ -277,6 +277,9 @@ pub struct ConversationDeps {
     pub providers: Arc<dyn ProviderRouter>,
     /// The tools.
     pub toolbox: Arc<dyn Toolbox>,
+    /// The store of the attachments: the files of the prompts and the images of the
+    /// tools ([`NoAttachments`](crate::NoAttachments) takes none).
+    pub attachments: Arc<dyn Attachments>,
     /// The permission engine. The daemon sends a new one when the policy or the project
     /// registry changes; each tool call reads the latest.
     pub engine: watch::Receiver<Arc<Engine>>,

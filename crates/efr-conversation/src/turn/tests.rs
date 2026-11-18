@@ -465,6 +465,7 @@ async fn a_text_turn_records_the_answer_and_completes() {
             cwd: h.cwd.clone(),
             scope: Scope::Machine,
             settings: default_settings(),
+            unread_attachments: Vec::new(),
         }
     );
     assert_eq!(
@@ -582,6 +583,7 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         }
     );
     h.finish();
@@ -1052,6 +1054,7 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         }
     );
     h.finish();
@@ -1203,6 +1206,7 @@ async fn a_cwd_move_between_turns_changes_the_scope_and_the_preamble() {
             cwd: elsewhere,
             scope: Scope::Machine,
             settings: default_settings(),
+            unread_attachments: Vec::new(),
         }
     );
     h.finish();
@@ -1823,6 +1827,7 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
                 changes: None,
                 diff: None,
                 left_running: false,
+                attachments: Vec::new(),
             },
         ]
     );

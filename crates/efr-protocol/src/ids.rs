@@ -73,6 +73,99 @@ macro_rules! uuid_id {
 
 pub(crate) use uuid_id;
 
+/// Declares the id of the `n`th item of one conversation, such as a job `j3` or an
+/// attachment `a3`: the prefix letter, then a number from 1 to
+/// `MAX_NUMBER` with no leading zero. On the wire a string; any other string is
+/// refused. Ids repeat across conversations, so an item is named by its conversation
+/// and its id.
+macro_rules! numbered_id {
+    ($(#[$meta:meta])* $name:ident, $prefix:literal, $noun:literal, $a_noun:literal) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name(String);
+
+        impl $name {
+            /// The largest number.
+            pub const MAX_NUMBER: u32 = 999_999_999;
+
+            #[doc = concat!("The id of the `n`th ", $noun, " of a conversation, `", $prefix, "{n}`.")]
+            /// `n` is at least 1 and at most [`MAX_NUMBER`](Self::MAX_NUMBER); a value
+            /// outside takes the nearest end.
+            pub fn nth(n: u32) -> Self {
+                Self(format!(concat!($prefix, "{}"), n.clamp(1, Self::MAX_NUMBER)))
+            }
+
+            #[doc = concat!("The number, such as 3 for `", $prefix, "3`.")]
+            pub fn number(&self) -> Option<u32> {
+                self.0.strip_prefix($prefix).and_then(|digits| digits.parse().ok())
+            }
+
+            #[doc = concat!("The id as text, such as `", $prefix, "3`.")]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+
+            /// True for the prefix, then a digit from 1 to 9, then at most eight
+            /// digits.
+            fn valid(text: &str) -> bool {
+                let Some(digits) = text.strip_prefix($prefix) else {
+                    return false;
+                };
+                (1..=9).contains(&digits.len())
+                    && digits.bytes().all(|byte| byte.is_ascii_digit())
+                    && !digits.starts_with('0')
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+
+        impl std::str::FromStr for $name {
+            type Err = $crate::ProtocolError;
+
+            fn from_str(text: &str) -> Result<Self, Self::Err> {
+                if Self::valid(text) {
+                    Ok(Self(text.to_owned()))
+                } else {
+                    Err($crate::ProtocolError::InvalidNumberedId { noun: $a_noun, value: text.to_owned() })
+                }
+            }
+        }
+
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(&self.0)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = String::deserialize(deserializer)?;
+                text.parse().map_err(serde::de::Error::custom)
+            }
+        }
+
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
+            }
+
+            fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({
+                    "type": "string",
+                    "pattern": concat!("^", $prefix, "[1-9][0-9]{0,8}$"),
+                    "description": concat!("The id of ", $a_noun, " of one conversation, such as ", $prefix, "3.")
+                })
+            }
+        }
+    };
+}
+
+pub(crate) use numbered_id;
+
 uuid_id!(
     /// One conversation: the unit a `,` line talks to and a subscription follows.
     ConversationId

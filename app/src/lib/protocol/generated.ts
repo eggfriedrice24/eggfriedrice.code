@@ -244,6 +244,22 @@ export type Method =
   | {
       method: "question.respond";
       params: QuestionRespond;
+    }
+  | {
+      method: "attachment.put";
+      params: AttachmentPut;
+    }
+  | {
+      method: "attachment.discard";
+      params: AttachmentDiscard;
+    }
+  | {
+      method: "device.push_set";
+      params: DevicePushSet;
+    }
+  | {
+      method: "admin.push_test";
+      params: AdminPushTest;
     };
 /**
  * An enrolled device such as a phone. The Unix socket does not use it.
@@ -272,6 +288,11 @@ export type Seq = number;
  * One conversation: the unit a `,` line talks to and a subscription follows.
  */
 export type ConversationId = string;
+/**
+ * One upload of `attachment.put`. The client makes it, as a [`CommandId`](crate::CommandId),
+ * and names it in `prompt.send` when the upload is complete.
+ */
+export type UploadId = string;
 /**
  * A client-generated id that makes a write idempotent. The daemon stores a receipt
  * per command id, and a retry with the same id returns the stored result.
@@ -420,6 +441,37 @@ export type QuestionReply =
       kind: "unknown";
     };
 /**
+ * Where an attachment came from.
+ *
+ * On the wire an object with a `kind` member: `{"kind": "path", "path": "..."}`,
+ * `{"kind": "clipboard"}`, `{"kind": "phone"}` or `{"kind": "tool", "path": "..."}`. An
+ * origin that this build does not know reads as `unknown`.
+ */
+export type AttachmentOrigin =
+  | {
+      kind: "path";
+      /**
+       * The user's file, an absolute path.
+       */
+      path: string;
+    }
+  | {
+      kind: "clipboard";
+    }
+  | {
+      kind: "phone";
+    }
+  | {
+      kind: "tool";
+      /**
+       * The file that the tool read, an absolute path.
+       */
+      path: string;
+    }
+  | {
+      kind: "unknown";
+    };
+/**
  * What went wrong with a request, as a closed set that every client can handle.
  *
  * The set is closed on the wire: a new code is a breaking change and bumps
@@ -490,6 +542,11 @@ export type Event =
       tty: string;
     }
   | {
+      /**
+       * The files that go with the prompt, in their order: metadata only, never
+       * the bytes. Absent means none.
+       */
+      attachments?: Attachment[];
       /**
        * The client's id for the `prompt.send` that carried it.
        */
@@ -563,6 +620,13 @@ export type Event =
        * The turn.
        */
       turn_id: TurnId;
+      /**
+       * The attachments of the turn's prompt that its model gets only as a label
+       * with their path, not as content, such as an image for a model that reads
+       * no images. A fact of this turn: another model can read them in a later
+       * turn. Absent means none.
+       */
+      unread_attachments?: AttachmentId[];
     }
   | {
       /**
@@ -716,6 +780,11 @@ export type Event =
       turn_id: TurnId;
     }
   | {
+      /**
+       * The images that the call gave the model, such as the image file that
+       * `read_file` read: metadata only, never the bytes. Absent means none.
+       */
+      attachments?: Attachment[];
       /**
        * The call.
        */
@@ -1909,6 +1978,21 @@ export type Event =
       kind: "shell_command_ended";
     }
   | {
+      /**
+       * The attachments, in the order of the conversation.
+       */
+      attachments: AttachmentId[];
+      kind: "attachments_withheld";
+      /**
+       * Why.
+       */
+      reason: WithheldReason;
+      /**
+       * The turn that recorded it. Absent when no turn did.
+       */
+      turn_id?: TurnId | null;
+    }
+  | {
       kind: "conversation_deleted";
       /**
        * The surface that asked.
@@ -1944,6 +2028,45 @@ export type ProjectId = string;
  * How a conversation came to a terminal (`terminal_attached`).
  */
 export type AttachHow = "picked_up" | "resumed" | "unknown";
+/**
+ * The id of an attachment of one conversation, such as a3.
+ */
+export type AttachmentId = string;
+/**
+ * What kind of file an attachment is.
+ *
+ * On the wire an object with a `kind` member: `{"kind": "image", "width": 1920,
+ * "height": 1080}`, `{"kind": "pdf", "pages": 12}`, `{"kind": "text"}` or
+ * `{"kind": "other"}`. A kind that this build does not know reads as `unknown`.
+ */
+export type AttachmentKind =
+  | {
+      /**
+       * The height in pixels.
+       */
+      height: number;
+      kind: "image";
+      /**
+       * The width in pixels.
+       */
+      width: number;
+    }
+  | {
+      kind: "pdf";
+      /**
+       * The count of pages. Absent when efrd could not count them.
+       */
+      pages?: number | null;
+    }
+  | {
+      kind: "text";
+    }
+  | {
+      kind: "other";
+    }
+  | {
+      kind: "unknown";
+    };
 /**
  * What a turn is about, derived again from the shell's working directory on every turn.
  *
@@ -2376,6 +2499,11 @@ export type ShellCommandEnd =
   | "moved"
   | "unknown";
 /**
+ * Why efrd sends attachments as labels with their paths from now on
+ * (`attachments_withheld`).
+ */
+export type WithheldReason = "budget" | "refused" | "unknown";
+/**
  * The wire name of a method.
  */
 export type MethodName =
@@ -2429,7 +2557,11 @@ export type MethodName =
   | "conversations.watch"
   | "provider.warm"
   | "conversation.switch_preview"
-  | "question.respond";
+  | "question.respond"
+  | "attachment.put"
+  | "attachment.discard"
+  | "device.push_set"
+  | "admin.push_test";
 /**
  * One item of an `admin.login_openai` stream.
  */
@@ -2448,6 +2580,10 @@ export type AdminLoginOpenAiItem =
        */
       provider: string;
     };
+/**
+ * What became of a test notice.
+ */
+export type PushTestResult = "sent" | "no_receipt" | "not_sent" | "unknown";
 /**
  * The outcome of one check of the probe.
  */
@@ -2534,6 +2670,7 @@ export type ContextPartKind =
   | "tool_calls"
   | "tool_outputs"
   | "pruned"
+  | "attachments"
   | "unknown";
 /**
  * The result of `conversation.delete`.
@@ -3132,6 +3269,13 @@ export interface Capabilities {
    */
   approval_local_only?: boolean | null;
   /**
+   * The daemon takes attachments: `attachment.put`, `attachment.discard` and the
+   * uploads of `prompt.send`, within these limits. Only the daemon sends it. Absent:
+   * a daemon from before attachments, or one with `attachments.enabled = false`, and
+   * a client sends no file.
+   */
+  attachments?: AttachmentLimits | null;
+  /**
    * The daemon answers `conversations.watch`, so a client can follow the lists of
    * the machine instead of asking `conversations.recent` again and again. Absent: a
    * daemon from before the watch.
@@ -3148,6 +3292,12 @@ export interface Capabilities {
    * fewer drafts on a slow link but no gaps. Absent: a draft can be lost.
    */
   drafts_coalesced?: boolean | null;
+  /**
+   * The daemon takes the push token of this device (`device.push_set`) and sends
+   * pushes. Only the daemon sends it, on the tailnet listener. Absent: a daemon from
+   * before push, or one with `presence.push = false`.
+   */
+  push?: boolean | null;
   /**
    * The daemon starts `pty.attach` with a screen snapshot; from a client, the client
    * can render one.
@@ -3170,6 +3320,29 @@ export interface Capabilities {
    */
   user_questions?: boolean | null;
   [k: string]: unknown;
+}
+/**
+ * The limits of the attachments of this efrd, which the capability `attachments`
+ * announces.
+ */
+export interface AttachmentLimits {
+  /**
+   * The most bytes of one chunk of `attachment.put`.
+   */
+  chunk_bytes: number;
+  /**
+   * The longest edge in pixels of an image that a model gets: efrd makes a larger
+   * PNG or JPEG smaller.
+   */
+  max_edge_px: number;
+  /**
+   * The largest file of an attachment, in bytes.
+   */
+  max_file_bytes: number;
+  /**
+   * The most attachments of one prompt.
+   */
+  max_per_message: number;
 }
 /**
  * The params of `conversations.list`.
@@ -3261,6 +3434,16 @@ export interface ConversationHistory {
  * hold a secret and requests are logged.
  */
 export interface PromptSend {
+  /**
+   * The finished uploads (`attachment.put`) that go with the prompt, in their order.
+   * The text must still hold text. A client sends them only when `hello` gave the
+   * capability `attachments`: an older daemon drops the member with no error. When
+   * one is not a finished upload of this connection or device, efrd answers
+   * `not_found` with `data.missing_uploads`, records no receipt, and the client
+   * uploads those files again and sends again with the same command id. Absent
+   * means none.
+   */
+  attachments?: UploadId[];
   /**
    * Makes the send idempotent: a retry with the same id returns the first result.
    */
@@ -4500,10 +4683,153 @@ export interface QuestionRespond {
   question_id: QuestionId;
 }
 /**
+ * The params of `attachment.put`, a unary method with the scope `operate`. efrd
+ * announces it with the capability `attachments`.
+ *
+ * efrd writes a chunk only when `offset` equals the bytes that it has of the upload.
+ * In each other case it writes nothing and answers with what it has, with no error, so
+ * a repeated chunk, a lost answer and a resume after a lost link are one case: the
+ * client goes on at `received`. A put with empty `data` asks for `received`.
+ *
+ * efrd answers `invalid` for a bad name, a name over
+ * [`NAME_MAX_BYTES`](crate::NAME_MAX_BYTES), `data` over the chunk limit, `total_bytes`
+ * over the file limit, a type that efrd refuses, an origin that the listener does not
+ * allow, a path of the secret class and an upload over
+ * [`MAX_OPEN_UPLOADS`](crate::MAX_OPEN_UPLOADS) of one owner; `forbidden` for the
+ * upload of another owner.
+ */
+export interface AttachmentPut {
+  /**
+   * The bytes from `offset` on, at most [`CHUNK_BYTES`](crate::CHUNK_BYTES).
+   */
+  data: Base64Bytes;
+  /**
+   * The name of the file, cut with [`fit_name`](crate::fit_name).
+   */
+  name: string;
+  /**
+   * Where `data` starts in the file.
+   */
+  offset: number;
+  /**
+   * Where the file came from. On the Unix socket it must be `path` or `clipboard`. On
+   * the tailnet listener it must be absent, and efrd sets `phone`.
+   */
+  origin?: AttachmentOrigin | null;
+  /**
+   * The size of the whole file in bytes.
+   */
+  total_bytes: number;
+  /**
+   * The upload, a UUID that the client makes.
+   */
+  upload_id: UploadId;
+}
+/**
+ * The params of `attachment.discard`, a unary method with the scope `operate`. efrd
+ * removes the bytes of the upload. An unknown upload is no error.
+ */
+export interface AttachmentDiscard {
+  /**
+   * The upload.
+   */
+  upload_id: UploadId;
+}
+/**
+ * The params of `device.push_set`, a remote method with the scope `read` that runs only
+ * after the proof. It acts on the device of the proof. efrd announces it with the
+ * capability `push`.
+ *
+ * efrd answers `invalid` for a token that is not an Expo push token
+ * ([`is_expo_push_token`]). The Unix socket refuses the method.
+ */
+export interface DevicePushSet {
+  /**
+   * The Expo push token of the app, `ExponentPushToken[...]`. Absent turns push off
+   * for the device. Expo knows the bundle id and the APNs environment of a token, so
+   * the app sends neither.
+   */
+  token?: SecretText | null;
+}
+/**
+ * The params of `admin.push_test`, an admin method (Unix socket only). It takes none.
+ */
+export interface AdminPushTest {}
+/**
  * Cancel a request in flight.
  */
 export interface ClientCancel {
   cancel: RequestId;
+}
+/**
+ * One attachment, as `prompt_queued` and `tool_call_completed` record it. Metadata only:
+ * no event holds the bytes.
+ */
+export interface Attachment {
+  /**
+   * The size of the file in bytes.
+   */
+  bytes: number;
+  /**
+   * The copy of the file in `$SCRATCH/attachments`, an absolute path, with the bytes
+   * of the file as it was attached. Absent for an image that a tool read: that file is
+   * on disk already.
+   */
+  copy?: string | null;
+  /**
+   * The id in its conversation.
+   */
+  id: AttachmentId;
+  /**
+   * What kind of file it is.
+   */
+  kind: AttachmentKind;
+  /**
+   * The type, such as `image/png`, from the first bytes of the file, never from a
+   * client. `text/plain` for a text file, `application/octet-stream` for each other
+   * file.
+   */
+  media_type: string;
+  /**
+   * The name of the file, such as `shot.png`: no `/`, no control character, at most
+   * [`NAME_MAX_BYTES`] bytes.
+   */
+  name: string;
+  /**
+   * Where it came from.
+   */
+  origin: AttachmentOrigin;
+  /**
+   * What a model gets as content. Absent when the file goes to a model only as a label
+   * with its path.
+   */
+  sent?: SentForm | null;
+  /**
+   * The SHA-256 of the bytes of the file, in lowercase hex.
+   */
+  sha256: string;
+}
+/**
+ * What a model gets of an attachment as content: the prepared image, or the PDF.
+ */
+export interface SentForm {
+  /**
+   * The count of those bytes.
+   */
+  bytes: number;
+  /**
+   * The height in pixels, for an image.
+   */
+  height?: number | null;
+  /**
+   * The type of the bytes that the model gets, such as `image/jpeg` for a PNG with no
+   * alpha that efrd made smaller.
+   */
+  media_type: string;
+  /**
+   * The width in pixels, for an image.
+   */
+  width?: number | null;
 }
 /**
  * The settings that a turn runs with: the prompt's [`TurnSettings`] over the config's
@@ -5135,8 +5461,10 @@ export interface ErrorBody {
    */
   code: ErrorCode;
   /**
-   * Structured details. [`ErrorCode::Overflow`] carries `{"last_seq": n}` and
-   * [`ErrorCode::ProtocolMismatch`] carries `{"daemon": n, "client": m}`.
+   * Structured details. [`ErrorCode::Overflow`] carries `{"last_seq": n}`,
+   * [`ErrorCode::ProtocolMismatch`] carries `{"daemon": n, "client": m}`, and the
+   * [`ErrorCode::NotFound`] of a `prompt.send` whose uploads are missing carries
+   * [`MissingUploads`](crate::MissingUploads).
    */
   data?: unknown;
   /**
@@ -5797,9 +6125,12 @@ export interface MethodParams {
   "admin.logout": AdminLogout;
   "admin.project_add": AdminProjectAdd;
   "admin.project_remove": AdminProjectRemove;
+  "admin.push_test": AdminPushTest;
   "admin.sandbox_check": AdminSandboxCheck;
   "admin.status": AdminStatus;
   "approval.respond": ApprovalRespond;
+  "attachment.discard": AttachmentDiscard;
+  "attachment.put": AttachmentPut;
   "call.background": CallBackground;
   "conversation.compact": ConversationCompact;
   "conversation.context": ConversationContext;
@@ -5819,6 +6150,7 @@ export interface MethodParams {
   "device.pair_confirm": DevicePairConfirm;
   "device.pair_start": DevicePairStart;
   "device.prove": DeviceProve;
+  "device.push_set": DevicePushSet;
   "device.revoke": DeviceRevoke;
   hello: Hello;
   "input.respond": InputRespond;
@@ -5853,9 +6185,12 @@ export interface MethodResults {
   "admin.logout": AdminLogoutResult;
   "admin.project_add": AdminProjectAddResult;
   "admin.project_remove": AdminProjectRemoveResult;
+  "admin.push_test": AdminPushTestResult;
   "admin.sandbox_check": AdminSandboxCheckResult;
   "admin.status": AdminStatusResult;
   "approval.respond": ApprovalRespondResult;
+  "attachment.discard": AttachmentDiscardResult;
+  "attachment.put": AttachmentPutResult;
   "call.background": CallBackgroundResult;
   "conversation.compact": ConversationCompactResult;
   "conversation.context": ConversationContextResult;
@@ -5875,6 +6210,7 @@ export interface MethodResults {
   "device.pair_confirm": DevicePairConfirmResult;
   "device.pair_start": DevicePairStartItem;
   "device.prove": DeviceProveResult;
+  "device.push_set": DevicePushSetResult;
   "device.revoke": DeviceRevokeResult;
   hello: HelloResult;
   "input.respond": InputRespondResult;
@@ -6046,6 +6382,34 @@ export interface AdminProjectRemoveResult {
    * The reload after the write, as for `admin.project_add`.
    */
   reload: AdminConfigReloadResult;
+}
+/**
+ * The result of `admin.push_test`.
+ */
+export interface AdminPushTestResult {
+  /**
+   * One row for each device with a push token, the oldest first. Empty when no
+   * paired phone has push on.
+   */
+  devices: PushTestRow[];
+}
+/**
+ * What became of the test notice of one device.
+ */
+export interface PushTestRow {
+  /**
+   * The code of the Expo push service for a notice that was `not_sent`, such as
+   * `DeviceNotRegistered`. Absent when the service gave no answer.
+   */
+  code?: string | null;
+  /**
+   * The name of the device, such as `Anna's iPhone`.
+   */
+  name: string;
+  /**
+   * What became of the notice.
+   */
+  result: PushTestResult;
 }
 /**
  * The result of `admin.sandbox_check`: the new status and every check behind it.
@@ -6496,6 +6860,48 @@ export interface ApprovalRespondResult {
    * The sequence number of the `approval_resolved` event.
    */
   seq: Seq;
+}
+/**
+ * The result of `attachment.discard`.
+ */
+export interface AttachmentDiscardResult {}
+/**
+ * The result of `attachment.put`.
+ */
+export interface AttachmentPutResult {
+  /**
+   * The bytes that efrd has of the upload. The next chunk starts here.
+   */
+  received: number;
+  /**
+   * What the file is, after its last chunk. Absent while bytes are missing.
+   */
+  upload?: UploadInfo | null;
+}
+/**
+ * A finished upload, before a prompt takes it: what efrd found in its bytes.
+ */
+export interface UploadInfo {
+  /**
+   * The size of the file in bytes.
+   */
+  bytes: number;
+  /**
+   * What kind of file it is.
+   */
+  kind: AttachmentKind;
+  /**
+   * The type, from the first bytes of the file.
+   */
+  media_type: string;
+  /**
+   * The name of the file.
+   */
+  name: string;
+  /**
+   * What a model gets as content. Absent when the file goes as a label with its path.
+   */
+  sent?: SentForm | null;
 }
 /**
  * The result of `conversation.compact`.
@@ -7205,6 +7611,11 @@ export interface DeviceInfo {
    */
   node: string;
   /**
+   * True when the device sent a push token (`device.push_set`), so efrd sends it
+   * pushes. False when absent.
+   */
+  push?: boolean;
+  /**
    * When the device was revoked; absent while it may connect.
    */
   revoked_at?: string | null;
@@ -7259,6 +7670,10 @@ export interface DeviceProveResult {
    */
   scopes: ScopeName[];
 }
+/**
+ * The result of `device.push_set`.
+ */
+export interface DevicePushSetResult {}
 /**
  * The result of `device.revoke`.
  */
@@ -8119,6 +8534,7 @@ export const EVENT_KINDS = [
   "shell_command_detached",
   "shell_command_input_changed",
   "shell_command_ended",
+  "attachments_withheld",
   "conversation_deleted",
 ] as const satisfies readonly Event["kind"][];
 
@@ -8195,6 +8611,10 @@ export const METHOD_NAMES = [
   "provider.warm",
   "conversation.switch_preview",
   "question.respond",
+  "attachment.put",
+  "attachment.discard",
+  "device.push_set",
+  "admin.push_test",
 ] as const satisfies readonly MethodName[];
 
 /** Every error code. The set is closed: a new code bumps the protocol version. */

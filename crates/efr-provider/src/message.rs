@@ -1,8 +1,9 @@
 //! Canonical messages: the provider-neutral form of a conversation.
 
-use efr_protocol::Base64Bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::AttachmentPart;
 
 /// One message of a conversation, in the form every provider converts from and to.
 ///
@@ -55,7 +56,7 @@ impl Message {
     }
 
     /// The text blocks joined by a blank line, which is how the message reads in a
-    /// transcript. Reasoning, tool calls, tool results and images are left out.
+    /// transcript. Reasoning, tool calls, tool results and attachments are left out.
     pub fn text(&self) -> String {
         let texts: Vec<&str> = self
             .content
@@ -131,6 +132,11 @@ pub enum ContentBlock {
         /// True when the tool failed or the call was denied.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
+        /// The images that the call gave the model, such as the file that `read_file`
+        /// read. Empty for most calls, and then a provider sends the result as it did
+        /// before attachments, so the bytes of old turns do not change.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<AttachmentPart>,
     },
 
     /// The model's visible reasoning, such as a reasoning summary. Encrypted or signed
@@ -140,14 +146,10 @@ pub enum ContentBlock {
         text: String,
     },
 
-    /// An image, such as a screenshot the user attached.
-    Image {
-        /// The media type, such as `image/png`.
-        media_type: String,
-        /// The image bytes, as standard base64 on the wire. `Debug` shows only the
-        /// length.
-        data: Base64Bytes,
-    },
+    /// A file of the user's prompt, such as a screenshot. A provider writes it inside
+    /// its [`label`](crate::label): as content when the part has data, else as the
+    /// label with the path.
+    Attachment(AttachmentPart),
 }
 
 #[cfg(test)]

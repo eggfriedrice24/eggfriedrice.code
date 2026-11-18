@@ -80,6 +80,7 @@ fn ended(n: u8, exit_code: Option<i32>, refusal: Option<&str>) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -118,6 +119,7 @@ fn turn_started() -> Event {
         cwd: PathBuf::from("/home/user/project"),
         scope: Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap()),
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -673,6 +675,7 @@ fn changed(n: u8, changes: FileChanges, diff: Option<&str>) -> Event {
         changes: Some(changes),
         diff: diff.map(str::to_owned),
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

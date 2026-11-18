@@ -27,6 +27,7 @@ fn queued(turn: TurnId, n: u128) -> Event {
         context: None,
         settings: efr_protocol::TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -36,6 +37,7 @@ fn started(turn: TurnId) -> Event {
         cwd: PathBuf::from("/home/u"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -99,6 +101,7 @@ async fn scene() -> Scene {
                 changes: None,
                 diff: None,
                 left_running: false,
+                attachments: Vec::new(),
             },
         )
         .event(busy, call_started(t1, call))
@@ -183,6 +186,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
                     changes: None,
                     diff: None,
                     left_running: false,
+                    attachments: Vec::new(),
                 }
             ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),
@@ -278,6 +282,7 @@ async fn terminal_scene() -> (TestStore, ConversationId, [TurnId; 3], Seq) {
                 context: None,
                 settings: efr_protocol::TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         );
     let hwm = store.writer().append(batch).await.unwrap().last_seq();

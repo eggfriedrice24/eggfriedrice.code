@@ -50,6 +50,7 @@ fn ask_completed() -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

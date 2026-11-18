@@ -320,6 +320,7 @@ pub(crate) fn prompt(tty: &str, cwd: &Path, text: &str, mode: Option<Mode>) -> P
         last_command: None,
         recent_commands: Vec::new(),
         settings: TurnSettings { mode, ..TurnSettings::default() },
+        attachments: Vec::new(),
     }
 }
 

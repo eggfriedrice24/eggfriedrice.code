@@ -47,6 +47,7 @@ fn started(mode: Mode) -> Event {
             fallback: None,
             default_effort: None,
         }),
+        unread_attachments: Vec::new(),
     }
 }
 

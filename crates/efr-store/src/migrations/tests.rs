@@ -49,16 +49,18 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport::new(0, 14, None, false));
+    assert_eq!(report, MigrationReport::new(0, 16, None, false));
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 14);
+    assert_eq!(Migrations::version(&conn).unwrap(), 16);
     assert_eq!(
         tables(&conn),
         [
             "approvals",
+            "attachments",
             "compactions",
             "conversation_deletes",
             "conversations",
+            "device_push",
             "devices",
             "events",
             "job_notices",
@@ -89,7 +91,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport::new(14, 14, None, false));
+    assert_eq!(report, MigrationReport::new(16, 16, None, false));
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -109,8 +111,8 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(report, MigrationReport::new(2, 14, Some(backup.clone()), true));
-    assert_eq!(Migrations::version(&conn).unwrap(), 14);
+    assert_eq!(report, MigrationReport::new(2, 16, Some(backup.clone()), true));
+    assert_eq!(Migrations::version(&conn).unwrap(), 16);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -239,9 +241,9 @@ fn an_in_memory_database_gets_no_backup() {
 #[test]
 fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
-    conn.pragma_update(None, "user_version", 15).unwrap();
+    conn.pragma_update(None, "user_version", 17).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 15, supported: 14 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 17, supported: 16 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -400,7 +402,7 @@ fn a_later_migration_keeps_the_search_tables() {
 
     let report = Migrations::from_steps(steps, REBUILDS).migrate(&mut conn, None).unwrap();
 
-    assert_eq!((report.from, report.to, report.rebuilt), (14, 15, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (16, 17, true));
     assert_eq!(search_rows(&conn), before);
     integrity_check(&conn);
 }
@@ -436,7 +438,7 @@ fn a_start_that_stopped_before_the_rebuild_rebuilds_at_the_next_start() {
     assert_eq!(count(&conn, "conversations"), 0);
 
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!((report.from, report.to, report.rebuilt), (14, 14, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (14, 16, true));
     assert_eq!(count(&conn, "conversations"), 1);
     assert!(!rebuild_pending(&conn).unwrap(), "the rebuild clears the mark");
     let again = Migrations::new().migrate(&mut conn, None).unwrap();
@@ -461,8 +463,20 @@ fn migration_9_needs_no_rebuild() {
     let from_7 = tempfile::tempdir().unwrap();
     let mut conn = database_with_an_unprojected_event(from_7.path(), 7);
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!((report.from, report.to, report.rebuilt), (7, 14, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (7, 16, true));
     assert_eq!(count(&conn, "conversations"), 1);
+}
+
+#[test]
+fn migrations_15_and_16_add_their_tables_with_no_rebuild() {
+    let from_14 = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(from_14.path(), 14);
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert_eq!((report.from, report.to, report.rebuilt), (14, 16, false));
+    assert_eq!(count(&conn, "conversations"), 0, "no rebuild replays the log");
+    assert_eq!(count(&conn, "attachments"), 0);
+    assert_eq!(count(&conn, "device_push"), 0);
+    integrity_check(&conn);
 }
 
 #[test]
@@ -641,7 +655,7 @@ fn migration_14_fills_local_only_and_attention_from_the_log() {
 
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
 
-    assert_eq!((report.from, report.to, report.rebuilt), (13, 14, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (13, 16, true));
     let local_only: i64 = conn
         .query_row(
             "SELECT local_only FROM approvals WHERE call_id = ?1",
@@ -1024,6 +1038,7 @@ fn migration_0008_rebuilds_the_route_columns() {
         context: Some(context),
         settings: efr_protocol::TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     };
     let old = [
         crate::testing::created(Some("pts-1")),
@@ -1033,6 +1048,7 @@ fn migration_0008_rebuilds_the_route_columns() {
             cwd: "/srv/app".into(),
             scope: efr_protocol::Scope::Project(project),
             settings: None,
+            unread_attachments: Vec::new(),
         },
     ];
     for (index, event) in old.into_iter().enumerate() {

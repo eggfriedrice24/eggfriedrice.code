@@ -105,7 +105,8 @@ where
     let seen = captured.clone();
     let client = async {
         let client = ctx.connect(Origin::Cli, None).await.unwrap();
-        follow(ctx, &client, &mut out, &mut view, target(), None).await
+        // NOTE: on the heap, so the future of each test stays small.
+        Box::pin(follow(ctx, &client, &mut out, &mut view, target(), None)).await
     };
     let daemon = async { script(daemon.accept().await, seen).await };
     let (result, ()) = tokio::join!(client, daemon);
@@ -579,6 +580,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
             cwd: PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         };
         conn.item(sub, &item(13, started)).await;
         // Once the prompt's own turn runs, other turns' approvals are not this view's.
@@ -737,6 +739,7 @@ fn shell_completed(exit_code: i32) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -1190,6 +1193,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                         changes: None,
                         diff: None,
                         left_running: false,
+                        attachments: Vec::new(),
                     },
                 ),
                 envelope(6, output(sudo, "[sudo] password for egg: ")),
@@ -1218,6 +1222,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         };
         conn.item(sub, &item(12, completed)).await;
         presser.stopped().await;
@@ -1241,6 +1246,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             cwd: PathBuf::from("/home/u"),
             scope: efr_protocol::Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         };
         conn.item(sub, &item(14, started)).await;
         conn.item(sub, &item(15, turn_completed())).await;

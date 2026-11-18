@@ -980,6 +980,7 @@ dependencies = [
  "jiff",
  "pretty_assertions",
  "proptest",
+ "rstest",
  "schemars",
  "serde",
  "serde_json",
@@ -995,6 +996,7 @@ version = "0.0.12"
 dependencies = [
  "async-trait",
  "efr-protocol",
+ "efr-stdx",
  "futures",
  "pretty_assertions",
  "proptest",

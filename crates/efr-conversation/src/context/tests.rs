@@ -158,6 +158,7 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         cwd: "/home/u".into(),
         scope: efr_protocol::Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     assert_eq!(
         context_base(&[envelope(1, ended(800)), envelope(2, started)], MODEL, None),
@@ -184,6 +185,7 @@ fn the_count_of_another_model_is_no_base() {
             fallback: None,
             default_effort: None,
         }),
+        unread_attachments: Vec::new(),
     };
     let ended = Event::TurnCompleted {
         turn_id: turn,
@@ -222,6 +224,7 @@ fn the_count_of_another_provider_is_no_base() {
             fallback: None,
             default_effort: None,
         }),
+        unread_attachments: Vec::new(),
     };
     let ended = Event::TurnCompleted {
         turn_id: turn,

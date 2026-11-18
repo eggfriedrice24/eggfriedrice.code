@@ -344,6 +344,7 @@ async fn a_job_that_ended_before_the_previous_turn_counts_only_for_an_unknown_tu
             context: None,
             settings: efr_protocol::TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         };
         let cwd = scene.dirs.root().to_path_buf();
         let started = Event::TurnStarted {
@@ -351,6 +352,7 @@ async fn a_job_that_ended_before_the_previous_turn_counts_only_for_an_unknown_tu
             cwd: cwd.clone(),
             scope: efr_protocol::Scope::Path(cwd),
             settings: None,
+            unread_attachments: Vec::new(),
         };
         let batch =
             Batch::new().event(scene.conversation, queued).event(scene.conversation, started);

@@ -971,6 +971,7 @@ impl TestDaemon {
             last_command: None,
             recent_commands: Vec::new(),
             settings: TurnSettings::default(),
+            attachments: Vec::new(),
         })
     }
 

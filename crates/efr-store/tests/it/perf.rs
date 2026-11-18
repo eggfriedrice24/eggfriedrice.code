@@ -165,6 +165,7 @@ fn whole_turn(batch: Batch, id: ConversationId, n: usize) -> Batch {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         )
         .event(
@@ -174,6 +175,7 @@ fn whole_turn(batch: Batch, id: ConversationId, n: usize) -> Batch {
                 cwd: PathBuf::from("/srv"),
                 scope: Scope::Path(PathBuf::from("/srv")),
                 settings: None,
+                unread_attachments: Vec::new(),
             },
         )
         .event(
@@ -278,6 +280,7 @@ async fn probe(store: &Store, clock: &TestClock) -> (ConversationId, TurnId, Cal
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         )
         .event(
@@ -287,6 +290,7 @@ async fn probe(store: &Store, clock: &TestClock) -> (ConversationId, TurnId, Cal
                 cwd: PathBuf::from("/srv"),
                 scope: Scope::Path(PathBuf::from("/srv")),
                 settings: None,
+                unread_attachments: Vec::new(),
             },
         )
         .event(

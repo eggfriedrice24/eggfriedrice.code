@@ -170,7 +170,6 @@ impl CachedTurn {
                         call_id.shrink_to_fit();
                         output.shrink_to_fit();
                     }
-                    ContentBlock::Image { media_type, .. } => media_type.shrink_to_fit(),
                     _ => {}
                 }
             }
@@ -811,6 +810,7 @@ pub(crate) fn rebuild(prompt: &str, status: TurnStatus, events: &[&EventEnvelope
                     call_id: call_id.to_string(),
                     output: output.clone(),
                     is_error: *is_error,
+                    attachments: Vec::new(),
                 });
             }
             Event::TurnSteered { text, .. } if typed_place => rebuilt.steer(text),
@@ -861,6 +861,7 @@ pub(crate) fn close_open_calls(messages: &mut Vec<Message>) {
                             call_id: call_id.clone(),
                             output: UNFINISHED_CALL.to_owned(),
                             is_error: true,
+                            attachments: Vec::new(),
                         })
                     }
                     _ => None,

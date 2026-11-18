@@ -1686,6 +1686,7 @@ impl Follower<'_> {
             last_command: compose.last_command.map(LastCommand::into_string),
             recent_commands: compose.recent_commands,
             settings: compose.settings,
+            attachments: Vec::new(),
         });
         let answer = self.send::<PromptSendResult>(method).await.inspect_err(|_| {
             view.row_append(&text);

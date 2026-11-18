@@ -1,0 +1,19 @@
+{
+  "received": 2180000,
+  "upload": {
+    "name": "shot.png",
+    "media_type": "image/png",
+    "kind": {
+      "kind": "image",
+      "width": 3840,
+      "height": 2160
+    },
+    "bytes": 2180000,
+    "sent": {
+      "media_type": "image/jpeg",
+      "bytes": 412000,
+      "width": 2000,
+      "height": 1125
+    }
+  }
+}

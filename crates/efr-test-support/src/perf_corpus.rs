@@ -403,12 +403,14 @@ impl PerfCorpus {
             context: Some(ShellContext::new(&cwd)),
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         });
         events.push(Event::TurnStarted {
             turn_id,
             cwd: PathBuf::from(&cwd),
             scope: Scope::Path(PathBuf::from(&cwd)),
             settings: None,
+            unread_attachments: Vec::new(),
         });
         messages.push(Message::user(format!("<context>\ncwd: {cwd}\n</context>\n\n{prompt}")));
         let shape = self.shape;
@@ -452,6 +454,7 @@ impl PerfCorpus {
                 changes: None,
                 diff: None,
                 left_running: false,
+                attachments: Vec::new(),
             });
             let raw = vec![
                 self.reasoning_item(),
@@ -480,7 +483,12 @@ impl PerfCorpus {
             });
             messages.push(Message::new(
                 Role::User,
-                vec![ContentBlock::ToolResult { call_id: provider_call, output, is_error: false }],
+                vec![ContentBlock::ToolResult {
+                    call_id: provider_call,
+                    output,
+                    is_error: false,
+                    attachments: Vec::new(),
+                }],
             ));
         }
         let last = self.text(1_000);

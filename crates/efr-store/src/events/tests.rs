@@ -19,6 +19,7 @@ fn prompt(turn: u64, text: &str) -> Event {
         context: Some(ShellContext::new("/etc/nixos")),
         settings: TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -270,6 +271,7 @@ fn turn_event(turn: u64, pick: u64) -> Event {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
         4 => Event::ToolCallOutputUpdated {
             turn_id,

@@ -18,17 +18,21 @@
 //! too: they hold the read functions that run inside `Readers::with`, and their types;
 //! so are `turn_messages`, `user_messages`, `jobs` and `search`, the search index of
 //! the conversations, which efrd fills in the background, `deletes`, the tombstones
-//! of deleted conversations, and `devices`, the enrolled devices such as a phone.
+//! of deleted conversations, `devices`, the enrolled devices such as a phone, with
+//! `device_push`, their push tokens, and `attachments`, the files of the prompts and
+//! the images of the tools.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
 pub mod approvals;
+pub mod attachments;
 pub mod compactions;
 pub mod conversations;
 pub mod db;
 pub mod deletes;
+pub mod device_push;
 pub mod devices;
 mod error;
 pub mod events;

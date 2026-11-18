@@ -327,6 +327,7 @@ async fn queue_behind(
             last_command: compose.last_command.clone().map(LastCommand::into_string),
             recent_commands: compose.recent_commands.clone(),
             settings: compose.settings.clone(),
+            attachments: Vec::new(),
         });
         match client.call::<PromptSendResult>(method).await {
             Ok(result) => {
@@ -363,6 +364,7 @@ pub(crate) async fn send_prompt(
         last_command: prompt.last_command.map(LastCommand::into_string),
         recent_commands: prompt.recent_commands,
         settings: prompt.settings,
+        attachments: Vec::new(),
     });
     Ok(client.call(method).await?)
 }

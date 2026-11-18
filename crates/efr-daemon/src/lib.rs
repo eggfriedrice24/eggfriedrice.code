@@ -19,6 +19,7 @@
 //! as the turn loop, permission decisions, SQL, terminal emulation or the wire format.
 
 mod always;
+mod attachments;
 mod backups;
 mod catalog;
 mod catalogs;
@@ -44,6 +45,7 @@ mod loosens;
 mod malloc;
 mod methods;
 mod notices;
+mod owned_dir;
 mod pairing;
 mod presence;
 mod proc_view;
@@ -52,6 +54,7 @@ mod projects_file;
 mod prompt_file;
 mod providers;
 mod ptys;
+mod push;
 mod receipts;
 mod reconcile;
 mod reload;

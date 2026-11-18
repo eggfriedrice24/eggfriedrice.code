@@ -66,6 +66,7 @@ fn events() -> Vec<EventEnvelope> {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         envelope(
@@ -415,6 +416,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         )
     };
@@ -426,6 +428,7 @@ fn each_turn_shows_its_mode_model_and_effort_after_its_prompt() {
                 cwd: "/home/user".into(),
                 scope: Scope::Machine,
                 settings,
+                unread_attachments: Vec::new(),
             },
         )
     };
@@ -514,6 +517,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             cwd: "/home/user/project".into(),
             scope: Scope::Machine,
             settings: Some(settings),
+            unread_attachments: Vec::new(),
         },
         Event::ToolCallStarted {
             turn_id: turn(),
@@ -545,6 +549,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
         Event::ExitRequested {
             turn_id: turn(),
@@ -661,6 +666,7 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         },
         Event::PromptWithdrawn { turn_id: turn(), origin: Origin::Shell },
     ];
@@ -698,12 +704,14 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
         context: None,
         settings: TurnSettings::default(),
         steers,
+        attachments: Vec::new(),
     };
     let started = |turn_id| Event::TurnStarted {
         turn_id,
         cwd: "/home/user".into(),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     let answer = |turn_id, text: &str| Event::AssistantMessageCompleted {
         turn_id,
@@ -750,6 +758,7 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
         Event::TurnInterrupted {
             turn_id: first,
@@ -805,6 +814,7 @@ fn a_turn_that_started_before_the_page_comes_first() {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         envelope(
@@ -824,6 +834,7 @@ fn a_turn_that_started_before_the_page_comes_first() {
                 cwd: "/home/user".into(),
                 scope: Scope::Machine,
                 settings: None,
+                unread_attachments: Vec::new(),
             },
         ),
     ];
@@ -967,6 +978,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     let events = vec![
         // The freeform form: the input is the text.
@@ -1204,6 +1216,7 @@ fn compaction_events() -> Vec<EventEnvelope> {
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         },
         Event::ConversationCompacted(compaction(CompactionTrigger::Auto, 24_100)),
         Event::AssistantMessageCompleted {
@@ -1415,6 +1428,7 @@ fn history_shows_a_floor_refusal_in_one_row() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
@@ -1774,6 +1788,7 @@ fn job_events() -> Vec<EventEnvelope> {
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         },
         Event::ToolCallStarted {
             turn_id: turn(),
@@ -1818,6 +1833,7 @@ fn job_events() -> Vec<EventEnvelope> {
             cwd: PathBuf::from("/home/user/project"),
             scope: Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         },
     ];
     events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
@@ -2179,6 +2195,7 @@ fn two_turns() -> ConversationHistoryResult {
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         };
         let settings = EffectiveSettings {
             mode: Mode::Cautious,
@@ -2195,6 +2212,7 @@ fn two_turns() -> ConversationHistoryResult {
             cwd: "/home/u/p/app".into(),
             scope: Scope::Machine,
             settings: Some(settings),
+            unread_attachments: Vec::new(),
         };
         for event in [queued, started] {
             let seq = u64::try_from(events.len()).unwrap() + 1;
@@ -2296,6 +2314,7 @@ fn first_turn_with_calls() -> ConversationHistoryResult {
             changes,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         }
     };
     let turn_rs = efr_protocol::FileChange {
@@ -2321,6 +2340,7 @@ fn first_turn_with_calls() -> ConversationHistoryResult {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         (
@@ -2339,6 +2359,7 @@ fn first_turn_with_calls() -> ConversationHistoryResult {
                     fallback: None,
                     default_effort: None,
                 }),
+                unread_attachments: Vec::new(),
             },
         ),
         ("14:31:05", started(1, "shell", json!({ "command": "cargo test -p efr-daemon steer" }))),
@@ -2466,6 +2487,7 @@ fn commands_4() -> ConversationHistoryResult {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     let side = |provider: &str, model: &str, effort: Option<&str>, default: Option<&str>| {
         efr_protocol::SwitchedModel {
@@ -2489,6 +2511,7 @@ fn commands_4() -> ConversationHistoryResult {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         (
@@ -2507,6 +2530,7 @@ fn commands_4() -> ConversationHistoryResult {
                     overridden: OverriddenSettings::default(),
                     fallback: None,
                 }),
+                unread_attachments: Vec::new(),
             },
         ),
         (
@@ -2631,6 +2655,7 @@ fn the_question_of_the_model_shows_its_options_and_its_answer() {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();

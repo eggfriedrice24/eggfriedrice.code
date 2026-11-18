@@ -1,0 +1,6 @@
+{
+  "method": "device.push_set",
+  "params": {
+    "token": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"
+  }
+}

@@ -1,0 +1,129 @@
+[
+  {
+    "id": "a1",
+    "name": "shot.png",
+    "media_type": "image/png",
+    "bytes": 2180000,
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "kind": {
+      "kind": "image",
+      "width": 3840,
+      "height": 2160
+    },
+    "origin": {
+      "kind": "path",
+      "path": "/home/me/Pictures/shot.png"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a1-shot.png",
+    "sent": {
+      "media_type": "image/jpeg",
+      "bytes": 412000,
+      "width": 2000,
+      "height": 1125
+    }
+  },
+  {
+    "id": "a2",
+    "name": "report.pdf",
+    "media_type": "application/pdf",
+    "bytes": 310000,
+    "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "kind": {
+      "kind": "pdf",
+      "pages": 12
+    },
+    "origin": {
+      "kind": "phone"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a2-report.pdf",
+    "sent": {
+      "media_type": "application/pdf",
+      "bytes": 310000
+    }
+  },
+  {
+    "id": "a3",
+    "name": "paste-1.txt",
+    "media_type": "text/plain",
+    "bytes": 18000,
+    "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+    "kind": {
+      "kind": "text"
+    },
+    "origin": {
+      "kind": "clipboard"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a3-paste-1.txt"
+  },
+  {
+    "id": "a4",
+    "name": "plot.png",
+    "media_type": "image/png",
+    "bytes": 48000,
+    "sha256": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+    "kind": {
+      "kind": "image",
+      "width": 800,
+      "height": 600
+    },
+    "origin": {
+      "kind": "tool",
+      "path": "/home/me/p/app/plot.png"
+    },
+    "sent": {
+      "media_type": "image/png",
+      "bytes": 48000,
+      "width": 800,
+      "height": 600
+    }
+  },
+  {
+    "id": "a5",
+    "name": "scan.pdf",
+    "media_type": "application/pdf",
+    "bytes": 6400000,
+    "sha256": "baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096",
+    "kind": {
+      "kind": "pdf"
+    },
+    "origin": {
+      "kind": "phone"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a5-scan.pdf"
+  },
+  {
+    "id": "a6",
+    "name": "data.bin",
+    "media_type": "application/octet-stream",
+    "bytes": 1024,
+    "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+    "kind": {
+      "kind": "other"
+    },
+    "origin": {
+      "kind": "unknown"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a6-data.bin"
+  },
+  {
+    "id": "a1",
+    "name": "shot.png",
+    "media_type": "image/png",
+    "bytes": 2180000,
+    "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "kind": {
+      "kind": "unknown"
+    },
+    "origin": {
+      "kind": "path",
+      "path": "/home/me/Pictures/shot.png"
+    },
+    "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a1-shot.png",
+    "sent": {
+      "media_type": "image/jpeg",
+      "bytes": 412000,
+      "width": 2000,
+      "height": 1125
+    }
+  }
+]

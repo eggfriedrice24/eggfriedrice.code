@@ -330,11 +330,6 @@ enum Block {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
-    Image {
-        source: ImageSource,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cache_control: Option<CacheControl>,
-    },
     ToolUse {
         id: String,
         name: String,
@@ -349,14 +344,6 @@ enum Block {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ImageSource {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    media_type: String,
-    data: String,
 }
 
 /// The body for `request` under `config`. `model` is what the catalog and the config
@@ -576,9 +563,7 @@ impl BodyMessage {
         };
         match parts.last_mut()? {
             Part::Block(
-                Block::Text { cache_control, .. }
-                | Block::Image { cache_control, .. }
-                | Block::ToolResult { cache_control, .. },
+                Block::Text { cache_control, .. } | Block::ToolResult { cache_control, .. },
             ) => {
                 *cache_control = control;
                 Some(())
@@ -824,7 +809,7 @@ fn user_draft(message: &Message) -> Draft {
     let mut draft = Draft::new(Role::User);
     for block in &message.content {
         match block {
-            ContentBlock::ToolResult { call_id, output, is_error } => {
+            ContentBlock::ToolResult { call_id, output, is_error, .. } => {
                 let id = tool_id(call_id);
                 draft.answers.push(id.clone());
                 draft.results.push(Part::Block(Block::ToolResult {
@@ -835,20 +820,6 @@ fn user_draft(message: &Message) -> Draft {
                 }));
             }
             ContentBlock::Text { text } => push_text(&mut draft, text),
-            ContentBlock::Image { media_type, data } => {
-                // The canonical form already serialises as standard base64.
-                match serde_json::to_value(data) {
-                    Ok(Value::String(data)) => draft.rest.push(Part::Block(Block::Image {
-                        source: ImageSource {
-                            kind: "base64",
-                            media_type: media_type.clone(),
-                            data,
-                        },
-                        cache_control: None,
-                    })),
-                    _ => tracing::debug!("an image whose bytes did not encode; left out"),
-                }
-            }
             _ => tracing::debug!("a block that a user message cannot carry; left out"),
         }
     }

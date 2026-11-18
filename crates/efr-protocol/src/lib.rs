@@ -25,6 +25,7 @@
 #![warn(missing_docs)]
 
 mod accounts;
+mod attachment;
 mod capabilities;
 mod changes;
 mod compaction;
@@ -59,6 +60,11 @@ pub use accounts::{
     AccountLimits, AccountOut, AccountState, LimitKind, LimitReached, LimitWindow, OtherAccount,
     OthersFull,
 };
+pub use attachment::{
+    Attachment, AttachmentId, AttachmentKind, AttachmentLimits, AttachmentOrigin, CHUNK_BYTES,
+    KEPT_EXTENSION_BYTES, MAX_OPEN_UPLOADS, NAME_MAX_BYTES, SentForm, UPLOAD_TTL, UploadId,
+    UploadInfo, WithheldReason, fit_name,
+};
 pub use capabilities::Capabilities;
 pub use changes::{
     ChangeKind, FileChange, FileChanges, MAX_CALL_DIFF_LINES, MAX_LISTED_FILES, MAX_TURN_DIFF_LINES,
@@ -86,12 +92,17 @@ pub use methods::admin_login_openai::{AdminLoginOpenAi, AdminLoginOpenAiItem};
 pub use methods::admin_logout::{AdminLogout, AdminLogoutResult};
 pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
 pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
+pub use methods::admin_push_test::{
+    AdminPushTest, AdminPushTestResult, PushTestResult, PushTestRow,
+};
 pub use methods::admin_sandbox_check::{AdminSandboxCheck, AdminSandboxCheckResult};
 pub use methods::admin_status::{
     AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, FullModeStatus, HeldConfig,
     LoginKind, ProviderStatus, RootDir, RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
+pub use methods::attachment_discard::{AttachmentDiscard, AttachmentDiscardResult};
+pub use methods::attachment_put::{AttachmentPut, AttachmentPutResult};
 pub use methods::call_background::{CallBackground, CallBackgroundResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
 pub use methods::conversation_context::{
@@ -126,6 +137,9 @@ pub use methods::device_list::{DeviceList, DeviceListResult};
 pub use methods::device_pair_confirm::{DevicePairConfirm, DevicePairConfirmResult};
 pub use methods::device_pair_start::{DevicePairStart, DevicePairStartItem};
 pub use methods::device_prove::{DeviceProve, DeviceProveResult};
+pub use methods::device_push_set::{
+    DevicePushSet, DevicePushSetResult, EXPO_TOKEN_MAX_INSIDE, is_expo_push_token,
+};
 pub use methods::device_revoke::{DeviceRevoke, DeviceRevokeResult};
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};
@@ -139,7 +153,7 @@ pub use methods::models_list::{
 };
 pub use methods::presence_set::{PresenceSet, PresenceSetResult};
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
-pub use methods::prompt_send::{PromptSend, PromptSendResult, RecentCommand};
+pub use methods::prompt_send::{MissingUploads, PromptSend, PromptSendResult, RecentCommand};
 pub use methods::prompt_withdraw::{
     PromptWithdraw, PromptWithdrawResult, WithdrawTarget, WithdrawnPrompt,
 };

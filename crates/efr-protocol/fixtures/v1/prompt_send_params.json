@@ -41,6 +41,9 @@
       "model": "gpt-5.4",
       "provider": "openai-api",
       "effort": "high"
-    }
+    },
+    "attachments": [
+      "019a9b1c-3d00-7a10-8b20-00000000000a"
+    ]
   }
 }

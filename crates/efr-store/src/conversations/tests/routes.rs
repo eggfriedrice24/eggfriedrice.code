@@ -45,6 +45,7 @@ fn queued_from(turn: u64, tty: Option<&str>, pid: Option<u32>) -> Event {
         context: Some(context),
         settings: TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -207,6 +208,7 @@ async fn turn_started_fills_a_missing_route() {
         cwd: "/srv/app".into(),
         scope: Scope::Project(project(1)),
         settings: None,
+        unread_attachments: Vec::new(),
     };
     writer
         .append(
@@ -243,6 +245,7 @@ async fn newest_of_route_skips_a_conversation_that_no_terminal_held() {
         cwd: "/srv/app".into(),
         scope: Scope::Project(project(1)),
         settings: None,
+        unread_attachments: Vec::new(),
     };
     writer
         .append(

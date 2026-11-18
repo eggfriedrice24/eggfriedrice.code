@@ -232,6 +232,7 @@ impl Script {
             context: None,
             settings: TurnSettings::default(),
             steers,
+            attachments: Vec::new(),
         };
         self.push(events, queued);
         let model = if self.fact(50) { "m" } else { "n" };
@@ -246,7 +247,13 @@ impl Script {
             default_effort: None,
         });
         let cwd = PathBuf::from(format!("/home/u/cwd{}", self.facts.next_u64() % 3));
-        let started = Event::TurnStarted { turn_id: t, cwd, scope: Scope::Machine, settings };
+        let started = Event::TurnStarted {
+            turn_id: t,
+            cwd,
+            scope: Scope::Machine,
+            settings,
+            unread_attachments: Vec::new(),
+        };
         self.push(events, started);
     }
 

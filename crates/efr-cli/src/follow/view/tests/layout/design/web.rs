@@ -56,6 +56,7 @@ fn play_of(turn_id: TurnId, depth: Depth, cols: u16) -> Play {
         cwd: PathBuf::from("/home/user"),
         scope: Scope::Machine,
         settings: Some(settings),
+        unread_attachments: Vec::new(),
     };
     play.event(0, started);
     play

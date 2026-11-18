@@ -302,6 +302,7 @@ fn the_row_sticks_to_what_follows_it_and_the_blank_line_goes_above_it() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     view.envelope(&sent(14, 2_800, done), size, false);
     let (lines, _) = frame(&mut view, &mut grid, size, 2_800);

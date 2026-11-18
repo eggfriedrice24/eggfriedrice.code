@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CommandId, ConversationId, EffectiveSettings, Routed, Seq, ShellContext, TurnId, TurnSettings,
+    UploadId,
 };
 
 /// The params of `prompt.send`.
@@ -51,6 +52,23 @@ pub struct PromptSend {
     /// the rest. Absent means none, as from a client older than turn settings.
     #[serde(default, skip_serializing_if = "TurnSettings::is_empty")]
     pub settings: TurnSettings,
+    /// The finished uploads (`attachment.put`) that go with the prompt, in their order.
+    /// The text must still hold text. A client sends them only when `hello` gave the
+    /// capability `attachments`: an older daemon drops the member with no error. When
+    /// one is not a finished upload of this connection or device, efrd answers
+    /// `not_found` with `data.missing_uploads`, records no receipt, and the client
+    /// uploads those files again and sends again with the same command id. Absent
+    /// means none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<UploadId>,
+}
+
+/// The `data` of the `not_found` error of a `prompt.send` whose uploads are missing:
+/// `{"missing_uploads": [...]}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MissingUploads {
+    /// The uploads of the prompt that efrd does not have, in the order of the prompt.
+    pub missing_uploads: Vec<UploadId>,
 }
 
 impl fmt::Debug for PromptSend {
@@ -64,6 +82,7 @@ impl fmt::Debug for PromptSend {
             .field("text", &self.text)
             .field("context", &self.context)
             .field("settings", &self.settings)
+            .field("attachments", &self.attachments)
             .finish_non_exhaustive()
     }
 }

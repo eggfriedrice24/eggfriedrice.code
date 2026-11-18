@@ -33,6 +33,7 @@
 
 mod client;
 mod error;
+mod expo_push;
 mod json_lines;
 mod localapi;
 mod recorder;

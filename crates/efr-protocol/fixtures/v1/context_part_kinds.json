@@ -9,5 +9,6 @@
   "tool_calls",
   "tool_outputs",
   "pruned",
+  "attachments",
   "unknown"
 ]

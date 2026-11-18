@@ -101,6 +101,7 @@ async fn a_steer_after_an_interrupt_is_never_recorded_and_can_become_a_prompt() 
             context: Some(ShellContext::new(&h.cwd)),
             settings: Default::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         }
     );
     h.finish();
@@ -413,6 +414,7 @@ async fn an_interrupt_hands_back_steers_and_prompts_in_one_append() {
                 context: Some(ShellContext::new(&h.cwd)),
                 settings: Default::default(),
                 steers: vec![a.seq, b.seq],
+                attachments: Vec::new(),
             },
         ]
     );
@@ -583,6 +585,7 @@ async fn an_interrupt_takes_back_unread_steers_and_resends_with_the_values_it_na
                 context: Some(context),
                 settings,
                 steers: vec![b.seq],
+                attachments: Vec::new(),
             },
         ]
     );

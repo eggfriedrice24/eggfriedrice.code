@@ -11,14 +11,14 @@ use serde_json::{Map, Value};
 
 use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
-    AccountOut, AttachHow, Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction,
-    ContextUse, ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState,
-    JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId,
-    QuestionId, QuestionOption, RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope,
-    Seq, ShellContext, SnapshotPhase, StoredCopyReason, SurfaceChange, SwitchedModel, TurnId,
-    TurnSettings, TurnUndoInfo, UndoId, UserAnswer, UserAuthorization, Verdict, WebAction,
-    WebError, WebResult, WebSource,
+    AccountOut, AttachHow, Attachment, AttachmentId, Blocked, BusRefusal, CallId, ChainStep,
+    CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings, ErrorBody, ExitInfo,
+    ExitKind, ExitRecord, ExitSource, FileChanges, ForwardOutcome, Grant, HeldReason, JobId,
+    JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence,
+    PresenceSource, PtyId, QuestionId, QuestionOption, RefChange, ReportedFile, Risk, RouteScope,
+    SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase, StoredCopyReason, SurfaceChange,
+    SwitchedModel, TurnId, TurnSettings, TurnUndoInfo, UndoId, UserAnswer, UserAuthorization,
+    Verdict, WebAction, WebError, WebResult, WebSource, WithheldReason,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -104,6 +104,10 @@ pub enum Event {
         /// Absent means none.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         steers: Vec<Seq>,
+        /// The files that go with the prompt, in their order: metadata only, never
+        /// the bytes. Absent means none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<Attachment>,
     },
 
     /// A waiting prompt was taken out of the queue (`prompt.withdraw`, or
@@ -137,6 +141,12 @@ pub enum Event {
         /// before turn settings, whose model and effort no event names.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         settings: Option<EffectiveSettings>,
+        /// The attachments of the turn's prompt that its model gets only as a label
+        /// with their path, not as content, such as an image for a model that reads
+        /// no images. A fact of this turn: another model can read them in a later
+        /// turn. Absent means none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unread_attachments: Vec<AttachmentId>,
     },
 
     /// The turn runs on another model, or on another provider, than the turn before it:
@@ -303,6 +313,10 @@ pub enum Event {
         /// the command still runs, not that it ended. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         left_running: bool,
+        /// The images that the call gave the model, such as the image file that
+        /// `read_file` read: metadata only, never the bytes. Absent means none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachments: Vec<Attachment>,
     },
 
     /// The provider began a step of its web tool for the model: a search, the opening
@@ -1182,6 +1196,21 @@ pub enum Event {
         how: ShellCommandEnd,
     },
 
+    /// From this event on, each request of the conversation sends these attachments
+    /// only as a label with their path, for every model, and the history rebuild does
+    /// the same. Recorded before the model call that needs it: for the budget of a
+    /// request, or after a provider refused a request that held them. Attach a file
+    /// again for a new try.
+    AttachmentsWithheld {
+        /// The turn that recorded it. Absent when no turn did.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<TurnId>,
+        /// The attachments, in the order of the conversation.
+        attachments: Vec<AttachmentId>,
+        /// Why.
+        reason: WithheldReason,
+    },
+
     /// The user deleted the conversation (`conversation.delete`). It is the last event
     /// of the conversation and the only one that stays in the log: efrd removes every
     /// other event of the conversation after it, and the store refuses each later
@@ -1265,6 +1294,7 @@ impl Event {
             | Event::JobStarted { turn_id, .. }
             | Event::JobNotice { turn_id, .. } => Some(*turn_id),
             Event::ConversationCompacted(compaction) => compaction.turn_id,
+            Event::AttachmentsWithheld { turn_id, .. } => *turn_id,
             // NOTE: an undo runs between turns; a view that follows a turn must not end
             // or show it as part of the undone turn.
             Event::UndoApplied { .. }

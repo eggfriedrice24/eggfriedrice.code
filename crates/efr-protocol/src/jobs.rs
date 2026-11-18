@@ -7,103 +7,23 @@
 //! here reads a value that this build does not know as its `Unknown` variant, so an old
 //! client keeps working with a newer daemon.
 
-use std::borrow::Cow;
-use std::fmt;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use jiff::Timestamp;
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::de::{self, Deserializer};
-use serde::{Deserialize, Serialize, Serializer};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
-use crate::{CallId, ConversationId, ExitInfo, Launch, ProtocolError, TurnId};
+use crate::ids::numbered_id;
+use crate::{CallId, ConversationId, ExitInfo, Launch, TurnId};
 
-/// The id of a job: `j1`, `j2`, ... in the order in which the jobs of one conversation
-/// started. Ids repeat across conversations, so a job is named by its conversation and
-/// its id.
-///
-/// On the wire a string. A string that is not `j` and a number from 1 to 999999999
-/// without a leading zero is refused.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct JobId(String);
-
-impl JobId {
-    /// The largest job number.
-    pub const MAX_NUMBER: u32 = 999_999_999;
-
-    /// The id of the `n`th job of a conversation, `j{n}`. `n` is at least 1 and at most
-    /// [`MAX_NUMBER`](Self::MAX_NUMBER); a value outside takes the nearest end.
-    pub fn nth(n: u32) -> JobId {
-        JobId(format!("j{}", n.clamp(1, Self::MAX_NUMBER)))
-    }
-
-    /// The number of the job, such as 3 for `j3`.
-    pub fn number(&self) -> Option<u32> {
-        self.0.strip_prefix('j').and_then(|digits| digits.parse().ok())
-    }
-
-    /// The id as text, such as `j3`.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// True when `text` is a job id: `j`, then a digit from 1 to 9, then at most eight
-    /// digits.
-    fn valid(text: &str) -> bool {
-        let Some(digits) = text.strip_prefix('j') else {
-            return false;
-        };
-        (1..=9).contains(&digits.len())
-            && digits.bytes().all(|byte| byte.is_ascii_digit())
-            && !digits.starts_with('0')
-    }
-}
-
-impl fmt::Display for JobId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl FromStr for JobId {
-    type Err = ProtocolError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        if JobId::valid(text) {
-            Ok(JobId(text.to_owned()))
-        } else {
-            Err(ProtocolError::InvalidJobId { value: text.to_owned() })
-        }
-    }
-}
-
-impl Serialize for JobId {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for JobId {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        text.parse().map_err(de::Error::custom)
-    }
-}
-
-impl JsonSchema for JobId {
-    fn schema_name() -> Cow<'static, str> {
-        "JobId".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "type": "string",
-            "pattern": "^j[1-9][0-9]{0,8}$",
-            "description": "The id of a job of one conversation, such as j3."
-        })
-    }
-}
+numbered_id!(
+    /// The id of a job: `j1`, `j2`, ... in the order in which the jobs of one
+    /// conversation started.
+    JobId,
+    "j",
+    "job",
+    "a job"
+);
 
 /// Where a job is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

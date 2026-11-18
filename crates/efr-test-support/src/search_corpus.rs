@@ -285,12 +285,14 @@ impl SearchCorpus {
             context: Some(ShellContext::new(&cwd)),
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         });
         events.push(Event::TurnStarted {
             turn_id,
             cwd: cwd.clone().into(),
             scope: Scope::Path(cwd.into()),
             settings: None,
+            unread_attachments: Vec::new(),
         });
         let mut calls = 0;
         for index in 0..3u32 {
@@ -370,6 +372,7 @@ fn tool_call_completed(turn_id: TurnId, call_id: CallId, output: String) -> Even
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

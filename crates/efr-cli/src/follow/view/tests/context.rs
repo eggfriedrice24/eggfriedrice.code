@@ -61,6 +61,7 @@ fn turn_started() -> Event {
         cwd: PathBuf::from("/home/user/project"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -290,6 +291,7 @@ fn started_on(settings: Option<EffectiveSettings>) -> Event {
         cwd: PathBuf::from("/home/user/app"),
         scope: Scope::Machine,
         settings,
+        unread_attachments: Vec::new(),
     }
 }
 

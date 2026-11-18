@@ -96,7 +96,7 @@ impl<'a> Offer<'a> {
                     self.calls.insert(call_id.clone(), name.clone());
                     unoffered_call_text(call_id, name, input)
                 }
-                ContentBlock::ToolResult { call_id, output, is_error } => {
+                ContentBlock::ToolResult { call_id, output, is_error, .. } => {
                     match self.calls.get(call_id) {
                         Some(name) => unoffered_result_text(call_id, name, output, *is_error),
                         None => continue,

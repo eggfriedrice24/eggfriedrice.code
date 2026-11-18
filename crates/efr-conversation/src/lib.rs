@@ -23,6 +23,8 @@
 //!   after an overflow (`turn/compact.rs`); [`ConversationHandle::compact`] compacts
 //!   between turns. Pruning, the cut, the summary request and its prompt are in
 //!   `compaction.rs`, the fresh context block in `fresh.rs`.
+//! - [`Attachments`] ([`NoAttachments`]): the store of the files of the prompts and the
+//!   images of the tools, which the daemon implements (ADR 0026).
 //! - [`Toolbox`] ([`ToolCall`], [`CallContext`], [`ToolOutcome`], [`OutputSink`]): the
 //!   tools as a conversation sees them; the daemon implements it over
 //!   `efr_tools::ToolRegistry`. A call reports the floor files that it changed with
@@ -73,6 +75,7 @@
 mod actor;
 mod approvals;
 mod ask;
+mod attachments;
 mod compaction;
 mod config;
 mod context;
@@ -106,6 +109,7 @@ mod web;
 pub use actor::{
     ConversationActor, ConversationHandle, ConversationState, PromptRouting, completed_result,
 };
+pub use attachments::{Attachments, NoAttachments};
 pub use config::{
     AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart,
     ForeignDefault, HostInfo,

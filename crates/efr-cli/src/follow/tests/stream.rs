@@ -318,6 +318,7 @@ fn turn_started() -> Event {
         cwd: std::path::PathBuf::from("/home/user/project"),
         scope: efr_protocol::Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 

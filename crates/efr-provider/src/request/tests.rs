@@ -48,6 +48,7 @@ fn a_full_request_round_trips_with_raw_items_intact() {
                 call_id: "call_1".to_owned(),
                 output: "Cargo.toml\n".to_owned(),
                 is_error: false,
+                attachments: Vec::new(),
             }],
         ),
     ];

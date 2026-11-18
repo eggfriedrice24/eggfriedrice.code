@@ -62,13 +62,12 @@ fn call(call_id: &str, name: &str, input: Value) -> ContentBlock {
 }
 
 fn result(call_id: &str, output: &str, is_error: bool) -> ContentBlock {
-    ContentBlock::ToolResult { call_id: call_id.to_owned(), output: output.to_owned(), is_error }
-}
-
-/// An image block, read from its wire form so the test needs no byte type.
-fn image(media_type: &str, base64: &str) -> ContentBlock {
-    serde_json::from_value(json!({"kind": "image", "media_type": media_type, "data": base64}))
-        .unwrap()
+    ContentBlock::ToolResult {
+        call_id: call_id.to_owned(),
+        output: output.to_owned(),
+        is_error,
+        attachments: Vec::new(),
+    }
 }
 
 #[test]
@@ -308,25 +307,6 @@ fn an_empty_system_prompt_sends_no_instructions() {
 }
 
 #[test]
-fn user_text_and_images_form_one_message() {
-    let message = Message::new(
-        Role::User,
-        vec![text("What is on this screen?"), image("image/png", "iVBORw==")],
-    );
-    assert_eq!(
-        input_items(&[message], true, false, |_| true),
-        vec![json!({
-            "type": "message",
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": "What is on this screen?"},
-                {"type": "input_image", "image_url": "data:image/png;base64,iVBORw=="},
-            ],
-        })]
-    );
-}
-
-#[test]
 fn an_assistant_message_without_raw_items_is_rebuilt_in_order() {
     let message = Message::new(
         Role::Assistant,
@@ -335,7 +315,6 @@ fn an_assistant_message_without_raw_items_is_rebuilt_in_order() {
             text("Listing the files."),
             call("call_1", "shell", json!({"command": "ls"})),
             call("call_2", "shell", Value::String("{\"command\": \"ls".to_owned())),
-            image("image/png", "iVBORw=="),
         ],
     );
     assert_eq!(

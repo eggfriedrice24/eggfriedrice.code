@@ -113,6 +113,9 @@ pub enum ContextPartKind {
     ToolOutputs,
     /// The tool outputs that a compaction replaced with a short stub.
     Pruned,
+    /// The files of the prompts and the images of the tool calls, as the model gets
+    /// them: as content, or as a label with the path.
+    Attachments,
     /// A kind that this build does not know.
     #[serde(other)]
     Unknown,
@@ -120,7 +123,7 @@ pub enum ContextPartKind {
 
 impl ContextPartKind {
     /// Every kind, in the order of the enum.
-    pub const ALL: [ContextPartKind; 11] = [
+    pub const ALL: [ContextPartKind; 12] = [
         ContextPartKind::System,
         ContextPartKind::Tools,
         ContextPartKind::Summary,
@@ -131,6 +134,7 @@ impl ContextPartKind {
         ContextPartKind::ToolCalls,
         ContextPartKind::ToolOutputs,
         ContextPartKind::Pruned,
+        ContextPartKind::Attachments,
         ContextPartKind::Unknown,
     ];
 }

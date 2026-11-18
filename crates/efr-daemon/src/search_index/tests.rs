@@ -90,6 +90,7 @@ impl Log {
             context: Some(ShellContext::new("/srv/p")),
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         });
         (turn, events)
     }
@@ -139,6 +140,7 @@ fn start_event(turn: Turn) -> Event {
         cwd: "/srv/p".into(),
         scope: Scope::Path("/srv/p".into()),
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 

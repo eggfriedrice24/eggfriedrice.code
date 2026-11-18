@@ -19,52 +19,55 @@ use crate::{
     AccountLimits, AccountOut, AccountState, ActionFacts, AdminConfigReload,
     AdminConfigReloadResult, AdminLoginApiKey, AdminLoginApiKeyResult, AdminLoginOpenAi,
     AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult, AdminProjectAdd, AdminProjectAddResult,
-    AdminProjectRemove, AdminProjectRemoveResult, AdminSandboxCheck, AdminSandboxCheckResult,
-    AdminStatus, AdminStatusResult, AlwaysSaved, ApprovalDecision, ApprovalRespond,
-    ApprovalRespondResult, ApprovedBy, AttachHow, Attention, Base64Bytes, BlockReason, Blocked,
-    BusKind, BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary, CallBackground,
-    CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep,
-    ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction, CompactionBrief,
-    CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError, ConfigStatus, ContextItem,
-    ContextPart, ContextPartKind, ContextUse, ConversationCompact, ConversationCompactResult,
-    ConversationContext, ConversationContextResult, ConversationDelete, ConversationDeleteResult,
-    ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
-    ConversationId, ConversationResume, ConversationResumeResult, ConversationSearch,
-    ConversationSearchResult, ConversationSnapshot, ConversationStatus, ConversationSubscribe,
-    ConversationSubscribeItem, ConversationSummary, ConversationSwitchPreview,
-    ConversationSwitchPreviewResult, ConversationsList, ConversationsListResult,
-    ConversationsRecent, ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult,
-    ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor, DaemonId, DaemonPaths,
-    DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult, DeviceId, DeviceInfo,
-    DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult, DevicePairStart,
-    DevicePairStartItem, DeviceProve, DeviceProveResult, DeviceRevoke, DeviceRevokeResult, Draft,
-    DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo,
-    ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus,
-    FullRefusal, GitCounts, Grant, HeldConfig, HeldReason, Hello, HelloResult, HostFact,
-    InputRespond, InputRespondResult, InputWait, JobCgroup, JobId, JobInfo, JobState, JobStopBy,
-    JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch,
-    LeaseReport, LeaseReportResult, LimitKind, LimitReached, LimitWindow, LiveTurn, LoginKind,
-    Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall,
-    NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin, OtherAccount, OthersFull,
-    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName,
-    PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource,
-    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProveContext, ProveMessage,
-    ProviderStatus, ProviderWarm, ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, QuestionOption, QuestionReply,
+    AdminProjectRemove, AdminProjectRemoveResult, AdminPushTest, AdminPushTestResult,
+    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ApprovedBy, AttachHow, Attachment,
+    AttachmentDiscard, AttachmentDiscardResult, AttachmentId, AttachmentKind, AttachmentLimits,
+    AttachmentOrigin, AttachmentPut, AttachmentPutResult, Attention, Base64Bytes, BlockReason,
+    Blocked, BusKind, BusProxyOff, BusRefusal, BusyShell, CHUNK_BYTES, CacheMode, CacheSummary,
+    CallBackground, CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell,
+    ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction,
+    CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError,
+    ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse, ConversationCompact,
+    ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDelete,
+    ConversationDeleteResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
+    ConversationHistoryResult, ConversationId, ConversationResume, ConversationResumeResult,
+    ConversationSearch, ConversationSearchResult, ConversationSnapshot, ConversationStatus,
+    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
+    ConversationSwitchPreview, ConversationSwitchPreviewResult, ConversationsList,
+    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
+    ConversationsSearchResult, ConversationsWatch, ConversationsWatchItem, CountedUse, Cursor,
+    DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceEnroll, DeviceEnrollResult,
+    DeviceId, DeviceInfo, DeviceList, DeviceListResult, DevicePairConfirm, DevicePairConfirmResult,
+    DevicePairStart, DevicePairStartItem, DeviceProve, DeviceProveResult, DevicePushSet,
+    DevicePushSetResult, DeviceRevoke, DeviceRevokeResult, Draft, DraftPart, EffectiveSettings,
+    ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
+    ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus, FullRefusal, GitCounts,
+    Grant, HeldConfig, HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult,
+    InputWait, JobCgroup, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop,
+    JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult,
+    LimitKind, LimitReached, LimitWindow, LiveTurn, LoginKind, Method, MissingUploads, Mode,
+    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, MovedCall, NetworkMode,
+    NewReason, NotSavedReason, NoticeKind, Origin, OtherAccount, OthersFull, OverriddenSettings,
+    PROTOCOL_VERSION, PageCursor, PairEnd, PairingId, PairingQr, PathClassName, PauseReason,
+    PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId,
+    ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProveContext, ProveMessage, ProviderStatus, ProviderWarm,
+    ProviderWarmResult, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
+    PtyWriteResult, PushTestResult, PushTestRow, QuestionId, QuestionOption, QuestionReply,
     QuestionRespond, QuestionRespondResult, RecentCommand, RecentConversation, RefChange, RepoHint,
     ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
     RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
     SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SearchHit, SearchIndexState,
-    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats, SecretText, SentForm, Seq,
+    ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
     ShellStatusResult, Size, SnapshotPhase, StopReason, StoredCopyReason, SurfaceChange, Switch,
     SwitchCost, SwitchedModel, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
     TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
-    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAnswer,
-    UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult, WebSource, WithdrawTarget,
-    WithdrawnPrompt, WithdrawnSteer,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, UploadId, UploadInfo,
+    Usage, UserAnswer, UserAuthorization, Verdict, Watch, WebAction, WebError, WebResult,
+    WebSource, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer, WithheldReason,
 };
 
 /// The directory of the frozen fixtures.
@@ -660,6 +663,121 @@ fn question_id() -> QuestionId {
     parse("019a9b1c-3d00-7a10-8b20-000000000009")
 }
 
+fn upload_id() -> UploadId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000a")
+}
+
+/// The limits of the capability `attachments`: the defaults of `[attachments]`.
+fn attachment_limits() -> AttachmentLimits {
+    AttachmentLimits {
+        max_file_bytes: 20 * 1024 * 1024,
+        max_per_message: 10,
+        chunk_bytes: CHUNK_BYTES,
+        max_edge_px: 2000,
+    }
+}
+
+/// A screenshot that the user attached with `@path`, made smaller for the model.
+fn image_attachment() -> Attachment {
+    Attachment {
+        id: AttachmentId::nth(1),
+        name: "shot.png".into(),
+        media_type: "image/png".into(),
+        bytes: 2_180_000,
+        sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
+        kind: AttachmentKind::Image { width: 3840, height: 2160 },
+        origin: AttachmentOrigin::Path { path: "/home/me/Pictures/shot.png".into() },
+        copy: Some(
+            "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a1-shot.png".into(),
+        ),
+        sent: Some(SentForm {
+            media_type: "image/jpeg".into(),
+            bytes: 412_000,
+            width: Some(2000),
+            height: Some(1125),
+        }),
+    }
+}
+
+/// An image that the model read with `read_file`: no copy.
+fn tool_attachment() -> Attachment {
+    Attachment {
+        id: AttachmentId::nth(4),
+        name: "plot.png".into(),
+        media_type: "image/png".into(),
+        bytes: 48_000,
+        sha256: "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752".into(),
+        kind: AttachmentKind::Image { width: 800, height: 600 },
+        origin: AttachmentOrigin::Tool { path: "/home/me/p/app/plot.png".into() },
+        copy: None,
+        sent: Some(SentForm {
+            media_type: "image/png".into(),
+            bytes: 48_000,
+            width: Some(800),
+            height: Some(600),
+        }),
+    }
+}
+
+/// One attachment of each kind and each origin, for `attachments.json`.
+fn attachment_samples() -> Vec<Attachment> {
+    let scratch = "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments";
+    vec![
+        image_attachment(),
+        Attachment {
+            id: AttachmentId::nth(2),
+            name: "report.pdf".into(),
+            media_type: "application/pdf".into(),
+            bytes: 310_000,
+            sha256: "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae".into(),
+            kind: AttachmentKind::Pdf { pages: Some(12) },
+            origin: AttachmentOrigin::Phone,
+            copy: Some(format!("{scratch}/a2-report.pdf").into()),
+            sent: Some(SentForm {
+                media_type: "application/pdf".into(),
+                bytes: 310_000,
+                width: None,
+                height: None,
+            }),
+        },
+        Attachment {
+            id: AttachmentId::nth(3),
+            name: "paste-1.txt".into(),
+            media_type: "text/plain".into(),
+            bytes: 18_000,
+            sha256: "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9".into(),
+            kind: AttachmentKind::Text,
+            origin: AttachmentOrigin::Clipboard,
+            copy: Some(format!("{scratch}/a3-paste-1.txt").into()),
+            sent: None,
+        },
+        tool_attachment(),
+        Attachment {
+            id: AttachmentId::nth(5),
+            name: "scan.pdf".into(),
+            media_type: "application/pdf".into(),
+            bytes: 6_400_000,
+            sha256: "baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096".into(),
+            kind: AttachmentKind::Pdf { pages: None },
+            origin: AttachmentOrigin::Phone,
+            copy: Some(format!("{scratch}/a5-scan.pdf").into()),
+            sent: None,
+        },
+        Attachment {
+            id: AttachmentId::nth(6),
+            name: "data.bin".into(),
+            media_type: "application/octet-stream".into(),
+            bytes: 1_024,
+            sha256: "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9".into(),
+            kind: AttachmentKind::Other,
+            origin: AttachmentOrigin::Unknown,
+            copy: Some(format!("{scratch}/a6-data.bin").into()),
+            sent: None,
+        },
+        Attachment { kind: AttachmentKind::Unknown, ..image_attachment() },
+    ]
+}
+
 fn at(text: &str) -> Timestamp {
     parse(text)
 }
@@ -1057,6 +1175,8 @@ pub(crate) fn method_samples() -> Vec<Method> {
                 device_prove: None,
                 conversations_watch: None,
                 user_questions: None,
+                attachments: None,
+                push: None,
                 extra: Default::default(),
             },
             tty: Some("/dev/pts/3".into()),
@@ -1089,6 +1209,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             last_command: Some("du -sh /var/log".into()),
             recent_commands: recent_commands(),
             settings: turn_settings(),
+            attachments: vec![upload_id()],
         }),
         Method::TurnInterrupt(TurnInterrupt {
             command_id: command_id(),
@@ -1287,6 +1408,19 @@ pub(crate) fn method_samples() -> Vec<Method> {
             question_id: question_id(),
             answer: QuestionReply::Text { text: "Postgres, on the shared cluster".into() },
         }),
+        Method::AttachmentPut(AttachmentPut {
+            upload_id: upload_id(),
+            name: "shot.png".into(),
+            total_bytes: 2_180_000,
+            offset: 524_288,
+            data: Base64Bytes::new(*b"\x89PNG\r\n\x1a\n"),
+            origin: Some(AttachmentOrigin::Path { path: "/home/me/Pictures/shot.png".into() }),
+        }),
+        Method::AttachmentDiscard(AttachmentDiscard { upload_id: upload_id() }),
+        Method::DevicePushSet(DevicePushSet {
+            token: Some(SecretText::new("ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]")),
+        }),
+        Method::AdminPushTest(AdminPushTest {}),
     ]
 }
 
@@ -1391,6 +1525,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                     device_prove: None,
                     conversations_watch: None,
                     user_questions: Some(true),
+                    attachments: Some(attachment_limits()),
+                    push: None,
                     extra: Default::default(),
                 },
                 paths: DaemonPaths {
@@ -1403,6 +1539,7 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture("hello_result_remote.json", &remote_hello_result()),
         fixture("hello_result_remote_watch.json", &watch_hello_result()),
+        fixture("hello_result_remote_attach.json", &attach_hello_result()),
         fixture(
             "conversations_list_result.json",
             &ConversationsListResult {
@@ -1723,6 +1860,48 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture("question_respond_result.json", &QuestionRespondResult { seq: Seq::new(48) }),
         fixture(
+            "attachment_put_result.json",
+            &AttachmentPutResult {
+                received: 2_180_000,
+                upload: Some(UploadInfo {
+                    name: "shot.png".into(),
+                    media_type: "image/png".into(),
+                    kind: AttachmentKind::Image { width: 3840, height: 2160 },
+                    bytes: 2_180_000,
+                    sent: image_attachment().sent,
+                }),
+            },
+        ),
+        fixture("attachment_discard_result.json", &AttachmentDiscardResult {}),
+        fixture("device_push_set_result.json", &DevicePushSetResult {}),
+        fixture(
+            "admin_push_test_result.json",
+            &AdminPushTestResult {
+                devices: vec![
+                    PushTestRow {
+                        name: "Anna's iPhone".into(),
+                        result: PushTestResult::Sent,
+                        code: None,
+                    },
+                    PushTestRow {
+                        name: "Anna's iPad".into(),
+                        result: PushTestResult::NotSent,
+                        code: Some("DeviceNotRegistered".into()),
+                    },
+                ],
+            },
+        ),
+        fixture("attachments.json", &attachment_samples()),
+        fixture("withheld_reasons.json", &WithheldReason::ALL.to_vec()),
+        fixture("push_test_results.json", &PushTestResult::ALL.to_vec()),
+        fixture(
+            "errors/missing_uploads.json",
+            &ErrorBody::new(ErrorCode::NotFound, "an upload of the prompt is missing").with_data(
+                serde_json::to_value(MissingUploads { missing_uploads: vec![upload_id()] })
+                    .unwrap_or_else(|err| panic!("the missing uploads do not encode: {err}")),
+            ),
+        ),
+        fixture(
             "turn_undo_result.json",
             &TurnUndoResult {
                 conversation_id: conversation_id(),
@@ -1955,6 +2134,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                 devices: vec![
                     device_info(),
                     DeviceInfo { last_seen_at: None, revoked_at: None, ..device_info() },
+                    DeviceInfo { revoked_at: None, push: true, ..device_info() },
                 ],
             },
         ),
@@ -2014,6 +2194,7 @@ fn device_info() -> DeviceInfo {
         created_at: at("2026-10-26T09:01:00Z"),
         last_seen_at: Some(at("2026-10-26T09:30:00Z")),
         revoked_at: Some(at("2026-10-26T10:00:00Z")),
+        push: false,
     }
 }
 
@@ -2043,6 +2224,8 @@ pub(crate) fn remote_hello_result() -> HelloResult {
             device_prove: Some(true),
             conversations_watch: None,
             user_questions: None,
+            attachments: None,
+            push: None,
             extra: Default::default(),
         },
         paths: DaemonPaths {
@@ -2059,6 +2242,15 @@ pub(crate) fn remote_hello_result() -> HelloResult {
 pub(crate) fn watch_hello_result() -> HelloResult {
     let mut result = remote_hello_result();
     result.capabilities.conversations_watch = Some(true);
+    result
+}
+
+/// The `hello` result of a connection of the tailnet listener of an efrd that takes
+/// attachments and push tokens: [`watch_hello_result`] with those keys.
+pub(crate) fn attach_hello_result() -> HelloResult {
+    let mut result = watch_hello_result();
+    result.capabilities.attachments = Some(attachment_limits());
+    result.capabilities.push = Some(true);
     result
 }
 
@@ -2454,6 +2646,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             context: Some(shell_context()),
             settings: turn_settings(),
             steers: vec![Seq::new(45)],
+            attachments: vec![image_attachment()],
         },
         Event::PromptWithdrawn { turn_id: queued_turn_id(), origin: Origin::Shell },
         Event::PromptHeld { turn_id: turn_id() },
@@ -2462,6 +2655,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             cwd: "/var/log".into(),
             scope: Scope::Path("/var/log".into()),
             settings: Some(fallen_back_settings()),
+            unread_attachments: vec![AttachmentId::nth(2)],
         },
         Event::ModelSwitched {
             turn_id: turn_id(),
@@ -2557,6 +2751,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                     .into(),
             ),
             left_running: true,
+            attachments: vec![tool_attachment()],
         },
         Event::ApprovalRequested {
             turn_id: turn_id(),
@@ -2907,6 +3102,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
             call_id: call_id(),
             exit_code: Some(130),
             how: ShellCommandEnd::Stopped,
+        },
+        Event::AttachmentsWithheld {
+            turn_id: Some(turn_id()),
+            attachments: vec![AttachmentId::nth(1), AttachmentId::nth(4)],
+            reason: WithheldReason::Refused,
         },
         Event::ConversationDeleted { origin: Origin::Cli },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },

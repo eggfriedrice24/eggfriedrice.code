@@ -177,6 +177,7 @@ fn notes_sit_between_messages_and_dim() {
                 changes: None,
                 diff: None,
                 left_running: false,
+                attachments: Vec::new(),
             },
             completed(1, "It exited with 3."),
         ],
@@ -222,6 +223,7 @@ fn refused_call_completed() -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -283,6 +285,7 @@ fn a_call_that_efr_refused_says_why() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     let contained = Event::ToolCallStarted {
         turn_id: turn(),
@@ -460,6 +463,7 @@ fn events_of_other_turns_change_nothing() {
         cwd: PathBuf::from("/etc"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     assert_eq!(framed(view.event(&started, SIZE, true), &mut view), Step::default());
 }
@@ -644,6 +648,7 @@ fn call_completed(exit_code: i32) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -1009,6 +1014,7 @@ fn a_queued_view_asks_for_the_input_of_the_running_turn_until_its_own_turn_start
         cwd: PathBuf::from("/home/u"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     let step = framed(view.event(&started, SIZE, true), &mut view);
     assert!(step.settled, "the question of the turn ahead goes once this one runs");
@@ -1430,6 +1436,7 @@ fn started_in(scope: Scope, fallback: Option<ModeFallback>) -> Event {
             fallback,
             default_effort: None,
         }),
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -1458,6 +1465,7 @@ fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -1698,6 +1706,7 @@ fn job_only_turn(summary: Option<SandboxSummary>) -> Vec<Event> {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     vec![started_in(Scope::Machine, None), started, job_started, completed, turn_completed()]
 }
@@ -2174,6 +2183,7 @@ fn turn_started() -> Event {
         cwd: PathBuf::from("/home/user/project"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -2469,6 +2479,7 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     view.envelope(&sent(13, 50, done), SIZE, false);
     assert!(view.frame(SIZE, at(50)).contains("waiting for the model"));

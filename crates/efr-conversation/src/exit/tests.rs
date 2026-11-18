@@ -478,6 +478,7 @@ fn the_user_messages_end_with_the_turn_s_own_prompt() {
             context: None,
             settings: efr_protocol::TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         })
     };
     let page = vec![
@@ -515,6 +516,7 @@ fn a_withdrawn_prompt_and_a_steer_sent_again_count_once_or_not_at_all() {
         context: None,
         settings: efr_protocol::TurnSettings::default(),
         steers,
+        attachments: Vec::new(),
     };
     let page = vec![
         at(1, prompt(first, "fix the build", Vec::new())),
@@ -919,6 +921,7 @@ fn page_with_a_notice(clock: &TestClock, first: TurnId, woke: TurnId) -> Vec<Eve
                 context: None,
                 settings: efr_protocol::TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         at(
@@ -976,6 +979,7 @@ fn wake_turn_user_messages_exclude_later_prompts() {
             context: None,
             settings: efr_protocol::TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         })
     });
     let waiting = std::collections::HashSet::from([behind]);

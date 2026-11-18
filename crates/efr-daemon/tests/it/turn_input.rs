@@ -299,6 +299,7 @@ async fn esc_withdraws_and_resends_in_one_step_and_a_retry_gets_the_same_numbers
             context: daemon_context(&daemon),
             settings: TurnSettings::default(),
             steers: vec![steered.seq],
+            attachments: Vec::new(),
         }),
         "the prompt has the context of the interrupted turn's prompt"
     );

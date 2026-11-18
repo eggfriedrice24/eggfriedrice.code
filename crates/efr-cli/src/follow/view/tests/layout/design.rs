@@ -193,6 +193,7 @@ fn ended(n: u8, exit_code: Option<i32>, output: &str) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -209,6 +210,7 @@ fn refused(n: u8, reason: &str) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -253,6 +255,7 @@ fn wrote(n: u8, changes: FileChanges, diff: Option<&str>) -> Event {
         changes: Some(changes),
         diff: diff.map(str::to_owned),
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -483,6 +486,7 @@ fn refused_by_you(n: u8) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

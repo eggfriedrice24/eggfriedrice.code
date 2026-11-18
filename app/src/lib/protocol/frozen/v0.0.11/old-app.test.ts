@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 // The app of 0.0.11, which users still run, against the fixtures of this efrd.
 //
 // generated.ts and generated-zod.ts in this folder are the files of tag v0.0.11, as they
@@ -13,8 +12,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-import type { z } from "zod";
 
+import { fixture, isObject, problem } from "../testing";
 import { EVENT_KINDS } from "./generated";
 import {
   METHOD_RESULT_SCHEMAS,
@@ -23,33 +22,7 @@ import {
   recentConversationSchema,
 } from "./generated-zod";
 
-const FIXTURES = import.meta.glob<unknown>(
-  "../../../../../../crates/efr-protocol/fixtures/v1/**/*.json",
-  { eager: true, import: "default" },
-);
-
 const OLD_EVENT_KINDS: ReadonlySet<string> = new Set<string>(EVENT_KINDS);
-
-type Json = Readonly<Record<string, unknown>>;
-
-function isObject(value: unknown): value is Json {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** The fixture `name` under fixtures/v1/, without `.json`. */
-function fixture(name: string): unknown {
-  const entry = Object.entries(FIXTURES).find(([path]) => path.endsWith(`/v1/${name}.json`));
-  if (entry === undefined) {
-    throw new Error(`no fixture ${name}`);
-  }
-  return entry[1];
-}
-
-/** The first problem of `schema` with `value`, or undefined when it passes. */
-function problem(schema: z.ZodType, value: unknown): string | undefined {
-  const result = schema.safeParse(value);
-  return result.success ? undefined : JSON.stringify(result.error.issues[0]);
-}
 
 /**
  * An event as the old decoder reads it: a kind that it does not know is an `other`

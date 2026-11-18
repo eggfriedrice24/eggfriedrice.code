@@ -117,12 +117,14 @@ impl Harness {
                 context: Some(ShellContext::new("/srv/p")),
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
             Event::TurnStarted {
                 turn_id,
                 cwd: "/srv/p".into(),
                 scope: Scope::Path("/srv/p".into()),
                 settings: None,
+                unread_attachments: Vec::new(),
             },
         ])
         .await;

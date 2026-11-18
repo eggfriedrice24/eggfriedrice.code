@@ -110,6 +110,7 @@ async fn turn(
         last_command: None,
         recent_commands: Vec::new(),
         settings: TurnSettings { model: model.map(str::to_owned), ..TurnSettings::default() },
+        attachments: Vec::new(),
     });
     let sent: PromptSendResult = client.call(prompt).await.unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
@@ -381,6 +382,7 @@ async fn a_prompt_names_the_work_account_and_the_conversation_stays_on_it() {
             provider: Some("work".to_owned()),
             ..TurnSettings::default()
         },
+        attachments: Vec::new(),
     });
     let client = daemon.client_for_tty(TTY).await.unwrap();
     let sent: PromptSendResult = client.call(prompt).await.unwrap();
@@ -436,6 +438,7 @@ async fn a_prompt_names_an_account_whose_list_is_still_missing() {
                 provider: Some(provider.to_owned()),
                 ..TurnSettings::default()
             },
+            attachments: Vec::new(),
         })
     };
     let client = daemon.client_for_tty(TTY).await.unwrap();
@@ -491,6 +494,7 @@ async fn ending(
             provider: provider.map(str::to_owned),
             ..TurnSettings::default()
         },
+        attachments: Vec::new(),
     });
     let sent: PromptSendResult = client.call(prompt).await.unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();

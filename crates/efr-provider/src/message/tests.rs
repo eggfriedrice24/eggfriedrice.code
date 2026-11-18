@@ -1,9 +1,10 @@
-use efr_protocol::Base64Bytes;
+use efr_protocol::{Attachment, AttachmentId, AttachmentKind, AttachmentOrigin};
 use pretty_assertions::assert_eq;
 use proptest::prelude::{Just, Strategy, any, prop, prop_assert_eq, prop_oneof, proptest};
 use serde_json::{Value, json};
 
 use super::{ContentBlock, Message, Role};
+use crate::{AttachmentPart, EncodedBytes};
 
 /// A Responses API reasoning item and function call, as `efr_providers::openai` stores
 /// them: nested objects, arrays, an opaque blob, numbers and non-ASCII text.
@@ -64,6 +65,7 @@ fn blocks_have_a_kind_tag() {
                 call_id: "call_1".to_owned(),
                 output: "a\nb\n".to_owned(),
                 is_error: false,
+                attachments: Vec::new(),
             },
             json!({"kind": "tool_result", "call_id": "call_1", "output": "a\nb\n"}),
         ),
@@ -72,6 +74,7 @@ fn blocks_have_a_kind_tag() {
                 call_id: "call_2".to_owned(),
                 output: "denied".to_owned(),
                 is_error: true,
+                attachments: Vec::new(),
             },
             json!({"kind": "tool_result", "call_id": "call_2", "output": "denied", "is_error": true}),
         ),
@@ -80,11 +83,8 @@ fn blocks_have_a_kind_tag() {
             json!({"kind": "reasoning", "text": "think"}),
         ),
         (
-            ContentBlock::Image {
-                media_type: "image/png".to_owned(),
-                data: Base64Bytes::new(*b"\x89PNG"),
-            },
-            json!({"kind": "image", "media_type": "image/png", "data": "iVBORw=="}),
+            ContentBlock::Attachment(AttachmentPart::new(attachment())),
+            json!({"kind": "attachment", "attachment": attachment_wire()}),
         ),
     ];
     for (block, wire) in cases {
@@ -184,14 +184,65 @@ fn text_joins_the_text_blocks_only() {
     assert_eq!(Message::new(Role::User, Vec::new()).text(), "");
 }
 
+/// A text file of the clipboard, with no data.
+fn attachment() -> Attachment {
+    Attachment {
+        id: AttachmentId::nth(1),
+        name: "paste-1.txt".to_owned(),
+        media_type: "text/plain".to_owned(),
+        bytes: 12,
+        sha256: "ab".repeat(32),
+        kind: AttachmentKind::Text,
+        origin: AttachmentOrigin::Clipboard,
+        copy: Some("/s/attachments/a1-paste-1.txt".into()),
+        sent: None,
+    }
+}
+
+fn attachment_wire() -> Value {
+    json!({
+        "id": "a1",
+        "name": "paste-1.txt",
+        "media_type": "text/plain",
+        "bytes": 12,
+        "sha256": "ab".repeat(32),
+        "kind": {"kind": "text"},
+        "origin": {"kind": "clipboard"},
+        "copy": "/s/attachments/a1-paste-1.txt",
+    })
+}
+
 #[test]
-fn image_bytes_stay_out_of_debug() {
-    let block = ContentBlock::Image {
-        media_type: "image/png".to_owned(),
-        data: Base64Bytes::new(vec![7_u8; 1024]),
+fn the_bytes_of_an_attachment_stay_out_of_the_history_and_of_debug() {
+    let part = AttachmentPart {
+        attachment: attachment(),
+        data: Some(EncodedBytes::new("aGVsbG8gd29ybGQK".repeat(64))),
     };
+    let block = ContentBlock::Attachment(part.clone());
     let debug = format!("{block:?}");
     assert!(debug.contains("<1024 bytes>"), "{debug}");
+    assert!(!debug.contains("aGVsbG8"), "{debug}");
+    let wire = serde_json::to_value(&block).unwrap();
+    assert_eq!(wire, json!({"kind": "attachment", "attachment": attachment_wire()}));
+    let back: ContentBlock = serde_json::from_value(wire).unwrap();
+    assert_eq!(back, ContentBlock::Attachment(AttachmentPart { data: None, ..part }));
+}
+
+#[test]
+fn a_tool_result_with_no_attachments_keeps_the_form_of_old_turns() {
+    let old = json!({"kind": "tool_result", "call_id": "call_1", "output": "ok"});
+    let block: ContentBlock = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&block).unwrap(), old);
+    let with = ContentBlock::ToolResult {
+        call_id: "call_1".to_owned(),
+        output: "ok".to_owned(),
+        is_error: false,
+        attachments: vec![AttachmentPart::new(attachment())],
+    };
+    assert_eq!(
+        serde_json::to_value(&with).unwrap()["attachments"],
+        json!([{"attachment": attachment_wire()}])
+    );
 }
 
 /// Any JSON value without floats (whose round trip serde_json makes best-effort

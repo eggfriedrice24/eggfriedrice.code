@@ -32,14 +32,18 @@ pub(crate) const STEPS: &[M<'static>] = &[
     M::up(include_str!("migrations/0012_search_secure_delete.sql")),
     M::up(include_str!("migrations/0013_receipts_seq.sql")),
     M::up(include_str!("migrations/0014_waits.sql")),
+    M::up(include_str!("migrations/0015_attachments.sql")),
+    M::up(include_str!("migrations/0016_device_push.sql")),
 ];
 
 /// For each step of [`STEPS`], whether it adds or reshapes a projection, so that a
 /// database it migrates needs the projections rebuilt from the log. A step that adds
 /// only tables apart from the projections, such as the search index, needs none, and
 /// the start of efrd after it does not replay the whole log.
-pub(crate) const REBUILDS: &[bool] =
-    &[true, true, true, true, true, true, true, true, false, false, false, false, false, true];
+pub(crate) const REBUILDS: &[bool] = &[
+    true, true, true, true, true, true, true, true, false, false, false, false, false, true, false,
+    false,
+];
 
 const _: () = assert!(REBUILDS.len() == STEPS.len(), "each step needs its rebuild flag");
 

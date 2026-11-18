@@ -43,9 +43,12 @@ mod admin_login_openai;
 mod admin_logout;
 mod admin_project_add;
 mod admin_project_remove;
+mod admin_push_test;
 mod admin_sandbox_check;
 mod admin_status;
 mod approval_respond;
+mod attachment_discard;
+mod attachment_put;
 mod call_background;
 mod conversation_compact;
 mod conversation_context;
@@ -64,6 +67,7 @@ mod device_enroll;
 mod device_list;
 mod device_pair_confirm;
 mod device_pair_start;
+mod device_push_set;
 mod device_revoke;
 mod hello;
 mod input_respond;
@@ -171,6 +175,10 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ProviderWarm(_) => ScopeName::Operate,
         Method::ConversationSwitchPreview(_) => ScopeName::Operate,
         Method::QuestionRespond(_) => ScopeName::Operate,
+        Method::AttachmentPut(_) => ScopeName::Operate,
+        Method::AttachmentDiscard(_) => ScopeName::Operate,
+        Method::DevicePushSet(_) => ScopeName::Read,
+        Method::AdminPushTest(_) => ScopeName::Admin,
     }
 }
 
@@ -269,7 +277,11 @@ impl Input {
             | Method::DeviceEnroll(_)
             | Method::DeviceProve(_)
             | Method::DeviceList(_)
-            | Method::DeviceRevoke(_) => None,
+            | Method::DeviceRevoke(_)
+            | Method::DevicePushSet(_)
+            | Method::AdminPushTest(_) => None,
+            // NOTE: an upload is not input of a person yet: the prompt that names it is.
+            Method::AttachmentPut(_) | Method::AttachmentDiscard(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -346,7 +358,7 @@ pub(crate) fn before_proof(method: &Method) -> bool {
 
 /// True for a method that only a connection of the tailnet listener may call.
 pub(crate) fn remote_only(method: &Method) -> bool {
-    matches!(method, Method::DeviceEnroll(_) | Method::DeviceProve(_))
+    matches!(method, Method::DeviceEnroll(_) | Method::DeviceProve(_) | Method::DevicePushSet(_))
 }
 
 /// Refuses `method` on a remote connection whose device has the scopes `proved`, or
@@ -499,6 +511,7 @@ impl Dispatcher for Methods {
 
     async fn closed(&self, context: &ConnectionContext) {
         self.state.connections.closed(context.conn_id());
+        self.state.uploads.closed(context.conn_id());
     }
 
     async fn dispatch(&self, request: Request) -> Result<(), ErrorBody> {
@@ -660,6 +673,18 @@ impl Dispatcher for Methods {
                 }
                 Method::QuestionRespond(params) => {
                     question_respond::handle(state, &context, params, &responder).await
+                }
+                Method::AttachmentPut(params) => {
+                    attachment_put::handle(state, &context, params, &responder).await
+                }
+                Method::AttachmentDiscard(params) => {
+                    attachment_discard::handle(state, &context, params, &responder).await
+                }
+                Method::DevicePushSet(params) => {
+                    device_push_set::handle(state, &context, params, &responder).await
+                }
+                Method::AdminPushTest(params) => {
+                    admin_push_test::handle(state, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

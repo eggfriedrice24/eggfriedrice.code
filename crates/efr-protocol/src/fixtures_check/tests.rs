@@ -99,10 +99,14 @@ fn method_index(method: &Method) -> usize {
         Method::ProviderWarm(_) => 48,
         Method::ConversationSwitchPreview(_) => 49,
         Method::QuestionRespond(_) => 50,
+        Method::AttachmentPut(_) => 51,
+        Method::AttachmentDiscard(_) => 52,
+        Method::DevicePushSet(_) => 53,
+        Method::AdminPushTest(_) => 54,
     }
 }
 
-const METHOD_COUNT: usize = 51;
+const METHOD_COUNT: usize = 55;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -169,10 +173,11 @@ fn event_index(event: &Event) -> usize {
         Event::TurnWebReport { .. } => 59,
         Event::UserQuestionRequested { .. } => 60,
         Event::UserQuestionAnswered { .. } => 61,
+        Event::AttachmentsWithheld { .. } => 62,
     }
 }
 
-const EVENT_COUNT: usize = 62;
+const EVENT_COUNT: usize = 63;
 
 /// The position of a reply to the model's question in the enum, for the same purpose
 /// as `method_index`.

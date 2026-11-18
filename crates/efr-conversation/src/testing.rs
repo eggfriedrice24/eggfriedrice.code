@@ -839,6 +839,7 @@ impl Setup {
         let deps = ConversationDeps {
             providers: router,
             toolbox: toolbox.clone(),
+            attachments: Arc::new(crate::NoAttachments),
             engine,
             scope: Arc::new(self.scope),
             writer: store.writer().clone(),
@@ -990,6 +991,7 @@ impl Harness {
             last_command: None,
             recent_commands: Vec::new(),
             settings: TurnSettings::default(),
+            attachments: Vec::new(),
         }
     }
 
@@ -1348,6 +1350,7 @@ pub(crate) fn result_message(call_id: &str, output: &str, is_error: bool) -> Mes
             call_id: call_id.to_owned(),
             output: output.to_owned(),
             is_error,
+            attachments: Vec::new(),
         }],
     )
 }

@@ -71,6 +71,7 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -88,6 +89,7 @@ fn tool_result(call_id: CallId, output: &str) -> ContentBlock {
         call_id: call_id.to_string(),
         output: output.to_owned(),
         is_error: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -157,6 +159,7 @@ fn unfinished(call_id: CallId) -> ContentBlock {
         call_id: call_id.to_string(),
         output: UNFINISHED_CALL.to_owned(),
         is_error: true,
+        attachments: Vec::new(),
     }
 }
 
@@ -473,12 +476,14 @@ fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Even
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         },
         Event::TurnStarted {
             turn_id: t,
             cwd: PathBuf::from("/home/u"),
             scope: Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         },
     ];
     events.extend(body);
@@ -545,12 +550,14 @@ async fn only_finished_turns_other_than_the_current_one_count() {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
             Event::TurnStarted {
                 turn_id: current,
                 cwd: PathBuf::from("/"),
                 scope: Scope::Machine,
                 settings: None,
+                unread_attachments: Vec::new(),
             },
         ],
     ])
@@ -995,6 +1002,7 @@ async fn a_turn_that_never_started_is_not_counted_as_omitted() {
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
             Event::TurnFailed {
                 turn_id: a,
@@ -1235,6 +1243,7 @@ fn a_result_whose_call_the_window_does_not_hold_is_left_out() {
         call_id: id.to_owned(),
         output: "out".to_owned(),
         is_error: false,
+        attachments: Vec::new(),
     };
     let at = |index: u32, message: Message| Placed { turn: t, index, message };
     let call_b = Message::new(

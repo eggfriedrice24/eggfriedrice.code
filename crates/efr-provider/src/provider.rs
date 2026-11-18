@@ -151,6 +151,18 @@ pub struct ModelInfo {
     /// The tool with which the model changes a file. The code that builds a request's
     /// tool list offers the model this one and not the other.
     pub edit_tool: EditTool,
+    /// What the model reads as content besides text. An attachment of another kind goes
+    /// to it as a label with its path.
+    pub inputs: InputKinds,
+}
+
+/// What a model reads as content besides text, from the provider's catalog.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct InputKinds {
+    /// The model reads PNG, JPEG, GIF and WebP images.
+    pub image: bool,
+    /// The model reads PDF documents.
+    pub pdf: bool,
 }
 
 /// The tool with which a model changes a file: the form that it was trained on.
@@ -173,7 +185,7 @@ pub enum EditTool {
 
 impl ModelInfo {
     /// A model with no known limits, which changes files with
-    /// [`EditTool::ApplyPatch`].
+    /// [`EditTool::ApplyPatch`] and reads only text.
     pub fn new(id: impl Into<String>) -> Self {
         ModelInfo {
             id: id.into(),
@@ -185,7 +197,15 @@ impl ModelInfo {
             freeform_tools: false,
             prefer_websockets: false,
             edit_tool: EditTool::ApplyPatch,
+            inputs: InputKinds::default(),
         }
+    }
+
+    /// The same model, which reads the content of `inputs` besides text.
+    #[must_use]
+    pub fn with_inputs(mut self, inputs: InputKinds) -> Self {
+        self.inputs = inputs;
+        self
     }
 
     /// The same model, which changes files with `edit_tool`.

@@ -110,5 +110,29 @@
     "removed": 47
   },
   "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-    run();\n+    run_all();\n... 12 more lines\n",
-  "left_running": true
+  "left_running": true,
+  "attachments": [
+    {
+      "id": "a4",
+      "name": "plot.png",
+      "media_type": "image/png",
+      "bytes": 48000,
+      "sha256": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+      "kind": {
+        "kind": "image",
+        "width": 800,
+        "height": 600
+      },
+      "origin": {
+        "kind": "tool",
+        "path": "/home/me/p/app/plot.png"
+      },
+      "sent": {
+        "media_type": "image/png",
+        "bytes": 48000,
+        "width": 800,
+        "height": 600
+      }
+    }
+  ]
 }

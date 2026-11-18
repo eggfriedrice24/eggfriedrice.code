@@ -31,5 +31,30 @@
   },
   "steers": [
     45
+  ],
+  "attachments": [
+    {
+      "id": "a1",
+      "name": "shot.png",
+      "media_type": "image/png",
+      "bytes": 2180000,
+      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "kind": {
+        "kind": "image",
+        "width": 3840,
+        "height": 2160
+      },
+      "origin": {
+        "kind": "path",
+        "path": "/home/me/Pictures/shot.png"
+      },
+      "copy": "/home/me/.local/share/efr/scratch/2026-10-20-disk/attachments/a1-shot.png",
+      "sent": {
+        "media_type": "image/jpeg",
+        "bytes": 412000,
+        "width": 2000,
+        "height": 1125
+      }
+    }
   ]
 }

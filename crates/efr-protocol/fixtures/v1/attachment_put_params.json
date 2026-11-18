@@ -1,0 +1,14 @@
+{
+  "method": "attachment.put",
+  "params": {
+    "upload_id": "019a9b1c-3d00-7a10-8b20-00000000000a",
+    "name": "shot.png",
+    "total_bytes": 2180000,
+    "offset": 524288,
+    "data": "iVBORw0KGgo=",
+    "origin": {
+      "kind": "path",
+      "path": "/home/me/Pictures/shot.png"
+    }
+  }
+}

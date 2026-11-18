@@ -348,6 +348,7 @@ async fn a_terminal_with_a_recent_conversation_hears_of_a_broken_file() {
             last_command: None,
             recent_commands: Vec::new(),
             settings: TurnSettings::default(),
+            attachments: Vec::new(),
         }))
         .await
         .unwrap();
@@ -499,6 +500,7 @@ async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
                 last_command: None,
                 recent_commands: Vec::new(),
                 settings,
+                attachments: Vec::new(),
             }))
             .await
             .unwrap()
@@ -561,6 +563,7 @@ async fn a_reloaded_default_of_full_warns_and_falls_back_when_efrd_runs_as_root(
             last_command: None,
             recent_commands: Vec::new(),
             settings: TurnSettings::default(),
+            attachments: Vec::new(),
         }))
         .await
         .unwrap();

@@ -146,7 +146,8 @@ where
     let client = async {
         let client = ctx.connect(Origin::Shell, None).await.unwrap();
         let row = Row { compose: compose(), reader, origin: Origin::Shell };
-        follow(ctx, &client, &mut out, &mut view, target(), Some(row)).await
+        // NOTE: on the heap, so the future of each test stays small.
+        Box::pin(follow(ctx, &client, &mut out, &mut view, target(), Some(row))).await
     };
     let daemon = async { script(daemon.accept().await, seen).await };
     let (result, ()) = tokio::join!(client, daemon);
@@ -220,6 +221,7 @@ fn started(turn_id: TurnId) -> Event {
         cwd: PathBuf::from("/home/user/project"),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 
@@ -1212,7 +1214,8 @@ where
     let client = async {
         let client = ctx.connect(Origin::Shell, None).await.unwrap();
         let row = Row { compose: compose(), reader, origin: Origin::Shell };
-        follow(ctx, &client, &mut out, &mut view, target(), Some(row)).await
+        // NOTE: on the heap, so the future of each test stays small.
+        Box::pin(follow(ctx, &client, &mut out, &mut view, target(), Some(row))).await
     };
     let daemon = async { script(daemon, seen).await };
     let (result, ()) = tokio::join!(client, daemon);
@@ -1719,6 +1722,7 @@ fn moved_call_completed() -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

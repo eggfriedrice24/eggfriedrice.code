@@ -89,8 +89,10 @@ pub struct ErrorBody {
     pub code: ErrorCode,
     /// One sentence for a person. Clients show it; they never parse it.
     pub message: String,
-    /// Structured details. [`ErrorCode::Overflow`] carries `{"last_seq": n}` and
-    /// [`ErrorCode::ProtocolMismatch`] carries `{"daemon": n, "client": m}`.
+    /// Structured details. [`ErrorCode::Overflow`] carries `{"last_seq": n}`,
+    /// [`ErrorCode::ProtocolMismatch`] carries `{"daemon": n, "client": m}`, and the
+    /// [`ErrorCode::NotFound`] of a `prompt.send` whose uploads are missing carries
+    /// [`MissingUploads`](crate::MissingUploads).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
@@ -218,9 +220,12 @@ pub enum ProtocolError {
         value: String,
     },
 
-    /// A string is not a job id, such as `j3`.
-    #[error("{value:?} is not a job id")]
-    InvalidJobId {
+    /// A string is not the id of a numbered item of a conversation, such as the job
+    /// `j3` or the attachment `a3`.
+    #[error("{value:?} is not {noun} id")]
+    InvalidNumberedId {
+        /// What the id names, with its article, such as `a job`.
+        noun: &'static str,
         /// The string that failed to parse.
         value: String,
     },

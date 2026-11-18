@@ -6,6 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::AttachmentLimits;
+
 /// Optional features that one side of a connection supports, announced in `hello`.
 ///
 /// Every key is optional, so a new key is an additive change: an old peer ignores it,
@@ -53,6 +55,17 @@ pub struct Capabilities {
     /// daemon from before the question, and a client shows no way to answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_questions: Option<bool>,
+    /// The daemon takes attachments: `attachment.put`, `attachment.discard` and the
+    /// uploads of `prompt.send`, within these limits. Only the daemon sends it. Absent:
+    /// a daemon from before attachments, or one with `attachments.enabled = false`, and
+    /// a client sends no file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<AttachmentLimits>,
+    /// The daemon takes the push token of this device (`device.push_set`) and sends
+    /// pushes. Only the daemon sends it, on the tailnet listener. Absent: a daemon from
+    /// before push, or one with `presence.push = false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push: Option<bool>,
     /// Keys that this build does not know, sorted by name.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -70,6 +83,8 @@ impl Capabilities {
             && self.device_prove.is_none()
             && self.conversations_watch.is_none()
             && self.user_questions.is_none()
+            && self.attachments.is_none()
+            && self.push.is_none()
             && self.extra.is_empty()
     }
 }

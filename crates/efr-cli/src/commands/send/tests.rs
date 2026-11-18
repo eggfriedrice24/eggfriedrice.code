@@ -1080,6 +1080,7 @@ fn started(turn_id: efr_protocol::TurnId) -> Event {
         cwd: PathBuf::from("/etc/nginx"),
         scope: efr_protocol::Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 

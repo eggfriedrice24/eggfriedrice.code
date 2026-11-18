@@ -118,6 +118,7 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
             cwd: "/home/user/project".into(),
             scope: Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         },
     );
     let done = Event::TurnCompleted {
@@ -144,6 +145,7 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
             cwd: "/home/user/project".into(),
             scope: Scope::Machine,
             settings: None,
+            unread_attachments: Vec::new(),
         },
     );
     let running = screen(&mut view, &mut grid, 2100);
@@ -173,6 +175,7 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
         cwd: "/home/user/project".into(),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     event(&mut view, 10, 0, started);
     view.steered(Seq::new(11), "look at the logs first".to_owned());
@@ -214,6 +217,7 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     event(&mut view, 15, 300, stopped);
     let envelope = EventEnvelope {
@@ -247,6 +251,7 @@ fn the_note_of_a_resend_comes_at_once_when_the_turn_already_ended() {
         cwd: "/home/user/project".into(),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     event(&mut view, 10, 0, started);
     view.steered(Seq::new(11), "look at the logs first".to_owned());
@@ -258,6 +263,7 @@ fn the_note_of_a_resend_comes_at_once_when_the_turn_already_ended() {
         context: None,
         settings: efr_protocol::TurnSettings::default(),
         steers: vec![Seq::new(11)],
+        attachments: Vec::new(),
     };
     event(&mut view, 13, 0, resent);
     event(

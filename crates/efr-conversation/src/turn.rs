@@ -693,6 +693,7 @@ impl Turn {
             cwd: self.cwd.clone(),
             scope: self.scope.clone(),
             settings: Some(settings.clone()),
+            unread_attachments: Vec::new(),
         });
         if let Some(from) = &self.switched_from {
             started.push(Event::ModelSwitched {
@@ -1357,6 +1358,7 @@ impl Turn {
                 changes: outcome.changes.take(),
                 diff: outcome.diff.take(),
                 left_running: outcome.left_running,
+                attachments: Vec::new(),
             }];
             // NOTE: names only: the copy stays in efr's store, and the line at the end of
             // the turn names the file.
@@ -1421,6 +1423,7 @@ impl Turn {
                 call_id: call.provider_call_id,
                 output: outcome.output,
                 is_error: outcome.is_error,
+                attachments: Vec::new(),
             };
             tracing::debug!(phase = "tool_call", elapsed_ms = %call_watch, "phase=tool_call elapsed_ms={}", call_watch);
             Ok((result, interrupted))

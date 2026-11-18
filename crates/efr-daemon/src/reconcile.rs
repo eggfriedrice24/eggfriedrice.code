@@ -106,6 +106,7 @@ pub(crate) fn plan(
                     changes: None,
                     diff: None,
                     left_running: false,
+                    attachments: Vec::new(),
                 },
                 OpenCall::Web { call_id, action, query, url, pattern } => Event::WebCallCompleted {
                     turn_id: turn.id,

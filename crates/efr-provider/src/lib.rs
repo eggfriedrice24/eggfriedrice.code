@@ -2,7 +2,7 @@
 //! whatever the provider.
 //!
 //! A [`Request`] carries canonical [`Message`]s made of [`ContentBlock`]s (text, tool
-//! calls, tool results, reasoning, images) and [`ToolDefinition`]s, each a function
+//! calls, tool results, reasoning, attachments) and [`ToolDefinition`]s, each a function
 //! tool with a JSON Schema or a freeform tool with a [`ToolGrammar`], and the
 //! [`HostedTool`]s that the provider runs inside the call, such as its web search
 //! ([`WebAccess`], [`WebSupport`]). Each assistant
@@ -10,6 +10,12 @@
 //! exactly what it produced. The answer streams back as [`ProviderEvent`]s, ending with
 //! a [`StopReason`] and the call's [`TokenUsage`]; the steps of a hosted tool come as
 //! [`HostedAction`]s with their [`HostedOutcome`] ([`WebResult`], [`HostedError`]).
+//!
+//! An attachment is an [`AttachmentPart`]: its metadata, and [`EncodedBytes`] only in
+//! the copy of a request. [`label`] is the one text that every provider writes around
+//! it, [`fit`] the budget of a request, and [`attachment_tokens`] the count that the
+//! meter and the prune use. [`ModelInfo::inputs`] ([`InputKinds`]) says what a model
+//! reads as content.
 //!
 //! [`Provider`] is the dyn-compatible trait every model client implements, named by a
 //! [`ProviderId`]: [`Provider::stream`] is the one model call it must provide, returning
@@ -24,8 +30,8 @@
 //! learns how a token was obtained. `SecretString` and `ExposeSecret` are re-exported
 //! from `secrecy` because they appear in that trait.
 //!
-//! Allowed dependencies: `efr-protocol` (for `Base64Bytes` and `Usage`) and
-//! `efr-stdx`. What does not belong here: any provider's API, endpoints or event names
+//! Allowed dependencies: `efr-protocol` (for `Attachment` and `Usage`) and `efr-stdx`
+//! (the text rules of a label). What does not belong here: any provider's API, endpoints or event names
 //! (`efr_providers::openai`), HTTP (`efr-http`), how a token is obtained or refreshed
 //! (`efr-oauth-openai`), and tools themselves (`efr-tools`).
 
@@ -33,6 +39,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod attachment;
 mod completion;
 mod error;
 mod event;
@@ -46,6 +53,11 @@ mod token_source;
 mod unoffered;
 mod usage;
 
+pub use attachment::{
+    AttachmentPart, EncodedBytes, IMAGE_MAX_TOKENS, IMAGE_PATCH_PX, LABEL_CLOSE, Label,
+    MAX_DATA_BYTES, MAX_IMAGE_BLOCKS, PDF_BYTES_PER_TOKEN, PDF_MAX_BYTES, PDF_MAX_PAGES,
+    PDF_PAGE_TOKENS, WINDOW_SHARE_PERCENT, attachment_tokens, fit, label,
+};
 pub use completion::{Completion, CompletionBuilder};
 // NOTE: the limit of an account in `ProviderError::LimitReached` and the windows of
 // `ProviderEvent::Limits` are the wire types, so a provider crate names them without a
@@ -58,7 +70,7 @@ pub use hosted::{
 };
 pub use message::{ContentBlock, Message, Role};
 pub use notice::{CallNotice, CallNotices, NoNotices};
-pub use provider::{EditTool, ModelInfo, Provider, ProviderStream, Warmup};
+pub use provider::{EditTool, InputKinds, ModelInfo, Provider, ProviderStream, Warmup};
 pub use provider_id::ProviderId;
 pub use request::{
     FREEFORM_INPUT, GrammarSyntax, OutputSchema, Request, ToolDefinition, ToolGrammar,

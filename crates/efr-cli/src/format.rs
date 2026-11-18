@@ -19,6 +19,7 @@ use unicode_segmentation::{Graphemes, UnicodeSegmentation as _};
 
 pub(crate) mod accounts;
 pub(crate) mod always;
+pub(crate) mod attach;
 mod call;
 pub(crate) mod card;
 pub(crate) mod changes;

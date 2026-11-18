@@ -5,16 +5,16 @@ use serde_json::json;
 
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
-    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
-    Base64Bytes, CallBackground, CallId, Capabilities, CommandId, ConversationCompact,
-    ConversationContext, ConversationDelete, ConversationDiff, ConversationHistory, ConversationId,
-    ConversationResume, ConversationSearch, ConversationSubscribe, ConversationsList,
-    ConversationsRecent, ConversationsSearch, ConversationsWatch, Hello, InputRespond, JobId,
-    JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
-    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
-    QuestionReply, QuestionRespond, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText,
-    ShellContext, ShellInterrupt, ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer,
-    TurnUndo, WithdrawTarget,
+    AdminProjectRemove, AdminPushTest, AdminSandboxCheck, AdminStatus, ApprovalDecision,
+    ApprovalRespond, AttachmentDiscard, AttachmentPut, Base64Bytes, CallBackground, CallId,
+    Capabilities, CommandId, ConversationCompact, ConversationContext, ConversationDelete,
+    ConversationDiff, ConversationHistory, ConversationId, ConversationResume, ConversationSearch,
+    ConversationSubscribe, ConversationsList, ConversationsRecent, ConversationsSearch,
+    ConversationsWatch, DevicePushSet, Hello, InputRespond, JobId, JobsList, JobsStop, LeaseReport,
+    Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
+    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, QuestionReply, QuestionRespond,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt,
+    ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, UploadId, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -95,6 +95,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 last_command: None,
                 recent_commands: Vec::new(),
                 settings: TurnSettings::default(),
+                attachments: Vec::new(),
             }),
             "prompt.send",
             ScopeName::Operate,
@@ -444,6 +445,43 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             "question.respond",
             ScopeName::Operate,
             true,
+            false,
+        ),
+        (
+            Method::AttachmentPut(AttachmentPut {
+                upload_id: UploadId::from_str(CALL).unwrap(),
+                name: "shot.png".to_owned(),
+                total_bytes: 4,
+                offset: 0,
+                data: Base64Bytes::new(*b"\x89PNG"),
+                origin: None,
+            }),
+            "attachment.put",
+            ScopeName::Operate,
+            false,
+            false,
+        ),
+        (
+            Method::AttachmentDiscard(AttachmentDiscard {
+                upload_id: UploadId::from_str(CALL).unwrap(),
+            }),
+            "attachment.discard",
+            ScopeName::Operate,
+            false,
+            false,
+        ),
+        (
+            Method::DevicePushSet(DevicePushSet { token: None }),
+            "device.push_set",
+            ScopeName::Read,
+            false,
+            false,
+        ),
+        (
+            Method::AdminPushTest(AdminPushTest {}),
+            "admin.push_test",
+            ScopeName::Admin,
+            false,
             false,
         ),
     ]

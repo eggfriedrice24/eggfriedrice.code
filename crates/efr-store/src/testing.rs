@@ -199,6 +199,7 @@ pub(crate) fn queued(turn: u64, text: &str) -> Event {
         context: Some(ShellContext::new("/etc/nixos")),
         settings: TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -209,6 +210,7 @@ pub(crate) fn started(turn: u64, cwd: &str) -> Event {
         cwd: cwd.into(),
         scope: Scope::Path(cwd.into()),
         settings: None,
+        unread_attachments: Vec::new(),
     }
 }
 

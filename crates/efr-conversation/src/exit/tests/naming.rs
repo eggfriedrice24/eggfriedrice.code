@@ -340,6 +340,7 @@ fn prompt(seq: u64, turn_id: TurnId, text: &str) -> EventEnvelope {
             context: None,
             settings: TurnSettings::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         },
     )
 }

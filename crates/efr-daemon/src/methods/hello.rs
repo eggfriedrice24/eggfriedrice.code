@@ -51,6 +51,8 @@ pub(crate) fn handle(
         // NOTE: efrd answers `question.respond`; a client shows a way to answer the
         // model's question only then.
         user_questions: Some(true),
+        attachments: crate::attachments::limits(&state.settings.borrow()),
+        push: state.push.capability(context),
         ..Capabilities::default()
     };
     let result = HelloResult {

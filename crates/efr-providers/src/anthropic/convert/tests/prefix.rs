@@ -31,6 +31,7 @@ fn result(call_id: &str, output: &str) -> Message {
             call_id: call_id.to_owned(),
             output: output.to_owned(),
             is_error: false,
+            attachments: Vec::new(),
         }],
     )
 }

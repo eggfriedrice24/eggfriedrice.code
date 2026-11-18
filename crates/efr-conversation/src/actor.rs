@@ -308,6 +308,7 @@ impl NewPrompt {
             context: self.context.clone(),
             settings: self.settings.clone(),
             steers: self.steers.clone(),
+            attachments: Vec::new(),
         }
     }
 

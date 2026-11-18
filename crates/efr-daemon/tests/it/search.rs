@@ -81,12 +81,14 @@ fn turn_batch(conversation: ConversationId, n: u64, create: bool, turn: &Turn) -
         context: Some(ShellContext::new("/srv/p")),
         settings: TurnSettings::default(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     });
     events.push(Event::TurnStarted {
         turn_id,
         cwd: "/srv/p".into(),
         scope: Scope::Path("/srv/p".into()),
         settings: None,
+        unread_attachments: Vec::new(),
     });
     if let Some(steer) = &turn.steer {
         events.push(Event::TurnSteered { turn_id, text: steer.clone() });

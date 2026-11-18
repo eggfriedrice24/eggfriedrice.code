@@ -191,6 +191,7 @@ fn prompt(n: u128, pwd: &Path, tty: &str, shell_pid: u32, new: bool) -> Method {
         last_command: None,
         recent_commands: Vec::new(),
         settings: TurnSettings::default(),
+        attachments: Vec::new(),
     })
 }
 

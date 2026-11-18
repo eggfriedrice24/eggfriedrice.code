@@ -13,6 +13,8 @@
 //!   `quit`: `Ctrl+\`, which opens an answer line for a silent command; `terminal`: the
 //!   terminal facts and size.
 //! - `picker`: the fzf picker of `,resume`, inline below the command line.
+//! - `attach`: the `@path` words of a `,` line and their uploads; `clip`: the paste of
+//!   an image (OSC 5522); `thumbs`: the small pictures of the attached images.
 //! - `context`: what every command runs with; `settings`: the `[render]` table and the
 //!   turn defaults of `config.toml`, and the checks of `efr config`; `turn_settings`:
 //!   the mode, model and effort a command asks for; `format`: the CLI's own lines;
@@ -28,7 +30,9 @@
 //! everything else happens in `run`.
 
 mod answer;
+mod attach;
 mod cli;
+mod clip;
 mod commands;
 mod context;
 mod draft;
@@ -48,6 +52,7 @@ mod settings;
 mod terminal;
 #[cfg(test)]
 mod testing;
+mod thumbs;
 mod turn_settings;
 
 use std::process::ExitCode;

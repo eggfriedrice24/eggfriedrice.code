@@ -44,6 +44,8 @@ fn extras_are_written_after_the_known_keys_in_name_order() {
         device_prove: None,
         conversations_watch: None,
         user_questions: None,
+        attachments: None,
+        push: None,
         extra: BTreeMap::from([("zoom".to_owned(), json!(2)), ("pair".to_owned(), json!(true))]),
     };
     assert_eq!(serde_json::to_string(&caps).unwrap(), r#"{"admin":true,"pair":true,"zoom":2}"#);
@@ -61,6 +63,8 @@ fn a_mix_of_known_and_unknown_keys_reads_back_as_itself() {
         device_prove: None,
         conversations_watch: None,
         user_questions: None,
+        attachments: None,
+        push: Some(true),
         extra: BTreeMap::from([("future".to_owned(), json!([1, 2]))]),
     };
     let back: Capabilities = serde_json::from_value(serde_json::to_value(&caps).unwrap()).unwrap();

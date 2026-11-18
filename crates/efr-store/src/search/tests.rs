@@ -489,6 +489,7 @@ async fn resent_steers_are_dropped() {
         context,
         settings,
         steers: seqs(&[4]),
+        attachments: Vec::new(),
     };
     append(&writer, vec![resent]).await;
     index_all(&writer).await;

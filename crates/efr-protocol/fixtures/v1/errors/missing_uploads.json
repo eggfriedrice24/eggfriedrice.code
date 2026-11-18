@@ -1,0 +1,9 @@
+{
+  "code": "not_found",
+  "message": "an upload of the prompt is missing",
+  "data": {
+    "missing_uploads": [
+      "019a9b1c-3d00-7a10-8b20-00000000000a"
+    ]
+  }
+}

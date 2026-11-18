@@ -1,13 +1,14 @@
 use efr_protocol::{
-    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
-    AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationCompact, ConversationContext, ConversationHistory, ConversationId,
-    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsSearch,
-    ConversationsWatch, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
+    AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminPushTest,
+    AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond, AttachmentDiscard,
+    AttachmentPut, Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact,
+    ConversationContext, ConversationHistory, ConversationId, ConversationSearch,
+    ConversationSubscribe, ConversationsList, ConversationsSearch, ConversationsWatch,
+    DevicePushSet, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
     PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
     PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, QuestionReply, QuestionRespond,
     SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt,
-    TurnSteer, TurnUndo, WithdrawTarget,
+    TurnSteer, TurnUndo, UploadId, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -60,6 +61,7 @@ fn every_method() -> Vec<Method> {
             last_command: None,
             recent_commands: Vec::new(),
             settings: efr_protocol::TurnSettings::default(),
+            attachments: Vec::new(),
         }),
         Method::TurnInterrupt(TurnInterrupt {
             command_id,
@@ -154,13 +156,23 @@ fn every_method() -> Vec<Method> {
             question_id: QuestionId::from_uuid(id(5)),
             answer: QuestionReply::Option { index: 0 },
         }),
+        Method::AttachmentPut(AttachmentPut {
+            upload_id: UploadId::from_uuid(id(6)),
+            name: "shot.png".to_owned(),
+            total_bytes: 4,
+            offset: 0,
+            data: Base64Bytes::new(*b"\x89PNG"),
+            origin: None,
+        }),
+        Method::AttachmentDiscard(AttachmentDiscard { upload_id: UploadId::from_uuid(id(6)) }),
+        Method::AdminPushTest(AdminPushTest {}),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 32, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 35, "one request per local method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -206,6 +218,9 @@ fn the_scope_table_is_the_designed_one() {
             ("conversation.search", ScopeName::Read),
             ("conversations.watch", ScopeName::Read),
             ("question.respond", ScopeName::Operate),
+            ("attachment.put", ScopeName::Operate),
+            ("attachment.discard", ScopeName::Operate),
+            ("admin.push_test", ScopeName::Admin),
         ]
     );
 }
@@ -714,6 +729,17 @@ fn the_proof_methods_are_remote_only() {
         assert_eq!(scope(&method), ScopeName::Read);
     }
     assert!(every_method().iter().all(|method| !remote_only(method)));
+}
+
+/// The push token belongs to the device of a proof: only the tailnet listener takes it,
+/// and only after the proof, with the scope that every proved device holds.
+#[test]
+fn the_push_token_is_remote_only_and_needs_the_proof() {
+    let method = Method::DevicePushSet(DevicePushSet { token: None });
+    assert!(remote_only(&method) && !before_proof(&method));
+    assert_eq!(scope(&method), ScopeName::for_method(&method));
+    assert!(matches!(authorize_remote(None, &method), Err(DaemonError::ProofNeeded { .. })));
+    assert!(authorize_remote(Some(&[ScopeName::Read]), &method).is_ok());
 }
 
 /// The walk of `/proc` that each search makes for its peer (DQ43): at most 2 ms at

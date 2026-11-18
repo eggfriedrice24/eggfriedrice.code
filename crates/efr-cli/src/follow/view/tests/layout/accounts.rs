@@ -55,7 +55,13 @@ fn plan_turn_started(many: bool) -> Event {
         overridden: OverriddenSettings::default(),
         fallback: None,
     };
-    Event::TurnStarted { turn_id, cwd, scope, settings: Some(settings) }
+    Event::TurnStarted {
+        turn_id,
+        cwd,
+        scope,
+        settings: Some(settings),
+        unread_attachments: Vec::new(),
+    }
 }
 
 /// TM-Accounts 10 and 18 (D1): the status row names the default account of a kind only

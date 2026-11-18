@@ -29,6 +29,7 @@ fn a_known_event_is_one_object_tagged_by_kind() {
         cwd: "/etc".into(),
         scope: Scope::Machine,
         settings: None,
+        unread_attachments: Vec::new(),
     };
     assert_eq!(
         serde_json::to_value(&event).unwrap(),
@@ -72,6 +73,7 @@ fn a_prompt_queued_event_never_contains_the_last_command() {
         context: prompt.context.clone(),
         settings: prompt.settings.clone(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     };
     let envelope = EventEnvelope {
         seq: Seq::new(1),
@@ -115,6 +117,7 @@ fn the_last_command_of_a_prompt_is_a_member_of_the_params_not_of_the_context() {
         last_command: Some("make".to_owned()),
         recent_commands: vec![RecentCommand::new("make clean")],
         settings: TurnSettings::default(),
+        attachments: Vec::new(),
     };
     let value = serde_json::to_value(&prompt).unwrap();
     assert_eq!(value["last_command"], json!("make"));
@@ -134,12 +137,17 @@ fn a_prompt_queued_event_from_before_turn_settings_still_parses_without_settings
         "origin": "shell",
     });
     let event: Event = serde_json::from_value(old.clone()).unwrap();
-    let Event::PromptQueued { settings, steers, .. } = &event else {
+    let Event::PromptQueued { settings, steers, attachments, .. } = &event else {
         panic!("{event:?}");
     };
     assert!(settings.is_empty());
     assert!(steers.is_empty());
-    assert_eq!(serde_json::to_value(&event).unwrap(), old, "no settings or steers are written");
+    assert!(attachments.is_empty());
+    assert_eq!(
+        serde_json::to_value(&event).unwrap(),
+        old,
+        "no settings, steers or attachments are written"
+    );
 }
 
 #[test]
@@ -158,6 +166,7 @@ fn a_prompt_queued_event_keeps_the_settings_the_prompt_asked_for() {
         context: None,
         settings: settings.clone(),
         steers: Vec::new(),
+        attachments: Vec::new(),
     };
     let value = serde_json::to_value(&event).unwrap();
     assert_eq!(value["settings"], json!({ "mode": "auto", "model": "gpt-5.4", "effort": "high" }));
@@ -190,6 +199,7 @@ fn a_turn_started_event_records_the_settings_the_turn_runs_with() {
         cwd: "/etc".into(),
         scope: Scope::Machine,
         settings: Some(settings),
+        unread_attachments: Vec::new(),
     };
     let value = serde_json::to_value(&event).unwrap();
     assert_eq!(
@@ -876,6 +886,19 @@ fn a_tool_call_from_before_left_running_reads_as_one_that_ended() {
     let read: Event = serde_json::from_value(with.clone()).unwrap();
     assert!(matches!(read, Event::ToolCallCompleted { left_running: true, .. }));
     assert_eq!(serde_json::to_value(&read).unwrap(), with);
+}
+
+#[test]
+fn a_withheld_set_belongs_to_the_turn_that_recorded_it_or_to_none() {
+    let wire =
+        json!({ "kind": "attachments_withheld", "attachments": ["a1", "a4"], "reason": "budget" });
+    let event: Event = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(event.turn_id(), None);
+    assert_eq!(serde_json::to_value(&event).unwrap(), wire, "no turn stays off the wire");
+    let mut with = wire;
+    with["turn_id"] = json!(TURN);
+    let read: Event = serde_json::from_value(with).unwrap();
+    assert_eq!(read.turn_id(), Some(turn()));
 }
 
 #[test]

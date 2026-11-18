@@ -19,7 +19,12 @@ fn call(call_id: &str, name: &str, input: Value) -> ContentBlock {
 }
 
 fn result(call_id: &str, output: &str, is_error: bool) -> ContentBlock {
-    ContentBlock::ToolResult { call_id: call_id.to_owned(), output: output.to_owned(), is_error }
+    ContentBlock::ToolResult {
+        call_id: call_id.to_owned(),
+        output: output.to_owned(),
+        is_error,
+        attachments: Vec::new(),
+    }
 }
 
 /// A Claude turn: an `edit` call with its answer's provider items, and its result.

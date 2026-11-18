@@ -214,6 +214,7 @@ fn a_background_call_says_so_and_its_block_names_the_job() {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     };
     let (_, err, _) = feed(&mut view, &[started, job_started, completed], true);
     assert_eq!(
@@ -293,6 +294,7 @@ fn completed_without_code() -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 

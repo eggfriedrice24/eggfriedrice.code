@@ -348,6 +348,7 @@ fn ended(n: u8, exit_code: Option<i32>, output: &str) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -379,6 +380,7 @@ fn wrote(n: u8, changes: FileChanges, diff: Option<&str>) -> Event {
         changes: Some(changes),
         diff: diff.map(str::to_owned),
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -770,6 +772,7 @@ fn long_turn(depth: Depth, titled: bool) -> String {
             changes: None,
             diff: None,
             left_running: false,
+            attachments: Vec::new(),
         },
     );
     play.steer_read(340_300, "skip the update, the lock is fine");

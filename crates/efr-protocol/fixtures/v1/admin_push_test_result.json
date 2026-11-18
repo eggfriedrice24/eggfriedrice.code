@@ -1,0 +1,13 @@
+{
+  "devices": [
+    {
+      "name": "Anna's iPhone",
+      "result": "sent"
+    },
+    {
+      "name": "Anna's iPad",
+      "result": "not_sent",
+      "code": "DeviceNotRegistered"
+    }
+  ]
+}

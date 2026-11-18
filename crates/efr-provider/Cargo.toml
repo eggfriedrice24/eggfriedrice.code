@@ -14,6 +14,7 @@ doctest = false
 [dependencies]
 async-trait.workspace = true
 efr-protocol.workspace = true
+efr-stdx.workspace = true
 futures.workspace = true
 secrecy.workspace = true
 serde.workspace = true

@@ -6,7 +6,13 @@
     "admin": true,
     "screen_snapshots": true,
     "search": true,
-    "user_questions": true
+    "user_questions": true,
+    "attachments": {
+      "max_file_bytes": 20971520,
+      "max_per_message": 10,
+      "chunk_bytes": 524288,
+      "max_edge_px": 2000
+    }
   },
   "paths": {
     "scratch_root": "/home/me/.local/share/efr/scratch",

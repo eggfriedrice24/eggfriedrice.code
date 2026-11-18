@@ -151,6 +151,10 @@ pub struct Deps {
     /// state root (`EFR_RECORD_STREAMS`, `stream_record.rs`). Only
     /// [`Deps::from_process`] reads the variable; off otherwise.
     pub(crate) record_streams: bool,
+    /// The base URL of the Expo push service in place of `https://exp.host`
+    /// (`EFR_EXPO_PUSH_URL`), for a test's fake server. Only [`Deps::from_process`]
+    /// reads the variable; `None` otherwise.
+    pub(crate) expo_push_url: Option<String>,
 }
 
 impl fmt::Debug for Deps {
@@ -178,6 +182,7 @@ impl fmt::Debug for Deps {
             .field("procs", &self.procs)
             .field("search_hook", &self.search_hook)
             .field("record_streams", &self.record_streams)
+            .field("expo_push_url", &self.expo_push_url)
             .finish_non_exhaustive()
     }
 }
@@ -217,6 +222,7 @@ impl Deps {
             procs: None,
             search_hook: None,
             record_streams: false,
+            expo_push_url: None,
         }
     }
 
@@ -253,6 +259,17 @@ impl Deps {
                 false
             }
         };
+        // NOTE: read once at the start, as the stream recorder is.
+        deps.expo_push_url = match efr_stdx::env::var(Var::ExpoPushUrl) {
+            Ok(url) => url,
+            Err(error) => {
+                tracing::warn!(error = %error, "EFR_EXPO_PUSH_URL is not text; pushes go to exp.host");
+                None
+            }
+        };
+        if let Some(url) = &deps.expo_push_url {
+            tracing::warn!(url = %url, "EFR_EXPO_PUSH_URL is set: pushes go to this server, not to exp.host");
+        }
         Ok(deps
             .with_shell_env(shell_env)
             .with_root_sources(root_sources)
@@ -465,6 +482,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         procs,
         search_hook,
         record_streams,
+        expo_push_url,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -800,6 +818,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let conversation_deps = ConversationDeps {
         providers: routes,
         toolbox: Arc::new(toolbox),
+        attachments: crate::attachments::store(&dirs),
         engine: engine_receiver,
         scope: Arc::new(resolver),
         writer: writer.clone(),
@@ -871,7 +890,11 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         remote: Remote::new(&writer, remote_listen),
         pairings,
         deletes,
+        uploads: crate::attachments::uploads::Uploads::default(),
+        push: crate::push::Push::new(expo_push_url),
     });
+    // NOTE: before the socket opens, so no upload of this efrd is open yet.
+    state.uploads.sweep();
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
     crate::projects_file::refresh(state.engine_parts.registry.clone(), state.dirs.runtime()).await;

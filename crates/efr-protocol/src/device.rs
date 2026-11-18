@@ -188,6 +188,10 @@ pub struct DeviceInfo {
     /// When the device was revoked; absent while it may connect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<Timestamp>,
+    /// True when the device sent a push token (`device.push_set`), so efrd sends it
+    /// pushes. False when absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub push: bool,
 }
 
 /// Why a pairing ended without a device, the `reason` of the `ended` item of

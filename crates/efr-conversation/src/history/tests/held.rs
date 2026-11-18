@@ -147,7 +147,12 @@ async fn the_cache_changes_no_window_of_random_conversations() {
 fn a_cached_turn_gives_back_the_room_that_its_strings_do_not_use() {
     let mut output = String::with_capacity(64 * 1024);
     output.push_str(&"x".repeat(32 * 1024));
-    let result = ContentBlock::ToolResult { call_id: "call_1".to_owned(), output, is_error: false };
+    let result = ContentBlock::ToolResult {
+        call_id: "call_1".to_owned(),
+        output,
+        is_error: false,
+        attachments: Vec::new(),
+    };
     let mut content = Vec::with_capacity(8);
     content.push(result);
     let messages = vec![Message::new(Role::User, content)];

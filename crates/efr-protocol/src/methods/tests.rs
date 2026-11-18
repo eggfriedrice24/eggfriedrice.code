@@ -1,17 +1,19 @@
 use pretty_assertions::assert_eq;
+use rstest::rstest;
 use serde_json::json;
 
 use crate::{
     AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
     AdminStatusResult, ApprovedBy, Base64Bytes, BusyShell, CallBackgroundResult, CatalogOrigin,
     CatalogStatus, ConfigFileError, ConfigStatus, ConversationId, ConversationSearchResult,
-    ConversationSubscribe, ConversationSubscribeItem, ConversationsSearchResult, Draft, DraftPart,
-    EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, InputWait, JobId, LateSteer,
-    LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
-    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, QuestionReply,
-    RecentCommand, RootSource, SearchKind, SearchPartial, Seq, ShellContext, ShellStatusResult,
-    TextRange, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
-    WithdrawTarget,
+    ConversationSubscribe, ConversationSubscribeItem, ConversationsSearchResult, DevicePushSet,
+    Draft, DraftPart, EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, InputWait,
+    JobId, LateSteer, LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult,
+    OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw,
+    ProviderStatus, PushTestResult, QuestionReply, RecentCommand, RootSource, SearchKind,
+    SearchPartial, SecretText, Seq, ShellContext, ShellStatusResult, TextRange, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, UploadId, WithdrawTarget,
+    is_expo_push_token,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -763,4 +765,47 @@ fn a_search_result_with_only_its_rows_reads_and_writes_back_the_same() {
     assert_eq!(serde_json::to_value(&read).unwrap(), one);
     let range: TextRange = serde_json::from_value(json!({ "start": 3, "end": 9 })).unwrap();
     assert_eq!(range, TextRange { start: 3, end: 9 });
+}
+
+#[rstest]
+#[case::the_form_of_the_docs("ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]", true)]
+#[case::one_character("ExponentPushToken[a]", true)]
+#[case::the_longest_inside(&format!("ExponentPushToken[{}]", "x".repeat(128)), true)]
+#[case::no_prefix("xxxxxxxxxxxxxxxxxxxxxx", false)]
+#[case::no_closing_bracket("ExponentPushToken[xxxxxxxx", false)]
+#[case::an_empty_inside("ExponentPushToken[]", false)]
+#[case::one_character_too_many(&format!("ExponentPushToken[{}]", "x".repeat(129)), false)]
+#[case::a_blank("ExponentPushToken[xx xx]", false)]
+#[case::a_bracket_inside("ExponentPushToken[x]x]", false)]
+#[case::a_raw_apns_token(&"a1".repeat(32), false)]
+#[case::not_ascii("ExponentPushToken[é]", false)]
+fn a_push_token_must_have_the_form_of_expo(#[case] token: &str, #[case] want: bool) {
+    assert_eq!(is_expo_push_token(token), want, "{token}");
+}
+
+#[test]
+fn a_push_token_never_shows_in_debug_output_and_its_absence_turns_push_off() {
+    let set = DevicePushSet { token: Some(SecretText::new("ExponentPushToken[s3cr3t]")) };
+    assert!(!format!("{set:?}").contains("s3cr3t"));
+    assert_eq!(serde_json::to_value(DevicePushSet::default()).unwrap(), json!({}));
+}
+
+#[test]
+fn a_push_test_result_that_this_build_does_not_know_reads_as_unknown() {
+    let result: PushTestResult = serde_json::from_value(json!("queued")).unwrap();
+    assert_eq!(result, PushTestResult::Unknown);
+}
+
+#[test]
+fn a_prompt_with_uploads_names_them_and_a_prompt_without_writes_no_member() {
+    let upload: UploadId =
+        serde_json::from_value(json!("019a9b1c-3d00-7a10-8b20-00000000000a")).unwrap();
+    let wire = json!({ "command_id": COMMAND, "text": "what is this", "attachments": [upload] });
+    let prompt: PromptSend = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(prompt.attachments, [upload]);
+    assert_eq!(serde_json::to_value(&prompt).unwrap(), wire);
+    let old: PromptSend =
+        serde_json::from_value(json!({ "command_id": COMMAND, "text": "why" })).unwrap();
+    assert!(old.attachments.is_empty());
+    assert!(serde_json::to_value(&old).unwrap().get("attachments").is_none());
 }

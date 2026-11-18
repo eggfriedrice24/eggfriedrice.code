@@ -61,6 +61,7 @@ fn left_completed() -> Event {
         changes: None,
         diff: None,
         left_running: true,
+        attachments: Vec::new(),
     }
 }
 

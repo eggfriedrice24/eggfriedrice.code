@@ -96,6 +96,7 @@ fn result(call_id: &str, output: &str) -> ContentBlock {
         call_id: call_id.to_owned(),
         output: output.to_owned(),
         is_error: false,
+        attachments: Vec::new(),
     }
 }
 
@@ -501,6 +502,7 @@ fn a_rebuilt_answer_keeps_text_and_calls_and_drops_reasoning() {
                 call_id: "call_2".to_owned(),
                 output: String::new(),
                 is_error: true,
+                attachments: Vec::new(),
             },
         ]),
     ]);
@@ -685,24 +687,6 @@ fn empty_text_and_empty_messages_are_left_out() {
                 {"type": "text", "text": "Two.", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
             ]},
         ])
-    );
-}
-
-#[test]
-fn an_image_goes_as_base64() {
-    let image: ContentBlock = serde_json::from_value(
-        json!({"kind": "image", "media_type": "image/png", "data": "iVBORw0KGgo="}),
-    )
-    .unwrap();
-    let request = request(vec![user(vec![text("What is this?"), image])]);
-    let content = value(&body(&request))["messages"][0]["content"].clone();
-    assert_eq!(
-        content[1],
-        json!({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="},
-            "cache_control": {"type": "ephemeral", "ttl": "1h"},
-        })
     );
 }
 

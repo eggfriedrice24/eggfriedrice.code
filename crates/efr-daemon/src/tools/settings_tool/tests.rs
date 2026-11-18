@@ -593,6 +593,7 @@ mod daemon {
             last_command: None,
             recent_commands: Vec::new(),
             settings: TurnSettings { mode: Some(mode), ..TurnSettings::default() },
+            attachments: Vec::new(),
         }
     }
 

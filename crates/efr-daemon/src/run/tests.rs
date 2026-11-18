@@ -99,6 +99,7 @@ mod daemon {
             last_command: None,
             recent_commands: Vec::new(),
             settings: efr_protocol::TurnSettings::default(),
+            attachments: Vec::new(),
         }
     }
 

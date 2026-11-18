@@ -446,6 +446,26 @@
       ],
       "type": "object"
     },
+    "AdminPushTest": {
+      "description": "The params of `admin.push_test`, an admin method (Unix socket only). It takes none.",
+      "type": "object"
+    },
+    "AdminPushTestResult": {
+      "description": "The result of `admin.push_test`.",
+      "properties": {
+        "devices": {
+          "description": "One row for each device with a push token, the oldest first. Empty when no\npaired phone has push on.",
+          "items": {
+            "$ref": "#/$defs/PushTestRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices"
+      ],
+      "type": "object"
+    },
     "AdminSandboxCheck": {
       "description": "The params of `admin.sandbox_check`, an admin method (Unix socket only). It takes\nnone.",
       "type": "object"
@@ -795,6 +815,374 @@
           "type": "string"
         }
       ]
+    },
+    "Attachment": {
+      "description": "One attachment, as `prompt_queued` and `tool_call_completed` record it. Metadata only:\nno event holds the bytes.",
+      "properties": {
+        "bytes": {
+          "description": "The size of the file in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "copy": {
+          "description": "The copy of the file in `$SCRATCH/attachments`, an absolute path, with the bytes\nof the file as it was attached. Absent for an image that a tool read: that file is\non disk already.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/AttachmentId",
+          "description": "The id in its conversation."
+        },
+        "kind": {
+          "$ref": "#/$defs/AttachmentKind",
+          "description": "What kind of file it is."
+        },
+        "media_type": {
+          "description": "The type, such as `image/png`, from the first bytes of the file, never from a\nclient. `text/plain` for a text file, `application/octet-stream` for each other\nfile.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the file, such as `shot.png`: no `/`, no control character, at most\n[`NAME_MAX_BYTES`] bytes.",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/AttachmentOrigin",
+          "description": "Where it came from."
+        },
+        "sent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SentForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a model gets as content. Absent when the file goes to a model only as a label\nwith its path."
+        },
+        "sha256": {
+          "description": "The SHA-256 of the bytes of the file, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "media_type",
+        "bytes",
+        "sha256",
+        "kind",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "AttachmentDiscard": {
+      "description": "The params of `attachment.discard`, a unary method with the scope `operate`. efrd\nremoves the bytes of the upload. An unknown upload is no error.",
+      "properties": {
+        "upload_id": {
+          "$ref": "#/$defs/UploadId",
+          "description": "The upload."
+        }
+      },
+      "required": [
+        "upload_id"
+      ],
+      "type": "object"
+    },
+    "AttachmentDiscardResult": {
+      "description": "The result of `attachment.discard`.",
+      "type": "object"
+    },
+    "AttachmentId": {
+      "description": "The id of an attachment of one conversation, such as a3.",
+      "pattern": "^a[1-9][0-9]{0,8}$",
+      "type": "string"
+    },
+    "AttachmentKind": {
+      "description": "What kind of file an attachment is.\n\nOn the wire an object with a `kind` member: `{\"kind\": \"image\", \"width\": 1920,\n\"height\": 1080}`, `{\"kind\": \"pdf\", \"pages\": 12}`, `{\"kind\": \"text\"}` or\n`{\"kind\": \"other\"}`. A kind that this build does not know reads as `unknown`.",
+      "oneOf": [
+        {
+          "description": "A PNG, JPEG, GIF or WebP image.",
+          "properties": {
+            "height": {
+              "description": "The height in pixels.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "width": {
+              "description": "The width in pixels.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A PDF document.",
+          "properties": {
+            "kind": {
+              "const": "pdf",
+              "type": "string"
+            },
+            "pages": {
+              "description": "The count of pages. Absent when efrd could not count them.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A UTF-8 text file.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Each other file.",
+          "properties": {
+            "kind": {
+              "const": "other",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A kind that this build does not know.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AttachmentLimits": {
+      "description": "The limits of the attachments of this efrd, which the capability `attachments`\nannounces.",
+      "properties": {
+        "chunk_bytes": {
+          "description": "The most bytes of one chunk of `attachment.put`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_edge_px": {
+          "description": "The longest edge in pixels of an image that a model gets: efrd makes a larger\nPNG or JPEG smaller.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_file_bytes": {
+          "description": "The largest file of an attachment, in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_per_message": {
+          "description": "The most attachments of one prompt.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_file_bytes",
+        "max_per_message",
+        "chunk_bytes",
+        "max_edge_px"
+      ],
+      "type": "object"
+    },
+    "AttachmentOrigin": {
+      "description": "Where an attachment came from.\n\nOn the wire an object with a `kind` member: `{\"kind\": \"path\", \"path\": \"...\"}`,\n`{\"kind\": \"clipboard\"}`, `{\"kind\": \"phone\"}` or `{\"kind\": \"tool\", \"path\": \"...\"}`. An\norigin that this build does not know reads as `unknown`.",
+      "oneOf": [
+        {
+          "description": "An `@path` of a `,` line in the terminal.",
+          "properties": {
+            "kind": {
+              "const": "path",
+              "type": "string"
+            },
+            "path": {
+              "description": "The user's file, an absolute path.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A paste into a `,` line in the terminal.",
+          "properties": {
+            "kind": {
+              "const": "clipboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The plus button of the phone app.",
+          "properties": {
+            "kind": {
+              "const": "phone",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An image that the model read with `read_file`.",
+          "properties": {
+            "kind": {
+              "const": "tool",
+              "type": "string"
+            },
+            "path": {
+              "description": "The file that the tool read, an absolute path.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An origin that this build does not know.",
+          "properties": {
+            "kind": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AttachmentPut": {
+      "description": "The params of `attachment.put`, a unary method with the scope `operate`. efrd\nannounces it with the capability `attachments`.\n\nefrd writes a chunk only when `offset` equals the bytes that it has of the upload.\nIn each other case it writes nothing and answers with what it has, with no error, so\na repeated chunk, a lost answer and a resume after a lost link are one case: the\nclient goes on at `received`. A put with empty `data` asks for `received`.\n\nefrd answers `invalid` for a bad name, a name over\n[`NAME_MAX_BYTES`](crate::NAME_MAX_BYTES), `data` over the chunk limit, `total_bytes`\nover the file limit, a type that efrd refuses, an origin that the listener does not\nallow, a path of the secret class and an upload over\n[`MAX_OPEN_UPLOADS`](crate::MAX_OPEN_UPLOADS) of one owner; `forbidden` for the\nupload of another owner.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Base64Bytes",
+          "description": "The bytes from `offset` on, at most [`CHUNK_BYTES`](crate::CHUNK_BYTES)."
+        },
+        "name": {
+          "description": "The name of the file, cut with [`fit_name`](crate::fit_name).",
+          "type": "string"
+        },
+        "offset": {
+          "description": "Where `data` starts in the file.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttachmentOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from. On the Unix socket it must be `path` or `clipboard`. On\nthe tailnet listener it must be absent, and efrd sets `phone`."
+        },
+        "total_bytes": {
+          "description": "The size of the whole file in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upload_id": {
+          "$ref": "#/$defs/UploadId",
+          "description": "The upload, a UUID that the client makes."
+        }
+      },
+      "required": [
+        "upload_id",
+        "name",
+        "total_bytes",
+        "offset",
+        "data"
+      ],
+      "type": "object"
+    },
+    "AttachmentPutResult": {
+      "description": "The result of `attachment.put`.",
+      "properties": {
+        "received": {
+          "description": "The bytes that efrd has of the upload. The next chunk starts here.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UploadInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the file is, after its last chunk. Absent while bytes are missing."
+        }
+      },
+      "required": [
+        "received"
+      ],
+      "type": "object"
     },
     "Attention": {
       "description": "Who can act on a conversation, next to its [`ConversationStatus`].\n\nIt is a member of its own, not a value of `status`: a released client reads\n`status` with a closed set of values, so a new value there would fail its whole\nlist. A value that this build does not know reads as `unknown`, which a client\nreads as no attention.",
@@ -1230,6 +1618,17 @@
             "null"
           ]
         },
+        "attachments": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttachmentLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The daemon takes attachments: `attachment.put`, `attachment.discard` and the\nuploads of `prompt.send`, within these limits. Only the daemon sends it. Absent:\na daemon from before attachments, or one with `attachments.enabled = false`, and\na client sends no file."
+        },
         "conversations_watch": {
           "description": "The daemon answers `conversations.watch`, so a client can follow the lists of\nthe machine instead of asking `conversations.recent` again and again. Absent: a\ndaemon from before the watch.",
           "type": [
@@ -1246,6 +1645,13 @@
         },
         "drafts_coalesced": {
           "description": "The daemon merges the drafts of each part that a slow subscriber could not take\nyet, and sends the merged draft when the subscriber has room, so a client gets\nfewer drafts on a slow link but no gaps. Absent: a draft can be lost.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "push": {
+          "description": "The daemon takes the push token of this device (`device.push_set`) and sends\npushes. Only the daemon sends it, on the tailnet listener. Absent: a daemon from\nbefore push, or one with `presence.push = false`.",
           "type": [
             "boolean",
             "null"
@@ -2019,6 +2425,11 @@
         {
           "const": "pruned",
           "description": "The tool outputs that a compaction replaced with a short stub.",
+          "type": "string"
+        },
+        {
+          "const": "attachments",
+          "description": "The files of the prompts and the images of the tool calls, as the model gets\nthem: as content, or as a label with the path.",
           "type": "string"
         },
         {
@@ -3489,6 +3900,10 @@
           "description": "The stable id of the Tailscale node that the device enrolled from. A connection\nfrom another node does not prove this device.",
           "type": "string"
         },
+        "push": {
+          "description": "True when the device sent a push token (`device.push_set`), so efrd sends it\npushes. False when absent.",
+          "type": "boolean"
+        },
         "revoked_at": {
           "description": "When the device was revoked; absent while it may connect.",
           "format": "date-time",
@@ -3740,6 +4155,27 @@
       "required": [
         "scopes"
       ],
+      "type": "object"
+    },
+    "DevicePushSet": {
+      "description": "The params of `device.push_set`, a remote method with the scope `read` that runs only\nafter the proof. It acts on the device of the proof. efrd announces it with the\ncapability `push`.\n\nefrd answers `invalid` for a token that is not an Expo push token\n([`is_expo_push_token`]). The Unix socket refuses the method.",
+      "properties": {
+        "token": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Expo push token of the app, `ExponentPushToken[...]`. Absent turns push off\nfor the device. Expo knows the bundle id and the APNs environment of a token, so\nthe app sends neither."
+        }
+      },
+      "type": "object"
+    },
+    "DevicePushSetResult": {
+      "description": "The result of `device.push_set`.",
       "type": "object"
     },
     "DeviceRevoke": {
@@ -4089,7 +4525,7 @@
           "description": "What went wrong."
         },
         "data": {
-          "description": "Structured details. [`ErrorCode::Overflow`] carries `{\"last_seq\": n}` and\n[`ErrorCode::ProtocolMismatch`] carries `{\"daemon\": n, \"client\": m}`."
+          "description": "Structured details. [`ErrorCode::Overflow`] carries `{\"last_seq\": n}`,\n[`ErrorCode::ProtocolMismatch`] carries `{\"daemon\": n, \"client\": m}`, and the\n[`ErrorCode::NotFound`] of a `prompt.send` whose uploads are missing carries\n[`MissingUploads`](crate::MissingUploads)."
         },
         "message": {
           "description": "One sentence for a person. Clients show it; they never parse it.",
@@ -4259,6 +4695,13 @@
         {
           "description": "A prompt was accepted and waits for its turn. Prompts sent while a turn runs queue\nbehind it.",
           "properties": {
+            "attachments": {
+              "description": "The files that go with the prompt, in their order: metadata only, never\nthe bytes. Absent means none.",
+              "items": {
+                "$ref": "#/$defs/Attachment"
+              },
+              "type": "array"
+            },
             "command_id": {
               "$ref": "#/$defs/CommandId",
               "description": "The client's id for the `prompt.send` that carried it."
@@ -4381,6 +4824,13 @@
             "turn_id": {
               "$ref": "#/$defs/TurnId",
               "description": "The turn."
+            },
+            "unread_attachments": {
+              "description": "The attachments of the turn's prompt that its model gets only as a label\nwith their path, not as content, such as an image for a model that reads\nno images. A fact of this turn: another model can read them in a later\nturn. Absent means none.",
+              "items": {
+                "$ref": "#/$defs/AttachmentId"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -4635,6 +5085,13 @@
         {
           "description": "A tool call finished.",
           "properties": {
+            "attachments": {
+              "description": "The images that the call gave the model, such as the image file that\n`read_file` read: metadata only, never the bytes. Absent means none.",
+              "items": {
+                "$ref": "#/$defs/Attachment"
+              },
+              "type": "array"
+            },
             "call_id": {
               "$ref": "#/$defs/CallId",
               "description": "The call."
@@ -6715,6 +7172,43 @@
             "kind",
             "call_id",
             "how"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "From this event on, each request of the conversation sends these attachments\nonly as a label with their path, for every model, and the history rebuild does\nthe same. Recorded before the model call that needs it: for the budget of a\nrequest, or after a provider refused a request that held them. Attach a file\nagain for a new try.",
+          "properties": {
+            "attachments": {
+              "description": "The attachments, in the order of the conversation.",
+              "items": {
+                "$ref": "#/$defs/AttachmentId"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "attachments_withheld",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/WithheldReason",
+              "description": "Why."
+            },
+            "turn_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TurnId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The turn that recorded it. Absent when no turn did."
+            }
+          },
+          "required": [
+            "kind",
+            "attachments",
+            "reason"
           ],
           "type": "object"
         },
@@ -9349,6 +9843,74 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "description": "`attachment.put`: upload one chunk of a file that a prompt will name.",
+          "properties": {
+            "method": {
+              "const": "attachment.put",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/AttachmentPut"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`attachment.discard`: drop an upload that no prompt will name.",
+          "properties": {
+            "method": {
+              "const": "attachment.discard",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/AttachmentDiscard"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`device.push_set`: set or remove the push token of the device of the proof\n(tailnet listener only).",
+          "properties": {
+            "method": {
+              "const": "device.push_set",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/DevicePushSet"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`admin.push_test`: send a test notice to each phone with push on (Unix socket\nonly).",
+          "properties": {
+            "method": {
+              "const": "admin.push_test",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/$defs/AdminPushTest"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -9405,7 +9967,11 @@
         "conversations.watch",
         "provider.warm",
         "conversation.switch_preview",
-        "question.respond"
+        "question.respond",
+        "attachment.put",
+        "attachment.discard",
+        "device.push_set",
+        "admin.push_test"
       ],
       "type": "string"
     },
@@ -9431,6 +9997,9 @@
         "admin.project_remove": {
           "$ref": "#/$defs/AdminProjectRemove"
         },
+        "admin.push_test": {
+          "$ref": "#/$defs/AdminPushTest"
+        },
         "admin.sandbox_check": {
           "$ref": "#/$defs/AdminSandboxCheck"
         },
@@ -9439,6 +10008,12 @@
         },
         "approval.respond": {
           "$ref": "#/$defs/ApprovalRespond"
+        },
+        "attachment.discard": {
+          "$ref": "#/$defs/AttachmentDiscard"
+        },
+        "attachment.put": {
+          "$ref": "#/$defs/AttachmentPut"
         },
         "call.background": {
           "$ref": "#/$defs/CallBackground"
@@ -9496,6 +10071,9 @@
         },
         "device.prove": {
           "$ref": "#/$defs/DeviceProve"
+        },
+        "device.push_set": {
+          "$ref": "#/$defs/DevicePushSet"
         },
         "device.revoke": {
           "$ref": "#/$defs/DeviceRevoke"
@@ -9618,7 +10196,11 @@
         "conversations.watch",
         "provider.warm",
         "conversation.switch_preview",
-        "question.respond"
+        "question.respond",
+        "attachment.put",
+        "attachment.discard",
+        "device.push_set",
+        "admin.push_test"
       ],
       "type": "object"
     },
@@ -9644,6 +10226,9 @@
         "admin.project_remove": {
           "$ref": "#/$defs/AdminProjectRemoveResult"
         },
+        "admin.push_test": {
+          "$ref": "#/$defs/AdminPushTestResult"
+        },
         "admin.sandbox_check": {
           "$ref": "#/$defs/AdminSandboxCheckResult"
         },
@@ -9652,6 +10237,12 @@
         },
         "approval.respond": {
           "$ref": "#/$defs/ApprovalRespondResult"
+        },
+        "attachment.discard": {
+          "$ref": "#/$defs/AttachmentDiscardResult"
+        },
+        "attachment.put": {
+          "$ref": "#/$defs/AttachmentPutResult"
         },
         "call.background": {
           "$ref": "#/$defs/CallBackgroundResult"
@@ -9709,6 +10300,9 @@
         },
         "device.prove": {
           "$ref": "#/$defs/DeviceProveResult"
+        },
+        "device.push_set": {
+          "$ref": "#/$defs/DevicePushSetResult"
         },
         "device.revoke": {
           "$ref": "#/$defs/DeviceRevokeResult"
@@ -9831,7 +10425,11 @@
         "conversations.watch",
         "provider.warm",
         "conversation.switch_preview",
-        "question.respond"
+        "question.respond",
+        "attachment.put",
+        "attachment.discard",
+        "device.push_set",
+        "admin.push_test"
       ],
       "type": "object"
     },
@@ -10609,6 +11207,13 @@
     "PromptSend": {
       "description": "The params of `prompt.send`.\n\nWithout `conversation_id`, the prompt goes to the active conversation of the\ncontext's tty, and a new conversation starts when the tty has none. A prompt sent\nwhile a turn runs queues behind it.\n\n`Debug` leaves out `last_command` and `recent_commands`, because a command line can\nhold a secret and requests are logged.",
       "properties": {
+        "attachments": {
+          "description": "The finished uploads (`attachment.put`) that go with the prompt, in their order.\nThe text must still hold text. A client sends them only when `hello` gave the\ncapability `attachments`: an older daemon drops the member with no error. When\none is not a finished upload of this connection or device, efrd answers\n`not_found` with `data.missing_uploads`, records no receipt, and the client\nuploads those files again and sends again with the same command id. Absent\nmeans none.",
+          "items": {
+            "$ref": "#/$defs/UploadId"
+          },
+          "type": "array"
+        },
         "command_id": {
           "$ref": "#/$defs/CommandId",
           "description": "Makes the send idempotent: a retry with the same id returns the first result."
@@ -11071,6 +11676,56 @@
     },
     "PtyWriteResult": {
       "description": "The result of `pty.write`: the bytes were queued for the PTY.",
+      "type": "object"
+    },
+    "PushTestResult": {
+      "description": "What became of a test notice.",
+      "oneOf": [
+        {
+          "const": "sent",
+          "description": "Apple took the notice: its receipt is `ok`.",
+          "type": "string"
+        },
+        {
+          "const": "no_receipt",
+          "description": "The Expo push service took the notice, and no receipt came in time.",
+          "type": "string"
+        },
+        {
+          "const": "not_sent",
+          "description": "The notice did not go out; `code` says why.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A result that this build does not know.",
+          "type": "string"
+        }
+      ]
+    },
+    "PushTestRow": {
+      "description": "What became of the test notice of one device.",
+      "properties": {
+        "code": {
+          "description": "The code of the Expo push service for a notice that was `not_sent`, such as\n`DeviceNotRegistered`. Absent when the service gave no answer.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The name of the device, such as `Anna's iPhone`.",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/PushTestResult",
+          "description": "What became of the notice."
+        }
+      },
+      "required": [
+        "name",
+        "result"
+      ],
       "type": "object"
     },
     "QuestionId": {
@@ -12413,6 +13068,44 @@
       "description": "Text that a user typed and that can be a secret, such as a password typed for `sudo`.\n\nOn the wire it is a plain JSON string. `Debug` prints a placeholder and never the\ntext, because requests are logged. The value's own buffer is overwritten with zeros\nwhen it is dropped, and so is each clone's, which is a buffer of its own. Copies made\noutside the value are not: [`SecretText::new`] copies text given as a `&str` (a\n`String` moves in), serde_json unescapes a string that holds an escape (a quote, a\nbackslash, `\\u`) in a scratch buffer that it frees without zeroing, and the encoded\nframes are the business of both sides of `efr-transport`, whose README says which\nof their buffers they zero. The one place that must use the text reads it with\n[`SecretText::expose_secret`].",
       "type": "string"
     },
+    "SentForm": {
+      "description": "What a model gets of an attachment as content: the prepared image, or the PDF.",
+      "properties": {
+        "bytes": {
+          "description": "The count of those bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "height": {
+          "description": "The height in pixels, for an image.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "media_type": {
+          "description": "The type of the bytes that the model gets, such as `image/jpeg` for a PNG with no\nalpha that efrd made smaller.",
+          "type": "string"
+        },
+        "width": {
+          "description": "The width in pixels, for an image.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "media_type",
+        "bytes"
+      ],
+      "type": "object"
+    },
     "Seq": {
       "description": "A position in an ordered stream: the global sequence number of the event log, or the\nbyte offset in a PTY recording.\n\nEvent sequence numbers start at 1 and only grow, so a client resumes a subscription\nfrom the largest one it has seen.",
       "format": "uint64",
@@ -13649,6 +14342,52 @@
       ],
       "type": "object"
     },
+    "UploadId": {
+      "description": "One upload of `attachment.put`. The client makes it, as a [`CommandId`](crate::CommandId),\nand names it in `prompt.send` when the upload is complete.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "UploadInfo": {
+      "description": "A finished upload, before a prompt takes it: what efrd found in its bytes.",
+      "properties": {
+        "bytes": {
+          "description": "The size of the file in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/AttachmentKind",
+          "description": "What kind of file it is."
+        },
+        "media_type": {
+          "description": "The type, from the first bytes of the file.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the file.",
+          "type": "string"
+        },
+        "sent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SentForm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a model gets as content. Absent when the file goes as a label with its path."
+        }
+      },
+      "required": [
+        "name",
+        "media_type",
+        "kind",
+        "bytes"
+      ],
+      "type": "object"
+    },
     "Usage": {
       "description": "Tokens that a turn used, as the provider reported them.\n\n`input_tokens`, `output_tokens`, `cached_input_tokens`, `reasoning_tokens`,\n`cache_write_tokens` and `cache_write_1h_tokens` are sums over the model calls of the\nturn. `context_tokens` is not a sum: it is the size of the context at the last call.\nThe cache counts are parts of `input_tokens` for every provider, so\n`cached_input_tokens / input_tokens` is the part of the input that the cache served.",
       "properties": {
@@ -14029,6 +14768,26 @@
         "text"
       ],
       "type": "object"
+    },
+    "WithheldReason": {
+      "description": "Why efrd sends attachments as labels with their paths from now on\n(`attachments_withheld`).",
+      "oneOf": [
+        {
+          "const": "budget",
+          "description": "A request had too many images, too many bytes or too many tokens of attachments.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "The provider refused a request that held the attachments.",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "A reason that this build does not know.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",

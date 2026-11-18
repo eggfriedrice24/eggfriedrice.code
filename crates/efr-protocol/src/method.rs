@@ -5,15 +5,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
-    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
-    ConversationCompact, ConversationContext, ConversationDelete, ConversationDiff,
-    ConversationHistory, ConversationResume, ConversationSearch, ConversationSubscribe,
-    ConversationSwitchPreview, ConversationsList, ConversationsRecent, ConversationsSearch,
-    ConversationsWatch, DeviceEnroll, DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve,
-    DeviceRevoke, Hello, InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet,
-    ProjectsList, PromptSend, PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite,
-    QuestionRespond, SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus,
-    TurnInterrupt, TurnSteer, TurnUndo,
+    AdminProjectRemove, AdminPushTest, AdminSandboxCheck, AdminStatus, ApprovalRespond,
+    AttachmentDiscard, AttachmentPut, CallBackground, CommandId, ConversationCompact,
+    ConversationContext, ConversationDelete, ConversationDiff, ConversationHistory,
+    ConversationResume, ConversationSearch, ConversationSubscribe, ConversationSwitchPreview,
+    ConversationsList, ConversationsRecent, ConversationsSearch, ConversationsWatch, DeviceEnroll,
+    DeviceList, DevicePairConfirm, DevicePairStart, DeviceProve, DevicePushSet, DeviceRevoke,
+    Hello, InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList,
+    PromptSend, PromptWithdraw, ProviderWarm, PtyAttach, PtyResize, PtyWrite, QuestionRespond,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt,
+    TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -193,6 +194,20 @@ pub enum Method {
     /// `question.respond`: answer the model's question.
     #[serde(rename = "question.respond")]
     QuestionRespond(QuestionRespond),
+    /// `attachment.put`: upload one chunk of a file that a prompt will name.
+    #[serde(rename = "attachment.put")]
+    AttachmentPut(AttachmentPut),
+    /// `attachment.discard`: drop an upload that no prompt will name.
+    #[serde(rename = "attachment.discard")]
+    AttachmentDiscard(AttachmentDiscard),
+    /// `device.push_set`: set or remove the push token of the device of the proof
+    /// (tailnet listener only).
+    #[serde(rename = "device.push_set")]
+    DevicePushSet(DevicePushSet),
+    /// `admin.push_test`: send a test notice to each phone with push on (Unix socket
+    /// only).
+    #[serde(rename = "admin.push_test")]
+    AdminPushTest(AdminPushTest),
 }
 
 impl Method {
@@ -251,6 +266,10 @@ impl Method {
             Method::ProviderWarm(_) => "provider.warm",
             Method::ConversationSwitchPreview(_) => "conversation.switch_preview",
             Method::QuestionRespond(_) => "question.respond",
+            Method::AttachmentPut(_) => "attachment.put",
+            Method::AttachmentDiscard(_) => "attachment.discard",
+            Method::DevicePushSet(_) => "device.push_set",
+            Method::AdminPushTest(_) => "admin.push_test",
         }
     }
 
@@ -309,7 +328,13 @@ impl Method {
             | Method::DeviceRevoke(_)
             | Method::ConversationsWatch(_)
             | Method::ProviderWarm(_)
-            | Method::ConversationSwitchPreview(_) => None,
+            | Method::ConversationSwitchPreview(_)
+            | Method::AdminPushTest(_)
+            // NOTE: a repeat of a put, a discard or a push token writes what efrd has
+            // already, so they need no receipt.
+            | Method::AttachmentPut(_)
+            | Method::AttachmentDiscard(_)
+            | Method::DevicePushSet(_) => None,
         }
     }
 
@@ -367,7 +392,11 @@ impl Method {
             | Method::DeviceRevoke(_)
             | Method::ProviderWarm(_)
             | Method::ConversationSwitchPreview(_)
-            | Method::QuestionRespond(_) => false,
+            | Method::QuestionRespond(_)
+            | Method::AttachmentPut(_)
+            | Method::AttachmentDiscard(_)
+            | Method::DevicePushSet(_)
+            | Method::AdminPushTest(_) => false,
         }
     }
 }
@@ -385,6 +414,8 @@ impl ScopeName {
     /// `device.enroll` and `device.prove` need only `read`, because a remote connection
     /// calls them before it holds any other scope; the daemon refuses them on the Unix
     /// socket. The pairing, the list and the revoke of devices need `admin`.
+    /// `device.push_set` needs only `read`: it changes only what the device of the
+    /// proof gets. An upload needs `operate`, as the prompt that names it does.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
@@ -404,6 +435,7 @@ impl ScopeName {
             | Method::ConversationSearch(_)
             | Method::DeviceEnroll(_)
             | Method::DeviceProve(_)
+            | Method::DevicePushSet(_)
             | Method::ConversationsWatch(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
@@ -420,7 +452,9 @@ impl ScopeName {
             | Method::ConversationSwitchPreview(_)
             // NOTE: an answer to the model's question is information for the model, not
             // a permission, so it needs the scope of a steer, not `approve`.
-            | Method::QuestionRespond(_) => ScopeName::Operate,
+            | Method::QuestionRespond(_)
+            | Method::AttachmentPut(_)
+            | Method::AttachmentDiscard(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.
@@ -447,7 +481,8 @@ impl ScopeName {
             | Method::DevicePairStart(_)
             | Method::DevicePairConfirm(_)
             | Method::DeviceList(_)
-            | Method::DeviceRevoke(_) => ScopeName::Admin,
+            | Method::DeviceRevoke(_)
+            | Method::AdminPushTest(_) => ScopeName::Admin,
         }
     }
 }

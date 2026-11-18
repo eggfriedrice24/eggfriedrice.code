@@ -123,4 +123,8 @@ pub(crate) struct State {
     pub(crate) pairings: Pairings,
     /// The deletes of conversations whose end runs after their answer (`deletes.rs`).
     pub(crate) deletes: crate::deletes::Queue,
+    /// The open uploads of `attachment.put` (`attachments/uploads.rs`).
+    pub(crate) uploads: crate::attachments::uploads::Uploads,
+    /// The pushes to the paired phones (`push.rs`).
+    pub(crate) push: crate::push::Push,
 }

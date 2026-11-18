@@ -30,5 +30,6 @@ fn info(device: Device) -> DeviceInfo {
         created_at: device.created_at,
         last_seen_at: device.last_seen_at,
         revoked_at: device.revoked_at,
+        push: false,
     }
 }

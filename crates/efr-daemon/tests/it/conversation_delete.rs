@@ -384,6 +384,7 @@ async fn a_delete_that_stopped_after_its_tombstone_ends_at_the_next_start() {
             context: place.context,
             settings: Default::default(),
             steers: Vec::new(),
+            attachments: Vec::new(),
         };
         let mut batch = Batch::new()
             .event(

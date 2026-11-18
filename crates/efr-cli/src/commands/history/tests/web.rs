@@ -83,6 +83,7 @@ fn page(steps: Vec<(f64, Event)>, sources: Vec<WebSource>) -> ConversationHistor
                 context: None,
                 settings: TurnSettings::default(),
                 steers: Vec::new(),
+                attachments: Vec::new(),
             },
         ),
         (
@@ -101,6 +102,7 @@ fn page(steps: Vec<(f64, Event)>, sources: Vec<WebSource>) -> ConversationHistor
                     fallback: None,
                     default_effort: None,
                 }),
+                unread_attachments: Vec::new(),
             },
         ),
     ];

@@ -20,5 +20,8 @@
       "asked": "auto",
       "reason": "Landlock ABI 6 found; auto needs 9 (Linux 7.1)"
     }
-  }
+  },
+  "unread_attachments": [
+    "a2"
+  ]
 }

@@ -53,6 +53,7 @@ fn result(id: &str, bytes: usize) -> Message {
             call_id: id.to_owned(),
             output: "x".repeat(bytes),
             is_error: false,
+            attachments: Vec::new(),
         }],
     )
 }
@@ -377,6 +378,7 @@ fn the_count_of_a_window_without_a_copy_is_the_length_of_its_request() {
                 call_id: "c3".to_owned(),
                 output: "in the same message".to_owned(),
                 is_error: true,
+                attachments: Vec::new(),
             },
         ],
     );

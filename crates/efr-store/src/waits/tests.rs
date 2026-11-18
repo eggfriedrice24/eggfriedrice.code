@@ -23,6 +23,7 @@ fn completed(call: u64) -> Event {
         changes: None,
         diff: None,
         left_running: false,
+        attachments: Vec::new(),
     }
 }
 
